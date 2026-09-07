@@ -359,6 +359,22 @@ func (s *SQLiteStore) TransitionRun(ctx context.Context, run domain.Run, expecte
 	if err := event.Validate(); err != nil {
 		return err
 	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := transitionRunTx(ctx, tx, run, expected, event, "run_service"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func transitionRunTx(ctx context.Context, tx *sql.Tx, run domain.Run,
+	expected domain.RunStatus, event events.Event, source string,
+) error {
+	before := run
+	before.Status = expected
 	configJSON, err := marshalRedactedJSON(run.Config)
 	if err != nil {
 		return err
@@ -367,11 +383,6 @@ func (s *SQLiteStore) TransitionRun(ctx context.Context, run domain.Run, expecte
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
 	if run.Status == domain.RunCompleted {
 		if err := requireNoPendingOperatorSteeringTx(ctx, tx, run.ID); err != nil {
 			return err
@@ -392,7 +403,7 @@ func (s *SQLiteStore) TransitionRun(ctx context.Context, run domain.Run, expecte
 		return fmt.Errorf("run %s status changed concurrently or was not found", run.ID)
 	}
 	if run.Status == domain.RunFailed || run.Status == domain.RunCancelled {
-		if _, err := cancelOperatorSteeringTx(ctx, tx, before, "run_service",
+		if _, err := cancelOperatorSteeringTx(ctx, tx, before, source,
 			string(run.Status), run.UpdatedAt); err != nil {
 			return err
 		}
@@ -419,7 +430,7 @@ func (s *SQLiteStore) TransitionRun(ctx context.Context, run domain.Run, expecte
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *SQLiteStore) ListRunEvents(ctx context.Context, runID string) ([]events.Event, error) {

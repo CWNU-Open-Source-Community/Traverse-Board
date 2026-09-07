@@ -4,6 +4,17 @@ Status: accepted
 
 Date: 2026-08-01
 
+Amendment: the Debug-only eligibility in this original decision is superseded by
+[ADR 0106](0106-full-cdp-debug-channel.md) and schemas v141-v142. Full CDP is now
+a user-controllable sub-permission of Full Access and is inherited by Debug.
+Entering Full Access or Debug defaults it on; either tier may turn it off; enabling
+it again requires exact high-risk confirmation; every lower tier forces it off.
+The stored switch still grants no browser-start or transport authority and applies
+only to a Traverse-managed isolated built-in browser, never the Wails WebView or
+system Chrome. The authorization/session core exists, but no production Desktop,
+HTTP, CLI, or Supervisor launch caller exists yet. The decision text below is kept
+as the historical schema-v91 record.
+
 ## Context
 
 Prayu already separates a Run's execution interaction, execution environment,

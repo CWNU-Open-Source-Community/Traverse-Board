@@ -69,6 +69,34 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil || !found {
 		t.Fatalf("root agent found=%t err=%v", found, err)
 	}
+	specialistStarted := time.Now().UTC()
+	child, replayed, err := st.AdmitSpecialist(ctx, domain.SpecialistAdmission{
+		AgentID:   "agent-command-runtime-specialist",
+		SessionID: "session-command-runtime-specialist", RunID: startedRun.ID,
+		ParentAgentID: root.ID, Title: "command actor conflict",
+		Skills: []string{"model.chat"}, TurnLimit: 1, TokenLimit: 64,
+		MaxChildren: 2, CreatedAt: specialistStarted},
+		"command-runtime-agent-admission-0001")
+	if err != nil || replayed {
+		t.Fatalf("admit conflicting actor replayed=%t err=%v", replayed, err)
+	}
+	childAttempt, replayed, err := st.BeginSpecialistAttempt(ctx,
+		domain.AgentAttemptStart{AttemptID: "attempt-command-runtime-specialist",
+			RunID: startedRun.ID, AgentID: child.ID, ParentAgentID: root.ID,
+			Lease: lease, StartedAt: specialistStarted}, "command-runtime-agent-attempt-0001")
+	if err != nil || replayed {
+		t.Fatalf("begin conflicting actor attempt replayed=%t err=%v", replayed, err)
+	}
+	if _, err := st.BeginSupervisorTurn(ctx, lease, "bind Command Runtime actor"); err != nil {
+		t.Fatal(err)
+	}
+	root, found, err = st.GetRootAgent(ctx, startedRun.ID)
+	if err != nil || !found {
+		t.Fatalf("active root agent found=%t err=%v", found, err)
+	}
+	if root.ActiveAttemptID == "" {
+		t.Fatal("started root Agent has no active attempt for command attribution")
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -117,17 +145,37 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 		State:               runner.CommandRuntimeJobPrepared, OutputFramesJSON: "[]",
 		StdinClosed: true, Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
-	prepared, replayed, err := st.PrepareCommandRuntimeJob(ctx, job)
+	rootAttribution := domain.AgentAttribution{AgentID: root.ID,
+		AgentAttemptID: root.ActiveAttemptID, Source: domain.AgentAttributionRecorded}
+	prepared, replayed, err := st.PrepareCommandRuntimeJobForAgent(ctx, job,
+		rootAttribution)
 	if err != nil || replayed || prepared.ID != job.ID {
 		t.Fatalf("prepare=%#v replayed=%t err=%v", prepared, replayed, err)
 	}
-	replay, replayed, err := st.PrepareCommandRuntimeJob(ctx, job)
+	threadRecord, err := st.GetThreadByRun(ctx, job.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedAttribution, err := st.GetThreadCommandRuntimeJobAgentAttribution(ctx,
+		threadRecord.ID, job.ID)
+	if err != nil || storedAttribution != rootAttribution {
+		t.Fatalf("stored Command Agent attribution=%#v err=%v",
+			storedAttribution, err)
+	}
+	replay, replayed, err := st.PrepareCommandRuntimeJobForAgent(ctx, job,
+		rootAttribution)
 	if err != nil || !replayed || replay.ID != job.ID {
 		t.Fatalf("replay=%#v replayed=%t err=%v", replay, replayed, err)
 	}
+	if _, _, err := st.PrepareCommandRuntimeJobForAgent(ctx, job,
+		(domain.AgentAttribution{AgentID: child.ID, AgentAttemptID: childAttempt.ID,
+			Source: domain.AgentAttributionRecorded})); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("conflicting Command Agent replay error=%v", err)
+	}
 	reused := job
 	reused.RequestFingerprint = testCommandRuntimeDigest("different-request")
-	if _, _, err := st.PrepareCommandRuntimeJob(ctx, reused); apperror.CodeOf(err) != apperror.CodeConflict {
+	if _, _, err := st.PrepareCommandRuntimeJobForAgent(ctx, reused,
+		rootAttribution); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("operation-key reuse error=%v", err)
 	}
 	stale := job
@@ -135,7 +183,8 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	stale.OperationDigest = testCommandRuntimeDigest("operation-stale")
 	stale.RequestFingerprint = testCommandRuntimeDigest("request-stale")
 	stale.LeaseGeneration++
-	if _, _, err := st.PrepareCommandRuntimeJob(ctx, stale); apperror.CodeOf(err) != apperror.CodeConflict {
+	if _, _, err := st.PrepareCommandRuntimeJobForAgent(ctx, stale,
+		rootAttribution); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("stale generation error=%v", err)
 	}
 	startedAt := now.Add(time.Millisecond)
@@ -200,6 +249,55 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 		runner.CommandRuntimeListFilter{RunID: startedRun.ID, Limit: 10})
 	if err != nil || len(jobs) != 1 || jobs[0].Stdout != "ok\n" || !jobs[0].TreeReaped {
 		t.Fatalf("jobs=%#v err=%v", jobs, err)
+	}
+	operatorJob := job
+	operatorJob.ID = "command-job-ledger-operator"
+	operatorJob.OperationDigest = testCommandRuntimeDigest("operation-operator")
+	operatorJob.RequestFingerprint = testCommandRuntimeDigest("request-operator")
+	operatorLease := acquireTestRunExecutionLease(t, ctx, st, startedRun.ID)
+	operatorJob.LeaseID = operatorLease.LeaseID
+	operatorJob.LeaseGeneration = operatorLease.Generation
+	operatorJob.LeaseOwnerID = operatorLease.OwnerID
+	operatorAttribution := domain.AgentAttribution{AgentID: root.ID,
+		Source: domain.AgentAttributionOperatorRoot}
+	if preparedOperator, replayed, err := st.PrepareCommandRuntimeJobForAgent(ctx,
+		operatorJob, operatorAttribution); err != nil || replayed ||
+		preparedOperator.ID != operatorJob.ID {
+		t.Fatalf("prepare operator-root=%#v replayed=%t err=%v",
+			preparedOperator, replayed, err)
+	}
+	storedOperator, err := st.GetThreadCommandRuntimeJobAgentAttribution(ctx,
+		threadRecord.ID, operatorJob.ID)
+	if err != nil || storedOperator != operatorAttribution ||
+		storedOperator.AgentAttemptID != "" {
+		t.Fatalf("stored operator-root attribution=%#v err=%v", storedOperator, err)
+	}
+	if replayedOperator, replayed, err := st.PrepareCommandRuntimeJobForAgent(ctx,
+		operatorJob, operatorAttribution); err != nil || !replayed ||
+		replayedOperator.ID != operatorJob.ID {
+		t.Fatalf("replay operator-root=%#v replayed=%t err=%v",
+			replayedOperator, replayed, err)
+	}
+	if _, _, err := st.PrepareCommandRuntimeJobForAgent(ctx, operatorJob,
+		rootAttribution); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("operator-root replay accepted Agent-attempt substitution: %v", err)
+	}
+	supervisorJob := operatorJob
+	supervisorJob.ID = "command-job-ledger-supervisor-root"
+	supervisorJob.OperationDigest = testCommandRuntimeDigest("operation-supervisor-root")
+	supervisorJob.RequestFingerprint = testCommandRuntimeDigest("request-supervisor-root")
+	if preparedSupervisor, replayed, err := st.PrepareCommandRuntimeJob(ctx,
+		supervisorJob); err != nil || replayed || preparedSupervisor.ID != supervisorJob.ID {
+		t.Fatalf("prepare inferred supervisor-root=%#v replayed=%t err=%v",
+			preparedSupervisor, replayed, err)
+	}
+	storedSupervisor, err := st.GetThreadCommandRuntimeJobAgentAttribution(ctx,
+		threadRecord.ID, supervisorJob.ID)
+	if err != nil || storedSupervisor != (domain.AgentAttribution{
+		AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
+		Source: domain.AgentAttributionSupervisorRoot}) {
+		t.Fatalf("stored inferred supervisor-root attribution=%#v err=%v",
+			storedSupervisor, err)
 	}
 	artifacts, err := st.CaptureToolOutput(ctx, artifact.CaptureRequest{
 		RunID: terminal.RunID, SessionID: terminal.SessionID,

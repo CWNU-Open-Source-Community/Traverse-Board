@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 type ControlledRunCreationStore interface {
@@ -26,7 +27,8 @@ type ControlledRunCreationStore interface {
 	GetRunCreationOperation(context.Context, string) (domain.RunCreationOperation, bool, error)
 	CreateMissionRunWithOperation(context.Context, domain.Mission, domain.Run,
 		domain.RunModeSnapshot, session.Session, []events.Event,
-		domain.RunCreationOperation) (domain.RunCreationOperation, bool, error)
+		domain.RunCreationOperation, domain.InitialThreadModelRoutePin) (
+		domain.RunCreationOperation, bool, error)
 }
 
 type ControlledRunCreationService struct {
@@ -35,14 +37,22 @@ type ControlledRunCreationService struct {
 }
 
 type ControlledRunCreationRequest struct {
-	Version      string
-	Goal         string
-	WorkspaceID  string
-	Profile      string
-	Surface      string
-	Phase        string
-	OperationKey string
-	RequestedBy  string
+	Version        string
+	Goal           string
+	WorkspaceID    string
+	Profile        string
+	Surface        string
+	Phase          string
+	NetworkMode    string
+	AllowedTargets []string
+	ModelRoute     string
+	// CustomModelProvider and ExpectedProviderDefinitionRevision are internal
+	// admission facts supplied by the model Registry. They are deliberately not
+	// copied from the renderer's JSON request.
+	CustomModelProvider                bool
+	ExpectedProviderDefinitionRevision uint64
+	OperationKey                       string
+	RequestedBy                        string
 }
 
 type ControlledRunCreationResult struct {
@@ -54,13 +64,17 @@ type ControlledRunCreationResult struct {
 }
 
 type normalizedControlledRunCreationRequest struct {
-	Goal         string
-	WorkspaceID  string
-	Profile      domain.Profile
-	Surface      domain.ExecutionSurface
-	Phase        domain.ExecutionPhase
-	OperationKey string
-	RequestedBy  string
+	Goal                 string
+	WorkspaceID          string
+	Profile              domain.Profile
+	Surface              domain.ExecutionSurface
+	Phase                domain.ExecutionPhase
+	NetworkMode          string
+	AllowedTargets       []string
+	ModelRoute           string
+	InitialModelRoutePin domain.InitialThreadModelRoutePin
+	OperationKey         string
+	RequestedBy          string
 }
 
 func NewControlledRunCreationService(store ControlledRunCreationStore) *ControlledRunCreationService {
@@ -88,9 +102,10 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		return ControlledRunCreationResult{}, err
 	}
 	keyDigest := runmutation.RunCreationOperationDigest(normalized.OperationKey)
-	requestFingerprint := runmutation.RunCreationRequestFingerprint(normalized.Goal,
+	requestFingerprint := runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(normalized.Goal,
 		normalized.WorkspaceID, string(normalized.Profile), string(normalized.Surface),
-		string(normalized.Phase), normalized.RequestedBy)
+		string(normalized.Phase), normalized.NetworkMode, normalized.AllowedTargets,
+		normalized.ModelRoute, normalized.RequestedBy)
 
 	if existing, found, err := s.store.GetRunCreationOperation(ctx, keyDigest); err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)
@@ -120,8 +135,10 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 	prepared, err := prepareRun(ctx, CreateRunRequest{
 		Goal: normalized.Goal, Profile: string(normalized.Profile),
 		Surface: string(normalized.Surface), Phase: string(normalized.Phase),
-		WorkspaceID: normalized.WorkspaceID, ModelRoute: string(normalized.Profile),
-		Interactive: true, Budget: domain.DefaultBudget(), RequestedBy: normalized.RequestedBy,
+		WorkspaceID: normalized.WorkspaceID, ModelRoute: normalized.ModelRoute,
+		NetworkMode:    normalized.NetworkMode,
+		AllowedTargets: append([]string(nil), normalized.AllowedTargets...),
+		Interactive:    true, Budget: domain.DefaultBudget(), RequestedBy: normalized.RequestedBy,
 		ProjectInstructions: &instructions,
 	}, nil)
 	if err != nil {
@@ -142,7 +159,7 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 	}
 	stored, replayed, err := s.store.CreateMissionRunWithOperation(ctx,
 		prepared.Mission, prepared.Run, prepared.Mode, prepared.Session,
-		prepared.InitialEvents, operation)
+		prepared.InitialEvents, operation, normalized.InitialModelRoutePin)
 	if err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)
 	}
@@ -187,22 +204,23 @@ func (s *ControlledRunCreationService) loadResult(ctx context.Context,
 		mode.MissionID != mission.ID || mode.Profile != mission.Profile ||
 		mode.Revision != 1 || mode.RequestedBy != operation.RequestedBy ||
 		mode.Scope.WorkspaceID != operation.WorkspaceID ||
-		mode.Scope.NetworkMode != "disabled" || len(mode.Scope.AllowedTargets) != 0 ||
+		!sameControlledRunScope(mode.Scope, mission.Scope) ||
+		!validControlledRunNetworkScope(mission.Scope) ||
 		mission.Scope.WorkspaceID != operation.WorkspaceID ||
-		mission.Scope.NetworkMode != "disabled" || len(mission.Scope.AllowedTargets) != 0 ||
 		run.Status != domain.RunCreated || run.StartedAt != nil || run.FinishedAt != nil ||
 		linkedSession.Status != session.StatusActive || linkedSession.Title != mission.Goal ||
-		!run.Config.Interactive || run.Config.ModelRoute != string(mission.Profile) ||
-		run.Budget != domain.DefaultBudget() || linkedSession.Route != string(mission.Profile) ||
+		!run.Config.Interactive || run.Config.ModelRoute == "" ||
+		run.Budget != domain.DefaultBudget() || linkedSession.Route != run.Config.ModelRoute ||
 		!mission.CreatedAt.Equal(operation.CreatedAt) ||
 		!mission.UpdatedAt.Equal(operation.CreatedAt) ||
 		!run.CreatedAt.Equal(operation.CreatedAt) || !run.UpdatedAt.Equal(operation.CreatedAt) ||
 		!linkedSession.CreatedAt.Equal(operation.CreatedAt) ||
 		!linkedSession.UpdatedAt.Equal(operation.CreatedAt) ||
 		!mode.CreatedAt.Equal(operation.CreatedAt) ||
-		operation.RequestFingerprint != runmutation.RunCreationRequestFingerprint(
+		operation.RequestFingerprint != runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(
 			mission.Goal, mission.WorkspaceID, string(mission.Profile), string(mode.Surface),
-			string(mode.Phase), operation.RequestedBy) {
+			string(mode.Phase), mission.Scope.NetworkMode, mission.Scope.AllowedTargets,
+			run.Config.ModelRoute, operation.RequestedBy) {
 		return ControlledRunCreationResult{}, apperror.New(
 			apperror.CodeConflict, "stored controlled Run creation binding is inconsistent")
 	}
@@ -246,6 +264,34 @@ func normalizeControlledRunCreationRequest(request ControlledRunCreationRequest)
 		return normalizedControlledRunCreationRequest{}, apperror.New(
 			apperror.CodeInvalidArgument, "Run profile must use its canonical value")
 	}
+	modelRoute := strings.TrimSpace(request.ModelRoute)
+	initialModelRoutePin := domain.InitialThreadModelRoutePin{}
+	if modelRoute == "" {
+		modelRoute = string(profile)
+	}
+	if request.ModelRoute != "" && (request.ModelRoute != modelRoute ||
+		!validControlledModelRoute(modelRoute)) {
+		return normalizedControlledRunCreationRequest{}, apperror.New(
+			apperror.CodeInvalidArgument, "Run model route is invalid")
+	}
+	if request.ModelRoute == "" {
+		if request.CustomModelProvider || request.ExpectedProviderDefinitionRevision != 0 {
+			return normalizedControlledRunCreationRequest{}, apperror.New(
+				apperror.CodeInvalidArgument,
+				"default Run model route cannot carry Provider admission metadata")
+		}
+	} else {
+		parts := strings.SplitN(modelRoute, "/", 2)
+		initialModelRoutePin = domain.InitialThreadModelRoutePin{
+			Provider: parts[0], Model: parts[1],
+			CustomProvider:                     request.CustomModelProvider,
+			ExpectedProviderDefinitionRevision: request.ExpectedProviderDefinitionRevision,
+		}
+		if err := initialModelRoutePin.Validate(); err != nil {
+			return normalizedControlledRunCreationRequest{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "Run model route admission is invalid", err)
+		}
+	}
 	surfaceValue := strings.TrimSpace(request.Surface)
 	if surfaceValue == "" {
 		surfaceValue = string(domain.ExecutionSurfaceCode)
@@ -272,6 +318,32 @@ func normalizeControlledRunCreationRequest(request ControlledRunCreationRequest)
 		return normalizedControlledRunCreationRequest{}, apperror.New(
 			apperror.CodeInvalidArgument, "Run phase must use its canonical value")
 	}
+	networkMode := strings.TrimSpace(request.NetworkMode)
+	if networkMode == "" {
+		networkMode = "disabled"
+	}
+	if request.NetworkMode != "" && request.NetworkMode != networkMode {
+		return normalizedControlledRunCreationRequest{}, apperror.New(
+			apperror.CodeInvalidArgument, "Run network mode must use its canonical value")
+	}
+	var allowedTargets []string
+	switch networkMode {
+	case "disabled":
+		if len(request.AllowedTargets) != 0 {
+			return normalizedControlledRunCreationRequest{}, apperror.New(
+				apperror.CodeInvalidArgument,
+				"disabled Run network mode cannot retain allowed targets")
+		}
+	case "allowlist":
+		allowedTargets, err = webevidence.NormalizeExactAuthorityTargets(request.AllowedTargets)
+		if err != nil {
+			return normalizedControlledRunCreationRequest{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "Run network allowlist is invalid", err)
+		}
+	default:
+		return normalizedControlledRunCreationRequest{}, apperror.New(
+			apperror.CodeInvalidArgument, "Run network mode must be disabled or allowlist")
+	}
 	operationKey, err := domain.NormalizeAgentOperationKey(request.OperationKey)
 	if err != nil || containsSpaceOrControl(operationKey) {
 		return normalizedControlledRunCreationRequest{}, apperror.New(
@@ -286,8 +358,47 @@ func normalizeControlledRunCreationRequest(request ControlledRunCreationRequest)
 			apperror.CodeInvalidArgument, "Run creation requester is invalid")
 	}
 	return normalizedControlledRunCreationRequest{Goal: goal, WorkspaceID: workspaceID,
-		Profile: profile, Surface: surface, Phase: phase, OperationKey: operationKey,
-		RequestedBy: requestedBy}, nil
+		Profile: profile, Surface: surface, Phase: phase, NetworkMode: networkMode,
+		AllowedTargets: append([]string(nil), allowedTargets...), ModelRoute: modelRoute,
+		InitialModelRoutePin: initialModelRoutePin,
+		OperationKey:         operationKey,
+		RequestedBy:          requestedBy}, nil
+}
+
+func validControlledModelRoute(value string) bool {
+	parts := strings.SplitN(value, "/", 2)
+	return len(parts) == 2 && domain.ValidAgentID(parts[0]) && domain.ValidAgentID(parts[1]) &&
+		parts[0] == strings.TrimSpace(parts[0]) && parts[1] == strings.TrimSpace(parts[1])
+}
+
+func validControlledRunNetworkScope(scope domain.Scope) bool {
+	switch scope.NetworkMode {
+	case "disabled":
+		return len(scope.AllowedTargets) == 0
+	case "allowlist":
+		normalized, err := webevidence.NormalizeExactAuthorityTargets(scope.AllowedTargets)
+		return err == nil && sameStringValues(normalized, scope.AllowedTargets)
+	default:
+		return false
+	}
+}
+
+func sameControlledRunScope(first domain.Scope, second domain.Scope) bool {
+	return first.WorkspaceID == second.WorkspaceID &&
+		first.NetworkMode == second.NetworkMode &&
+		sameStringValues(first.AllowedTargets, second.AllowedTargets)
+}
+
+func sameStringValues(first []string, second []string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateControlledRunCreationIntent(operation domain.RunCreationOperation,

@@ -1,5 +1,5 @@
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
-import type { RunEventStreamView, RunLifecycleControlView,
+import type { ProviderDefinitionView, RunEventStreamView, RunLifecycleControlView,
   ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 
@@ -31,6 +31,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     command_runtime_adapter_ready: true,
     command_runtime_adapters: [commandRuntimeAdapterData()],
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
+    full_cdp_session_control_enabled: true,
     run_control_enabled: true, run_creation_enabled: true,
     standard_code_preset_enabled: true,
     session_message_enabled: true, thread_control_enabled: true,
@@ -141,6 +142,8 @@ const runCreationData = {
     protocol_version: "run_mode.v1", policy_version: "mode_policy.v1", revision: 1,
     profile: "code", surface: "code", phase: "deliver",
     scope: { workspace_id: "workspace-1", network_mode: "disabled" }, capability_grant: false,
+    requested_by: "operator", reason: "initial Run mode",
+    created_at: "2026-08-24T00:00:00Z",
   },
   replayed: false,
 };
@@ -154,6 +157,15 @@ const threadData = {
 };
 
 const threadCreationData = { ...runCreationData, thread: threadData };
+
+const networkRunCreationData = {
+  ...runCreationData,
+  mission: { ...runCreationData.mission, scope: { workspace_id: "workspace-1",
+    network_mode: "allowlist", allowed_targets: ["api.example.com", "docs.example.com"] } },
+  mode: { ...runCreationData.mode, scope: { workspace_id: "workspace-1",
+    network_mode: "allowlist", allowed_targets: ["api.example.com", "docs.example.com"] } },
+};
+const networkThreadCreationData = { ...networkRunCreationData, thread: threadData };
 
 const threadMessageData = {
   version: "thread_message_submission.v1", thread: threadData,
@@ -462,6 +474,7 @@ describe("CyberAgentClient", () => {
       command_runtime_adapter_ready: true,
       command_runtime_adapters: [commandRuntimeAdapterData()],
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
+      full_cdp_session_control_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
       standard_code_preset_enabled: true,
       session_message_enabled: true, thread_control_enabled: true,
@@ -509,6 +522,7 @@ describe("CyberAgentClient", () => {
       agentCodeToolsEnabled: true,
       codeIntelEnabled: true,
       browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
+      fullCDPSessionControlEnabled: true,
       controlledCommandProposalControlEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
@@ -548,6 +562,43 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       dockerExecutionEnabled: true,
     });
+  });
+
+  it("accepts Full CDP with Full Access while the Debug runtime is disabled", async () => {
+    const data = runtimeCapabilitiesData({ debug_maximum_access_enabled: false });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-full-cdp-with-full-access", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .resolves.toEqual(data);
+  });
+
+  it("rejects Full CDP without the Full Access adapter", async () => {
+    const data = runtimeCapabilitiesData({
+      danger_full_access_enabled: false,
+      debug_maximum_access_enabled: false,
+      full_cdp_debug_enabled: true,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-full-cdp-without-full-access", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("rejects Full CDP session control without the production Full CDP runtime", async () => {
+    const data = runtimeCapabilitiesData({
+      full_cdp_debug_enabled: false,
+      full_cdp_session_control_enabled: true,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-full-cdp-session-without-runtime", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects an inconsistent Command Runtime adapter receipt", async () => {
@@ -1120,6 +1171,35 @@ describe("CyberAgentClient", () => {
       "Idempotency-Key": "web-thread-create-operation-0001" });
   });
 
+  it("binds an explicitly selected Provider/model to the first Thread Run", async () => {
+    const routed = {
+      ...threadCreationData,
+      run: { ...threadCreationData.run,
+        config: { ...threadCreationData.run.config, model_route: "deepseek/deepseek-chat" } },
+      session: { ...threadCreationData.session, route: "deepseek/deepseek-chat" },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-create-routed", data: routed,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.createThread({
+      version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
+      provider: "deepseek", model: "deepseek-chat",
+    }, "web-thread-create-routed-0001")).resolves.toEqual(routed);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      provider: "deepseek", model: "deepseek-chat",
+    });
+
+    await expect(client.createThread({
+      version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
+      provider: "deepseek",
+    }, "web-thread-create-routed-0002")).rejects.toThrow("Provider/model pair");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("submits Thread messages and lifecycle changes through the stable Thread URL", async () => {
     const archivedThread = { ...threadData, status: "archived", version: 3,
       composer_state: "unavailable", archived_at: "2026-08-24T00:02:00Z",
@@ -1154,13 +1234,84 @@ describe("CyberAgentClient", () => {
     });
   });
 
+  it("accepts a synchronously completed Thread turn without a stale active Run binding", async () => {
+    const completedThread = {
+      ...threadData,
+      active_run_id: undefined,
+      composer_state: "successor_required",
+      version: 3,
+      updated_at: "2026-08-24T00:02:00Z",
+    };
+    const response = {
+      ...threadMessageData,
+      thread: completedThread,
+      execution_started: true,
+      model_called: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-message-completed", data: response,
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.submitThreadTurn("thread-created", {
+      version: "thread_message_submission.v1", content: "Finish synchronously",
+    }, "web-thread-message-completed-0001")).resolves.toEqual(response);
+  });
+
+  it("recovers an exact failed Thread boundary without widening successor authority", async () => {
+    const failedAt = "2026-08-24T00:03:00Z";
+    const recoveredThread = { ...threadData, active_run_id: undefined, version: 3,
+      composer_state: "successor_required", updated_at: failedAt };
+    const failedRun = { ...runCreationData.run, status: "failed",
+      created_at: "2026-08-24T00:00:00Z", started_at: "2026-08-24T00:01:00Z",
+      finished_at: failedAt, updated_at: failedAt };
+    const response = { version: "thread_run_recovery.v1", thread: recoveredThread,
+      failed_run: failedRun, successor_required: true, replayed: false };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-recovery", data: response,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.recoverThreadRun("thread-created", {
+      version: "thread_run_recovery.v1", run_id: "run-created",
+      handoff_operation_id: "run-handoff-failed-1",
+    }, "web-thread-recovery-operation-0001")).resolves.toEqual(response);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/threads/thread-created/recovery");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-thread-recovery-operation-0001" });
+    expect(JSON.parse(String(init.body))).toEqual({ version: "thread_run_recovery.v1",
+      run_id: "run-created", handoff_operation_id: "run-handoff-failed-1" });
+  });
+
+  it("rejects a Thread recovery response that keeps the failed Run active", async () => {
+    const failedAt = "2026-08-24T00:03:00Z";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-recovery-forged", data: {
+        version: "thread_run_recovery.v1", thread: { ...threadData, updated_at: failedAt },
+        failed_run: { ...runCreationData.run, status: "failed",
+          created_at: "2026-08-24T00:00:00Z", started_at: "2026-08-24T00:01:00Z",
+          finished_at: failedAt, updated_at: failedAt },
+        successor_required: true, replayed: false,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.recoverThreadRun("thread-created", {
+      version: "thread_run_recovery.v1", run_id: "run-created",
+      handoff_operation_id: "run-handoff-failed-1",
+    }, "web-thread-recovery-operation-0002")).rejects.toThrow("continuation contract");
+  });
+
   it("validates the closed, ordered Thread transcript projection", async () => {
     const transcriptItem = {
       version: "thread_transcript.v1", id: "event-1", canonical_id: "item-1",
-      run_id: "run-created", run_ordinal: 1, sequence: 9, activity_type: "read",
+      run_id: "run-created", run_ordinal: 1, sequence: 9, activity_type: "search",
       stage: "running", kind: "tool_call", source: "harness", title: "Tool started",
       status: "running", verifiable: true, instruction_authorized: false,
-      tool_name: "read_file", stream_item_id: "item-1", provisional: false,
+      tool_name: "web_search", durable_call_id: "call-web-search-1",
+      activity_detail_ref: "call-web-search-1", detail_available: true,
+      stream_item_id: "item-1", provisional: false,
       durable: true, created_at: "2026-08-24T00:01:00Z",
     };
     const evidenceItem = {
@@ -1205,6 +1356,238 @@ describe("CyberAgentClient", () => {
       .rejects.toThrow("transcript item is invalid");
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .rejects.toThrow("Thread Web evidence is invalid");
+  });
+
+  it("lazily reads only the strict safe Thread command activity projection", async () => {
+    const detail = {
+      version: "thread_activity_detail.v2", activity_ref: "call-command-1",
+      run_id: "run-created", tools: [{ name: "command_runtime", label: "运行命令",
+        agent_id: "agent-root", agent_role: "root", agent_label: "Root Agent", status: "completed",
+        started_at: "2026-08-24T00:01:00Z", completed_at: "2026-08-24T00:01:02Z",
+        duration_milliseconds: 2_000, detail: { kind: "command", command: { commands: [{ command: "pnpm test session",
+          working_directory: "packages/core", execution_environment: "Workspace Sandbox",
+           network: "disabled", status: "completed", exit_code: 0,
+           duration_milliseconds: 2_000, stdout_preview: "42 tests passed",
+           stderr_preview: "", truncated: false, artifacts: [] }] } } }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-activity-detail", data: detail,
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-activity-detail-forged",
+        data: { ...detail, tools: [{ ...detail.tools[0], environment: { API_KEY: "secret" } }] },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.threadActivityDetail("thread-created", "call-command-1"))
+      .resolves.toEqual(detail);
+    await expect(client.threadActivityDetail("thread-created", "call-command-1"))
+      .rejects.toThrow("tool detail is invalid");
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe("/api/v1/threads/thread-created/activities/call-command-1");
+  });
+
+  it("accepts a typed non-command activity union and rejects raw payload fields", async () => {
+    const detail = {
+      version: "thread_activity_detail.v2", activity_ref: "call-web-1", run_id: "run-created",
+      tools: [{ name: "web_fetch", label: "网页读取", agent_id: "agent-root",
+        agent_role: "root", agent_label: "Root Agent", status: "completed",
+        started_at: "2026-09-03T00:00:00Z", completed_at: "2026-09-03T00:00:01Z",
+        duration_milliseconds: 1_000, detail: { kind: "web_fetch", web_fetch: {
+          operation: "fetch", url: "https://example.com/reference?lang=zh&page=2", state: "fetched",
+          http_status: 200, robots: "allowed", robots_policy: "audit_only", redirects: 0,
+          partial: false, citeable: true, boundary: { authorization: "policy_checked",
+            error_code: "", failure_reason: "", truncated: false, untrusted: true },
+        } } }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-web-detail", data: detail }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-web-detail-forged", data: { ...detail, tools: [{ ...detail.tools[0],
+          detail: { ...detail.tools[0].detail, payload_json: "{secret}" } }] } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-web-detail-sensitive-query", data: { ...detail, tools: [{
+          ...detail.tools[0], detail: { kind: "web_fetch", web_fetch: {
+            ...detail.tools[0].detail.web_fetch,
+            url: "https://example.com/reference?page=2&auth=private-canary",
+          } },
+        }] } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.threadActivityDetail("thread-created", "call-web-1"))
+      .resolves.toEqual(detail);
+    await expect(client.threadActivityDetail("thread-created", "call-web-1"))
+      .rejects.toThrow("tool detail is invalid");
+    await expect(client.threadActivityDetail("thread-created", "call-web-1"))
+      .rejects.toThrow("tool detail is invalid");
+  });
+
+  it("requires a closed Run-bound reference for an available file activity Diff", async () => {
+    const fileEdit = { operation: "apply", action: "replace", path: "src/session.ts",
+      destination_path: "", apply_status: "applied", applied: true, file_written: true,
+      replayed: false, edit_id: "edit-1", diff_available: true,
+      diff: { added_lines: 1, removed_lines: 1, hunks: 1,
+        summary: "修改 src/session.ts · +1 −1" },
+      boundary: { authorization: "policy_checked", error_code: "", failure_reason: "",
+        truncated: false, untrusted: false } };
+    const detail = {
+      version: "thread_activity_detail.v2", activity_ref: "call-edit-1", run_id: "run-created",
+      tools: [{ name: "workspace_apply", label: "文件修改", agent_id: "agent-root",
+        agent_role: "root", agent_label: "Root Agent", status: "completed",
+        started_at: "2026-09-03T00:00:00Z", duration_milliseconds: 10,
+        detail: { kind: "file_edit", file_edit: fileEdit } }],
+    };
+    const response = (data: unknown) => new Response(JSON.stringify({ version: "api.v1",
+      request_id: "req-file-edit-detail", data }),
+    { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(detail))
+      .mockResolvedValueOnce(response({ ...detail, tools: [{ ...detail.tools[0],
+        detail: { kind: "file_edit", file_edit: { ...fileEdit, edit_id: "" } } }] }))
+      .mockResolvedValueOnce(response({ ...detail, tools: [{ ...detail.tools[0],
+        detail: { kind: "file_edit", file_edit: { ...fileEdit, payload_json: "{secret}" } } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.threadActivityDetail("thread-created", "call-edit-1"))
+      .resolves.toEqual(detail);
+    await expect(client.threadActivityDetail("thread-created", "call-edit-1"))
+      .rejects.toThrow("tool detail is invalid");
+    await expect(client.threadActivityDetail("thread-created", "call-edit-1"))
+      .rejects.toThrow("tool detail is invalid");
+  });
+
+  it("accepts semantic query parameters in ranked search sources and rejects credential queries",
+    async () => {
+      const source = { rank: 1, title: "Runtime guide",
+        url: "https://docs.example.com/runtime?lang=zh&page=2", provider: "provider-native",
+        state: "fetched", citeable: true };
+      const detail = { version: "thread_activity_detail.v2", activity_ref: "call-search-1",
+        run_id: "run-created", tools: [{ name: "web_search", label: "联网搜索",
+          agent_id: "agent-root", agent_role: "root", agent_label: "Root Agent",
+          status: "completed", started_at: "2026-09-03T00:00:00Z",
+          duration_milliseconds: 10, detail: { kind: "web_search", web_search: {
+            operation: "search", query: "runtime architecture", limit: 2,
+            provider: "provider-native", search_policy: "provider_native",
+            selection_reason: "configured route", source_count: 1, citeable: true,
+            sources: [source], boundary: { authorization: "policy_checked", error_code: "",
+              failure_reason: "", truncated: false, untrusted: true },
+          } },
+        }] };
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+          request_id: "req-search-detail", data: detail }),
+        { status: 200, headers: { "Content-Type": "application/json" } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+          request_id: "req-search-detail-sensitive", data: { ...detail, tools: [{
+            ...detail.tools[0], detail: { kind: "web_search", web_search: {
+              ...detail.tools[0].detail.web_search,
+              sources: [{ ...source, url: "https://docs.example.com/runtime?page=2&token=private" }],
+            } },
+          }] } }),
+        { status: 200, headers: { "Content-Type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+      await expect(client.threadActivityDetail("thread-created", "call-search-1"))
+        .resolves.toEqual(detail);
+      await expect(client.threadActivityDetail("thread-created", "call-search-1"))
+        .rejects.toThrow("tool detail is invalid");
+    });
+
+  it("lazily reads a bounded sanitized Thread activity artifact", async () => {
+    const content = "complete output";
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(content)));
+    const sha256 = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const artifact = { version: "thread_activity_artifact.v1",
+      activity_ref: "call-command-1", artifact_ref: "artifact-stdout-1", stream: "stdout",
+      mime: "text/plain; charset=utf-8", content, sha256,
+      size_bytes: new TextEncoder().encode(content).byteLength, redacted: true, truncated: false,
+      untrusted: true, instruction_authorized: false };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-activity-artifact", data: artifact }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-activity-artifact-forged", data: { ...artifact,
+          instruction_authorized: true } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-activity-artifact-digest-mismatch", data: { ...artifact,
+          sha256: "b".repeat(64) } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.threadActivityArtifact(
+      "thread-created", "call-command-1", "artifact-stdout-1")).resolves.toEqual(artifact);
+    await expect(client.threadActivityArtifact(
+      "thread-created", "call-command-1", "artifact-stdout-1"))
+      .rejects.toThrow("activity artifact is invalid");
+    await expect(client.threadActivityArtifact(
+      "thread-created", "call-command-1", "artifact-stdout-1"))
+      .rejects.toThrow("artifact digest verification failed");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/threads/thread-created/activities/call-command-1/artifacts/artifact-stdout-1");
+  });
+
+  it("parses bounded command summaries and counts Unicode code points like Go", async () => {
+    const summary = { version: "thread_activity_summary.v1",
+      activity_ref: "call-command-1", command: "pnpm test session", status: "running",
+      duration_milliseconds: 250, command_count: 1 };
+    const transcriptItem = { version: "thread_transcript.v1", id: "item-command-1",
+      canonical_id: "call-command-1", run_id: "run-created", run_ordinal: 1, sequence: 1,
+      activity_type: "execute", stage: "running", kind: "tool_call", source: "harness",
+      title: "运行命令", status: "pending", verifiable: true,
+      instruction_authorized: false, tool_name: "command_runtime",
+      durable_call_id: "call-command-1", activity_detail_ref: "call-command-1",
+      detail_available: true, activity_summary: summary, provisional: false, durable: true,
+      created_at: "2026-09-02T00:00:00Z" };
+    const unicodeCommand = "😀".repeat(4_096);
+    const detail = { version: "thread_activity_detail.v2", activity_ref: "call-command-1",
+      run_id: "run-created", tools: [{ name: "command_runtime", label: "运行命令",
+        agent_id: "agent-root", agent_role: "root", agent_label: "Root Agent", status: "completed",
+        started_at: "2026-09-02T00:00:00Z", duration_milliseconds: 1,
+        detail: { kind: "command", command: { commands: [{ command: unicodeCommand, working_directory: ".",
+           execution_environment: "Workspace Sandbox", network: "disabled",
+           status: "completed", exit_code: 0, duration_milliseconds: 1,
+           stdout_preview: "", stderr_preview: "", truncated: false, artifacts: [] }] } } }] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-command-summary", data: [transcriptItem], page: { limit: 100 } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-command-summary-forged", data: [{ ...transcriptItem,
+          activity_summary: { ...summary, environment: { API_KEY: "secret" } } }],
+        page: { limit: 100 } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-command-unicode", data: detail }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-command-unicode-too-long", data: { ...detail, tools: [{
+          ...detail.tools[0], detail: { kind: "command", command: { commands: [{
+            ...detail.tools[0].detail.command.commands[0], command: "😀".repeat(4_097) }] } } }] } }),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .resolves.toMatchObject({ items: [transcriptItem] });
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("activity summary is invalid");
+    await expect(client.threadActivityDetail("thread-created", "call-command-1"))
+      .resolves.toEqual(detail);
+    await expect(client.threadActivityDetail("thread-created", "call-command-1"))
+      .rejects.toThrow("activity tool detail is invalid");
   });
 
   it("rejects forged Thread authority and cross-Thread projections", async () => {
@@ -1492,6 +1875,47 @@ describe("CyberAgentClient", () => {
     expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
   });
 
+  it("polls an inactive public model stream without using an HTTP error status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-public-stream-idle",
+      data: { version: "model_public_stream_poll.v1", active: false },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.pollPublicModelStream("run-1")).resolves.toBeNull();
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/active-call/poll");
+  });
+
+  it("polls and validates an active public model stream snapshot", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-public-stream-active",
+      data: { version: "model_public_stream_poll.v1", active: true,
+        snapshot: publicModelStreamData },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.pollPublicModelStream("run-1")).resolves.toEqual(publicModelStreamData);
+  });
+
+  it("rejects contradictory public model stream poll projections", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-idle-snapshot",
+        data: { version: "model_public_stream_poll.v1", active: false,
+          snapshot: publicModelStreamData },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-active-missing",
+        data: { version: "model_public_stream_poll.v1", active: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.pollPublicModelStream("run-1")).rejects.toThrow("Inactive");
+    await expect(client.pollPublicModelStream("run-1")).rejects.toThrow("omitted");
+  });
+
   it("accepts more than 32 provider chunks within the bounded output size", async () => {
     const data = { ...publicModelStreamData,
       call: { ...publicModelStreamData.call, stream_chunks: 128, stream_bytes: 128 } };
@@ -1673,6 +2097,10 @@ describe("CyberAgentClient", () => {
     const data = {
       protocol_version: "model_availability.v2", generation: 1,
       providers: [{ name: "mock", kind: "local", status: "available", models: ["mock-code"],
+        display_name: "mock", custom: false, enabled: true, definition_revision: 0,
+        transport: "mock", search_mode: "disabled",
+        native_web_search_capability: "unsupported",
+        native_web_search_runtime_enabled: false,
         harnesses: [{ protocol_version: "model_harness.v1", model: "mock-code",
           transport_protocol: "mock", tool_strategy: "native", json_strategy: "native",
           qualification_status: "trusted_builtin", tool_calls_qualified: true,
@@ -1698,6 +2126,10 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-models-ollama",
       data: { ...data, providers: [...data.providers, { name: "ollama", kind: "ollama",
         status: "not_configured", models: ["llama3.2:3b"],
+        display_name: "ollama", custom: false, enabled: true, definition_revision: 0,
+        transport: "ollama_chat", search_mode: "disabled",
+        native_web_search_capability: "unsupported",
+        native_web_search_runtime_enabled: false,
         harnesses: [{ protocol_version: "model_harness.v1", model: "llama3.2:3b",
           transport_protocol: "ollama_chat", tool_strategy: "none", json_strategy: "none",
           qualification_status: "qualification_required", tool_calls_qualified: false,
@@ -1805,6 +2237,7 @@ describe("CyberAgentClient", () => {
       status: "approved", replayed: false, process_execution_enabled: false,
       shell_execution_enabled: false, docker_execution_enabled: false,
       workspace_write_applied: false, session_grant_created: false, capability_grant: false,
+      execution_resumed: false, retry_completed: false, retry_scheduled: false,
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -1831,6 +2264,64 @@ describe("CyberAgentClient", () => {
       data: { ...queue, items: [{ ...queue.items[0], session_id: "" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(client.approvalQueue("run-1")).rejects.toThrow("invalid");
+  });
+
+  it("accepts a source-bound web fetch approval and conversation-scoped continuation", async () => {
+    const item = { id: "approval-web-1", proposal_id: "web-fetch-authorization-1",
+      run_id: "run-1", session_id: "session-1", workspace_id: "",
+      tool_name: "web_fetch", action_class: "public_https_fetch", mode: "per_call",
+      status: "pending", allowed_actions: ["approve_once", "approve_for_thread", "deny"],
+      canonical_url: "https://arxiv.org/abs/2608.13637", exact_target: "arxiv.org",
+      version: 1, created_at: "2026-09-02T00:00:00Z",
+      updated_at: "2026-09-02T00:00:00Z", process_execution_enabled: false,
+      capability_grant: false };
+    const queue = { protocol_version: "approval_queue.v1", run_id: "run-1",
+      truncated: false, process_execution_enabled: false, session_grant_created: false,
+      capability_grant: false, items: [item] };
+    const decision = { version: "approval_control.v1", run_id: "run-1",
+      approval_id: item.id, proposal_id: item.proposal_id, tool_name: "web_fetch",
+      action: "approve_for_thread", status: "approved", replayed: false,
+      process_execution_enabled: false, shell_execution_enabled: false,
+      docker_execution_enabled: false, workspace_write_applied: false,
+      session_grant_created: false, capability_grant: false,
+      execution_resumed: false, retry_completed: false, retry_scheduled: true };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-web-approval-queue", data: queue }),
+      { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-web-approval-decision", data: decision }),
+      { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, approvalControlEnabled: true,
+    });
+
+    await expect(client.approvalQueue("run-1")).resolves.toEqual(queue);
+    await expect(client.decideApproval("run-1", item.id, {
+      version: "approval_control.v1", action: "approve_for_thread",
+    }, "web-fetch-thread-approval-0001")).resolves.toEqual(decision);
+    const init = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-fetch-thread-approval-0001",
+    });
+
+    const unscheduledDecision = { ...decision, action: "deny", status: "denied",
+      retry_scheduled: false };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+      request_id: "req-web-approval-unscheduled", data: unscheduledDecision }),
+    { status: 202, headers: { "Content-Type": "application/json" } }));
+    await expect(client.decideApproval("run-1", item.id, {
+      version: "approval_control.v1", action: "deny",
+    }, "web-fetch-unscheduled-approval-0001")).resolves.toEqual(unscheduledDecision);
+
+    const recoveryQueue = { ...queue, items: [{ ...item, status: "approved",
+      allowed_actions: ["approve_for_thread"] }] };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+      request_id: "req-web-approval-recovery", data: recoveryQueue }),
+    { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(client.approvalQueue("run-1")).resolves.toEqual(recoveryQueue);
   });
 
   it("reviews only fixed Go command proposals and rejects instruction-bearing evidence", async () => {
@@ -2145,6 +2636,156 @@ describe("CyberAgentClient", () => {
       version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
       confirm_diagnostic: true,
     })).rejects.toThrow("content-free");
+  });
+
+  it("lists bounded model routes and controls a Thread route through GET and PUT", async () => {
+    const catalog = {
+      protocol_version: "model_route_catalog.v1", generation: 9,
+      routes: [{ provider_id: "deepseek", provider_name: "DeepSeek", model: "deepseek-chat",
+        enabled: true, credential_status: "configured", qualification_status: "verified",
+        harness_ready: true, selectable: true, unavailable_reason: "",
+        default_for_routes: ["code"] }],
+    };
+    const current = {
+      protocol_version: "thread_model_route.v1", thread_id: "thread-1",
+      provider: "deepseek", model: "deepseek-chat", source: "active_run",
+      effective_run_id: "run-1", applies_to: "current_and_next",
+      active_run_unchanged: false, replayed: false,
+    };
+    const selected = {
+      protocol_version: "thread_model_route.v1", thread_id: "thread-1",
+      provider: "openai", model: "gpt-5-mini", source: "thread_preference",
+      applies_to: "next_run", active_run_unchanged: true, replayed: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-route-catalog", data: catalog }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-thread-route", data: current }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-thread-route-select", data: selected }), { status: 200,
+        headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      modelControlEnabled: true,
+    });
+
+    await expect(client.availableModelRoutes()).resolves.toEqual(catalog);
+    await expect(client.threadModelRoute("thread-1")).resolves.toEqual(current);
+    await expect(client.selectThreadModelRoute("thread-1", {
+      version: "thread_model_route_control.v1", action: "select", provider: "openai",
+      model: "gpt-5-mini", operation_key: "route-operation-0001",
+      requested_by: "desktop-ui",
+    })).resolves.toEqual(selected);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/models/routes/available");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/threads/thread-1/model-route");
+    const [putURL, putInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(putURL).toBe("/api/v1/threads/thread-1/model-route");
+    expect(putInit.method).toBe("PUT");
+    expect(putInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(putInit.headers).not.toHaveProperty("Idempotency-Key");
+  });
+
+  it("fails closed for contradictory model catalogs and rebound Thread routes", async () => {
+    const invalidCatalog = {
+      protocol_version: "model_route_catalog.v1", generation: 1,
+      routes: [{ provider_id: "deepseek", provider_name: "DeepSeek", model: "deepseek-chat",
+        enabled: true, credential_status: "configured", qualification_status: "verified",
+        harness_ready: true, selectable: true, unavailable_reason: "credential_not_configured",
+        default_for_routes: [] }],
+    };
+    const rebound = {
+      protocol_version: "thread_model_route.v1", thread_id: "thread-other",
+      provider: "deepseek", model: "deepseek-chat", source: "thread_preference",
+      applies_to: "next_run", active_run_unchanged: true, replayed: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-route-catalog-invalid", data: invalidCatalog }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-thread-route-rebound", data: rebound }), { status: 200,
+        headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      modelControlEnabled: true,
+    });
+
+    await expect(client.availableModelRoutes()).rejects.toThrow("eligibility contract");
+    await expect(client.threadModelRoute("thread-1")).rejects.toThrow("Thread model route response");
+    await expect(client.selectThreadModelRoute("thread-1", {
+      version: "thread_model_route_control.v1", action: "reset", provider: "deepseek",
+      operation_key: "route-operation-0002", requested_by: "desktop-ui",
+    })).rejects.toThrow("exact Thread model route intent");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a fail-closed Provider search readiness projection", async () => {
+    const readiness = {
+      protocol_version: "provider_search_readiness.v1", thread_id: "thread-1",
+      run_id: "run-1", model_route: "deepseek/deepseek-chat", provider: "deepseek",
+      model: "deepseek-chat", search_policy: "provider_native",
+      state: "missing_allowlist", reason: "search_endpoint_not_allowlisted",
+      remediation: "add_required_target", required_target: "api.deepseek.com",
+      network_mode: "allowlist", mode_revision: 4, runtime_ready: false,
+      capability_grant: false,
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-search-readiness", data: readiness,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+
+    await expect(client.providerSearchReadiness("thread-1")).resolves.toEqual(readiness);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/threads/thread-1/search-readiness",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects contradictory or authority-bearing search readiness", async () => {
+    const invalid = {
+      protocol_version: "provider_search_readiness.v1", thread_id: "thread-1",
+      run_id: "run-1", model_route: "deepseek/deepseek-chat", provider: "deepseek",
+      model: "deepseek-chat", search_policy: "provider_native", state: "ready",
+      reason: "search_backend_ready", remediation: "add_required_target",
+      required_target: "api.deepseek.com/path", network_mode: "allowlist", mode_revision: 4,
+      runtime_ready: false, capability_grant: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-search-readiness-invalid", data: invalid,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret");
+
+    await expect(client.providerSearchReadiness("thread-1"))
+      .rejects.toThrow("Provider search readiness response is invalid");
+  });
+
+  it("reads one exact redacted file Diff without loading the edit queue", async () => {
+    const edit = { id: "edit-1", session_id: "session-1", workspace_id: "workspace-1",
+      path: "README.md", operation: "replace", status: "applied",
+      diff: "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n",
+      original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
+      secrets_redacted: true, allowed_actions: [], created_at: "2026-07-18T00:00:00Z",
+      updated_at: "2026-07-18T00:00:01Z", apply_enabled: false };
+    const response = (data: unknown) => new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-exact-edit", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(edit))
+      .mockResolvedValueOnce(response({ ...edit, id: "edit-other" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+
+    await expect(client.fileEdit("run-1", "edit-1")).resolves.toEqual(edit);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/runs/run-1/file-edits/edit-1");
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: "GET" }));
+    await expect(client.fileEdit("run-1", "edit-1"))
+      .rejects.toThrow("wrong identity");
   });
 
   it("rejects FileEdit body leakage and validates review-only decisions", async () => {
@@ -3171,6 +3812,82 @@ describe("CyberAgentClient", () => {
       action: "set", secret, confirm: true });
   });
 
+  it("persists custom Provider definitions and accepts their OS-owned credential", async () => {
+    const draft: ProviderDefinitionView = {
+      version: "provider_definition.v1", id: "team-gateway", display_name: "Team Gateway",
+      note: "Responses-compatible company endpoint", website_url: "",
+      endpoint_url: "https://models.example.org/v1/responses",
+      default_model: "team-model", models: ["team-model"],
+      transport: "openai_responses", search_mode: "auto",
+      native_web_search_capability: "declared_unverified",
+      advanced_config: { request_headers: {
+        Authorization: { $credential: "team-gateway", template: "Bearer ${secret}" },
+      } }, enabled: true, revision: 0,
+    };
+    const saved = { ...draft, revision: 1 };
+    const empty = { version: "provider_definition_collection.v1", revision: 0, providers: [] };
+    const populated = { version: "provider_definition_collection.v1", revision: 1,
+      providers: [saved] };
+    const removed = { version: "provider_definition_collection.v1", revision: 2, providers: [] };
+    const credentialItems = ["anthropic", "deepseek", "mimo", "openai", "team-gateway"]
+      .map((provider) => ({ protocol_version: "provider_credential.v1", provider,
+        configured: false, store_kind: "windows_credential_manager", store_available: true,
+        plaintext_returned: false, restart_required: false, registry_reloaded: false,
+        registry_generation: 2 }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-provider-list", data: empty }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-provider-upsert", data: {
+          protocol_version: "provider_definition_control.v1", collection: populated,
+          definition: saved, registry_reloaded: true, registry_generation: 2,
+        } }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-custom-credential-list", data: {
+          protocol_version: "provider_credential.v1", items: credentialItems,
+        } }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-custom-credential-set", data: { ...credentialItems[4],
+          configured: true, registry_reloaded: true, registry_generation: 3 },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-provider-delete", data: {
+          protocol_version: "provider_definition_control.v1", collection: removed,
+          deleted_id: "team-gateway", registry_reloaded: true, registry_generation: 4,
+        } }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { modelControlEnabled: true, providerCredentialEnabled: true });
+
+    await expect(client.providerDefinitions()).resolves.toEqual(empty);
+    await expect(client.upsertProviderDefinition("team-gateway", {
+      version: "provider_definition_control.v1", expected_collection_revision: 0,
+      definition: draft, confirm: true,
+    })).resolves.toMatchObject({ collection: populated, definition: saved,
+      registry_reloaded: true });
+    await expect(client.providerCredentialStatuses()).resolves.toMatchObject({
+      items: credentialItems,
+    });
+    const transientSecret = "temporary-custom-provider-key";
+    await expect(client.changeProviderCredential("team-gateway", {
+      version: "provider_credential.v1", action: "set", secret: transientSecret,
+      confirm: true,
+    })).resolves.toMatchObject({ provider: "team-gateway", configured: true });
+    await expect(client.deleteProviderDefinition("team-gateway", {
+      version: "provider_definition_control.v1", expected_collection_revision: 1,
+      expected_definition_revision: 1, confirm: true,
+    })).resolves.toMatchObject({ deleted_id: "team-gateway", collection: removed });
+
+    const [upsertURL, upsertInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(upsertURL).toBe("/api/v1/models/provider-definitions/team-gateway");
+    expect(String(upsertInit.body)).not.toContain(transientSecret);
+    const [credentialURL] = fetchMock.mock.calls[3] as [string, RequestInit];
+    expect(credentialURL).toBe("/api/v1/models/credentials/team-gateway");
+    const [deleteURL] = fetchMock.mock.calls[4] as [string, RequestInit];
+    expect(deleteURL).toBe("/api/v1/models/provider-definitions/team-gateway/delete");
+  });
+
   it("accepts OpenAI-compatible availability and rejects unknown qualification reasons", async () => {
     const harness = {
       protocol_version: "model_harness.v1", model: "gpt-4.1-mini",
@@ -3185,6 +3902,10 @@ describe("CyberAgentClient", () => {
     const availability = {
       protocol_version: "model_availability.v2", generation: 2,
       providers: [{ name: "openai", kind: "openai_compatible", status: "available",
+        display_name: "openai", custom: false, enabled: true, definition_revision: 0,
+        transport: "openai_chat_completions", search_mode: "disabled",
+        native_web_search_capability: "unsupported",
+        native_web_search_runtime_enabled: false,
         models: ["gpt-4.1-mini"], harnesses: [harness], credential_source: "environment",
         network_required: true, configuration_error: false }],
       routes: [{ name: "code", provider: "openai", model: "gpt-4.1-mini",
@@ -3493,6 +4214,229 @@ describe("CyberAgentClient", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
     await expect(new CyberAgentClient("read-secret").extensionInventory())
       .rejects.toThrow("invalid");
+  });
+
+  it("expands Run network authority only for exact revision-bound HTTPS hosts", async () => {
+    const data = {
+      version: "run_network_authority_control.v1", run_id: "run-created",
+      mode: { ...runCreationData.mode, revision: 2,
+        scope: { workspace_id: "workspace-1", network_mode: "allowlist",
+          allowed_targets: ["search.example.org"] } },
+      added_targets: ["search.example.org"], replayed: false, capability_grant: true,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-network-authority", data,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const result = await client.expandRunNetworkAuthority("run-created", {
+      version: "run_network_authority_control.v1", expected_mode_revision: 1,
+      add_allowed_targets: ["https://SEARCH.Example.org/"],
+      reason: "operator approved search",
+    }, "web-network-authority-0001");
+    expect(result).toMatchObject({ run_id: "run-created", capability_grant: true,
+      mode: { revision: 2, scope: { allowed_targets: ["search.example.org"] } } });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-created/network-authority");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-network-authority-0001" });
+    await expect(client.expandRunNetworkAuthority("run-created", {
+      version: "run_network_authority_control.v1", expected_mode_revision: 2,
+      add_allowed_targets: ["public_https"],
+    }, "web-network-authority-0002")).rejects.toThrow("exact public HTTPS hosts");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a Run network authority response with an unrequested grant", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-network-authority-forged", data: {
+        version: "run_network_authority_control.v1", run_id: "run-created",
+        mode: { ...runCreationData.mode, revision: 2,
+          scope: { workspace_id: "workspace-1", network_mode: "allowlist",
+            allowed_targets: ["other.example.org", "search.example.org"] } },
+        added_targets: ["other.example.org"], replayed: false, capability_grant: true,
+      },
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.expandRunNetworkAuthority("run-created", {
+      version: "run_network_authority_control.v1", expected_mode_revision: 1,
+      add_allowed_targets: ["search.example.org"],
+    }, "web-network-authority-forged-0001")).rejects.toThrow("exact target grant");
+  });
+
+  it("rejects a non-canonical Run network authority response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-network-authority-noncanonical", data: {
+        version: "run_network_authority_control.v1", run_id: "run-created",
+        mode: { ...runCreationData.mode, revision: 2,
+          scope: { workspace_id: "workspace-1", network_mode: "allowlist",
+            allowed_targets: ["SEARCH.Example.org"] } },
+        added_targets: ["SEARCH.Example.org"], replayed: false, capability_grant: true,
+      },
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.expandRunNetworkAuthority("run-created", {
+      version: "run_network_authority_control.v1", expected_mode_revision: 1,
+      add_allowed_targets: ["search.example.org"],
+    }, "web-network-authority-noncanonical-0001")).rejects.toThrow("exact target grant");
+  });
+
+  it("rejects malformed nested Run mode authority projections", async () => {
+    for (const [index, mutation] of [
+      { unexpected: true },
+      { created_at: "not-a-date" },
+      { profile: 42 },
+      { surface: ["code"] },
+    ].entries()) {
+      const mode = { ...runCreationData.mode, revision: 2, ...mutation,
+        scope: { workspace_id: "workspace-1", network_mode: "allowlist",
+          allowed_targets: ["search.example.org"] } };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: `req-network-authority-nested-${index}`, data: {
+          version: "run_network_authority_control.v1", run_id: "run-created", mode,
+          added_targets: ["search.example.org"], replayed: false, capability_grant: true,
+        },
+      }), { status: 202, headers: { "Content-Type": "application/json" } })));
+      const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+      await expect(client.expandRunNetworkAuthority("run-created", {
+        version: "run_network_authority_control.v1", expected_mode_revision: 1,
+        add_allowed_targets: ["search.example.org"],
+      }, `web-network-authority-nested-${index}`)).rejects.toThrow(/Run mode|invalid/i);
+    }
+  });
+
+  it("creates a Thread with exact network authority through the Thread-first contract", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-create-network",
+      data: networkThreadCreationData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    const result = await client.createThread({
+      version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
+      network_mode: "allowlist",
+      allowed_targets: ["HTTPS://Docs.Example.COM:443/", "api.example.com"],
+    }, "web-thread-create-network-operation-0001");
+
+    expect(result.thread).toEqual(threadData);
+    expect(result.mission.scope).toMatchObject({ network_mode: "allowlist",
+      allowed_targets: ["api.example.com", "docs.example.com"] });
+  });
+
+  it("creates a Run with a canonical exact network allowlist", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-create-network", data: networkRunCreationData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runCreationEnabled: true,
+    });
+    const result = await client.createRun({
+      version: "run_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
+      network_mode: "allowlist",
+      allowed_targets: ["HTTPS://Docs.Example.COM.:443/", "api.example.com",
+        "docs.example.com"],
+    }, "web-run-create-network-operation-0001");
+    expect(result.mission.scope).toMatchObject({ network_mode: "allowlist",
+      allowed_targets: ["api.example.com", "docs.example.com"] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects broad or malformed creation network authority before transport", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runCreationEnabled: true,
+    });
+    for (const [index, authority] of [
+      { network_mode: "allowlist" as const, allowed_targets: [] },
+      { network_mode: "allowlist" as const, allowed_targets: ["*.example.com"] },
+      { network_mode: "allowlist" as const, allowed_targets: ["http://docs.example.com"] },
+      { network_mode: "allowlist" as const, allowed_targets: ["https://8.8.8.8"] },
+      { network_mode: "disabled" as const, allowed_targets: ["docs.example.com"] },
+    ].entries()) {
+      await expect(client.createRun({ version: "run_creation.v1", goal: "Create parser",
+        workspace_id: "workspace-1", ...authority },
+      `web-run-create-invalid-network-${index}`)).rejects.toThrow(/network|allowlist/i);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("controls a redacted Full CDP production session lifecycle", async () => {
+    const startedAt = "2026-08-30T01:02:03Z";
+    const expiresAt = "2026-08-30T01:17:03Z";
+    const none = { version: "full_cdp_session.v1", run_id: "run-1", state: "none",
+      runtime_available: true, cdp_closed: false, process_tree_quiescent: false,
+      profile_released: false, profile_cleaned: false };
+    const ready = { ...none, session_id: "full_cdp_session-client-0001", state: "ready",
+      browser: { product: "edge", channel: "stable" },
+      target_origin: "http://127.0.0.1:18080", started_at: startedAt, expires_at: expiresAt };
+    const closed = { ...ready, state: "closed", completed_at: "2026-08-30T01:03:03Z",
+      close_reason: "operator_closed", cdp_closed: true, process_tree_quiescent: true,
+      profile_released: true, profile_cleaned: true };
+    const envelope = (requestID: string, session: unknown) => new Response(JSON.stringify({
+      version: "api.v1", request_id: requestID, data: { session, replayed: false },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope("req-full-cdp-get", none))
+      .mockResolvedValueOnce(envelope("req-full-cdp-open", ready))
+      .mockResolvedValueOnce(envelope("req-full-cdp-close", closed));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      browserCDPPermissionControlEnabled: true,
+      fullCDPDebugEnabled: true,
+      fullCDPSessionControlEnabled: true,
+    });
+
+    await expect(client.getFullCDPSession("run-1")).resolves.toMatchObject({ session: none });
+    await expect(client.openFullCDPSession("run-1", {
+      version: "full_cdp_session.v1", target: "http://127.0.0.1:18080",
+      browser: { product: "edge", channel: "stable" },
+      expected_execution_permission_revision: 4,
+      expected_browser_cdp_permission_revision: 6,
+      confirm_full_cdp: true,
+    }, "full-cdp-client-open-0001")).resolves.toMatchObject({ session: ready });
+    await expect(client.closeFullCDPSession("run-1", {
+      version: "full_cdp_session_close.v1",
+      expected_session_id: "full_cdp_session-client-0001",
+    }, "full-cdp-client-close-0001")).resolves.toMatchObject({ session: closed });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/runs/run-1/full-cdp-session");
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers)
+      .toMatchObject({ Authorization: "Bearer read-secret" });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers)
+      .toMatchObject({ Authorization: "Bearer control-secret",
+        "Idempotency-Key": "full-cdp-client-open-0001" });
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/runs/run-1/full-cdp-session/close");
+  });
+
+  it("accepts pre-ready and staged Full CDP cleanup views", async () => {
+    const base = { version: "full_cdp_session.v1", run_id: "run-1",
+      session_id: "full_cdp_session-recovery-0001", state: "closing",
+      browser: { product: "chrome", channel: "stable" }, runtime_available: true,
+      process_tree_quiescent: false, profile_released: false, profile_cleaned: false };
+    const preReady = { ...base, close_reason: "open_failed", cdp_closed: false,
+      failure_code: "open_failed" };
+    const staged = { ...base, close_reason: "permission_revoked", cdp_closed: true,
+      target_origin: "http://127.0.0.1:18080", started_at: "2026-08-30T01:02:03Z",
+      expires_at: "2026-08-30T01:17:03Z", failure_code: "cleanup_recovery_required" };
+    const envelope = (requestID: string, session: unknown) => new Response(JSON.stringify({
+      version: "api.v1", request_id: requestID, data: { session, replayed: false },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(envelope("req-full-cdp-pre-ready", preReady))
+      .mockResolvedValueOnce(envelope("req-full-cdp-staged", staged)));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      browserCDPPermissionControlEnabled: true,
+      fullCDPDebugEnabled: true,
+      fullCDPSessionControlEnabled: true,
+    });
+
+    await expect(client.getFullCDPSession("run-1"))
+      .resolves.toMatchObject({ session: preReady });
+    await expect(client.getFullCDPSession("run-1"))
+      .resolves.toMatchObject({ session: staged });
   });
 
   it("executes the embedded analyzer through the control token and validates its redacted receipt", async () => {

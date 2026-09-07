@@ -306,6 +306,10 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 	if err != nil {
 		return r.failAttempt(ctx, result, ref, err)
 	}
+	mode, err := r.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return r.failAttempt(ctx, result, ref, err)
+	}
 	skillContext, skillPreparation, err := r.prepareSpecialistSkillContext(ctx, run,
 		mission, child, attempt, ref)
 	if err != nil {
@@ -368,7 +372,7 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 	if err != nil {
 		return r.failAttempt(ctx, result, ref, err)
 	}
-	input, contextSelection, err := specialistTurnInput(mission, child, attempt,
+	input, contextSelection, err := specialistTurnInput(mission, mode.Scope, child, attempt,
 		contextBatch.Messages, workItems, notes)
 	if err != nil {
 		return r.failAttempt(ctx, result, ref, err)

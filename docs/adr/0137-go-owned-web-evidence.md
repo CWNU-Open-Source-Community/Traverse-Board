@@ -80,8 +80,11 @@ All requests use one first-party client with these fixed controls:
 - a 15-second request deadline, a 2 MiB response ceiling, and at most one retry,
   only for HTTP 429, 502, 503, or 504;
 - a 256 KiB `robots.txt` check before the initial page and each redirect
-  destination. HTTP 404/410 means no policy, 401/403 means blocked, and network,
-  parse, or indeterminate status fails closed;
+  destination. HTTP 404/410 means no policy and 401/403 means blocked.
+  Conservative, Workspace, and Approval enforce that result and fail closed on
+  network, parse, or indeterminate status. Full Access and Debug retain the result
+  as an audit fact, while disallow, absence, or indeterminate status does not block
+  the fetch;
 - a closed MIME set: HTML/XHTML, bounded text/Markdown, JSON, and PDF. The retained
   sanitized body is at most 128 KiB.
 
@@ -117,11 +120,16 @@ digest and timestamp.
 
 The operator remains responsible for the configured SearXNG instance's terms and
 the terms applicable to each target site. Traverse Board identifies itself with a
-bounded user agent, honors applicable `robots.txt` rules, stores only bounded
-evidence needed for the Run, and exposes the original source link and fetch time.
-It does not log in, bypass paywalls, solve CAPTCHAs, accept browser profiles, submit
-forms, execute downloads, or claim that robots permission replaces copyright,
-license, privacy, or contractual obligations.
+bounded user agent and records the applicable `robots.txt` outcome. Conservative,
+Workspace, and Approval enforce that outcome; Full Access and Debug retain it as an
+audit fact without making disallow or indeterminate status a fetch blocker. All
+modes store only bounded evidence needed for the Run and expose the original source
+link and fetch time. The audit-only Full Access/Debug behavior does not relax SSRF,
+private/loopback/metadata, DNS-rebinding, HTTPS, redirect, response-size, or timeout
+boundaries. Traverse Board does not log in, bypass paywalls, solve CAPTCHAs, accept
+browser profiles, submit forms, execute downloads, or claim that either robots
+permission or a robots override replaces copyright, license, privacy, or
+contractual obligations.
 
 The parser cannot determine whether reuse of a page is legally permitted. Operators
 must avoid fetching personal, confidential, or restricted material and must manage
@@ -136,6 +144,29 @@ citation without a controlled fetch. A partial PDF or truncated page remains use
 but visibly weaker evidence. Dynamic client-rendered pages may yield little text;
 v1 does not launch a browser as a fallback.
 
+### Provider-grounded hosted-search amendment (2026-09-02)
+
+The discovery-only rule above remains true for SearXNG and every ordinary search
+adapter. A qualified hosted-search adapter may now emit an immutable
+`provider_grounded_citation.v1` inside the durable `web_search` operation. The
+record binds Run, Source, canonical URL, title, Provider identity, exact
+credential-free Provider/search selection fingerprint, search time, and its own
+fingerprint. It is always `provider_qualified=true`, `locally_verified=false`,
+`untrusted=true`, and `instruction_authorized=false`.
+
+Such a URL may be cited in an ordinary answer without a second `web_fetch`, but
+must be presented as Provider-grounded rather than locally verified. It creates
+neither a `web_evidence_snapshot` nor a snapshot-backed `web_citation`; deeper
+page reading and independent verification still use `web_fetch` and the existing
+snapshot citation path. Existing v134 tables require no migration because the
+new record is part of the already immutable, bounded operation response.
+
+Hosted search also uses an exact Provider API egress boundary derived by Go from
+the selected model route. This boundary is independent from direct Web fetch
+authority: the Provider API hostname is not added to the Run's page-fetch
+allowlist, direct-network disablement does not disable an otherwise eligible
+hosted search, and hosted search does not authorize fetching any returned URL.
+
 DNS and redirect checks greatly reduce SSRF and rebinding exposure but do not make
 remote content trustworthy. A public endpoint may proxy private data, return
 malicious text, or change after fetch. TLS trust still depends on the host trust
@@ -147,9 +178,10 @@ not authority grants.
 
 Go tests cover URL normalization, IPv4/IPv6 private and metadata rejection, mixed
 DNS answers, pinned dialing, redirect revalidation and limits, bounded retry,
-robots fail-closed behavior, controlled MIME/parser behavior, truncation, immutable
-Run-scoped storage, idempotent replay/conflict, failed/blocked/partial snapshots,
-same-Run citation, and stale projection. Gateway/Application tests cover closed
+robots enforcement in Conservative/Workspace/Approval and audit-only behavior in
+Full Access/Debug, controlled MIME/parser behavior, truncation, immutable Run-scoped
+storage, idempotent replay/conflict, failed/blocked/partial snapshots, same-Run
+citation, and stale projection. Gateway/Application tests cover closed
 schemas, capability absence, durable authority, and generation/revision rechecks.
 HTTP, CLI, transcript, React, CSS, OpenAPI, and generated-TypeScript tests assert the
 same source metadata and absence of page bodies, snippets, claims, credentials, and
@@ -158,10 +190,13 @@ private authority.
 ## 中文结论
 
 `web_search` 只创建不可引用的发现记录，`web_fetch` 在 Run 级 allowlist、SSRF/DNS/重定向、
-robots、大小、MIME 与解析器边界内生成不可变快照，`web_citation` 只能引用同一 Run 中已成功或
-部分抓取的快照。默认网络关闭；未配置 SearXNG 时不提供搜索，也不会回退到浏览器、Shell 或其他
-Provider。
+大小、MIME 与解析器边界内生成不可变快照。Conservative、Workspace 与 Approval 强制执行
+robots policy；Full Access 与 Debug 仍记录 robots 审计事实，但 disallow、缺失或无法确认不会阻断
+抓取。该审计绕过不会放松私网、loopback、云 metadata、DNS rebinding、HTTPS、重定向、大小或
+超时硬边界。`web_citation` 只能引用同一 Run 中已成功或部分抓取的快照。默认网络关闭；未配置
+SearXNG 时不提供搜索，也不会回退到浏览器、Shell 或其他 Provider。
 
 网页内容始终是 `untrusted`、`instruction_authorized=false` 的证据。Thread、CLI 与 HTTP 共用
 同一 Go 投影，只公开链接、标题、状态、抓取时间与摘要，不公开网页正文、搜索片段或引用 claim。
-robots 允许不等于版权或合同许可，操作者仍需对目标站点条款、隐私与 Run 数据保留负责。
+robots 允许或在 Full Access/Debug 中被作为审计事实绕过，都不等于版权、许可或合同授权；操作者
+仍需对目标站点条款、隐私与 Run 数据保留负责。

@@ -139,6 +139,7 @@ func TestSupervisorWebEvidenceEventProjectionWhitelistsOnlyPublicMetadata(t *tes
 		"title": "Report", "state": "partial", "fetched_at": "2026-08-25T00:00:00Z",
 		"stale_at": "2026-08-26T00:00:00Z", "digest": strings.Repeat("a", 64),
 		"partial": "true", "stale": "false", "citeable": "true",
+		"robots": "not_checked",
 	}
 	result, _ := json.Marshal(map[string]any{"version": "supervisor_tool_result.v1",
 		"tool": string(toolgateway.WebCitationTool), "status": "completed",
@@ -148,12 +149,25 @@ func TestSupervisorWebEvidenceEventProjectionWhitelistsOnlyPublicMetadata(t *tes
 	payload := supervisorToolStreamEventPayload(call, call.Status, llm.StreamEventType(""))
 	presentation, ok := payload["web_evidence"].(map[string]any)
 	if !ok || presentation["url"] != metadata["url"] || presentation["untrusted"] != true ||
-		presentation["instruction_authorized"] != false {
+		presentation["instruction_authorized"] != false ||
+		presentation["robots"] != "not_checked" {
 		t.Fatalf("presentation=%#v", presentation)
 	}
 	encoded, _ := json.Marshal(payload)
 	if strings.Contains(string(encoded), "private fetched body") {
 		t.Fatalf("event leaked tool output: %s", encoded)
+	}
+	for _, robots := range []string{"not_present", "bypassed_disallow", "bypassed_unknown"} {
+		metadata["robots"] = robots
+		result, _ = json.Marshal(map[string]any{"version": "supervisor_tool_result.v1",
+			"tool": string(toolgateway.WebCitationTool), "status": "completed",
+			"metadata": metadata})
+		call.ResultJSON = string(result)
+		payload = supervisorToolStreamEventPayload(call, call.Status, llm.StreamEventType(""))
+		presentation, ok = payload["web_evidence"].(map[string]any)
+		if !ok || presentation["robots"] != robots {
+			t.Fatalf("robots=%q presentation=%#v", robots, presentation)
+		}
 	}
 	metadata["url"] = "https://127.0.0.1/private"
 	result, _ = json.Marshal(map[string]any{"version": "supervisor_tool_result.v1",

@@ -644,6 +644,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/provider-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List credential-free custom Provider definitions
+         * @description Returns operator-authored Provider protocol, endpoint, model mapping, search policy, and bounded advanced JSON. Credentials are represented only by same-Provider references and plaintext is never returned.
+         */
+        get: operations["listProviderDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/provider-definitions/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create or update a custom Provider
+         * @description Persists one revision-bound credential-free Provider definition, then atomically installs a new Registry generation. Native search declarations remain unverified and grant no hosted tool or network authority.
+         */
+        post: operations["upsertProviderDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/provider-definitions/{provider}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a custom Provider
+         * @description Deletes one exact revision only when no persisted model route still selects it, then installs a new Registry generation. The separately stored OS credential is not exposed.
+         */
+        post: operations["deleteProviderDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/routes/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List selectable Provider/model routes
+         * @description Returns the credential-free, qualification-aware model routes that the Thread composer may display. The selectable flag is the server-authoritative admission decision; no credential plaintext is returned.
+         */
+        get: operations["listAvailableModelRoutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/routes/{route}": {
         parameters: {
             query?: never;
@@ -739,7 +819,7 @@ export interface paths {
         put?: never;
         /**
          * Create a controlled Run
-         * @description Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. The request cannot select a model, budget, network target, existing Session, process backend, or capability grant.
+         * @description Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist; wildcard and global network grants are rejected. The request cannot select a model, budget, existing Session, process backend, or capability grant.
          */
         post: operations["createRun"];
         delete?: never;
@@ -802,6 +882,26 @@ export interface paths {
          * @description Persists an audit-first cancellation request bound to the exact active Supervisor and model attempt. The worker consumes it with its private execution lease; clients never provide a fencing token.
          */
         post: operations["requestModelCancellation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/active-call/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Poll the active safe model preview
+         * @description Returns an explicit inactive projection between model calls so embedded renderers can poll without treating the expected idle state as an HTTP error. An active snapshot has the same redacted, provisional boundary as the exact active-call endpoint.
+         */
+        get: operations["pollPublicModelStream"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1103,7 +1203,7 @@ export interface paths {
         put?: never;
         /**
          * Select a Run browser CDP permission mode
-         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or a highly sensitive full-debug CDP ceiling. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability; full debug also requires the current Run execution permission and process-local startup capability to be Debug.
+         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.
          */
         post: operations["selectRunBrowserCDPPermission"];
         delete?: never;
@@ -1341,7 +1441,7 @@ export interface paths {
         };
         /**
          * List Run events
-         * @description Returns the ordered append-only Run event stream.
+         * @description Returns the ordered append-only Run event stream with a strict Go-owned metadata projection for every payload. Commands, paths, prompts, tool arguments and results, output, headers, credentials, and extension-defined string fields are omitted before the response reaches the renderer.
          */
         get: operations["listRunEvents"];
         put?: never;
@@ -1736,6 +1836,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/full-cdp-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current Full CDP session state
+         * @description Returns only the redacted process-local lifecycle state for the Run's current or most recent Full CDP session. It never exposes a PID, executable or Profile path, DevTools endpoint, WebSocket URL, permission snapshot identity, runtime fence, token, or authorization fingerprint.
+         */
+        get: operations["getRunFullCDPSession"];
+        put?: never;
+        /**
+         * Open a confirmed Full CDP session
+         * @description Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.
+         */
+        post: operations["openRunFullCDPSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/full-cdp-session/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close and clean one exact Full CDP session
+         * @description Closes the CDP transport, terminates and reaps the complete browser process tree, releases and deletes only the exact owned disposable Profile, then records a redacted terminal audit event. Closing is a cleanup operation and does not require a high-risk confirmation or still-live Full CDP permission.
+         */
+        post: operations["closeRunFullCDPSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/git-advanced": {
         parameters: {
             query?: never;
@@ -1970,6 +2114,26 @@ export interface paths {
          * @description Applies one exact idempotent Run lifecycle transition. Start atomically crosses created, preparing, and running; pause requires a quiescent Supervisor with no active execution lease; resume requires paused state. This operation never calls a model or tool.
          */
         post: operations["controlRunLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/network-authority": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add exact HTTPS hosts to a quiescent Run
+         * @description Appends a new Run mode revision that adds only the explicitly listed canonical public HTTPS hostnames. The transition requires an exact expected mode revision, a created or paused Run, no active execution lease, and an idempotency key. It never grants public_https, wildcard, implicit search-provider, process, credential, or filesystem authority; all prior tool fences become stale.
+         */
+        post: operations["expandRunNetworkAuthority"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2273,7 +2437,7 @@ export interface paths {
         };
         /**
          * List Supervisor tool rounds
-         * @description Returns persisted redacted structured-memory tool rounds and calls.
+         * @description Returns persisted Supervisor tool rounds with the same Go-owned closed thread_activity_detail.v2 union used by the Thread conversation. Raw durable payload/result JSON and generic name/value fact arrays are never exposed; unsupported historical calls fail closed with detail_available=false.
          */
         get: operations["listRunToolRounds"];
         put?: never;
@@ -3031,7 +3195,7 @@ export interface paths {
         put?: never;
         /**
          * Create a Thread
-         * @description Atomically creates one stable Thread with its initial Mission, Run, Session, closed mode, all-denied authority snapshots, root Agent, and audit events.
+         * @description Atomically creates one stable Thread with its initial Mission, Run, Session, closed execution mode, all-denied process authority snapshots, root Agent, and audit events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist.
          */
         post: operations["createThread"];
         delete?: never;
@@ -3052,6 +3216,46 @@ export interface paths {
          * @description Returns the same canonical Thread projection with its Mission, active and last Run, and complete succession chain.
          */
         get: operations["getThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/activities/{activity_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect safe typed Thread activity details
+         * @description Lazily returns one Go-owned discriminated detail branch for command, Web search/fetch, file read/edit, MCP, verification, or browser activity. References are resolved through the Thread-to-Run binding and cannot expose another Thread. Environment values, stdin, credentials, raw payload/result JSON, process identities, private host paths, edit bodies, MCP scalar values, and private reasoning are never returned.
+         */
+        get: operations["getThreadActivityDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/activities/{activity_ref}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a safe Thread command output artifact
+         * @description Returns one Thread-, activity-, Run-, and Job-bound command stdout/stderr artifact after a second Go-owned redaction and host-path projection. Interactive-stdin Jobs fail closed. Raw payload JSON, environment values, stdin, credentials, process identities, and private reasoning are never returned.
+         */
+        get: operations["getThreadActivityArtifact"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3168,6 +3372,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/model-route": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a Thread's preferred next-Run model route
+         * @description Returns the explicit Thread preference or the inherited default without exposing credentials. A running Run is never changed.
+         */
+        get: operations["getThreadModelRoute"];
+        /**
+         * Select or reset a Thread's next-Run model route
+         * @description Persists an idempotent qualified Provider/model preference for the next successor Run. It never mutates the current Run, calls a model, or returns credential material.
+         */
+        put: operations["selectThreadModelRoute"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a failed Thread Run
+         * @description Explicitly ends the exact active running Run only when its latest durable execution handoff failed and no execution lease remains active. Pending steering on the old Run is cancelled and never copied. The next Thread submission atomically creates a successor using the selected next-Run model and permission preferences.
+         */
+        post: operations["recoverThreadRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/restore": {
         parameters: {
             query?: never;
@@ -3208,6 +3456,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/search-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a Thread's Web search readiness
+         * @description Returns a credential-free, read-only projection over the active Run network allowlist, exact model route, configured search policy, and already-observed Provider qualification cache. It performs no Provider request, never treats declared_unverified as ready, and grants no capability.
+         */
+        get: operations["getProviderSearchReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/transcript": {
         parameters: {
             query?: never;
@@ -3222,6 +3490,26 @@ export interface paths {
         get: operations["listThreadTranscript"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute a Thread turn
+         * @description Submits one operator message and owns the associated Run start or resume plus bounded Supervisor execution until finish, wait, approval, concurrent steering, or an internal safety boundary. The client does not select a Run or provide a step limit. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.
+         */
+        post: operations["executeThreadTurn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3621,20 +3909,23 @@ export interface components {
         };
         ApprovalDecisionControlRequestView: {
             /** @enum {string} */
-            action: "approve_once" | "deny";
+            action: "approve_once" | "approve_for_thread" | "deny";
             reason?: string;
             /** @enum {string} */
             version: "approval_control.v1";
         };
         ApprovalDecisionControlView: {
             /** @enum {string} */
-            action: "approve_once" | "deny";
+            action: "approve_once" | "approve_for_thread" | "deny";
             approval_id: string;
             capability_grant: boolean;
             docker_execution_enabled: boolean;
+            execution_resumed: boolean;
             process_execution_enabled: boolean;
             proposal_id: string;
             replayed: boolean;
+            retry_completed: boolean;
+            retry_scheduled: boolean;
             run_id: string;
             session_grant_created: boolean;
             shell_execution_enabled: boolean;
@@ -3648,9 +3939,11 @@ export interface components {
         ApprovalQueueItemView: {
             action_class: string;
             allowed_actions: string[];
+            canonical_url?: string;
             capability_grant: boolean;
             /** Format: date-time */
             created_at: string;
+            exact_target?: string;
             id: string;
             mode: string;
             process_execution_enabled: boolean;
@@ -3658,7 +3951,7 @@ export interface components {
             run_id: string;
             session_id: string;
             /** @enum {string} */
-            status: "pending";
+            status: "pending" | "approved" | "denied";
             tool_name: string;
             /** Format: date-time */
             updated_at: string;
@@ -3695,6 +3988,28 @@ export interface components {
             stream: "stdout" | "stderr";
             tool_name: string;
             workspace_id?: string;
+        };
+        AvailableModelRouteCollectionView: {
+            /** Format: int64 */
+            generation: number;
+            /** @enum {string} */
+            protocol_version: "model_route_catalog.v1";
+            routes: components["schemas"]["AvailableModelRouteView"][];
+        };
+        AvailableModelRouteView: {
+            /** @enum {string} */
+            credential_status: "not_required" | "configured" | "not_configured" | "invalid_configuration" | "disabled" | "unavailable";
+            default_for_routes: string[];
+            enabled: boolean;
+            harness_ready: boolean;
+            model: string;
+            provider_id: string;
+            provider_name: string;
+            /** @enum {string} */
+            qualification_status: "unavailable" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "trusted_builtin" | "qualification_required" | "verified";
+            selectable: boolean;
+            /** @enum {string} */
+            unavailable_reason: "" | "provider_disabled" | "credential_not_configured" | "invalid_configuration" | "provider_unavailable" | "harness_qualification_required" | "not_configured" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
         };
         BatchDeliveriesListView: {
             items: components["schemas"]["BatchDeliveryPlanView"][];
@@ -5614,6 +5929,58 @@ export interface components {
             status: "draft" | "validated" | "accepted" | "fixed" | "rejected";
             title: string;
         };
+        FullCDPBrowserSelectionView: {
+            /** @enum {string} */
+            channel: "stable" | "beta" | "dev" | "canary";
+            /** @enum {string} */
+            product: "chrome" | "edge";
+        };
+        FullCDPSessionCloseRequestView: {
+            expected_session_id: string;
+            reason?: string;
+            /** @enum {string} */
+            version: "full_cdp_session_close.v1";
+        };
+        FullCDPSessionControlView: {
+            replayed: boolean;
+            session: components["schemas"]["FullCDPSessionView"];
+        };
+        FullCDPSessionOpenRequestView: {
+            browser: components["schemas"]["FullCDPBrowserSelectionView"];
+            confirm_full_cdp: boolean;
+            /** Format: int64 */
+            expected_browser_cdp_permission_revision: number;
+            /** Format: int64 */
+            expected_execution_permission_revision: number;
+            reason?: string;
+            target: string;
+            /** @enum {string} */
+            version: "full_cdp_session.v1";
+        };
+        FullCDPSessionView: {
+            browser?: components["schemas"]["FullCDPBrowserSelectionView"];
+            cdp_closed: boolean;
+            /** @enum {string} */
+            close_reason?: "operator_closed" | "expired" | "permission_revoked" | "process_exited" | "run_terminal" | "desktop_shutdown" | "open_failed";
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            failure_code?: string;
+            process_tree_quiescent: boolean;
+            profile_cleaned: boolean;
+            profile_released: boolean;
+            run_id: string;
+            runtime_available: boolean;
+            session_id?: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            state: "none" | "starting" | "ready" | "closing" | "closed" | "failed";
+            target_origin?: string;
+            /** @enum {string} */
+            version: "full_cdp_session.v1";
+        };
         GitAdvancedAuthorityView: {
             executable: boolean;
             lease_active: boolean;
@@ -6854,7 +7221,7 @@ export interface components {
             /** @enum {string} */
             tool_strategy: "native" | "none";
             /** @enum {string} */
-            transport_protocol: "mock" | "anthropic_messages" | "openai_chat_completions" | "ollama_chat" | "provider_contract";
+            transport_protocol: "mock" | "anthropic_messages" | "openai_chat_completions" | "openai_responses" | "ollama_chat" | "provider_contract";
         };
         ModelHarnessQualificationRequestView: {
             confirm_qualification: boolean;
@@ -7231,25 +7598,46 @@ export interface components {
         ProviderAvailability: {
             ConfigurationError: boolean;
             CredentialSource: string;
+            Custom: boolean;
+            /** Format: int64 */
+            DefinitionRevision: number;
+            DisplayName: string;
+            Enabled: boolean;
             Harnesses: components["schemas"]["HarnessAvailability"][];
             Kind: string;
             Models: string[];
             Name: string;
+            NativeWebSearchCapability: string;
+            NativeWebSearchRuntimeEnabled: boolean;
             NetworkRequired: boolean;
+            SearchMode: string;
             Status: string;
+            Transport: string;
         };
         ProviderAvailabilityView: {
             configuration_error: boolean;
             /** @enum {string} */
             credential_source: "none" | "environment" | "system";
+            custom: boolean;
+            /** Format: int64 */
+            definition_revision: number;
+            display_name: string;
+            enabled: boolean;
             harnesses: components["schemas"]["ModelHarnessAvailabilityView"][];
             /** @enum {string} */
             kind: "local" | "anthropic_compatible" | "openai_compatible" | "ollama";
             models: string[];
             name: string;
+            /** @enum {string} */
+            native_web_search_capability: "unsupported" | "declared_unverified";
+            native_web_search_runtime_enabled: boolean;
             network_required: boolean;
             /** @enum {string} */
+            search_mode: "disabled" | "auto" | "searxng" | "provider_native";
+            /** @enum {string} */
             status: "available" | "not_configured" | "invalid_configuration";
+            /** @enum {string} */
+            transport: "mock" | "anthropic_messages" | "openai_chat_completions" | "openai_responses" | "ollama_chat";
         };
         ProviderCredentialListView: {
             items: components["schemas"]["ProviderCredentialStatusView"][];
@@ -7269,14 +7657,64 @@ export interface components {
             plaintext_returned: boolean;
             /** @enum {string} */
             protocol_version: "provider_credential.v1";
-            /** @enum {string} */
-            provider: "anthropic" | "deepseek" | "mimo" | "openai";
+            provider: string;
             /** Format: int64 */
             registry_generation: number;
             registry_reloaded: boolean;
             restart_required: boolean;
             store_available: boolean;
             store_kind: string;
+        };
+        ProviderDefinition: {
+            advanced_config: unknown;
+            default_model: string;
+            display_name: string;
+            enabled: boolean;
+            endpoint_url: string;
+            id: string;
+            models: string[];
+            /** @enum {string} */
+            native_web_search_capability: "unsupported" | "declared_unverified";
+            note: string;
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            search_mode: "disabled" | "auto" | "searxng" | "provider_native";
+            /** @enum {string} */
+            transport: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
+            /** @enum {string} */
+            version: "provider_definition.v1";
+            website_url: string;
+        };
+        ProviderDefinitionCollectionView: {
+            providers: components["schemas"]["ProviderDefinition"][];
+            /** Format: int64 */
+            revision: number;
+            version: string;
+        };
+        ProviderDefinitionDeleteRequestView: {
+            confirm: boolean;
+            /** Format: int64 */
+            expected_collection_revision: number;
+            /** Format: int64 */
+            expected_definition_revision: number;
+            version: string;
+        };
+        ProviderDefinitionMutationView: {
+            collection: components["schemas"]["ProviderDefinitionCollectionView"];
+            definition?: components["schemas"]["ProviderDefinition"];
+            deleted_id?: string;
+            protocol_version: string;
+            /** Format: int64 */
+            registry_generation: number;
+            registry_reloaded: boolean;
+        };
+        ProviderDefinitionUpsertRequestView: {
+            confirm: boolean;
+            definition: components["schemas"]["ProviderDefinition"];
+            /** Format: int64 */
+            expected_collection_revision: number;
+            version: string;
         };
         ProviderDiagnosticRequestView: {
             confirm_diagnostic: boolean;
@@ -7305,6 +7743,36 @@ export interface components {
             /** @enum {string} */
             status: "reachable" | "unreachable";
             tool_called: boolean;
+        };
+        ProviderSearchReadinessView: {
+            capability_grant: boolean;
+            detail_code?: string;
+            /** Format: int64 */
+            mode_revision?: number;
+            model?: string;
+            model_route?: string;
+            /** @enum {string} */
+            network_mode: "disabled" | "allowlist";
+            /** @enum {string} */
+            protocol_version: "provider_search_readiness.v1";
+            provider?: string;
+            /** @enum {string} */
+            reason: "run_network_disabled" | "search_endpoint_not_allowlisted" | "provider_native_qualification_required" | "provider_native_qualification_failed" | "no_active_run" | "model_provider_unavailable" | "provider_search_policy_disabled" | "search_backend_not_configured" | "provider_search_configuration_invalid" | "search_backend_ready";
+            /** @enum {string} */
+            remediation: "enable_network_allowlist" | "add_required_target" | "qualify_provider_search" | "submit_to_create_successor" | "configure_search_provider" | "enable_provider_search" | "repair_provider_configuration" | "none";
+            required_target?: string;
+            run_id?: string;
+            runtime_ready: boolean;
+            /** @enum {string} */
+            search_policy?: "disabled" | "auto" | "searxng" | "provider_native";
+            /** @enum {string} */
+            state: "network_disabled" | "missing_allowlist" | "provider_unqualified" | "provider_unavailable" | "ready";
+            thread_id?: string;
+        };
+        PublicModelStreamPollView: {
+            active: boolean;
+            snapshot?: components["schemas"]["PublicModelStreamSnapshot"];
+            version: string;
         };
         PublicModelStreamSnapshot: {
             call: components["schemas"]["ActiveCallInfo"];
@@ -7794,7 +8262,10 @@ export interface components {
             project_instructions_fingerprint?: string;
         };
         RunCreationControlRequestView: {
+            allowed_targets?: string[];
             goal: string;
+            /** @enum {string} */
+            network_mode?: "disabled" | "allowlist";
             /** @enum {string} */
             phase?: "plan" | "deliver";
             /** @enum {string} */
@@ -8089,6 +8560,24 @@ export interface components {
             /** @enum {string} */
             surface: "code" | "cyber";
         };
+        RunNetworkAuthorityControlRequestView: {
+            add_allowed_targets: string[];
+            /** Format: int64 */
+            expected_mode_revision: number;
+            reason?: string;
+            /** @enum {string} */
+            version: "run_network_authority_control.v1";
+        };
+        RunNetworkAuthorityControlView: {
+            added_targets: string[];
+            /** @constant */
+            capability_grant: true;
+            mode: components["schemas"]["RunModeView"];
+            replayed: boolean;
+            run_id: string;
+            /** @enum {string} */
+            version: "run_network_authority_control.v1";
+        };
         RunState: {
             current_checkpoint_id: string;
             last_transaction_id?: string;
@@ -8243,6 +8732,7 @@ export interface components {
             file_edit_proposal_enabled: boolean;
             file_edit_review_enabled: boolean;
             full_cdp_debug_enabled: boolean;
+            full_cdp_session_control_enabled: boolean;
             git_advanced_control_enabled: boolean;
             github_review_control_enabled: boolean;
             host_command_proposal_control_enabled: boolean;
@@ -8947,13 +9437,13 @@ export interface components {
             completed_at?: string;
             /** Format: date-time */
             created_at: string;
+            detail?: components["schemas"]["ThreadActivityToolDetailView"];
+            detail_available: boolean;
             error_code?: string;
             /** Format: int32 */
             model_attempt: number;
-            payload: unknown;
             /** Format: int32 */
             position: number;
-            result?: unknown;
             /** @enum {string} */
             status: "pending" | "completed" | "denied" | "failed";
             stream_call_id?: string;
@@ -8973,15 +9463,276 @@ export interface components {
             /** Format: int32 */
             round: number;
             run_id: string;
+            thread_id?: string;
             /** Format: int32 */
             turn: number;
         };
+        ThreadActivityArtifactReferenceView: {
+            artifact_ref: string;
+            /** @enum {string} */
+            mime: "text/plain; charset=utf-8";
+            /** Format: int64 */
+            size_bytes: number;
+            /** @enum {string} */
+            stream: "stdout" | "stderr";
+            truncated: boolean;
+        };
+        ThreadActivityArtifactView: {
+            activity_ref: string;
+            artifact_ref: string;
+            content: string;
+            instruction_authorized: boolean;
+            /** @enum {string} */
+            mime: "text/plain; charset=utf-8";
+            redacted: boolean;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** @enum {string} */
+            stream: "stdout" | "stderr";
+            truncated: boolean;
+            untrusted: boolean;
+            /** @enum {string} */
+            version: "thread_activity_artifact.v1";
+        };
+        ThreadActivityBoundaryView: {
+            /** @enum {string} */
+            authorization: "policy_checked" | "pending" | "denied";
+            error_code: string;
+            failure_reason: string;
+            truncated: boolean;
+            untrusted: boolean;
+        };
+        ThreadActivityBrowserDetailView: {
+            action: string;
+            /** Format: int64 */
+            artifact_bytes: number;
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            /** Format: int32 */
+            input_length: number;
+            operation: string;
+            selector: string;
+            summary: string;
+            url: string;
+        };
+        ThreadActivityCommandDetailView: {
+            artifacts: components["schemas"]["ThreadActivityArtifactReferenceView"][];
+            command: string;
+            /** Format: int64 */
+            duration_milliseconds: number;
+            /** @enum {string} */
+            execution_environment: "Workspace Sandbox" | "Host · Full Access" | "Legacy execution boundary";
+            /** Format: int32 */
+            exit_code?: number;
+            /** @enum {string} */
+            network: "disabled";
+            /** @enum {string} */
+            status: "pending" | "completed" | "denied" | "failed" | "prepared" | "running" | "stopping" | "completed" | "failed" | "timed_out" | "cancelled" | "killed" | "interrupted";
+            stderr_preview: string;
+            stdout_preview: string;
+            truncated: boolean;
+            working_directory: string;
+        };
+        ThreadActivityCommandGroupView: {
+            commands: components["schemas"]["ThreadActivityCommandDetailView"][];
+        };
+        ThreadActivityDetailView: {
+            activity_ref: string;
+            run_id: string;
+            tools: components["schemas"]["ThreadActivityToolDetailView"][];
+            /** @enum {string} */
+            version: "thread_activity_detail.v2";
+        };
+        ThreadActivityDiffSummaryView: {
+            /** Format: int32 */
+            added_lines: number;
+            /** Format: int32 */
+            hunks: number;
+            /** Format: int32 */
+            removed_lines: number;
+            summary: string;
+        };
+        ThreadActivityFileEditDetailView: {
+            action: string;
+            applied: boolean;
+            apply_status: string;
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            destination_path: string;
+            diff: components["schemas"]["ThreadActivityDiffSummaryView"];
+            diff_available: boolean;
+            edit_id: string;
+            file_written: boolean;
+            operation: string;
+            path: string;
+            replayed: boolean;
+        };
+        ThreadActivityFileReadDetailView: {
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            /** Format: int32 */
+            end_line: number;
+            /** Format: int32 */
+            limit: number;
+            operation: string;
+            path: string;
+            pattern: string;
+            query: string;
+            /** Format: int32 */
+            result_count: number;
+            /** Format: int32 */
+            start_line: number;
+            summary: string;
+            truncated: boolean;
+        };
+        ThreadActivityJSONFieldSummaryView: {
+            name: string;
+            summary: string;
+            /** @enum {string} */
+            type: "null" | "boolean" | "number" | "string" | "array" | "object" | "unknown";
+        };
+        ThreadActivityJSONSummaryView: {
+            /** Format: int32 */
+            count: number;
+            fields: components["schemas"]["ThreadActivityJSONFieldSummaryView"][];
+            summary: string;
+            /** @enum {string} */
+            type: "unavailable" | "text" | "null" | "boolean" | "number" | "string" | "array" | "object" | "unknown";
+        };
+        ThreadActivityMCPDetailView: {
+            arguments: components["schemas"]["ThreadActivityJSONFieldSummaryView"][];
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            operation: string;
+            result: components["schemas"]["ThreadActivityJSONSummaryView"];
+            server: string;
+            tool: string;
+        };
+        ThreadActivitySearchSourceView: {
+            citeable: boolean;
+            provider: string;
+            /** Format: int32 */
+            rank: number;
+            state: string;
+            title: string;
+            url: string;
+        };
+        ThreadActivitySummaryView: {
+            activity_ref: string;
+            command: string;
+            /** Format: int32 */
+            command_count: number;
+            /** Format: int64 */
+            duration_milliseconds: number;
+            /** Format: int32 */
+            exit_code?: number;
+            /** @enum {string} */
+            status: "pending" | "completed" | "denied" | "failed" | "prepared" | "running" | "stopping" | "completed" | "failed" | "timed_out" | "cancelled" | "killed" | "interrupted";
+            /** @enum {string} */
+            version: "thread_activity_summary.v1";
+        };
+        ThreadActivityToolDetailView: {
+            agent_id: string;
+            agent_label: string;
+            /** @enum {string} */
+            agent_role: "root" | "specialist" | "unknown";
+            /** Format: date-time */
+            completed_at?: string;
+            detail: components["schemas"]["ThreadActivityTypedDetailView"];
+            /** Format: int64 */
+            duration_milliseconds: number;
+            label: string;
+            /** @enum {string} */
+            name: "command_runtime" | "workspace_list" | "workspace_read" | "workspace_glob" | "workspace_grep" | "workspace_change" | "workspace_apply" | "workspace_delete" | "web_search" | "web_fetch" | "web_citation" | "mcp_tool_call" | "code_workspace_symbols" | "code_document_symbols" | "code_definition" | "code_references" | "code_implementation" | "code_hover" | "code_signature_help" | "code_diagnostics" | "code_call_hierarchy" | "code_type_hierarchy" | "github_review_evidence_list" | "github_review_evidence_read" | "browser_status" | "browser_navigate" | "browser_snapshot" | "browser_click" | "browser_type" | "browser_screenshot";
+            /** Format: date-time */
+            started_at: string;
+            /** @enum {string} */
+            status: "pending" | "completed" | "denied" | "failed";
+        };
+        ThreadActivityTypedDetailView: {
+            command: components["schemas"]["ThreadActivityCommandGroupView"];
+            /** @enum {string} */
+            kind: "command";
+        } | {
+            /** @enum {string} */
+            kind: "web_search";
+            web_search: components["schemas"]["ThreadActivityWebSearchDetailView"];
+        } | {
+            /** @enum {string} */
+            kind: "web_fetch";
+            web_fetch: components["schemas"]["ThreadActivityWebFetchDetailView"];
+        } | {
+            file_read: components["schemas"]["ThreadActivityFileReadDetailView"];
+            /** @enum {string} */
+            kind: "file_read";
+        } | {
+            file_edit: components["schemas"]["ThreadActivityFileEditDetailView"];
+            /** @enum {string} */
+            kind: "file_edit";
+        } | {
+            /** @enum {string} */
+            kind: "mcp";
+            mcp: components["schemas"]["ThreadActivityMCPDetailView"];
+        } | {
+            /** @enum {string} */
+            kind: "verification";
+            verification: components["schemas"]["ThreadActivityVerificationDetailView"];
+        } | {
+            browser: components["schemas"]["ThreadActivityBrowserDetailView"];
+            /** @enum {string} */
+            kind: "browser";
+        };
+        ThreadActivityVerificationDetailView: {
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            direction: string;
+            /** Format: int32 */
+            limit: number;
+            operation: string;
+            path: string;
+            position: string;
+            query: string;
+            /** Format: int32 */
+            result_count: number;
+            summary: string;
+            tool: string;
+            truncated: boolean;
+        };
+        ThreadActivityWebFetchDetailView: {
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            citeable: boolean;
+            /** Format: int32 */
+            http_status: number;
+            operation: string;
+            partial: boolean;
+            /** Format: int32 */
+            redirects: number;
+            robots: string;
+            robots_policy: string;
+            state: string;
+            url: string;
+        };
+        ThreadActivityWebSearchDetailView: {
+            boundary: components["schemas"]["ThreadActivityBoundaryView"];
+            citeable: boolean;
+            /** Format: int32 */
+            limit: number;
+            operation: string;
+            provider: string;
+            query: string;
+            search_policy: string;
+            selection_reason: string;
+            /** Format: int32 */
+            source_count: number;
+            sources: components["schemas"]["ThreadActivitySearchSourceView"][];
+        };
         ThreadCreationControlRequestView: {
+            allowed_targets?: string[];
             goal: string;
+            model?: string;
+            /** @enum {string} */
+            network_mode?: "disabled" | "allowlist";
             /** @enum {string} */
             phase?: "plan" | "deliver";
             /** @enum {string} */
             profile?: "code" | "review" | "learn" | "script";
+            provider?: string;
             /** @enum {string} */
             surface?: "code" | "cyber";
             /** @enum {string} */
@@ -9000,6 +9751,7 @@ export interface components {
             active_run?: components["schemas"]["RunView"];
             last_run: components["schemas"]["RunView"];
             mission: components["schemas"]["MissionView"];
+            recovery?: components["schemas"]["ThreadRunRecoveryView"];
             runs: components["schemas"]["ThreadRunView"][];
             thread: components["schemas"]["ThreadView"];
         };
@@ -9025,7 +9777,7 @@ export interface components {
         };
         ThreadExecutionPermissionControlView: {
             /** @enum {string} */
-            current_run_effect?: "applied" | "paused_and_applied" | "no_active_run" | "pending";
+            current_run_effect?: "applied" | "paused_and_applied" | "deferred" | "no_active_run";
             current_run_id?: string;
             /** @enum {string} */
             current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
@@ -9138,6 +9890,30 @@ export interface components {
             /** Format: int32 */
             token_estimate: number;
         };
+        ThreadModelRouteControlRequestView: {
+            /** @enum {string} */
+            action: "select" | "reset";
+            model?: string;
+            operation_key: string;
+            provider?: string;
+            requested_by: string;
+            /** @enum {string} */
+            version: "thread_model_route_control.v1";
+        };
+        ThreadModelRouteView: {
+            active_run_unchanged: boolean;
+            /** @enum {string} */
+            applies_to: "next_run" | "current_and_next";
+            effective_run_id?: string;
+            model: string;
+            /** @enum {string} */
+            protocol_version: "thread_model_route.v1";
+            provider: string;
+            replayed: boolean;
+            /** @enum {string} */
+            source: "thread_preference" | "default" | "active_run";
+            thread_id: string;
+        };
         ThreadRunAuditEventView: {
             /** Format: date-time */
             created_at: string;
@@ -9152,6 +9928,32 @@ export interface components {
             type: string;
             version: string;
         };
+        ThreadRunRecoveryControlRequestView: {
+            handoff_operation_id: string;
+            run_id: string;
+            /** @enum {string} */
+            version: "thread_run_recovery.v1";
+        };
+        ThreadRunRecoveryControlView: {
+            failed_run: components["schemas"]["RunView"];
+            replayed: boolean;
+            successor_required: boolean;
+            thread: components["schemas"]["ThreadView"];
+            /** @enum {string} */
+            version: "thread_run_recovery.v1";
+        };
+        ThreadRunRecoveryView: {
+            detail: string;
+            error_code: string;
+            /** Format: date-time */
+            failed_at: string;
+            handoff_operation_id: string;
+            quiescent: boolean;
+            run_id: string;
+            stop_reason: string;
+            /** @enum {string} */
+            version: "thread_run_recovery.v1";
+        };
         ThreadRunView: {
             /** Format: date-time */
             created_at: string;
@@ -9161,6 +9963,8 @@ export interface components {
             run: components["schemas"]["RunView"];
         };
         ThreadTranscriptItemView: {
+            activity_detail_ref?: string;
+            activity_summary?: components["schemas"]["ThreadActivitySummaryView"];
             /** @enum {string} */
             activity_type: "message" | "search" | "read" | "edit" | "execute" | "verify" | "approval" | "checkpoint" | "delivery";
             attempt_id?: string;
@@ -9169,6 +9973,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             detail?: string;
+            detail_available?: boolean;
             durable: boolean;
             durable_call_id?: string;
             id: string;
@@ -10421,6 +11226,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description A bounded local runtime operation exceeded its deadline */
+        GatewayTimeout: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description Redacted internal server failure */
         InternalError: {
             headers: {
@@ -10475,6 +11289,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Required local runtime or trusted browser is unavailable */
+        Unavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description Control request must use application/json */
         UnsupportedMediaType: {
             headers: {
@@ -10521,6 +11344,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getArtifact: {
@@ -10556,6 +11381,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getBrowserSafeWebReadiness: {
@@ -10590,6 +11417,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRuntimeCapabilities: {
@@ -10621,6 +11450,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getCodeIntelInventory: {
@@ -10655,6 +11486,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     forkContinuityNode: {
@@ -10698,6 +11531,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     resumeContinuityNode: {
@@ -10741,6 +11576,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     queryDebugTimeline: {
@@ -10791,6 +11628,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exportDiagnosticBundle: {
@@ -10841,6 +11680,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getDoctorSnapshot: {
@@ -10875,6 +11716,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getExtensionInventory: {
@@ -10909,6 +11752,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     refreshMCPServer: {
@@ -10952,6 +11797,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewMCPServer: {
@@ -10995,6 +11842,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewPluginInstallation: {
@@ -11038,6 +11887,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listGitHubReviewConnections: {
@@ -11072,6 +11923,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     configureGitHubReviewConnection: {
@@ -11111,6 +11964,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getGitHubReviewConnection: {
@@ -11146,6 +12001,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     beginGitHubReviewDeviceFlow: {
@@ -11189,6 +12046,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     pollGitHubReviewDeviceFlow: {
@@ -11232,6 +12091,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     disconnectGitHubReviewCredential: {
@@ -11275,6 +12136,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     fetchGitHubReviewSnapshot: {
@@ -11318,6 +12181,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     qualifyGitHubReviewConnection: {
@@ -11361,6 +12226,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getHealth: {
@@ -11392,6 +12259,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listContextMemories: {
@@ -11434,6 +12303,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createContextMemory: {
@@ -11473,6 +12344,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exportContextMemories: {
@@ -11509,6 +12382,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getContextMemory: {
@@ -11544,6 +12419,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     deleteContextMemory: {
@@ -11587,6 +12464,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     updateContextMemory: {
@@ -11630,6 +12509,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getModelAvailability: {
@@ -11661,6 +12542,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listProviderCredentials: {
@@ -11692,6 +12575,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     changeProviderCredential: {
@@ -11699,8 +12584,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Credential provider name */
-                provider: "anthropic" | "deepseek" | "mimo" | "openai";
+                /** @description Built-in or persistent custom Provider credential identity */
+                provider: string;
             };
             cookie?: never;
         };
@@ -11734,6 +12619,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     diagnoseProvider: {
@@ -11773,6 +12660,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     qualifyModelHarness: {
@@ -11812,6 +12701,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listPriceSnapshots: {
@@ -11843,6 +12734,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     importPriceSnapshot: {
@@ -11882,6 +12775,163 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    listProviderDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderDefinitionCollectionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    upsertProviderDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Custom Provider identity */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderDefinitionUpsertRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderDefinitionMutationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    deleteProviderDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Custom Provider identity */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderDefinitionDeleteRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderDefinitionMutationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    listAvailableModelRoutes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvailableModelRouteCollectionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectModelRoute: {
@@ -11924,6 +12974,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getNote: {
@@ -11959,6 +13011,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getOpenAPI: {
@@ -11987,6 +13041,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listOperationReceipts: {
@@ -12023,6 +13079,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRuns: {
@@ -12064,6 +13122,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createRun: {
@@ -12106,6 +13166,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRun: {
@@ -12141,6 +13203,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getPublicModelStream: {
@@ -12176,6 +13240,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     requestModelCancellation: {
@@ -12222,6 +13288,45 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    pollPublicModelStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PublicModelStreamPollView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunActivity: {
@@ -12260,6 +13365,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunAgentGraph: {
@@ -12295,6 +13402,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     requestSpecialistModelCancellation: {
@@ -12343,6 +13452,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     executeEmbeddedAnalyzer: {
@@ -12385,6 +13496,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunApprovals: {
@@ -12420,6 +13533,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     decideRunApproval: {
@@ -12468,6 +13583,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunArtifacts: {
@@ -12513,6 +13630,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunBatchDeliveries: {
@@ -12551,6 +13670,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     prepareRunBatchDelivery: {
@@ -12597,6 +13718,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunBatchDelivery: {
@@ -12634,6 +13757,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelRunBatchDelivery: {
@@ -12682,6 +13807,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     renewRunBatchDeliveryChildOwner: {
@@ -12729,6 +13856,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewRunBatchDeliveryChild: {
@@ -12779,6 +13908,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     mergeRunBatchDelivery: {
@@ -12827,6 +13958,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reconcileRunBatchDelivery: {
@@ -12872,6 +14005,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectRunBrowserCDPPermission: {
@@ -12918,6 +14053,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunCapabilityReadiness: {
@@ -12953,6 +14090,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunChildTaskProposals: {
@@ -12988,6 +14127,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     admitRunChildTaskProposal: {
@@ -13033,6 +14174,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewRunChildTaskProposal: {
@@ -13078,6 +14221,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getCodeHandoff: {
@@ -13113,6 +14258,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exportCodeHandoff: {
@@ -13151,6 +14298,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listControlledCommandProposals: {
@@ -13189,6 +14338,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getControlledCommandProposal: {
@@ -13226,6 +14377,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewControlledCommandProposal: {
@@ -13274,6 +14427,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createContinuityCheckpoint: {
@@ -13317,6 +14472,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunDelegations: {
@@ -13358,6 +14515,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunEvents: {
@@ -13399,6 +14558,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     pollRunEvents: {
@@ -13439,6 +14600,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     streamRunEvents: {
@@ -13475,6 +14638,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunEvidence: {
@@ -13510,6 +14675,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     attachRunEvidence: {
@@ -13556,6 +14723,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     executeRunSelection: {
@@ -13602,6 +14771,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectRunExecutionInteraction: {
@@ -13648,6 +14819,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectRunExecutionPermission: {
@@ -13694,6 +14867,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectRunExecutionProfile: {
@@ -13740,6 +14915,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunExternalSkills: {
@@ -13775,6 +14952,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunFanoutExecutions: {
@@ -13813,6 +14992,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelRunFanoutExecution: {
@@ -13858,6 +15039,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunFanoutPlans: {
@@ -13899,6 +15082,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunFileEditChangeSet: {
@@ -13934,6 +15119,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recoverFileEditProposal: {
@@ -13971,6 +15158,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     issueFileEditProposalSource: {
@@ -14011,6 +15200,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createFileEditProposal: {
@@ -14054,6 +15245,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunFileEdits: {
@@ -14089,6 +15282,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunFileEdit: {
@@ -14126,6 +15321,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     applyRunFileEdit: {
@@ -14174,6 +15371,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewRunFileEdit: {
@@ -14219,6 +15418,141 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getRunFullCDPSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FullCDPSessionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    openRunFullCDPSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque process-local Full CDP open operation key */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullCDPSessionOpenRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FullCDPSessionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    closeRunFullCDPSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque process-local Full CDP close operation key */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullCDPSessionCloseRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FullCDPSessionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getGitAdvancedProjection: {
@@ -14257,6 +15591,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     discoverGitAdvancedHunks: {
@@ -14296,6 +15632,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     executeGitAdvancedOperation: {
@@ -14339,6 +15677,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewGitAdvancedOperation: {
@@ -14382,6 +15722,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getGitHubReviewProjection: {
@@ -14424,6 +15766,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     buildGitHubReviewEvidence: {
@@ -14467,6 +15811,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     executeGitHubReviewWrite: {
@@ -14510,6 +15856,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewGitHubReviewWrite: {
@@ -14553,6 +15901,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listHostCommandProposals: {
@@ -14591,6 +15941,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getHostCommandProposal: {
@@ -14628,6 +15980,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     reviewHostCommandProposal: {
@@ -14676,6 +16030,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     controlRunLifecycle: {
@@ -14722,6 +16078,56 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    expandRunNetworkAuthority: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque revision-bound operation key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunNetworkAuthorityControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunNetworkAuthorityControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunNotes: {
@@ -14777,6 +16183,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunOperatorActions: {
@@ -14812,6 +16220,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     enterPlanDelivery: {
@@ -14858,6 +16268,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectPlanDirection: {
@@ -14904,6 +16316,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     enterPlanMode: {
@@ -14950,6 +16364,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunProjectInstructions: {
@@ -14988,6 +16404,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     refreshRunProjectInstructions: {
@@ -15031,6 +16449,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunFindingReports: {
@@ -15072,6 +16492,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunFindingReport: {
@@ -15109,6 +16531,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunScheduledJobs: {
@@ -15146,6 +16570,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createRunScheduledJob: {
@@ -15192,6 +16618,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     transitionRunScheduledJob: {
@@ -15242,6 +16670,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getStandardCodeDelivery: {
@@ -15277,6 +16707,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recordStandardCodeDelivery: {
@@ -15320,6 +16752,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     pauseAndConfigureStandardCodeRun: {
@@ -15366,6 +16800,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     configureStandardCodeRun: {
@@ -15412,6 +16848,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunToolRounds: {
@@ -15453,6 +16891,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunUIEvidence: {
@@ -15493,6 +16933,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     startRunUIEvidence: {
@@ -15536,6 +16978,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunVerificationEvidence: {
@@ -15571,6 +17015,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recordRunVerificationEvidence: {
@@ -15617,6 +17063,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunVerificationPlans: {
@@ -15652,6 +17100,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recordRunVerificationPlan: {
@@ -15698,6 +17148,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     associateRunVerificationEvidence: {
@@ -15744,6 +17196,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunVerificationPlanCoverage: {
@@ -15779,6 +17233,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunVerificationPlanItemCoverage: {
@@ -15824,6 +17280,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exportRunVerificationPlanItemSnapshot: {
@@ -15866,6 +17324,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunVerificationSnapshotReceiptReviews: {
@@ -15901,6 +17361,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recordRunVerificationSnapshotReceiptReview: {
@@ -15947,6 +17409,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunVerificationSnapshotReceipts: {
@@ -15982,6 +17446,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     recordRunVerificationSnapshotReceipt: {
@@ -16028,6 +17494,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunWakeIntent: {
@@ -16063,6 +17531,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     scheduleRunWake: {
@@ -16109,6 +17579,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelRunWake: {
@@ -16155,6 +17627,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     consumeRunWake: {
@@ -16198,6 +17672,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getRunWebEvidence: {
@@ -16236,6 +17712,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listRunWorkItems: {
@@ -16283,6 +17761,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listWorkspaceCheckpoints: {
@@ -16323,6 +17803,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createWorkspaceCheckpoint: {
@@ -16366,6 +17848,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     forkWorkspaceCheckpoint: {
@@ -16409,6 +17893,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     previewWorkspaceRewind: {
@@ -16452,6 +17938,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     redoWorkspaceMutation: {
@@ -16495,6 +17983,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     rewindWorkspaceCheckpoint: {
@@ -16538,6 +18028,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     undoWorkspaceMutation: {
@@ -16581,6 +18073,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     admitDockerSandbox: {
@@ -16623,6 +18117,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelDockerSandbox: {
@@ -16665,6 +18161,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     evaluateDockerSandboxReadiness: {
@@ -16700,6 +18198,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     startDockerSandbox: {
@@ -16742,6 +18242,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getDockerSandboxStatus: {
@@ -16777,6 +18279,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listScheduledJobs: {
@@ -16813,6 +18317,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getScheduledJob: {
@@ -16853,6 +18359,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listSessions: {
@@ -16890,6 +18398,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getSession: {
@@ -16925,6 +18435,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     archiveSession: {
@@ -16968,6 +18480,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listSessionMessages: {
@@ -17011,6 +18525,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     submitSessionMessage: {
@@ -17057,6 +18573,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelSessionSteering: {
@@ -17105,6 +18623,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getSessionContinuityTree: {
@@ -17140,6 +18660,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     installSkillPackage: {
@@ -17182,6 +18704,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createStandardCodeRun: {
@@ -17224,6 +18748,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listThreads: {
@@ -17265,6 +18791,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     createThread: {
@@ -17307,6 +18835,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getThread: {
@@ -17342,6 +18872,88 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadActivityDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+                /** @description Opaque durable activity detail reference from the Thread transcript */
+                activity_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadActivityDetailView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadActivityArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+                /** @description Opaque durable activity detail reference from the Thread transcript */
+                activity_ref: string;
+                /** @description Artifact identity */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadActivityArtifactView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     archiveThread: {
@@ -17388,6 +19000,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     deleteThread: {
@@ -17434,6 +19048,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getThreadExecutionPermission: {
@@ -17469,6 +19085,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     selectThreadExecutionPermission: {
@@ -17515,6 +19133,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exportThread: {
@@ -17550,6 +19170,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listThreadMessages: {
@@ -17593,6 +19215,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     submitThreadMessage: {
@@ -17639,6 +19263,138 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadModelRoute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadModelRouteView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    selectThreadModelRoute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadModelRouteControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadModelRouteView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    recoverThreadRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadRunRecoveryControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadRunRecoveryControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     restoreThread: {
@@ -17685,6 +19441,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listThreadRuns: {
@@ -17720,6 +19478,45 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getProviderSearchReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderSearchReadinessView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listThreadTranscript: {
@@ -17761,6 +19558,56 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    executeThreadTurn: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadMessageControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadMessageControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getUIEvidence: {
@@ -17796,6 +19643,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     downloadUIEvidenceArtifact: {
@@ -17830,6 +19679,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     cancelUIEvidence: {
@@ -17873,6 +19724,8 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkItem: {
@@ -17908,6 +19761,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     listWorkspaces: {
@@ -17945,6 +19800,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     exploreWorkspace: {
@@ -17983,6 +19840,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     compareWorkspaceRepositoryCommits: {
@@ -18023,6 +19882,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryCommit: {
@@ -18060,6 +19921,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryCommitFilePreview: {
@@ -18100,6 +19963,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryDiff: {
@@ -18135,6 +20000,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryFileHistory: {
@@ -18173,6 +20040,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryHistory: {
@@ -18208,6 +20077,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     getWorkspaceRepositoryState: {
@@ -18243,6 +20114,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
     searchWorkspace: {
@@ -18281,6 +20154,8 @@ export interface operations {
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
         };
     };
 }

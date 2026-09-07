@@ -79,7 +79,7 @@ function renderThread(current: ThreadDetailView, result: ThreadMessageControlVie
       page: { limit: 100 }, requestID: "req" }),
     submitThreadMessage, controlRunLifecycle, executeRun,
     streamRunEvents: holdUntilAbort,
-    getPublicModelStream: holdUntilAbort,
+    pollPublicModelStream: holdUntilAbort,
     approvalQueue: vi.fn().mockResolvedValue({ protocol_version: "approval_queue.v1",
       run_id: result.run_id, items: approvalItems, truncated: false,
       process_execution_enabled: false, session_grant_created: false, capability_grant: false }),

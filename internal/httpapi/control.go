@@ -18,7 +18,7 @@ const (
 	ModelCancellationPathTemplate           = "/api/v1/runs/{run_id}/active-call/cancel"
 	SpecialistModelCancellationPathTemplate = "/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel"
 	MaxControlRequestBodyBytes              = 4 * 1024
-	MaxRunCreationRequestBodyBytes          = 8 * 1024
+	MaxRunCreationRequestBodyBytes          = 128 * 1024
 )
 
 type ModelCancellationRequestView struct {

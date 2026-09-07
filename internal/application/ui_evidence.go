@@ -39,6 +39,8 @@ type UIEvidenceStore interface {
 	GetMission(context.Context, string) (domain.Mission, error)
 	GetWorkspaceByID(context.Context, string) (session.WorkspaceRecord, error)
 	GetRootAgent(context.Context, string) (domain.AgentNode, bool, error)
+	GetRunExecutionPermission(context.Context, string) (
+		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
 	CreateUIEvidenceAttempt(context.Context, uievidence.Attempt) (
 		uievidence.Attempt, bool, error)
@@ -488,8 +490,17 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
 			apperror.CodeFailedPrecondition, "UI evidence Run binding is not executable")
 	}
+	executionPermission, err := s.store.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		return preparedUIEvidence{}, uievidence.Attempt{}, err
+	}
+	if !executionPermission.Mode.IncludesFullAccess() {
+		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"UI evidence requires current Full Access or Debug permission")
+	}
 	adapter, available, err := s.commands.AdvertisedCommandRuntimeAdapter(ctx,
-		runRecord.ID, domain.RunExecutionPermissionFullAccess)
+		runRecord.ID, executionPermission.Mode)
 	if err != nil {
 		return preparedUIEvidence{}, uievidence.Attempt{}, err
 	}
@@ -532,7 +543,8 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 		WorkspaceRoot: workspace.RootPath, AttemptID: attemptID,
 		CapabilityGeneration: strings.Repeat("0", 64), Trigger: workspacecheckpoint.TriggerManual,
 		Phase: workspacecheckpoint.PhaseStandalone, TriggerReceiptID: attemptID,
-		RequestedBy: "run_supervisor", Title: "UI evidence source binding", CreatedAt: createdAt})
+		RequestedBy: toolgateway.CommandRuntimeRequestedByUIEvidenceOperator,
+		Title:       "UI evidence source binding", CreatedAt: createdAt})
 	if err != nil {
 		return preparedUIEvidence{}, uievidence.Attempt{}, err
 	}
@@ -1024,11 +1036,12 @@ func (s *UIEvidenceService) commandScope(prepared preparedUIEvidence,
 		InvocationID: identity,
 		OperationKey: identity,
 		RunID:        prepared.run.ID, MissionID: prepared.mission.ID,
-		RootAgentID: prepared.root.ID,
-		SessionID:   prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
+		RootAgentID: prepared.root.ID, AgentID: prepared.root.ID,
+		SessionID: prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
 		CapabilityGeneration: prepared.adapter.Generation,
 		LeaseID:              prepared.lease.LeaseID, LeaseGeneration: prepared.lease.Generation,
-		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{
+		RequestedBy: toolgateway.CommandRuntimeRequestedByUIEvidenceOperator,
+		PolicyDecision: toolgateway.Decision{
 			Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "high",
 			Reason: "exact ui-evidence.v1 recipe passed the Run execution boundary"},
 		Adapter: prepared.adapter}

@@ -47,12 +47,17 @@ type ChangeProviderCredentialRequest struct {
 type ProviderCredentialService struct {
 	store         credential.Store
 	registry      ProviderRegistryReloader
+	catalog       ProviderCredentialCatalog
 	routeSettings modelregistry.RouteSettingReader
 }
 
 type ProviderRegistryReloader interface {
 	Reload(context.Context, modelregistry.RouteSettingReader) (modelregistry.ReloadResult, error)
 	Generation() uint64
+}
+
+type ProviderCredentialCatalog interface {
+	Snapshot() modelregistry.Snapshot
 }
 
 func NewProviderCredentialService(store credential.Store) *ProviderCredentialService {
@@ -65,6 +70,16 @@ func (s *ProviderCredentialService) WithRegistryReload(registry ProviderRegistry
 	if s != nil {
 		s.registry = registry
 		s.routeSettings = settings
+		if catalog, ok := registry.(ProviderCredentialCatalog); ok {
+			s.catalog = catalog
+		}
+	}
+	return s
+}
+
+func (s *ProviderCredentialService) WithProviderCatalog(catalog ProviderCredentialCatalog) *ProviderCredentialService {
+	if s != nil {
+		s.catalog = catalog
 	}
 	return s
 }
@@ -76,11 +91,7 @@ func (s *ProviderCredentialService) List(ctx context.Context) (
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"Provider credential store is required")
 	}
-	names := make([]string, 0, len(managedCredentialProviders))
-	for name := range managedCredentialProviders {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := s.managedProviderNames()
 	configuredValues := make([]bool, 0, len(names))
 	for _, name := range names {
 		configured, err := s.configured(ctx, name)
@@ -108,7 +119,7 @@ func (s *ProviderCredentialService) Change(ctx context.Context,
 	originalProvider := request.Provider
 	request.Provider = strings.TrimSpace(request.Provider)
 	if request.Version != credential.ProtocolVersion || !request.Confirm ||
-		originalProvider != request.Provider || !managedProvider(request.Provider) {
+		originalProvider != request.Provider || !s.managedProvider(request.Provider) {
 		return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
 			"Provider credential change request is invalid")
 	}
@@ -207,7 +218,39 @@ func (s *ProviderCredentialService) registryGeneration() uint64 {
 	return s.registry.Generation()
 }
 
-func managedProvider(value string) bool {
-	_, found := managedCredentialProviders[value]
-	return found && credential.ValidName(value)
+func (s *ProviderCredentialService) managedProviderNames() []string {
+	providers := make(map[string]struct{}, len(managedCredentialProviders))
+	for name := range managedCredentialProviders {
+		providers[name] = struct{}{}
+	}
+	if s != nil && s.catalog != nil {
+		for _, provider := range s.catalog.Snapshot().Providers {
+			if !provider.Custom || !credential.ValidName(provider.Name) {
+				continue
+			}
+			switch provider.Kind {
+			case modelregistry.ProviderKindAnthropicCompatible,
+				modelregistry.ProviderKindOpenAICompatible:
+				providers[provider.Name] = struct{}{}
+			}
+		}
+	}
+	names := make([]string, 0, len(providers))
+	for name := range providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (s *ProviderCredentialService) managedProvider(value string) bool {
+	if !credential.ValidName(value) {
+		return false
+	}
+	for _, current := range s.managedProviderNames() {
+		if current == value {
+			return true
+		}
+	}
+	return false
 }

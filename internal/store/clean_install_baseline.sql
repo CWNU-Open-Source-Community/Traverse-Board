@@ -1311,6 +1311,26 @@ CREATE TABLE child_task_review_operations (
 		CHECK(julianday(created_at) IS NOT NULL)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE command_runtime_job_agents (
+		job_id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		agent_id TEXT,
+		agent_attempt_id TEXT,
+		attribution_source TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(job_id) REFERENCES command_runtime_jobs(id) ON DELETE CASCADE,
+		FOREIGN KEY(run_id, agent_id) REFERENCES agent_nodes(run_id, id)
+			ON DELETE CASCADE,
+		CHECK(attribution_source IN ('recorded', 'supervisor_root', 'operator_root', 'legacy_root', 'legacy_unknown')),
+		CHECK((attribution_source = 'legacy_unknown'
+			AND agent_id IS NULL AND agent_attempt_id IS NULL)
+			OR (attribution_source = 'operator_root'
+				AND agent_id IS NOT NULL AND agent_attempt_id IS NULL)
+			OR (attribution_source = 'legacy_root' AND agent_id IS NOT NULL)
+			OR (attribution_source IN ('recorded', 'supervisor_root')
+				AND agent_id IS NOT NULL AND agent_attempt_id IS NOT NULL))
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE "command_runtime_jobs" (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
@@ -1398,11 +1418,11 @@ CREATE TABLE "command_runtime_jobs" (
 		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode = 'workspace_access'
 				AND adapter_isolation_grade = 'workspace_sandbox'
 				AND adapter_network_policy = 'denied' AND adapter_credential_policy = 'none')
-			OR (adapter_kind = 'host_unsandboxed' AND permission_mode = 'full_access'
+			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug')
 				AND adapter_isolation_grade = 'host_unsandboxed'
 				AND adapter_network_policy = 'host_available'
 				AND adapter_credential_policy = 'host_available')
-			OR (adapter_kind = 'legacy_unbound' AND permission_mode = 'full_access'
+			OR (adapter_kind = 'legacy_unbound' AND permission_mode IN ('full_access', 'debug')
 				AND adapter_backend = 'legacy_unbound'
 				AND adapter_backend_identity = 'legacy_unbound'
 				AND adapter_generation = 'legacy_unbound'
@@ -2985,7 +3005,7 @@ CREATE TABLE github_review_write_operations (
 				AND julianday(completed_at) >= julianday(started_at)))
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE host_command_execution_intents (
+CREATE TABLE "host_command_execution_intents" (
 		request_id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
 		policy_version TEXT NOT NULL,
@@ -3027,7 +3047,7 @@ CREATE TABLE host_command_execution_intents (
 			REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'host_command_execution_intent.v1'),
 		CHECK(policy_version = 'host_command_execution_policy.v1'),
-		CHECK(permission_mode = 'full_access'),
+		CHECK(permission_mode IN ('full_access', 'debug')),
 		CHECK(spec_protocol_version = 'host_command.v1'),
 		CHECK(spec_policy_version = 'host_command_policy.v1'),
 		CHECK(environment_policy = 'sanitized_host_environment.v1'),
@@ -5660,6 +5680,28 @@ CREATE TABLE run_monetary_usage (
 		CHECK(julianday(updated_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_network_authority_operations (
+		operation_key_digest TEXT PRIMARY KEY,
+		request_fingerprint TEXT NOT NULL,
+		snapshot_id TEXT NOT NULL UNIQUE,
+		run_id TEXT NOT NULL,
+		expected_mode_revision INTEGER NOT NULL,
+		requested_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(snapshot_id) REFERENCES run_mode_snapshots(id) ON DELETE RESTRICT
+			DEFERRABLE INITIALLY DEFERRED,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		CHECK(length(operation_key_digest) = 64
+			AND operation_key_digest = lower(operation_key_digest)
+			AND operation_key_digest NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(request_fingerprint) = 64
+			AND request_fingerprint = lower(request_fingerprint)
+			AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(expected_mode_revision > 0),
+		CHECK(requested_by = trim(requested_by) AND length(requested_by) BETWEEN 1 AND 256
+			AND instr(requested_by, char(0)) = 0)
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE run_progress_guards (
 		run_id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
@@ -5779,6 +5821,29 @@ CREATE TABLE run_supervisor_checkpoints (
 		CHECK(next_turn > 0)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_tool_call_agents (
+		run_id TEXT NOT NULL,
+		turn INTEGER NOT NULL,
+		attempt_id TEXT NOT NULL,
+		call_id TEXT NOT NULL,
+		agent_id TEXT,
+		agent_attempt_id TEXT,
+		attribution_source TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY(run_id, turn, attempt_id, call_id),
+		FOREIGN KEY(run_id, turn, attempt_id, call_id)
+			REFERENCES run_supervisor_tool_calls(run_id, turn, attempt_id, call_id)
+			ON DELETE CASCADE,
+		FOREIGN KEY(run_id, agent_id) REFERENCES agent_nodes(run_id, id)
+			ON DELETE CASCADE,
+		CHECK(attribution_source IN ('recorded', 'supervisor_root', 'legacy_root', 'legacy_unknown')),
+		CHECK((attribution_source = 'legacy_unknown'
+			AND agent_id IS NULL AND agent_attempt_id IS NULL)
+			OR (attribution_source = 'legacy_root' AND agent_id IS NOT NULL)
+			OR (attribution_source IN ('recorded', 'supervisor_root')
+				AND agent_id IS NOT NULL AND agent_attempt_id IS NOT NULL))
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE "run_supervisor_tool_calls" (
 		run_id TEXT NOT NULL,
 		turn INTEGER NOT NULL,
@@ -5815,22 +5880,28 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
-			'code_type_hierarchy')),
-		CHECK((tool_name IN ('host_command_propose', 'workspace_list', 'workspace_read', 'workspace_glob',
+			'code_type_hierarchy',
+			'browser_status', 'browser_navigate', 'browser_snapshot',
+			'browser_click', 'browser_type', 'browser_screenshot')),
+		CHECK((tool_name IN ('host_command_propose', 'mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 			'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
 			'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'web_fetch', 'web_citation',
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
-			'code_type_hierarchy')
+			'code_type_hierarchy',
+			'browser_status', 'browser_navigate', 'browser_snapshot',
+			'browser_click', 'browser_type', 'browser_screenshot')
 			AND length(authority_json) BETWEEN 2 AND 4096 AND json_valid(authority_json) = 1)
-			OR (tool_name NOT IN ('workspace_list', 'workspace_read', 'workspace_glob',
+			OR (tool_name NOT IN ('mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 				'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
 				'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'web_fetch', 'web_citation',
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
-			'code_type_hierarchy')
+			'code_type_hierarchy',
+			'browser_status', 'browser_navigate', 'browser_snapshot',
+			'browser_click', 'browser_type', 'browser_screenshot')
 				AND authority_json = '')),
 		CHECK(status IN ('pending', 'completed', 'denied', 'failed')),
 		CHECK((status = 'pending' AND result_json = '' AND error_code = '' AND completed_at IS NULL)
@@ -11988,7 +12059,7 @@ CREATE TABLE thread_execution_permission_operations (
 		CHECK(
 			(current_run_effect = 'no_active_run' AND current_run_id IS NULL
 				AND current_run_permission_snapshot_id IS NULL)
-			OR (current_run_effect IN ('applied', 'paused_and_applied')
+			OR (current_run_effect IN ('applied', 'paused_and_applied', 'deferred')
 				AND current_run_id IS NOT NULL
 				AND current_run_permission_snapshot_id IS NOT NULL)
 		)
@@ -12451,6 +12522,45 @@ CREATE TABLE web_evidence_sources (
 			CHECK(json_valid(source_json) = 1)
 		);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE web_fetch_authorizations (
+		id TEXT PRIMARY KEY,
+		approval_id TEXT NOT NULL UNIQUE,
+		thread_id TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		mission_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL DEFAULT '',
+		supervisor_turn INTEGER NOT NULL,
+		supervisor_tool_call_id TEXT NOT NULL,
+		canonical_url TEXT NOT NULL,
+		exact_target TEXT NOT NULL,
+		request_fingerprint TEXT NOT NULL,
+		authorization_scope TEXT NOT NULL DEFAULT 'once',
+		status TEXT NOT NULL,
+		requested_by TEXT NOT NULL,
+		reviewed_by TEXT NOT NULL DEFAULT '',
+		version INTEGER NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		decided_at TEXT,
+		FOREIGN KEY(approval_id) REFERENCES tool_approvals(id) ON DELETE RESTRICT,
+		FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE RESTRICT,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
+		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
+		UNIQUE(run_id, supervisor_tool_call_id),
+		CHECK(supervisor_turn > 0),
+		CHECK(length(request_fingerprint) = 64),
+		CHECK(authorization_scope IN ('once','thread')),
+		CHECK(status IN ('pending','approved','denied','consumed')),
+		CHECK(julianday(created_at) IS NOT NULL),
+		CHECK(julianday(updated_at) IS NOT NULL),
+		CHECK(decided_at IS NULL OR julianday(decided_at) IS NOT NULL),
+		CHECK((status = 'pending' AND reviewed_by = '' AND decided_at IS NULL) OR
+			(status <> 'pending' AND reviewed_by <> '' AND decided_at IS NOT NULL)),
+		CHECK(status <> 'consumed' OR authorization_scope = 'once')
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE work_item_dependencies (
 		run_id TEXT NOT NULL,
 		work_item_id TEXT NOT NULL,
@@ -12859,6 +12969,9 @@ CREATE INDEX idx_browser_runtime_checkpoints_runtime_generation
 CREATE INDEX idx_browser_runtime_receipts_run_completed
 		ON browser_runtime_receipts(run_id, completed_at, id);
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_command_runtime_job_agents_actor
+		ON command_runtime_job_agents(run_id, agent_id, created_at, job_id);
+-- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_command_runtime_jobs_active
 		ON command_runtime_jobs(state, run_id, updated_at);
 -- traverse-board-clean-install-object-boundary --
@@ -13148,6 +13261,9 @@ CREATE INDEX idx_run_mode_snapshots_run_revision
 CREATE INDEX idx_run_model_cancellations_pending
 		ON run_model_cancellations(run_id, attempt_id, model_attempt, status);
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_run_network_authority_operations_run_created
+		ON run_network_authority_operations(run_id, created_at);
+-- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_run_progress_guards_status_updated
 		ON run_progress_guards(status, updated_at DESC, run_id);
 -- traverse-board-clean-install-object-boundary --
@@ -13421,6 +13537,9 @@ CREATE INDEX idx_standard_code_supervisor_ledger_run_event
 CREATE INDEX idx_structured_tool_operations_run_created_at
 		ON structured_tool_operations(run_id, created_at, operation_key_digest);
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_supervisor_tool_call_agents_actor
+		ON run_supervisor_tool_call_agents(run_id, agent_id, created_at, call_id);
+-- traverse-board-clean-install-object-boundary --
 CREATE UNIQUE INDEX idx_supervisor_tool_stream_call_identity
 		ON run_supervisor_tool_calls(stream_response_id, stream_call_id)
 		WHERE stream_response_id <> '' AND stream_call_id <> '';
@@ -13477,6 +13596,9 @@ CREATE INDEX idx_web_evidence_snapshots_source
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_web_evidence_sources_run
 			ON web_evidence_sources(run_id, created_at DESC, id DESC);
+-- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_web_fetch_authorizations_thread_target
+		ON web_fetch_authorizations(thread_id, exact_target, status, authorization_scope);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_work_item_dependencies_target
 		ON work_item_dependencies(run_id, depends_on_id, work_item_id);
@@ -14459,6 +14581,12 @@ CREATE TRIGGER trg_browser_runtime_receipt_update_immutable
 			SELECT RAISE(ABORT, 'Browser runtime receipt cannot be updated');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_command_runtime_job_agent_immutable
+		BEFORE UPDATE ON command_runtime_job_agents
+		BEGIN
+			SELECT RAISE(ABORT, 'Command Runtime Agent attribution is immutable');
+		END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_command_runtime_job_delete_immutable
 		BEFORE DELETE ON command_runtime_jobs BEGIN
 			SELECT RAISE(ABORT, 'command runtime jobs are immutable audit records');
@@ -14502,7 +14630,7 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 				AND permission.run_id = run.id AND permission.mission_id = mission.id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode
-				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode = 'full_access')
+				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access', 'debug'))
 					OR (NEW.adapter_kind = 'sandboxed_workspace'
 						AND permission.mode = 'workspace_access'))
 				AND permission.revision = (SELECT MAX(current.revision)
@@ -15915,7 +16043,7 @@ CREATE TRIGGER trg_host_command_execution_intent_insert_binding
 				AND permission.run_id = NEW.run_id
 				AND permission.mission_id = NEW.mission_id
 				AND permission.revision = NEW.permission_revision
-				AND permission.mode = 'full_access'
+				AND permission.mode IN ('full_access', 'debug')
 				AND NOT EXISTS (
 					SELECT 1 FROM run_execution_leases lease
 					WHERE lease.run_id = NEW.run_id AND lease.status = 'active'
@@ -17669,19 +17797,28 @@ CREATE TRIGGER trg_run_browser_cdp_permission_snapshot_insert
 							WHERE existing.run_id = NEW.run_id
 						))
 					OR
-					(NEW.revision > 1 AND run.status IN ('created', 'paused')
-						AND NOT EXISTS (
-							SELECT 1 FROM run_execution_leases lease
-							WHERE lease.run_id = NEW.run_id AND lease.status = 'active'
-								AND julianday(lease.expires_at) > julianday('now')
-						)
-						AND EXISTS (
+					(NEW.revision > 1 AND EXISTS (
 							SELECT 1 FROM run_browser_cdp_permission_snapshots previous
 							WHERE previous.run_id = NEW.run_id
 								AND previous.revision = NEW.revision - 1
 								AND previous.protocol_version = NEW.protocol_version
 								AND previous.policy_version = NEW.policy_version
 								AND julianday(NEW.created_at) >= julianday(previous.created_at)
+								AND (
+									(NEW.mode = 'restricted'
+										AND previous.mode = 'full_debug'
+										AND run.status NOT IN ('completed', 'failed', 'cancelled'))
+									OR
+									(NEW.mode = 'full_debug'
+										AND previous.mode = 'restricted'
+										AND run.status IN ('created', 'paused')
+										AND NOT EXISTS (
+											SELECT 1 FROM run_execution_leases lease
+											WHERE lease.run_id = NEW.run_id
+												AND lease.status = 'active'
+												AND julianday(lease.expires_at) > julianday('now')
+										))
+								)
 						))
 				)
 		)
@@ -17717,17 +17854,33 @@ CREATE TRIGGER trg_run_creation_operation_insert
 				AND session_record.workspace_id = NEW.workspace_id
 				AND run.status = 'created' AND session_record.status = 'active'
 				AND json_extract(run.config_json, '$.interactive') = 1
-				AND json_extract(run.config_json, '$.model_route') = mission.profile
+				AND (
+					json_extract(run.config_json, '$.model_route') = mission.profile
+					OR (
+						typeof(json_extract(run.config_json, '$.model_route')) = 'text'
+						AND json_extract(run.config_json, '$.model_route') =
+							trim(json_extract(run.config_json, '$.model_route'))
+						AND instr(json_extract(run.config_json, '$.model_route'), char(0)) = 0
+						AND length(json_extract(run.config_json, '$.model_route')) BETWEEN 3 AND 513
+						AND instr(json_extract(run.config_json, '$.model_route'), '/') BETWEEN 2 AND 257
+						AND length(substr(json_extract(run.config_json, '$.model_route'),
+							instr(json_extract(run.config_json, '$.model_route'), '/') + 1)) BETWEEN 1 AND 256
+					)
+				)
 				AND json_extract(run.budget_json, '$.max_turns') = 100
 				AND COALESCE(json_extract(run.budget_json, '$.max_tokens'), 0) = 0
 				AND json_extract(run.budget_json, '$.max_tool_calls') = 100
 				AND COALESCE(json_extract(run.budget_json, '$.max_cost_usd'), 0) = 0
 				AND COALESCE(json_extract(run.budget_json, '$.timeout_seconds'), 0) = 0
 				AND json_extract(mission.scope_json, '$.workspace_id') = NEW.workspace_id
-				AND json_extract(mission.scope_json, '$.network_mode') = 'disabled'
-				AND COALESCE(json_array_length(mission.scope_json, '$.allowed_targets'), 0) = 0
+				AND (
+					(json_extract(mission.scope_json, '$.network_mode') = 'disabled'
+						AND COALESCE(json_array_length(mission.scope_json, '$.allowed_targets'), 0) = 0)
+					OR (json_extract(mission.scope_json, '$.network_mode') = 'allowlist'
+						AND json_array_length(mission.scope_json, '$.allowed_targets') BETWEEN 1 AND 256)
+				)
 				AND length(CAST(mission.goal AS BLOB)) BETWEEN 1 AND 4096
-				AND session_record.route = mission.profile
+				AND session_record.route = json_extract(run.config_json, '$.model_route')
 				AND session_record.title = mission.goal
 				AND mission.created_at = NEW.created_at
 				AND mission.updated_at = NEW.created_at
@@ -18017,20 +18170,27 @@ CREATE TRIGGER trg_run_execution_permission_snapshot_insert
 							WHERE existing.run_id = NEW.run_id
 						))
 					OR
-					(NEW.revision > 1 AND run.status IN ('created', 'paused')
-						AND NOT EXISTS (
-							SELECT 1 FROM run_execution_leases lease
-							WHERE lease.run_id = NEW.run_id AND lease.status = 'active'
-								AND julianday(lease.expires_at) > julianday('now')
-						)
-						AND EXISTS (
-							SELECT 1 FROM run_execution_permission_snapshots previous
-							WHERE previous.run_id = NEW.run_id
-								AND previous.revision = NEW.revision - 1
-								AND previous.protocol_version = NEW.protocol_version
-								AND previous.policy_version = NEW.policy_version
-								AND julianday(NEW.created_at) >= julianday(previous.created_at)
-						))
+					(NEW.revision > 1 AND EXISTS (
+						SELECT 1 FROM run_execution_permission_snapshots previous
+						WHERE previous.run_id = NEW.run_id
+							AND previous.revision = NEW.revision - 1
+							AND previous.protocol_version = NEW.protocol_version
+							AND previous.policy_version = NEW.policy_version
+							AND julianday(NEW.created_at) >= julianday(previous.created_at)
+							AND (
+								(((previous.mode = 'debug' AND NEW.mode <> 'debug')
+									OR (previous.mode = 'full_access'
+										AND NEW.mode NOT IN ('full_access', 'debug')))
+									AND run.status NOT IN ('completed', 'failed', 'cancelled'))
+								OR
+								(run.status IN ('created', 'paused') AND NOT EXISTS (
+									SELECT 1 FROM run_execution_leases lease
+									WHERE lease.run_id = NEW.run_id
+										AND lease.status = 'active'
+										AND julianday(lease.expires_at) > julianday('now')
+								))
+							)
+					))
 				)
 		)
 		BEGIN
@@ -18291,27 +18451,157 @@ CREATE TRIGGER trg_run_mode_snapshot_insert
 			SELECT 1 FROM runs run
 			JOIN missions mission ON mission.id = run.mission_id
 			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
-				AND mission.profile = NEW.profile AND mission.scope_json = NEW.scope_json
+				AND mission.profile = NEW.profile
 				AND julianday(NEW.created_at) >= julianday(run.created_at)
 				AND (
-					(NEW.revision = 1 AND run.status = 'created' AND NOT EXISTS (
-						SELECT 1 FROM run_mode_snapshots existing WHERE existing.run_id = NEW.run_id
-					))
+					(NEW.revision = 1 AND run.status = 'created'
+						AND json_extract(mission.scope_json, '$.workspace_id')
+							IS json_extract(NEW.scope_json, '$.workspace_id')
+						AND NOT EXISTS (
+							SELECT 1 FROM run_mode_snapshots existing
+							WHERE existing.run_id = NEW.run_id
+						)
+						AND (
+							mission.scope_json = NEW.scope_json
+							OR (
+								json_extract(NEW.scope_json, '$.network_mode') = 'disabled'
+								AND COALESCE(json_array_length(NEW.scope_json, '$.allowed_targets'), 0) = 0
+								AND EXISTS (
+									SELECT 1 FROM runs predecessor
+									WHERE predecessor.mission_id = mission.id
+										AND predecessor.id != run.id
+										AND predecessor.status IN ('completed', 'failed', 'cancelled')
+								)
+							)
+							OR EXISTS (
+								SELECT 1 FROM runs predecessor
+								JOIN run_mode_snapshots inherited
+									ON inherited.run_id = predecessor.id
+								WHERE predecessor.mission_id = mission.id
+									AND predecessor.id != run.id
+									AND predecessor.status IN ('completed', 'failed', 'cancelled')
+									AND inherited.scope_json = NEW.scope_json
+									AND inherited.revision = (
+										SELECT MAX(latest.revision) FROM run_mode_snapshots latest
+										WHERE latest.run_id = predecessor.id
+									)
+							)
+						)
+						AND (
+							(json_extract(NEW.scope_json, '$.network_mode') = 'disabled'
+								AND COALESCE(json_array_length(NEW.scope_json, '$.allowed_targets'), 0) = 0)
+							OR (
+								json_extract(NEW.scope_json, '$.network_mode') = 'allowlist'
+								AND json_type(NEW.scope_json, '$.allowed_targets') = 'array'
+								AND json_array_length(NEW.scope_json, '$.allowed_targets') BETWEEN 1 AND 256
+								AND NOT EXISTS (
+									SELECT 1 FROM json_each(NEW.scope_json, '$.allowed_targets') target
+									WHERE target.type != 'text' OR length(target.value) NOT BETWEEN 1 AND 253
+										OR target.value != trim(target.value)
+										OR target.value != lower(target.value)
+										OR target.value = 'public_https'
+										OR target.value GLOB '*[^a-z0-9.-]*'
+										OR instr(target.value, '.') = 0
+										OR target.value LIKE '.%' OR target.value LIKE '%.'
+										OR target.value LIKE '-%' OR target.value LIKE '%-'
+										OR target.value LIKE '%..%' OR target.value LIKE '%.-%'
+										OR target.value LIKE '%-.%'
+										OR target.value NOT GLOB '*[a-z-]*'
+										OR target.value = 'localhost' OR target.value LIKE '%.localhost'
+										OR target.value LIKE '%.local' OR target.value LIKE '%.internal'
+										OR target.value LIKE '%.intranet' OR target.value LIKE '%.corp'
+										OR target.value LIKE '%.home' OR target.value LIKE '%.home.arpa'
+										OR target.value LIKE '%.lan'
+										OR target.value LIKE '%.localdomain' OR target.value LIKE '%.test'
+										OR target.value LIKE '%.invalid' OR target.value LIKE '%.example'
+										OR target.value IN ('metadata.google.internal',
+											'metadata.azure.internal', 'instance-data.ec2.internal')
+								)
+								AND NOT EXISTS (
+									SELECT 1 FROM json_each(NEW.scope_json, '$.allowed_targets') earlier
+									JOIN json_each(NEW.scope_json, '$.allowed_targets') later
+										ON CAST(earlier.key AS INTEGER) < CAST(later.key AS INTEGER)
+									WHERE earlier.value >= later.value
+								)
+							)
+						))
 					OR
 					(NEW.revision > 1 AND run.status IN ('created', 'paused')
-					AND NOT EXISTS (
-						SELECT 1 FROM run_execution_leases lease
-						WHERE lease.run_id = NEW.run_id AND lease.status = 'active'
-							AND julianday(lease.expires_at) > julianday('now')
-					) AND EXISTS (
-						SELECT 1 FROM run_mode_snapshots previous
-						WHERE previous.run_id = NEW.run_id AND previous.revision = NEW.revision - 1
-							AND previous.protocol_version = NEW.protocol_version
-							AND previous.surface = NEW.surface AND previous.phase != NEW.phase
-							AND previous.profile = NEW.profile AND previous.scope_json = NEW.scope_json
-							AND previous.policy_version = NEW.policy_version
-							AND julianday(NEW.created_at) >= julianday(previous.created_at)
-					))
+						AND NOT EXISTS (
+							SELECT 1 FROM run_execution_leases lease
+							WHERE lease.run_id = NEW.run_id AND lease.status = 'active'
+								AND julianday(lease.expires_at) > julianday('now')
+						) AND EXISTS (
+							SELECT 1 FROM run_mode_snapshots previous
+							WHERE previous.run_id = NEW.run_id
+								AND previous.revision = NEW.revision - 1
+								AND previous.protocol_version = NEW.protocol_version
+								AND previous.surface = NEW.surface
+								AND previous.profile = NEW.profile
+								AND previous.policy_version = NEW.policy_version
+								AND json_extract(previous.scope_json, '$.workspace_id')
+									IS json_extract(NEW.scope_json, '$.workspace_id')
+								AND julianday(NEW.created_at) >= julianday(previous.created_at)
+								AND (
+									(previous.phase != NEW.phase
+										AND previous.scope_json = NEW.scope_json)
+									OR
+									(previous.phase = NEW.phase
+										AND json_extract(NEW.scope_json, '$.network_mode') = 'allowlist'
+										AND json_type(NEW.scope_json, '$.allowed_targets') = 'array'
+										AND json_array_length(NEW.scope_json, '$.allowed_targets') BETWEEN 1 AND 256
+										AND NOT EXISTS (
+											SELECT 1 FROM json_each(NEW.scope_json, '$.allowed_targets') target
+											WHERE target.type != 'text' OR length(target.value) NOT BETWEEN 1 AND 253
+												OR target.value != trim(target.value)
+												OR target.value != lower(target.value)
+												OR target.value = 'public_https'
+												OR target.value GLOB '*[^a-z0-9.-]*'
+												OR instr(target.value, '.') = 0
+												OR target.value LIKE '.%' OR target.value LIKE '%.'
+												OR target.value LIKE '-%' OR target.value LIKE '%-'
+												OR target.value LIKE '%..%' OR target.value LIKE '%.-%'
+												OR target.value LIKE '%-.%'
+												OR target.value NOT GLOB '*[a-z-]*'
+												OR target.value = 'localhost' OR target.value LIKE '%.localhost'
+												OR target.value LIKE '%.local' OR target.value LIKE '%.internal'
+												OR target.value LIKE '%.intranet' OR target.value LIKE '%.corp'
+												OR target.value LIKE '%.home' OR target.value LIKE '%.home.arpa'
+												OR target.value LIKE '%.lan'
+												OR target.value LIKE '%.localdomain' OR target.value LIKE '%.test'
+												OR target.value LIKE '%.invalid' OR target.value LIKE '%.example'
+												OR target.value IN ('metadata.google.internal',
+													'metadata.azure.internal', 'instance-data.ec2.internal')
+										)
+										AND NOT EXISTS (
+											SELECT 1 FROM json_each(NEW.scope_json, '$.allowed_targets') earlier
+											JOIN json_each(NEW.scope_json, '$.allowed_targets') later
+												ON CAST(earlier.key AS INTEGER) < CAST(later.key AS INTEGER)
+											WHERE earlier.value >= later.value
+										)
+										AND json_extract(previous.scope_json, '$.network_mode') IN ('disabled', 'allowlist')
+										AND COALESCE(json_array_length(previous.scope_json, '$.allowed_targets'), 0)
+											< json_array_length(NEW.scope_json, '$.allowed_targets')
+										AND NOT EXISTS (
+											SELECT 1
+											FROM json_each(previous.scope_json, '$.allowed_targets') old_target
+											WHERE NOT EXISTS (
+												SELECT 1 FROM json_each(NEW.scope_json, '$.allowed_targets') new_target
+												WHERE new_target.type = 'text'
+													AND new_target.value = old_target.value
+											)
+										)
+										AND EXISTS (
+											SELECT 1 FROM run_network_authority_operations operation
+											WHERE operation.snapshot_id = NEW.id
+												AND operation.run_id = NEW.run_id
+												AND operation.expected_mode_revision = NEW.revision - 1
+												AND operation.requested_by = NEW.requested_by
+												AND operation.created_at = NEW.created_at
+										)
+									)
+								)
+						))
 				)
 		)
 		BEGIN
@@ -18321,6 +18611,16 @@ CREATE TRIGGER trg_run_mode_snapshot_insert
 CREATE TRIGGER trg_run_mode_snapshot_update_immutable
 		BEFORE UPDATE ON run_mode_snapshots BEGIN
 			SELECT RAISE(ABORT, 'Run mode snapshot cannot be updated');
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_run_network_authority_operation_delete_immutable
+		BEFORE DELETE ON run_network_authority_operations BEGIN
+			SELECT RAISE(ABORT, 'Run network authority operation cannot be deleted');
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_run_network_authority_operation_update_immutable
+		BEFORE UPDATE ON run_network_authority_operations BEGIN
+			SELECT RAISE(ABORT, 'Run network authority operation cannot be updated');
 		END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_progress_guard_insert
@@ -24091,6 +24391,12 @@ CREATE TRIGGER trg_structured_tool_operation_work_item_target
 			SELECT RAISE(ABORT, 'structured tool WorkItem target mismatch');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_tool_call_agent_immutable
+		BEFORE UPDATE ON run_supervisor_tool_call_agents
+		BEGIN
+			SELECT RAISE(ABORT, 'Supervisor tool Agent attribution is immutable');
+		END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_supervisor_tool_call_model_attempt
 		BEFORE INSERT ON run_supervisor_tool_calls
 		WHEN NOT EXISTS (
@@ -24232,6 +24538,24 @@ CREATE TRIGGER trg_thread_execution_permission_operation_insert
 								AND run_permission.process_enabled = 0
 								AND run_permission.execution_authorized = 0
 								AND run_permission.capability_grant = 0
+						))
+					OR
+					(NEW.current_run_effect = 'deferred'
+						AND EXISTS (
+							SELECT 1 FROM threads thread_record
+							JOIN thread_runs binding ON binding.thread_id = thread_record.id
+							JOIN runs run ON run.id = binding.run_id
+							JOIN run_execution_permission_snapshots run_permission
+								ON run_permission.id = NEW.current_run_permission_snapshot_id
+							WHERE thread_record.id = NEW.thread_id
+								AND thread_record.active_run_id = NEW.current_run_id
+								AND binding.run_id = NEW.current_run_id
+								AND run.status IN ('preparing', 'running', 'waiting_approval')
+								AND run_permission.run_id = NEW.current_run_id
+								AND run_permission.revision = (
+									SELECT MAX(latest.revision)
+									FROM run_execution_permission_snapshots latest
+									WHERE latest.run_id = NEW.current_run_id)
 						))
 				)
 		)
@@ -24551,6 +24875,23 @@ CREATE TRIGGER trg_web_evidence_source_scope
 				WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
 					AND mission.workspace_id = NEW.workspace_id)
 			BEGIN SELECT RAISE(ABORT, 'web source Run scope mismatch'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_web_fetch_authorizations_delete_immutable
+		BEFORE DELETE ON web_fetch_authorizations
+		BEGIN SELECT RAISE(ABORT, 'web fetch authorization cannot be deleted'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_web_fetch_authorizations_identity_immutable
+		BEFORE UPDATE ON web_fetch_authorizations
+		WHEN NEW.id <> OLD.id OR NEW.approval_id <> OLD.approval_id OR
+			NEW.thread_id <> OLD.thread_id OR NEW.run_id <> OLD.run_id OR
+			NEW.mission_id <> OLD.mission_id OR NEW.session_id <> OLD.session_id OR
+			NEW.workspace_id <> OLD.workspace_id OR
+			NEW.supervisor_turn <> OLD.supervisor_turn OR
+			NEW.supervisor_tool_call_id <> OLD.supervisor_tool_call_id OR
+			NEW.canonical_url <> OLD.canonical_url OR NEW.exact_target <> OLD.exact_target OR
+			NEW.request_fingerprint <> OLD.request_fingerprint OR
+			NEW.requested_by <> OLD.requested_by OR NEW.created_at <> OLD.created_at
+		BEGIN SELECT RAISE(ABORT, 'web fetch authorization identity is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_work_item_owner_agent_insert
 		BEFORE INSERT ON work_items

@@ -16,6 +16,7 @@ const bootstrap = {
   execution_permission_control_enabled: false,
   browser_cdp_permission_control_enabled: false,
   full_cdp_debug_enabled: false,
+  full_cdp_session_control_enabled: false,
   operator_approval_enabled: false,
   danger_full_access_enabled: false,
   debug_maximum_access_enabled: false,
@@ -63,7 +64,17 @@ const bootstrap = {
   agent_terminal_input_default: false,
   workspace_open_enabled: false,
   workspace_import_enabled: false,
+  risk_profile_restart_enabled: false,
   renderer_path_input_supported: false,
+};
+
+const restartBootstrap = {
+  ...bootstrap,
+  control_token: "control-token-0123456789abcdefghijkl",
+  execution_permission_control_enabled: true,
+  operator_approval_enabled: true,
+  read_only_default: false,
+  risk_profile_restart_enabled: true,
 };
 
 const selection = {
@@ -120,6 +131,135 @@ describe("desktop native bridge", () => {
     const module = await import("./desktop-bridge");
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(bootstrap);
     expect(module.desktopRuntimeActive()).toBe(true);
+  });
+
+  it("restarts only through the native Debug profile contract", async () => {
+    const result = {
+      protocol_version: "desktop_risk_restart.v1",
+      profile: "debug",
+      status: "restarting",
+      restart_required: true,
+      arbitrary_arguments_accepted: false,
+      persistent_runtime_grant: false,
+    };
+    const restart = vi.fn().mockResolvedValue(result);
+    installBridge({
+      Bootstrap: vi.fn().mockResolvedValue(restartBootstrap),
+      RestartWithRiskProfile: restart,
+    });
+    const module = await import("./desktop-bridge");
+
+    await module.loadDesktopBootstrap();
+
+    expect(module.desktopDebugRestartEnabled()).toBe(true);
+    await expect(module.restartDesktopInDebugMode()).resolves.toEqual(result);
+    expect(restart).toHaveBeenCalledWith({
+      protocol_version: "desktop_risk_restart.v1",
+      profile: "debug",
+    });
+    expect(Object.keys(restart.mock.calls[0]![0]).sort()).toEqual([
+      "profile", "protocol_version",
+    ]);
+  });
+
+  it("keeps Debug restart disabled until bootstrap and the native method agree", async () => {
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(restartBootstrap) });
+    let module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    expect(module.desktopDebugRestartEnabled()).toBe(false);
+    await expect(module.restartDesktopInDebugMode())
+      .rejects.toThrow("disabled");
+
+    vi.resetModules();
+    const restart = vi.fn();
+    installBridge({ RestartWithRiskProfile: restart });
+    module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    expect(module.desktopDebugRestartEnabled()).toBe(false);
+    await expect(module.restartDesktopInDebugMode())
+      .rejects.toThrow("disabled");
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-closed Debug restart results", async () => {
+    const valid = {
+      protocol_version: "desktop_risk_restart.v1",
+      profile: "debug",
+      status: "cancelled",
+      restart_required: true,
+      arbitrary_arguments_accepted: false,
+      persistent_runtime_grant: false,
+    };
+    const restart = vi.fn().mockResolvedValue(valid);
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(restartBootstrap),
+      RestartWithRiskProfile: restart });
+    let module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+
+    await expect(module.restartDesktopInDebugMode()).resolves.toEqual(valid);
+    expect(restart).toHaveBeenCalledTimes(1);
+
+    for (const invalid of [
+      { ...valid, path: "C:\\PRIVATE" },
+      { ...valid, argv: ["--danger-full-access"] },
+      { ...valid, env: { SECRET: "value" } },
+      { ...valid, environment: { SECRET: "value" } },
+      { ...valid, pid: 1234 },
+      { ...valid, arbitrary_arguments_accepted: true },
+      { ...valid, persistent_runtime_grant: true },
+      { ...valid, restart_required: false },
+      { ...valid, status: "started" },
+      { ...valid, profile: "full_access" },
+    ]) {
+      restart.mockResolvedValueOnce(invalid);
+      await expect(module.restartDesktopInDebugMode())
+        .rejects.toThrow("result was rejected");
+    }
+
+    vi.resetModules();
+    const missingFlag = { ...bootstrap } as Record<string, unknown>;
+    delete missingFlag.risk_profile_restart_enabled;
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(missingFlag) });
+    module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+  });
+
+  it("reports only the process-level Debug state after bootstrap", async () => {
+    const fixtures = [
+      [bootstrap, "safe"],
+      [{ ...restartBootstrap, danger_full_access_enabled: true }, "safe"],
+      [{ ...restartBootstrap, danger_full_access_enabled: true,
+        debug_maximum_access_enabled: true }, "debug"],
+    ] as const;
+    for (const [fixture, expected] of fixtures) {
+      vi.resetModules();
+      delete window.go;
+      installBridge({ Bootstrap: vi.fn().mockResolvedValue(fixture) });
+      const module = await import("./desktop-bridge");
+      expect(module.desktopCurrentRiskProfile()).toBeNull();
+      await module.loadDesktopBootstrap();
+      expect(module.desktopCurrentRiskProfile()).toBe(expected);
+    }
+  });
+
+  it("rejects a restart capability without its control, permission, and approval closure", async () => {
+    for (const invalid of [{
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      control_enabled: true,
+      read_only_default: false,
+      risk_profile_restart_enabled: true,
+    }, {
+      ...restartBootstrap,
+      operator_approval_enabled: false,
+    }]) {
+      vi.resetModules();
+      delete window.go;
+      installBridge({ Bootstrap: vi.fn().mockResolvedValue(invalid),
+        RestartWithRiskProfile: vi.fn() });
+      const module = await import("./desktop-bridge");
+      await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+    }
   });
 
   it("accepts Run creation without enabling existing Run controls", async () => {
@@ -261,6 +401,44 @@ describe("desktop native bridge", () => {
       ...bootstrap,
       control_token: "control-token-0123456789abcdefghijkl",
       docker_execution_enabled: true,
+      read_only_default: false,
+    }) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+  });
+
+  it("accepts an installed Full CDP session owner without treating it as Debug authority", async () => {
+    const fullCDPAdapter = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      execution_permission_control_enabled: true,
+      browser_cdp_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      danger_full_access_enabled: true,
+      full_cdp_debug_enabled: true,
+      full_cdp_session_control_enabled: true,
+      read_only_default: false,
+    };
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(fullCDPAdapter) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).resolves.toEqual(fullCDPAdapter);
+  });
+
+  it.each([
+    { full_cdp_debug_enabled: false, browser_cdp_permission_control_enabled: true,
+      danger_full_access_enabled: true },
+    { full_cdp_debug_enabled: true, browser_cdp_permission_control_enabled: false,
+      danger_full_access_enabled: true },
+    { full_cdp_debug_enabled: true, browser_cdp_permission_control_enabled: true,
+      danger_full_access_enabled: false },
+  ])("rejects Full CDP session availability without its production permission stack", async (flags) => {
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({
+      ...bootstrap,
+      ...flags,
+      control_token: "control-token-0123456789abcdefghijkl",
+      execution_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      full_cdp_session_control_enabled: true,
       read_only_default: false,
     }) });
     const module = await import("./desktop-bridge");
@@ -696,6 +874,7 @@ function installBridge(overrides: Partial<{
   GrantDebugTerminalAgentInput: (request: unknown) => Promise<unknown>;
   GetDebugTerminalAgentInput: (runID: string) => Promise<unknown>;
   RevokeDebugTerminalAgentInput: (request: unknown) => Promise<void>;
+  RestartWithRiskProfile: (request: unknown) => Promise<unknown>;
 }>) {
   window.go = {
     desktop: {

@@ -119,6 +119,37 @@ func TestUIEvidenceRequestRejectsNetworkClientAndSecretInput(t *testing.T) {
 	}
 }
 
+func TestUIEvidenceCommandScopeUsesOperatorRootAuthorityWithoutFabricatingAttempt(t *testing.T) {
+	rootPath := newUIEvidenceGitWorkspace(t)
+	port := reserveUIEvidencePort(t)
+	state := newFakeUIEvidenceStore(rootPath)
+	state.root.Status = domain.AgentReady
+	commands := &fakeUIEvidenceCommands{port: port}
+	service, err := NewUIEvidenceService(state, commands,
+		&fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}},
+		filepath.Join(t.TempDir(), "profiles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, existing, err := service.prepare(t.Context(),
+		validUIEvidenceServiceRequest(t, port))
+	if err != nil || existing.Status != "" {
+		t.Fatalf("prepare existing=%+v err=%v", existing, err)
+	}
+	scope := service.commandScope(prepared, "application-start")
+	if scope.AgentID != state.root.ID || scope.AgentAttemptID != "" ||
+		scope.RootAgentID != state.root.ID ||
+		scope.RequestedBy != toolgateway.CommandRuntimeRequestedByUIEvidenceOperator ||
+		scope.Attribution() != (domain.AgentAttribution{AgentID: state.root.ID,
+			Source: domain.AgentAttributionOperatorRoot}) || scope.Validate() != nil {
+		t.Fatalf("command scope fabricated an Agent attempt or lost root authority: %+v", scope)
+	}
+	scope.AgentAttemptID = "attempt-fabricated-by-operator-path"
+	if scope.Validate() == nil {
+		t.Fatal("operator UI evidence scope accepted a fabricated Agent attempt")
+	}
+}
+
 func TestUIEvidenceUsesBoundedAttemptIdentityForMaximumOperationKey(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
@@ -491,6 +522,7 @@ type fakeUIEvidenceStore struct {
 	workspace  session.WorkspaceRecord
 	root       domain.AgentNode
 	lease      domain.RunExecutionLease
+	permission domain.RunExecutionPermissionSnapshot
 	attempts   map[string]uievidence.Attempt
 	operations map[string]string
 	steps      []uievidence.StepReceipt
@@ -511,6 +543,10 @@ func newFakeUIEvidenceStore(rootPath string) *fakeUIEvidenceStore {
 		lease: domain.RunExecutionLease{RunID: "run-ui-evidence", LeaseID: "lease-ui-evidence",
 			OwnerID: "agent-ui-root", Generation: 1, Status: domain.RunExecutionLeaseActive,
 			AcquiredAt: now, RenewedAt: now, ExpiresAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)},
+		permission: domain.RunExecutionPermissionSnapshot{
+			RunID: "run-ui-evidence", MissionID: "mission-ui-evidence", Revision: 1,
+			Mode: domain.RunExecutionPermissionFullAccess,
+		},
 		attempts: make(map[string]uievidence.Attempt), operations: make(map[string]string)}
 }
 
@@ -523,6 +559,11 @@ func (s *fakeUIEvidenceStore) GetWorkspaceByID(context.Context, string) (session
 }
 func (s *fakeUIEvidenceStore) GetRootAgent(context.Context, string) (domain.AgentNode, bool, error) {
 	return s.root, true, nil
+}
+func (s *fakeUIEvidenceStore) GetRunExecutionPermission(
+	context.Context, string,
+) (domain.RunExecutionPermissionSnapshot, error) {
+	return s.permission, nil
 }
 func (s *fakeUIEvidenceStore) GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error) {
 	return s.lease, true, nil

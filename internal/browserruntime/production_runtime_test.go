@@ -259,8 +259,8 @@ func TestDisposableProfileMaterializeReleaseCleanupAndRecovery(t *testing.T) {
 		t.Fatalf("Profile runtime root was removed: %v", err)
 	}
 	if err := CleanupReleasedProfile(facts.authorization, released,
-		facts.ownership, true); err == nil {
-		t.Fatal("replayed Profile cleanup unexpectedly succeeded")
+		facts.ownership, true); err != nil {
+		t.Fatalf("idempotent Profile cleanup replay failed: %v", err)
 	}
 
 	recoveryFacts := newLoopbackBrowserRuntimeFacts(t)
@@ -328,6 +328,70 @@ func TestRemoveProfileTreeBoundedRetriesTransientWindowsStyleSharingFailure(t *t
 	}
 	if _, err := os.Lstat(profile); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("bounded Profile cleanup left its exact target: %v", err)
+	}
+}
+
+func TestRemoveProfileTreeBoundedReturnsAtDeadlineWithoutDuplicateWorker(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "owned-profile")
+	if err := os.Mkdir(profile, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blocked := make(chan struct{})
+	started := make(chan struct{}, 1)
+	var callsMu sync.Mutex
+	calls := 0
+	remove := func(path string) error {
+		callsMu.Lock()
+		calls++
+		callsMu.Unlock()
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-blocked
+		return &os.PathError{Op: "removeall", Path: path, Err: os.ErrPermission}
+	}
+
+	timeout := 50 * time.Millisecond
+	begin := time.Now()
+	if err := removeProfileTreeBounded(profile, timeout, remove); err == nil {
+		t.Fatal("blocking Profile removal unexpectedly succeeded")
+	}
+	if elapsed := time.Since(begin); elapsed > 500*time.Millisecond {
+		t.Fatalf("blocking Profile removal ignored its deadline: %s", elapsed)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Profile cleanup janitor never invoked removal")
+	}
+
+	if err := removeProfileTreeBounded(profile, timeout, remove); err == nil {
+		t.Fatal("second waiter on blocking Profile removal unexpectedly succeeded")
+	}
+	callsMu.Lock()
+	gotCalls := calls
+	callsMu.Unlock()
+	if gotCalls != 1 {
+		t.Fatalf("same Profile path started %d removal workers, want 1", gotCalls)
+	}
+
+	close(blocked)
+	deadline := time.Now().Add(time.Second)
+	for {
+		profileCleanupJanitors.Lock()
+		_, active := profileCleanupJanitors.jobs[profile]
+		profileCleanupJanitors.Unlock()
+		if !active {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Profile cleanup janitor did not publish its result")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := os.RemoveAll(profile); err != nil {
+		t.Fatal(err)
 	}
 }
 

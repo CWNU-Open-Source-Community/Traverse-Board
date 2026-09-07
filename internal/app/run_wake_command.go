@@ -97,25 +97,30 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 			"enable execution permission evaluation for this process")
 		enableFullAccess := fs.Bool("enable-danger-full-access", false,
 			"enable the ordinary full-access command runtime for this process")
+		enableDebug := fs.Bool("enable-debug-maximum-access", false,
+			"allow Debug Runs to inherit the full-access command runtime")
 		if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 			"operator": true, "max-steps": true, "enable-permission-control": false,
-			"enable-danger-full-access": false,
+			"enable-danger-full-access":   false,
+			"enable-debug-maximum-access": false,
 		})); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access]")
+			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
 		}
 		handoff := application.NewRunExecutionHandoffService(a.store, a.router,
 			a.checker).WithActiveCalls(a.calls)
 		manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
-			*enablePermissionControl, *enableFullAccess)
+			*enablePermissionControl, *enableFullAccess, *enableDebug)
 		if err != nil {
 			return err
 		}
 		if commandRuntime != nil {
 			handoff.WithCommandRuntime(commandRuntime)
 		}
+		handoff.WithExecutionPermissionCapabilities(cliExecutionPermissionCapabilities(
+			*enablePermissionControl, *enableFullAccess, *enableDebug))
 		stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
 		defer func() {
 			resultErr = errors.Join(resultErr, stopReconciler(),

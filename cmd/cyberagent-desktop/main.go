@@ -35,6 +35,7 @@ const (
 	defaultDesktopWidth                = 1440
 	defaultDesktopHeight               = 900
 	standardCodeDockerImageEnvironment = "CYBERAGENT_STANDARD_CODE_DOCKER_IMAGE_DIGEST"
+	webSearchEndpointEnvironment       = "CYBERAGENT_WEB_SEARCH_ENDPOINT"
 )
 
 type desktopOptions struct {
@@ -87,6 +88,7 @@ type desktopOptions struct {
 	securityRecoveryCase    string
 	securityRecoveryBackend string
 	securityRecoveryPhase   string
+	riskProfileRestart      bool
 	version                 bool
 }
 
@@ -217,6 +219,27 @@ type desktopBindingError struct {
 }
 
 func main() {
+	restart, restartMode, restartErr := parseRiskRestartHelperOptions(os.Args[1:])
+	if restartErr != nil {
+		reportDesktopStartupFailure(restartErr)
+		os.Exit(2)
+	}
+	if restartMode {
+		if err := completeRiskRestartHelperHandshake(restart); err != nil {
+			reportDesktopStartupFailure(err)
+			os.Exit(1)
+		}
+		config, err := desktopOptionsForRiskProfile(restart.profile)
+		if err != nil {
+			reportDesktopStartupFailure(err)
+			os.Exit(2)
+		}
+		if err := runDesktop(config); err != nil {
+			reportDesktopStartupFailure(err)
+			os.Exit(1)
+		}
+		return
+	}
 	config, err := parseDesktopOptions(os.Args[1:])
 	if err != nil {
 		reportDesktopStartupFailure(err)
@@ -456,6 +479,9 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		!config.securityRecoveryWorker {
 		enableSafeDesktopProductBundle(&config)
 	}
+	if len(visited) == 0 {
+		config.riskProfileRestart = true
+	}
 	if config.operatorPreview {
 		// Preserve the old preview launcher's explicit worker behavior. A normal
 		// double-click never resumes durable background work on upgrade.
@@ -501,9 +527,9 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"batch validation execution requires --enable-batch-delivery-control, --enable-permission-control, and --enable-danger-full-access")
 	}
-	if config.fullCDPDebug && (!config.browserCDPControl || !config.debugMaximumAccess) {
+	if config.fullCDPDebug && (!config.browserCDPControl || !config.dangerFullAccess) {
 		return desktopOptions{}, errors.New(
-			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
+			"full CDP requires --enable-browser-cdp-control and --enable-danger-full-access")
 	}
 	if config.scheduledJobWorker && !config.scheduledJobControl {
 		return desktopOptions{}, errors.New(
@@ -521,6 +547,11 @@ func enableSafeDesktopProductBundle(config *desktopOptions) {
 	config.permissionControl = true
 	config.workspaceSandbox = true
 	config.browserCDPControl = true
+	// Install high-risk adapters in the normal process without granting them.
+	// The process-local authority below starts empty and is activated only by an
+	// explicitly confirmed current Thread Full Access selection.
+	config.dangerFullAccess = true
+	config.fullCDPDebug = true
 	config.runCreation = true
 	config.sessionMessages = true
 	config.sessionSteeringControl = true
@@ -575,6 +606,21 @@ func runDesktop(config desktopOptions) error {
 	}
 	workspaceSandboxAvailable := desktopWorkspaceSandboxRuntimeAvailable(config,
 		localReadiness)
+	var executionRuntimeAuthority *domain.ExecutionPermissionRuntimeAuthority
+	if config.dangerFullAccess {
+		executionRuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	}
+	executionPermissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled:        workspaceSandboxAvailable,
+		OperatorApprovalEnabled:        config.permissionControl,
+		DangerFullAccessEnabled:        config.dangerFullAccess,
+		DebugMaximumAccessEnabled:      config.debugMaximumAccess,
+		FullAccessRequiresRuntimeGrant: config.dangerFullAccess,
+		RuntimeAuthority:               executionRuntimeAuthority,
+	}
+	if err := executionPermissionCapabilities.Validate(); err != nil {
+		return err
+	}
 	bundle, err := webui.LoadEmbeddedFS(webassets.Files, "dist")
 	if err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
@@ -611,20 +657,22 @@ func runDesktop(config desktopOptions) error {
 		DatabasePath: databasePath, HomePath: homePath, ReadToken: readToken,
 		ControlToken:      controlToken,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
-		ExecutionPermissionControlEnabled: config.permissionControl,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			WorkspaceSandboxEnabled:   workspaceSandboxAvailable,
-			OperatorApprovalEnabled:   config.permissionControl,
-			DangerFullAccessEnabled:   config.dangerFullAccess,
-			DebugMaximumAccessEnabled: config.debugMaximumAccess,
-		},
+		ExecutionPermissionControlEnabled:  config.permissionControl,
+		ExecutionPermissionCapabilities:    executionPermissionCapabilities,
 		LocalSandboxReadiness:              localReadiness,
 		LocalSandboxBackend:                localBackend,
 		StandardCodeDockerImageDigest:      strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment)),
+		WebSearchEndpoint:                  strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)),
 		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled:   config.browserCDPControl,
 			FullDebugEnabled: config.fullCDPDebug,
+		},
+		FullCDPSessionControlEnabled: config.fullCDPDebug,
+		FullCDPRuntimeCapabilities: browserruntime.FullCDPRuntimeCapabilities{
+			StartEnabled:             config.fullCDPDebug,
+			DisposableProfileEnabled: config.fullCDPDebug,
+			TransportEnabled:         config.fullCDPDebug,
 		},
 		SessionMessageEnabled:                   config.sessionMessages,
 		SessionSteeringControlEnabled:           config.sessionSteeringControl,
@@ -701,6 +749,7 @@ func runDesktop(config desktopOptions) error {
 		WorkspaceSandboxEnabled:                 workspaceSandboxAvailable,
 		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
 		FullCDPDebugEnabled:                     config.fullCDPDebug,
+		FullCDPSessionControlEnabled:            controlPlane.FullCDPSessionControlEnabled(),
 		OperatorApprovalEnabled:                 config.permissionControl,
 		DangerFullAccessEnabled:                 config.dangerFullAccess,
 		DebugMaximumAccessEnabled:               config.debugMaximumAccess,
@@ -743,6 +792,13 @@ func runDesktop(config desktopOptions) error {
 		WorkspaceRegistrar:                controlPlane,
 		UserTerminalController:            controlPlane.UserTerminalController(),
 		DebugTerminalAgentInputController: controlPlane.DebugTerminalAgentInputController(),
+		RiskProfileRestartEnabled:         config.riskProfileRestart,
+		RiskProfileRestarter: func() desktop.DesktopRiskProfileRestarter {
+			if !config.riskProfileRestart {
+				return nil
+			}
+			return newNativeRiskProfileRestarter()
+		}(),
 	})
 	if err != nil {
 		return err

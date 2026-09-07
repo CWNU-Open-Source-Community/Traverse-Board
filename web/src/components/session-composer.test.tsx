@@ -161,7 +161,7 @@ describe("SessionComposer", () => {
       hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
       hasControl: true, submitSessionMessage: vi.fn().mockResolvedValue(result),
       executeRun: vi.fn().mockReturnValue(execution),
-      getPublicModelStream: vi.fn().mockResolvedValue(snapshot), cancelModelCall,
+      pollPublicModelStream: vi.fn().mockResolvedValue(snapshot), cancelModelCall,
     } as unknown as CyberAgentClient;
     const user = userEvent.setup();
     renderComposer(client, runningRun);
@@ -227,7 +227,7 @@ describe("SessionComposer", () => {
     const client = {
       hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
       submitSessionMessage, executeRun,
-      getPublicModelStream: vi.fn().mockRejectedValue(new Error("no active model call")),
+      pollPublicModelStream: vi.fn().mockRejectedValue(new Error("no active model call")),
     } as unknown as CyberAgentClient;
     const user = userEvent.setup();
     renderComposer(client, runningRun);

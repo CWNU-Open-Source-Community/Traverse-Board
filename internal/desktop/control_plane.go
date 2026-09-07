@@ -33,6 +33,7 @@ import (
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -55,6 +56,7 @@ type ControlPlane struct {
 	standardCodePreset             *application.StandardCodePresetService
 	policyChecker                  policy.Checker
 	uiEvidence                     *application.UIEvidenceService
+	fullCDPSessions                *application.FullCDPProductionService
 	commandRuntimeManager          *runner.CommandRuntimeManager
 	commandRuntimeManagers         []*runner.CommandRuntimeManager
 	commandRuntimeAdapterInstalled bool
@@ -73,7 +75,41 @@ type ControlPlane struct {
 	workerDone                     chan struct{}
 	scheduledWorkerCancel          context.CancelFunc
 	scheduledWorkerDone            chan struct{}
+	webFetchReconcileCancel        context.CancelFunc
+	webFetchReconcileDone          chan struct{}
 	closed                         bool
+}
+
+type webFetchAuthorizationReconciler interface {
+	ReconcileWebFetchAuthorizations(context.Context, string, int) (int, error)
+}
+
+func runWebFetchAuthorizationReconciler(ctx context.Context,
+	reconciler webFetchAuthorizationReconciler, interval time.Duration,
+) {
+	if reconciler == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	for {
+		_, _ = reconciler.ReconcileWebFetchAuthorizations(
+			ctx, "", application.MaxApprovalQueueItems)
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func webFetchAuthorizationReconcilerEnabled(config ControlPlaneConfig) bool {
+	return config.ControlToken != "" && config.RunExecutionEnabled &&
+		config.ApprovalControlEnabled &&
+		config.ExecutionPermissionCapabilities.OperatorApprovalEnabled
 }
 
 type ControlPlaneConfig struct {
@@ -87,6 +123,7 @@ type ControlPlaneConfig struct {
 	LocalSandboxReadiness                   *sandbox.LocalReadiness
 	LocalSandboxBackend                     sandbox.LocalBackend
 	StandardCodeDockerImageDigest           string
+	WebSearchEndpoint                       string
 	BrowserCDPPermissionControlEnabled      bool
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunCreationEnabled                      bool
@@ -116,6 +153,8 @@ type ControlPlaneConfig struct {
 	BatchDeliveryHostValidationEnabled      bool
 	UIEvidenceControlEnabled                bool
 	BrowserRuntimeCapabilities              browserruntime.ProductionRuntimeCapabilities
+	FullCDPSessionControlEnabled            bool
+	FullCDPRuntimeCapabilities              browserruntime.FullCDPRuntimeCapabilities
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	CodeIntelConfigPath                     string
@@ -198,6 +237,32 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, apperror.New(apperror.CodeInvalidArgument,
 				"desktop UI evidence requires full-access command runtime and restricted Safe Web")
 		}
+	}
+	if config.FullCDPSessionControlEnabled {
+		capabilities := config.FullCDPRuntimeCapabilities
+		if config.ControlToken == "" ||
+			!config.ExecutionPermissionControlEnabled ||
+			!config.BrowserCDPPermissionControlEnabled ||
+			!config.BrowserCDPPermissionCapabilities.ControlEnabled ||
+			!config.BrowserCDPPermissionCapabilities.FullDebugEnabled ||
+			!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled ||
+			config.ExecutionPermissionCapabilities.RuntimeAuthority == nil ||
+			capabilities.Validate() != nil || !capabilities.StartEnabled ||
+			!capabilities.DisposableProfileEnabled || !capabilities.TransportEnabled {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop Full CDP sessions require explicit control, execution authority, and all dedicated runtime gates")
+		}
+	}
+	webClient := webevidence.NewSafeHTTPClient()
+	providerSearchClient := webevidence.NewProviderSearchHTTPClient()
+	var webSearchProvider webevidence.SearchProvider
+	if endpoint := strings.TrimSpace(config.WebSearchEndpoint); endpoint != "" {
+		configured, providerErr := webevidence.NewSearXNGProvider(webClient, endpoint)
+		if providerErr != nil {
+			return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+				"desktop Web search endpoint is invalid", providerErr)
+		}
+		webSearchProvider = configured
 	}
 	// Consume caller-provided startup evidence before opening SQLite or
 	// constructing services. Schema migration and cold dependency startup must
@@ -305,6 +370,16 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	checker := policy.NewDefaultChecker()
+	webEvidence := webevidence.NewService(stateStore, webSearchProvider,
+		webevidence.NewFetcher(webClient))
+	providerSearchResolver, err := application.NewProviderSearchResolver(models,
+		stateStore, credentialStore, webSearchProvider, providerSearchClient)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop Provider search resolver is unavailable", err)
+	}
+	webEvidence.WithSearchProviderResolver(providerSearchResolver)
 	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(stateStore,
 		config.ExecutionPermissionCapabilities)
 	if err != nil {
@@ -411,9 +486,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	lifecycleControl := application.NewRunLifecycleControlService(stateStore).
 		WithLifecycleHooks(hookEngine)
+	webFetchAuthorizationSchedulerEnabled :=
+		webFetchAuthorizationReconcilerEnabled(config)
 	executionControl := application.NewRunExecutionHandoffService(stateStore,
 		models.Router(), checker).WithActiveCalls(
 		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
+		WithWebEvidence(webEvidence).
+		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled).
+		WithExecutionPermissionCapabilities(config.ExecutionPermissionCapabilities).
 		WithLifecycleHooks(hookEngine)
 	if standardCodeDelivery != nil {
 		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
@@ -550,8 +630,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop UI evidence startup reconciliation failed", err)
 	}
-	if config.UIEvidenceControlEnabled {
-		browserController, controllerErr := browserruntime.NewPlatformBrowserProcessController()
+	var browserController *browserruntime.BrowserProcessController
+	if config.UIEvidenceControlEnabled || config.FullCDPSessionControlEnabled {
+		var controllerErr error
+		browserController, controllerErr = browserruntime.NewPlatformBrowserProcessController()
 		if controllerErr != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = commandManager.Shutdown(shutdownCtx)
@@ -559,6 +641,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			_ = stateStore.Close()
 			return nil, controllerErr
 		}
+	}
+	if config.UIEvidenceControlEnabled {
 		browserService := application.NewBrowserRuntimeService(stateStore,
 			browserController, config.BrowserRuntimeCapabilities,
 			config.BrowserCDPPermissionCapabilities)
@@ -581,6 +665,34 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, err
 		}
 	}
+	var fullCDPSessions *application.FullCDPProductionService
+	fullCDPSessionControlEnabled := false
+	if config.FullCDPSessionControlEnabled && browserController != nil &&
+		browserController.FullCDPAvailable() {
+		profileRoot, profileRootErr := browserruntime.PrepareFullCDPProfileRuntimeRoot(home)
+		if profileRootErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeUnavailable,
+				"desktop Full CDP Profile runtime could not be prepared", profileRootErr)
+		}
+		fullCDPSessions, err = application.NewFullCDPProductionService(stateStore,
+			browserController, config.FullCDPRuntimeCapabilities,
+			config.BrowserCDPPermissionCapabilities,
+			config.ExecutionPermissionCapabilities, profileRoot)
+		if err != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, err
+		}
+		fullCDPSessionControlEnabled = true
+	}
+	if fullCDPSessions != nil {
+		// The Supervisor may act only through an operator-opened, ready session.
+		// WithBrowserActions advertises no Open/Close tool and revalidates the
+		// execution permission, browser permission, and runtime fence per action.
+		executionControl.WithBrowserActions(fullCDPSessions)
+	}
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
 		dockerSandbox)
 	if err != nil {
@@ -592,7 +704,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	approvalGateway := toolgateway.New(stateStore, checker).
 		WithDockerSandboxProposalExecutor(dockerProposalExecutor).
 		WithLifecycleHooks(hookEngine)
-	mcpExecutor, err := application.NewMCPClientToolExecutor(mcpClient)
+	mcpExecutor, err := application.NewMCPClientToolExecutor(mcpClient, stateStore,
+		config.ExecutionPermissionCapabilities)
 	if err != nil {
 		_ = stateStore.Close()
 		return nil, err
@@ -601,6 +714,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	approvalControl := application.NewApprovalControlService(stateStore,
 		approvalGateway, checker)
 	modelControl := application.NewModelControlService(models, stateStore)
+	threadModelRoutes := application.NewThreadModelRouteService(stateStore, models)
+	providerSearchReadiness := application.NewProviderSearchReadinessService(
+		stateStore, providerSearchResolver)
+	providerDefinitionControl, err := application.NewProviderDefinitionService(stateStore, models)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
 	fileEditReview := application.NewFileEditReviewService(stateStore)
@@ -761,6 +882,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 		commandRuntimeAdapterReady = commandRuntimeAdapterReady || ready
 	}
+	threadTurnControl := application.NewThreadTurnServiceWithExecutionCapabilities(
+		stateStore, lifecycleControl, executionControl,
+		config.ExecutionPermissionCapabilities).WithModelRouteRegistry(models).
+		WithLifecycleHooks(hookEngine)
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:                       config.RunControlEnabled,
@@ -779,9 +904,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunExecutionEnabled:                     config.RunExecutionEnabled,
 		PlanDeliveryControlEnabled:              config.PlanDeliveryControlEnabled,
 		ApprovalControlEnabled:                  config.ApprovalControlEnabled,
+		WebFetchAuthorizationSchedulerEnabled:   webFetchAuthorizationSchedulerEnabled,
 		ControlledCommandProposalControlEnabled: config.ControlledCommandProposalControlEnabled,
 		HostCommandProposalControlEnabled:       config.HostCommandProposalControlEnabled,
 		ModelControlEnabled:                     config.ModelControlEnabled,
+		ProviderDefinitionEnabled:               config.ModelControlEnabled,
 		ProviderCredentialEnabled:               config.ProviderCredentialEnabled,
 		FileEditReviewEnabled:                   config.FileEditReviewEnabled,
 		FileEditProposalEnabled:                 config.FileEditProposalEnabled,
@@ -803,7 +930,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ExtensionControlEnabled:                 config.ControlToken != "",
 		LifecycleHooks:                          hookEngine,
 		UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
+		FullCDPSessionControlEnabled:            fullCDPSessionControlEnabled,
 		RunLifecycleController:                  lifecycleControl,
+		ThreadTurnController:                    threadTurnControl,
 		StandardCodePresetController:            standardCodePreset,
 		StandardCodeDeliveryController:          standardCodeDelivery,
 		RunExecutionController:                  executionControl,
@@ -813,6 +942,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ControlledCommandProposalController:     controlledCommandProposals,
 		HostCommandProposalController:           hostCommandProposals,
 		ModelControlController:                  modelControl,
+		ThreadModelRouteController:              threadModelRoutes,
+		ProviderSearchReadinessController:       providerSearchReadiness,
+		ProviderDefinitionController:            providerDefinitionControl,
 		PriceSnapshotController:                 stateStore,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			stateStore, models.Router(), checker),
@@ -835,6 +967,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     codeIntelManager,
 		UIEvidenceController:                uiEvidence,
+		FullCDPSessionController:            fullCDPSessions,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,
@@ -845,6 +978,22 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 		_ = stateStore.Close()
 		return nil, err
+	}
+	// A review decision and its provider/tool continuation cannot share one
+	// SQLite transaction. A process-owned worker reconciles that durable queue
+	// for the whole desktop lifetime. It is deliberately not request-scoped: a
+	// disconnected renderer must not cancel an approved exact continuation.
+	var cancelWebFetchReconcile context.CancelFunc
+	var webFetchReconcileDone chan struct{}
+	if webFetchAuthorizationSchedulerEnabled {
+		webFetchReconcileCtx, cancel := context.WithCancel(context.Background())
+		cancelWebFetchReconcile = cancel
+		webFetchReconcileDone = make(chan struct{})
+		go func() {
+			defer close(webFetchReconcileDone)
+			runWebFetchAuthorizationReconciler(webFetchReconcileCtx, executionControl,
+				2*time.Second)
+		}()
 	}
 	codeIntelTransferred = true
 	commandManagersTransferred = true
@@ -858,11 +1007,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		standardCodePreset:             standardCodePreset,
 		policyChecker:                  checker,
 		uiEvidence:                     uiEvidence,
+		fullCDPSessions:                fullCDPSessions,
 		commandRuntimeManager:          commandManager,
 		commandRuntimeManagers:         commandManagers,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
 		commandRuntimeAdapterReady:     commandRuntimeAdapterReady,
 		standardCodePresetEnabled:      standardCodePreset != nil,
+		webFetchReconcileCancel:        cancelWebFetchReconcile,
+		webFetchReconcileDone:          webFetchReconcileDone,
 		codeIntelManager:               codeIntelManager,
 		terminalManager:                terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker, scheduledJobWorker: scheduledJobWorker}, nil
@@ -880,6 +1032,13 @@ func (c *ControlPlane) CommandRuntimeProcessStatus() (installed, ready bool) {
 
 func (c *ControlPlane) StandardCodePresetEnabled() bool {
 	return c != nil && c.standardCodePresetEnabled
+}
+
+// FullCDPSessionControlEnabled reports whether this process installed the
+// production Full CDP session owner. It projects availability only and grants
+// no Run permission or browser authority.
+func (c *ControlPlane) FullCDPSessionControlEnabled() bool {
+	return c != nil && c.fullCDPSessions != nil
 }
 
 // RegisterWorkspaceDirectory keeps the selected host path entirely within Go
@@ -1117,11 +1276,27 @@ func (c *ControlPlane) Close() error {
 		c.closed = true
 		cancel, done := c.workerCancel, c.workerDone
 		scheduledCancel, scheduledDone := c.scheduledWorkerCancel, c.scheduledWorkerDone
+		webFetchCancel, webFetchDone := c.webFetchReconcileCancel, c.webFetchReconcileDone
 		c.workerCancel = nil
 		c.workerDone = nil
 		c.scheduledWorkerCancel = nil
 		c.scheduledWorkerDone = nil
+		c.webFetchReconcileCancel = nil
+		c.webFetchReconcileDone = nil
 		c.workerMu.Unlock()
+		var fullCDPShutdown <-chan error
+		var fullCDPShutdownCancel context.CancelFunc
+		if c.fullCDPSessions != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), 35*time.Second)
+			shutdownDone := make(chan error, 1)
+			fullCDPShutdown = shutdownDone
+			fullCDPShutdownCancel = shutdownCancel
+			service := c.fullCDPSessions
+			go func() {
+				shutdownDone <- service.Close(shutdownContext)
+			}()
+		}
 		if cancel != nil {
 			cancel()
 		}
@@ -1133,6 +1308,12 @@ func (c *ControlPlane) Close() error {
 		}
 		if scheduledDone != nil {
 			<-scheduledDone
+		}
+		if webFetchCancel != nil {
+			webFetchCancel()
+		}
+		if webFetchDone != nil {
+			<-webFetchDone
 		}
 		c.terminalWorkerMu.Lock()
 		terminalCancel, terminalDone := c.terminalCancel, c.terminalDone
@@ -1156,6 +1337,14 @@ func (c *ControlPlane) Close() error {
 				context.Background(), 35*time.Second)
 			c.closeErr = errors.Join(c.closeErr, c.uiEvidence.Close(shutdownContext))
 			shutdownCancel()
+		}
+		if fullCDPShutdown != nil {
+			// FullCDPProductionService.Close does not return from its timeout path
+			// until any in-flight close audit has drained and future close audits
+			// are detached. SQLite can therefore be closed later in this method
+			// without a cleanup goroutine writing through a stale store owner.
+			c.closeErr = errors.Join(c.closeErr, <-fullCDPShutdown)
+			fullCDPShutdownCancel()
 		}
 		if len(c.commandRuntimeManagers) > 0 {
 			shutdownContext, shutdownCancel := context.WithTimeout(

@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -296,6 +297,15 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpAuthority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
+		Version: mcp.SupervisorCallAuthorityVersion,
+		RunID:   checkpoint.RunID, MissionID: turn.Mission.ID, WorkspaceID: authorityWorkspaceID,
+		PermissionSnapshotID: "permission-mcp-v150", PermissionRevision: 1,
+		PermissionMode: domain.RunExecutionPermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
 		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
 		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
@@ -310,10 +320,11 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
 		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
 		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
-		VALUES (?, ?, ?, 1, 3, 1, ?, ?, ?, '', ?, '', '', ?, NULL)`, checkpoint.RunID,
+		VALUES (?, ?, ?, 1, 3, 1, ?, ?, ?, ?, ?, '', '', ?, NULL)`, checkpoint.RunID,
 		checkpoint.NextTurn, checkpoint.AttemptID, "mcp-tool-v120",
 		string(toolgateway.MCPToolCallTool),
 		`{"version":"mcp-client.v1","server_id":"fixture","tool_name":"lookup","capability_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","arguments":{}}`,
+		string(mcpAuthority),
 		domain.SupervisorToolPending, ts(time.Now().UTC())); err != nil {
 		t.Fatalf("insert mcp_tool_call after v120 migration: %v", err)
 	}
@@ -325,7 +336,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 		rounds[0].Calls[1].ToolName != string(toolgateway.CommandRuntimeTool) ||
 		rounds[0].Calls[1].AuthorityJSON != string(commandRuntimeAuthority) ||
 		rounds[0].Calls[2].ToolName != string(toolgateway.MCPToolCallTool) ||
-		rounds[0].Calls[2].AuthorityJSON != "" {
+		rounds[0].Calls[2].AuthorityJSON != string(mcpAuthority) {
 		t.Fatalf("v116/v120 authority preservation failed: %#v", rounds[0].Calls)
 	}
 }

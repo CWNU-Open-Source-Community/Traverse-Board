@@ -758,7 +758,47 @@ func (s *SQLiteStore) RecordSupervisorModelPublicCommentary(ctx context.Context,
 	return true, nil
 }
 
-func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, response llm.ChatResponse) (domain.SupervisorCheckpoint, error) {
+func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt,
+	response llm.ChatResponse,
+) (domain.SupervisorCheckpoint, error) {
+	return s.recordSupervisorModelCompleted(ctx, checkpoint, attempt, response, 0, nil)
+}
+
+// RecordSupervisorModelCompletedForAgent persists the execution Agent beside
+// every tool call in the same transaction as the successful model response.
+// RootAgentID in tool authority remains a separate authority anchor.
+func (s *SQLiteStore) RecordSupervisorModelCompletedForAgent(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt,
+	response llm.ChatResponse, attribution domain.AgentAttribution,
+) (domain.SupervisorCheckpoint, error) {
+	if attribution.Source != domain.AgentAttributionRecorded ||
+		attribution.Validate() != nil {
+		return domain.SupervisorCheckpoint{}, apperror.New(
+			apperror.CodeInvalidArgument, "recorded Supervisor Agent attribution is invalid")
+	}
+	return s.recordSupervisorModelCompleted(ctx, checkpoint, attempt, response, 0,
+		&attribution)
+}
+
+func (s *SQLiteStore) RecordSupervisorModelCompletedWithRootActionRecovery(
+	ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+	attempt llm.ModelAttempt, response llm.ChatResponse,
+	discardedTrailingBytes int,
+) (domain.SupervisorCheckpoint, error) {
+	if discardedTrailingBytes <= 0 || discardedTrailingBytes > llm.MaxModelOutputBytes {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument,
+			"root action compatibility recovery has invalid trailing byte count")
+	}
+	return s.recordSupervisorModelCompleted(ctx, checkpoint, attempt, response,
+		discardedTrailingBytes, nil)
+}
+
+func (s *SQLiteStore) recordSupervisorModelCompleted(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt,
+	response llm.ChatResponse, discardedTrailingBytes int,
+	attribution *domain.AgentAttribution,
+) (domain.SupervisorCheckpoint, error) {
 	attempt = sanitizeModelAttempt(attempt)
 	if err := attempt.ValidateCompleted(); err != nil {
 		return domain.SupervisorCheckpoint{}, apperror.Wrap(apperror.CodeInvalidArgument, "invalid completed model attempt", err)
@@ -801,8 +841,16 @@ func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context, checkp
 		"tool_call_count":    len(toolCalls),
 		"stream_response_id": responseID, "output_items": outputItems,
 	}
+	if discardedTrailingBytes > 0 {
+		payload["root_action_compatibility"] = map[string]any{
+			"version":                  "root_action_compatibility.v1",
+			"recovery":                 "trailing_non_json_commentary_discarded",
+			"discarded_trailing_bytes": discardedTrailingBytes,
+		}
+	}
 	return s.recordSupervisorModelTerminal(ctx, checkpoint, attempt, events.ModelCompletedEvent, payload,
-		supervisorModelTerminalOptions{Usage: &response.Usage, ToolCalls: toolCalls})
+		supervisorModelTerminalOptions{Usage: &response.Usage, ToolCalls: toolCalls,
+			Attribution: attribution})
 }
 
 func (s *SQLiteStore) RecordSupervisorModelFailed(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt) (domain.SupervisorCheckpoint, error) {
@@ -879,6 +927,7 @@ type supervisorModelTerminalOptions struct {
 	RepairReason string
 	RepairEvent  string
 	ToolCalls    []llm.ToolCall
+	Attribution  *domain.AgentAttribution
 }
 
 func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, eventType string, payload map[string]any, options supervisorModelTerminalOptions) (domain.SupervisorCheckpoint, error) {
@@ -927,6 +976,12 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if (eventType == events.ModelCompletedEvent && completed) || (eventType == events.ModelFailedEvent && failed) {
+		if options.Attribution != nil && len(options.ToolCalls) > 0 {
+			if err := requireSupervisorToolReplayAttributionTx(ctx, tx, checkpoint,
+				options.ToolCalls, *options.Attribution); err != nil {
+				return domain.SupervisorCheckpoint{}, err
+			}
+		}
 		if err := tx.Commit(); err != nil {
 			return domain.SupervisorCheckpoint{}, err
 		}
@@ -1004,7 +1059,8 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if len(options.ToolCalls) > 0 {
-		if err := insertSupervisorToolRoundTx(ctx, tx, run, current, attempt, options.ToolCalls); err != nil {
+		if err := insertSupervisorToolRoundTx(ctx, tx, run, current, attempt,
+			options.ToolCalls, options.Attribution); err != nil {
 			return domain.SupervisorCheckpoint{}, err
 		}
 	}

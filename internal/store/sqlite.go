@@ -381,6 +381,17 @@ func migrationPlan() []migration {
 		{Version: 138, Name: "legacy v136 Supervisor authority trigger repair", Statements: legacyRiskEscalationSupervisorTriggerRepairStatements},
 		{Version: 139, Name: "durable Thread execution permission preferences", Statements: threadExecutionPermissionStatements},
 		{Version: 140, Name: "canonical Thread and Session lifecycle consistency", Statements: threadSessionLifecycleStatements},
+		{Version: 141, Name: "immediate Full CDP downgrade fencing", Statements: browserCDPImmediateDowngradeStatements},
+		{Version: 142, Name: "Debug inheritance of stateless Full Access execution", Statements: debugFullAccessInheritanceStatements, DisableForeignKeys: true},
+		{Version: 143, Name: "immediate high-risk execution permission downgrade", Statements: immediateExecutionPermissionDowngradeStatements},
+		{Version: 144, Name: "exact web allowlists for controlled Run creation", Statements: controlledRunExactNetworkAllowlistStatements},
+		{Version: 145, Name: "audited exact-host Run network authority expansion", Statements: runNetworkAuthorityExpansionStatements},
+		{Version: 146, Name: "deferred Thread execution permission preferences", Statements: threadPermissionDeferredEffectStatements, DisableForeignKeys: true},
+		{Version: 147, Name: "explicit model route for controlled Run creation", Statements: controlledRunExplicitModelRouteStatements},
+		{Version: 148, Name: "defer Thread permission while Run is preparing", Statements: threadPermissionPreparingDeferredStatements},
+		{Version: 149, Name: "inline public HTTPS web fetch approvals", Statements: webFetchInlineAuthorizationStatements},
+		{Version: 150, Name: "authority-bound browser action and MCP Supervisor ledger", Statements: browserActionSupervisorLedgerStatements},
+		{Version: 151, Name: "durable Supervisor and Command Runtime Agent attribution", Statements: supervisorAgentAttributionStatements},
 	}
 }
 

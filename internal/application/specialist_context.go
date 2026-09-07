@@ -66,7 +66,7 @@ type specialistNoteContext struct {
 	Version     int64                 `json:"note_version"`
 }
 
-func specialistTurnInput(mission domain.Mission, child domain.AgentNode,
+func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child domain.AgentNode,
 	attempt domain.AgentAttempt, messages []domain.AgentMessage, workItems []domain.WorkItem,
 	notes []domain.Note,
 ) (string, contextmgr.Selection, error) {
@@ -85,7 +85,7 @@ func specialistTurnInput(mission domain.Mission, child domain.AgentNode,
 		Profile: child.Profile, Skills: append([]string(nil), child.Skills...), Turn: attempt.Turn,
 		RemainingTurns:  max(int64(0), child.TurnLimit-attempt.Turn),
 		RemainingTokens: max(int64(0), child.TokenLimit-child.TokensUsed),
-		NetworkMode:     strings.TrimSpace(mission.Scope.NetworkMode),
+		NetworkMode:     strings.TrimSpace(runScope.NetworkMode),
 	}
 	sections := make([]contextmgr.Section, 0, 1+len(messages)+len(workItems)+len(notes))
 	missionContent, err := marshalSpecialistContextRecord(missionRecord)

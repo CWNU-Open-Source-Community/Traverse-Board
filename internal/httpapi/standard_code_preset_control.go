@@ -195,7 +195,8 @@ func (a *API) standardCodePresetControlView(
 	}
 	if result.BrowserCDP != nil && result.Permission != nil {
 		value := runBrowserCDPPermissionView(*result.BrowserCDP,
-			a.browserCDPPermissionCapabilities, *result.Permission)
+			a.browserCDPPermissionCapabilities, *result.Permission,
+			a.executionPermissionCapabilities)
 		view.BrowserCDPPermission = &value
 	}
 	return view

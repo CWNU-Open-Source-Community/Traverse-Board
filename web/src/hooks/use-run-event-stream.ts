@@ -6,6 +6,8 @@ import { desktopRuntimeActive } from "../lib/desktop-bridge";
 export type StreamStatus = "connecting" | "live" | "reconnecting" | "stopped";
 
 const reconnectDelayMs = 1_000;
+const desktopCaughtUpDelayMs = 250;
+const maxImmediateDesktopPages = 4;
 const maxLiveFrames = 500;
 const maxRememberedRuns = 16;
 
@@ -46,13 +48,20 @@ function mergeFrames(current: RunEventStreamView[], incoming: RunEventStreamView
     .slice(-maxLiveFrames);
 }
 
-function delay(signal: AbortSignal): Promise<void> {
+function delay(signal: AbortSignal, delayMs = reconnectDelayMs): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
-    const timeout = window.setTimeout(resolve, reconnectDelayMs);
-    signal.addEventListener("abort", () => {
+    const onAbort = () => {
       window.clearTimeout(timeout);
       resolve();
-    }, { once: true });
+    };
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -98,7 +107,7 @@ export function useRunEventStream(client: CyberAgentClient, runID: string) {
             setError("");
             if (page.has_more) {
               immediatePages++;
-              if (immediatePages < 4) {
+              if (immediatePages < maxImmediateDesktopPages) {
                 continue;
               }
             }
@@ -122,8 +131,10 @@ export function useRunEventStream(client: CyberAgentClient, runID: string) {
               return;
             }
             setStatus("reconnecting");
+            await delay(controller.signal);
+            continue;
           }
-          await delay(controller.signal);
+          await delay(controller.signal, desktopCaughtUpDelayMs);
         }
       };
       void poll();

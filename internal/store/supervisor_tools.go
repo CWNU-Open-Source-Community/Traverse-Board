@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
@@ -41,8 +42,15 @@ func (s *SQLiteStore) ListSupervisorToolRounds(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanSupervisorToolRounds(rows, domain.MaxSupervisorToolRounds)
+	rounds, err := scanSupervisorToolRounds(rows, domain.MaxSupervisorToolRounds)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.enrichSupervisorToolRoundAttribution(ctx, rounds); err != nil {
+		return nil, err
+	}
+	return rounds, nil
 }
 
 func (s *SQLiteStore) ListRunSupervisorToolRoundsPage(ctx context.Context, runID string,
@@ -73,8 +81,15 @@ func (s *SQLiteStore) ListRunSupervisorToolRoundsPage(ctx context.Context, runID
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanSupervisorToolRounds(rows, limit)
+	rounds, err := scanSupervisorToolRounds(rows, limit)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.enrichSupervisorToolRoundAttribution(ctx, rounds); err != nil {
+		return nil, err
+	}
+	return rounds, nil
 }
 
 func scanSupervisorToolRounds(rows *sql.Rows, maxRounds int) ([]domain.SupervisorToolRound, error) {
@@ -112,6 +127,7 @@ func sameSupervisorToolRoundIdentity(left domain.SupervisorToolRound, right doma
 
 func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run,
 	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, calls []llm.ToolCall,
+	requestedAttribution *domain.AgentAttribution,
 ) error {
 	normalized, err := normalizeSupervisorToolCallsForStore(calls, checkpoint.RunID,
 		checkpoint.NextTurn, attempt.ToolRound+1)
@@ -133,6 +149,18 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 			"supervisor structured tool round limit was exhausted")
 	}
 	now := time.Now().UTC()
+	attribution, err := inferredSupervisorRootAttributionTx(ctx, tx, run.ID,
+		checkpoint.AttemptID)
+	if err != nil {
+		return err
+	}
+	if requestedAttribution != nil {
+		attribution = *requestedAttribution
+		if err := requireRecordedAgentAttributionTx(ctx, tx, run.ID,
+			attribution); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO run_supervisor_tool_rounds
 		(run_id, turn, attempt_id, round, model_attempt, created_at, completed_at)
 		VALUES (?, ?, ?, ?, ?, ?, NULL)`, checkpoint.RunID, checkpoint.NextTurn, checkpoint.AttemptID,
@@ -152,6 +180,14 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 			domain.SupervisorToolPending, ts(now)); err != nil {
 			return err
 		}
+		storedCall := domain.SupervisorToolCall{RunID: checkpoint.RunID,
+			Turn: checkpoint.NextTurn, AttemptID: checkpoint.AttemptID,
+			Round: round, Position: index + 1, ModelAttempt: attempt.Number,
+			CallID: call.ID, CreatedAt: now}
+		if err := insertSupervisorToolAgentAttributionTx(ctx, tx, storedCall,
+			attribution); err != nil {
+			return err
+		}
 		names = append(names, call.Name)
 	}
 	return appendSupervisorEventTx(ctx, tx, run, events.SupervisorToolBatchEvent, "run_supervisor",
@@ -161,6 +197,7 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 			"stream_response_id": normalized[0].StreamResponseID,
 			"stream_item_ids":    supervisorToolStreamItemIDs(normalized),
 			"stream_call_ids":    supervisorToolStreamCallIDs(normalized),
+			"durable_call_ids":   supervisorToolDurableCallIDs(normalized),
 		})
 }
 
@@ -222,6 +259,19 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 					"command runtime supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
+		} else if name == toolgateway.MCPToolCallTool {
+			authority, authorityErr := mcp.DecodeSupervisorCallAuthority(
+				normalized[index].Authority)
+			if authorityErr != nil || authority.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"MCP supervisor tool is missing its exact durable authority")
+			}
+			canonicalAuthority, authorityErr := mcp.EncodeSupervisorCallAuthority(authority)
+			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"MCP supervisor tool authority is invalid")
+			}
+			normalized[index].Authority = canonicalAuthority
 		} else if toolgateway.IsWebEvidenceTool(name) {
 			authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
 				normalized[index].Authority)
@@ -233,6 +283,19 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
 					"web evidence supervisor tool authority is invalid")
+			}
+			normalized[index].Authority = canonicalAuthority
+		} else if toolgateway.IsBrowserActionTool(name) {
+			authority, authorityErr := toolgateway.DecodeBrowserActionCallAuthority(
+				normalized[index].Authority)
+			if authorityErr != nil || authority.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"browser action supervisor tool is missing its exact durable authority")
+			}
+			canonicalAuthority, authorityErr := toolgateway.EncodeBrowserActionCallAuthority(authority)
+			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"browser action supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
 		} else if len(normalized[index].Authority) != 0 {
@@ -261,6 +324,14 @@ func supervisorToolStreamCallIDs(calls []llm.ToolCall) []string {
 	items := make([]string, len(calls))
 	for index := range calls {
 		items[index] = calls[index].StreamCallID
+	}
+	return items
+}
+
+func supervisorToolDurableCallIDs(calls []llm.ToolCall) []string {
+	items := make([]string, len(calls))
+	for index := range calls {
+		items[index] = calls[index].ID
 	}
 	return items
 }
@@ -416,7 +487,7 @@ func supervisorWebEvidenceEventPresentation(call domain.SupervisorToolCall) (map
 	default:
 		return nil, false
 	}
-	return map[string]any{
+	presentation := map[string]any{
 		"version": "web_evidence_presentation.v1", "url": canonical,
 		"title": metadata["title"], "state": state,
 		"source_id": metadata["source_id"], "snapshot_id": metadata["snapshot_id"],
@@ -424,7 +495,18 @@ func supervisorWebEvidenceEventPresentation(call domain.SupervisorToolCall) (map
 		"stale_at": metadata["stale_at"], "digest": metadata["digest"],
 		"partial": partial, "stale": stale, "citeable": citeable, "untrusted": true,
 		"instruction_authorized": false,
-	}, true
+	}
+	robots := strings.TrimSpace(metadata["robots"])
+	if robots != "" {
+		switch robots {
+		case "allowed", "blocked", "unknown", "not_checked", "not_present",
+			"bypassed_disallow", "bypassed_unknown":
+			presentation["robots"] = robots
+		default:
+			return nil, false
+		}
+	}
+	return presentation, true
 }
 
 func validSupervisorWebEvidenceIdentity(value string, optional bool) bool {

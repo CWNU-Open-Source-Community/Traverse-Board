@@ -12,8 +12,10 @@ import (
 func TestWebUIReusesLoopbackBoundaryWithoutWeakeningAPIAuthorization(t *testing.T) {
 	fixture := newAPIFixture(t)
 	var uiCalls atomic.Int64
+	var lastUIPath string
 	ui := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		uiCalls.Add(1)
+		lastUIPath = request.URL.Path
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		writer.WriteHeader(http.StatusOK)
 		if request.Method == http.MethodGet {
@@ -35,13 +37,19 @@ func TestWebUIReusesLoopbackBoundaryWithoutWeakeningAPIAuthorization(t *testing.
 	if root.Header().Get("X-CyberAgent-API-Version") != "" {
 		t.Fatal("UI response was mislabeled as an API response")
 	}
+	legacy := performRequest(t, api, http.MethodGet, "/legacy/threads/thread-1", "",
+		"127.0.0.1:8765", "127.0.0.1:45000", nil)
+	if legacy.Code != http.StatusOK || lastUIPath != "/legacy/threads/thread-1" || uiCalls.Load() != 2 {
+		t.Fatalf("legacy SPA route did not reach UI handler: status=%d path=%q calls=%d body=%q",
+			legacy.Code, lastUIPath, uiCalls.Load(), legacy.Body.String())
+	}
 
 	unauthorizedAPI := performRequest(t, api, http.MethodGet, "/api/v1/health", "",
 		"127.0.0.1:8765", "127.0.0.1:45000", nil)
 	assertAPIError(t, unauthorizedAPI, http.StatusUnauthorized, "POLICY_DENIED")
 	authorizedAPI := performRequest(t, api, http.MethodGet, "/api/v1/health", testAccessToken,
 		"127.0.0.1:8765", "127.0.0.1:45000", nil)
-	if authorizedAPI.Code != http.StatusOK || uiCalls.Load() != 1 {
+	if authorizedAPI.Code != http.StatusOK || uiCalls.Load() != 2 {
 		t.Fatalf("authenticated API was diverted to UI: status=%d calls=%d", authorizedAPI.Code, uiCalls.Load())
 	}
 	reservedTypo := performRequest(t, api, http.MethodGet, "/api/v10", testAccessToken,
@@ -77,6 +85,8 @@ func TestWebUIRejectsUnsafeRequestsBeforeStaticHandler(t *testing.T) {
 		{name: "write", method: http.MethodPost, path: "/", host: "127.0.0.1:8765",
 			remote: "127.0.0.1:45000", status: http.StatusMethodNotAllowed},
 		{name: "query", method: http.MethodGet, path: "/?token=no", host: "127.0.0.1:8765",
+			remote: "127.0.0.1:45000", status: http.StatusBadRequest},
+		{name: "old legacy query", method: http.MethodGet, path: "/?legacy=1", host: "127.0.0.1:8765",
 			remote: "127.0.0.1:45000", status: http.StatusBadRequest},
 		{name: "body", method: http.MethodGet, path: "/", host: "127.0.0.1:8765",
 			remote: "127.0.0.1:45000", body: strings.NewReader("unexpected"), status: http.StatusBadRequest},

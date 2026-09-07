@@ -74,7 +74,7 @@ func TestRunCreateCLIRequiresExplicitValidWebNetworkScope(t *testing.T) {
 	mode, err := state.GetRunMode(context.Background(), runID)
 	closeErr := state.Close()
 	if err != nil || closeErr != nil || mode.Scope.NetworkMode != "allowlist" ||
-		strings.Join(mode.Scope.AllowedTargets, ",") != "search.example.org,docs.example.com" {
+		strings.Join(mode.Scope.AllowedTargets, ",") != "docs.example.com,search.example.org" {
 		t.Fatalf("mode=%#v err=%v close_err=%v", mode, err, closeErr)
 	}
 

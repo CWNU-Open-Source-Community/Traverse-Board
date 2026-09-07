@@ -1,6 +1,6 @@
 # Traverse Board · 针路簿 Desktop Plan
 
-状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX11 自动化核心已完成，数据库 schema 为 v126。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、五档 Run 权限（`workspace_access` 仍等待独立 sandbox adapter）、两档 CDP 权限、独立权限设置页和固定命令提案审批面板已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P11-C5-C7 的通用浏览器产品入口仍关闭，schema v119 只开放来源绑定、literal-loopback、restricted-CDP 的 UI-evidence exact subset。Windows 10 实机矩阵、Agent-owned Debug 终端、可操作通用内置浏览器、完整 CDP、安装包、签名正式发行、注册表、自启动和更新仍未实现。macOS 便携构建（D0-Mac）已落地：同一控制平面在 darwin 构建标签下编译，WKWebView 无需运行时预检，启动失败走有界 osascript 对话框，工作区启动器只通过固定 /usr/bin/open 打开已验证的 .app，脚本产出 ad-hoc 签名的未公证 `Prayu.app` 并复用双构建 SHA-256 校验；签名、公证与人工 macOS 矩阵仍未实现，边界见 ADR 0097。
+状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX11 自动化核心已完成，数据库 schema 为 v143。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、五档 Run 权限、属于 Full Access 并由 Debug 继承的 Full-CDP 子开关、独立权限设置页和固定命令提案审批面板已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P11-C5-C7 的通用浏览器产品入口仍关闭，schema v119 只开放来源绑定、literal-loopback、restricted-CDP 的 UI-evidence exact subset。Full-CDP 授权/会话核心已存在，但 Desktop、HTTP、CLI 与 Supervisor 还没有生产启动调用方。Windows 10 实机矩阵、Agent-owned Debug 终端、可操作通用内置浏览器、安装包、签名正式发行、注册表、自启动和更新仍未实现。macOS 便携构建（D0-Mac）已落地：同一控制平面在 darwin 构建标签下编译，WKWebView 无需运行时预检，启动失败走有界 osascript 对话框，工作区启动器只通过固定 /usr/bin/open 打开已验证的 .app，脚本产出 ad-hoc 签名的未公证 `Prayu.app` 并复用双构建 SHA-256 校验；签名、公证与人工 macOS 矩阵仍未实现，边界见 ADR 0097。
 
 Issue #102 增加独立“真实浏览器 UI 证据”页签。只读 manifest/step/artifact 历史始终可见；执行必须额外开启 `--enable-ui-evidence`，并同时满足 Run execution、permission control、danger-full-access 与 restricted browser-CDP gates。面板要求操作者审阅完整 JSON，异步启动/取消走同一 Go Application service；只将 `passed` 显示为成功，`not_run` 保持中性。浏览器使用固定 executable/version/hash、attempt-private Profile、Safe Web 网络 guard 与创建时 Job Object，不接管用户浏览器、cookie 或已存在服务；关闭 Desktop 会取消并等待 exact-owned application/browser/Profile/network/port 清理。字段、矩阵与收据见 `docs/ui-evidence.md` 和 ADR 0120。
 
@@ -150,7 +150,7 @@ permission control 与 danger-full-access：
 ```
 
 Settings 只投影独立的“命令运行时 / Command runtime” capability；renderer 没有
-Shell/argv/stdin/Job API。只有 Code/Local/Deliver/root、当前 `full_access` 的 Supervisor
+Shell/argv/stdin/Job API。只有 Code/Local/Deliver/root、当前 `full_access` 或 `debug` 的 Supervisor
 能经 Tool Gateway 使用真实 PowerShell/Bash/原生进程。Job 属于 Run/Go manager，不与
 用户终端或 Debug terminal 共用 session；schema v116 的 owner heartbeat 允许下一 turn
 续读，应用退出或权限/root 漂移会整树清理。`--operator-preview` 不隐式开启该高权限能力。
@@ -162,17 +162,26 @@ Shell/argv/stdin/Job API。只有 Code/Local/Deliver/root、当前 `full_access`
 .\build\desktop\TraverseBoard.exe `
   --enable-browser-cdp-control
 
-# 完整 CDP（调试）：高度敏感权限，必须同时开启完整 Debug 权限链。
+# Full Access 的完整 CDP 子开关：高度敏感，但不要求 Debug 或用户终端。
 .\build\desktop\TraverseBoard.exe `
   --enable-permission-control --enable-danger-full-access `
-  --enable-debug-maximum-access --enable-user-terminal `
+  --enable-browser-cdp-control --enable-full-cdp-debug
+
+# 只有需要选择 Debug 时才另加其启动闸门；用户终端仍是另一开关。
+.\build\desktop\TraverseBoard.exe `
+  --enable-permission-control --enable-danger-full-access `
+  --enable-debug-maximum-access `
   --enable-browser-cdp-control --enable-full-cdp-debug
 ```
 
-权限页把 `restricted` 与 `full_debug` 作为独立于 Shell/终端的 Run 快照展示。
-完整档固定显示“高度敏感权限”，并要求当前 Run 的执行权限已经选择 `debug`。
-这两个启动参数只允许操作者写入策略快照；schema v91 仍固定 browser start、CDP
-transport、runtime authority 和 capability grant 为 false。
+权限页把 `restricted|full_debug` 快照投影为 Full Access 的子开关，Debug 严格继承该开关。
+进入 Full Access 或 Debug 时默认开启，两档内都可即时关闭，再开需二次高风险确认；
+低于 Full Access 时强制关闭。完整档固定显示“高度敏感权限”。Full Access 按当前任务动态生效、
+不要求重启；Debug 为了持久终端/后台/有界终端输入仍要求启动闸门。上述参数只安装
+进程内选择能力；schema v91 快照仍固定 browser start、CDP transport、runtime authority 和
+capability grant 为 false。开关只作用于 Traverse 管理的隔离内置浏览器，不是 Wails WebView
+或系统 Chrome，也不会自动启动浏览器。当前 Full-CDP 核心没有 Desktop/HTTP/CLI/Supervisor
+的生产启动调用方。
 
 显式启用 Diff apply、一次前台 wake 消费或惰性 Skill 安装：
 

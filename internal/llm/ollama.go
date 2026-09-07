@@ -434,7 +434,7 @@ func (p *OllamaProvider) prepareRequest(request ChatRequest) (
 		wire.Messages = append(wire.Messages, ollamaMessage{Role: "user", Content: "Hello"})
 		messagesBytes += len("Hello")
 	}
-	if len(request.Tools) > MaxProviderToolCalls {
+	if len(request.Tools) > MaxProviderToolSpecs {
 		return "", ollamaChatRequest{}, 0, errors.New("tool specification count exceeds the provider limit")
 	}
 	if len(request.Tools) > 0 {

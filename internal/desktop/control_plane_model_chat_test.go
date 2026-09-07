@@ -18,7 +18,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 )
 
-func TestControlPlaneCompletesARealAnthropicCompatibleDesktopChatTurn(t *testing.T) {
+func TestControlPlaneCompletesARealAnthropicCompatibleDesktopThreadTurn(t *testing.T) {
 	const model = "integration-model"
 	const assistantReply = "真实模型桌面对话已提交"
 	var calls atomic.Int32
@@ -70,8 +70,8 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopChatTurn(t *testing
 			writeAnthropicToolSSE(t, writer, model, match[1])
 		default:
 			writeAnthropicTextSSE(t, writer, model,
-				`{"version":"root_lifecycle.v1","action":"continue","message":"`+
-					assistantReply+`"}`)
+				`{"version":"root_lifecycle.v1","action":"wait","message":"`+
+					assistantReply+`","reason":"operator turn boundary"}`)
 		}
 	}))
 	defer provider.Close()
@@ -116,42 +116,33 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopChatTurn(t *testing
 		t.Fatalf("route selection status=%d body=%s", route.Code, route.Body.String())
 	}
 
-	createdResponse := desktopControlRequest(plane.Handler(), http.MethodPost, "/api/v1/runs",
+	createdResponse := desktopControlRequest(plane.Handler(), http.MethodPost, "/api/v1/threads",
 		"desktop-real-model-run-0001",
 		fmt.Sprintf(`{"version":%q,"goal":"Verify a real Desktop model turn",`+
 			`"workspace_id":%q,"profile":"code","surface":"code","phase":"deliver"}`,
-			domain.RunCreationProtocolVersion, workspace.ID))
+			domain.ThreadCreationProtocolVersion, workspace.ID))
 	if createdResponse.Code != http.StatusAccepted {
-		t.Fatalf("Run creation status=%d body=%s", createdResponse.Code, createdResponse.Body.String())
+		t.Fatalf("Thread creation status=%d body=%s", createdResponse.Code,
+			createdResponse.Body.String())
 	}
-	var created httpapi.RunCreationControlView
+	var created httpapi.ThreadCreationControlView
 	decodeDesktopControlData(t, createdResponse, &created)
 
-	started := desktopControlRequest(plane.Handler(), http.MethodPost,
-		"/api/v1/runs/"+created.Run.ID+"/lifecycle", "desktop-real-model-start-0001",
-		fmt.Sprintf(`{"version":%q,"action":"start"}`, domain.RunLifecycleControlProtocolVersion))
-	if started.Code != http.StatusAccepted {
-		t.Fatalf("Run start status=%d body=%s", started.Code, started.Body.String())
-	}
-	submitted := desktopControlRequest(plane.Handler(), http.MethodPost,
-		"/api/v1/sessions/"+created.Session.ID+"/messages", "desktop-real-model-message-0001",
-		`{"version":"session_message_submission.v1","content":"请验证真实模型桌面对话闭环"}`)
-	if submitted.Code != http.StatusAccepted {
-		t.Fatalf("message submission status=%d body=%s", submitted.Code, submitted.Body.String())
-	}
 	executedResponse := desktopControlRequest(plane.Handler(), http.MethodPost,
-		"/api/v1/runs/"+created.Run.ID+"/execute", "desktop-real-model-execute-0001",
-		fmt.Sprintf(`{"version":%q,"max_steps":1}`, domain.RunExecutionHandoffProtocolVersion))
+		"/api/v1/threads/"+created.Thread.ID+"/turns", "desktop-real-model-message-0001",
+		`{"version":"thread_message_submission.v1","content":"请验证真实模型桌面对话闭环"}`)
 	if executedResponse.Code != http.StatusAccepted {
-		t.Fatalf("Run execution status=%d body=%s", executedResponse.Code, executedResponse.Body.String())
+		t.Fatalf("Thread turn status=%d body=%s", executedResponse.Code,
+			executedResponse.Body.String())
 	}
-	var executed httpapi.RunExecutionControlView
+	var executed httpapi.ThreadMessageControlView
 	decodeDesktopControlData(t, executedResponse, &executed)
 	if !executed.ExecutionStarted || !executed.ModelCalled || executed.ToolCalled ||
-		executed.Status != "completed" || executed.StepsCompleted != 1 {
+		executed.RunID != created.Run.ID ||
+		executed.Steering.Status != string(domain.OperatorSteeringCommitted) {
 		checkpoint, _, checkpointErr := plane.stateStore.GetSupervisorCheckpoint(
 			t.Context(), created.Run.ID)
-		t.Fatalf("real model execution did not complete one safe turn: %#v checkpoint=%#v err=%v",
+		t.Fatalf("real model Thread facade did not complete one safe turn: %#v checkpoint=%#v err=%v",
 			executed, checkpoint, checkpointErr)
 	}
 

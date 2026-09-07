@@ -371,11 +371,11 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 	}
 	cdp, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
 	if code != 0 || stderr != "" ||
-		!strings.Contains(cdp, "mode: restricted") ||
+		!strings.Contains(cdp, "mode: full_debug") ||
 		!strings.Contains(cdp, "navigate_allowed: true") ||
-		!strings.Contains(cdp, "request_mutation_allowed: false") ||
+		!strings.Contains(cdp, "request_mutation_allowed: true") ||
 		!strings.Contains(cdp, "transport_enabled: false") {
-		t.Fatalf("unexpected initial browser CDP output=%q stderr=%q code=%d",
+		t.Fatalf("Full/Debug did not default Full CDP on safely: output=%q stderr=%q code=%d",
 			cdp, stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
@@ -394,6 +394,17 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 		!strings.Contains(stderr, "exact highly-sensitive confirmation") {
 		t.Fatalf("missing browser CDP confirmation stderr=%q code=%d", stderr, code)
 	}
+	restrictedCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "restricted",
+		"--operation-key", "cli-browser-cdp-disable-0001",
+		"--enable-browser-cdp-control")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(restrictedCDP, "mode: restricted") ||
+		!strings.Contains(restrictedCDP, "request_mutation_allowed: false") ||
+		!strings.Contains(restrictedCDP, "cookie_access_allowed: false") {
+		t.Fatalf("explicit Full CDP disable failed output=%q stderr=%q code=%d",
+			restrictedCDP, stderr, code)
+	}
 	fullCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
 		"set", runID, "full_debug",
 		"--operation-key", "cli-browser-cdp-full-0001",
@@ -409,6 +420,22 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 		!strings.Contains(fullCDP, "runtime_authorized: false") {
 		t.Fatalf("unexpected full browser CDP output=%q stderr=%q code=%d",
 			fullCDP, stderr, code)
+	}
+	if lowered, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "approval",
+		"--operation-key", "cli-permission-lower-forces-cdp-off-0001",
+		"--enable-permission-control", "--confirm-user-approval"); code != 0 ||
+		stderr != "" || !strings.Contains(lowered, "mode: approval") {
+		t.Fatalf("execution downgrade failed output=%q stderr=%q code=%d",
+			lowered, stderr, code)
+	}
+	forcedRestricted, stderr, code := executeTestCommand(t, "run",
+		"browser-cdp-permission", runID)
+	if code != 0 || stderr != "" ||
+		!strings.Contains(forcedRestricted, "mode: restricted") ||
+		!strings.Contains(forcedRestricted, "request_mutation_allowed: false") {
+		t.Fatalf("execution downgrade did not force Full CDP off output=%q stderr=%q code=%d",
+			forcedRestricted, stderr, code)
 	}
 }
 
@@ -799,6 +826,27 @@ func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
 		!strings.Contains(stderr, "safety pattern") || stub.calls != 1 {
 		t.Fatalf("policy denial stderr=%q code=%d calls=%d",
 			stderr, code, stub.calls)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-permission", "set", runID, "debug",
+		"--operation-key", "cli-host-execute-debug-permission-0002",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access", "--confirm-debug-access"); code != 0 {
+		t.Fatalf("Debug permission selection failed: %s", stderr)
+	}
+	debugBase := append([]string(nil), base...)
+	for index := range debugBase {
+		if debugBase[index] == "host-execute-0001" {
+			debugBase[index] = "host-execute-debug-0002"
+		}
+	}
+	debugBase = append(debugBase, "--enable-debug-maximum-access")
+	debugOutput, stderr, code := execute(debugBase...)
+	if code != 0 || stub.calls != 2 ||
+		stub.request.Permission.Mode != domain.RunExecutionPermissionDebug ||
+		!strings.Contains(debugOutput, "replayed: false") {
+		t.Fatalf("Debug host execution output=%q stderr=%q code=%d calls=%d request=%+v",
+			debugOutput, stderr, code, stub.calls, stub.request)
 	}
 }
 

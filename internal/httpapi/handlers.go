@@ -125,6 +125,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.modelControlEnabled {
 			resources = append(resources, "model-control")
 		}
+		if a.providerDefinitionEnabled {
+			resources = append(resources, "provider-definition-control")
+		}
 		if a.providerCredentialEnabled {
 			resources = append(resources, "provider-credential-control")
 		}
@@ -202,6 +205,12 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 	case "models":
 		if len(segments) == 1 {
 			return a.modelAvailability(request)
+		}
+		if len(segments) == 3 && segments[1] == "routes" && segments[2] == "available" {
+			return a.modelRouteCatalog(request)
+		}
+		if len(segments) == 2 && segments[1] == "provider-definitions" {
+			return a.providerDefinitions(request)
 		}
 		if len(segments) == 2 && segments[1] == "credentials" {
 			return a.providerCredentialStatuses(request)
@@ -444,12 +453,15 @@ func (a *API) modelAvailability(request *http.Request) (any, *Page, error) {
 			harnesses[harnessIndex] = modelHarnessAvailabilityView(harness)
 		}
 		providers[index] = ProviderAvailabilityView{
-			Name: provider.Name, Kind: provider.Kind, Status: provider.Status,
-			Models:             append([]string{}, provider.Models...),
-			Harnesses:          harnesses,
-			CredentialSource:   provider.CredentialSource,
-			NetworkRequired:    provider.NetworkRequired,
-			ConfigurationError: provider.ConfigurationError,
+			Name: provider.Name, DisplayName: provider.DisplayName,
+			Kind: provider.Kind, Status: provider.Status,
+			Models: append([]string{}, provider.Models...), Harnesses: harnesses,
+			CredentialSource: provider.CredentialSource, NetworkRequired: provider.NetworkRequired,
+			ConfigurationError: provider.ConfigurationError, Custom: provider.Custom,
+			Enabled: provider.Enabled, DefinitionRevision: provider.DefinitionRevision,
+			Transport: provider.Transport, SearchMode: provider.SearchMode,
+			NativeWebSearchCapability:     provider.NativeWebSearchCapability,
+			NativeWebSearchRuntimeEnabled: provider.NativeWebSearchRuntimeEnabled,
 		}
 	}
 	routes := make([]ModelRouteAvailabilityView, len(snapshot.Routes))
@@ -779,17 +791,44 @@ func (a *API) runApprovals(request *http.Request, runID string) (any, *Page, err
 	if err != nil {
 		return nil, nil, err
 	}
+	recoverableByApproval := map[string]domain.WebFetchAuthorization{}
+	recordIndexByApproval := make(map[string]int, len(records))
+	for index, record := range records {
+		recordIndexByApproval[record.ID] = index
+	}
+	if source, ok := a.store.(interface {
+		ListRecoverableWebFetchAuthorizations(context.Context, string, int) (
+			[]domain.WebFetchAuthorization, error)
+	}); ok {
+		recoverable, loadErr := source.ListRecoverableWebFetchAuthorizations(
+			request.Context(), run.ID, application.MaxApprovalQueueItems+1)
+		if loadErr != nil {
+			return nil, nil, loadErr
+		}
+		for _, value := range recoverable {
+			if _, exists := recoverableByApproval[value.ApprovalID]; exists {
+				continue
+			}
+			record, loadErr := a.store.GetApproval(request.Context(), value.ApprovalID)
+			if loadErr != nil {
+				return nil, nil, loadErr
+			}
+			recoverableByApproval[value.ApprovalID] = value
+			records = upsertApprovalQueueRecord(records, recordIndexByApproval, record)
+		}
+	}
 	truncated := len(records) > application.MaxApprovalQueueItems
 	if truncated {
 		records = records[:application.MaxApprovalQueueItems]
 	}
 	items := make([]ApprovalQueueItemView, len(records))
 	for index, record := range records {
-		if record.RunID != run.ID || record.Status != approval.StatusPending {
+		recoverable, recovering := recoverableByApproval[record.ID]
+		if record.RunID != run.ID || (record.Status != approval.StatusPending && !recovering) {
 			return nil, nil, apperror.New(apperror.CodeInternal,
 				"approval queue contains a mismatched record")
 		}
-		items[index] = ApprovalQueueItemView{
+		item := ApprovalQueueItemView{
 			ID: record.ID, ProposalID: record.ProposalID, RunID: record.RunID,
 			SessionID: record.SessionID, WorkspaceID: record.WorkspaceID,
 			ToolName: record.ToolName, ActionClass: record.ActionClass,
@@ -797,9 +836,61 @@ func (a *API) runApprovals(request *http.Request, runID string) (any, *Page, err
 			AllowedActions: application.ApprovalDecisionActions(record, run.Terminal()),
 			Version:        record.Version, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 		}
+		if recovering {
+			item.AllowedActions = recoverableWebFetchApprovalActions(recoverable)
+			item.CanonicalURL, item.ExactTarget = recoverable.CanonicalURL,
+				recoverable.ExactTarget
+		}
+		if record.ToolName == "web_fetch" {
+			if recovering {
+				items[index] = item
+				continue
+			}
+			if source, ok := a.store.(interface {
+				GetWebFetchAuthorizationByApproval(context.Context, string) (
+					domain.WebFetchAuthorization, error)
+			}); ok {
+				value, loadErr := source.GetWebFetchAuthorizationByApproval(
+					request.Context(), record.ID)
+				if loadErr != nil {
+					return nil, nil, loadErr
+				}
+				item.CanonicalURL, item.ExactTarget = value.CanonicalURL, value.ExactTarget
+			}
+		}
+		items[index] = item
 	}
 	return ApprovalQueueView{ProtocolVersion: application.ApprovalQueueProtocolVersion,
 		RunID: run.ID, Items: items, Truncated: truncated}, nil, nil
+}
+
+// upsertApprovalQueueRecord closes the read race between the pending approval
+// query and the recoverable Web authorization query. The latter is read after
+// the former and therefore carries the newer durable decision; it must replace
+// a stale pending snapshot instead of creating a duplicate queue card.
+func upsertApprovalQueueRecord(records []approval.Record, indexByID map[string]int,
+	record approval.Record,
+) []approval.Record {
+	if index, found := indexByID[record.ID]; found {
+		records[index] = record
+		return records
+	}
+	indexByID[record.ID] = len(records)
+	return append(records, record)
+}
+
+func recoverableWebFetchApprovalActions(value domain.WebFetchAuthorization) []application.ApprovalControlAction {
+	switch value.Status {
+	case domain.WebFetchAuthorizationApproved, domain.WebFetchAuthorizationConsumed:
+		if value.Scope == domain.WebFetchAuthorizationThread {
+			return []application.ApprovalControlAction{application.ApprovalControlApproveForThread}
+		}
+		return []application.ApprovalControlAction{application.ApprovalControlApproveOnce}
+	case domain.WebFetchAuthorizationDenied:
+		return []application.ApprovalControlAction{application.ApprovalControlDeny}
+	default:
+		return nil
+	}
 }
 
 func (a *API) routeSessions(request *http.Request, segments []string) (any, *Page, error) {
@@ -911,7 +1002,8 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 		ExecutionPermission: runExecutionPermissionView(
 			executionPermission, a.executionPermissionCapabilities),
 		BrowserCDPPermission: runBrowserCDPPermissionView(browserCDPPermission,
-			a.browserCDPPermissionCapabilities, executionPermission),
+			a.browserCDPPermissionCapabilities, executionPermission,
+			a.executionPermissionCapabilities),
 		ExecutionInteraction: runExecutionInteractionView(executionInteraction),
 		ToolUsage:            toolUsageView(usage), AgentCodeTools: agentCodeTools}
 	checkpoint, found, err := a.store.GetSupervisorCheckpoint(request.Context(), run.ID)
@@ -1288,9 +1380,40 @@ func (a *API) runToolRounds(request *http.Request, runID string) (any, *Page, er
 	if err != nil {
 		return nil, nil, err
 	}
+	threadID := ""
+	threadRecord, threadErr := a.store.GetThreadByRun(request.Context(), runID)
+	if threadErr == nil {
+		threadID = threadRecord.ID
+	} else if apperror.CodeOf(apperror.Normalize(threadErr)) != apperror.CodeNotFound {
+		return nil, nil, threadErr
+	}
+	detailService := application.NewThreadActivityDetailService(a.store).
+		WithCommandRuntimeSource(a.commandActivitySource)
 	views := make([]SupervisorToolRoundView, len(rounds))
 	for index := range rounds {
-		views[index] = supervisorToolRoundView(rounds[index])
+		details := make(map[string]*ThreadActivityToolDetailView, len(rounds[index].Calls))
+		if threadID != "" {
+			for _, call := range rounds[index].Calls {
+				if !application.SupportsThreadActivityDetail(call.ToolName) {
+					continue
+				}
+				projected, projectionErr := detailService.Get(request.Context(), threadID, call.CallID)
+				if projectionErr != nil {
+					code := apperror.CodeOf(apperror.Normalize(projectionErr))
+					if code == apperror.CodeNotFound || code == apperror.CodeFailedPrecondition {
+						continue
+					}
+					return nil, nil, projectionErr
+				}
+				view := threadActivityDetailView(projected)
+				if len(view.Tools) != 1 {
+					continue
+				}
+				detail := view.Tools[0]
+				details[call.CallID] = &detail
+			}
+		}
+		views[index] = supervisorToolRoundView(rounds[index], threadID, details)
 	}
 	views, page := trimPage(views, pageRequest)
 	return views, page, nil

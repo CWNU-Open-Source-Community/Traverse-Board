@@ -171,7 +171,8 @@ func (s *SQLiteStore) PrepareHostExecutionIntent(
 		profile.Profile != domain.RunExecutionProfileLocal ||
 		permission.ID != intent.PermissionSnapshotID ||
 		permission.Revision != intent.PermissionRevision ||
-		permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		permission.Mode != intent.PermissionMode ||
+		!permission.Mode.IncludesFullAccess() ||
 		mode.Surface != domain.ExecutionSurfaceCode {
 		return false, apperror.New(apperror.CodeConflict,
 			"host command execution durable binding is stale")

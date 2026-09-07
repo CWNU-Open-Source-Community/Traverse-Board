@@ -300,7 +300,8 @@ func (s *StandardCodePresetService) resolveTarget(ctx context.Context,
 		return standardCodeTarget{}, false, nil, apperror.New(
 			apperror.CodeConflict, "Standard Code Workspace does not match the Run")
 	}
-	if mission.WorkspaceID == "" || mission.Scope.NetworkMode != "disabled" {
+	if mission.WorkspaceID == "" || mode.Scope.WorkspaceID != mission.WorkspaceID ||
+		mode.Scope.NetworkMode != "disabled" {
 		return standardCodeTarget{}, false, nil, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Standard Code requires a registered non-networked Workspace")
@@ -518,6 +519,11 @@ func (s *StandardCodePresetService) prepareCommit(ctx context.Context,
 	if err != nil {
 		return domain.StandardCodePresetCommit{}, apperror.Normalize(err)
 	}
+	if mode.Scope.WorkspaceID != operation.WorkspaceID ||
+		mode.Scope.NetworkMode != "disabled" || len(mode.Scope.AllowedTargets) != 0 {
+		return domain.StandardCodePresetCommit{}, apperror.New(
+			apperror.CodeConflict, "Standard Code Run network authority changed")
+	}
 	profile, err := s.store.GetRunExecutionProfile(ctx, operation.RunID)
 	if err != nil {
 		return domain.StandardCodePresetCommit{}, apperror.Normalize(err)
@@ -674,8 +680,7 @@ func (s *StandardCodePresetService) backendReadiness(
 	for _, adapter := range s.runtime.CommandRuntimeAdapters {
 		if adapter.Backend == adapterBackend && adapter.Executable() &&
 			commandRuntimeExecutionProfile(adapter) == backend.ExecutionProfile() &&
-			commandRuntimePermission(adapter) ==
-				domain.RunExecutionPermissionWorkspaceAccess {
+			adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess) {
 			installed = true
 			break
 		}

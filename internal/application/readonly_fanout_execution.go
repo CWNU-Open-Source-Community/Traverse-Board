@@ -31,6 +31,7 @@ type ReadOnlyFanoutExecutionStore interface {
 	policy.DecisionRecorder
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
+	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
 	GetSession(ctx context.Context, id string) (session.Session, error)
 	GetWorkspaceInfo(ctx context.Context, id string) (session.WorkspaceInfo, error)
 	GetRunAgentUsage(ctx context.Context, runID string) (domain.RunAgentUsage, error)
@@ -262,9 +263,14 @@ func (s *ReadOnlyFanoutExecutionService) loadExecutionBinding(ctx context.Contex
 		return domain.Run{}, domain.Mission{}, session.Session{}, session.WorkspaceInfo{},
 			apperror.Normalize(err)
 	}
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, session.Session{}, session.WorkspaceInfo{},
+			apperror.Normalize(err)
+	}
 	if run.Status != domain.RunRunning || mission.WorkspaceID != plan.WorkspaceID ||
-		mission.Scope.WorkspaceID != plan.WorkspaceID ||
-		mission.Scope.NetworkMode != "disabled" {
+		mode.Scope.WorkspaceID != plan.WorkspaceID ||
+		mode.Scope.NetworkMode != "disabled" {
 		return domain.Run{}, domain.Mission{}, session.Session{}, session.WorkspaceInfo{},
 			apperror.New(apperror.CodeFailedPrecondition,
 				"read-only fan-out execution requires its running network-disabled Run")

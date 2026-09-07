@@ -1,5 +1,54 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
+interface IsolatedElementState {
+  count: number;
+  ariaHidden: string | null;
+  inert: string | null;
+}
+
+const isolatedElements = new Map<HTMLElement, IsolatedElementState>();
+
+function isolateElement(element: HTMLElement): void {
+  const current = isolatedElements.get(element);
+  if (current) {
+    current.count += 1;
+    return;
+  }
+  isolatedElements.set(element, {
+    count: 1,
+    ariaHidden: element.getAttribute("aria-hidden"),
+    inert: element.getAttribute("inert"),
+  });
+  element.setAttribute("aria-hidden", "true");
+  element.setAttribute("inert", "");
+}
+
+function restoreElement(element: HTMLElement): void {
+  const current = isolatedElements.get(element);
+  if (!current) return;
+  current.count -= 1;
+  if (current.count > 0) return;
+  if (current.ariaHidden === null) element.removeAttribute("aria-hidden");
+  else element.setAttribute("aria-hidden", current.ariaHidden);
+  if (current.inert === null) element.removeAttribute("inert");
+  else element.setAttribute("inert", current.inert);
+  isolatedElements.delete(element);
+}
+
+function modalBackgroundElements(dialog: HTMLElement): HTMLElement[] {
+  const background = new Set<HTMLElement>();
+  let branch: HTMLElement = dialog;
+  while (branch.parentElement) {
+    const parent = branch.parentElement;
+    for (const sibling of parent.children) {
+      if (sibling !== branch && sibling instanceof HTMLElement) background.add(sibling);
+    }
+    if (parent === document.body) break;
+    branch = parent;
+  }
+  return [...background];
+}
+
 const focusableSelector = [
   "a[href]",
   "area[href]",
@@ -18,7 +67,10 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 export function useModalFocusTrap<T extends HTMLElement>(open: boolean, onEscape: () => void,
-  escapeDisabled = false, initialFocusRef?: RefObject<HTMLElement | null>) {
+  escapeDisabled = false, initialFocusRef?: RefObject<HTMLElement | null>, options?: {
+    isolateBackground?: boolean;
+    returnFocusRef?: RefObject<HTMLElement | null>;
+  }) {
   const dialogRef = useRef<T>(null);
   const onEscapeRef = useRef(onEscape);
   const escapeDisabledRef = useRef(escapeDisabled);
@@ -30,6 +82,8 @@ export function useModalFocusTrap<T extends HTMLElement>(open: boolean, onEscape
     const dialog = dialogRef.current;
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement : null;
+    const isolated = options?.isolateBackground ? modalBackgroundElements(dialog) : [];
+    isolated.forEach(isolateElement);
     const candidates = focusableElements(dialog);
     const preferred = initialFocusRef?.current && dialog.contains(initialFocusRef.current)
       ? initialFocusRef.current
@@ -66,7 +120,10 @@ export function useModalFocusTrap<T extends HTMLElement>(open: boolean, onEscape
     dialog.addEventListener("keydown", handleKeyDown);
     return () => {
       dialog.removeEventListener("keydown", handleKeyDown);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      isolated.forEach(restoreElement);
+      const returnFocus = options?.returnFocusRef?.current;
+      if (returnFocus?.isConnected) returnFocus.focus();
+      else if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [open]);
 

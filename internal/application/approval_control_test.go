@@ -154,3 +154,17 @@ func prepareApprovalControlFixture(t *testing.T) (*store.SQLiteStore, domain.Run
 	checker := policy.NewDefaultChecker()
 	return st, run, toolgateway.New(st, checker)
 }
+
+func TestWebFetchApprovalOffersOnlyInlineHostDecisionScopes(t *testing.T) {
+	record := approval.Record{ToolName: string(toolgateway.WebFetchTool),
+		Status: approval.StatusPending, Mode: "per_call"}
+	actions := application.ApprovalDecisionActions(record, false)
+	if len(actions) != 3 || actions[0] != application.ApprovalControlApproveOnce ||
+		actions[1] != application.ApprovalControlApproveForThread ||
+		actions[2] != application.ApprovalControlDeny {
+		t.Fatalf("web fetch actions=%v", actions)
+	}
+	if terminal := application.ApprovalDecisionActions(record, true); len(terminal) != 0 {
+		t.Fatalf("terminal Run exposed web fetch actions=%v", terminal)
+	}
+}

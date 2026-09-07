@@ -17,12 +17,14 @@ import (
 const RunCreationControlPath = "/api/v1/runs"
 
 type RunCreationControlRequestView struct {
-	Version     string `json:"version"`
-	Goal        string `json:"goal"`
-	WorkspaceID string `json:"workspace_id"`
-	Profile     string `json:"profile,omitempty"`
-	Surface     string `json:"surface,omitempty"`
-	Phase       string `json:"phase,omitempty"`
+	Version        string   `json:"version"`
+	Goal           string   `json:"goal"`
+	WorkspaceID    string   `json:"workspace_id"`
+	Profile        string   `json:"profile,omitempty"`
+	Surface        string   `json:"surface,omitempty"`
+	Phase          string   `json:"phase,omitempty"`
+	NetworkMode    string   `json:"network_mode,omitempty"`
+	AllowedTargets []string `json:"allowed_targets,omitempty"`
 }
 
 type RunCreationControlView struct {
@@ -106,7 +108,9 @@ func (a *API) serveRunCreationControl(writer http.ResponseWriter,
 		request.Context(), application.ControlledRunCreationRequest{
 			Version: view.Version, Goal: view.Goal, WorkspaceID: view.WorkspaceID,
 			Profile: view.Profile, Surface: view.Surface, Phase: view.Phase,
-			OperationKey: operationKey, RequestedBy: "http_control",
+			NetworkMode:    view.NetworkMode,
+			AllowedTargets: append([]string(nil), view.AllowedTargets...),
+			OperationKey:   operationKey, RequestedBy: "http_control",
 		})
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
@@ -139,6 +143,17 @@ func rejectDuplicateJSONObjectFields(body []byte, label string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			label+" body must be one JSON object")
 	}
+	if err := rejectDuplicateJSONObject(decoder, label); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return apperror.New(apperror.CodeInvalidArgument,
+			label+" body contains trailing data")
+	}
+	return nil
+}
+
+func rejectDuplicateJSONObject(decoder *json.Decoder, label string) error {
 	seen := make(map[string]struct{})
 	for decoder.More() {
 		key, err := decoder.Token()
@@ -156,10 +171,8 @@ func rejectDuplicateJSONObjectFields(body []byte, label string) error {
 				fmt.Sprintf("%s body contains duplicate field %q", label, name))
 		}
 		seen[name] = struct{}{}
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			return apperror.New(apperror.CodeInvalidArgument,
-				label+" body contains an invalid field value")
+		if err := rejectDuplicateJSONValue(decoder, label); err != nil {
+			return err
 		}
 	}
 	closing, err := decoder.Token()
@@ -167,9 +180,36 @@ func rejectDuplicateJSONObjectFields(body []byte, label string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			label+" body must be one JSON object")
 	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return apperror.New(apperror.CodeInvalidArgument,
-			label+" body contains trailing data")
-	}
 	return nil
+}
+
+func rejectDuplicateJSONValue(decoder *json.Decoder, label string) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return apperror.New(apperror.CodeInvalidArgument,
+			label+" body contains an invalid field value")
+	}
+	delim, container := token.(json.Delim)
+	if !container {
+		return nil
+	}
+	switch delim {
+	case '{':
+		return rejectDuplicateJSONObject(decoder, label)
+	case '[':
+		for decoder.More() {
+			if err := rejectDuplicateJSONValue(decoder, label); err != nil {
+				return err
+			}
+		}
+		closing, closeErr := decoder.Token()
+		if closeErr != nil || closing != json.Delim(']') {
+			return apperror.New(apperror.CodeInvalidArgument,
+				label+" body contains an invalid field value")
+		}
+		return nil
+	default:
+		return apperror.New(apperror.CodeInvalidArgument,
+			label+" body contains an invalid field value")
+	}
 }

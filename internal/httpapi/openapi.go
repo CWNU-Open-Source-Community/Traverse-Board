@@ -84,6 +84,7 @@ type openAPITag struct {
 type openAPIPathItem struct {
 	Get    *openAPIOperation `json:"get,omitempty"`
 	Post   *openAPIOperation `json:"post,omitempty"`
+	Put    *openAPIOperation `json:"put,omitempty"`
 	Patch  *openAPIOperation `json:"patch,omitempty"`
 	Delete *openAPIOperation `json:"delete,omitempty"`
 }
@@ -179,6 +180,11 @@ func GenerateOpenAPI() ([]byte, error) {
 				return nil, fmt.Errorf("duplicate OpenAPI POST path %q", spec.Path)
 			}
 			item.Post = &operation
+		case http.MethodPut:
+			if item.Put != nil {
+				return nil, fmt.Errorf("duplicate OpenAPI PUT path %q", spec.Path)
+			}
+			item.Put = &operation
 		case http.MethodPatch:
 			if item.Patch != nil {
 				return nil, fmt.Errorf("duplicate OpenAPI PATCH path %q", spec.Path)
@@ -251,6 +257,8 @@ func GenerateOpenAPI() ([]byte, error) {
 
 func openAPIOperationSpecs() []openAPIOperationSpec {
 	threadID := pathIdentityParameter("thread_id", "Thread identity")
+	activityRef := pathIdentityParameter("activity_ref",
+		"Opaque durable activity detail reference from the Thread transcript")
 	runID := pathIdentityParameter("run_id", "Run identity")
 	executionID := pathIdentityParameter("execution_id", "Read-only Fan-out execution identity")
 	childTaskProposalID := pathIdentityParameter("proposal_id", "Child task proposal identity")
@@ -292,12 +300,8 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		Required:    true, Schema: map[string]any{"type": "string", "minLength": 40,
 			"maxLength": 40, "pattern": `^[0-9a-f]{40}$`}}
 	routeName := pathIdentityParameter("route", "Model route name")
-	providerName := pathIdentityParameter("provider", "Provider name")
-	providerName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "ollama", "openai"}
-	// The keyless local Provider has no credential surface, so the credential
-	// path keeps its own closed enum without ollama.
-	credentialProviderName := pathIdentityParameter("provider", "Credential provider name")
-	credentialProviderName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "openai"}
+	credentialProviderName := pathIdentityParameter("provider",
+		"Built-in or persistent custom Provider credential identity")
 	dockerSandboxIdempotencyKey := openAPIParameter{Name: "Idempotency-Key", In: "header",
 		Description: "Opaque retry key; only a domain-separated digest is persisted",
 		Required:    true, Schema: map[string]any{"type": "string",
@@ -685,6 +689,28 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Summary: "Inspect redacted model availability", Tag: "Models",
 			Description: "Returns deterministic Provider registration and route metadata without API keys, base URLs, environment variable names, network probes, or model calls.",
 			DataType:    reflect.TypeOf(ModelAvailabilityView{})},
+		{Path: AvailableModelRoutesPath, OperationID: "listAvailableModelRoutes",
+			Summary: "List selectable Provider/model routes", Tag: "Models",
+			Description: "Returns the credential-free, qualification-aware model routes that the Thread composer may display. The selectable flag is the server-authoritative admission decision; no credential plaintext is returned.",
+			DataType:    reflect.TypeOf(AvailableModelRouteCollectionView{})},
+		{Path: ProviderDefinitionsPath, OperationID: "listProviderDefinitions",
+			Summary: "List credential-free custom Provider definitions", Tag: "Models",
+			Description: "Returns operator-authored Provider protocol, endpoint, model mapping, search policy, and bounded advanced JSON. Credentials are represented only by same-Provider references and plaintext is never returned.",
+			DataType:    reflect.TypeOf(ProviderDefinitionCollectionView{})},
+		{Path: ProviderDefinitionPathTemplate, Method: http.MethodPost,
+			OperationID: "upsertProviderDefinition", Summary: "Create or update a custom Provider",
+			Tag: "Control", Control: true,
+			Description: "Persists one revision-bound credential-free Provider definition, then atomically installs a new Registry generation. Native search declarations remain unverified and grant no hosted tool or network authority.",
+			DataType:    reflect.TypeOf(ProviderDefinitionMutationView{}),
+			RequestType: reflect.TypeOf(ProviderDefinitionUpsertRequestView{}),
+			Parameters:  []openAPIParameter{pathIdentityParameter("provider", "Custom Provider identity")}},
+		{Path: ProviderDefinitionDeletePathTemplate, Method: http.MethodPost,
+			OperationID: "deleteProviderDefinition", Summary: "Delete a custom Provider",
+			Tag: "Control", Control: true, NotFound: true,
+			Description: "Deletes one exact revision only when no persisted model route still selects it, then installs a new Registry generation. The separately stored OS credential is not exposed.",
+			DataType:    reflect.TypeOf(ProviderDefinitionMutationView{}),
+			RequestType: reflect.TypeOf(ProviderDefinitionDeleteRequestView{}),
+			Parameters:  []openAPIParameter{pathIdentityParameter("provider", "Custom Provider identity")}},
 		{Path: ModelRouteControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectModelRoute", Summary: "Persist a model route selection",
 			Tag:         "Control",
@@ -749,10 +775,29 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 				booleanQueryParameter("include_deleted", "Include soft-deleted Threads"))},
 		{Path: ThreadCollectionPath, Method: http.MethodPost,
 			OperationID: "createThread", Summary: "Create a Thread", Tag: "Control",
-			Description: "Atomically creates one stable Thread with its initial Mission, Run, Session, closed mode, all-denied authority snapshots, root Agent, and audit events.",
+			Description: "Atomically creates one stable Thread with its initial Mission, Run, Session, closed execution mode, all-denied process authority snapshots, root Agent, and audit events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist.",
 			DataType:    reflect.TypeOf(ThreadCreationControlView{}),
 			RequestType: reflect.TypeOf(ThreadCreationControlRequestView{}), Control: true,
 			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey}},
+		{Path: ThreadModelRoutePathTemplate, OperationID: "getThreadModelRoute",
+			Summary: "Read a Thread's preferred next-Run model route", Tag: "Threads",
+			Description: "Returns the explicit Thread preference or the inherited default without exposing credentials. A running Run is never changed.",
+			DataType:    reflect.TypeOf(ThreadModelRouteView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
+		{Path: ThreadModelRoutePathTemplate, Method: http.MethodPut,
+			OperationID: "selectThreadModelRoute",
+			Summary:     "Select or reset a Thread's next-Run model route", Tag: "Control",
+			Description: "Persists an idempotent qualified Provider/model preference for the next successor Run. It never mutates the current Run, calls a model, or returns credential material.",
+			DataType:    reflect.TypeOf(ThreadModelRouteView{}),
+			RequestType: reflect.TypeOf(ThreadModelRouteControlRequestView{}),
+			Control:     true, SuccessStatus: http.StatusOK, NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
+		{Path: ProviderSearchReadinessPathTemplate,
+			OperationID: "getProviderSearchReadiness",
+			Summary:     "Inspect a Thread's Web search readiness", Tag: "Threads",
+			Description: "Returns a credential-free, read-only projection over the active Run network allowlist, exact model route, configured search policy, and already-observed Provider qualification cache. It performs no Provider request, never treats declared_unverified as ready, and grants no capability.",
+			DataType:    reflect.TypeOf(ProviderSearchReadinessView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
 		{Path: "/api/v1/threads/{thread_id}", OperationID: "getThread",
 			Summary: "Inspect a Thread", Tag: "Threads",
 			Description: "Returns the same canonical Thread projection with its Mission, active and last Run, and complete succession chain.",
@@ -794,12 +839,36 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(ThreadTranscriptItemView{}), Collection: true,
 			Paginated: true, NotFound: true,
 			Parameters: append([]openAPIParameter{threadID}, threadTranscriptPaginationParameters()...)},
+		{Path: ThreadActivityDetailPathTemplate, OperationID: "getThreadActivityDetail",
+			Summary: "Inspect safe typed Thread activity details", Tag: "Threads",
+			Description: "Lazily returns one Go-owned discriminated detail branch for command, Web search/fetch, file read/edit, MCP, verification, or browser activity. References are resolved through the Thread-to-Run binding and cannot expose another Thread. Environment values, stdin, credentials, raw payload/result JSON, process identities, private host paths, edit bodies, MCP scalar values, and private reasoning are never returned.",
+			DataType:    reflect.TypeOf(ThreadActivityDetailView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID, activityRef}},
+		{Path: ThreadActivityArtifactPathTemplate,
+			OperationID: "getThreadActivityArtifact",
+			Summary:     "Read a safe Thread command output artifact", Tag: "Threads",
+			Description: "Returns one Thread-, activity-, Run-, and Job-bound command stdout/stderr artifact after a second Go-owned redaction and host-path projection. Interactive-stdin Jobs fail closed. Raw payload JSON, environment values, stdin, credentials, process identities, and private reasoning are never returned.",
+			DataType:    reflect.TypeOf(ThreadActivityArtifactView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID, activityRef, artifactID}},
 		{Path: "/api/v1/threads/{thread_id}/messages", Method: http.MethodPost,
 			OperationID: "submitThreadMessage", Summary: "Continue a Thread", Tag: "Control",
 			Description: "Queues input on the live Run, including while waiting for approval. If the last Run is terminal, atomically creates or reuses exactly one fresh successor Run and Session; no approval, lease, process, network, credential, execution profile, or capability authority is inherited.",
 			DataType:    reflect.TypeOf(ThreadMessageControlView{}),
 			RequestType: reflect.TypeOf(ThreadMessageControlRequestView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
+		{Path: ThreadTurnControlPathTemplate, Method: http.MethodPost,
+			OperationID: "executeThreadTurn", Summary: "Execute a Thread turn", Tag: "Control",
+			Description: "Submits one operator message and owns the associated Run start or resume plus bounded Supervisor execution until finish, wait, approval, concurrent steering, or an internal safety boundary. The client does not select a Run or provide a step limit. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.",
+			DataType:    reflect.TypeOf(ThreadMessageControlView{}),
+			RequestType: reflect.TypeOf(ThreadMessageControlRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
+		{Path: ThreadRunRecoveryControlPathTemplate, Method: http.MethodPost,
+			OperationID: "recoverThreadRun", Summary: "End a failed Thread Run", Tag: "Control",
+			Description: "Explicitly ends the exact active running Run only when its latest durable execution handoff failed and no execution lease remains active. Pending steering on the old Run is cancelled and never copied. The next Thread submission atomically creates a successor using the selected next-Run model and permission preferences.",
+			DataType:    reflect.TypeOf(ThreadRunRecoveryControlView{}),
+			RequestType: reflect.TypeOf(ThreadRunRecoveryControlRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey},
+			SuccessStatus: http.StatusOK},
 		{Path: "/api/v1/threads/{thread_id}/archive", Method: http.MethodPost,
 			OperationID: "archiveThread", Summary: "Archive a Thread", Tag: "Control",
 			Description: "Archives the stable Thread and its Run-local Sessions without deleting or orphaning Run, message, or audit history.",
@@ -833,7 +902,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 				identityQueryParameter("mission_id", "Exact Mission identity filter"))},
 		{Path: RunCreationControlPath, Method: http.MethodPost,
 			OperationID: "createRun", Summary: "Create a controlled Run", Tag: "Control",
-			Description: "Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. The request cannot select a model, budget, network target, existing Session, process backend, or capability grant.",
+			Description: "Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist; wildcard and global network grants are rejected. The request cannot select a model, budget, existing Session, process backend, or capability grant.",
 			DataType:    reflect.TypeOf(RunCreationControlView{}),
 			RequestType: reflect.TypeOf(RunCreationControlRequestView{}), Control: true,
 			Parameters: []openAPIParameter{
@@ -1072,7 +1141,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(RunCapabilityReadinessView{}), NotFound: true,
 			Parameters: []openAPIParameter{runID}},
 		{Path: "/api/v1/runs/{run_id}/events", OperationID: "listRunEvents", Summary: "List Run events",
-			Tag: "Runs", Description: "Returns the ordered append-only Run event stream.",
+			Tag: "Runs", Description: "Returns the ordered append-only Run event stream with a strict Go-owned metadata projection for every payload. Commands, paths, prompts, tool arguments and results, output, headers, credentials, and extension-defined string fields are omitted before the response reaches the renderer.",
 			DataType: reflect.TypeOf(EventView{}), Collection: true, Paginated: true, NotFound: true,
 			Parameters: append([]openAPIParameter{runID}, paginationParameters()...)},
 		{Path: "/api/v1/runs/{run_id}/activity", OperationID: "getRunActivity",
@@ -1230,6 +1299,11 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Returns one process-local, provisional snapshot extracted only from the root lifecycle message field after streaming redaction and Policy checks. The snapshot never persists raw provider output, prompts, tool arguments, hidden reasoning, or partial sensitive tails, and disappears when the active call ends.",
 			DataType:    reflect.TypeOf(application.PublicModelStreamSnapshot{}), NotFound: true,
 			Parameters: []openAPIParameter{runID}},
+		{Path: PublicModelStreamPollPathTemplate, OperationID: "pollPublicModelStream",
+			Summary: "Poll the active safe model preview", Tag: "Runs",
+			Description: "Returns an explicit inactive projection between model calls so embedded renderers can poll without treating the expected idle state as an HTTP error. An active snapshot has the same redacted, provisional boundary as the exact active-call endpoint.",
+			DataType:    reflect.TypeOf(PublicModelStreamPollView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}},
 		{Path: ModelCancellationPathTemplate, Method: http.MethodPost,
 			OperationID: "requestModelCancellation", Summary: "Cancel an active model call", Tag: "Control",
 			Description: "Persists an audit-first cancellation request bound to the exact active Supervisor and model attempt. The worker consumes it with its private execution lease; clients never provide a fencing token.",
@@ -1273,6 +1347,19 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: RunNetworkAuthorityControlPathTemplate, Method: http.MethodPost,
+			OperationID: "expandRunNetworkAuthority",
+			Summary:     "Add exact HTTPS hosts to a quiescent Run", Tag: "Control",
+			Description: "Appends a new Run mode revision that adds only the explicitly listed canonical public HTTPS hostnames. The transition requires an exact expected mode revision, a created or paused Run, no active execution lease, and an idempotency key. It never grants public_https, wildcard, implicit search-provider, process, credential, or filesystem authority; all prior tool fences become stale.",
+			DataType:    reflect.TypeOf(RunNetworkAuthorityControlView{}),
+			RequestType: reflect.TypeOf(RunNetworkAuthorityControlRequestView{}),
+			Control:     true, NotFound: true, Parameters: []openAPIParameter{
+				runID,
+				{Name: "Idempotency-Key", In: "header", Description: "Opaque revision-bound operation key; only a domain-separated digest is persisted",
+					Required: true, Schema: map[string]any{"type": "string",
+						"minLength": domain.MinAgentOperationKeyBytes,
+						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
+			}},
 		{Path: RunExecutionPermissionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectRunExecutionPermission",
 			Summary:     "Select a Run execution permission mode", Tag: "Control",
@@ -1289,7 +1376,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: RunBrowserCDPPermissionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectRunBrowserCDPPermission",
 			Summary:     "Select a Run browser CDP permission mode", Tag: "Control",
-			Description: "Records either restricted exact-scope navigation, DOM, and screenshot intent or a highly sensitive full-debug CDP ceiling. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability; full debug also requires the current Run execution permission and process-local startup capability to be Debug.",
+			Description: "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.",
 			DataType:    reflect.TypeOf(RunBrowserCDPPermissionControlView{}),
 			RequestType: reflect.TypeOf(RunBrowserCDPPermissionControlRequestView{}),
 			Control:     true, NotFound: true, Parameters: []openAPIParameter{
@@ -1298,6 +1385,42 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 					Required: true, Schema: map[string]any{"type": "string",
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
+			}},
+		{Path: FullCDPSessionControlPathTemplate, Method: http.MethodGet,
+			OperationID: "getRunFullCDPSession", Summary: "Get the current Full CDP session state",
+			Tag:         "Runs",
+			Description: "Returns only the redacted process-local lifecycle state for the Run's current or most recent Full CDP session. It never exposes a PID, executable or Profile path, DevTools endpoint, WebSocket URL, permission snapshot identity, runtime fence, token, or authorization fingerprint.",
+			DataType:    reflect.TypeOf(FullCDPSessionControlView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}},
+		{Path: FullCDPSessionControlPathTemplate, Method: http.MethodPost,
+			OperationID: "openRunFullCDPSession", Summary: "Open a confirmed Full CDP session",
+			Tag:         "Control",
+			Description: "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
+			DataType:    reflect.TypeOf(FullCDPSessionControlView{}),
+			RequestType: reflect.TypeOf(FullCDPSessionOpenRequestView{}),
+			Control:     true, NotFound: true, SuccessStatus: http.StatusCreated,
+			Parameters: []openAPIParameter{runID,
+				{Name: "Idempotency-Key", In: "header",
+					Description: "Opaque process-local Full CDP open operation key",
+					Required:    true, Schema: map[string]any{"type": "string",
+						"minLength": domain.MinAgentOperationKeyBytes,
+						"maxLength": domain.MaxAgentOperationKeyBytes,
+						"pattern":   `^\S+$`}},
+			}},
+		{Path: FullCDPSessionCloseControlPathTemplate, Method: http.MethodPost,
+			OperationID: "closeRunFullCDPSession", Summary: "Close and clean one exact Full CDP session",
+			Tag:         "Control",
+			Description: "Closes the CDP transport, terminates and reaps the complete browser process tree, releases and deletes only the exact owned disposable Profile, then records a redacted terminal audit event. Closing is a cleanup operation and does not require a high-risk confirmation or still-live Full CDP permission.",
+			DataType:    reflect.TypeOf(FullCDPSessionControlView{}),
+			RequestType: reflect.TypeOf(FullCDPSessionCloseRequestView{}),
+			Control:     true, NotFound: true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{runID,
+				{Name: "Idempotency-Key", In: "header",
+					Description: "Opaque process-local Full CDP close operation key",
+					Required:    true, Schema: map[string]any{"type": "string",
+						"minLength": domain.MinAgentOperationKeyBytes,
+						"maxLength": domain.MaxAgentOperationKeyBytes,
+						"pattern":   `^\S+$`}},
 			}},
 		{Path: RunExecutionInteractionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectRunExecutionInteraction",
@@ -1664,7 +1787,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 				stringQueryParameter("stream", "Artifact output stream", artifactStreams()))},
 		{Path: "/api/v1/runs/{run_id}/tool-rounds", OperationID: "listRunToolRounds",
 			Summary: "List Supervisor tool rounds", Tag: "Runs",
-			Description: "Returns persisted redacted structured-memory tool rounds and calls.",
+			Description: "Returns persisted Supervisor tool rounds with the same Go-owned closed thread_activity_detail.v2 union used by the Thread conversation. Raw durable payload/result JSON and generic name/value fact arrays are never exposed; unsupported historical calls fail closed with detail_available=false.",
 			DataType:    reflect.TypeOf(SupervisorToolRoundView{}), Collection: true, Paginated: true,
 			NotFound: true, Parameters: append([]openAPIParameter{runID}, paginationParameters()...)},
 		{Path: "/api/v1/sessions", OperationID: "listSessions", Summary: "List Sessions", Tag: "Sessions",
@@ -1807,6 +1930,8 @@ func standardOperationResponses(notFound bool, control bool) map[string]any {
 		"414": responseReference("RequestTooLarge"),
 		"429": responseReference("ResourceExhausted"),
 		"500": responseReference("InternalError"),
+		"503": responseReference("Unavailable"),
+		"504": responseReference("GatewayTimeout"),
 	}
 	if notFound {
 		responses["404"] = responseReference("NotFound")
@@ -1842,6 +1967,8 @@ func standardOpenAPIErrorResponses(registry *openAPISchemaRegistry) map[string]o
 		"RequestTooLarge":       makeResponse("Request target or query exceeded its hard limit"),
 		"ResourceExhausted":     makeResponse("Bounded response or resource limit was exhausted"),
 		"InternalError":         makeResponse("Redacted internal server failure"),
+		"Unavailable":           makeResponse("Required local runtime or trusted browser is unavailable"),
+		"GatewayTimeout":        makeResponse("A bounded local runtime operation exceeded its deadline"),
 	}
 }
 
@@ -2055,11 +2182,45 @@ func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]
 			required = append(required, name)
 		}
 	}
+	if metadataTypeName == "ThreadActivityTypedDetailView" {
+		return threadActivityTypedDetailSchema(properties)
+	}
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": properties}
 	if len(required) != 0 {
 		schema["required"] = required
 	}
 	return schema
+}
+
+func threadActivityTypedDetailSchema(properties map[string]any) map[string]any {
+	branches := []struct {
+		kind, field string
+	}{
+		{kind: "command", field: "command"},
+		{kind: "web_search", field: "web_search"},
+		{kind: "web_fetch", field: "web_fetch"},
+		{kind: "file_read", field: "file_read"},
+		{kind: "file_edit", field: "file_edit"},
+		{kind: "mcp", field: "mcp"},
+		{kind: "verification", field: "verification"},
+		{kind: "browser", field: "browser"},
+	}
+	oneOf := make([]any, 0, len(branches))
+	for _, branch := range branches {
+		oneOf = append(oneOf, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"kind":       map[string]any{"type": "string", "enum": []string{branch.kind}},
+				branch.field: properties[branch.field],
+			},
+			"required": []string{"kind", branch.field},
+		})
+	}
+	return map[string]any{
+		"oneOf":         oneOf,
+		"discriminator": map[string]any{"propertyName": "kind"},
+	}
 }
 
 func jsonField(field reflect.StructField) (string, bool, bool) {
@@ -2151,6 +2312,29 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if typeName == "StandardCodePresetControlView" && fieldName == "next_steps" {
 		schema["maxItems"] = 7
+	}
+	if (typeName == "RunCreationControlRequestView" ||
+		typeName == "ThreadCreationControlRequestView") && fieldName == "allowed_targets" {
+		schema["maxItems"] = 256
+		schema["uniqueItems"] = true
+		if items, ok := schema["items"].(map[string]any); ok {
+			items["minLength"] = 1
+			items["maxLength"] = 512
+		}
+	}
+	if (typeName == "RunNetworkAuthorityControlRequestView" &&
+		fieldName == "add_allowed_targets") ||
+		(typeName == "RunNetworkAuthorityControlView" && fieldName == "added_targets") {
+		schema["minItems"] = 1
+		schema["maxItems"] = 256
+		schema["uniqueItems"] = true
+		if items, ok := schema["items"].(map[string]any); ok {
+			items["minLength"] = 1
+			items["maxLength"] = 512
+		}
+	}
+	if typeName == "RunNetworkAuthorityControlView" && fieldName == "capability_grant" {
+		schema["const"] = true
 	}
 	if typeName == "HostCommandProposalView" {
 		switch fieldName {
@@ -2262,7 +2446,10 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if typeName == "ProviderCredentialListView" && fieldName == "items" {
 		schema["minItems"] = 4
-		schema["maxItems"] = 4
+		schema["maxItems"] = 4 + modelregistry.MaxCustomProviderDefinitions
+	}
+	if typeName == "ProviderCredentialStatusView" && fieldName == "provider" {
+		schema["maxLength"] = 64
 	}
 	if typeName == "ProviderCredentialRequestView" && fieldName == "secret" {
 		schema["writeOnly"] = true
@@ -2338,6 +2525,41 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "DebugQueryResult" && fieldName == "items" {
 		schema["maxItems"] = 100
 	}
+	if typeName == "ThreadActivityDetailView" && fieldName == "tools" {
+		schema["minItems"] = 1
+		schema["maxItems"] = 1
+	}
+	if typeName == "ThreadActivityCommandGroupView" && fieldName == "commands" {
+		schema["maxItems"] = application.MaxThreadActivityCommands
+	}
+	if typeName == "ThreadActivityWebSearchDetailView" && fieldName == "sources" {
+		schema["maxItems"] = application.MaxThreadActivitySearchSources
+	}
+	if (typeName == "ThreadActivityMCPDetailView" && fieldName == "arguments") ||
+		(typeName == "ThreadActivityJSONSummaryView" && fieldName == "fields") {
+		schema["maxItems"] = application.MaxThreadActivityMCPFields
+	}
+	if typeName == "ThreadActivityCommandDetailView" {
+		switch fieldName {
+		case "command":
+			schema["maxLength"] = application.MaxThreadActivityCommandRunes
+		case "working_directory":
+			schema["maxLength"] = 1024
+		case "stdout_preview", "stderr_preview":
+			schema["maxLength"] = application.MaxThreadActivityOutputRunes
+		case "artifacts":
+			schema["maxItems"] = 2
+		}
+	}
+	if typeName == "ThreadActivityArtifactView" && fieldName == "content" {
+		schema["maxLength"] = application.MaxThreadActivityArtifactBytes
+	}
+	if typeName == "ThreadActivityFileEditDetailView" && fieldName == "edit_id" {
+		schema["maxLength"] = 256
+	}
+	if typeName == "ThreadActivitySummaryView" && fieldName == "command" {
+		schema["maxLength"] = application.MaxThreadActivityCommandRunes
+	}
 }
 
 var openAPIFieldEnums = map[string][]string{
@@ -2356,16 +2578,49 @@ var openAPIFieldEnums = map[string][]string{
 	"DockerSandboxStatusView.outcome": {domain.DockerSandboxOutcomeSucceeded,
 		domain.DockerSandboxOutcomeFailed, domain.DockerSandboxOutcomeTimedOut,
 		domain.DockerSandboxOutcomeCancelled},
-	"DockerSandboxCancellationView.reason_code":                {domain.DockerSandboxReasonCancelled},
-	"EventView.version":                                        {events.EnvelopeVersion},
-	"RunActivityView.version":                                  {runactivity.ProtocolVersion},
-	"RunActivityItemView.kind":                                 {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
-	"RunActivityItemView.source":                               {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
-	"ThreadTranscriptItemView.version":                         {threadtranscript.ProtocolVersion},
-	"ThreadTranscriptItemView.activity_type":                   {string(threadtranscript.TypeMessage), string(threadtranscript.TypeSearch), string(threadtranscript.TypeRead), string(threadtranscript.TypeEdit), string(threadtranscript.TypeExecute), string(threadtranscript.TypeVerify), string(threadtranscript.TypeApproval), string(threadtranscript.TypeCheckpoint), string(threadtranscript.TypeDelivery)},
-	"ThreadTranscriptItemView.stage":                           {string(threadtranscript.StageStarted), string(threadtranscript.StageArgumentsReady), string(threadtranscript.StageRunning), string(threadtranscript.StageResult), string(threadtranscript.StageBlocked)},
-	"ThreadTranscriptItemView.kind":                            {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
-	"ThreadTranscriptItemView.source":                          {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
+	"DockerSandboxCancellationView.reason_code":  {domain.DockerSandboxReasonCancelled},
+	"EventView.version":                          {events.EnvelopeVersion},
+	"RunActivityView.version":                    {runactivity.ProtocolVersion},
+	"RunActivityItemView.kind":                   {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
+	"RunActivityItemView.source":                 {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
+	"ThreadTranscriptItemView.version":           {threadtranscript.ProtocolVersion},
+	"ThreadTranscriptItemView.activity_type":     {string(threadtranscript.TypeMessage), string(threadtranscript.TypeSearch), string(threadtranscript.TypeRead), string(threadtranscript.TypeEdit), string(threadtranscript.TypeExecute), string(threadtranscript.TypeVerify), string(threadtranscript.TypeApproval), string(threadtranscript.TypeCheckpoint), string(threadtranscript.TypeDelivery)},
+	"ThreadTranscriptItemView.stage":             {string(threadtranscript.StageStarted), string(threadtranscript.StageArgumentsReady), string(threadtranscript.StageRunning), string(threadtranscript.StageResult), string(threadtranscript.StageBlocked)},
+	"ThreadTranscriptItemView.kind":              {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
+	"ThreadTranscriptItemView.source":            {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
+	"ThreadActivityDetailView.version":           {application.ThreadActivityDetailProtocolVersion},
+	"ThreadActivityTypedDetailView.kind":         {"command", "web_search", "web_fetch", "file_read", "file_edit", "verification", "mcp", "browser"},
+	"ThreadActivityBoundaryView.authorization":   {"policy_checked", "pending", "denied"},
+	"ThreadActivityJSONFieldSummaryView.type":    {"null", "boolean", "number", "string", "array", "object", "unknown"},
+	"ThreadActivityJSONSummaryView.type":         {"unavailable", "text", "null", "boolean", "number", "string", "array", "object", "unknown"},
+	"ThreadActivityArtifactView.version":         {application.ThreadActivityArtifactProtocolVersion},
+	"ThreadActivityArtifactView.stream":          {"stdout", "stderr"},
+	"ThreadActivityArtifactReferenceView.stream": {"stdout", "stderr"},
+	"ThreadActivityArtifactView.mime":            {"text/plain; charset=utf-8"},
+	"ThreadActivityArtifactReferenceView.mime":   {"text/plain; charset=utf-8"},
+	"ThreadActivitySummaryView.version":          {application.ThreadActivitySummaryProtocolVersion},
+	"ThreadActivitySummaryView.status":           {string(domain.SupervisorToolPending), string(domain.SupervisorToolCompleted), string(domain.SupervisorToolDenied), string(domain.SupervisorToolFailed), string(runner.CommandRuntimeJobPrepared), string(runner.CommandRuntimeJobRunning), string(runner.CommandRuntimeJobStopping), string(runner.CommandRuntimeJobCompleted), string(runner.CommandRuntimeJobFailed), string(runner.CommandRuntimeJobTimedOut), string(runner.CommandRuntimeJobCancelled), string(runner.CommandRuntimeJobKilled), string(runner.CommandRuntimeJobInterrupted)},
+	"ThreadActivityToolDetailView.name": {string(toolgateway.CommandRuntimeTool),
+		string(toolgateway.WorkspaceListTool), string(toolgateway.WorkspaceReadTool),
+		string(toolgateway.WorkspaceGlobTool), string(toolgateway.WorkspaceGrepTool),
+		string(toolgateway.WorkspaceChangeTool), string(toolgateway.WorkspaceApplyTool),
+		string(toolgateway.WorkspaceDeleteTool), string(toolgateway.WebSearchTool),
+		string(toolgateway.WebFetchTool), string(toolgateway.WebCitationTool),
+		string(toolgateway.MCPToolCallTool), string(toolgateway.CodeWorkspaceSymbolsTool),
+		string(toolgateway.CodeDocumentSymbolsTool), string(toolgateway.CodeDefinitionTool),
+		string(toolgateway.CodeReferencesTool), string(toolgateway.CodeImplementationTool),
+		string(toolgateway.CodeHoverTool), string(toolgateway.CodeSignatureHelpTool),
+		string(toolgateway.CodeDiagnosticsTool), string(toolgateway.CodeCallHierarchyTool),
+		string(toolgateway.CodeTypeHierarchyTool), string(toolgateway.GitHubEvidenceListTool),
+		string(toolgateway.GitHubEvidenceReadTool), string(toolgateway.BrowserStatusTool),
+		string(toolgateway.BrowserNavigateTool), string(toolgateway.BrowserSnapshotTool),
+		string(toolgateway.BrowserClickTool), string(toolgateway.BrowserTypeTool),
+		string(toolgateway.BrowserScreenshotTool)},
+	"ThreadActivityToolDetailView.agent_role":                  {string(domain.AgentRoleRoot), string(domain.AgentRoleSpecialist), "unknown"},
+	"ThreadActivityToolDetailView.status":                      {string(domain.SupervisorToolPending), string(domain.SupervisorToolCompleted), string(domain.SupervisorToolDenied), string(domain.SupervisorToolFailed)},
+	"ThreadActivityCommandDetailView.execution_environment":    {"Workspace Sandbox", "Host · Full Access", "Legacy execution boundary"},
+	"ThreadActivityCommandDetailView.network":                  {"disabled"},
+	"ThreadActivityCommandDetailView.status":                   {string(domain.SupervisorToolPending), string(domain.SupervisorToolCompleted), string(domain.SupervisorToolDenied), string(domain.SupervisorToolFailed), string(runner.CommandRuntimeJobPrepared), string(runner.CommandRuntimeJobRunning), string(runner.CommandRuntimeJobStopping), string(runner.CommandRuntimeJobCompleted), string(runner.CommandRuntimeJobFailed), string(runner.CommandRuntimeJobTimedOut), string(runner.CommandRuntimeJobCancelled), string(runner.CommandRuntimeJobKilled), string(runner.CommandRuntimeJobInterrupted)},
 	"IndexView.api_version":                                    {Version},
 	"HealthView.status":                                        {"ok"},
 	"HealthView.api_version":                                   {Version},
@@ -2418,10 +2673,32 @@ var openAPIFieldEnums = map[string][]string{
 	"DebugTimelineItem.payload_state":                          {"withheld"},
 	"DiagnosticBundle.protocol_version":                        {application.DiagnosticBundleProtocolVersion},
 	"ModelAvailabilityView.protocol_version":                   {modelregistry.ProtocolVersion},
+	"AvailableModelRouteCollectionView.protocol_version":       {application.ModelRouteCatalogProtocolVersion},
+	"AvailableModelRouteView.credential_status":                {"not_required", "configured", "not_configured", "invalid_configuration", "disabled", "unavailable"},
+	"AvailableModelRouteView.qualification_status":             {"unavailable", modelregistry.QualificationStatusNotConfigured, modelregistry.QualificationStatusAvailable, modelregistry.QualificationStatusProtocolMismatch, modelregistry.QualificationStatusAuthFailed, modelregistry.QualificationStatusNetworkFailed, modelregistry.QualificationStatusRateLimit, modelregistry.QualificationStatusCapacity, modelregistry.QualificationStatusModelUnsupported, llm.HarnessQualificationTrusted, llm.HarnessQualificationRequired, llm.HarnessQualificationVerified},
+	"AvailableModelRouteView.unavailable_reason":               {"", "provider_disabled", "credential_not_configured", "invalid_configuration", "provider_unavailable", "harness_qualification_required", modelregistry.QualificationStatusNotConfigured, modelregistry.QualificationStatusProtocolMismatch, modelregistry.QualificationStatusAuthFailed, modelregistry.QualificationStatusNetworkFailed, modelregistry.QualificationStatusRateLimit, modelregistry.QualificationStatusCapacity, modelregistry.QualificationStatusModelUnsupported},
+	"ThreadModelRouteView.protocol_version":                    {domain.ThreadModelRouteProtocolVersion},
+	"ThreadModelRouteView.source":                              {"thread_preference", "default", "active_run"},
+	"ThreadModelRouteView.applies_to":                          {"next_run", "current_and_next"},
+	"ThreadModelRouteControlRequestView.version":               {domain.ThreadModelRouteControlProtocolVersion},
+	"ThreadModelRouteControlRequestView.action":                {string(domain.ThreadModelRouteSelect), string(domain.ThreadModelRouteReset)},
+	"ProviderAvailabilityView.transport":                       {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat},
+	"ProviderAvailabilityView.search_mode":                     {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
+	"ProviderAvailabilityView.native_web_search_capability":    {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},
+	"ProviderSearchReadinessView.protocol_version":             {application.ProviderSearchReadinessProtocolVersion},
+	"ProviderSearchReadinessView.search_policy":                {webevidence.SearchPolicyDisabled, webevidence.SearchPolicyAuto, webevidence.SearchPolicySearXNG, webevidence.SearchPolicyProviderNative},
+	"ProviderSearchReadinessView.state":                        {application.ProviderSearchStateNetworkDisabled, application.ProviderSearchStateMissingAllowlist, application.ProviderSearchStateProviderUnqualified, application.ProviderSearchStateProviderUnavailable, application.ProviderSearchStateReady},
+	"ProviderSearchReadinessView.reason":                       {application.ProviderSearchReasonRunNetworkDisabled, application.ProviderSearchReasonEndpointNotAllowlisted, application.ProviderSearchReasonQualificationRequired, application.ProviderSearchReasonQualificationFailed, application.ProviderSearchReasonNoActiveRun, application.ProviderSearchReasonModelProviderUnavailable, application.ProviderSearchReasonPolicyDisabled, application.ProviderSearchReasonBackendNotConfigured, application.ProviderSearchReasonConfigurationInvalid, application.ProviderSearchReasonBackendReady},
+	"ProviderSearchReadinessView.remediation":                  {application.ProviderSearchRemediationEnableNetwork, application.ProviderSearchRemediationAddRequiredTarget, application.ProviderSearchRemediationQualifyProvider, application.ProviderSearchRemediationCreateSuccessor, application.ProviderSearchRemediationConfigureProvider, application.ProviderSearchRemediationEnablePolicy, application.ProviderSearchRemediationRepairConfiguration, application.ProviderSearchRemediationNone},
+	"ProviderSearchReadinessView.network_mode":                 {"disabled", "allowlist"},
 	"ProviderDiagnosticRequestView.version":                    {modelregistry.DiagnosticProtocolVersion},
 	"ModelHarnessQualificationRequestView.version":             {modelregistry.HarnessQualificationProtocolVersion},
 	"ModelHarnessAvailabilityView.protocol_version":            {llm.ModelHarnessProtocolVersion},
-	"ModelHarnessAvailabilityView.transport_protocol":          {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
+	"ModelHarnessAvailabilityView.transport_protocol":          {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
+	"ProviderDefinition.version":                               {modelregistry.ProviderDefinitionVersion},
+	"ProviderDefinition.transport":                             {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
+	"ProviderDefinition.search_mode":                           {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
+	"ProviderDefinition.native_web_search_capability":          {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},
 	"ModelHarnessAvailabilityView.tool_strategy":               {llm.HarnessToolStrategyNative, llm.HarnessToolStrategyNone},
 	"ModelHarnessAvailabilityView.json_strategy":               {llm.HarnessJSONStrategyNative, llm.HarnessJSONStrategyPrompt, llm.HarnessJSONStrategyNone},
 	"ModelHarnessAvailabilityView.qualification_status":        {llm.HarnessQualificationTrusted, llm.HarnessQualificationRequired, llm.HarnessQualificationVerified},
@@ -2439,7 +2716,6 @@ var openAPIFieldEnums = map[string][]string{
 	"ModelRouteControlRequestView.version":                     {modelregistry.RouteControlProtocolVersion},
 	"ProviderCredentialListView.protocol_version":              {credential.ProtocolVersion},
 	"ProviderCredentialStatusView.protocol_version":            {credential.ProtocolVersion},
-	"ProviderCredentialStatusView.provider":                    {"anthropic", "deepseek", "mimo", "openai"},
 	"ProviderCredentialRequestView.version":                    {credential.ProtocolVersion},
 	"ProviderCredentialRequestView.action":                     {string(application.ProviderCredentialSet), string(application.ProviderCredentialDelete)},
 	"FileEditProposalSourceView.protocol_version":              {application.FileEditProposalProtocolVersion},
@@ -2574,8 +2850,12 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadCreationControlRequestView.profile":                 {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
 	"ThreadCreationControlRequestView.surface":                 {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
 	"ThreadCreationControlRequestView.phase":                   {string(domain.ExecutionPhasePlan), string(domain.ExecutionPhaseDeliver)},
+	"ThreadCreationControlRequestView.network_mode":            {"disabled", "allowlist"},
 	"ThreadMessageControlRequestView.version":                  {domain.ThreadMessageProtocolVersion},
 	"ThreadMessageControlView.version":                         {domain.ThreadMessageProtocolVersion},
+	"ThreadRunRecoveryControlRequestView.version":              {domain.ThreadRunRecoveryProtocolVersion},
+	"ThreadRunRecoveryControlView.version":                     {domain.ThreadRunRecoveryProtocolVersion},
+	"ThreadRunRecoveryView.version":                            {domain.ThreadRunRecoveryProtocolVersion},
 	"ThreadMessageView.role":                                   {"system", "user", "assistant", "tool"},
 	"ThreadMessageView.provenance_version":                     {session.LegacyContextProvenanceVersion, session.ContextProvenanceVersion},
 	"ThreadMessageView.source_kind":                            {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
@@ -2590,7 +2870,7 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadExecutionPermissionView.required_gate":              {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess)},
 	"ThreadExecutionPermissionView.policy_version":             {domain.RunExecutionPermissionPolicyVersion},
 	"ThreadExecutionPermissionControlRequestView.mode":         {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
-	"ThreadExecutionPermissionControlView.current_run_effect":  {string(domain.ThreadExecutionPermissionApplied), string(domain.ThreadExecutionPermissionPausedAndApplied), string(domain.ThreadExecutionPermissionNoActiveRun), "pending"},
+	"ThreadExecutionPermissionControlView.current_run_effect":  {string(domain.ThreadExecutionPermissionApplied), string(domain.ThreadExecutionPermissionPausedAndApplied), string(domain.ThreadExecutionPermissionDeferred), string(domain.ThreadExecutionPermissionNoActiveRun)},
 	"ThreadExecutionPermissionControlView.current_run_mode":    {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
 	"ThreadLifecycleControlRequestView.version":                {domain.ThreadLifecycleProtocolVersion},
 	"ThreadLifecycleControlView.version":                       {domain.ThreadLifecycleProtocolVersion},
@@ -2627,6 +2907,13 @@ var openAPIFieldEnums = map[string][]string{
 	"RunBrowserCDPPermissionView.required_gate":                {string(domain.BrowserCDPPermissionGateRestricted), string(domain.BrowserCDPPermissionGateFullDebug)},
 	"RunBrowserCDPPermissionView.policy_version":               {domain.RunBrowserCDPPermissionPolicyVersion},
 	"RunBrowserCDPPermissionControlRequestView.mode":           {string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug)},
+	"FullCDPSessionOpenRequestView.version":                    {application.FullCDPSessionProtocolVersion},
+	"FullCDPSessionCloseRequestView.version":                   {application.FullCDPSessionCloseProtocolVersion},
+	"FullCDPSessionView.version":                               {application.FullCDPSessionProtocolVersion},
+	"FullCDPSessionView.state":                                 {string(application.FullCDPSessionNone), string(application.FullCDPSessionStarting), string(application.FullCDPSessionReady), string(application.FullCDPSessionClosing), string(application.FullCDPSessionClosed), string(application.FullCDPSessionFailed)},
+	"FullCDPSessionView.close_reason":                          {application.FullCDPCloseOperator, application.FullCDPCloseExpired, application.FullCDPClosePermissionRevoked, application.FullCDPCloseProcessExited, application.FullCDPCloseRunTerminal, application.FullCDPCloseDesktopShutdown, application.FullCDPCloseOpenFailed},
+	"FullCDPBrowserSelectionView.product":                      {string(browserruntime.BrowserProductChrome), string(browserruntime.BrowserProductEdge)},
+	"FullCDPBrowserSelectionView.channel":                      {string(browserruntime.BrowserChannelStable), string(browserruntime.BrowserChannelBeta), string(browserruntime.BrowserChannelDev), string(browserruntime.BrowserChannelCanary)},
 	"BrowserSafeWebReadiness.protocol_version":                 {browserruntime.BrowserSafeWebReadinessProtocolVersion},
 	"BrowserSafeWebReadiness.blocking_reason":                  {browserruntime.BrowserSafeWebBlockedEvidenceMissing, browserruntime.BrowserSafeWebBlockedEvidenceVersionMismatch, browserruntime.BrowserSafeWebBlockedExecutableMismatch, browserruntime.BrowserSafeWebBlockedAcceptanceMismatch, browserruntime.BrowserSafeWebBlockedPolicyVersionMismatch, browserruntime.BrowserSafeWebBlockedAdapterMismatch, browserruntime.BrowserSafeWebBlockedPlatformMismatch, browserruntime.BrowserSafeWebBlockedEvidenceNotPassed, browserruntime.BrowserSafeWebBlockedReviewMissing, browserruntime.BrowserSafeWebBlockedReviewBindingMismatch, browserruntime.BrowserSafeWebBlockedReviewNotAccepted, browserruntime.BrowserSafeWebBlockedEvidenceExpired},
 	"BrowserSafeWebReadiness.adapter":                          {browserruntime.WindowsWFPBrowserContainmentAdapterName},
@@ -2650,6 +2937,9 @@ var openAPIFieldEnums = map[string][]string{
 	"RunCreationControlRequestView.profile":                    {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
 	"RunCreationControlRequestView.surface":                    {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
 	"RunCreationControlRequestView.phase":                      {string(domain.ExecutionPhasePlan), string(domain.ExecutionPhaseDeliver)},
+	"RunCreationControlRequestView.network_mode":               {"disabled", "allowlist"},
+	"RunNetworkAuthorityControlRequestView.version":            {application.RunNetworkAuthorityControlProtocolVersion},
+	"RunNetworkAuthorityControlView.version":                   {application.RunNetworkAuthorityControlProtocolVersion},
 	"SessionMessageControlRequestView.version":                 {domain.SessionMessageSubmissionProtocolVersion},
 	"SessionMessageControlView.version":                        {domain.SessionMessageSubmissionProtocolVersion},
 	"SessionSteeringCancellationRequestView.version":           {domain.SessionSteeringCancellationProtocolVersion},
@@ -2672,11 +2962,11 @@ var openAPIFieldEnums = map[string][]string{
 	"PlanDeliveryTransitionControlRequestView.version":         {application.PlanDeliveryControlProtocolVersion},
 	"PlanDeliveryTransitionControlView.version":                {application.PlanDeliveryControlProtocolVersion},
 	"ApprovalQueueView.protocol_version":                       {application.ApprovalQueueProtocolVersion},
-	"ApprovalQueueItemView.status":                             {string(approval.StatusPending)},
+	"ApprovalQueueItemView.status":                             {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
 	"ApprovalDecisionControlRequestView.version":               {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.version":                      {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.status":                       {string(approval.StatusApproved), string(approval.StatusDenied)},
 	"HostCommandProposalReviewRequestView.version":             {runner.HostCommandReviewProtocolVersion},
 	"HostCommandProposalReviewRequestView.decision":            {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
@@ -2752,89 +3042,92 @@ var openAPIFieldEnums = map[string][]string{
 }
 
 var openAPIFieldMinimums = map[string]float64{
-	"ThreadView.version":                                  1,
-	"ThreadRunView.ordinal":                               1,
-	"ThreadEventView.id":                                  1,
-	"ThreadMessageView.token_estimate":                    0,
-	"ThreadRunAuditEventView.sequence":                    1,
-	"ThreadLifecycleControlRequestView.expected_version":  1,
-	"ScheduledJobScheduleRequestView.interval_seconds":    domain.MinScheduledJobIntervalSeconds,
-	"ScheduledJobCreateRequestView.max_rounds":            1,
-	"ScheduledJobCreateRequestView.max_model_calls":       0,
-	"ScheduledJobCreateRequestView.max_elapsed_seconds":   1,
-	"ScheduledJobRetryPolicy.max_attempts":                1,
-	"ScheduledJobRetryPolicy.initial_backoff_seconds":     1,
-	"ScheduledJobRetryPolicy.max_backoff_seconds":         1,
-	"ScheduledJobTransitionRequestView.expected_revision": 1,
-	"ScheduledJob.revision":                               1,
-	"ScheduledJob.rounds_completed":                       0,
-	"ScheduledJob.model_calls":                            0,
-	"ScheduledJob.consecutive_unchanged":                  0,
-	"ScheduledJob.last_event_sequence":                    0,
-	"ScheduledJob.active_lease_generation":                0,
-	"ScheduledJobRound.ordinal":                           1,
-	"ScheduledJobRound.attempt":                           1,
-	"ScheduledJobRound.claim_generation":                  1,
-	"ScheduledJobRound.event_sequence":                    0,
-	"DoctorSnapshot.schema_version":                       1,
-	"DebugQueryResult.after_sequence":                     0,
-	"DebugQueryResult.next_after_sequence":                0,
-	"DebugQueryResult.limit":                              1,
-	"DebugQueryResult.scanned":                            0,
-	"DebugTimelineItem.sequence":                          1,
-	"HealthView.schema_version":                           0,
-	"BudgetView.max_turns":                                1,
-	"BudgetView.max_tokens":                               0,
-	"BudgetView.max_tool_calls":                           0,
-	"BudgetView.max_cost_usd":                             0,
-	"BudgetView.timeout_seconds":                          0,
-	"RunModeView.revision":                                1,
-	"RunExecutionProfileView.revision":                    1,
-	"RunExecutionPermissionView.revision":                 1,
-	"RunBrowserCDPPermissionView.revision":                1,
-	"SupervisorCheckpointView.next_turn":                  1,
-	"SupervisorCheckpointView.input_tokens":               0,
-	"SupervisorCheckpointView.output_tokens":              0,
-	"SupervisorCheckpointView.total_tokens":               0,
-	"SupervisorCheckpointView.execution_millis":           0,
-	"ToolUsageView.consumed":                              0,
-	"ToolUsageView.limit":                                 0,
-	"RunExecutionLeaseView.generation":                    1,
-	"OperatorSteeringMessageView.sequence":                1,
-	"OperatorSteeringQueueView.pending":                   0,
-	"OperatorSteeringQueueView.prepared":                  0,
-	"OperatorSteeringQueueView.committed":                 0,
-	"OperatorSteeringQueueView.cancelled":                 0,
-	"PlanDeliveryModuleView.ordinal":                      1,
-	"PlanDeliveryDirectionView.ordinal":                   1,
-	"PlanDeliveryProposalView.mode_revision":              1,
-	"PlanDeliveryProposalView.version":                    1,
-	"PlanDeliverySelectionItemView.ordinal":               1,
-	"PlanDeliverySelectionItemView.module_ordinal":        1,
-	"PlanDeliverySelectionView.direction_ordinal":         1,
-	"PlanDeliverySelectionView.version":                   1,
-	"MessageView.token_estimate":                          0,
-	"EventView.sequence":                                  1,
-	"WorkItemView.version":                                1,
-	"NoteView.version":                                    1,
-	"ArtifactView.size_bytes":                             0,
-	"SupervisorToolCallView.position":                     0,
-	"SupervisorToolCallView.model_attempt":                1,
-	"SupervisorToolRoundView.turn":                        1,
-	"SupervisorToolRoundView.round":                       1,
-	"SupervisorToolRoundView.model_attempt":               1,
-	"ModelCancellationRequestView.model_attempt":          1,
-	"ModelCancellationView.model_attempt":                 1,
-	"SpecialistModelCancellationView.model_attempt":       1,
-	"AgentNodeView.depth":                                 0,
-	"AgentNodeView.turn_limit":                            0,
-	"AgentNodeView.token_limit":                           0,
-	"AgentNodeView.turns_used":                            0,
-	"AgentNodeView.tokens_used":                           0,
-	"FindingReportSummaryView.finding_count":              0,
-	"FindingReportSummaryView.evidence_count":             0,
-	"FindingView.ordinal":                                 1,
-	"FindingView.confidence":                              0,
+	"ThreadView.version":                                                     1,
+	"ThreadRunView.ordinal":                                                  1,
+	"ThreadEventView.id":                                                     1,
+	"ThreadMessageView.token_estimate":                                       0,
+	"ThreadRunAuditEventView.sequence":                                       1,
+	"ThreadLifecycleControlRequestView.expected_version":                     1,
+	"ScheduledJobScheduleRequestView.interval_seconds":                       domain.MinScheduledJobIntervalSeconds,
+	"ScheduledJobCreateRequestView.max_rounds":                               1,
+	"ScheduledJobCreateRequestView.max_model_calls":                          0,
+	"ScheduledJobCreateRequestView.max_elapsed_seconds":                      1,
+	"ScheduledJobRetryPolicy.max_attempts":                                   1,
+	"ScheduledJobRetryPolicy.initial_backoff_seconds":                        1,
+	"ScheduledJobRetryPolicy.max_backoff_seconds":                            1,
+	"ScheduledJobTransitionRequestView.expected_revision":                    1,
+	"ScheduledJob.revision":                                                  1,
+	"ScheduledJob.rounds_completed":                                          0,
+	"ScheduledJob.model_calls":                                               0,
+	"ScheduledJob.consecutive_unchanged":                                     0,
+	"ScheduledJob.last_event_sequence":                                       0,
+	"ScheduledJob.active_lease_generation":                                   0,
+	"ScheduledJobRound.ordinal":                                              1,
+	"ScheduledJobRound.attempt":                                              1,
+	"ScheduledJobRound.claim_generation":                                     1,
+	"ScheduledJobRound.event_sequence":                                       0,
+	"DoctorSnapshot.schema_version":                                          1,
+	"DebugQueryResult.after_sequence":                                        0,
+	"DebugQueryResult.next_after_sequence":                                   0,
+	"DebugQueryResult.limit":                                                 1,
+	"DebugQueryResult.scanned":                                               0,
+	"DebugTimelineItem.sequence":                                             1,
+	"HealthView.schema_version":                                              0,
+	"BudgetView.max_turns":                                                   1,
+	"BudgetView.max_tokens":                                                  0,
+	"BudgetView.max_tool_calls":                                              0,
+	"BudgetView.max_cost_usd":                                                0,
+	"BudgetView.timeout_seconds":                                             0,
+	"RunModeView.revision":                                                   1,
+	"RunNetworkAuthorityControlRequestView.expected_mode_revision":           1,
+	"RunExecutionProfileView.revision":                                       1,
+	"RunExecutionPermissionView.revision":                                    1,
+	"RunBrowserCDPPermissionView.revision":                                   1,
+	"FullCDPSessionOpenRequestView.expected_execution_permission_revision":   1,
+	"FullCDPSessionOpenRequestView.expected_browser_cdp_permission_revision": 1,
+	"SupervisorCheckpointView.next_turn":                                     1,
+	"SupervisorCheckpointView.input_tokens":                                  0,
+	"SupervisorCheckpointView.output_tokens":                                 0,
+	"SupervisorCheckpointView.total_tokens":                                  0,
+	"SupervisorCheckpointView.execution_millis":                              0,
+	"ToolUsageView.consumed":                                                 0,
+	"ToolUsageView.limit":                                                    0,
+	"RunExecutionLeaseView.generation":                                       1,
+	"OperatorSteeringMessageView.sequence":                                   1,
+	"OperatorSteeringQueueView.pending":                                      0,
+	"OperatorSteeringQueueView.prepared":                                     0,
+	"OperatorSteeringQueueView.committed":                                    0,
+	"OperatorSteeringQueueView.cancelled":                                    0,
+	"PlanDeliveryModuleView.ordinal":                                         1,
+	"PlanDeliveryDirectionView.ordinal":                                      1,
+	"PlanDeliveryProposalView.mode_revision":                                 1,
+	"PlanDeliveryProposalView.version":                                       1,
+	"PlanDeliverySelectionItemView.ordinal":                                  1,
+	"PlanDeliverySelectionItemView.module_ordinal":                           1,
+	"PlanDeliverySelectionView.direction_ordinal":                            1,
+	"PlanDeliverySelectionView.version":                                      1,
+	"MessageView.token_estimate":                                             0,
+	"EventView.sequence":                                                     1,
+	"WorkItemView.version":                                                   1,
+	"NoteView.version":                                                       1,
+	"ArtifactView.size_bytes":                                                0,
+	"SupervisorToolCallView.position":                                        0,
+	"SupervisorToolCallView.model_attempt":                                   1,
+	"SupervisorToolRoundView.turn":                                           1,
+	"SupervisorToolRoundView.round":                                          1,
+	"SupervisorToolRoundView.model_attempt":                                  1,
+	"ModelCancellationRequestView.model_attempt":                             1,
+	"ModelCancellationView.model_attempt":                                    1,
+	"SpecialistModelCancellationView.model_attempt":                          1,
+	"AgentNodeView.depth":                                                    0,
+	"AgentNodeView.turn_limit":                                               0,
+	"AgentNodeView.token_limit":                                              0,
+	"AgentNodeView.turns_used":                                               0,
+	"AgentNodeView.tokens_used":                                              0,
+	"FindingReportSummaryView.finding_count":                                 0,
+	"FindingReportSummaryView.evidence_count":                                0,
+	"FindingView.ordinal":                                                    1,
+	"FindingView.confidence":                                                 0,
 
 	"ExternalSkillProjectionView.mode_revision":                                 1,
 	"ExternalSkillProjectionView.token_budget":                                  1,
@@ -3091,6 +3384,13 @@ var openAPIFieldMaxLengths = map[string]int{
 	"ThreadExecutionPermissionControlRequestView.reason":         domain.MaxRunExecutionPermissionReasonRunes,
 	"RunExecutionInteractionControlRequestView.reason":           domain.MaxRunExecutionInteractionReasonRunes,
 	"RunCreationControlRequestView.goal":                         domain.MaxRunCreationGoalBytes,
+	"RunNetworkAuthorityControlRequestView.reason":               domain.MaxRunModeReasonRunes,
+	"ThreadCreationControlRequestView.goal":                      domain.MaxRunCreationGoalBytes,
+	"ThreadCreationControlRequestView.provider":                  128,
+	"ThreadCreationControlRequestView.model":                     256,
+	"ThreadModelRouteControlRequestView.provider":                128,
+	"ThreadModelRouteControlRequestView.model":                   256,
+	"ThreadModelRouteControlRequestView.operation_key":           domain.MaxAgentOperationKeyBytes,
 	"SessionMessageControlRequestView.content":                   domain.MaxOperatorSteeringContentBytes,
 	"SessionSteeringCancellationRequestView.reason":              domain.MaxOperatorSteeringReasonBytes,
 	"ApprovalDecisionControlRequestView.reason":                  approval.MaxReasonRunes,

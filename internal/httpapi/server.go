@@ -34,6 +34,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/threadtranscript"
@@ -57,6 +58,9 @@ const (
 type Store interface {
 	SchemaVersion(ctx context.Context) (int, error)
 	GetThread(context.Context, string) (domain.Thread, error)
+	GetThreadRunRecovery(context.Context, string) (domain.ThreadRunRecovery, bool, error)
+	RecoverThreadRunFromFailedHandoff(context.Context, string, string, string, string, string) (
+		domain.Thread, domain.Run, bool, error)
 	GetThreadByRun(context.Context, string) (domain.Thread, error)
 	GetThreadBySession(context.Context, string) (domain.Thread, error)
 	ListThreadsByCreationPage(context.Context, domain.ThreadFilter, time.Time,
@@ -66,6 +70,14 @@ type Store interface {
 		int) ([]domain.ThreadMessage, error)
 	ListThreadTranscriptSourceBefore(context.Context, string, int64, int64,
 		int) ([]threadtranscript.Source, error)
+	GetThreadSupervisorToolCall(context.Context, string, string) (
+		domain.SupervisorToolCall, error)
+	GetThreadCommandRuntimeJob(context.Context, string, string) (
+		runner.CommandRuntimeJob, error)
+	GetThreadCommandRuntimeJobMetadata(context.Context, string, string) (
+		runner.CommandRuntimeJobMetadata, error)
+	GetThreadCommandRuntimeJobAgentAttribution(context.Context, string, string) (
+		domain.AgentAttribution, error)
 	ListWebSources(context.Context, string, int) ([]webevidence.Source, error)
 	ListWebSnapshots(context.Context, string, int) ([]webevidence.Snapshot, error)
 	ListWebCitations(context.Context, string, int) ([]webevidence.Citation, error)
@@ -76,13 +88,21 @@ type Store interface {
 	ExportThread(context.Context, string) (domain.ThreadExport, error)
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
+	GetAgentNode(ctx context.Context, id string) (domain.AgentNode, error)
 	GetRootAgent(ctx context.Context, runID string) (domain.AgentNode, bool, error)
 	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
+	GetRunModeSnapshot(ctx context.Context, id string) (domain.RunModeSnapshot, error)
+	GetRunNetworkAuthorityOperation(ctx context.Context, keyDigest string) (
+		domain.RunNetworkAuthorityOperation, bool, error)
+	TransitionRunNetworkAuthority(ctx context.Context, snapshot domain.RunModeSnapshot,
+		operation domain.RunNetworkAuthorityOperation, event events.Event) (
+		domain.RunModeSnapshot, bool, error)
 	GetRunCreationOperation(ctx context.Context,
 		keyDigest string) (domain.RunCreationOperation, bool, error)
 	CreateMissionRunWithOperation(ctx context.Context, mission domain.Mission, run domain.Run,
 		mode domain.RunModeSnapshot, linkedSession session.Session, initialEvents []events.Event,
-		operation domain.RunCreationOperation) (domain.RunCreationOperation, bool, error)
+		operation domain.RunCreationOperation, pin domain.InitialThreadModelRoutePin) (
+		domain.RunCreationOperation, bool, error)
 	GetRunExecutionProfile(ctx context.Context,
 		runID string) (domain.RunExecutionProfileSnapshot, error)
 	GetRunExecutionProfileSnapshot(ctx context.Context,
@@ -123,7 +143,9 @@ type Store interface {
 	TransitionRunBrowserCDPPermission(ctx context.Context,
 		snapshot domain.RunBrowserCDPPermissionSnapshot,
 		operation domain.RunBrowserCDPPermissionOperation,
-		event events.Event) (domain.RunBrowserCDPPermissionSnapshot, bool, error)
+		event events.Event,
+		expectedExecution domain.RunExecutionPermissionSnapshot) (
+		domain.RunBrowserCDPPermissionSnapshot, bool, error)
 	GetRunExecutionInteraction(ctx context.Context,
 		runID string) (domain.RunExecutionInteractionSnapshot, error)
 	GetRunExecutionInteractionSnapshot(ctx context.Context,
@@ -286,6 +308,7 @@ type Config struct {
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
 	BrowserCDPPermissionControlEnabled      bool
+	FullCDPSessionControlEnabled            bool
 	RunCreationEnabled                      bool
 	StandardCodePresetEnabled               bool
 	SessionMessageEnabled                   bool
@@ -294,9 +317,11 @@ type Config struct {
 	RunExecutionEnabled                     bool
 	PlanDeliveryControlEnabled              bool
 	ApprovalControlEnabled                  bool
+	WebFetchAuthorizationSchedulerEnabled   bool
 	ControlledCommandProposalControlEnabled bool
 	HostCommandProposalControlEnabled       bool
 	ModelControlEnabled                     bool
+	ProviderDefinitionEnabled               bool
 	ProviderCredentialEnabled               bool
 	FileEditReviewEnabled                   bool
 	FileEditProposalEnabled                 bool
@@ -320,10 +345,12 @@ type Config struct {
 	UIEvidenceControlEnabled                bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
+	FullCDPSessionController                application.FullCDPSessionController
 	CapabilityReadinessRuntime              *application.CapabilityReadinessRuntime
 	CommandRuntimeAdapters                  []commandruntimeadapter.Identity
 	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
 	RunLifecycleController                  RunLifecycleController
+	ThreadTurnController                    ThreadTurnController
 	StandardCodePresetController            StandardCodePresetController
 	StandardCodeDeliveryController          StandardCodeDeliveryController
 	RunExecutionController                  RunExecutionController
@@ -333,6 +360,9 @@ type Config struct {
 	ControlledCommandProposalController     ControlledCommandProposalController
 	HostCommandProposalController           HostCommandProposalController
 	ModelControlController                  ModelControlController
+	ThreadModelRouteController              ThreadModelRouteController
+	ProviderSearchReadinessController       ProviderSearchReadinessController
+	ProviderDefinitionController            ProviderDefinitionController
 	PriceSnapshotController                 PriceSnapshotController
 	FanoutExecutionController               FanoutExecutionController
 	ChildTaskControlController              ChildTaskControlController
@@ -368,6 +398,7 @@ type API struct {
 	controlEnabled                          bool
 	executionPermissionControlEnabled       bool
 	browserCDPPermissionControlEnabled      bool
+	fullCDPSessionControlEnabled            bool
 	runCreationEnabled                      bool
 	standardCodePresetEnabled               bool
 	sessionMessageEnabled                   bool
@@ -376,9 +407,11 @@ type API struct {
 	runExecutionEnabled                     bool
 	planDeliveryControlEnabled              bool
 	approvalControlEnabled                  bool
+	webFetchAuthorizationSchedulerEnabled   bool
 	controlledCommandProposalControlEnabled bool
 	hostCommandProposalControlEnabled       bool
 	modelControlEnabled                     bool
+	providerDefinitionEnabled               bool
 	providerCredentialEnabled               bool
 	fileEditReviewEnabled                   bool
 	fileEditProposalEnabled                 bool
@@ -404,10 +437,13 @@ type API struct {
 	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
+	fullCDPSessionController                application.FullCDPSessionController
 	capabilityReadiness                     *application.RunCapabilityReadinessService
 	commandRuntimeAdapters                  []commandruntimeadapter.Identity
+	commandActivitySource                   application.ThreadActivityCommandRuntimeSource
 	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
 	runLifecycleController                  RunLifecycleController
+	threadTurnController                    ThreadTurnController
 	standardCodePresetController            StandardCodePresetController
 	standardCodeDeliveryController          StandardCodeDeliveryController
 	runExecutionController                  RunExecutionController
@@ -417,6 +453,9 @@ type API struct {
 	controlledCommandProposalController     ControlledCommandProposalController
 	hostCommandProposalController           HostCommandProposalController
 	modelControlController                  ModelControlController
+	threadModelRouteController              ThreadModelRouteController
+	providerSearchReadinessController       ProviderSearchReadinessController
+	providerDefinitionController            ProviderDefinitionController
 	priceSnapshotController                 PriceSnapshotController
 	fanoutExecutionController               FanoutExecutionController
 	childTaskControlController              ChildTaskControlController
@@ -472,13 +511,16 @@ func New(store Store, config Config) (*API, error) {
 	}
 	if (config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
 		config.BrowserCDPPermissionControlEnabled ||
+		config.FullCDPSessionControlEnabled ||
 		config.RunCreationEnabled || config.StandardCodePresetEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
-		config.ApprovalControlEnabled || config.ModelControlEnabled ||
+		config.ApprovalControlEnabled || config.WebFetchAuthorizationSchedulerEnabled ||
+		config.ModelControlEnabled ||
 		config.ControlledCommandProposalControlEnabled ||
 		config.HostCommandProposalControlEnabled ||
+		config.ProviderDefinitionEnabled ||
 		config.ProviderCredentialEnabled ||
 		config.FileEditReviewEnabled || config.FileEditProposalEnabled ||
 		config.RunWakeControlEnabled ||
@@ -498,6 +540,18 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Run lifecycle controller is required when enabled")
 	}
+	if config.FullCDPSessionControlEnabled && config.FullCDPSessionController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Full CDP session controller is required when enabled")
+	}
+	if config.FullCDPSessionControlEnabled &&
+		(!config.BrowserCDPPermissionControlEnabled ||
+			!config.BrowserCDPPermissionCapabilities.ControlEnabled ||
+			!config.BrowserCDPPermissionCapabilities.FullDebugEnabled ||
+			!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Full CDP session control requires the production Full CDP permission stack")
+	}
 	if config.StandardCodePresetEnabled && config.StandardCodePresetController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Standard Code preset controller is required when enabled")
@@ -506,6 +560,12 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Run execution controller is required when enabled")
 	}
+	if config.RunCreationEnabled && config.SessionMessageEnabled &&
+		config.RunLifecycleEnabled && config.RunExecutionEnabled &&
+		config.ThreadTurnController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Thread turn controller is required when its prerequisite capabilities are enabled")
+	}
 	if config.PlanDeliveryControlEnabled && config.PlanDeliveryController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Plan/Delivery controller is required when enabled")
@@ -513,6 +573,17 @@ func New(store Store, config Config) (*API, error) {
 	if config.ApprovalControlEnabled && config.ApprovalController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API approval controller is required when enabled")
+	}
+	if config.WebFetchAuthorizationSchedulerEnabled {
+		if !config.RunExecutionEnabled || !config.ApprovalControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API Web fetch authorization scheduler requires Run execution, approval control, and operator approval")
+		}
+		if _, ok := config.RunExecutionController.(WebFetchAuthorizationResumeController); !ok {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API Web fetch authorization scheduler requires a resume controller")
+		}
 	}
 	if config.ControlledCommandProposalControlEnabled &&
 		config.ControlledCommandProposalController == nil {
@@ -532,6 +603,14 @@ func New(store Store, config Config) (*API, error) {
 	if config.ModelControlEnabled && config.ModelControlController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API model controller is required when enabled")
+	}
+	if config.ModelControlEnabled && config.ThreadModelRouteController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Thread model route controller is required when model control is enabled")
+	}
+	if config.ProviderDefinitionEnabled && config.ProviderDefinitionController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API custom Provider definition controller is required when enabled")
 	}
 	if config.ProviderCredentialEnabled && config.ProviderCredentialController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -666,9 +745,9 @@ func New(store Store, config Config) (*API, error) {
 			"HTTP API browser CDP capability must exactly match browser CDP control")
 	}
 	if config.BrowserCDPPermissionCapabilities.FullDebugEnabled &&
-		!config.ExecutionPermissionCapabilities.DebugMaximumAccessEnabled {
+		!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"HTTP API full CDP debug requires maximum Debug execution capability")
+			"HTTP API full CDP requires the Full Access execution adapter")
 	}
 	readinessRuntime := application.CapabilityReadinessRuntime{
 		RunControlEnabled:                  controlTokenPresent && config.RunControlEnabled,
@@ -715,6 +794,10 @@ func New(store Store, config Config) (*API, error) {
 	}
 	capabilityReadiness := application.NewRunCapabilityReadinessService(store,
 		readinessRuntime, config.CommandRuntimeAdvertiser)
+	var commandActivitySource application.ThreadActivityCommandRuntimeSource
+	if source, ok := config.CommandRuntimeAdvertiser.(application.ThreadActivityCommandRuntimeSource); ok {
+		commandActivitySource = source
+	}
 	version := strings.TrimSpace(config.AppVersion)
 	if version == "" {
 		version = "unknown"
@@ -738,6 +821,8 @@ func New(store Store, config Config) (*API, error) {
 			config.ExecutionPermissionControlEnabled,
 		browserCDPPermissionControlEnabled: controlTokenPresent &&
 			config.BrowserCDPPermissionControlEnabled,
+		fullCDPSessionControlEnabled: controlTokenPresent &&
+			config.FullCDPSessionControlEnabled,
 		runCreationEnabled:            controlTokenPresent && config.RunCreationEnabled,
 		standardCodePresetEnabled:     controlTokenPresent && config.StandardCodePresetEnabled,
 		appVersion:                    version,
@@ -747,11 +832,14 @@ func New(store Store, config Config) (*API, error) {
 		runExecutionEnabled:           controlTokenPresent && config.RunExecutionEnabled,
 		planDeliveryControlEnabled:    controlTokenPresent && config.PlanDeliveryControlEnabled,
 		approvalControlEnabled:        controlTokenPresent && config.ApprovalControlEnabled,
+		webFetchAuthorizationSchedulerEnabled: controlTokenPresent &&
+			config.WebFetchAuthorizationSchedulerEnabled,
 		controlledCommandProposalControlEnabled: controlTokenPresent &&
 			config.ControlledCommandProposalControlEnabled,
 		hostCommandProposalControlEnabled: controlTokenPresent &&
 			config.HostCommandProposalControlEnabled,
 		modelControlEnabled:               controlTokenPresent && config.ModelControlEnabled,
+		providerDefinitionEnabled:         controlTokenPresent && config.ProviderDefinitionEnabled,
 		providerCredentialEnabled:         controlTokenPresent && config.ProviderCredentialEnabled,
 		fileEditReviewEnabled:             controlTokenPresent && config.FileEditReviewEnabled,
 		fileEditProposalEnabled:           controlTokenPresent && config.FileEditProposalEnabled,
@@ -779,10 +867,13 @@ func New(store Store, config Config) (*API, error) {
 		dockerExecutionEnabled:              dockerExecutionEnabled,
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
+		fullCDPSessionController:            config.FullCDPSessionController,
 		capabilityReadiness:                 capabilityReadiness,
 		commandRuntimeAdapters:              append([]commandruntimeadapter.Identity(nil), config.CommandRuntimeAdapters...),
+		commandActivitySource:               commandActivitySource,
 		capabilityReadinessRuntime:          readinessRuntime,
 		runLifecycleController:              config.RunLifecycleController,
+		threadTurnController:                config.ThreadTurnController,
 		standardCodePresetController:        config.StandardCodePresetController,
 		standardCodeDeliveryController:      config.StandardCodeDeliveryController,
 		runExecutionController:              config.RunExecutionController,
@@ -792,6 +883,9 @@ func New(store Store, config Config) (*API, error) {
 		controlledCommandProposalController: config.ControlledCommandProposalController,
 		hostCommandProposalController:       config.HostCommandProposalController,
 		modelControlController:              config.ModelControlController,
+		threadModelRouteController:          config.ThreadModelRouteController,
+		providerSearchReadinessController:   config.ProviderSearchReadinessController,
+		providerDefinitionController:        config.ProviderDefinitionController,
 		priceSnapshotController:             config.PriceSnapshotController,
 		fanoutExecutionController:           config.FanoutExecutionController,
 		childTaskControlController:          config.ChildTaskControlController,
@@ -981,6 +1075,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveThreadCreationControl(tracked, request, requestID)
 		return
 	}
+	if threadID, matched := matchProviderSearchReadinessPath(request.URL.Path); matched {
+		a.serveProviderSearchReadiness(tracked, request, requestID, threadID)
+		return
+	}
+	if threadID, matched := matchThreadModelRoutePath(request.URL.Path); matched {
+		a.serveThreadModelRoute(tracked, request, requestID, threadID)
+		return
+	}
 	if threadID, action, matched := matchThreadMutationPath(request.URL.Path); matched &&
 		request.Method != http.MethodGet {
 		a.serveThreadMutationControl(tracked, request, requestID, threadID, action)
@@ -1005,6 +1107,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunLifecycleControlPath(request.URL.Path); matched {
 		a.serveRunLifecycleControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, matched := matchRunNetworkAuthorityControlPath(request.URL.Path); matched {
+		a.serveRunNetworkAuthorityControl(tracked, request, requestID, runID)
 		return
 	}
 	if runID, matched := matchPlanDirectionControlPath(request.URL.Path); matched {
@@ -1035,8 +1141,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			tracked, request, requestID, runID, proposalID, route)
 		return
 	}
-	if route, kind, matched := matchModelControlPath(request.URL.Path); matched {
-		a.serveModelControl(tracked, request, requestID, route, kind)
+	if request.URL.Path != AvailableModelRoutesPath {
+		if route, kind, matched := matchModelControlPath(request.URL.Path); matched {
+			a.serveModelControl(tracked, request, requestID, route, kind)
+			return
+		}
+	}
+	if provider, remove, matched := matchProviderDefinitionControlPath(request.URL.Path); matched {
+		a.serveProviderDefinitionControl(tracked, request, requestID, provider, remove)
 		return
 	}
 	if request.URL.Path == PriceSnapshotsPath {
@@ -1117,6 +1229,12 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunExecutionProfileControlPath(request.URL.Path); matched {
 		a.serveRunExecutionProfileControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, closeSession, matched :=
+		matchFullCDPSessionControlPath(request.URL.Path); matched {
+		a.serveFullCDPSessionControl(
+			tracked, request, requestID, runID, closeSession)
 		return
 	}
 	if runID, matched := matchRunExecutionPermissionControlPath(request.URL.Path); matched {
@@ -1204,6 +1322,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		a.serveRunEventPoll(tracked, request, requestID, runID)
+		return
+	}
+	if runID, matched := matchPublicModelStreamPollPath(request.URL.Path); matched {
+		a.servePublicModelStreamPoll(tracked, request, requestID, runID)
 		return
 	}
 	if runID, matched := matchPublicModelStreamPath(request.URL.Path); matched {

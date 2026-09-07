@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { APIRequestError, type CyberAgentClient } from "../api/client";
 import type { EventView, RunEventPollView, RunEventStreamView } from "../api/types";
@@ -73,6 +73,91 @@ describe("useRunEventStream Desktop polling", () => {
     hook.unmount();
   });
 });
+
+describe("useRunEventStream Desktop polling pace", () => {
+  beforeEach(() => {
+    clearDesktopRunEventMemory();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("backs off after an empty caught-up page instead of polling in a tight loop", async () => {
+    const pollRunEvents = vi.fn().mockResolvedValue(poll([], "caught-up", false));
+    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const hook = renderHook(() => useRunEventStream(client, "run-empty"));
+
+    await flushMicrotasks();
+    expect(pollRunEvents).toHaveBeenCalledTimes(1);
+
+    await flushMicrotasks();
+    expect(pollRunEvents).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTime(249));
+    expect(pollRunEvents).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(pollRunEvents).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  });
+
+  it("drains a persistent backlog in bounded immediate bursts", async () => {
+    let sequence = 0;
+    const pollRunEvents = vi.fn().mockImplementation(() => {
+      sequence++;
+      return Promise.resolve(poll([frame(sequence, `cursor-${sequence}`)], `cursor-${sequence}`, true));
+    });
+    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const hook = renderHook(() => useRunEventStream(client, "run-backlog"));
+
+    await flushMicrotasks();
+    expect(pollRunEvents).toHaveBeenCalledTimes(4);
+
+    await flushMicrotasks();
+    expect(pollRunEvents).toHaveBeenCalledTimes(4);
+
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(pollRunEvents).toHaveBeenCalledTimes(8);
+    hook.unmount();
+  });
+
+  it("aborts the previous poll and delay immediately when the Run changes", async () => {
+    const signals = new Map<string, AbortSignal>();
+    const pollRunEvents = vi.fn().mockImplementation((runID: string, _cursor: string, _limit: number,
+      signal: AbortSignal) => {
+      signals.set(runID, signal);
+      return Promise.resolve(poll([], `${runID}-caught-up`, false));
+    });
+    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const hook = renderHook(({ runID }) => useRunEventStream(client, runID), {
+      initialProps: { runID: "run-old" },
+    });
+
+    await flushMicrotasks();
+    expect(pollRunEvents).toHaveBeenCalledTimes(1);
+    expect(signals.get("run-old")?.aborted).toBe(false);
+
+    hook.rerender({ runID: "run-new" });
+    await flushMicrotasks();
+    expect(signals.get("run-old")?.aborted).toBe(true);
+    expect(pollRunEvents.mock.calls.filter(([runID]) => runID === "run-new")).toHaveLength(1);
+
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(pollRunEvents.mock.calls.filter(([runID]) => runID === "run-old")).toHaveLength(1);
+    hook.unmount();
+    expect(signals.get("run-new")?.aborted).toBe(true);
+  });
+});
+
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 12; index++) {
+      await Promise.resolve();
+    }
+  });
+}
 
 function poll(frames: RunEventStreamView[], cursor: string, hasMore: boolean): RunEventPollView {
   return {

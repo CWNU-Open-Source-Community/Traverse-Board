@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 )
 
@@ -13,6 +14,11 @@ const ApprovalDecisionControlPathTemplate = "/api/v1/runs/{run_id}/approvals/{ap
 type ApprovalController interface {
 	Decide(context.Context, application.DecideApprovalControlRequest) (
 		application.DecideApprovalControlResult, error)
+}
+
+type WebFetchAuthorizationResumeController interface {
+	ResumeWebFetchAuthorization(context.Context, string, string) (
+		application.LifecycleResult, bool, error)
 }
 
 type ApprovalDecisionControlRequestView struct {
@@ -36,6 +42,9 @@ type ApprovalDecisionControlView struct {
 	WorkspaceWriteApplied   bool                              `json:"workspace_write_applied"`
 	SessionGrantCreated     bool                              `json:"session_grant_created"`
 	CapabilityGrant         bool                              `json:"capability_grant"`
+	ExecutionResumed        bool                              `json:"execution_resumed"`
+	RetryCompleted          bool                              `json:"retry_completed"`
+	RetryScheduled          bool                              `json:"retry_scheduled"`
 }
 
 func matchApprovalDecisionControlPath(requestPath string) (string, string, bool) {
@@ -93,11 +102,31 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
+	executionResumed, retryCompleted, retryScheduled := false, false, false
+	if result.Approval.ToolName == "web_fetch" &&
+		a.webFetchAuthorizationSchedulerEnabled {
+		_, ok := a.runExecutionController.(WebFetchAuthorizationResumeController)
+		if !ok {
+			a.writeError(writer, requestID, applicationWebFetchResumeUnavailable(), 0)
+			return
+		}
+		// The decision is already durable. The process-owned reconciler observes
+		// this queue and resumes it independently of the HTTP client. Never start
+		// an untracked request-handler goroutine: desktop shutdown must be able to
+		// cancel and join every continuation before SQLite closes.
+		retryScheduled = true
+	}
 	a.writeSuccessStatus(writer, requestID, ApprovalDecisionControlView{
 		Version: application.ApprovalControlProtocolVersion,
 		RunID:   result.Approval.RunID, ApprovalID: result.Approval.ID,
 		ProposalID: result.Approval.ProposalID, ToolName: result.Approval.ToolName,
 		Action: result.Action, Status: string(result.Approval.Status),
-		Replayed: result.Replayed,
+		Replayed: result.Replayed, ExecutionResumed: executionResumed,
+		RetryCompleted: retryCompleted, RetryScheduled: retryScheduled,
 	}, nil, http.StatusAccepted)
+}
+
+func applicationWebFetchResumeUnavailable() error {
+	return apperror.New(apperror.CodeFailedPrecondition,
+		"web fetch authorization resume controller is unavailable")
 }

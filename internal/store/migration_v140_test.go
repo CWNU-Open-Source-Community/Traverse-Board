@@ -13,12 +13,33 @@ import (
 )
 
 func removeSchemaV140ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV150ForTestStatements(), []string{
+		// Historical downgrade fixtures start from the current schema. Remove
+		// every newer migration record before v140 so reopening can replay the
+		// now-current tail without manufacturing a migration-history gap.
+		`DROP TRIGGER trg_web_fetch_authorizations_delete_immutable`,
+		`DROP TRIGGER trg_web_fetch_authorizations_identity_immutable`,
+		`DROP INDEX idx_web_fetch_authorizations_thread_target`,
+		`DROP TABLE web_fetch_authorizations`,
+		`DELETE FROM schema_migrations WHERE version = 149`,
+		`DELETE FROM schema_migrations WHERE version = 148`,
+		`DELETE FROM schema_migrations WHERE version = 147`,
+		`DELETE FROM schema_migrations WHERE version = 146`,
+		`DROP TRIGGER trg_run_mode_snapshot_insert`,
+		`DROP TRIGGER trg_run_network_authority_operation_delete_immutable`,
+		`DROP TRIGGER trg_run_network_authority_operation_update_immutable`,
+		`DROP TABLE run_network_authority_operations`,
+		requireMigrationTrigger("trg_run_mode_snapshot_insert", runModeStatements),
+		`DELETE FROM schema_migrations WHERE version = 145`,
+		`DELETE FROM schema_migrations WHERE version = 144`,
+		`DELETE FROM schema_migrations WHERE version = 143`,
+		`DELETE FROM schema_migrations WHERE version = 142`,
+		`DELETE FROM schema_migrations WHERE version = 141`,
 		`DROP TRIGGER trg_thread_run_insert_session_lifecycle`,
 		`DROP TRIGGER trg_thread_status_projects_bound_sessions`,
 		`DROP TRIGGER trg_thread_bound_session_status_guard`,
 		`DELETE FROM schema_migrations WHERE version = 140`,
-	}
+	}...)
 }
 
 func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {

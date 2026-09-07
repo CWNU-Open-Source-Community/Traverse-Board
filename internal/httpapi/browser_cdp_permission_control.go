@@ -99,8 +99,9 @@ func (a *API) serveRunBrowserCDPPermissionControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	service := application.NewRunBrowserCDPPermissionService(
-		a.store, a.browserCDPPermissionCapabilities)
+	service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(
+		a.store, a.browserCDPPermissionCapabilities,
+		a.executionPermissionCapabilities)
 	result, err := service.Change(request.Context(),
 		application.ChangeRunBrowserCDPPermissionRequest{
 			RunID: runID, Mode: view.Mode, OperationKey: operationKey,
@@ -118,7 +119,8 @@ func (a *API) serveRunBrowserCDPPermissionControl(writer http.ResponseWriter,
 	}
 	a.writeSuccessStatus(writer, requestID, RunBrowserCDPPermissionControlView{
 		BrowserCDPPermission: runBrowserCDPPermissionView(result.Permission,
-			a.browserCDPPermissionCapabilities, executionPermission),
+			a.browserCDPPermissionCapabilities, executionPermission,
+			a.executionPermissionCapabilities),
 		Replayed: result.Replayed,
 	}, nil, http.StatusAccepted)
 }

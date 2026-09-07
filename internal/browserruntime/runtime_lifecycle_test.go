@@ -279,7 +279,7 @@ func TestBrowserRuntimeLifecycleRetainsProfileWithoutNetworkCleanupProof(t *test
 	}
 }
 
-func TestBrowserProcessStopReturnsTheFirstStopResult(t *testing.T) {
+func TestBrowserProcessStopRetriesAfterTerminationFailure(t *testing.T) {
 	spec := BrowserStartSpec{CreatedAt: time.Now().UTC()}
 	platform := &stopErrorBrowserPlatformProcess{
 		done: make(chan struct{}), err: errors.New("injected stop error"),
@@ -287,8 +287,8 @@ func TestBrowserProcessStopReturnsTheFirstStopResult(t *testing.T) {
 	process := &BrowserProcess{spec: spec, platform: platform}
 	first := process.Stop(t.Context())
 	second := process.Stop(t.Context())
-	if !errors.Is(first, platform.err) || !errors.Is(second, platform.err) || platform.calls != 1 {
-		t.Fatalf("stop result was not stable: first=%v second=%v calls=%d", first, second, platform.calls)
+	if !errors.Is(first, platform.err) || !errors.Is(second, platform.err) || platform.calls != 2 {
+		t.Fatalf("failed stop was not retried: first=%v second=%v calls=%d", first, second, platform.calls)
 	}
 }
 

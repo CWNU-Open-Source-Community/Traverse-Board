@@ -1,6 +1,7 @@
 package webevidence
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -16,15 +17,74 @@ import (
 )
 
 const (
-	DefaultRequestTimeout = 15 * time.Second
-	DefaultMaxResponse    = 2 * 1024 * 1024
-	DefaultRedirectLimit  = 3
-	DefaultAddressLimit   = 32
-	WebEvidenceUserAgent  = "Traverse-Board-WebEvidence/1.0"
+	DefaultRequestTimeout        = 15 * time.Second
+	ProviderSearchRequestTimeout = 45 * time.Second
+	DefaultMaxRequest            = 128 * 1024
+	DefaultMaxResponse           = 2 * 1024 * 1024
+	DefaultRedirectLimit         = 3
+	DefaultAddressLimit          = 32
+	WebEvidenceUserAgent         = "Traverse-Board-WebEvidence/1.0"
 )
 
 type DNSResolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
+}
+
+// PostJSONAuthorizedNoRedirect sends one bounded JSON request to an exact
+// public HTTPS endpoint. Redirects are deliberately rejected: callers may
+// attach Provider credentials, and those credentials must never be replayed
+// to a Location selected by the remote server. Unlike GET evidence fetches,
+// POST requests are not retried because a retry could duplicate a billable
+// hosted-tool invocation.
+func (c *SafeHTTPClient) PostJSONAuthorizedNoRedirect(ctx context.Context,
+	rawURL string, body []byte, maxBytes int, headers http.Header,
+	authorize func(string) error,
+) (HTTPDocument, error) {
+	if c == nil {
+		return HTTPDocument{}, errors.New("safe web HTTP client is required")
+	}
+	if ctx == nil {
+		return HTTPDocument{}, errors.New("safe web HTTP context is required")
+	}
+	if len(body) == 0 || len(body) > DefaultMaxRequest {
+		return HTTPDocument{}, errors.New("safe web JSON request limit is invalid")
+	}
+	if maxBytes <= 0 || maxBytes > DefaultMaxResponse {
+		return HTTPDocument{}, errors.New("safe web response limit is invalid")
+	}
+	requested, err := CanonicalizePublicHTTPSURL(rawURL)
+	if err != nil {
+		return HTTPDocument{}, err
+	}
+	if authorize != nil {
+		if err := authorize(requested); err != nil {
+			return HTTPDocument{}, fmt.Errorf("web request is outside Run authority: %w", err)
+		}
+	}
+	response, err := c.postJSONOnce(ctx, requested, body, headers)
+	if err != nil {
+		return HTTPDocument{}, err
+	}
+	if response.StatusCode >= http.StatusMultipleChoices &&
+		response.StatusCode < http.StatusBadRequest {
+		_ = response.Body.Close()
+		return HTTPDocument{}, errors.New("credentialed web POST redirects are forbidden")
+	}
+	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, int64(maxBytes)+1))
+	closeErr := response.Body.Close()
+	if readErr != nil {
+		return HTTPDocument{}, fmt.Errorf("read bounded web response: %w", readErr)
+	}
+	if closeErr != nil {
+		return HTTPDocument{}, fmt.Errorf("close bounded web response: %w", closeErr)
+	}
+	truncated := len(responseBody) > maxBytes
+	if truncated {
+		responseBody = responseBody[:maxBytes]
+	}
+	return HTTPDocument{RequestedURL: requested, FinalURL: requested,
+		StatusCode: response.StatusCode, Header: response.Header.Clone(), Body: responseBody,
+		Truncated: truncated}, nil
 }
 
 type TransportFactory func(host string, addresses []netip.Addr) http.RoundTripper
@@ -50,6 +110,15 @@ type HTTPDocument struct {
 func NewSafeHTTPClient() *SafeHTTPClient {
 	return &SafeHTTPClient{Resolver: net.DefaultResolver, Timeout: DefaultRequestTimeout,
 		MaxRedirects: DefaultRedirectLimit, MaxRetries: 1, TransportFactory: pinnedTransport}
+}
+
+// NewProviderSearchHTTPClient creates the credentialed, no-redirect POST
+// client used only by Provider-native hosted search. Hosted search commonly
+// takes longer than a document fetch, but remains bounded. The POST path never
+// retries and never follows redirects, regardless of these public fields.
+func NewProviderSearchHTTPClient() *SafeHTTPClient {
+	return &SafeHTTPClient{Resolver: net.DefaultResolver,
+		Timeout: ProviderSearchRequestTimeout, TransportFactory: pinnedTransport}
 }
 
 func (c *SafeHTTPClient) Get(ctx context.Context, rawURL string, maxBytes int,
@@ -190,6 +259,83 @@ func (c *SafeHTTPClient) getOnce(ctx context.Context, canonicalURL, accept strin
 	request.Header.Set("Accept", strings.TrimSpace(accept))
 	request.Header.Set("User-Agent", WebEvidenceUserAgent)
 	request.Header.Set("Cache-Control", "no-cache")
+	transport := factory(host, approved)
+	if transport == nil {
+		cancel()
+		return nil, errors.New("safe web transport factory returned no pinned transport")
+	}
+	client := &http.Client{Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Do(request)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("request public web target: %w", err)
+	}
+	response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancel}
+	return response, nil
+}
+
+func (c *SafeHTTPClient) postJSONOnce(ctx context.Context, canonicalURL string,
+	body []byte, headers http.Header,
+) (*http.Response, error) {
+	parsed, _ := url.Parse(canonicalURL)
+	host := parsed.Hostname()
+	timeout := c.Timeout
+	if timeout <= 0 || timeout > ProviderSearchRequestTimeout {
+		timeout = ProviderSearchRequestTimeout
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	resolver := c.Resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	addresses, err := resolver.LookupNetIP(requestCtx, "ip", host)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("resolve web target: %w", err)
+	}
+	if len(addresses) == 0 {
+		cancel()
+		return nil, errors.New("resolve web target returned no addresses")
+	}
+	if len(addresses) > DefaultAddressLimit {
+		cancel()
+		return nil, errors.New("resolve web target exceeded the address limit")
+	}
+	approved := make([]netip.Addr, 0, len(addresses))
+	seen := make(map[netip.Addr]struct{}, len(addresses))
+	for _, address := range addresses {
+		address = address.Unmap()
+		if !IsPublicAddress(address) {
+			cancel()
+			return nil, errors.New("web target DNS resolved to a non-public address")
+		}
+		if _, exists := seen[address]; !exists {
+			seen[address] = struct{}{}
+			approved = append(approved, address)
+		}
+	}
+	factory := c.TransportFactory
+	if factory == nil {
+		factory = pinnedTransport
+	}
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost,
+		canonicalURL, bytes.NewReader(body))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	request.Header = make(http.Header)
+	if headers != nil {
+		request.Header = headers.Clone()
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("User-Agent", WebEvidenceUserAgent)
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Del("Content-Length")
+	request.Header.Del("Host")
+	request.Header.Del("Transfer-Encoding")
 	transport := factory(host, approved)
 	if transport == nil {
 		cancel()

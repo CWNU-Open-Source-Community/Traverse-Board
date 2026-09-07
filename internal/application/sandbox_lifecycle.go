@@ -358,8 +358,12 @@ func (s *SandboxManifestService) revalidateExecutionCandidate(ctx context.Contex
 	if err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", apperror.Normalize(err)
 	}
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", apperror.Normalize(err)
+	}
 	if mission.ID != candidate.MissionID || mission.WorkspaceID != candidate.WorkspaceID ||
-		mission.Scope.WorkspaceID != mission.WorkspaceID ||
+		mode.Scope.WorkspaceID != mission.WorkspaceID ||
 		intent.Preparation.RunID != run.ID || intent.Preparation.MissionID != mission.ID ||
 		intent.Preparation.WorkspaceID != mission.WorkspaceID {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
@@ -377,16 +381,16 @@ func (s *SandboxManifestService) revalidateExecutionCandidate(ctx context.Contex
 			apperror.Wrap(apperror.CodeFailedPrecondition,
 				"sandbox execution workspace binding is invalid", err)
 	}
-	normalizedScope, err := normalizeSandboxMissionScope(mission.Scope)
+	normalizedScope, err := normalizeSandboxMissionScope(mode.Scope)
 	if err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
 			apperror.Wrap(apperror.CodeFailedPrecondition,
-				"sandbox execution Mission scope is invalid", err)
+				"sandbox execution current Run scope is invalid", err)
 	}
 	if err := requireSandboxScopeSubset(manifest.Network, normalizedScope); err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
 			apperror.Wrap(apperror.CodePolicyDenied,
-				"sandbox execution attempted to widen Mission scope", err)
+				"sandbox execution attempted to widen current Run scope", err)
 	}
 	canonicalScope, err := json.Marshal(normalizedScope)
 	if err != nil {

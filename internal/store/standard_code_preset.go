@@ -600,6 +600,12 @@ func validateStandardCodeSnapshotTuple(operation domain.StandardCodePresetOperat
 	}
 	if commit.Mode.Surface != domain.ExecutionSurfaceCode ||
 		commit.Mode.Phase != domain.ExecutionPhasePlan ||
+		currentMode.Scope.WorkspaceID != operation.WorkspaceID ||
+		currentMode.Scope.NetworkMode != "disabled" ||
+		len(currentMode.Scope.AllowedTargets) != 0 ||
+		commit.Mode.Scope.WorkspaceID != operation.WorkspaceID ||
+		commit.Mode.Scope.NetworkMode != "disabled" ||
+		len(commit.Mode.Scope.AllowedTargets) != 0 ||
 		commit.Profile.Profile != operation.SelectedBackend.ExecutionProfile() ||
 		commit.Interaction.Mode != domain.RunExecutionInteractionControlled ||
 		commit.Interaction.Surface != domain.ExecutionSurfaceCode ||

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
@@ -137,6 +138,14 @@ func (s *SQLiteStore) TransitionThreadExecutionPermission(ctx context.Context,
 		return domain.ThreadExecutionPermissionSnapshot{},
 			domain.ThreadExecutionPermissionOperation{}, false, err
 	}
+	if operation.CurrentRunEffect.AppliesToCurrentRun() {
+		if _, _, err := synchronizeRunBrowserCDPForThreadPermissionTx(ctx, tx,
+			operation.CurrentRunID, snapshot.MissionID, current.Mode, snapshot,
+			operation.KeyDigest); err != nil {
+			return domain.ThreadExecutionPermissionSnapshot{},
+				domain.ThreadExecutionPermissionOperation{}, false, err
+		}
+	}
 	if err := insertThreadExecutionPermissionSnapshotTx(ctx, tx, snapshot); err != nil {
 		_ = tx.Rollback()
 		return s.recoverThreadExecutionPermissionTransition(ctx, operation, err)
@@ -163,7 +172,7 @@ func (s *SQLiteStore) TransitionThreadExecutionPermission(ctx context.Context,
 		"capability_grant": false, "current_run_id": operation.CurrentRunID,
 		"current_run_effect":                 operation.CurrentRunEffect,
 		"current_run_permission_snapshot_id": operation.CurrentRunPermissionSnapshotID,
-		"applies_to_current_run":             operation.CurrentRunID != "",
+		"applies_to_current_run":             operation.CurrentRunEffect.AppliesToCurrentRun(),
 		"applies_to_future_successor_runs":   true,
 	})
 	if err != nil {
@@ -212,58 +221,56 @@ func applyThreadExecutionPermissionToCurrentRunTx(ctx context.Context, tx *sql.T
 	operation.CurrentRunID = run.ID
 	operation.CurrentRunEffect = domain.ThreadExecutionPermissionApplied
 	operation.CurrentRunPermissionSnapshotID = current.ID
-	if runPermissionMatchesThreadPreference(current, preference) {
+	if runPermissionMatchesThreadPreference(current, preference) &&
+		preference.Mode != domain.RunExecutionPermissionFullAccess {
 		if err := operation.Validate(); err != nil {
 			return domain.ThreadExecutionPermissionOperation{}, err
 		}
 		return operation, nil
 	}
-	var activeLeaseCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
-		WHERE run_id = ? AND status = 'active'
-			AND julianday(expires_at) > julianday(?)`, run.ID, ts(preference.CreatedAt)).
-		Scan(&activeLeaseCount); err != nil {
-		return domain.ThreadExecutionPermissionOperation{}, err
-	}
-	if activeLeaseCount != 0 {
-		return domain.ThreadExecutionPermissionOperation{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"Thread permission cannot change the current Run while an execution lease is active; wait for the current step to finish and retry")
-	}
-	switch run.Status {
-	case domain.RunCreated, domain.RunPaused, domain.RunRunning:
-		// These statuses can reach an atomic permission-change boundary below.
-	case domain.RunWaitingApproval:
-		return domain.ThreadExecutionPermissionOperation{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"Thread permission cannot change while the current Run has a pending approval; decide or invalidate the approval first")
-	default:
-		return domain.ThreadExecutionPermissionOperation{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			fmt.Sprintf("Thread permission cannot change while the current Run is %s", run.Status))
-	}
-	if err := requireThreadLifecycleRunQuiescentTx(ctx, tx, run.ID, preference.CreatedAt); err != nil {
-		return domain.ThreadExecutionPermissionOperation{}, apperror.Wrap(
-			apperror.CodeFailedPrecondition,
-			"Thread permission cannot change while the current Run still owns an execution surface; stop it and retry", err)
-	}
-	if run.Status == domain.RunRunning {
-		if preference.CreatedAt.Before(run.UpdatedAt) {
-			return domain.ThreadExecutionPermissionOperation{}, apperror.New(
-				apperror.CodeConflict,
-				"current Run changed while the Thread permission request was being applied")
-		}
-		run, _, err = transitionControlledRunTx(ctx, tx, run, domain.RunPaused,
-			domain.RunLifecyclePause, preference.CreatedAt)
-		if err != nil {
-			return domain.ThreadExecutionPermissionOperation{}, apperror.Wrap(
-				apperror.CodeFailedPrecondition,
-				"Thread permission could not safely pause the current Run", err)
-		}
-		if err := syncControlledRunRootTx(ctx, tx, run); err != nil {
+	immediateDowngrade := threadPermissionTransitionRevokesHighRisk(
+		current.Mode, preference.Mode)
+	if immediateDowngrade {
+		if err := releaseRunExecutionLeaseForPermissionDowngradeTx(
+			ctx, tx, run, preference.CreatedAt); err != nil {
 			return domain.ThreadExecutionPermissionOperation{}, err
 		}
-		operation.CurrentRunEffect = domain.ThreadExecutionPermissionPausedAndApplied
+	} else if run.Status == domain.RunPreparing ||
+		run.Status == domain.RunRunning ||
+		run.Status == domain.RunWaitingApproval {
+		// A Thread preference is allowed to move ahead of an executing or
+		// approval-blocked Run, but it must not rewrite that Run's immutable
+		// execution contract. The current snapshot remains exact and the new
+		// preference is materialized only when a successor Run is created.
+		operation.CurrentRunEffect = domain.ThreadExecutionPermissionDeferred
+		if err := operation.Validate(); err != nil {
+			return domain.ThreadExecutionPermissionOperation{}, err
+		}
+		return operation, nil
+	} else {
+		var activeLeaseCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
+			WHERE run_id = ? AND status = 'active'
+				AND julianday(expires_at) > julianday(?)`, run.ID, ts(preference.CreatedAt)).
+			Scan(&activeLeaseCount); err != nil {
+			return domain.ThreadExecutionPermissionOperation{}, err
+		}
+		if activeLeaseCount != 0 {
+			return domain.ThreadExecutionPermissionOperation{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Thread permission cannot raise the current Run while an execution lease is active; wait for the current step to finish and retry")
+		}
+		if run.Status != domain.RunCreated && run.Status != domain.RunPaused {
+			return domain.ThreadExecutionPermissionOperation{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				fmt.Sprintf("Thread permission escalation cannot change the current Run while it is %s", run.Status))
+		}
+		if err := requireThreadLifecycleRunQuiescentTx(ctx, tx, run.ID,
+			preference.CreatedAt); err != nil {
+			return domain.ThreadExecutionPermissionOperation{}, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"Thread permission escalation requires a quiescent current Run", err)
+		}
 	}
 	if preference.CreatedAt.Before(current.CreatedAt) {
 		return domain.ThreadExecutionPermissionOperation{}, apperror.New(
@@ -342,6 +349,44 @@ func applyThreadExecutionPermissionToCurrentRunTx(ctx context.Context, tx *sql.T
 		return domain.ThreadExecutionPermissionOperation{}, err
 	}
 	return operation, nil
+}
+
+func threadPermissionTransitionRevokesHighRisk(current,
+	target domain.RunExecutionPermissionMode,
+) bool {
+	return current == domain.RunExecutionPermissionDebug &&
+		target != domain.RunExecutionPermissionDebug ||
+		current == domain.RunExecutionPermissionFullAccess &&
+			!target.IncludesFullAccess()
+}
+
+func releaseRunExecutionLeaseForPermissionDowngradeTx(ctx context.Context, tx *sql.Tx,
+	run domain.Run, at time.Time,
+) error {
+	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil || !found || !lease.ActiveAt(at) {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE run_execution_leases
+		SET status = 'released', released_at = ?
+		WHERE run_id = ? AND lease_id = ? AND owner_id = ? AND generation = ?
+			AND status = 'active'`, ts(at), lease.RunID, lease.LeaseID,
+		lease.OwnerID, lease.Generation)
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		if err != nil {
+			return err
+		}
+		return apperror.New(apperror.CodeConflict,
+			"Run execution lease changed before permission downgrade")
+	}
+	return appendSupervisorEventTx(ctx, tx, run,
+		events.RunExecutionLeaseReleasedEvent, "thread_execution_permission",
+		run.ID, map[string]any{"owner_id": lease.OwnerID,
+			"generation": lease.Generation, "released_at": at,
+			"reason": "higher-risk execution permission revoked"})
 }
 
 func runPermissionMatchesThreadPreference(current domain.RunExecutionPermissionSnapshot,
@@ -525,7 +570,8 @@ func validateThreadExecutionPermissionOperationBinding(
 		return nil
 	}
 	if operation.CurrentRunEffect != domain.ThreadExecutionPermissionApplied &&
-		operation.CurrentRunEffect != domain.ThreadExecutionPermissionPausedAndApplied {
+		operation.CurrentRunEffect != domain.ThreadExecutionPermissionPausedAndApplied &&
+		operation.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
 		return apperror.New(apperror.CodeInternal,
 			"stored Thread execution permission current Run effect is invalid")
 	}
@@ -652,4 +698,219 @@ func materializeThreadExecutionPermissionForSuccessorTx(ctx context.Context, tx 
 		return domain.RunExecutionPermissionSnapshot{}, false, err
 	}
 	return next, true, nil
+}
+
+func executionModeIncludesFullCDP(mode domain.RunExecutionPermissionMode) bool {
+	return mode == domain.RunExecutionPermissionFullAccess ||
+		mode == domain.RunExecutionPermissionDebug
+}
+
+// synchronizeRunBrowserCDPForThreadPermissionTx keeps Full CDP as a
+// user-controllable sub-capability of Full Access and Debug. Entering either
+// high-risk mode from a lower mode defaults the sub-capability on. Leaving the
+// high-risk modes always turns it off. Moving between Full Access and Debug
+// preserves the operator's current Full CDP choice.
+func synchronizeRunBrowserCDPForThreadPermissionTx(ctx context.Context, tx *sql.Tx,
+	runID, missionID string, previousMode domain.RunExecutionPermissionMode,
+	preference domain.ThreadExecutionPermissionSnapshot, parentOperationDigest string,
+) (domain.RunBrowserCDPPermissionSnapshot, bool, error) {
+	current, err := getCurrentRunBrowserCDPPermissionSnapshot(ctx, tx, runID)
+	if err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	if current.RunID != runID || current.MissionID != missionID {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+			apperror.CodeConflict,
+			"Run browser CDP permission does not match the Thread permission scope")
+	}
+	desired := domain.RunBrowserCDPPermissionRestricted
+	if executionModeIncludesFullCDP(preference.Mode) {
+		if executionModeIncludesFullCDP(previousMode) {
+			// Full Access <-> Debug is a ceiling change, not a request to
+			// override the operator's Full CDP sub-switch.
+			return current, false, nil
+		}
+		desired = domain.RunBrowserCDPPermissionFullDebug
+	}
+	if current.Mode == desired {
+		return current, false, nil
+	}
+	reason := "enabled Full CDP by default for Thread execution permission " + preference.ID
+	if desired == domain.RunBrowserCDPPermissionRestricted {
+		reason = "disabled Full CDP because Thread execution permission " + preference.ID +
+			" does not include it"
+	}
+	return appendThreadManagedRunBrowserCDPTransitionTx(ctx, tx, current, desired,
+		preference.RequestedBy, reason, preference.CreatedAt,
+		runmutation.Fingerprint("thread_execution_permission_browser_cdp_operation.v1",
+			parentOperationDigest, runID, preference.ID))
+}
+
+// materializeThreadBrowserCDPPermissionForSuccessorTx copies only the durable
+// Full CDP sub-switch. It never copies transport, browser-start, runtime, or
+// capability authority. Lower execution modes are always restricted. For a
+// high-risk mode a valid predecessor supplies the operator's last sub-switch;
+// without one the product default is Full CDP enabled.
+func materializeThreadBrowserCDPPermissionForSuccessorTx(ctx context.Context, tx *sql.Tx,
+	threadRecord domain.Thread, predecessor domain.Run, run domain.Run,
+	preference domain.ThreadExecutionPermissionSnapshot,
+) (domain.RunBrowserCDPPermissionSnapshot, bool, error) {
+	current, err := getCurrentRunBrowserCDPPermissionSnapshot(ctx, tx, run.ID)
+	if err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	desired := domain.RunBrowserCDPPermissionRestricted
+	if executionModeIncludesFullCDP(preference.Mode) {
+		desired = domain.RunBrowserCDPPermissionFullDebug
+		defaultOn, err := threadPermissionEnteredHighWithoutActiveRunTx(
+			ctx, tx, preference)
+		if err != nil {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+		}
+		if !defaultOn && predecessor.ID != "" &&
+			predecessor.MissionID == threadRecord.MissionID {
+			predecessorExecution, err := getCurrentRunExecutionPermissionSnapshot(
+				ctx, tx, predecessor.ID)
+			if err != nil {
+				return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+			}
+			// Restricted is not an operator Full-CDP choice while the
+			// predecessor itself was below Full Access. In that case the new
+			// high-risk preference uses the documented default-on behavior.
+			if executionModeIncludesFullCDP(predecessorExecution.Mode) {
+				inherited, err := getCurrentRunBrowserCDPPermissionSnapshot(ctx, tx,
+					predecessor.ID)
+				if err != nil {
+					return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+				}
+				desired = inherited.Mode
+			}
+		}
+	}
+	if current.Mode == desired {
+		return current, false, nil
+	}
+	at := run.CreatedAt
+	if at.Before(preference.CreatedAt) {
+		at = preference.CreatedAt
+	}
+	return appendThreadManagedRunBrowserCDPTransitionTx(ctx, tx, current, desired,
+		preference.RequestedBy,
+		"materialized Thread Full CDP preference for successor Run "+run.ID, at,
+		runmutation.Fingerprint(
+			"thread_execution_permission_browser_cdp_materialization_operation.v1",
+			threadRecord.ID, preference.ID, predecessor.ID, run.ID, string(desired)))
+}
+
+// threadPermissionEnteredHighWithoutActiveRunTx distinguishes a new
+// low-to-high Thread preference generation from a stable high-risk preference.
+// A terminal predecessor may still carry an explicitly disabled Full CDP
+// snapshot; that old choice must not override the documented default-on
+// behavior when the operator subsequently selected a low mode and then entered
+// Full Access or Debug while there was no active Run. Full <-> Debug and
+// same-mode Full confirmations keep inheriting the predecessor's explicit
+// sub-switch because their previous Thread preference was already high.
+func threadPermissionEnteredHighWithoutActiveRunTx(ctx context.Context, tx *sql.Tx,
+	preference domain.ThreadExecutionPermissionSnapshot,
+) (bool, error) {
+	if !executionModeIncludesFullCDP(preference.Mode) || preference.Revision <= 1 {
+		return false, nil
+	}
+	var previousMode string
+	var currentRunID sql.NullString
+	var currentRunEffect string
+	err := tx.QueryRowContext(ctx, `SELECT previous.mode,
+		operation.current_run_id, operation.current_run_effect
+		FROM thread_execution_permission_snapshots AS previous
+		JOIN thread_execution_permission_operations AS operation
+			ON operation.snapshot_id = ?
+		WHERE previous.thread_id = ? AND previous.revision = ?`,
+		preference.ID, preference.ThreadID, preference.Revision-1).
+		Scan(&previousMode, &currentRunID, &currentRunEffect)
+	if err != nil {
+		return false, apperror.Wrap(apperror.CodeConflict,
+			"Thread Full CDP preference generation is incomplete", err)
+	}
+	parsedPrevious, err := domain.ParseRunExecutionPermissionMode(previousMode)
+	if err != nil {
+		return false, apperror.Wrap(apperror.CodeConflict,
+			"previous Thread execution permission mode is invalid", err)
+	}
+	return !executionModeIncludesFullCDP(parsedPrevious) &&
+		!currentRunID.Valid &&
+		currentRunEffect == string(domain.ThreadExecutionPermissionNoActiveRun), nil
+}
+
+func appendThreadManagedRunBrowserCDPTransitionTx(ctx context.Context, tx *sql.Tx,
+	current domain.RunBrowserCDPPermissionSnapshot,
+	desired domain.RunBrowserCDPPermissionMode, requestedBy, reason string,
+	at time.Time, operationDigest string,
+) (domain.RunBrowserCDPPermissionSnapshot, bool, error) {
+	if current.Mode == desired {
+		return current, false, nil
+	}
+	if at.Before(current.CreatedAt) {
+		at = current.CreatedAt
+	}
+	next, err := current.Next(idgen.New("run-browser-cdp-permission"), desired,
+		desired == domain.RunBrowserCDPPermissionFullDebug, requestedBy, reason, at)
+	if err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	operation := domain.RunBrowserCDPPermissionOperation{
+		KeyDigest:          operationDigest,
+		RequestFingerprint: runBrowserCDPPermissionRequestFingerprint(next),
+		SnapshotID:         next.ID, RunID: next.RunID, RequestedBy: next.RequestedBy,
+		CreatedAt: next.CreatedAt,
+	}
+	event, err := newThreadManagedRunBrowserCDPPermissionSelectedEvent(current, next)
+	if err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	if err := validateRunBrowserCDPPermissionMutation(next, operation, event); err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	if err := insertRunBrowserCDPPermissionSnapshotTx(ctx, tx, next); err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run_browser_cdp_permission_operations
+		(operation_key_digest, request_fingerprint, snapshot_id, run_id,
+		requested_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`, operation.KeyDigest,
+		operation.RequestFingerprint, operation.SnapshotID, operation.RunID,
+		operation.RequestedBy, ts(operation.CreatedAt)); err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
+		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+	}
+	return next, true, nil
+}
+
+func newThreadManagedRunBrowserCDPPermissionSelectedEvent(
+	current, next domain.RunBrowserCDPPermissionSnapshot,
+) (events.Event, error) {
+	event, err := events.New(next.RunID, next.MissionID,
+		events.RunBrowserCDPPermissionSelectedEvent, "run_browser_cdp_permission",
+		next.ID, map[string]any{
+			"protocol": next.ProtocolVersion, "revision": next.Revision,
+			"from": current.Mode, "to": next.Mode,
+			"navigate_allowed":         next.NavigateAllowed,
+			"dom_snapshot_allowed":     next.DOMSnapshotAllowed,
+			"screenshot_allowed":       next.ScreenshotAllowed,
+			"request_capture_allowed":  next.RequestCaptureAllowed,
+			"request_mutation_allowed": next.RequestMutationAllowed,
+			"request_replay_allowed":   next.RequestReplayAllowed,
+			"cookie_access_allowed":    next.CookieAccessAllowed,
+			"arbitrary_method_allowed": next.ArbitraryMethodAllowed,
+			"risk_tier":                next.RiskTier, "required_gate": next.RequiredGate,
+			"policy_version": next.PolicyVersion, "requested_by": next.RequestedBy,
+			"reason": next.Reason, "transport_enabled": false,
+			"browser_start_authorized": false, "runtime_authorized": false,
+			"capability_grant": false,
+		})
+	if err != nil {
+		return events.Event{}, err
+	}
+	event.CreatedAt = next.CreatedAt
+	return event, nil
 }

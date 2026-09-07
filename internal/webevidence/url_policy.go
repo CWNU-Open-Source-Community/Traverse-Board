@@ -198,6 +198,51 @@ type NetworkAuthority struct {
 	AllowedTargets []string `json:"allowed_targets"`
 }
 
+// NormalizeExactAuthorityTargets validates and canonicalizes an operator
+// supplied host allowlist. Unlike the lower-level NetworkAuthority transport
+// contract, product Run creation intentionally rejects global and wildcard
+// grants: every persisted entry identifies one exact public HTTPS host.
+func NormalizeExactAuthorityTargets(rawTargets []string) ([]string, error) {
+	if len(rawTargets) == 0 || len(rawTargets) > 256 {
+		return nil, errors.New("web network authority requires between 1 and 256 exact targets")
+	}
+	targets := make([]string, 0, len(rawTargets))
+	seen := make(map[string]struct{}, len(rawTargets))
+	for _, rawTarget := range rawTargets {
+		target := strings.TrimSpace(rawTarget)
+		lower := strings.ToLower(target)
+		if target == "" {
+			return nil, errors.New("web allowlist target cannot be empty")
+		}
+		if lower == PublicHTTPSTarget || strings.Contains(target, "*") {
+			return nil, errors.New("web allowlist targets must identify exact public hosts")
+		}
+		if strings.Contains(lower, "://") && !strings.HasPrefix(lower, "https://") {
+			return nil, errors.New("web allowlist target origins must use HTTPS")
+		}
+		canonical, err := normalizeAuthorityTarget(target)
+		if err != nil {
+			return nil, err
+		}
+		if net.ParseIP(canonical) != nil {
+			return nil, errors.New("web allowlist targets must identify exact public DNS hostnames")
+		}
+		if canonical == PublicHTTPSTarget || strings.HasPrefix(canonical, "*.") {
+			return nil, errors.New("web allowlist targets must identify exact public hosts")
+		}
+		if _, exists := seen[canonical]; exists {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		targets = append(targets, canonical)
+	}
+	if len(targets) == 0 {
+		return nil, errors.New("web network authority requires an exact target")
+	}
+	sort.Strings(targets)
+	return targets, nil
+}
+
 func (a NetworkAuthority) Validate() error {
 	if a.Mode == "disabled" {
 		if len(a.AllowedTargets) != 0 {

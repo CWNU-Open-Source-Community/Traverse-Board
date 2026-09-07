@@ -24,8 +24,9 @@ const (
 type ApprovalControlAction string
 
 const (
-	ApprovalControlApproveOnce ApprovalControlAction = "approve_once"
-	ApprovalControlDeny        ApprovalControlAction = "deny"
+	ApprovalControlApproveOnce      ApprovalControlAction = "approve_once"
+	ApprovalControlApproveForThread ApprovalControlAction = "approve_for_thread"
+	ApprovalControlDeny             ApprovalControlAction = "deny"
 )
 
 type ApprovalControlStore interface {
@@ -43,6 +44,14 @@ type ApprovalReviewer interface {
 type gitAdvancedApprovalControlStore interface {
 	GetGitAdvancedOperation(context.Context, string) (gitadvanced.OperationRecord, bool, error)
 	DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
+}
+
+type webFetchApprovalControlStore interface {
+	GetWebFetchAuthorizationByApproval(context.Context, string) (
+		domain.WebFetchAuthorization, error)
+	DecideWebFetchAuthorization(context.Context, string,
+		domain.WebFetchAuthorizationScope, bool, string, string, string) (
+		domain.WebFetchAuthorization, bool, error)
 }
 
 type ApprovalControlService struct {
@@ -102,7 +111,9 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 	}
 	expected := approval.StatusDenied
 	reviewAction := toolgateway.ReviewDeny
-	if request.Action == ApprovalControlApproveOnce {
+	approve := request.Action == ApprovalControlApproveOnce ||
+		request.Action == ApprovalControlApproveForThread
+	if approve {
 		expected = approval.StatusApproved
 		reviewAction = toolgateway.ReviewApprove
 	}
@@ -114,7 +125,7 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 		return DecideApprovalControlResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "terminal Run approvals cannot be changed")
 	}
-	if request.Action == ApprovalControlApproveOnce && record.Status == approval.StatusPending {
+	if approve && record.Status == approval.StatusPending {
 		if err := s.recheckApprovalSource(ctx, record); err != nil {
 			return DecideApprovalControlResult{}, err
 		}
@@ -125,7 +136,23 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 			"approval action is not available through this control surface")
 	}
 	replayed := record.Status == expected
-	if record.ToolName == gitadvanced.ApprovalToolName {
+	if record.ToolName == string(toolgateway.WebFetchTool) {
+		webStore, ok := s.store.(webFetchApprovalControlStore)
+		if !ok {
+			return DecideApprovalControlResult{}, apperror.New(
+				apperror.CodeFailedPrecondition, "Web fetch approval control is unavailable")
+		}
+		value, loadErr := webStore.GetWebFetchAuthorizationByApproval(ctx, record.ID)
+		if loadErr != nil {
+			return DecideApprovalControlResult{}, apperror.Normalize(loadErr)
+		}
+		scope := domain.WebFetchAuthorizationOnce
+		if request.Action == ApprovalControlApproveForThread {
+			scope = domain.WebFetchAuthorizationThread
+		}
+		_, _, err = webStore.DecideWebFetchAuthorization(ctx, value.ID, scope, approve,
+			request.OperationKey, request.ReviewedBy, request.Reason)
+	} else if record.ToolName == gitadvanced.ApprovalToolName {
 		advancedStore, ok := s.store.(gitAdvancedApprovalControlStore)
 		if !ok {
 			return DecideApprovalControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -218,6 +245,24 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 				"Git advanced approval source changed or is no longer pending")
 		}
 		return nil // Execution rechecks capability, permission, lease, and repository drift.
+	case string(toolgateway.WebFetchTool):
+		webStore, ok := s.store.(webFetchApprovalControlStore)
+		if !ok {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"Web fetch approval source is unavailable")
+		}
+		value, err := webStore.GetWebFetchAuthorizationByApproval(ctx, record.ID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		if value.ApprovalID != record.ID || value.RunID != record.RunID ||
+			value.SessionID != record.SessionID || value.WorkspaceID != record.WorkspaceID ||
+			value.Status != domain.WebFetchAuthorizationPending ||
+			value.RequestFingerprint != record.RequestFingerprint {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"Web fetch approval source changed or is no longer pending")
+		}
+		return nil // Execution rechecks public HTTPS, DNS and redirects after approval.
 	default:
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"approve-once is limited to dry-run Shell and ScriptProcess proposals")
@@ -238,6 +283,9 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
 		gitadvanced.ApprovalToolName:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
+	case string(toolgateway.WebFetchTool):
+		return []ApprovalControlAction{ApprovalControlApproveOnce,
+			ApprovalControlApproveForThread, ApprovalControlDeny}
 	case string(toolgateway.ReplaceFileTool):
 		return []ApprovalControlAction{ApprovalControlDeny}
 	default:
@@ -259,6 +307,9 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny
+		case string(toolgateway.WebFetchTool):
+			return action == ApprovalControlApproveOnce ||
+				action == ApprovalControlApproveForThread || action == ApprovalControlDeny
 		}
 	}
 	return false
@@ -288,12 +339,15 @@ func normalizeApprovalControlRequest(request *DecideApprovalControlRequest) erro
 		return apperror.New(apperror.CodeInvalidArgument,
 			"approval control idempotency key is invalid")
 	}
-	if request.Action != ApprovalControlApproveOnce && request.Action != ApprovalControlDeny {
+	if request.Action != ApprovalControlApproveOnce &&
+		request.Action != ApprovalControlApproveForThread &&
+		request.Action != ApprovalControlDeny {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"approval control action must be approve_once or deny")
+			"approval control action must be approve_once, approve_for_thread, or deny")
 	}
 	request.Reason = strings.TrimSpace(request.Reason)
-	if request.Action == ApprovalControlApproveOnce && request.Reason != "" {
+	if (request.Action == ApprovalControlApproveOnce ||
+		request.Action == ApprovalControlApproveForThread) && request.Reason != "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"approve-once cannot include a denial reason")
 	}

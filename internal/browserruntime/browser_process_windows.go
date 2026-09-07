@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	browserJobExitCode         = 125
-	procThreadAttributeJobList = 0x0002000D
-	browserMediumIntegrityRID  = 0x00002000
-	browserHighIntegrityRID    = 0x00003000
+	browserJobExitCode                      = 125
+	procThreadAttributeJobList              = 0x0002000D
+	browserMediumIntegrityRID               = 0x00002000
+	browserHighIntegrityRID                 = 0x00003000
+	failedWindowsBrowserStartCleanupTimeout = 5 * time.Second
 )
 
 type windowsBrowserProcessStarter struct{}
@@ -38,6 +39,21 @@ type windowsBrowserLaunchAuthority struct {
 	token  windows.Token
 	asUser bool
 }
+
+// windowsBrowserStartCleanup owns the only safe exit from a failed suspended
+// browser launch. AssignProcessToJobObject can fail after the process exists,
+// and failures after a successful bind still occur before ResumeThread. In
+// both cases we retain every owner handle until the root process is signaled
+// and Job accounting proves that no process remains.
+type windowsBrowserStartCleanup interface {
+	TerminateJob(windows.Handle) error
+	TerminateProcess(windows.Handle) error
+	ProcessReaped(windows.Handle, time.Duration) bool
+	JobReaped(windows.Handle, time.Duration) bool
+	Pause(time.Duration)
+}
+
+type nativeWindowsBrowserStartCleanup struct{}
 
 type browserProcessStartStageError struct {
 	stage string
@@ -217,20 +233,24 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	if !jobBoundAtCreation {
 		if err := windows.AssignProcessToJobObject(job, processInfo.Process); err != nil {
 			windows.CloseHandle(processInfo.Thread)
-			_ = windows.TerminateProcess(processInfo.Process, browserJobExitCode)
-			_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
+			cleanupErr := reapFailedWindowsBrowserStart(context.Background(),
+				nativeWindowsBrowserStartCleanup{}, job,
+				processInfo.Process)
 			windows.CloseHandle(processInfo.Process)
 			windows.CloseHandle(job)
-			return nil, browserProcessStartStageFailure("job_bind_after_token", err)
+			return nil, errors.Join(
+				browserProcessStartStageFailure("job_bind_after_token", err), cleanupErr)
 		}
 	}
 	if err := verifyWindowsBrowserChildAuthority(processInfo.Process); err != nil {
 		windows.CloseHandle(processInfo.Thread)
-		_ = windows.TerminateJobObject(job, browserJobExitCode)
-		_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
+		cleanupErr := reapFailedWindowsBrowserStart(context.Background(),
+			nativeWindowsBrowserStartCleanup{}, job,
+			processInfo.Process)
 		windows.CloseHandle(processInfo.Process)
 		windows.CloseHandle(job)
-		return nil, browserProcessStartStageFailure("child_authority", err)
+		return nil, errors.Join(
+			browserProcessStartStageFailure("child_authority", err), cleanupErr)
 	}
 	process := &windowsBrowserProcess{
 		job: job, process: processInfo.Process, pid: int(processInfo.ProcessId),
@@ -238,15 +258,97 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	}
 	if _, err := windows.ResumeThread(processInfo.Thread); err != nil {
 		windows.CloseHandle(processInfo.Thread)
-		_ = windows.TerminateJobObject(job, browserJobExitCode)
-		_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
+		cleanupErr := reapFailedWindowsBrowserStart(context.Background(),
+			nativeWindowsBrowserStartCleanup{}, job,
+			processInfo.Process)
 		windows.CloseHandle(processInfo.Process)
 		windows.CloseHandle(job)
-		return nil, browserProcessStartStageFailure("process_resume", err)
+		return nil, errors.Join(
+			browserProcessStartStageFailure("process_resume", err), cleanupErr)
 	}
 	windows.CloseHandle(processInfo.Thread)
 	go process.wait()
 	return process, nil
+}
+
+func (nativeWindowsBrowserStartCleanup) TerminateJob(job windows.Handle) error {
+	return windows.TerminateJobObject(job, browserJobExitCode)
+}
+
+func (nativeWindowsBrowserStartCleanup) TerminateProcess(process windows.Handle) error {
+	return windows.TerminateProcess(process, browserJobExitCode)
+}
+
+func (nativeWindowsBrowserStartCleanup) ProcessReaped(process windows.Handle,
+	maximum time.Duration,
+) bool {
+	milliseconds := maximum.Milliseconds()
+	if milliseconds < 1 {
+		milliseconds = 1
+	}
+	if milliseconds > int64(^uint32(0)-1) {
+		milliseconds = int64(^uint32(0) - 1)
+	}
+	status, err := windows.WaitForSingleObject(process, uint32(milliseconds))
+	return err == nil && status == windows.WAIT_OBJECT_0
+}
+
+func (nativeWindowsBrowserStartCleanup) JobReaped(job windows.Handle,
+	maximum time.Duration,
+) bool {
+	return waitBrowserJobReaped(job, maximum)
+}
+
+func (nativeWindowsBrowserStartCleanup) Pause(delay time.Duration) {
+	time.Sleep(delay)
+}
+
+func reapFailedWindowsBrowserStart(ctx context.Context,
+	cleanup windowsBrowserStartCleanup,
+	job windows.Handle, process windows.Handle,
+) error {
+	if cleanup == nil || job == 0 || process == 0 {
+		panic("failed Windows browser start lost its cleanup owner")
+	}
+	cleanupDeadline := time.Now().Add(failedWindowsBrowserStartCleanupTimeout)
+	if ctx != nil {
+		if deadline, ok := ctx.Deadline(); ok && deadline.Before(cleanupDeadline) {
+			cleanupDeadline = deadline
+		}
+	}
+	cleanupContext, cancel := context.WithDeadline(context.Background(), cleanupDeadline)
+	defer cancel()
+	const proofWindow = 250 * time.Millisecond
+	processReaped := false
+	jobReaped := false
+	attempted := false
+	for !processReaped || !jobReaped {
+		// Always make one direct termination/proof attempt even if the cleanup
+		// deadline expired while the failed suspended process was being created.
+		// The deadline bounds retries; it must not skip the only cleanup attempt.
+		if err := cleanupContext.Err(); attempted && err != nil {
+			return fmt.Errorf("failed Windows browser start cleanup proof timed out: %w", err)
+		}
+		attempted = true
+		if !jobReaped {
+			// A termination error is not proof that the Job is still alive or
+			// already empty. Keep the handle and retry until accounting itself
+			// establishes the terminal state.
+			_ = cleanup.TerminateJob(job)
+			jobReaped = cleanup.JobReaped(job, proofWindow)
+		}
+		if !processReaped {
+			// Also terminate the root directly. This is required when the
+			// post-token AssignProcessToJobObject call failed, and is harmless
+			// when the Job termination already killed the suspended root.
+			_ = cleanup.TerminateProcess(process)
+			processReaped = cleanup.ProcessReaped(process, proofWindow)
+		}
+		if !processReaped || !jobReaped {
+			cleanup.Pause(25 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 func createWindowsBrowserProcessWithToken(token windows.Token, applicationName,
@@ -566,8 +668,19 @@ func (process *windowsBrowserProcess) wait() {
 	_, _ = windows.WaitForSingleObject(process.process, windows.INFINITE)
 	var exitCode uint32
 	_ = windows.GetExitCodeProcess(process.process, &exitCode)
-	_ = windows.TerminateJobObject(process.job, browserJobExitCode)
-	treeReaped := waitBrowserJobReaped(process.job, 3*time.Second)
+	// The root Chromium process can exit before one of its Job-owned children.
+	// Keep the Job handle and the process owner alive until accounting proves the
+	// complete tree is empty. Closing done with TreeReaped=false would make a
+	// later cleanup retry impossible because the only kill-on-close handle would
+	// already be gone.
+	treeReaped := false
+	for !treeReaped {
+		_ = windows.TerminateJobObject(process.job, browserJobExitCode)
+		treeReaped = waitBrowserJobReaped(process.job, 3*time.Second)
+		if !treeReaped {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	process.mu.Lock()
 	timedOut, cancelled := process.timedOut, process.cancelled
 	exit := newBrowserProcessExit(WindowsBrowserProcessAdapterName, process.spec,

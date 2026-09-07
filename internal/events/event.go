@@ -15,6 +15,7 @@ const (
 	RunCreatedEvent                               = "run.created"
 	RunModeSelectedEvent                          = "run.mode_selected"
 	RunPhaseChangedEvent                          = "run.phase_changed"
+	RunNetworkAuthorityExpandedEvent              = "run.network_authority_expanded"
 	RunExecutionProfileSelectedEvent              = "run.execution_profile_selected"
 	RunExecutionInteractionSelectedEvent          = "run.execution_interaction_selected"
 	RunExecutionPermissionSelectedEvent           = "run.execution_permission_selected"
@@ -84,6 +85,8 @@ const (
 	BrowserLaunchReviewedEvent                    = "browser.launch_reviewed"
 	BrowserRuntimeCheckpointRecordedEvent         = "browser.runtime_checkpoint_recorded"
 	BrowserRuntimeReceiptRecordedEvent            = "browser.runtime_receipt_recorded"
+	FullCDPSessionOpenedEvent                     = "browser.full_cdp_session_opened"
+	FullCDPSessionClosedEvent                     = "browser.full_cdp_session_closed"
 	AnalyzerStartRequestRegisteredEvent           = "analyzer.start_request_registered"
 	AnalyzerStartIntentRecordedEvent              = "analyzer.start_intent_recorded"
 	AnalyzerStartLifecycleReceiptRecordedEvent    = "analyzer.start_lifecycle_receipt_recorded"
@@ -342,6 +345,8 @@ const (
 	SandboxDockerOutputCommitPreparedEvent                 = "sandbox.docker_output_commit_prepared"
 	SandboxDockerOutputCommitFailedEvent                   = "sandbox.docker_output_commit_failed"
 	SandboxDockerOutputCommitCompletedEvent                = "sandbox.docker_output_commit_completed"
+	WebFetchAuthorizationRequestedEvent                    = "web_fetch.authorization_requested"
+	WebFetchAuthorizationDecidedEvent                      = "web_fetch.authorization_decided"
 )
 
 type Event struct {

@@ -98,6 +98,7 @@ import { DockerSandboxPanel } from "./docker-sandbox-panel";
 import { ContextContinuityPanel } from "./context-continuity-panel";
 import { WorkspaceCheckpointPanel } from "./workspace-checkpoint-panel";
 import { UIEvidencePanel } from "./ui-evidence-panel";
+import { ThreadActivityToolDetailPanel } from "../v2/components/activity-detail";
 import { StandardCodeDeliveryPanel } from "./standard-code-delivery-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "delivery" | "handoff" |
@@ -458,7 +459,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         )}
         {tab === "tools" && (
           <CollectionState query={toolsQuery} empty="暂无工具轮次">
-            <ToolRounds rounds={rounds} />
+            <ToolRounds client={client} rounds={rounds} />
             <LoadMoreButton hasNextPage={Boolean(toolsQuery.hasNextPage)} isFetching={toolsQuery.isFetchingNextPage} onClick={() => void toolsQuery.fetchNextPage()} />
           </CollectionState>
         )}
@@ -937,6 +938,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
 }
 
 function EventList({ events }: { events: EventView[] }) {
+  const { t } = useLocale();
   if (events.length === 0) {
     return <EmptyState>暂无事件</EmptyState>;
   }
@@ -950,7 +952,10 @@ function EventList({ events }: { events: EventView[] }) {
             <span>{event.source}</span>
             <time dateTime={event.created_at}>{formatDate(event.created_at)}</time>
           </summary>
-          <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+          <div>
+            <label>{t("脱敏事件载荷", "Redacted event payload")}</label>
+            <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+          </div>
         </details>
       ))}
     </div>
@@ -1107,7 +1112,10 @@ function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }
   );
 }
 
-function ToolRounds({ rounds }: { rounds: SupervisorToolRoundView[] }) {
+function ToolRounds({ client, rounds }: {
+  client: CyberAgentClient;
+  rounds: SupervisorToolRoundView[];
+}) {
   const { t } = useLocale();
   if (rounds.length === 0) {
     return <EmptyState>暂无工具轮次</EmptyState>;
@@ -1118,7 +1126,13 @@ function ToolRounds({ rounds }: { rounds: SupervisorToolRoundView[] }) {
       {round.calls.map((call) => (
         <details className="tool-call" key={`${call.position}-${call.call_id}`}>
           <summary><span>{call.position}</span><strong>{call.tool_name}</strong><StatusBadge status={call.status} /></summary>
-          <div className="tool-json"><div><label>{t("载荷", "Payload")}</label><pre>{JSON.stringify(call.payload, null, 2)}</pre></div><div><label>{t("结果", "Result")}</label><pre>{JSON.stringify(call.result ?? null, null, 2)}</pre></div></div>
+          {call.detail_available && call.detail
+            ? <ThreadActivityToolDetailPanel activityRef={call.call_id} client={client}
+                runID={round.run_id} threadID={round.thread_id ?? ""} tool={call.detail} />
+            : <p className="inline-warning">{t(
+                "此历史工具调用没有可安全展示的结构化详情。",
+                "No safe structured detail is available for this historical tool call.",
+              )}</p>}
         </details>
       ))}
     </section>

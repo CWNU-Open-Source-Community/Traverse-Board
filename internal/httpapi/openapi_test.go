@@ -3,6 +3,7 @@ package httpapi
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -25,9 +26,12 @@ import (
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/pricing"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
@@ -85,6 +89,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		}
 		if item.Post != nil {
 			operations = append(operations, operationEntry{method: http.MethodPost, operation: item.Post})
+		}
+		if item.Put != nil {
+			operations = append(operations, operationEntry{method: http.MethodPut, operation: item.Put})
 		}
 		if item.Patch != nil {
 			operations = append(operations, operationEntry{method: http.MethodPatch, operation: item.Patch})
@@ -165,6 +172,46 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			"OperatorSteeringMessageView", field)
 	}
 	assertOpenAPISchemaOmits(t, document.Components.Schemas, "ArtifactView", "content")
+	for _, field := range []string{"payload_json", "authority_json", "result_json",
+		"environment", "environment_values", "stdin", "credentials", "raw_output",
+		"raw_payload_json", "pid", "process_group", "host_path", "executable_path"} {
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"ThreadActivityToolDetailView", field)
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"ThreadActivityCommandDetailView", field)
+	}
+	assertOpenAPISchemaOptional(t, document.Components.Schemas,
+		"ThreadTranscriptItemView", "activity_detail_ref")
+	for _, field := range []string{"pid", "process_id", "executable", "executable_path",
+		"profile", "profile_path", "devtools_endpoint", "websocket_url", "token",
+		"execution_fence", "authorization_fingerprint"} {
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"FullCDPSessionView", field)
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"FullCDPSessionOpenRequestView", field)
+	}
+	assertOpenAPISchemaOptional(t, document.Components.Schemas,
+		"FullCDPSessionView", "browser")
+	for _, operation := range []*openAPIOperation{
+		document.Paths[FullCDPSessionControlPathTemplate].Post,
+		document.Paths[FullCDPSessionCloseControlPathTemplate].Post,
+	} {
+		found := false
+		for _, parameter := range operation.Parameters {
+			if parameter.Name != "Idempotency-Key" {
+				continue
+			}
+			found = true
+			if parameter.Schema["minLength"] != float64(domain.MinAgentOperationKeyBytes) ||
+				parameter.Schema["maxLength"] != float64(domain.MaxAgentOperationKeyBytes) ||
+				parameter.Schema["pattern"] != `^\S+$` {
+				t.Fatalf("Full CDP idempotency key schema drifted: %#v", parameter.Schema)
+			}
+		}
+		if !found {
+			t.Fatal("Full CDP control operation omitted Idempotency-Key")
+		}
+	}
 	assertOpenAPISchemaOmits(t, document.Components.Schemas,
 		"ProviderCredentialStatusView", "secret")
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
@@ -172,10 +219,10 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
 		"ProviderCredentialListView", "items", "minItems", float64(4))
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
-		"ProviderCredentialListView", "items", "maxItems", float64(4))
-	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderCredentialStatusView", "provider",
-		[]string{"anthropic", "deepseek", "mimo", "openai"})
-	credentialProviders := []string{"anthropic", "deepseek", "mimo", "openai"}
+		"ProviderCredentialListView", "items", "maxItems",
+		float64(4+modelregistry.MaxCustomProviderDefinitions))
+	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
+		"ProviderCredentialStatusView", "provider", "maxLength", float64(64))
 	credentialPath, credentialPathFound := document.Paths[ProviderCredentialPathTemplate]
 	if !credentialPathFound || credentialPath.Post == nil {
 		t.Fatal("Provider credential control path is missing")
@@ -186,19 +233,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			continue
 		}
 		providerParameterFound = true
-		raw, ok := parameter.Schema["enum"].([]any)
-		if !ok {
-			t.Fatal("Provider credential path parameter has no enum")
-		}
-		actual := make([]string, len(raw))
-		for index, value := range raw {
-			actual[index], ok = value.(string)
-			if !ok {
-				t.Fatal("Provider credential path parameter enum is not a string list")
-			}
-		}
-		if !reflect.DeepEqual(actual, credentialProviders) {
-			t.Fatalf("Provider credential path enum=%v want=%v", actual, credentialProviders)
+		if _, closed := parameter.Schema["enum"]; closed {
+			t.Fatal("Provider credential path must allow persistent custom Provider identities")
 		}
 	}
 	if !providerParameterFound {
@@ -208,7 +244,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		[]string{"local", "anthropic_compatible", "openai_compatible", "ollama"})
 	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessAvailabilityView",
 		"transport_protocol", []string{"mock", "anthropic_messages",
-			"openai_chat_completions", "ollama_chat", "provider_contract"})
+			"openai_chat_completions", "openai_responses", "ollama_chat", "provider_contract"})
+	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDefinition", "transport",
+		[]string{"openai_chat_completions", "openai_responses", "anthropic_messages"})
 	failureReasons := []string{"none", "not_configured", "authentication", "network",
 		"rate_limit", "capacity", "model_not_found", "protocol_incompatible"}
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
@@ -278,9 +316,70 @@ func TestOpenAPIGoldenDocumentMatchesGoDTOs(t *testing.T) {
 	}
 }
 
+type openAPILiveThreadModelRouteController struct {
+	delegate *application.ThreadModelRouteService
+}
+
+func (c openAPILiveThreadModelRouteController) Catalog(context.Context) (
+	application.ModelRouteCatalog, error,
+) {
+	// The product catalog intentionally hides the deterministic mock Provider.
+	// This live-route fixture still needs one non-networked, Harness-ready route
+	// so POST /threads exercises the successful authenticated handler rather
+	// than the product's no-configured-model precondition.
+	return application.ModelRouteCatalog{
+		ProtocolVersion: application.ModelRouteCatalogProtocolVersion,
+		Generation:      1,
+		Routes: []application.ModelRouteCatalogItem{{
+			ProviderID: "mock", ProviderName: "OpenAPI fixture",
+			Model: "mock-code", Enabled: true, HarnessReady: true, Selectable: true,
+			DefaultForRoutes: []string{"code", "review"},
+		}},
+	}, nil
+}
+
+func (c openAPILiveThreadModelRouteController) Get(ctx context.Context,
+	threadID string,
+) (application.ThreadModelRouteView, error) {
+	return c.delegate.Get(ctx, threadID)
+}
+
+func (c openAPILiveThreadModelRouteController) Change(ctx context.Context,
+	request application.ChangeThreadModelRouteRequest,
+) (application.ThreadModelRouteView, error) {
+	return c.delegate.Change(ctx, request)
+}
+
 func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture := newAPIFixture(t)
 	fixture.api.eventStream = testEventStreamConfig(1, 100*time.Millisecond)
+	fullCDPStartedAt := time.Date(2026, time.August, 30, 1, 2, 3, 0, time.UTC)
+	fullCDPExpiresAt := fullCDPStartedAt.Add(15 * time.Minute)
+	fullCDPReady := application.FullCDPSessionView{
+		Version: application.FullCDPSessionProtocolVersion, RunID: fixture.run.ID,
+		SessionID: "full_cdp_session-openapi-live-0001",
+		State:     application.FullCDPSessionReady,
+		Browser: application.FullCDPBrowserSelection{
+			Product: "chrome", Channel: "stable",
+		},
+		TargetOrigin: "http://127.0.0.1:18080", RuntimeAvailable: true,
+		StartedAt: &fullCDPStartedAt, ExpiresAt: &fullCDPExpiresAt,
+	}
+	fullCDPClosedAt := fullCDPStartedAt.Add(time.Minute)
+	fullCDPClosed := fullCDPReady
+	fullCDPClosed.State = application.FullCDPSessionClosed
+	fullCDPClosed.CloseReason = application.FullCDPCloseOperator
+	fullCDPClosed.CompletedAt = &fullCDPClosedAt
+	fullCDPClosed.CDPClosed = true
+	fullCDPClosed.ProcessTreeQuiescent = true
+	fullCDPClosed.ProfileReleased = true
+	fullCDPClosed.ProfileCleaned = true
+	fixture.api.fullCDPSessionController = &fullCDPSessionControllerStub{
+		view:        fullCDPReady,
+		openResult:  application.FullCDPSessionResult{Session: fullCDPReady},
+		closeResult: application.FullCDPSessionResult{Session: fullCDPClosed},
+	}
+	fixture.api.fullCDPSessionControlEnabled = true
 	fixture.api.gitAdvancedController = &gitAdvancedControllerStub{}
 	fixture.api.gitAdvancedControlEnabled = true
 	fixture.api.githubReviewController = &githubReviewControllerStub{}
@@ -312,17 +411,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunBrowserCDPPermissionService(fixture.store,
-		domain.BrowserCDPPermissionRuntimeCapabilities{
-			ControlEnabled: true, FullDebugEnabled: true,
-		}).Change(t.Context(), application.ChangeRunBrowserCDPPermissionRequest{
-		RunID: profileRun.ID, Mode: string(domain.RunBrowserCDPPermissionFullDebug),
-		OperationKey: "openapi-browser-cdp-permission-0001",
-		RequestedBy:  "openapi_test", Reason: "prepare restricted transition target",
-		ConfirmFullCDPDebug: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Selecting Debug atomically enables its nested Full CDP capability by default;
+	// the OpenAPI browser route below therefore has a real restricted transition target.
 	_, interactionRun, err := application.NewRunService(fixture.store).Create(t.Context(),
 		application.CreateRunRequest{Goal: "OpenAPI execution interaction target", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 2}})
@@ -535,6 +625,27 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.hostCommandProposalController = &hostCommandProposalControllerStub{view: hostView}
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
+	fixture.api.threadModelRouteController = openAPILiveThreadModelRouteController{
+		delegate: application.NewThreadModelRouteService(
+			fixture.store, fixture.api.modelRegistry),
+	}
+	fixture.api.providerSearchReadinessController = &providerSearchReadinessControllerFake{
+		value: application.ProviderSearchReadiness{
+			ProtocolVersion: application.ProviderSearchReadinessProtocolVersion,
+			RunID:           fixture.run.ID, ModelRoute: fixture.run.Config.ModelRoute,
+			Provider: "mock", Model: "mock-code", SearchPolicy: "disabled",
+			State:       application.ProviderSearchStateNetworkDisabled,
+			Reason:      application.ProviderSearchReasonRunNetworkDisabled,
+			Remediation: application.ProviderSearchRemediationEnableNetwork,
+			NetworkMode: "disabled",
+		}}
+	providerDefinitionController, err := application.NewProviderDefinitionService(
+		fixture.store, fixture.api.modelRegistry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.api.providerDefinitionEnabled = true
+	fixture.api.providerDefinitionController = providerDefinitionController
 	fixture.api.priceSnapshotController = fixture.store
 	fixture.api.fanoutExecutionController = application.NewReadOnlyFanoutExecutionService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
@@ -543,7 +654,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.batchDeliveryController = application.NewBatchDeliveryService(fixture.store)
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
-		credentialStore)
+		credentialStore).WithRegistryReload(fixture.api.modelRegistry, fixture.store)
 	fixture.api.fileEditReviewController = application.NewFileEditReviewService(fixture.store)
 	fileEditProposalController := application.NewFileEditProposalService(fixture.store,
 		checker)
@@ -677,6 +788,79 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, recoveryCreated, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI Thread recovery fixture", Profile: "review",
+			WorkspaceID: fixture.workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryRun, err := application.NewRunService(fixture.store).Start(t.Context(),
+		recoveryCreated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryThread, err := fixture.store.GetThreadByRun(t.Context(), recoveryRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.EnqueueOperatorSteering(t.Context(),
+		domain.EnqueueOperatorSteeringRequest{RunID: recoveryRun.ID,
+			SessionID: recoveryRun.SessionID, Content: "OpenAPI recovery message",
+			OperationKey: "openapi-recovery-message-0001", RequestedBy: "openapi_test"}); err != nil {
+		t.Fatal(err)
+	}
+	recoveryHandoffKey := "openapi-recovery-handoff-0001"
+	recoveryOperation := domain.RunExecutionHandoffOperation{
+		ID: idgen.New("run-handoff"), ProtocolVersion: domain.RunExecutionHandoffProtocolVersion,
+		KeyDigest: runmutation.RunExecutionHandoffOperationDigest(
+			recoveryRun.ID, recoveryHandoffKey),
+		RequestFingerprint: runmutation.RunExecutionHandoffRequestFingerprint(
+			recoveryRun.ID, "openapi_test", 1),
+		RunID: recoveryRun.ID, SessionID: recoveryRun.SessionID,
+		RequestedBy: "openapi_test", MaxSteps: 1, CreatedAt: time.Now().UTC(),
+	}
+	if _, _, err := fixture.store.PrepareRunExecutionHandoff(t.Context(),
+		recoveryOperation); err != nil {
+		t.Fatal(err)
+	}
+	recoveryLease, err := fixture.store.AcquireRunExecutionLease(t.Context(),
+		domain.AcquireRunExecutionLeaseRequest{RunID: recoveryRun.ID,
+			OwnerID: "openapi-recovery-worker", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fixture.store.CompleteRunExecutionHandoff(t.Context(),
+		recoveryOperation.ID, recoveryLease.Lease, domain.RunExecutionHandoffFailed,
+		"failed_precondition", "failed_precondition", 0, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fixture.store.ReleaseRunExecutionLease(t.Context(),
+		recoveryLease.Lease); err != nil {
+		t.Fatal(err)
+	}
+	_, networkAuthorityRun, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI network authority fixture", Profile: "review",
+			WorkspaceID: fixture.workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.api.executionPermissionCapabilities.RuntimeAuthority =
+		domain.NewExecutionPermissionRuntimeAuthority()
+	openAPIThreadSession, err := fixture.store.GetSession(t.Context(), openAPIThreadRun.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.api.threadTurnController = &threadTurnControllerStub{
+		result: application.ExecuteThreadTurnResult{
+			Submission: application.SubmitThreadMessageResult{Thread: openAPIThread,
+				Run: openAPIThreadRun, Session: openAPIThreadSession,
+				Message: domain.OperatorSteeringMessage{ID: "steer-openapi-thread-turn",
+					RunID: openAPIThreadRun.ID, SessionID: openAPIThreadRun.SessionID,
+					Sequence: 1, Status: domain.OperatorSteeringCommitted,
+					CreatedAt: time.Now().UTC()}},
+			ExecutionStarted: true, ModelCalled: true,
+		},
+	}
 	legacyArchiveSession := session.New(fixture.workspace.ID,
 		"OpenAPI legacy archive fixture", "review")
 	if err := fixture.store.SaveSession(t.Context(), legacyArchiveSession); err != nil {
@@ -712,6 +896,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	}
 	replacements := map[string]string{
 		"{thread_id}":         openAPIThread.ID,
+		"{activity_ref}":      "activity-openapi-missing-0001",
 		"{run_id}":            fixture.run.ID,
 		"{workspace_id}":      fixture.workspace.ID,
 		"{agent_id}":          child.ID,
@@ -754,10 +939,17 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
 		} else if spec.Path == ThreadExecutionPermissionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{thread_id}", openAPIThread.ID)
+		} else if spec.Path == ThreadRunRecoveryControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{thread_id}", recoveryThread.ID)
 		} else if spec.Path == SessionArchiveControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{session_id}", legacyArchiveSession.ID)
 		} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
+		} else if spec.Path == RunNetworkAuthorityControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", networkAuthorityRun.ID)
+		} else if spec.Path == ProviderDefinitionPathTemplate ||
+			spec.Path == ProviderDefinitionDeletePathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{provider}", "openapi-custom")
 		} else if spec.Path == RunExecutionInteractionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", interactionRun.ID)
 		} else if spec.Path == RunLifecycleControlPathTemplate {
@@ -859,6 +1051,17 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if spec.OperationID == "createContextMemory" {
 					body = `{"scope":"user","scope_id":"local-user",` +
 						`"title":"OpenAPI created memory","content":"Explicit test memory."}`
+				} else if spec.OperationID == "openRunFullCDPSession" {
+					body = `{"version":"full_cdp_session.v1",` +
+						`"target":"http://127.0.0.1:18080/path",` +
+						`"browser":{"product":"chrome","channel":"stable"},` +
+						`"expected_execution_permission_revision":1,` +
+						`"expected_browser_cdp_permission_revision":1,` +
+						`"confirm_full_cdp":true,"reason":"OpenAPI live route coverage"}`
+				} else if spec.OperationID == "closeRunFullCDPSession" {
+					body = `{"version":"full_cdp_session_close.v1",` +
+						`"expected_session_id":"full_cdp_session-openapi-live-0001",` +
+						`"reason":"OpenAPI live route coverage complete"}`
 				} else if spec.OperationID == "updateContextMemory" {
 					body = `{"expected_version":1,"status":"disabled"}`
 				} else if spec.OperationID == "deleteContextMemory" {
@@ -972,7 +1175,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.OperationID == "createThread" {
 					body = `{"version":"thread_creation.v1","goal":"OpenAPI live Thread",` +
 						`"workspace_id":"` + fixture.workspace.ID + `"}`
-				} else if spec.OperationID == "submitThreadMessage" {
+				} else if spec.OperationID == "submitThreadMessage" ||
+					spec.OperationID == "executeThreadTurn" {
 					body = `{"version":"thread_message_submission.v1",` +
 						`"content":"OpenAPI live Thread message"}`
 				} else if spec.OperationID == "archiveThread" ||
@@ -1009,6 +1213,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"reason":"OpenAPI live cancellation"}`
 				} else if spec.Path == RunLifecycleControlPathTemplate {
 					body = `{"version":"run_lifecycle_control.v1","action":"start"}`
+				} else if spec.Path == ThreadRunRecoveryControlPathTemplate {
+					body = `{"version":"thread_run_recovery.v1","run_id":"` +
+						recoveryRun.ID + `","handoff_operation_id":"` +
+						recoveryOperation.ID + `"}`
 				} else if spec.Path == PlanDirectionControlPathTemplate {
 					body = `{"version":"plan_delivery_control.v1","proposal_id":"` +
 						planProposal.ID + `","direction":1}`
@@ -1025,6 +1233,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"run_execution_handoff.v1","max_steps":1}`
 				} else if spec.Path == ModelRouteControlPathTemplate {
 					body = `{"version":"model_route_control.v1","provider":"mock","model":"mock-code"}`
+				} else if spec.Path == ThreadModelRoutePathTemplate {
+					body = `{"version":"thread_model_route_control.v1","action":"reset",` +
+						`"operation_key":"openapi-thread-model-route-reset-0001",` +
+						`"requested_by":"openapi_test"}`
 				} else if spec.Path == ProviderDiagnosticPath {
 					body = `{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`
 				} else if spec.Path == ModelHarnessQualificationPath {
@@ -1080,6 +1292,20 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == ProviderCredentialPathTemplate {
 					body = `{"version":"provider_credential.v1","action":"set",` +
 						`"secret":"temporary-openapi-key","confirm":true}`
+				} else if spec.Path == ProviderDefinitionPathTemplate {
+					body = `{"version":"provider_definition_control.v1",` +
+						`"expected_collection_revision":0,"definition":{` +
+						`"version":"provider_definition.v1","id":"openapi-custom",` +
+						`"display_name":"OpenAPI custom Provider","note":"",` +
+						`"website_url":"","endpoint_url":"https://api.example.org/v1/chat/completions",` +
+						`"default_model":"openapi-model","models":["openapi-model"],` +
+						`"transport":"openai_chat_completions","search_mode":"disabled",` +
+						`"native_web_search_capability":"unsupported",` +
+						`"advanced_config":{},"enabled":true,"revision":0},"confirm":true}`
+				} else if spec.Path == ProviderDefinitionDeletePathTemplate {
+					body = `{"version":"provider_definition_control.v1",` +
+						`"expected_collection_revision":1,"expected_definition_revision":1,` +
+						`"confirm":true}`
 				} else if spec.Path == ExtensionMCPReviewPath {
 					body = `{"version":"extension-control.v1","action":"disable",` +
 						`"expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`
@@ -1168,6 +1394,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"mode":"conservative"}`
 				} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
 					body = `{"mode":"restricted"}`
+				} else if spec.Path == RunNetworkAuthorityControlPathTemplate {
+					body = `{"version":"run_network_authority_control.v1",` +
+						`"expected_mode_revision":1,` +
+						`"add_allowed_targets":["search.example.org"]}`
 				} else if spec.Path == RunExecutionInteractionControlPathTemplate {
 					body = `{"mode":"controlled","trust":"trusted",` +
 						`"confirm_workspace_trust":true}`
@@ -1207,10 +1437,13 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else {
 				response = fixture.get(t, requestPath)
 			}
-			if spec.OperationID == "getBrowserSafeWebReadiness" {
+			if spec.OperationID == "getBrowserSafeWebReadiness" ||
+				spec.OperationID == "getThreadActivityDetail" ||
+				spec.OperationID == "getThreadActivityArtifact" {
 				// Browser availability is environment-dependent: a machine with an
 				// accepted browser returns 200 with a fail-closed readiness receipt,
-				// otherwise the route is live with 404 (no accepted browser).
+				// otherwise the route is live with 404 (no accepted browser). Activity
+				// detail likewise returns indistinguishable 404 for an opaque unknown ref.
 				if response.Code != http.StatusOK && response.Code != http.StatusNotFound {
 					t.Fatalf("documented route is not live: path=%s status=%d body=%s",
 						requestPath, response.Code, response.Body.String())

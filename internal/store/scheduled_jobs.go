@@ -1223,7 +1223,7 @@ func validateScheduledJobAuthority(job domain.ScheduledJob,
 	if authorization == nil || mode.Surface != domain.ExecutionSurfaceCode ||
 		mode.Phase != domain.ExecutionPhaseDeliver ||
 		(permission.Mode != domain.RunExecutionPermissionApproval &&
-			permission.Mode != domain.RunExecutionPermissionFullAccess) ||
+			!permission.Mode.IncludesFullAccess()) ||
 		!permission.OperatorConfirmed ||
 		authorization.ModeSnapshotID != mode.ID ||
 		authorization.ModeRevision != mode.Revision ||

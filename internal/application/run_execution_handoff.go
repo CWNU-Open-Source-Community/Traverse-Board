@@ -15,11 +15,14 @@ import (
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 type RunExecutionHandoffStore interface {
 	SessionRunStore
 	GetRunExecutionHandoff(context.Context, string) (domain.RunExecutionHandoff, bool, error)
+	GetCommittedOperatorSteeringLifecycleActions(context.Context, string) (
+		domain.RootActionKind, domain.RootActionKind, error)
 	PrepareRunExecutionHandoff(context.Context, domain.RunExecutionHandoffOperation) (
 		domain.RunExecutionHandoff, bool, error)
 	CompleteRunExecutionHandoff(context.Context, string, domain.RunExecutionLease,
@@ -108,6 +111,50 @@ func (s *RunExecutionHandoffService) WithMCPClient(
 	return s
 }
 
+func (s *RunExecutionHandoffService) WithExecutionPermissionCapabilities(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithExecutionPermissionCapabilities(capabilities)
+	}
+	return s
+}
+
+// WithWebEvidence installs the same production Web Evidence service used by
+// the CLI into the Desktop-owned Supervisor. Keeping the service injectable
+// prevents Desktop construction from silently falling back to a providerless
+// web_search while preserving direct, allowlisted web_fetch support.
+func (s *RunExecutionHandoffService) WithWebEvidence(
+	service *webevidence.Service,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil && service != nil {
+		s.supervisor.WithWebEvidence(service)
+	}
+	return s
+}
+
+// WithWebFetchAuthorizationScheduler keeps Supervisor capability projection
+// aligned with the lifecycle-managed reconciler installed by the host process.
+func (s *RunExecutionHandoffService) WithWebFetchAuthorizationScheduler(
+	enabled bool,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithWebFetchAuthorizationScheduler(enabled)
+	}
+	return s
+}
+
+// WithBrowserActions gives the Supervisor access only to an already-opened
+// ready Full CDP session. Open/Close remain operator control-plane operations.
+func (s *RunExecutionHandoffService) WithBrowserActions(
+	service *FullCDPProductionService,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil && service != nil {
+		s.supervisor.WithBrowserActions(service)
+	}
+	return s
+}
+
 func (s *RunExecutionHandoffService) WithCodeIntel(
 	manager *codeintel.Manager,
 ) *RunExecutionHandoffService {
@@ -137,6 +184,26 @@ func (s *RunExecutionHandoffService) PublicModelStream(
 
 func (s *RunExecutionHandoffService) Execute(ctx context.Context,
 	request ExecuteRunHandoffRequest,
+) (ExecuteRunHandoffResult, error) {
+	return s.execute(ctx, request, 0)
+}
+
+// executeToNaturalBoundary keeps the public Run handoff contract unchanged while
+// allowing the product-level Thread facade to continue an accepted operator turn
+// until the Supervisor reaches a durable boundary. The continuation limit is an
+// internal safety fence; it is deliberately not supplied by the UI.
+func (s *RunExecutionHandoffService) executeToNaturalBoundary(ctx context.Context,
+	request ExecuteRunHandoffRequest, continuationLimit int,
+) (ExecuteRunHandoffResult, error) {
+	if continuationLimit <= 0 {
+		return ExecuteRunHandoffResult{}, apperror.New(apperror.CodeInvalidArgument,
+			"Thread turn continuation limit must be positive")
+	}
+	return s.execute(ctx, request, continuationLimit)
+}
+
+func (s *RunExecutionHandoffService) execute(ctx context.Context,
+	request ExecuteRunHandoffRequest, continuationLimit int,
 ) (ExecuteRunHandoffResult, error) {
 	if s == nil || s.store == nil || s.supervisor == nil {
 		return ExecuteRunHandoffResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -190,7 +257,8 @@ func (s *RunExecutionHandoffService) Execute(ctx context.Context,
 		Steps: make([]LifecycleResult, 0), RunStatus: domain.RunRunning}
 	err = s.supervisor.withRunExecutionLease(ctx, handoff.Operation.RunID,
 		func(leaseCtx context.Context, lease domain.RunExecutionLease) error {
-			return s.executeSelectionWithLease(leaseCtx, lease, &handoff, &execution)
+			return s.executeSelectionWithLease(leaseCtx, lease, &handoff, &execution,
+				continuationLimit)
 		})
 	if err != nil {
 		return ExecuteRunHandoffResult{Handoff: handoff, Execution: execution,
@@ -211,9 +279,12 @@ func (s *RunExecutionHandoffService) Execute(ctx context.Context,
 
 func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Context,
 	lease domain.RunExecutionLease, handoff *domain.RunExecutionHandoff,
-	execution *ExecutionResult,
+	execution *ExecutionResult, continuationLimit int,
 ) error {
 	var executionErr error
+	handoffSteps := 0
+	var lastRequestedAction domain.RootActionKind
+	var lastEffectiveAction domain.RootActionKind
 	for _, item := range handoff.Items {
 		message, err := s.store.GetOperatorSteering(ctx, item.MessageID)
 		if err != nil {
@@ -227,6 +298,14 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 			break
 		}
 		if message.Status != domain.OperatorSteeringPending {
+			if message.Status == domain.OperatorSteeringCommitted {
+				lastRequestedAction, lastEffectiveAction, err =
+					s.store.GetCommittedOperatorSteeringLifecycleActions(ctx, message.ID)
+				if err != nil {
+					executionErr = apperror.Normalize(err)
+					break
+				}
+			}
 			continue
 		}
 		step, err := s.supervisor.stepSteeringMessageWithLease(ctx, lease,
@@ -234,6 +313,9 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 		if step.Turn > 0 {
 			execution.Steps = append(execution.Steps, step)
 			execution.RunStatus = step.RunStatus
+			lastRequestedAction = step.RequestedAction
+			lastEffectiveAction = step.Action.Kind
+			handoffSteps++
 		}
 		if err != nil {
 			latest, lookupErr := s.store.GetOperatorSteering(ctx, item.MessageID)
@@ -244,6 +326,10 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 			executionErr = apperror.Normalize(err)
 			break
 		}
+		if continuationLimit > 0 && step.RunStatus == domain.RunWaitingApproval {
+			execution.StopReason = "waiting_approval"
+			break
+		}
 		if step.Action.Kind == domain.RootActionFinish {
 			execution.StopReason = "root_finish"
 			break
@@ -251,6 +337,20 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 		if step.Action.Kind == domain.RootActionWait {
 			execution.StopReason = "root_wait"
 			break
+		}
+	}
+	if executionErr == nil && execution.StopReason == "" {
+		if lastRequestedAction == domain.RootActionFinish &&
+			lastEffectiveAction == domain.RootActionContinue {
+			// Interactive operator turns deliberately keep their Run resumable by
+			// projecting a requested finish to an effective continue. That Run-level
+			// policy must not make the Thread facade manufacture another Supervisor
+			// turn with the Mission goal as synthetic input. A requested finish is
+			// therefore still the natural boundary of this product turn.
+			execution.StopReason = "turn_finish"
+		} else if continuationLimit > 0 {
+			executionErr = s.continueToNaturalBoundaryWithLease(ctx, lease, execution,
+				continuationLimit)
 		}
 	}
 	run, runErr := s.store.GetRun(ctx, handoff.Operation.RunID)
@@ -283,11 +383,72 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 	}
 	result, _, completeErr := s.store.CompleteRunExecutionHandoff(completeCtx,
 		handoff.Operation.ID, lease, status, execution.StopReason, errorCode,
-		len(execution.Steps), modelCalled, toolCalled)
+		handoffSteps, modelCalled, toolCalled)
 	if completeErr != nil {
 		return apperror.Normalize(completeErr)
 	}
 	handoff.Result = &result
+	return nil
+}
+
+func (s *RunExecutionHandoffService) continueToNaturalBoundaryWithLease(
+	ctx context.Context, lease domain.RunExecutionLease, execution *ExecutionResult,
+	continuationLimit int,
+) error {
+	for range continuationLimit {
+		run, err := s.store.GetRun(ctx, execution.RunID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		execution.RunStatus = run.Status
+		switch {
+		case run.Terminal():
+			execution.StopReason = "run_terminal"
+			return nil
+		case run.Status == domain.RunPaused:
+			execution.StopReason = "run_paused"
+			return nil
+		case run.Status == domain.RunWaitingApproval:
+			execution.StopReason = "waiting_approval"
+			return nil
+		}
+		queue, err := s.store.GetOperatorSteeringQueueSummary(ctx, execution.RunID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		if queue.Pending+queue.Prepared > 0 {
+			// Messages outside this durable handoff belong to a later product turn.
+			// Do not absorb concurrently queued operator intent into this operation.
+			execution.StopReason = "steering_pending"
+			return nil
+		}
+		step, err := s.supervisor.stepWithLease(ctx, lease, "")
+		if step.Turn > 0 {
+			execution.Steps = append(execution.Steps, step)
+			execution.RunStatus = step.RunStatus
+		}
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		if step.RunStatus == domain.RunWaitingApproval {
+			execution.StopReason = "waiting_approval"
+			return nil
+		}
+		switch step.Action.Kind {
+		case domain.RootActionFinish:
+			execution.StopReason = "root_finish"
+			return nil
+		case domain.RootActionWait:
+			execution.StopReason = supervisorWaitStopReason(step.Action)
+			return nil
+		}
+	}
+	run, err := s.store.GetRun(ctx, execution.RunID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	execution.RunStatus = run.Status
+	execution.StopReason = "turn_safety_limit"
 	return nil
 }
 

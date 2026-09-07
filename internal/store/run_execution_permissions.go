@@ -102,15 +102,20 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 	if err != nil {
 		return domain.RunExecutionPermissionSnapshot{}, false, err
 	}
-	if !domain.CanChangeRunExecutionPermission(run.Status) {
+	immediateDowngrade := threadPermissionTransitionRevokesHighRisk(
+		current.Mode, snapshot.Mode)
+	if run.Terminal() || (!immediateDowngrade &&
+		!domain.CanChangeRunExecutionPermission(run.Status)) {
 		return domain.RunExecutionPermissionSnapshot{}, false, apperror.New(
 			apperror.CodeFailedPrecondition,
 			fmt.Sprintf(
-				"Run execution permission can only change while created or paused; Run is %s",
+				"Run execution permission escalation can only change while created or paused; Run is %s",
 				run.Status))
 	}
 	if snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
-		snapshot.Revision != current.Revision+1 || snapshot.Mode == current.Mode ||
+		snapshot.Revision != current.Revision+1 ||
+		(snapshot.Mode == current.Mode &&
+			snapshot.Mode != domain.RunExecutionPermissionFullAccess) ||
 		snapshot.ProtocolVersion != current.ProtocolVersion ||
 		snapshot.PolicyVersion != current.PolicyVersion ||
 		snapshot.CreatedAt.Before(current.CreatedAt) {
@@ -122,6 +127,9 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 	if err != nil {
 		return domain.RunExecutionPermissionSnapshot{}, false, err
 	}
+	// Every new permission revision invalidates the old execution owner. Release
+	// that exact lease inside the same transaction before evaluating the rest of
+	// the quiescence boundary; any later rejection rolls the release back.
 	if found && lease.ActiveAt(snapshot.CreatedAt) {
 		result, err := tx.ExecContext(ctx, `UPDATE run_execution_leases
 			SET status = ?, released_at = ?
@@ -143,6 +151,41 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 				"reason":                   "execution_permission_revision_changed",
 				"next_permission_revision": snapshot.Revision}); err != nil {
 			return domain.RunExecutionPermissionSnapshot{}, false, err
+		}
+	}
+	if !immediateDowngrade {
+		if err := requireThreadLifecycleRunQuiescentTx(ctx, tx, run.ID,
+			snapshot.CreatedAt); err != nil {
+			return domain.RunExecutionPermissionSnapshot{}, false, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"Run execution permission escalation requires a quiescent Run", err)
+		}
+	}
+	currentIncludesFullCDP := executionModeIncludesFullCDP(current.Mode)
+	nextIncludesFullCDP := executionModeIncludesFullCDP(snapshot.Mode)
+	if currentIncludesFullCDP != nextIncludesFullCDP {
+		browserPermission, err := getCurrentRunBrowserCDPPermissionSnapshot(
+			ctx, tx, run.ID)
+		if err != nil {
+			return domain.RunExecutionPermissionSnapshot{}, false, err
+		}
+		desiredBrowserPermission := domain.RunBrowserCDPPermissionRestricted
+		reason := "disabled Full CDP because Run execution permission " + snapshot.ID +
+			" no longer includes it"
+		if nextIncludesFullCDP {
+			desiredBrowserPermission = domain.RunBrowserCDPPermissionFullDebug
+			reason = "enabled Full CDP by default for Run execution permission " +
+				snapshot.ID
+		}
+		if browserPermission.Mode != desiredBrowserPermission {
+			if _, _, err := appendThreadManagedRunBrowserCDPTransitionTx(ctx, tx,
+				browserPermission, desiredBrowserPermission, snapshot.RequestedBy, reason,
+				snapshot.CreatedAt,
+				runmutation.Fingerprint(
+					"run_execution_permission_browser_cdp_operation.v1",
+					operation.KeyDigest, run.ID, snapshot.ID)); err != nil {
+				return domain.RunExecutionPermissionSnapshot{}, false, err
+			}
 		}
 	}
 	if err := insertRunExecutionPermissionSnapshotTx(ctx, tx, snapshot); err != nil {
@@ -313,7 +356,10 @@ func validateRunExecutionPermissionSelectedEvent(event events.Event,
 		return err
 	}
 	if payload.Protocol != snapshot.ProtocolVersion || payload.Revision != snapshot.Revision ||
-		!payload.From.Valid() || payload.From == snapshot.Mode || payload.To != snapshot.Mode ||
+		!payload.From.Valid() ||
+		(payload.From == snapshot.Mode &&
+			snapshot.Mode != domain.RunExecutionPermissionFullAccess) ||
+		payload.To != snapshot.Mode ||
 		payload.ApprovalPolicy != snapshot.ApprovalPolicy ||
 		payload.CommandScope != snapshot.CommandScope ||
 		payload.FilesystemScope != snapshot.FilesystemScope ||

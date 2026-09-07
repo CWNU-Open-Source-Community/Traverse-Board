@@ -153,3 +153,34 @@ func TestWorkspaceAccessTransitionsFromAndToEveryExistingMode(t *testing.T) {
 		}
 	}
 }
+
+func TestRunExecutionPermissionSameModeReconfirmationOnlyRotatesFullAccess(t *testing.T) {
+	now := time.Now().UTC()
+	mission := Mission{ID: "mission-full-reconfirmation", CreatedAt: now}
+	run := Run{ID: "run-full-reconfirmation", MissionID: mission.ID,
+		Status: RunCreated, CreatedAt: now}
+	initial, err := NewInitialRunExecutionPermissionSnapshot(
+		"permission-full-reconfirmation-initial", run, mission, "test_operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := initial.Next("permission-full-reconfirmation-first",
+		RunExecutionPermissionFullAccess, true, "test_operator",
+		"first Full Access confirmation", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconfirmed, err := full.Next("permission-full-reconfirmation-second",
+		RunExecutionPermissionFullAccess, true, "test_operator",
+		"rotate Full Access confirmation", now)
+	if err != nil || reconfirmed.Revision != full.Revision+1 ||
+		reconfirmed.ID == full.ID {
+		t.Fatalf("Full Access reconfirmation did not rotate snapshot: %+v err=%v",
+			reconfirmed, err)
+	}
+	if _, err := initial.Next("permission-conservative-reconfirmation",
+		RunExecutionPermissionConservative, false, "test_operator",
+		"same conservative mode", now); err == nil {
+		t.Fatal("same-mode conservative selection unexpectedly rotated a snapshot")
+	}
+}

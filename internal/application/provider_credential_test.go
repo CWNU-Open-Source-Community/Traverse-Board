@@ -41,6 +41,10 @@ func (providerCredentialRouteSettings) GetProviderSetting(context.Context,
 	return "", false, nil
 }
 
+type providerCredentialCatalogFake struct{ snapshot modelregistry.Snapshot }
+
+func (f providerCredentialCatalogFake) Snapshot() modelregistry.Snapshot { return f.snapshot }
+
 func TestProviderCredentialServiceReturnsStatusOnly(t *testing.T) {
 	store := credential.NewMemoryStore()
 	service := NewProviderCredentialService(store)
@@ -96,6 +100,41 @@ func TestProviderCredentialServiceManagesOpenAI(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("OpenAI credential status missing: %#v", statuses)
+	}
+}
+
+func TestProviderCredentialServiceUsesRegistryCatalogForCustomProvider(t *testing.T) {
+	store := credential.NewMemoryStore()
+	service := NewProviderCredentialService(store).WithProviderCatalog(providerCredentialCatalogFake{
+		snapshot: modelregistry.Snapshot{Providers: []modelregistry.ProviderAvailability{{
+			Name: "custom-acme", Kind: modelregistry.ProviderKindOpenAICompatible,
+			Custom: true, Enabled: true, Status: modelregistry.ProviderNotConfigured,
+		}}},
+	})
+	secret := "custom-provider-secret-0123456789"
+	status, err := service.Change(t.Context(), ChangeProviderCredentialRequest{
+		Version: credential.ProtocolVersion, Provider: "custom-acme",
+		Action: ProviderCredentialSet, Secret: secret, Confirm: true,
+	})
+	if err != nil || !status.Configured || status.PlaintextReturned {
+		t.Fatalf("custom Provider credential was not managed: %#v err=%v", status, err)
+	}
+	statuses, err := service.List(t.Context())
+	if err != nil || len(statuses) != 5 {
+		t.Fatalf("custom Provider credential catalog=%#v err=%v", statuses, err)
+	}
+	found := false
+	for _, current := range statuses {
+		if current.Provider == "custom-acme" {
+			found = current.Configured && !current.PlaintextReturned
+		}
+	}
+	if !found {
+		t.Fatalf("custom Provider credential status is missing: %#v", statuses)
+	}
+	stored, present, err := store.Get(t.Context(), "custom-acme")
+	if err != nil || !present || stored != secret {
+		t.Fatalf("custom Provider secret did not stay in the credential store")
 	}
 }
 

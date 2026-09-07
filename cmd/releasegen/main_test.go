@@ -100,10 +100,79 @@ func TestBuildNoticeListsModulesAndLicenseText(t *testing.T) {
 		t.Fatal(err)
 	}
 	modules := []module{{Path: "github.com/example/mit", Version: "v1.0.0", Dir: mitDir}}
-	notice := buildNotice(modules)
+	notice := buildNotice(modules, nil)
 	if !strings.Contains(string(notice), "github.com/example/mit@v1.0.0 (MIT)") ||
 		!strings.Contains(string(notice), "MIT License") {
 		t.Fatalf("NOTICE is incomplete: %s", notice)
+	}
+}
+
+func TestBuildNoticeIncludesBundledAssetNoticeAndCompleteLicense(t *testing.T) {
+	root := t.TempDir()
+	writeBundledNoticeFixture(t, root,
+		"Traverse Board uses HarmonyOS Sans Fonts.\r\nCopyright 2021 Huawei Device Co., Ltd.\r\n",
+		"License Notice\r\nCopyright 2021 Huawei Device Co., Ltd.\r\n"+
+			"HarmonyOS Sans Fonts License Agreement\r\ncomplete terms\r\n")
+
+	bundledNotices, err := loadBundledAssetNotices(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice := string(buildNotice(nil, bundledNotices))
+	for _, marker := range []string{
+		"--- Bundled UI asset notices ---",
+		"Traverse Board uses HarmonyOS Sans Fonts.",
+		"--- Bundled UI asset license texts ---",
+		"Copyright 2021 Huawei Device Co., Ltd.",
+		"HarmonyOS Sans Fonts License Agreement\ncomplete terms",
+	} {
+		if !strings.Contains(notice, marker) {
+			t.Fatalf("NOTICE is missing %q:\n%s", marker, notice)
+		}
+	}
+	if strings.Contains(notice, "\r") {
+		t.Fatalf("NOTICE did not normalize line endings:\n%q", notice)
+	}
+}
+
+func TestLoadBundledAssetNoticesFailsClosed(t *testing.T) {
+	t.Run("missing notice", func(t *testing.T) {
+		root := t.TempDir()
+		licensePath := filepath.Join(root, "web", "public", "licenses", "HarmonyOS-Sans.txt")
+		if err := os.MkdirAll(filepath.Dir(licensePath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(licensePath, []byte("Copyright 2021 Huawei Device Co., Ltd.\nHarmonyOS Sans Fonts License Agreement\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadBundledAssetNotices(root); err == nil || !strings.Contains(err.Error(), "notice") {
+			t.Fatalf("missing bundled notice error = %v", err)
+		}
+	})
+
+	t.Run("empty license", func(t *testing.T) {
+		root := t.TempDir()
+		writeBundledNoticeFixture(t, root, "HarmonyOS Sans Fonts\n", "\r\n")
+		if _, err := loadBundledAssetNotices(root); err == nil || !strings.Contains(err.Error(), "is empty") {
+			t.Fatalf("empty bundled license error = %v", err)
+		}
+	})
+}
+
+func writeBundledNoticeFixture(t *testing.T, root, notice, license string) {
+	t.Helper()
+	noticePath := filepath.Join(root, "web", "public", "THIRD-PARTY-NOTICES.txt")
+	licensePath := filepath.Join(root, "web", "public", "licenses", "HarmonyOS-Sans.txt")
+	for _, path := range []string{noticePath, licensePath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(noticePath, []byte(notice), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(licensePath, []byte(license), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

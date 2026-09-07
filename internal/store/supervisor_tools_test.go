@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -61,13 +62,30 @@ func TestSupervisorToolBatchAndResultEventsAreAtomicAndReplayable(t *testing.T) 
 			ID: callID, Name: "note_create", Arguments: json.RawMessage(rawPayload),
 		}},
 	}
-	checkpoint, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, completed, response)
+	attribution := domain.AgentAttribution{AgentID: turn.Agent.ID,
+		AgentAttemptID: turn.Checkpoint.AttemptID, Source: domain.AgentAttributionRecorded}
+	if _, err := st.RecordSupervisorModelCompletedForAgent(ctx, turn.Checkpoint,
+		completed, response, domain.AgentAttribution{AgentID: turn.Agent.ID,
+			Source: domain.AgentAttributionOperatorRoot}); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("Supervisor accepted operator-root attribution: %v", err)
+	}
+	checkpoint, err := st.RecordSupervisorModelCompletedForAgent(ctx, turn.Checkpoint,
+		completed, response, attribution)
 	if err != nil {
 		t.Fatal(err)
+	}
+	replayedCheckpoint, err := st.RecordSupervisorModelCompletedForAgent(ctx,
+		turn.Checkpoint, completed, response, attribution)
+	if err != nil || replayedCheckpoint != checkpoint {
+		t.Fatalf("attributed model completion replay=%#v err=%v",
+			replayedCheckpoint, err)
 	}
 	rounds, err := st.ListSupervisorToolRounds(ctx, checkpoint)
 	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
 		rounds[0].Calls[0].Status != domain.SupervisorToolPending ||
+		rounds[0].Calls[0].AgentID != attribution.AgentID ||
+		rounds[0].Calls[0].AgentAttemptID != attribution.AgentAttemptID ||
+		rounds[0].Calls[0].AgentAttribution != attribution.Source ||
 		rounds[0].Calls[0].StreamResponseID == "" || rounds[0].Calls[0].StreamItemID == "" ||
 		rounds[0].Calls[0].StreamCallID == "" ||
 		strings.Contains(rounds[0].Calls[0].PayloadJSON, secret) ||
@@ -264,6 +282,146 @@ func TestSupervisorCommandRuntimeAuthorityIsCanonicalAndRequired(t *testing.T) {
 	if _, err := normalizeSupervisorToolCallsForStore(
 		[]llm.ToolCall{call}, runID, 1, 1); err == nil {
 		t.Fatal("command runtime authority for another Run was persisted")
+	}
+}
+
+func TestSupervisorBrowserActionAuthorityIsCanonicalRequiredAndAdvertised(t *testing.T) {
+	runID := "run-browser-action-authority"
+	scope := toolgateway.BrowserActionCapabilityContext{
+		RunID: runID, MissionID: "mission-browser-action-authority",
+		SessionID: "session-browser-action-authority", RootAgentID: "agent-browser-root",
+		WorkspaceID: "workspace-browser-action-authority",
+		Surface:     domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
+		Role: domain.AgentRoleRoot, Profile: domain.ProfileCode,
+		PermissionMode: domain.RunExecutionPermissionFullAccess, ModeRevision: 3,
+		PermissionSnapshotID: "permission-browser-action", PermissionRevision: 4,
+		PermissionActivation: 5, RunAuthorizationFence: 6,
+		FullCDPSessionID:            "full-cdp-browser-action",
+		BrowserPermissionSnapshotID: "browser-permission-action",
+		BrowserPermissionRevision:   7,
+		TargetOrigin:                "http://127.0.0.1:18080",
+		Ready:                       true, RuntimeAvailable: true,
+	}
+	authority, err := toolgateway.NewBrowserActionCallAuthority(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalAuthority, err := toolgateway.EncodeBrowserActionCallAuthority(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads := map[toolgateway.ToolName]string{
+		toolgateway.BrowserStatusTool:     `{"version":"browser_status.v1"}`,
+		toolgateway.BrowserNavigateTool:   `{"version":"browser_navigate.v1","url":"http://127.0.0.1:18080/report"}`,
+		toolgateway.BrowserSnapshotTool:   `{"version":"browser_snapshot.v1"}`,
+		toolgateway.BrowserClickTool:      `{"version":"browser_click.v1","selector":"#submit"}`,
+		toolgateway.BrowserTypeTool:       `{"version":"browser_type.v1","selector":"#search","value":"bounded input"}`,
+		toolgateway.BrowserScreenshotTool: `{"version":"browser_screenshot.v1"}`,
+	}
+	for _, name := range toolgateway.BrowserActionToolNames() {
+		t.Run(string(name), func(t *testing.T) {
+			payload, payloadErr := toolgateway.NormalizeSupervisorToolPayload(name,
+				json.RawMessage(payloads[name]))
+			if payloadErr != nil {
+				t.Fatal(payloadErr)
+			}
+			operationKey := runmutation.SupervisorToolOperationKey(runID, 1,
+				string(name), string(payload))
+			callID, callErr := runmutation.SupervisorToolCallID(operationKey, 1)
+			if callErr != nil {
+				t.Fatal(callErr)
+			}
+			nonCanonicalAuthority := append(json.RawMessage(" \n"), canonicalAuthority...)
+			normalized, normalizeErr := normalizeSupervisorToolCallsForStore([]llm.ToolCall{{
+				ID: callID, Name: string(name), Arguments: payload,
+				Authority: nonCanonicalAuthority,
+			}}, runID, 1, 1)
+			if normalizeErr != nil || len(normalized) != 1 ||
+				string(normalized[0].Authority) != string(canonicalAuthority) {
+				t.Fatalf("browser authority was not canonical: %#v err=%v", normalized, normalizeErr)
+			}
+		})
+	}
+
+	payload, err := toolgateway.NormalizeSupervisorToolPayload(toolgateway.BrowserStatusTool,
+		json.RawMessage(payloads[toolgateway.BrowserStatusTool]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(runID, 1,
+		string(toolgateway.BrowserStatusTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: callID, Name: string(toolgateway.BrowserStatusTool), Arguments: payload}
+	if _, err := normalizeSupervisorToolCallsForStore([]llm.ToolCall{call}, runID, 1, 1); err == nil {
+		t.Fatal("browser action without Go-issued authority was persisted")
+	}
+	wrongScope := scope
+	wrongScope.RunID = "run-browser-action-other"
+	wrongAuthority, err := toolgateway.NewBrowserActionCallAuthority(wrongScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call.Authority, err = toolgateway.EncodeBrowserActionCallAuthority(wrongAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeSupervisorToolCallsForStore([]llm.ToolCall{call}, runID, 1, 1); err == nil {
+		t.Fatal("browser action authority for another Run was persisted")
+	}
+}
+
+func TestSupervisorMCPAuthorityIsCanonicalRequiredAndRunBound(t *testing.T) {
+	runID := "run-mcp-authority"
+	payload, err := toolgateway.NormalizeSupervisorToolPayload(toolgateway.MCPToolCallTool,
+		json.RawMessage(`{"version":"mcp-client.v1","server_id":"docs","tool_name":"lookup","capability_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","arguments":{"query":"status"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(runID, 1,
+		string(toolgateway.MCPToolCallTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := mcp.SupervisorCallAuthority{Version: mcp.SupervisorCallAuthorityVersion,
+		RunID: runID, MissionID: "mission-mcp-authority", WorkspaceID: "workspace-mcp-authority",
+		PermissionSnapshotID: "permission-mcp-authority", PermissionRevision: 2,
+		PermissionMode:       domain.RunExecutionPermissionFullAccess,
+		PermissionGeneration: 3, RunAuthorizationFence: 4}
+	canonical, err := mcp.EncodeSupervisorCallAuthority(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: callID, Name: string(toolgateway.MCPToolCallTool), Arguments: payload,
+		Authority: append(json.RawMessage(" \n"), canonical...)}
+	normalized, err := normalizeSupervisorToolCallsForStore([]llm.ToolCall{call}, runID, 1, 1)
+	if err != nil || len(normalized) != 1 || string(normalized[0].Authority) != string(canonical) {
+		t.Fatalf("MCP authority was not canonical: %#v err=%v", normalized, err)
+	}
+	for name, raw := range map[string]json.RawMessage{
+		"missing":   nil,
+		"malformed": json.RawMessage(`{"version":1}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			call.Authority = raw
+			if _, err := normalizeSupervisorToolCallsForStore(
+				[]llm.ToolCall{call}, runID, 1, 1); err == nil {
+				t.Fatalf("%s MCP authority was persisted", name)
+			}
+		})
+	}
+	wrong := authority
+	wrong.RunID = "run-mcp-other"
+	call.Authority, err = mcp.EncodeSupervisorCallAuthority(wrong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeSupervisorToolCallsForStore(
+		[]llm.ToolCall{call}, runID, 1, 1); err == nil {
+		t.Fatal("MCP authority for another Run was persisted")
 	}
 }
 

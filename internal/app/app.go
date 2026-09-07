@@ -175,7 +175,8 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 		gateway.WithDockerSandboxProposalExecutor(executor)
 	}
 	if client := a.newMCPClientManager(); client != nil {
-		if executor, err := application.NewMCPClientToolExecutor(client); err == nil {
+		if executor, err := application.NewMCPClientToolExecutor(client, a.store,
+			domain.ExecutionPermissionRuntimeCapabilities{}); err == nil {
 			gateway.WithMCPExecutor(executor)
 		}
 	}
@@ -191,15 +192,22 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 }
 
 func (a *App) newWebEvidenceService() *webevidence.Service {
-	if a == nil || a.store == nil {
+	if a == nil || a.store == nil || a.models == nil || a.credentials == nil {
 		return nil
 	}
 	client := webevidence.NewSafeHTTPClient()
+	providerSearchClient := webevidence.NewProviderSearchHTTPClient()
 	var provider webevidence.SearchProvider
 	if endpoint := strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)); endpoint != "" {
 		provider, _ = webevidence.NewSearXNGProvider(client, endpoint)
 	}
-	return webevidence.NewService(a.store, provider, webevidence.NewFetcher(client))
+	service := webevidence.NewService(a.store, provider, webevidence.NewFetcher(client))
+	resolver, err := application.NewProviderSearchResolver(a.models, a.store,
+		a.credentials, provider, providerSearchClient)
+	if err != nil {
+		return service
+	}
+	return service.WithSearchProviderResolver(resolver)
 }
 
 func (a *App) newMCPClientManager() *mcp.Manager {

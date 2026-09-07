@@ -88,13 +88,14 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 	}
 	if !defaults.profileControl || !defaults.permissionControl ||
 		!defaults.workspaceSandbox || !defaults.browserCDPControl ||
+		!defaults.dangerFullAccess || !defaults.fullCDPDebug ||
 		!defaults.runCreation || !defaults.runExecution || !defaults.modelControl ||
-		!defaults.providerCredentials || !defaults.gitAdvanced ||
+		!defaults.providerCredentials || !defaults.gitAdvanced || !defaults.riskProfileRestart ||
 		!defaults.githubReview {
 		t.Fatalf("default safe product capability bundle is incomplete: %#v", defaults)
 	}
-	if defaults.operatorPreview || defaults.safeView || defaults.dangerFullAccess ||
-		defaults.debugMaximumAccess || defaults.fullCDPDebug || defaults.userTerminal ||
+	if defaults.operatorPreview || defaults.safeView ||
+		defaults.debugMaximumAccess || defaults.userTerminal ||
 		defaults.dockerExecution || defaults.batchValidation || defaults.runWakeWorker ||
 		defaults.scheduledJobWorker {
 		t.Fatalf("default product launch silently enabled high-risk authority: %#v", defaults)
@@ -105,6 +106,9 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 	}
 	if readOnly != (desktopOptions{safeView: true}) {
 		t.Fatalf("explicit Safe View is not read-only: %#v", readOnly)
+	}
+	if readOnly.riskProfileRestart {
+		t.Fatal("explicit Safe View exposed the high-risk restart protocol")
 	}
 	if _, err := parseDesktopOptions([]string{
 		"--safe-view", "--enable-run-creation",
@@ -146,6 +150,9 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		}
 		if parsed != current.want {
 			t.Fatalf("%s was not independently explicit: %#v", current.flag, parsed)
+		}
+		if parsed.riskProfileRestart {
+			t.Fatalf("%s exposed the high-risk restart protocol", current.flag)
 		}
 	}
 	if _, err := parseDesktopOptions([]string{"unexpected"}); err == nil {
@@ -262,7 +269,8 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 	}
 	if !preview.operatorPreview || !preview.profileControl || !preview.permissionControl ||
 		!preview.workspaceSandbox ||
-		!preview.browserCDPControl || !preview.runCreation || !preview.sessionMessages ||
+		!preview.browserCDPControl || !preview.dangerFullAccess || !preview.fullCDPDebug ||
+		!preview.runCreation || !preview.sessionMessages ||
 		!preview.sessionSteeringControl || !preview.runLifecycle || !preview.runExecution ||
 		!preview.planDeliveryControl || !preview.approvalControl ||
 		!preview.commandProposalControl || !preview.hostCommandProposals || !preview.modelControl ||
@@ -275,8 +283,9 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.githubReview {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
-	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||
+	if preview.debugMaximumAccess ||
 		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution ||
+		preview.riskProfileRestart ||
 		preview.batchValidation {
 		t.Fatalf("operator preview silently enabled a high-risk capability: %+v", preview)
 	}

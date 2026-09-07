@@ -151,7 +151,7 @@ func (i Identity) AllowsPermission(mode domain.RunExecutionPermissionMode) bool 
 	case KindSandboxedWorkspace:
 		return mode == domain.RunExecutionPermissionWorkspaceAccess
 	case KindHostUnsandboxed:
-		return mode == domain.RunExecutionPermissionFullAccess
+		return mode.IncludesFullAccess()
 	default:
 		return false
 	}

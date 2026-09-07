@@ -33,6 +33,8 @@ import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
 import { useConnectionStore } from "./state/connection";
 import type { RunView, ThreadView } from "./api/types";
+import { V2WorkbenchEntry } from "./v2";
+import { legacyResourcePath, legacyWorkbenchBasePath, legacyWorkbenchPath } from "./legacy-route";
 
 const sidebarWidthStorageKey = "prayu.sidebar.width.v1";
 const narrowWorkspaceQuery = "(max-width: 760px)";
@@ -43,6 +45,7 @@ function initialSidebarVisibility(): boolean {
 }
 
 export default function App() {
+  const [pathname, setPathname] = useState(() => window.location.pathname);
   const token = useConnectionStore((state) => state.token);
   const controlToken = useConnectionStore((state) => state.controlToken);
   const runControlEnabled = useConnectionStore((state) => state.runControlEnabled);
@@ -102,8 +105,16 @@ export default function App() {
   const agentCodeToolsEnabled = useConnectionStore(
     (state) => state.agentCodeToolsEnabled);
   const codeIntelEnabled = useConnectionStore((state) => state.codeIntelEnabled);
+  useEffect(() => {
+    const syncPathname = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", syncPathname);
+    return () => window.removeEventListener("popstate", syncPathname);
+  }, []);
   if (!token) {
     return <ConnectionGate />;
+  }
+  if (legacyWorkbenchPath(pathname) === null) {
+    return <V2WorkbenchEntry />;
   }
   return <ConnectedWorkbench token={token} controlToken={controlToken}
     runControlEnabled={runControlEnabled} runCreationEnabled={runCreationEnabled}
@@ -352,7 +363,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     const restoreLocation = (clearRoot: boolean) => {
       const selection = workspaceSelectionFromPath(window.location.pathname);
       if (!selection) {
-        if (clearRoot && window.location.pathname === "/") {
+        if (clearRoot && legacyWorkbenchPath(window.location.pathname) === "/") {
           selectThread("");
           setSurface("workspace");
           setWorkspaceSection("conversation");
@@ -379,12 +390,12 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     const selectedID = resourceKind === "thread" ? selectedThreadID :
       resourceKind === "run" ? selectedRunID : selectedSessionID;
     if (!selectedID) {
-      if (window.location.pathname !== "/") {
-        window.history.replaceState({}, "", "/");
+      if (window.location.pathname !== legacyWorkbenchBasePath) {
+        window.history.replaceState({}, "", legacyWorkbenchBasePath);
       }
       return;
     }
-    const nextPath = `/${resourceKind}s/${encodeURIComponent(selectedID)}`;
+    const nextPath = legacyResourcePath(resourceKind, selectedID);
     if (window.location.pathname !== nextPath) {
       window.history.replaceState({ resourceKind, selectedID }, "", nextPath);
     }
@@ -571,7 +582,9 @@ function workspaceSelectionFromPath(pathname: string): {
   kind: "thread" | "run" | "session";
   id: string;
 } | null {
-  const match = /^\/(threads|runs|sessions)\/([^/]+)\/?$/u.exec(pathname);
+  const workspacePath = legacyWorkbenchPath(pathname);
+  if (workspacePath === null) return null;
+  const match = /^\/(threads|runs|sessions)\/([^/]+)\/?$/u.exec(workspacePath);
   if (!match) return null;
   try {
     const id = decodeURIComponent(match[2]);

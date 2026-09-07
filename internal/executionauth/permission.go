@@ -57,8 +57,8 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 	decision := PermissionDecision{
 		Mode: snapshot.Mode, RequiredGate: snapshot.RequiredGate,
 	}
-	if !runtime.Allows(snapshot.Mode) {
-		decision.Reason = "the current process was not started with the required permission gate"
+	if !runtime.AllowsSnapshot(snapshot) {
+		decision.Reason = "the current process lacks the required permission gate or live Full Access grant"
 		return decision, nil
 	}
 	if request.Kind == PermissionOperationSandboxedWorkspace &&

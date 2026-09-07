@@ -41,6 +41,24 @@ type commandRuntimeJobScanner interface {
 func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 	job runner.CommandRuntimeJob,
 ) (runner.CommandRuntimeJob, bool, error) {
+	return s.prepareCommandRuntimeJob(ctx, job, nil)
+}
+
+func (s *SQLiteStore) PrepareCommandRuntimeJobForAgent(ctx context.Context,
+	job runner.CommandRuntimeJob, attribution domain.AgentAttribution,
+) (runner.CommandRuntimeJob, bool, error) {
+	if (attribution.Source != domain.AgentAttributionRecorded &&
+		attribution.Source != domain.AgentAttributionOperatorRoot) ||
+		attribution.Validate() != nil {
+		return runner.CommandRuntimeJob{}, false, apperror.New(
+			apperror.CodeInvalidArgument, "Command Runtime actor attribution is invalid")
+	}
+	return s.prepareCommandRuntimeJob(ctx, job, &attribution)
+}
+
+func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
+	job runner.CommandRuntimeJob, requestedAttribution *domain.AgentAttribution,
+) (runner.CommandRuntimeJob, bool, error) {
 	if s == nil || s.db == nil {
 		return runner.CommandRuntimeJob{}, false, apperror.New(
 			apperror.CodeFailedPrecondition, "command runtime store is unavailable")
@@ -55,6 +73,24 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 		return runner.CommandRuntimeJob{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	attribution := domain.AgentAttribution{Source: domain.AgentAttributionLegacyUnknown}
+	if requestedAttribution != nil {
+		attribution = *requestedAttribution
+	} else {
+		var activeAttempt string
+		if err := tx.QueryRowContext(ctx, `SELECT active_attempt_id FROM agent_nodes
+			WHERE run_id = ? AND id = ? AND parent_id IS NULL AND role = 'root'`,
+			job.RunID, job.RootAgentID).Scan(&activeAttempt); err == nil {
+			attribution = domain.AgentAttribution{AgentID: job.RootAgentID,
+				AgentAttemptID: activeAttempt,
+				Source:         domain.AgentAttributionLegacyRoot}
+			if activeAttempt != "" {
+				attribution.Source = domain.AgentAttributionSupervisorRoot
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return runner.CommandRuntimeJob{}, false, err
+		}
+	}
 	existing, found, err := getCommandRuntimeJobByOperation(ctx, tx,
 		job.OperationDigest)
 	if err != nil {
@@ -69,10 +105,36 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 			return runner.CommandRuntimeJob{}, false, apperror.New(
 				apperror.CodeConflict, "command runtime operation key was reused")
 		}
+		storedAttribution, attributionFound, err :=
+			loadCommandRuntimeAgentAttributionTx(ctx, tx, existing.ID)
+		if err != nil {
+			return runner.CommandRuntimeJob{}, false, err
+		}
+		attributionTableAvailable, err := storeTableExists(ctx, tx,
+			"command_runtime_job_agents")
+		if err != nil {
+			return runner.CommandRuntimeJob{}, false, err
+		}
+		if attributionTableAvailable && !attributionFound {
+			return runner.CommandRuntimeJob{}, false, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"command runtime operation Agent attribution is missing")
+		}
+		if attributionFound && storedAttribution != attribution {
+			return runner.CommandRuntimeJob{}, false, apperror.New(
+				apperror.CodeConflict,
+				"command runtime operation Agent attribution was reused")
+		}
 		if err := tx.Commit(); err != nil {
 			return runner.CommandRuntimeJob{}, false, err
 		}
 		return existing, true, nil
+	}
+	if requestedAttribution != nil {
+		if err := requireCommandRuntimeAttributionTx(ctx, tx, job.RunID,
+			job.RootAgentID, attribution); err != nil {
+			return runner.CommandRuntimeJob{}, false, err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO command_runtime_jobs (
 		id, protocol_version, operation_digest, request_fingerprint, invocation_id,
@@ -120,6 +182,10 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 	if err != nil {
 		return runner.CommandRuntimeJob{}, false, apperror.Wrap(
 			apperror.CodeConflict, "command runtime launch scope was rejected", err)
+	}
+	if err := insertCommandRuntimeAgentAttributionTx(ctx, tx, job.ID, job.RunID,
+		ts(job.CreatedAt), attribution); err != nil {
+		return runner.CommandRuntimeJob{}, false, err
 	}
 	stored, err := getCommandRuntimeJob(ctx, tx, job.ID)
 	if err != nil {

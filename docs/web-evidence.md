@@ -56,8 +56,9 @@ The model-facing workflow is intentionally ordered:
 
 1. `web_search` returns up to ten title/snippet/URL stubs. They are discovery hints,
    `untrusted`, and not citeable.
-2. `web_fetch` accepts one returned `source_id` or one authorized URL. It checks
-   robots, fetches and parses the source, and creates an immutable snapshot.
+2. `web_fetch` accepts one returned `source_id` or one authorized URL. It evaluates
+   robots according to the current permission mode, fetches and parses the source,
+   and creates an immutable snapshot.
 3. `web_citation` accepts a same-Run `source_id` and `snapshot_id`, a bounded claim,
    and an optional body span. It cannot accept a caller-selected URL.
 
@@ -111,7 +112,7 @@ reports `untrusted=true` and `instruction_authorized=false`.
 | `web_evidence_target_denied` | The search/fetch host is outside the Run allowlist | Add the exact public host when creating the Run; do not broaden an existing call |
 | `web_search_provider_unavailable` | No valid SearXNG endpoint was configured | Set `CYBERAGENT_WEB_SEARCH_ENDPOINT`, restart the owning process, and include its host in the Run |
 | provider request failed | SearXNG returned an error, bad JSON, or exceeded bounds | Repair the configured instance; no fallback is attempted |
-| `blocked` | Robots, DNS/public-address checks, redirect authority, or another policy boundary denied fetch | Use an authorized source that permits retrieval; do not bypass the policy |
+| `blocked` | Robots in Conservative/Workspace/Approval, DNS/public-address checks, redirect authority, or another enforced policy boundary denied fetch | Use an authorized source that permits retrieval or choose an explicitly authorized permission mode; never bypass the hard network boundaries |
 | `failed` | TLS, HTTP, MIME, charset, parser, timeout, or size handling failed | Inspect the metadata and choose a compatible public source |
 | `partial` | The bounded parser retained incomplete evidence | Cite it only with the visible partial qualification or use another source |
 | `stale` | The snapshot is older than 24 hours | Fetch a new immutable snapshot under a new operation key before relying on freshness |
@@ -121,9 +122,16 @@ reports `untrusted=true` and `instruction_authorized=false`.
 Only public HTTPS on port 443 is expressible. URL userinfo and credential-bearing
 query parameters, ambient proxies, cookies, local and private hosts, metadata
 services, mixed public/private DNS answers, and unauthorized redirect targets are
-rejected. Every redirect is resolved again and pinned to public addresses.
-`robots.txt` is checked before the initial page and every redirect destination;
-indeterminate policy fails closed.
+rejected. Every redirect is resolved again and pinned to public addresses. These
+SSRF, loopback/private/metadata, DNS-rebinding, HTTPS, redirect, response-size, and
+timeout boundaries remain hard failures in every permission mode.
+
+`robots.txt` is inspected before the initial page and every redirect destination.
+Conservative, Workspace, and Approval enforce the result and fail closed when the
+policy is disallowed or indeterminate. Full Access and Debug retain the robots
+outcome as an audit fact, but disallow, absence, or an indeterminate result does not
+block the fetch. This audit-only behavior changes neither the hard network checks
+above nor the untrusted status of fetched content.
 
 Supported content is HTML/XHTML, text/Markdown, JSON, and conservative PDF literal
 text. Traverse Board does not execute scripts, PDF actions, downloads, forms, or
@@ -136,5 +144,7 @@ sanitized text. The digest still identifies the raw response bytes observed at f
 
 Remote text can contain prompt injection and remains evidence, never instruction or
 tool authority. Operators are responsible for the SearXNG and target-site terms,
-copyright/licensing, privacy, and database retention. `robots.txt` permission alone
-does not establish a legal right to copy or reuse content.
+copyright/licensing, privacy, and database retention. A permissive robots result
+does not establish a legal right to copy or reuse content, and Full Access/Debug's
+audit-only robots handling does not grant permission under copyright, licensing, or
+contract law.

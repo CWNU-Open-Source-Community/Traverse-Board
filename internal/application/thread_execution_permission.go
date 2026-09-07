@@ -57,6 +57,7 @@ type CurrentThreadExecutionPermissionResult struct {
 	Permission             domain.ThreadExecutionPermissionSnapshot
 	CurrentRunID           string
 	CurrentRunMode         domain.RunExecutionPermissionMode
+	CurrentRunPermission   domain.RunExecutionPermissionSnapshot
 	CurrentRunSynchronized bool
 }
 
@@ -103,6 +104,7 @@ func (s *ThreadExecutionPermissionService) Inspect(ctx context.Context,
 		return CurrentThreadExecutionPermissionResult{}, apperror.Normalize(err)
 	}
 	result.CurrentRunMode = runPermission.Mode
+	result.CurrentRunPermission = runPermission
 	result.CurrentRunSynchronized = runPermission.Mode == permission.Mode &&
 		runPermission.PolicyVersion == permission.PolicyVersion &&
 		runPermission.ApprovalPolicy == permission.ApprovalPolicy &&
@@ -144,6 +146,22 @@ func (s *ThreadExecutionPermissionService) Change(ctx context.Context,
 				"Thread execution permission %s is unavailable because this process lacks gate %s",
 				target, requiredExecutionPermissionGate(target)))
 	}
+	threadRecord, err := s.store.GetThread(ctx, normalized.ThreadID)
+	if err != nil {
+		return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
+	}
+	current, err := s.store.GetThreadExecutionPermission(ctx, threadRecord.ID)
+	if err != nil {
+		return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
+	}
+	var currentRunPermission *domain.RunExecutionPermissionSnapshot
+	if threadRecord.ActiveRunID != "" {
+		permission, err := s.store.GetRunExecutionPermission(ctx, threadRecord.ActiveRunID)
+		if err != nil {
+			return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
+		}
+		currentRunPermission = &permission
+	}
 	keyDigest := runmutation.Fingerprint(
 		"thread_execution_permission_operation.v1", normalized.ThreadID,
 		normalized.OperationKey)
@@ -155,20 +173,37 @@ func (s *ThreadExecutionPermissionService) Change(ctx context.Context,
 		normalized.ThreadID, normalized.RequestedBy, target); err != nil {
 		return ChangeThreadExecutionPermissionResult{}, err
 	} else if found {
+		// An exact Full replay is idempotent. In particular, do not revoke and
+		// immediately recreate its live generation: an already-authorized job
+		// must not be spuriously fenced merely because the client retried a
+		// successful request. A cold process has no live grant, so
+		// activateFullAccess may safely restore this exact current snapshot.
+		if err := s.activateFullAccess(ctx, replay); err != nil {
+			return ChangeThreadExecutionPermissionResult{}, err
+		}
 		return replay, nil
 	}
-	threadRecord, err := s.store.GetThread(ctx, normalized.ThreadID)
-	if err != nil {
-		return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
+	preRevokedRuntime := false
+	if s.capabilities.RuntimeAuthority != nil &&
+		threadPermissionRequiresImmediateRuntimeRevocation(
+			current, currentRunPermission, target) {
+		// A high-risk downgrade is fail-closed before its durable write. A
+		// non-revoking change is fenced only after the Store confirms that it
+		// actually applied to the current Run; a deferred preference must not
+		// disturb an in-flight Run.
+		if current.Mode == domain.RunExecutionPermissionFullAccess &&
+			target != domain.RunExecutionPermissionFullAccess {
+			s.capabilities.RuntimeAuthority.RevokeThread(normalized.ThreadID)
+		}
+		if threadRecord.ActiveRunID != "" {
+			s.capabilities.RuntimeAuthority.RevokeRun(threadRecord.ActiveRunID)
+		}
+		preRevokedRuntime = true
 	}
 	if threadRecord.Status != domain.ThreadActive {
 		return ChangeThreadExecutionPermissionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Thread execution permission can only change while the Thread is active")
-	}
-	current, err := s.store.GetThreadExecutionPermission(ctx, threadRecord.ID)
-	if err != nil {
-		return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
 	}
 	now := time.Now().UTC()
 	if now.Before(current.CreatedAt) {
@@ -188,10 +223,107 @@ func (s *ThreadExecutionPermissionService) Change(ctx context.Context,
 	}
 	stored, storedOperation, replayed, err := s.store.TransitionThreadExecutionPermission(
 		ctx, next, operation)
-	return ChangeThreadExecutionPermissionResult{
+	if err != nil {
+		return ChangeThreadExecutionPermissionResult{}, apperror.Normalize(err)
+	}
+	result := ChangeThreadExecutionPermissionResult{
 		Permission: stored, CurrentRunID: storedOperation.CurrentRunID,
 		CurrentRunEffect: storedOperation.CurrentRunEffect, Replayed: replayed,
-	}, apperror.Normalize(err)
+	}
+	currentRunPermissionChanged := currentRunPermission == nil ||
+		storedOperation.CurrentRunPermissionSnapshotID != currentRunPermission.ID
+	if s.capabilities.RuntimeAuthority != nil && !preRevokedRuntime &&
+		result.CurrentRunEffect.AppliesToCurrentRun() && currentRunPermissionChanged {
+		// A fresh operation may reaffirm a synchronized non-Full Thread
+		// preference. The Store binds that operation to the existing immutable
+		// Run snapshot; do not revoke live child fences when no Run permission
+		// generation actually changed.
+		if target != domain.RunExecutionPermissionFullAccess {
+			s.capabilities.RuntimeAuthority.RevokeThread(normalized.ThreadID)
+		}
+		if result.CurrentRunID != "" {
+			s.capabilities.RuntimeAuthority.RevokeRun(result.CurrentRunID)
+		}
+	}
+	if err := s.activateFullAccess(ctx, result); err != nil {
+		return ChangeThreadExecutionPermissionResult{}, err
+	}
+	return result, nil
+}
+
+func threadPermissionRequiresImmediateRuntimeRevocation(
+	current domain.ThreadExecutionPermissionSnapshot,
+	currentRun *domain.RunExecutionPermissionSnapshot,
+	target domain.RunExecutionPermissionMode,
+) bool {
+	if current.Mode == domain.RunExecutionPermissionFullAccess &&
+		!target.IncludesFullAccess() {
+		return true
+	}
+	if currentRun == nil {
+		// A same-mode Full re-confirmation with no active Run rotates the
+		// process-local Thread grant immediately.
+		return current.Mode == domain.RunExecutionPermissionFullAccess &&
+			target == domain.RunExecutionPermissionFullAccess
+	}
+	return currentRun.Mode == domain.RunExecutionPermissionDebug &&
+		target != domain.RunExecutionPermissionDebug ||
+		currentRun.Mode == domain.RunExecutionPermissionFullAccess &&
+			!target.IncludesFullAccess()
+}
+
+func (s *ThreadExecutionPermissionService) activateFullAccess(ctx context.Context,
+	result ChangeThreadExecutionPermissionResult,
+) error {
+	if result.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		!s.capabilities.FullAccessRequiresRuntimeGrant {
+		return nil
+	}
+	if s.capabilities.RuntimeAuthority == nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"dynamic Full Access runtime authority is unavailable")
+	}
+	if result.CurrentRunID != "" &&
+		result.CurrentRunEffect == domain.ThreadExecutionPermissionDeferred {
+		// The current Run deliberately retains its previous snapshot and live
+		// fence. Full Access becomes eligible only when a successor Run
+		// materializes the Thread preference.
+		return nil
+	}
+	currentThreadPermission, err := s.store.GetThreadExecutionPermission(
+		ctx, result.Permission.ThreadID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if currentThreadPermission.ID != result.Permission.ID ||
+		currentThreadPermission.Revision != result.Permission.Revision ||
+		currentThreadPermission.Mode != result.Permission.Mode {
+		// Never let replaying an older Full operation recreate a live Thread
+		// grant after a newer durable downgrade.
+		return nil
+	}
+	threadRecord, err := s.store.GetThread(ctx, result.Permission.ThreadID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	var runPermission *domain.RunExecutionPermissionSnapshot
+	if threadRecord.ActiveRunID != "" {
+		current, err := s.store.GetRunExecutionPermission(ctx, threadRecord.ActiveRunID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		runPermission = &current
+	}
+	if s.capabilities.RuntimeAuthority.AllowsThreadFullAccess(
+		currentThreadPermission, runPermission) {
+		return nil
+	}
+	if _, err := s.capabilities.RuntimeAuthority.ActivateThreadFullAccess(
+		result.Permission, runPermission); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"dynamic Thread Full Access could not be activated", err)
+	}
+	return nil
 }
 
 func (s *ThreadExecutionPermissionService) loadReplay(ctx context.Context,

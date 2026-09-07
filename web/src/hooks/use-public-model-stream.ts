@@ -12,6 +12,7 @@ export interface PublicModelStreamState {
 }
 
 const livePollDelayMs = 150;
+const idlePollDelayMs = 1_000;
 const reconnectDelayMs = 500;
 const finalizingMissLimit = 2;
 
@@ -56,8 +57,26 @@ export function usePublicModelStream(client: CyberAgentClient, runID: string,
       while (!controller.signal.aborted) {
         let wait = livePollDelayMs;
         try {
-          const next = await client.getPublicModelStream(runID, controller.signal);
+          const next = await client.pollPublicModelStream(runID, controller.signal);
           if (controller.signal.aborted) return;
+          if (next === null) {
+            if (current) {
+              finalizingMisses++;
+              if (finalizingMisses >= finalizingMissLimit) {
+                current = null;
+                setSnapshot(null);
+                setStatus("waiting");
+              } else {
+                setStatus("finalizing");
+              }
+            } else {
+              setStatus("waiting");
+            }
+            setError("");
+            wait = idlePollDelayMs;
+            await delay(wait, controller.signal);
+            continue;
+          }
           const replace = current === null || callIdentity(next) !== callIdentity(current) ||
             next.revision > current.revision;
           if (replace) {

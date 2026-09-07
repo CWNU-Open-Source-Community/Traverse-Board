@@ -66,23 +66,25 @@ process creation.
 
 | Surface | Owner | Required authority | Lifetime | Model access |
 |---|---|---|---|---|
-| `command_runtime` | Run / Go manager | Code + Local + Deliver + root + durable `full_access` + current Supervisor lease + process-local danger-full-access gate | one-shot or Run-owned Job | yes |
+| `command_runtime` | Run / Go manager | Code + Local + Deliver + root + durable `full_access` or `debug` + current Supervisor lease + process-local danger-full-access gate | one-shot or Run-owned Job | yes |
 | approval one-shot | operator review | Code + Local + Controlled + `approval` + exact review | one process | proposal/result only |
 | Debug terminal | user | Code + Local + Deliver + `debug` + terminal + revocable input grant | user session | only during grant |
 | Docker Sandbox | Go container lifecycle | Docker profile + separate admission/capability | container plan/lifecycle | proposal only |
 
 The tool is advertised only to the root Agent in Code/Deliver when the current
-permission is `full_access` and a runtime adapter was installed at process start.
+permission is `full_access` or `debug` and a runtime adapter was installed at process start.
 Every call rechecks current Run, Mission, Session, Workspace, root Agent, mode,
 profile, permission, live Supervisor generation lease, startup capability, and
 ordinary Policy. Plan, Cyber, Specialist, stale binding, approval-required policy,
 or missing capability fails closed. A model, Skill, repository file, or persisted
 permission snapshot cannot enable the process capability.
 
-该工具只在 Code/Deliver、root、当前 `full_access` 且进程已安装 runtime adapter 时进入
+该工具只在 Code/Deliver、root、当前 `full_access` 或 `debug` 且进程已安装 runtime adapter 时进入
 Tool schema。每次调用重新检查 Run/Mission/Session/Workspace/root、mode、profile、
 permission、当前 Supervisor generation lease、进程启动 capability 与普通 Policy。
 Plan、Cyber、Specialist、过期绑定、需另行审批的策略或缺失 capability 全部失败关闭。
+Full Access 按当前任务动态激活，无需重启；Debug 在该命令 sink 上完整继承
+Full Access，只对其额外的持久终端、后台与有界终端输入继续要求独立启动闸门。
 
 ### 3. Ordered batches and Job lifecycle / 有序批次与 Job 生命周期
 
@@ -127,7 +129,7 @@ completion, timeout, cancel, kill, root/mode/profile/permission drift, owner
 heartbeat failure, and application shutdown all converge to cleanup of the owned
 Job/process group. A POSIX command that deliberately creates a new session can
 escape process-group cleanup; this is an explicit unsandboxed `full_access`
-residual risk, not a safely adoptable durable Job.
+residual risk, also inherited by `debug`, not a safely adoptable durable Job.
 
 Restart never re-executes an intent and never signals a persisted PID/process-group
 identifier, because it may have been reused. While an owner heartbeat is live,
@@ -139,7 +141,8 @@ Windows 在同一次 `CreateProcess` 中把 suspended process 分配给 kill-on-
 Object，并限制继承 handle；POSIX 使用 owned process group、固定 guardian，Linux
 再增加 parent-death signal。正常完成、timeout、cancel、kill、授权漂移、owner 心跳失败
 和应用关闭都会清理 owned Job/process group。POSIX 命令若主动创建新 session，则可能
-脱离 process group；这是非沙箱 `full_access` 的显式残余风险，不会被持久记录安全收养。
+脱离 process group；这是非沙箱 `full_access` 的显式残余风险，`debug` 也完整继承，
+不会被持久记录安全收养。
 
 重启绝不重放 intent，也不按持久 PID/process group 发信号，因为编号可能复用。owner
 心跳有效时 reconciliation 等待；过期后只记录 `interrupted`，崩溃清理由 OS ownership
@@ -179,7 +182,7 @@ pager, and interactive prompts disabled.
 
 Native host commands do not have a portable, provable OS network sandbox. Therefore
 `network=disabled` is a fail-closed declaration and policy boundary, not a claim of
-packet-level containment. `full_access` remains unsandboxed host execution; a command
+packet-level containment. `full_access` and inherited `debug` remain unsandboxed host execution; a command
 that needs network or credentials is outside this tool and requires a separate exact
 per-call review. The runtime does not replace the host OS user token or prove that a
 process cannot read credential files. Docker `network none` remains the containment

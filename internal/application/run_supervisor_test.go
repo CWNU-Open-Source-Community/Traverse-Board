@@ -1737,6 +1737,59 @@ func TestRunSupervisorFinalizationIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "terminal-runtime-revocation.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
+	runs := application.NewRunService(st).
+		WithExecutionPermissionRuntimeAuthority(authority)
+	_, run, err := runs.Create(ctx, application.CreateRunRequest{
+		Goal: "revoke terminal child authority", Profile: "review",
+		Budget: domain.Budget{MaxTurns: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := application.NewRunExecutionPermissionService(st, capabilities).
+		Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "terminal-runtime-revocation-permission-0001",
+			RequestedBy:  "operator", Reason: "authorize the bounded test runtime",
+			ConfirmDangerFullAccess: true,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence, err := authority.IssueRunAuthorizationFence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(),
+		policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities)
+	if _, err := supervisor.Step(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Finalize(ctx, run.ID,
+		application.LifecycleOutcomeCompleted, "runtime revoked"); err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.AllowsSnapshot(permission.Permission) ||
+		authority.AllowsRunAuthorizationFence(run.ID, fence) {
+		t.Fatal("terminal supervisor commit preserved process-local child authority")
+	}
+}
+
 func TestRunSupervisorExecuteStopsAtBoundedStepLimit(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {

@@ -37,8 +37,9 @@ type RunStore interface {
 }
 
 type RunService struct {
-	store          RunStore
-	lifecycleHooks *hooks.Engine
+	store            RunStore
+	lifecycleHooks   *hooks.Engine
+	runtimeAuthority *domain.ExecutionPermissionRuntimeAuthority
 }
 
 type CreateRunRequest struct {
@@ -73,6 +74,19 @@ func NewRunService(store RunStore) *RunService {
 func (s *RunService) WithLifecycleHooks(engine *hooks.Engine) *RunService {
 	if s != nil {
 		s.lifecycleHooks = engine
+	}
+	return s
+}
+
+// WithExecutionPermissionRuntimeAuthority installs the process-local
+// revocation authority used by child runtimes such as Full CDP. Terminal Run
+// transitions revoke it synchronously before the durable status commit so no
+// new privileged child operation can race a terminal Run into existence.
+func (s *RunService) WithExecutionPermissionRuntimeAuthority(
+	authority *domain.ExecutionPermissionRuntimeAuthority,
+) *RunService {
+	if s != nil {
+		s.runtimeAuthority = authority
 	}
 	return s
 }
@@ -227,24 +241,20 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 	if networkMode == "" {
 		networkMode = "disabled"
 	}
-	allowedTargets := make([]string, 0, len(req.AllowedTargets))
-	seenTargets := make(map[string]struct{}, len(req.AllowedTargets))
-	for _, rawTarget := range req.AllowedTargets {
-		target := strings.TrimSpace(rawTarget)
-		if target == "" {
-			return preparedRun{}, errors.New("Run network allowed targets cannot be empty")
+	var allowedTargets []string
+	switch networkMode {
+	case "disabled":
+		if len(req.AllowedTargets) != 0 {
+			return preparedRun{}, errors.New(
+				"disabled Run network mode cannot retain allowed targets")
 		}
-		if _, exists := seenTargets[target]; !exists {
-			seenTargets[target] = struct{}{}
-			allowedTargets = append(allowedTargets, target)
+	case "allowlist":
+		allowedTargets, err = webevidence.NormalizeExactAuthorityTargets(req.AllowedTargets)
+		if err != nil {
+			return preparedRun{}, fmt.Errorf("Run network scope: %w", err)
 		}
-	}
-	if networkMode == "disabled" && len(allowedTargets) != 0 {
-		return preparedRun{}, errors.New("disabled Run network mode cannot retain allowed targets")
-	}
-	if err := (webevidence.NetworkAuthority{Mode: networkMode,
-		AllowedTargets: allowedTargets}).Validate(); err != nil {
-		return preparedRun{}, fmt.Errorf("Run network scope: %w", err)
+	default:
+		return preparedRun{}, fmt.Errorf("Run network scope: unsupported mode %q", networkMode)
 	}
 	requestedSessionID := strings.TrimSpace(req.SessionID)
 	var linkedSession session.Session
@@ -476,6 +486,9 @@ func (s *RunService) Events(ctx context.Context, runID string) ([]events.Event, 
 func (s *RunService) transition(ctx context.Context, run domain.Run, target domain.RunStatus, reason string) (domain.Run, error) {
 	expected := run.Status
 	if expected == target {
+		if run.Terminal() && s.runtimeAuthority != nil {
+			s.runtimeAuthority.RevokeRun(run.ID)
+		}
 		return run, nil
 	}
 	if target == domain.RunCancelled || target == domain.RunCompleted ||
@@ -502,6 +515,11 @@ func (s *RunService) transition(ctx context.Context, run domain.Run, target doma
 	})
 	if err != nil {
 		return domain.Run{}, err
+	}
+	if run.Terminal() && s.runtimeAuthority != nil {
+		// Revocation deliberately precedes the durable transition. If the store
+		// commit fails, fail closed and require an explicit activation again.
+		s.runtimeAuthority.RevokeRun(run.ID)
 	}
 	if err := s.store.TransitionRun(ctx, run, expected, event); err != nil {
 		return domain.Run{}, err

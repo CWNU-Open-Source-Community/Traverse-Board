@@ -66,6 +66,7 @@ func (s *SQLiteStore) GetRunBrowserCDPPermissionOperation(ctx context.Context,
 func (s *SQLiteStore) TransitionRunBrowserCDPPermission(ctx context.Context,
 	snapshot domain.RunBrowserCDPPermissionSnapshot,
 	operation domain.RunBrowserCDPPermissionOperation, event events.Event,
+	expectedExecution domain.RunExecutionPermissionSnapshot,
 ) (domain.RunBrowserCDPPermissionSnapshot, bool, error) {
 	if err := validateRunBrowserCDPPermissionMutation(snapshot, operation, event); err != nil {
 		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
@@ -105,24 +106,6 @@ func (s *SQLiteStore) TransitionRunBrowserCDPPermission(ctx context.Context,
 	if err != nil {
 		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
 	}
-	if !domain.CanChangeRunBrowserCDPPermission(run.Status) {
-		return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
-			apperror.CodeFailedPrecondition,
-			fmt.Sprintf(
-				"Run browser CDP permission can only change while created or paused; Run is %s",
-				run.Status))
-	}
-	var activeLeaseCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
-		WHERE run_id = ? AND status = 'active' AND julianday(expires_at) > julianday('now')`,
-		run.ID).Scan(&activeLeaseCount); err != nil {
-		return domain.RunBrowserCDPPermissionSnapshot{}, false, err
-	}
-	if activeLeaseCount != 0 {
-		return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"Run browser CDP permission cannot change while an execution lease is active")
-	}
 	if snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
 		snapshot.Revision != current.Revision+1 || snapshot.Mode == current.Mode ||
 		snapshot.ProtocolVersion != current.ProtocolVersion ||
@@ -131,6 +114,71 @@ func (s *SQLiteStore) TransitionRunBrowserCDPPermission(ctx context.Context,
 		return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
 			apperror.CodeConflict,
 			"Run browser CDP permission changed concurrently or attempted to change immutable policy")
+	}
+	downgrade := current.Mode == domain.RunBrowserCDPPermissionFullDebug &&
+		snapshot.Mode == domain.RunBrowserCDPPermissionRestricted
+	if downgrade {
+		// Downgrades are authority revocations, not execution lifecycle
+		// transitions. Persist the lower ceiling immediately for every live
+		// Run, even while an old fenced session still owns a lease or surface.
+		if run.Terminal() {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+				apperror.CodeFailedPrecondition,
+				fmt.Sprintf("Run browser CDP permission cannot change after the Run is %s",
+					run.Status))
+		}
+	} else {
+		if err := expectedExecution.Validate(); err != nil {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.Wrap(
+				apperror.CodeInvalidArgument,
+				"expected Run execution permission is invalid", err)
+		}
+		currentExecution, err := getCurrentRunExecutionPermissionSnapshot(
+			ctx, tx, run.ID)
+		if err != nil {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+		}
+		if expectedExecution.RunID != run.ID ||
+			expectedExecution.MissionID != run.MissionID ||
+			expectedExecution.ID != currentExecution.ID ||
+			expectedExecution.Revision != currentExecution.Revision ||
+			expectedExecution.Mode != currentExecution.Mode {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+				apperror.CodeConflict,
+				"Run execution permission changed before Full CDP could be enabled")
+		}
+		if currentExecution.Mode != domain.RunExecutionPermissionFullAccess &&
+			currentExecution.Mode != domain.RunExecutionPermissionDebug {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+				apperror.CodePolicyDenied,
+				"Full CDP requires current Full Access or Debug execution permission")
+		}
+		if run.Status != domain.RunCreated && run.Status != domain.RunPaused {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+				apperror.CodeFailedPrecondition,
+				fmt.Sprintf(
+					"Full CDP can only be enabled while the Run is created or paused; Run is %s",
+					run.Status))
+		}
+		var activeLeaseCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
+			WHERE run_id = ? AND status = 'active'
+				AND julianday(expires_at) > julianday('now')`, run.ID).
+			Scan(&activeLeaseCount); err != nil {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, err
+		}
+		if activeLeaseCount != 0 {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Full CDP cannot be enabled while an execution lease is active")
+		}
+		if err := requireThreadLifecycleRunQuiescentTx(ctx, tx, run.ID,
+			snapshot.CreatedAt); err != nil {
+			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"Full CDP cannot be enabled while the Run owns an execution surface; stop it and retry",
+				err)
+		}
 	}
 	if err := insertRunBrowserCDPPermissionSnapshotTx(ctx, tx, snapshot); err != nil {
 		_ = tx.Rollback()

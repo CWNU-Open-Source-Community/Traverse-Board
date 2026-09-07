@@ -16,7 +16,9 @@ Thumbs.db
 coverage.out
 dist/
 build/
+.cache/
 .tmp/
+.tmp-tests-*/
 
 # Rust build output
 target/
@@ -26,6 +28,7 @@ node_modules/
 web/dist/
 web/coverage/
 web/.vite/
+.npm-cache/
 *.tsbuildinfo
 
 # Local UI automation artifacts

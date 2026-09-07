@@ -124,11 +124,12 @@ func (a *API) serveThreadExecutionPermissionControl(writer http.ResponseWriter,
 			return
 		}
 		projected := threadExecutionPermissionView(
-			current.Permission, a.executionPermissionCapabilities)
+			current.Permission, a.executionPermissionCapabilities,
+			currentRunPermissionPointer(current.CurrentRunPermission))
 		projected.AppliesToCurrentRun = current.CurrentRunSynchronized
 		effect := string(domain.ThreadExecutionPermissionNoActiveRun)
 		if current.CurrentRunID != "" {
-			effect = "pending"
+			effect = string(domain.ThreadExecutionPermissionDeferred)
 			if current.CurrentRunSynchronized {
 				effect = string(domain.ThreadExecutionPermissionApplied)
 			}
@@ -183,25 +184,43 @@ func (a *API) serveThreadExecutionPermissionControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	projected := threadExecutionPermissionView(
-		result.Permission, a.executionPermissionCapabilities)
-	projected.AppliesToCurrentRun = result.CurrentRunID != ""
-	currentRunMode := ""
+	var currentRunPermission *domain.RunExecutionPermissionSnapshot
 	if result.CurrentRunID != "" {
-		currentRunMode = string(result.Permission.Mode)
+		permission, getErr := a.store.GetRunExecutionPermission(
+			request.Context(), result.CurrentRunID)
+		if getErr != nil {
+			a.writeError(writer, requestID, getErr, 0)
+			return
+		}
+		currentRunPermission = &permission
+	}
+	projected := threadExecutionPermissionView(
+		result.Permission, a.executionPermissionCapabilities, currentRunPermission)
+	projected.AppliesToCurrentRun = result.CurrentRunEffect.AppliesToCurrentRun()
+	currentRunMode := ""
+	if currentRunPermission != nil {
+		currentRunMode = string(currentRunPermission.Mode)
 	}
 	a.writeSuccessStatus(writer, requestID, ThreadExecutionPermissionControlView{
 		ExecutionPermission: projected, CurrentRunID: result.CurrentRunID,
 		CurrentRunEffect:       string(result.CurrentRunEffect),
 		CurrentRunMode:         currentRunMode,
-		CurrentRunSynchronized: result.CurrentRunID != "", Replayed: result.Replayed,
+		CurrentRunSynchronized: result.CurrentRunEffect.AppliesToCurrentRun(),
+		Replayed:               result.Replayed,
 	}, nil, http.StatusAccepted)
 }
 
 func threadExecutionPermissionView(value domain.ThreadExecutionPermissionSnapshot,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	currentRun *domain.RunExecutionPermissionSnapshot,
 ) ThreadExecutionPermissionView {
 	matrix, _ := value.CapabilityMatrix()
+	runtimeGateAvailable := capabilities.Allows(value.Mode)
+	if value.Mode == domain.RunExecutionPermissionFullAccess &&
+		capabilities.FullAccessRequiresRuntimeGrant {
+		runtimeGateAvailable = capabilities.RuntimeAuthority != nil &&
+			capabilities.RuntimeAuthority.AllowsThreadFullAccess(value, currentRun)
+	}
 	return ThreadExecutionPermissionView{
 		ThreadID: value.ThreadID, ProtocolVersion: value.ProtocolVersion,
 		Revision: value.Revision, Mode: string(value.Mode),
@@ -211,7 +230,7 @@ func threadExecutionPermissionView(value domain.ThreadExecutionPermissionSnapsho
 		BackgroundProcess:  value.BackgroundProcess, AgentTerminalInput: value.AgentTerminalInput,
 		RiskTier: string(value.RiskTier), RequiredGate: string(value.RequiredGate),
 		PolicyVersion: value.PolicyVersion, OperatorConfirmed: value.OperatorConfirmed,
-		RuntimeGateAvailable: capabilities.Allows(value.Mode),
+		RuntimeGateAvailable: runtimeGateAvailable,
 		Runtime:              executionPermissionRuntimeView(capabilities),
 		CapabilityMatrix: ExecutionPermissionCapabilityMatrixView{
 			WorkspaceRead: matrix.WorkspaceRead, WorkspaceWrite: matrix.WorkspaceWrite,
@@ -227,4 +246,11 @@ func threadExecutionPermissionView(value domain.ThreadExecutionPermissionSnapsho
 		ExecutionAuthorized: value.ExecutionAuthorized, CapabilityGrant: value.CapabilityGrant,
 		AppliesToCurrentRun: false, AppliesToFutureSuccessorRuns: true,
 	}
+}
+
+func currentRunPermissionPointer(value domain.RunExecutionPermissionSnapshot) *domain.RunExecutionPermissionSnapshot {
+	if value.ID == "" {
+		return nil
+	}
+	return &value
 }

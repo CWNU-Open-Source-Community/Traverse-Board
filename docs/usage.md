@@ -84,7 +84,7 @@ cyberagent run execution-permission set <run-id> full_access --operation-key <st
 cyberagent run execution-permission set <run-id> debug --operation-key <stable-key> --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access --confirm-debug-access
 cyberagent run browser-cdp-permission <run-id>
 cyberagent run browser-cdp-permission set <run-id> restricted --operation-key <stable-key> --enable-browser-cdp-control
-cyberagent run browser-cdp-permission set <run-id> full_debug --operation-key <stable-key> --confirm-full-cdp-debug --enable-browser-cdp-control --enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access
+cyberagent run browser-cdp-permission set <run-id> full_debug --operation-key <stable-key> --confirm-full-cdp-debug --enable-browser-cdp-control --enable-full-cdp-debug --enable-permission-control --enable-danger-full-access
 cyberagent run capability-readiness <run-id>
 cyberagent run capability-readiness <run-id> --json --enable-permission-control --enable-workspace-sandbox --enable-browser-cdp-control --enable-docker-execution
 cyberagent sandbox local-readiness --enable-workspace-sandbox --json
@@ -169,9 +169,11 @@ Configuration examples, API/Desktop metadata, real gopls/TypeScript coverage, an
 explicit non-sandbox trust boundary are documented in
 [Code Intelligence](code-intelligence.md).
 
-`browser-cdp-permission` 与宿主执行权限正交。`restricted` 只记录未来导航、DOM
-和截图的能力上限；`full_debug` 还包含请求改写/重放、Cookie 和任意 CDP 方法，
-属于“高度敏感权限”。当前两档都固定
+`browser-cdp-permission` 以独立快照记录 Full Access 的 Full-CDP 子开关，
+而不是与宿主执行权限平级的另一档。`restricted` 保留导航、有界 DOM 和截图上限；
+`full_debug` 还包含请求捕获/改写/重放、Cookie 和任意 CDP 方法，属于“高度敏感权限”。
+进入 `full_access` 或 `debug` 时默认开启，两档内都可关闭，重新开启必须精确确认；
+低于 Full Access 时强制回到 `restricted`。当前两种快照都固定
 `transport_enabled=false`、`browser_start_authorized=false`、
 `runtime_authorized=false` 与 `capability_grant=false`，因此上述命令不会启动
 浏览器、访问网络或创建 Profile。
@@ -180,7 +182,7 @@ A Thread is the stable user task and history identity; a Run is one finite execu
 
 Schema v86 separates execution interaction intent from general runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally requests a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every interaction snapshot still fixes process execution, network, capability grants, and execution authorization to false. Schema v87 records the separate, closed one-shot command path with write-ahead intents and immutable metadata-only receipts rather than widening that snapshot.
 
-Schema v88 adds an orthogonal execution-permission selector. Schema v126 expands it to `conservative|workspace_access|approval|full_access|debug`. `workspace_access · 工作区执行` is the Standard Code ceiling: Workspace reads and reviewed writes are allowed, but commands require a separate ready Workspace Sandbox adapter; unsandboxed host processes, network, credentials, user home, persistent terminals, Agent input, and Full CDP are denied. The Windows x64 Local backend can be explicitly probed with `--enable-workspace-sandbox`; its gate opens only after the real AppContainer/WFP/Job/ACL readiness proof succeeds. The fixed Docker `network=none` backend remains separately gated. Schema v131 connects both to the unified `sandboxed_workspace` Command Runtime and binds each advertisement and call to its exact backend generation; unavailable Local/Docker readiness never falls back to host execution. Selecting the permission requires `--enable-permission-control` and the exact `--confirm-workspace-access` confirmation, and execution revalidates the current backend gates. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` has an operator-only, dual-confirmed, non-sandboxed Windows CLI one-shot executor and may separately expose the explicitly gated `host_unsandboxed` Command Runtime. `debug` has a short process-local lease over a user-started terminal. Persisted snapshots never grant authority, and a permission revision change releases the active execution lease before any new authority can be acquired. See [Command Runtime adapter split](architecture/command-runtime-adapter-split.md), [ADR 0127](adr/0127-workspace-access-permission-contract.md), [ADR 0130](adr/0130-windows-local-sandbox-backend.md), and [ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
+Schema v88 adds an orthogonal execution-permission selector. Schema v126 expands it to `conservative|workspace_access|approval|full_access|debug`. `workspace_access · 工作区执行` is the Standard Code ceiling: Workspace reads and reviewed writes are allowed, but commands require a separate ready Workspace Sandbox adapter; unsandboxed host processes, network, credentials, user home, persistent terminals, Agent input, and Full CDP are denied. The Windows x64 Local backend can be explicitly probed with `--enable-workspace-sandbox`; its gate opens only after the real AppContainer/WFP/Job/ACL readiness proof succeeds. The fixed Docker `network=none` backend remains separately gated. Schema v131 connects both to the unified `sandboxed_workspace` Command Runtime and binds each advertisement and call to its exact backend generation; unavailable Local/Docker readiness never falls back to host execution. Selecting the permission requires `--enable-permission-control` and the exact `--confirm-workspace-access` confirmation, and execution revalidates the current backend gates. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` dynamically activates the current task's dual-confirmed, unsandboxed host capabilities without a restart. `debug` is its strict superset at every host sink and additionally permits the startup-gated persistent terminal, background operation, and bounded terminal input. Persisted snapshots never grant authority, and a permission revision change releases the active execution lease before any new authority can be acquired. See [Command Runtime adapter split](architecture/command-runtime-adapter-split.md), [ADR 0127](adr/0127-workspace-access-permission-contract.md), [ADR 0130](adr/0130-windows-local-sandbox-backend.md), and [ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
 
 `run capability-readiness` and `GET /api/v1/runs/{run_id}/capability-readiness`
 return the same Go-owned `run_capability_readiness.v1` projection used by Desktop.
@@ -279,7 +281,7 @@ recovery reuses existing receipts; a different call repeating an already handled
 side effect is not invoked. See [Standard Code bounded completion loop](standard-code-supervisor.md)
 and [ADR 0137](adr/0137-bounded-standard-code-supervisor.md).
 
-Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
+Schema v91 stores the `restricted|full_debug` browser-CDP snapshot described above. Current semantics treat `full_debug` as a user-controllable sub-permission of Full Access, inherited unchanged by Debug: entry into either high-risk tier defaults it on, a move between those two tiers preserves the user's choice, and a move below Full Access forces it off. The switch grants no Shell or terminal authority, and every concrete browser operation must still recheck its exact method/scope contract and current process gates. It applies only to a Traverse-managed isolated built-in browser, never to the Wails WebView or the user's system Chrome. The authorization/session core exists, but no production Desktop, HTTP, CLI, or Supervisor caller launches a Full-CDP browser yet.
 
 Schema v119 supplies that concrete operation only for source-bound local UI
 verification. `ui-evidence.v1` seals the exact Git/non-Git source state, reviewed
@@ -303,7 +305,8 @@ it with all five independent gates:
   --enable-ui-evidence
 ```
 
-The selected Run must also be Code/Local/Deliver with current `full_access`, an
+The selected Run must also be Code/Local/Deliver with current `full_access` or
+`debug`, an
 active root execution lease, and current `restricted` browser-CDP permission.
 The Desktop panel requires review of the complete JSON request before start and
 shows the manifest, steps, diagnostics, cleanup, and content-addressed artifacts.
@@ -345,7 +348,7 @@ The selected Run must have exact Code/Local/Debug bindings and a trusted Workspa
 
 Schema v41 gives each Run one immutable `run_mode.v1` snapshot with two independent axes. `--surface code|cyber` selects the work domain and cannot change inside that Run. `--phase plan|deliver` selects whether the Supervisor is preparing a bounded plan or delivering it. Omitting both preserves the compatibility default `code/deliver`. Neither axis grants tools, network, Shell, file mutation, approval, or child-Agent authority; those remain separate Go-owned Policy and Scope decisions.
 
-`run mode` prints the current snapshot and revision. `run phase` is an explicit operator transition that requires a stable 16-256-byte operation key. It is accepted only for `created` or `paused` Runs with no active execution lease; the Store rechecks these conditions transactionally. Exact replay returns the existing revision, changed intent conflicts, and the raw key is never persisted. Surface, Profile, Scope, protocol, and policy version remain fixed for every revision. To move from Code to Cyber or vice versa, create a new Run under the intended authorization scope.
+`run mode` prints the current snapshot and revision. `run phase` is an explicit operator transition that requires a stable 16-256-byte operation key. It is accepted only for `created` or `paused` Runs with no active execution lease; the Store rechecks these conditions transactionally. Exact replay returns the existing revision, changed intent conflicts, and the raw key is never persisted. Surface, Profile, Workspace scope, protocol, and policy version remain fixed for every revision. Network scope may only append exact public HTTPS hostnames through the separate revision-bound, audited network-authority control; it never implies a search provider or wildcard/public-network grant. To move from Code to Cyber or vice versa, create a new Run under the intended authorization scope.
 
 Session messages, assistant policy decisions, ToolRun changes, and FileEdit changes are projected into `run events` transactionally. Activity carrying a workspace different from the Run scope is rejected. `run start` advances the lifecycle from `created` through `preparing` to `running`; it does not invoke a model by itself.
 
@@ -1690,7 +1693,7 @@ the request schema has no backend field. A `sandboxed_workspace` adapter require
 Code/Deliver/root, `workspace_access`, an active execution lease, a Run-owned
 Drydock, and either ready Local (`local + controlled`) or fixed Docker Standard
 Code (`docker`) isolation. A `host_unsandboxed` adapter requires Code/Local/Deliver,
-`full_access`, the active lease, and both permission-control and danger-full-access
+`full_access` or `debug`, the active lease, and both permission-control and danger-full-access
 startup gates. The direct-launch safe bundle (and the legacy
 `--operator-preview` compatibility mode) intentionally does not install the host adapter.
 `--safe-view` creates no control token and exposes only read projections.
@@ -1710,10 +1713,16 @@ cyberagent api serve --enable-permission-control --enable-danger-full-access
 cyberagent run step <run-id> --enable-permission-control --enable-danger-full-access
 cyberagent run execute <run-id> --max-steps 3 `
   --enable-permission-control --enable-danger-full-access
+
+# When the Run itself is Debug, add its startup gate; Debug otherwise uses the
+# same host adapter and checks as Full Access.
+cyberagent run execute <run-id> --max-steps 3 `
+  --enable-permission-control --enable-danger-full-access `
+  --enable-debug-maximum-access
 ```
 
 普通命令运行时由 Run/Go manager 所有，不复用用户终端或 Debug terminal。启动闸门只
-提供本进程 capability；数据库中的 `full_access` 快照本身不能恢复执行权。普通
+提供本进程 capability；数据库中的 `full_access` 或 `debug` 快照本身不能恢复执行权。普通
 `cyberagent run step/execute` 默认不安装 runtime adapter；同时传入两项启动开关后，可在
 该 CLI 进程内执行前台命令，并在同一次 `run execute` 的多个 turn 间维持 Job。CLI 退出会
 把仍活动的 Job 明确终止为 `interrupted`；需要跨调用/断线续读时应使用 Desktop 或
@@ -1780,7 +1789,8 @@ owned process group plus a parent-pipe guardian (and Linux parent-death signal).
 After crash, restart waits for the owner heartbeat to expire, records
 `interrupted`, and never re-executes or signals a persisted, possibly reused PID.
 Deliberate POSIX daemonization into a new session can escape the inherited process
-group; it remains an unsandboxed `full_access` residual risk and is never adopted
+group; it remains an unsandboxed Full Access residual risk, inherited by Debug,
+and is never adopted
 from the durable row. Schema v131 persists the complete adapter receipt on every
 Job and projects pre-v131 rows as read-only, non-executable `legacy_unbound`
 evidence. Sandbox Jobs persist no host PID/process group and are never adopted
@@ -1792,8 +1802,9 @@ Profile, HOME/USERPROFILE, Git helper/hook/config, SSH agent, prompt, proxy, and
 loader-related paths; pins Git to file-only transport; applies immutable offline
 defaults for Go/Cargo/npm/pip/uv; and rejects secret-like env/stdin and explicit network intent.
 This is not packet-level host containment: `host_unsandboxed` truthfully reports
-`host_available` network and credential policies, and `full_access` remains unsandboxed host
-execution, retains the host OS user token, and cannot prove that credential files are
+`host_available` network and credential policies, and both `full_access` and inherited
+`debug` remain unsandboxed host
+execution; they retain the host OS user token and cannot prove that credential files are
 unreadable. Commands that need network/credentials or trigger per-command approval
 must use a separate reviewed one-shot path; use Docker `network none` when actual
 network containment evidence is required. Local/Docker receipts report denied
@@ -1822,7 +1833,7 @@ cyberagent once-command run --run <run-id> --executable C:\Windows\System32\git.
 cyberagent once-command run --run <run-id> --executable <abs-path> --approved -- <argv...>
 ```
 
-The protocol is structured (`once_command.v1`): executable + literal argv + cwd + allowlisted env, never a shell string. The executable must be a native binary outside the Workspace (shell interpreters like cmd/powershell/bash and script targets like .bat/.cmd are rejected); the working directory must resolve inside the Workspace (symlink/junction escapes are rejected); the environment only accepts SystemRoot/WINDIR/TEMP/TMP and never loads PowerShell/Bash profiles. Output is capped at 64 KiB, UTF-8-repaired, and secret-redacted; the Run event `once_command.executed` records metadata only. Tier behavior: conservative denies; workspace access also denies this host runner and waits for its separate sandbox adapter; approval requires `--approved` per command; full access runs with audit (requires `--enable-danger-full-access`); debug never opens a persistent shell. Windows termination uses a kill-on-close Job Object bound at process creation, so timeout/cancel reaps the whole process tree.
+The protocol is structured (`once_command.v1`): executable + literal argv + cwd + allowlisted env, never a shell string. The executable must be a native binary outside the Workspace (shell interpreters like cmd/powershell/bash and script targets like .bat/.cmd are rejected); the working directory must resolve inside the Workspace (symlink/junction escapes are rejected); the environment only accepts SystemRoot/WINDIR/TEMP/TMP and never loads PowerShell/Bash profiles. Output is capped at 64 KiB, UTF-8-repaired, and secret-redacted; the Run event `once_command.executed` records metadata only. Tier behavior: conservative denies; workspace access also denies this host runner and waits for its separate sandbox adapter; approval requires `--approved` per command; Full Access and Debug both run this audited one-shot path with danger-full-access, while the one-shot itself never becomes a persistent shell. Windows termination uses a kill-on-close Job Object bound at process creation, so timeout/cancel reaps the whole process tree.
 
 
 ## Scheduled Runs and diagnostics / 定时 Run 与诊断

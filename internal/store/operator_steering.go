@@ -355,6 +355,71 @@ func (s *SQLiteStore) GetOperatorSteering(ctx context.Context,
 		operatorSteeringSelect+` WHERE id = ?`, id))
 }
 
+// GetCommittedOperatorSteeringLifecycleActions restores the exact model-requested
+// and Go-effective lifecycle actions for a committed operator turn. The binding
+// uses the immutable delivery attempt plus the committed Session message; callers
+// never infer lifecycle intent from assistant text or a mutable Run projection.
+func (s *SQLiteStore) GetCommittedOperatorSteeringLifecycleActions(ctx context.Context,
+	id string,
+) (domain.RootActionKind, domain.RootActionKind, error) {
+	message, err := s.GetOperatorSteering(ctx, id)
+	if err != nil {
+		return "", "", err
+	}
+	if message.Status != domain.OperatorSteeringCommitted || message.SessionMessageID <= 0 {
+		return "", "", apperror.New(apperror.CodeFailedPrecondition,
+			"operator steering lifecycle actions require a committed Session message")
+	}
+	var count int
+	var requestedMin, requestedMax, effectiveMin, effectiveMax string
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),
+		COALESCE(MIN(json_extract(event.payload_json, '$.requested_lifecycle_action')), ''),
+		COALESCE(MAX(json_extract(event.payload_json, '$.requested_lifecycle_action')), ''),
+		COALESCE(MIN(json_extract(event.payload_json, '$.lifecycle_action')), ''),
+		COALESCE(MAX(json_extract(event.payload_json, '$.lifecycle_action')), '')
+		FROM operator_steering_deliveries delivery
+		JOIN run_events event ON event.run_id = delivery.run_id
+			AND event.type = ? AND event.subject_id = delivery.attempt_id
+		WHERE delivery.message_id = ? AND delivery.status = 'committed'
+			AND json_type(event.payload_json, '$.attempt_id') = 'text'
+			AND json_extract(event.payload_json, '$.attempt_id') = delivery.attempt_id
+			AND json_type(event.payload_json, '$.turn') = 'integer'
+			AND json_extract(event.payload_json, '$.turn') = delivery.turn
+			AND json_type(event.payload_json, '$.user_message_id') = 'integer'
+			AND json_extract(event.payload_json, '$.user_message_id') = ?
+			AND json_type(event.payload_json, '$.requested_lifecycle_action') = 'text'
+			AND json_type(event.payload_json, '$.lifecycle_action') = 'text'`,
+		events.AgentTurnCompletedEvent, message.ID, message.SessionMessageID).Scan(
+		&count, &requestedMin, &requestedMax, &effectiveMin, &effectiveMax)
+	if err != nil {
+		return "", "", err
+	}
+	if count == 0 {
+		return "", "", apperror.New(apperror.CodeFailedPrecondition,
+			"committed operator steering lifecycle event is missing")
+	}
+	if count != 1 || requestedMin != requestedMax || effectiveMin != effectiveMax {
+		return "", "", apperror.New(apperror.CodeConflict,
+			"committed operator steering has ambiguous lifecycle events")
+	}
+	requested := domain.RootActionKind(requestedMin)
+	effective := domain.RootActionKind(effectiveMin)
+	if !validStoredRootActionKind(requested) || !validStoredRootActionKind(effective) {
+		return "", "", apperror.New(apperror.CodeFailedPrecondition,
+			"committed operator steering lifecycle action is invalid")
+	}
+	return requested, effective, nil
+}
+
+func validStoredRootActionKind(kind domain.RootActionKind) bool {
+	switch kind {
+	case domain.RootActionContinue, domain.RootActionFinish, domain.RootActionWait:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *SQLiteStore) ListOperatorSteering(ctx context.Context, runID string,
 	limit int,
 ) ([]domain.OperatorSteeringMessage, error) {

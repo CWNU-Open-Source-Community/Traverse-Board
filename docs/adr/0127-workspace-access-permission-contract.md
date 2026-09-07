@@ -50,10 +50,13 @@ The complete ceiling is frozen as follows:
 
 The wider levels retain their existing meaning. Their capability projection is
 monotonic: `approval` may request exact approved one-shot host operations;
-`full_access` removes per-command approval for its bounded host path; `debug`
-alone may request persistent terminal and Full-CDP eligibility. Independent
-execution-profile, CDP, network, credential, lease, and adapter gates still
-apply, so a wider permission string never grants those transports by itself.
+`full_access` dynamically removes per-command approval for its bounded host path;
+`debug` is a strict superset at every Full Access host sink and additionally may
+request its startup-gated persistent terminal, background, and bounded terminal
+input. Full CDP is a user-controllable sub-permission of Full Access and is
+inherited by Debug, not a Debug-only eligibility. Independent execution-profile,
+browser-method, network, credential, lease, and adapter gates still apply, so a
+wider permission string never grants a transport by itself.
 
 ## Runtime Readiness and Fail-Closed Behavior
 
@@ -65,7 +68,8 @@ bootstrap, runtime-capability API, Run detail, CLI, and React all project the
 new level as unavailable.
 
 There is no fallback. The existing Run-owned host Command Runtime continues to
-require `full_access` plus `danger_full_access`; `workspace_access` cannot
+require `full_access` or its strict superset `debug` plus `danger_full_access`;
+`workspace_access` cannot
 construct it even when a test supplies Workspace sandbox readiness. The central
 authorization resolver accepts a `sandboxed_workspace_command` only when both
 the selected policy and the independent adapter readiness are present, and its

@@ -59,7 +59,9 @@ func TestModelDiffAndWakeHTTPControlsRemainCapabilitySeparated(t *testing.T) {
 	api, err := New(st, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
 		ModelControlEnabled: true, FileEditReviewEnabled: true, RunWakeControlEnabled: true,
 		FileEditApplyEnabled: true, RunWakeExecutionEnabled: true,
-		ModelControlController:   application.NewModelControlService(models, st),
+		ModelControlController: application.NewModelControlService(models, st),
+		ThreadModelRouteController: application.NewThreadModelRouteService(
+			st, models),
 		FileEditReviewController: application.NewFileEditReviewService(st),
 		FileEditApplyController:  application.NewFileEditApplyService(st, checker),
 		RunWakeController:        application.NewRunWakeControlService(st), ModelRegistry: models,

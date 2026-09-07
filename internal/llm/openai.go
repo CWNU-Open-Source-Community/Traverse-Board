@@ -38,6 +38,7 @@ type OpenAICompatibleConfig struct {
 	APIKey       string
 	DefaultModel string
 	HTTPClient   *http.Client
+	Runtime      HTTPProviderRuntime
 }
 
 // OpenAICompatibleProvider implements the protocol-neutral Provider contract
@@ -48,6 +49,7 @@ type OpenAICompatibleProvider struct {
 	apiKey       string
 	defaultModel string
 	client       *http.Client
+	runtime      HTTPProviderRuntime
 }
 
 func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) (*OpenAICompatibleProvider, error) {
@@ -59,7 +61,11 @@ func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) (*OpenAICompatib
 	if err != nil {
 		return nil, err
 	}
-	if err := validateProviderAPIKey(config.APIKey, name); err != nil {
+	if config.Runtime == nil {
+		if err := validateProviderAPIKey(config.APIKey, name); err != nil {
+			return nil, err
+		}
+	} else if err := validateHTTPProviderRuntime(config.Runtime); err != nil {
 		return nil, err
 	}
 	model := strings.TrimSpace(config.DefaultModel)
@@ -73,17 +79,24 @@ func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) (*OpenAICompatib
 	return &OpenAICompatibleProvider{
 		name: name, baseURL: baseURL, apiKey: config.APIKey,
 		defaultModel: model, client: providerHTTPClient(config.HTTPClient),
+		runtime: config.Runtime,
 	}, nil
 }
 
 func (p *OpenAICompatibleProvider) Name() string { return p.name }
 
 func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, openAILocalError(p.name, "provider credential is unavailable")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.endpoint("/v1/models"), nil)
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create model-list request")
 	}
-	p.addHeaders(req, false)
+	if err := p.addHeaders(req, false, secret); err != nil {
+		return nil, openAILocalError(p.name, "could not prepare model-list headers")
+	}
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, openAITransportError(ctx, p.name)
@@ -144,7 +157,11 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare request")
 	}
-	payload, err := json.Marshal(wire)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, openAILocalError(p.name, "provider credential is unavailable")
+	}
+	payload, err := providerRequestPayload(p.runtime, secret, wire)
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not encode request")
 	}
@@ -153,7 +170,9 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create request")
 	}
-	p.addHeaders(httpReq, false)
+	if err := p.addHeaders(httpReq, false, secret); err != nil {
+		return nil, openAILocalError(p.name, "could not prepare request headers")
+	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return nil, openAITransportError(ctx, p.name)
@@ -184,7 +203,11 @@ func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatR
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare streaming request")
 	}
-	payload, err := json.Marshal(wire)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, openAILocalError(p.name, "provider credential is unavailable")
+	}
+	payload, err := providerRequestPayload(p.runtime, secret, wire)
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not encode streaming request")
 	}
@@ -193,7 +216,9 @@ func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatR
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create streaming request")
 	}
-	p.addHeaders(httpReq, true)
+	if err := p.addHeaders(httpReq, true, secret); err != nil {
+		return nil, openAILocalError(p.name, "could not prepare streaming request headers")
+	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return nil, openAITransportError(ctx, p.name)
@@ -231,19 +256,27 @@ func (p *OpenAICompatibleProvider) DescribeModelHarness(model string) ModelHarne
 		TransportProtocol: HarnessTransportOpenAIChatCompletions,
 		ToolStrategy:      HarnessToolStrategyNative, JSONStrategy: HarnessJSONStrategyNative,
 		QualificationStatus: HarnessQualificationRequired,
-		BindingDigest: harnessBindingDigest(p.name, p.baseURL, model,
+		BindingDigest: providerHarnessBinding(p.runtime, p.name, p.baseURL, model,
 			HarnessTransportOpenAIChatCompletions, HarnessToolStrategyNative,
 			HarnessJSONStrategyNative),
 	}
 }
 
 func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bool) (string, openAIChatRequest, error) {
-	model := strings.TrimSpace(request.Model)
-	if model == "" {
-		model = p.defaultModel
+	selectedModel := strings.TrimSpace(request.Model)
+	if selectedModel == "" {
+		selectedModel = p.defaultModel
 	}
 	var err error
-	model, err = normalizeOpenAIModel(model)
+	selectedModel, err = normalizeOpenAIModel(selectedModel)
+	if err != nil {
+		return "", openAIChatRequest{}, err
+	}
+	wireModel, err := providerRequestModel(p.runtime, selectedModel)
+	if err != nil {
+		return "", openAIChatRequest{}, err
+	}
+	wireModel, err = normalizeOpenAIModel(wireModel)
 	if err != nil {
 		return "", openAIChatRequest{}, err
 	}
@@ -258,7 +291,7 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 	if maxTokens > 1_000_000 {
 		return "", openAIChatRequest{}, errors.New("max tokens exceeds the provider request limit")
 	}
-	wire := openAIChatRequest{Model: model, MaxTokens: maxTokens, Stream: stream}
+	wire := openAIChatRequest{Model: wireModel, MaxTokens: maxTokens, Stream: stream}
 	if request.Temperature > 0 {
 		wire.Temperature = &request.Temperature
 	}
@@ -279,7 +312,7 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 		content := "Hello"
 		wire.Messages = append(wire.Messages, openAIMessage{Role: "user", Content: &content})
 	}
-	if len(request.Tools) > MaxProviderToolCalls {
+	if len(request.Tools) > MaxProviderToolSpecs {
 		return "", openAIChatRequest{}, errors.New("tool specification count exceeds the provider limit")
 	}
 	for index, spec := range request.Tools {
@@ -293,7 +326,7 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 			Name: name, Description: strings.TrimSpace(spec.Description), Parameters: parameters,
 		}})
 	}
-	return model, wire, nil
+	return selectedModel, wire, nil
 }
 
 func openAIMessages(message Message) ([]openAIMessage, error) {
@@ -476,14 +509,17 @@ func (p *OpenAICompatibleProvider) endpoint(path string) string {
 	return p.baseURL + path
 }
 
-func (p *OpenAICompatibleProvider) addHeaders(request *http.Request, stream bool) {
+func (p *OpenAICompatibleProvider) addHeaders(request *http.Request, stream bool,
+	secret string,
+) error {
 	request.Header.Set("Content-Type", "application/json")
 	if stream {
 		request.Header.Set("Accept", "text/event-stream")
 	} else {
 		request.Header.Set("Accept", "application/json")
 	}
-	request.Header.Set("Authorization", "Bearer "+p.apiKey)
+	request.Header.Set("Authorization", "Bearer "+secret)
+	return applyProviderRequestHeaders(p.runtime, secret, request.Header)
 }
 
 func readOpenAIBody(reader io.Reader) ([]byte, error) {

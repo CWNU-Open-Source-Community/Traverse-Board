@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/webui"
 )
 
@@ -161,9 +162,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
 	if browserCDPCapabilities.FullDebugEnabled &&
-		!permissionCapabilities.DebugMaximumAccessEnabled {
+		!permissionCapabilities.DangerFullAccessEnabled {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"full CDP debug requires maximum Debug execution capability")
+			"full CDP requires danger Full Access execution capability")
 	}
 	if *hostCommandProposals && !permissionCapabilities.OperatorApprovalEnabled {
 		return apperror.New(apperror.CodeInvalidArgument,
@@ -328,11 +329,33 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"Docker Sandbox startup recovery failed", err)
 	}
+	webClient := webevidence.NewSafeHTTPClient()
+	providerSearchClient := webevidence.NewProviderSearchHTTPClient()
+	var webSearchProvider webevidence.SearchProvider
+	if endpoint := strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)); endpoint != "" {
+		webSearchProvider, err = webevidence.NewSearXNGProvider(webClient, endpoint)
+		if err != nil {
+			return apperror.Wrap(apperror.CodeInvalidArgument,
+				"invalid Web search endpoint", err)
+		}
+	}
+	providerSearchResolver, err := application.NewProviderSearchResolver(a.models,
+		a.store, a.credentials, webSearchProvider, providerSearchClient)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"Provider search resolver is unavailable", err)
+	}
+	webEvidence := webevidence.NewService(a.store, webSearchProvider,
+		webevidence.NewFetcher(webClient)).WithSearchProviderResolver(providerSearchResolver)
 	lifecycleControl := application.NewRunLifecycleControlService(a.store).
 		WithLifecycleHooks(hookEngine)
+	webFetchAuthorizationSchedulerEnabled := controlToken != "" &&
+		*permissionControl && permissionCapabilities.OperatorApprovalEnabled
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
 		a.checker).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
-		WithLifecycleHooks(hookEngine)
+		WithExecutionPermissionCapabilities(permissionCapabilities).
+		WithLifecycleHooks(hookEngine).WithWebEvidence(webEvidence).
+		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled)
 	if standardCodeDelivery != nil {
 		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
 	}
@@ -435,6 +458,13 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	approvalControl := application.NewApprovalControlService(a.store,
 		a.newToolGateway(), a.checker)
 	modelControl := application.NewModelControlService(a.models, a.store)
+	threadModelRoutes := application.NewThreadModelRouteService(a.store, a.models)
+	providerSearchReadiness := application.NewProviderSearchReadinessService(
+		a.store, providerSearchResolver)
+	providerDefinitionControl, err := application.NewProviderDefinitionService(a.store, a.models)
+	if err != nil {
+		return err
+	}
 	providerCredentialControl := application.NewProviderCredentialService(a.credentials).
 		WithRegistryReload(a.models, a.store)
 	fileEditReview := application.NewFileEditReviewService(a.store)
@@ -542,6 +572,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		}
 	}
 	localReadinessRuntime = &readinessRuntime
+	threadTurnControl := application.NewThreadTurnServiceWithExecutionCapabilities(
+		a.store, lifecycleControl, executionControl, permissionCapabilities).
+		WithModelRouteRegistry(a.models).
+		WithLifecycleHooks(hookEngine)
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
@@ -552,9 +586,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunExecutionEnabled:                     controlToken != "",
 		PlanDeliveryControlEnabled:              controlToken != "",
 		ApprovalControlEnabled:                  controlToken != "",
+		WebFetchAuthorizationSchedulerEnabled:   webFetchAuthorizationSchedulerEnabled,
 		ControlledCommandProposalControlEnabled: controlToken != "",
 		HostCommandProposalControlEnabled:       *hostCommandProposals,
 		ModelControlEnabled:                     controlToken != "",
+		ProviderDefinitionEnabled:               controlToken != "",
 		ProviderCredentialEnabled:               *providerCredentials,
 		FileEditReviewEnabled:                   controlToken != "",
 		FileEditProposalEnabled:                 *fileEditProposals,
@@ -583,6 +619,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ExtensionControlEnabled:                 controlToken != "",
 		LifecycleHooks:                          hookEngine,
 		RunLifecycleController:                  lifecycleControl,
+		ThreadTurnController:                    threadTurnControl,
 		StandardCodePresetController:            standardCodePreset,
 		StandardCodeDeliveryController:          standardCodeDelivery,
 		RunExecutionController:                  executionControl,
@@ -592,6 +629,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ControlledCommandProposalController:     controlledCommandProposals,
 		HostCommandProposalController:           hostCommandProposalControl,
 		ModelControlController:                  modelControl,
+		ThreadModelRouteController:              threadModelRoutes,
+		ProviderSearchReadinessController:       providerSearchReadiness,
+		ProviderDefinitionController:            providerDefinitionControl,
 		PriceSnapshotController:                 a.store,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			a.store, a.router, a.checker),
@@ -632,6 +672,28 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	}
 	reconcileCtx, reconcileCancel := context.WithCancel(ctx)
 	defer reconcileCancel()
+	if webFetchAuthorizationSchedulerEnabled {
+		webFetchReconcileCtx, cancelWebFetchReconcile := context.WithCancel(ctx)
+		webFetchReconcileDone := make(chan struct{})
+		go func() {
+			defer close(webFetchReconcileDone)
+			for {
+				_, _ = executionControl.ReconcileWebFetchAuthorizations(
+					webFetchReconcileCtx, "", application.MaxApprovalQueueItems)
+				timer := time.NewTimer(2 * time.Second)
+				select {
+				case <-webFetchReconcileCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+		}()
+		defer func() {
+			cancelWebFetchReconcile()
+			<-webFetchReconcileDone
+		}()
+	}
 	if commandRuntime != nil {
 		go func() {
 			if reconcileErr := commandRuntime.RunReconciler(reconcileCtx,

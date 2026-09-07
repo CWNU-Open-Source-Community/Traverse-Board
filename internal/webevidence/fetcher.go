@@ -11,6 +11,7 @@ import (
 type FetchedContent struct {
 	RequestedURL string
 	FinalURL     string
+	HTTPStatus   int
 	RawDigest    string
 	Parsed       ParsedDocument
 	Robots       string
@@ -18,8 +19,30 @@ type FetchedContent struct {
 	Truncated    bool
 }
 
+// RobotsPolicy determines whether robots observations are an execution gate or
+// an audit fact. An empty policy is treated as RobotsPolicyEnforce so callers
+// compiled against the original fail-closed contract do not silently widen
+// their authority.
+type RobotsPolicy string
+
+const (
+	RobotsPolicyEnforce   RobotsPolicy = "enforce"
+	RobotsPolicyAuditOnly RobotsPolicy = "audit_only"
+)
+
+func (p RobotsPolicy) Valid() bool {
+	return p == RobotsPolicyEnforce || p == RobotsPolicyAuditOnly
+}
+
+func effectiveRobotsPolicy(policy RobotsPolicy) RobotsPolicy {
+	if policy == "" {
+		return RobotsPolicyEnforce
+	}
+	return policy
+}
+
 type FetchBackend interface {
-	Fetch(context.Context, string, NetworkAuthority) (FetchedContent, error)
+	Fetch(context.Context, string, NetworkAuthority, RobotsPolicy) (FetchedContent, error)
 }
 
 type Fetcher struct {
@@ -38,10 +61,14 @@ func NewFetcher(client *SafeHTTPClient) *Fetcher {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string,
-	authority NetworkAuthority,
+	authority NetworkAuthority, robotsPolicy RobotsPolicy,
 ) (FetchedContent, error) {
 	if f == nil || f.Client == nil {
 		return FetchedContent{}, errors.New("web fetcher is unavailable")
+	}
+	robotsPolicy = effectiveRobotsPolicy(robotsPolicy)
+	if !robotsPolicy.Valid() {
+		return FetchedContent{}, errors.New("web fetch robots policy is invalid")
 	}
 	canonical, err := CanonicalizePublicHTTPSURL(rawURL)
 	if err != nil {
@@ -62,29 +89,40 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string,
 				return nil
 			}
 			// SafeHTTPClient invokes this guard before the initial request and
-			// every redirect hop. Rechecking the destination path prevents an
-			// allowed origin from redirecting around another origin's robots
-			// policy.
+			// every redirect hop. Rechecking preserves an honest per-hop audit
+			// even when the selected permission makes robots non-blocking.
 			decision, robotsErr := CheckRobotsAuthorized(ctx, f.Client, raw, authority)
-			robotsState = decision.State
+			robotsState = mergeRobotsAuditState(robotsState, decision.State,
+				robotsErr, robotsPolicy)
 			if robotsErr != nil {
+				if robotsPolicy == RobotsPolicyAuditOnly {
+					return nil
+				}
 				return fmt.Errorf("web fetch blocked because robots policy is unknown: %w",
 					robotsErr)
 			}
 			if !decision.Allowed {
+				if robotsPolicy == RobotsPolicyAuditOnly {
+					return nil
+				}
 				return errors.New("web fetch blocked by robots policy")
 			}
 			return nil
 		})
 	if err != nil {
-		return FetchedContent{}, err
+		return FetchedContent{RequestedURL: canonical, FinalURL: canonical,
+			Robots: robotsState}, err
 	}
+	fetched := FetchedContent{RequestedURL: document.RequestedURL,
+		FinalURL: document.FinalURL, HTTPStatus: document.StatusCode,
+		Robots: robotsState, Redirects: document.Redirects,
+		Truncated: document.Truncated}
 	if document.StatusCode < http.StatusOK || document.StatusCode >= http.StatusMultipleChoices {
-		return FetchedContent{}, fmt.Errorf("web fetch returned HTTP %d", document.StatusCode)
+		return fetched, fmt.Errorf("web fetch returned HTTP %d", document.StatusCode)
 	}
 	contentType := strings.TrimSpace(document.Header.Get("Content-Type"))
 	if contentType == "" {
-		return FetchedContent{}, errors.New("web fetch response omitted Content-Type")
+		return fetched, errors.New("web fetch response omitted Content-Type")
 	}
 	maxBody := f.MaxBodyBytes
 	if maxBody <= 0 || maxBody > MaxBodyBytes {
@@ -92,10 +130,45 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string,
 	}
 	parsed, err := ParseDocument(document.Body, contentType, maxBody)
 	if err != nil {
-		return FetchedContent{}, err
+		return fetched, err
 	}
-	return FetchedContent{RequestedURL: document.RequestedURL, FinalURL: document.FinalURL,
-		RawDigest: DigestBytes(document.Body), Parsed: parsed, Robots: robotsState,
-		Redirects: document.Redirects,
-		Truncated: document.Truncated || parsed.Truncated || parsed.Partial}, nil
+	fetched.RawDigest = DigestBytes(document.Body)
+	fetched.Parsed = parsed
+	fetched.Truncated = fetched.Truncated || parsed.Truncated || parsed.Partial
+	return fetched, nil
+}
+
+func mergeRobotsAuditState(current, observed string, observedErr error,
+	policy RobotsPolicy,
+) string {
+	if policy == RobotsPolicyAuditOnly {
+		switch {
+		case observedErr != nil || observed == "unknown":
+			observed = "bypassed_unknown"
+		case observed == "blocked":
+			observed = "bypassed_disallow"
+		}
+	}
+	priority := func(state string) int {
+		switch state {
+		case "bypassed_disallow":
+			return 6
+		case "bypassed_unknown":
+			return 5
+		case "blocked":
+			return 4
+		case "unknown":
+			return 3
+		case "allowed":
+			return 2
+		case "not_present":
+			return 1
+		default:
+			return 0
+		}
+	}
+	if priority(observed) >= priority(current) {
+		return observed
+	}
+	return current
 }

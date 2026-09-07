@@ -280,6 +280,10 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 	if err != nil {
 		return ClientCallResult{}, errors.New("MCP tool result content could not be sanitized")
 	}
+	value, err = redact.SanitizeSensitiveJSON(value)
+	if err != nil {
+		return ClientCallResult{}, errors.New("MCP tool result sensitive fields could not be sanitized")
+	}
 	content := string(value)
 	truncated := len([]byte(content)) > maxBytes
 	if truncated {

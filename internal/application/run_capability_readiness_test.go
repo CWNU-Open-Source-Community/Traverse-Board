@@ -94,6 +94,11 @@ func TestRunCapabilityReadinessDistinguishesRunningPausedAndActiveLease(t *testi
 	if preview.Selectable || !preview.RuntimeAvailable || !preview.Selected {
 		t.Fatalf("running selected Preview was conflated with runtime failure: %#v", preview)
 	}
+	restrictedCDP := readinessOption(t, running.BrowserCDPPermissions, "restricted")
+	if !restrictedCDP.Selectable {
+		t.Fatalf("running Run could not immediately select the restrictive CDP mode: %#v",
+			restrictedCDP)
+	}
 	if _, err := runService.Pause(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +133,64 @@ func TestRunCapabilityReadinessDistinguishesRunningPausedAndActiveLease(t *testi
 	if !conservative.Selectable || !conservative.RuntimeAvailable {
 		t.Fatalf("permission revision must remain selectable so it can revoke authority: %#v",
 			conservative)
+	}
+	restrictedCDP = readinessOption(t, leased.BrowserCDPPermissions, "restricted")
+	if !restrictedCDP.Selectable ||
+		hasReadinessBlocker(restrictedCDP,
+			application.CapabilityBlockerExecutionLeaseActive) {
+		t.Fatalf("active lease blocked an immediate restrictive CDP downgrade: %#v",
+			restrictedCDP)
+	}
+}
+
+func TestRunCapabilityReadinessAllowsFullCDPInsideLiveFullAccessOnly(t *testing.T) {
+	ctx, state, run := newCapabilityReadinessRun(t, "code")
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
+	permissionService := application.NewRunExecutionPermissionService(
+		state, executionCapabilities)
+	if _, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "readiness-live-full-access-0001", RequestedBy: "test_operator",
+			Reason:                  "activate current Run Full Access for Full CDP",
+			ConfirmDangerFullAccess: true,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := readyCapabilityReadinessRuntime()
+	runtime.ExecutionPermissionCapabilities = executionCapabilities
+	service := application.NewRunCapabilityReadinessService(state, runtime)
+	live, err := service.Project(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullCDP := readinessOption(t, live.BrowserCDPPermissions, "full_debug")
+	if !fullCDP.Selectable || !fullCDP.RuntimeAvailable {
+		t.Fatalf("live Full Access did not admit its Full CDP sub-capability: %#v", fullCDP)
+	}
+
+	authority.RevokeRun(run.ID)
+	stale, err := service.Project(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullPermission := readinessOption(t, stale.Permissions, "full_access")
+	if !fullPermission.Selectable || fullPermission.RuntimeAvailable ||
+		!hasReadinessBlocker(fullPermission,
+			application.CapabilityBlockerPermissionMismatch) {
+		t.Fatalf("cold historical Full Access was not offered safe re-confirmation: %#v",
+			fullPermission)
+	}
+	fullCDP = readinessOption(t, stale.BrowserCDPPermissions, "full_debug")
+	if fullCDP.Selectable || fullCDP.RuntimeAvailable ||
+		!hasReadinessBlocker(fullCDP,
+			application.CapabilityBlockerPermissionMismatch) {
+		t.Fatalf("Full CDP ignored the revoked Full Access authority: %#v", fullCDP)
 	}
 }
 
