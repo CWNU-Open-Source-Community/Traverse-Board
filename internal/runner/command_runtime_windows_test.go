@@ -204,6 +204,11 @@ func TestCommandRuntimeWindowsPowerShell5PowerShell7AndGitBashSmoke(t *testing.T
 			if !commandRuntimeRegularFile(test.executable) {
 				t.Skipf("%s is unavailable", test.name)
 			}
+			if test.profile == CommandRuntimePowerShell {
+				// Normalize the selected shell's actual launch environment instead
+				// of replacing a different shell's executable after fingerprinting.
+				t.Setenv("CYBERAGENT_POWERSHELL_PATH", test.executable)
+			}
 			resolved, err := NormalizeCommandRuntimeSpec(CommandRuntimeSpec{
 				Version: CommandRuntimeProtocolVersion, Profile: test.profile,
 				Script: test.script, WorkingDirectory: ".",
@@ -215,11 +220,6 @@ func TestCommandRuntimeWindowsPowerShell5PowerShell7AndGitBashSmoke(t *testing.T
 				Network:     CommandRuntimeNetworkDisabled,
 				Credentials: CommandRuntimeCredentialsNone, Purpose: test.name + " smoke",
 			}, root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			resolved.ExecutablePath = filepath.Clean(test.executable)
-			resolved.ExecutableSHA256, err = commandRuntimeFileSHA256(resolved.ExecutablePath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -237,13 +237,6 @@ func TestCommandRuntimeWindowsPowerShell5PowerShell7AndGitBashSmoke(t *testing.T
 			_ = process.Close()
 			decodedStdout := commandRuntimeWindowsTestOutput(stdout)
 			decodedStderr := commandRuntimeWindowsTestOutput(stderr)
-			if test.name == "Windows PowerShell 5" &&
-				strings.EqualFold(strings.TrimSpace(os.Getenv("GITHUB_ACTIONS")), "true") &&
-				uint32(exitCode) == uint32(0xffff0000) &&
-				strings.Contains(decodedStderr, "System.Management.Automation.Utils") &&
-				strings.Contains(strings.ToLower(decodedStderr), "type initializer") {
-				t.Skipf("GitHub Windows service session rejected Windows PowerShell 5 before script initialization; product authority remains closed")
-			}
 			if waitErr != nil || exitCode != 0 || !strings.Contains(decodedStdout, "smoke") {
 				t.Fatalf("stdout=%q stderr=%q exit=%d err=%v",
 					decodedStdout, decodedStderr, exitCode, waitErr)
