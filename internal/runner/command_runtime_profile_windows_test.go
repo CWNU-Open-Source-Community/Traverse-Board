@@ -88,7 +88,13 @@ func TestCommandRuntimeWindowsPowerShell5BindsWorkspaceProfileBeforeLaunch(t *te
 
 func TestCommandRuntimeWindowsPowerShell7KeepsExistingProfileEnvironment(t *testing.T) {
 	// Pinning-only fixture: the separate PS5 regression launches the real shell.
-	executable := commandRuntimeTestPowerShellImage(t, t.TempDir(), "pwsh.exe")
+	// Windows TEMP can use an ancestor alias or an 8.3 spelling. Create the
+	// trusted fixture at its canonical path, as the production resolver requires.
+	runtimeRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := commandRuntimeTestPowerShellImage(t, runtimeRoot, "pwsh.exe")
 	t.Setenv("CYBERAGENT_POWERSHELL_PATH", executable)
 	resolved, err := NormalizeCommandRuntimeSpec(commandRuntimeTestPowerShellSpec(), t.TempDir())
 	if err != nil {
