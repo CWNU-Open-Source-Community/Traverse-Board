@@ -759,7 +759,21 @@ finally {
                     [System.StringComparison]::OrdinalIgnoreCase)) {
                 throw "Refusing to clean a Desktop smoke directory outside the repository temporary root"
             }
-            Remove-Item -LiteralPath $resolvedHome -Recurse -Force
+            # WebView2 can release its database files shortly after the Desktop
+            # parent exits. Wait only for this owned home's transient I/O locks;
+            # persistent locks still fail the smoke instead of hiding a leak.
+            for ($attempt = 1; $attempt -le 20; $attempt++) {
+                try {
+                    if (Test-Path -LiteralPath $resolvedHome) {
+                        Remove-Item -LiteralPath $resolvedHome -Recurse -Force -ErrorAction Stop
+                    }
+                    break
+                }
+                catch [System.IO.IOException] {
+                    if ($attempt -eq 20) { throw }
+                    Start-Sleep -Milliseconds 250
+                }
+            }
         }
     }
     finally {

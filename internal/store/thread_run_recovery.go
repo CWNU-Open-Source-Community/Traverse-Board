@@ -14,7 +14,8 @@ import (
 )
 
 // GetThreadRunRecovery returns a recovery candidate only when the latest
-// execution handoff of the exact active running Run failed durably.
+// execution handoff of the exact active Run failed durably. A failed turn may
+// have paused that Run; the failed handoff remains the recovery predicate.
 func (s *SQLiteStore) GetThreadRunRecovery(ctx context.Context,
 	threadID string,
 ) (domain.ThreadRunRecovery, bool, error) {
@@ -34,7 +35,7 @@ func (s *SQLiteStore) GetThreadRunRecovery(ctx context.Context,
 	if err != nil {
 		return domain.ThreadRunRecovery{}, false, err
 	}
-	if run.Status != domain.RunRunning {
+	if run.Status != domain.RunRunning && run.Status != domain.RunPaused {
 		return domain.ThreadRunRecovery{}, false, nil
 	}
 	var operationID string
@@ -191,9 +192,9 @@ func (s *SQLiteStore) recoverThreadRunFromFailedHandoff(ctx context.Context,
 			apperror.CodeConflict, "Thread Run was already recovered by another operation")
 	}
 	if threadRecord.Status != domain.ThreadActive || threadRecord.ActiveRunID != run.ID ||
-		threadRecord.LastRunID != run.ID || run.Status != domain.RunRunning {
+		threadRecord.LastRunID != run.ID || (run.Status != domain.RunRunning && run.Status != domain.RunPaused) {
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
-			apperror.CodeConflict, "Thread recovery target is no longer the active running Run")
+			apperror.CodeConflict, "Thread recovery target is no longer the active running or paused Run")
 	}
 	var latestOperationID string
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM run_execution_handoff_operations
@@ -214,6 +215,17 @@ func (s *SQLiteStore) recoverThreadRunFromFailedHandoff(ctx context.Context,
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Thread recovery requires the latest failed durable handoff")
+	}
+	// A normal next turn can seal this failure after the recovery projection
+	// was read, without changing the latest handoff. Recheck that boundary
+	// under the writer lock before terminalizing the still-continuable Run.
+	for _, item := range handoff.Items {
+		if failure, closed, err := getThreadTurnFailure(ctx, tx, run.ID, item.MessageID); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		} else if closed && failure.HandoffOperationID == operationID {
+			return domain.Thread{}, domain.Run{}, false, apperror.New(
+				apperror.CodeConflict, "The failed Thread turn was already closed; refresh before recovering")
+		}
 	}
 	checkpoint, checkpointFound, err := getSupervisorCheckpointTx(ctx, tx, run.ID)
 	if err != nil {

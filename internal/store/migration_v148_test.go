@@ -18,6 +18,7 @@ func TestSchemaV148DefersPreparingThreadPermissionAndMaterializesSuccessor(t *te
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 147); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, threadRecord := preparingThreadPermissionFixture(t, ctx, state)
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
@@ -30,15 +31,33 @@ func TestSchemaV148DefersPreparingThreadPermissionAndMaterializesSuccessor(t *te
 	if _, err := service.Change(ctx, request); err == nil {
 		t.Fatal("v147 unexpectedly accepted a deferred preparing operation")
 	}
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[147]); err != nil {
 		t.Fatal(err)
 	}
 	request.OperationKey = "migration-v148-preparing-after-upgrade-0001"
-	assertPreparingPermissionDeferredAndMaterialized(t, ctx, state, service,
-		run, threadRecord, request)
+	before, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := service.Change(ctx, request)
+	if err != nil || selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred || selected.CurrentRunID != run.ID {
+		t.Fatalf("v148 preparing preference was not deferred: %+v %v", selected, err)
+	}
+	after, err := state.GetRunExecutionPermission(ctx, run.ID)
+	storedRun, runErr := state.GetRun(ctx, run.ID)
+	if err != nil || runErr != nil || after.ID != before.ID || after.Revision != before.Revision || storedRun.Status != domain.RunPreparing {
+		t.Fatalf("v148 changed preparing Run: before=%+v after=%+v run=%+v errors=%v/%v", before, after, storedRun, err, runErr)
+	}
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 148 {
 		t.Fatalf("schema version=%d want=148 err=%v", version, err)
 	}
+	// Current successor submission needs the later message-intent/input schema.
+	if err := state.applyMigrations(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	assertPreparingPermissionDeferredAndMaterialized(t, ctx, state, service,
+		run, threadRecord, request)
 	assertNoForeignKeyViolations(t, state.db)
 }
 

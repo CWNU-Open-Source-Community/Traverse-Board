@@ -250,6 +250,12 @@ func TestMonetaryLateUsagePreservesLaterSupervisorTurn(t *testing.T) {
 	if _, err := st.FailSupervisorTurn(ctx, first.Checkpoint, "transport no longer owned by the turn", 0); err != nil {
 		t.Fatal(err)
 	}
+	if paused, err := st.GetRun(ctx, run.ID); err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("failed turn must pause before explicit continuation: run=%#v err=%v", paused, err)
+	}
+	if _, err := application.NewRunService(st).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	second, err := st.BeginSupervisorTurn(ctx, lease, "new input must remain current")
 	if err != nil {
 		t.Fatal(err)

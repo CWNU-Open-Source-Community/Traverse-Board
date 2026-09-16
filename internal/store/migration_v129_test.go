@@ -43,6 +43,7 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "thread-v128.db")
 	legacy := openSchemaV128Store(t, path)
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 	_, created, err := application.NewRunService(legacy).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve historical task", Profile: "review",
 			Budget: domain.Budget{MaxTurns: 3}})
@@ -58,6 +59,7 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}

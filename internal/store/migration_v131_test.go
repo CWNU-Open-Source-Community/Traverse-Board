@@ -30,6 +30,7 @@ func TestSchemaV131PreservesV130StreamToolIdentities(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "command-runtime-preserves-item-stream.db")
 	legacy := openSchemaV130Store(t, path)
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 	_, runRecord := createStructuredToolTestRun(t, ctx, legacy,
 		"preserve item-stream identity through command runtime migration")
 	if _, err := application.NewRunService(legacy).Start(ctx, runRecord.ID); err != nil {
@@ -77,6 +78,7 @@ func TestSchemaV131PreservesV130StreamToolIdentities(t *testing.T) {
 	if before[0] == "" || before[1] == "" || before[2] == "" {
 		t.Fatalf("v130 stream identity is incomplete: %#v", before)
 	}
+	restoreLegacyInputs()
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -108,10 +110,12 @@ func TestSchemaV131ProjectsV130JobsAsReadOnlyLegacyUnbound(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "command-runtime-v130.db")
 	legacy := openSchemaV130Store(t, path)
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 	job := commandRuntimeMigrationJob(t, legacy,
 		domain.RunExecutionPermissionFullAccess,
 		commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)))
 	insertV130CommandRuntimeJob(t, legacy, job)
+	restoreLegacyInputs()
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}

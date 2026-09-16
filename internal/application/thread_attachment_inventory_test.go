@@ -30,7 +30,9 @@ func TestThreadAttachmentInventoryBoundsHistoryWithoutBlockingTextAndSurvivesSuc
 	if err != nil {
 		t.Fatal(err)
 	}
-	turns := newThreadFilesService(st, provider)
+	// This fixed reply script exercises extractive compaction and attachment
+	// inventory bounds; generated-summary calls have their own protocol fixture.
+	turns := toolBoundaryService(st, st, provider)
 	var latest domain.WorkspaceFileAttachment
 	for batch := 0; batch < 17; batch++ {
 		input := application.ExecuteThreadTurnRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: domain.InitialThreadID(run.ID), OperationKey: fmt.Sprintf("bounded-input-message-%d", batch), RequestedBy: "test_operator"}
@@ -76,7 +78,7 @@ func TestThreadAttachmentInventoryBoundsHistoryWithoutBlockingTextAndSurvivesSuc
 		t.Fatal(err)
 	}
 	defer st.Close()
-	turns = newThreadFilesService(st, provider)
+	turns = toolBoundaryService(st, st, provider)
 	follow.OperationKey = "bounded-input-successor-followup"
 	result, err := turns.Execute(t.Context(), follow)
 	if err != nil || result.Submission.Run.ID == run.ID {

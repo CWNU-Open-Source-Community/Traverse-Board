@@ -23,6 +23,7 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 150); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 
 	_, run := createStructuredToolTestRun(t, ctx, state,
 		"preserve historical Supervisor actor")
@@ -73,6 +74,7 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[150]); err != nil {
 		t.Fatal(err)
 	}

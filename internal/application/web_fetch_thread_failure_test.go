@@ -28,6 +28,25 @@ func (s *historicalWebFetchFailureStore) PrepareWebFetchAuthorizationHandoff(con
 	return domain.RunExecutionHandoff{}, false, nil
 }
 
+func restoreHistoricalWebFetchRunState(t *testing.T, st *store.SQLiteStore, runID string) {
+	t.Helper()
+	before, found, err := st.GetSupervisorCheckpoint(t.Context(), runID)
+	if err != nil || !found || before.Phase != domain.SupervisorTurnFailed {
+		t.Fatalf("historical fixture has no failed checkpoint: %#v err=%v", before, err)
+	}
+	// The old resume path neither created a continuation handoff nor paused
+	// the Run on failure. Restore that historical status through the normal
+	// lifecycle interface; retain the exact failed attempt, input and cause.
+	run, err := application.NewRunService(st).Resume(t.Context(), runID)
+	if err != nil || run.Status != domain.RunRunning {
+		t.Fatalf("restore historical running status: %#v err=%v", run, err)
+	}
+	after, found, err := st.GetSupervisorCheckpoint(t.Context(), runID)
+	if err != nil || !found || !reflect.DeepEqual(before, after) {
+		t.Fatalf("historical setup changed the failed checkpoint: before=%#v after=%#v err=%v", before, after, err)
+	}
+}
+
 func webFetchThreadFailureFixture(t *testing.T, historical bool) (*store.SQLiteStore,
 	*application.ThreadTurnService, *application.RunExecutionHandoffService,
 	*scriptedToolProvider, *applicationWebFetchBackend,
@@ -128,11 +147,9 @@ func TestWebFetchApprovalResumeFailureSealsThreadTurnAndPreservesEvidence(t *tes
 		!strings.Contains(messages[1].Content, "web_fetch") || !strings.Contains(messages[1].Content, "result SHA256") {
 		t.Fatalf("original input or tool evidence missing: %#v err=%v", messages, err)
 	}
-	if _, err := application.NewRunLifecycleControlService(st).Apply(t.Context(), application.ControlRunLifecycleRequest{
-		Version: domain.RunLifecycleControlProtocolVersion, RunID: authorization.RunID,
-		Action: domain.RunLifecyclePause, OperationKey: "pause-after-web-fetch-failure", RequestedBy: request.RequestedBy,
-	}); err != nil {
-		t.Fatalf("settled failure cannot be paused for configuration: %v", err)
+	paused, err := st.GetRun(t.Context(), authorization.RunID)
+	if err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("settled failure did not pause for configuration: %#v err=%v", paused, err)
 	}
 	before := len(provider.Requests())
 	_, err = turns.Execute(t.Context(), request)
@@ -164,6 +181,7 @@ func TestHistoricalWebFetchFailureContinuesThroughOrdinaryThreadMessage(t *testi
 	if _, _, err := handoff.ResumeWebFetchAuthorization(t.Context(), authorization.RunID, authorization.ID); err == nil {
 		t.Fatal("historical continuation unexpectedly succeeded")
 	}
+	restoreHistoricalWebFetchRunState(t, st, authorization.RunID)
 	checkpoint, _, err := st.GetSupervisorCheckpoint(t.Context(), authorization.RunID)
 	if err != nil || checkpoint.Phase != domain.SupervisorTurnFailed || backend.calls != 1 {
 		t.Fatalf("historical failure boundary missing: %#v fetches=%d err=%v", checkpoint, backend.calls, err)
@@ -218,6 +236,7 @@ func TestHistoricalWebFetchFailureCannotCrossChangedAttemptOrActiveLease(t *test
 	if _, _, err := handoff.ResumeWebFetchAuthorization(t.Context(), authorization.RunID, authorization.ID); err == nil {
 		t.Fatal("historical continuation unexpectedly succeeded")
 	}
+	restoreHistoricalWebFetchRunState(t, st, authorization.RunID)
 	if _, bound, err := st.PrepareWebFetchAuthorizationHandoff(t.Context(), authorization.ID,
 		"attempt-from-another-turn", domain.SupervisorTurnFailed); err != nil || bound {
 		t.Fatalf("mismatched attempt was selected: bound=%t err=%v", bound, err)

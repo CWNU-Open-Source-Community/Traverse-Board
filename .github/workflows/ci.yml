@@ -323,6 +323,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Local command manifests bind Windows drive roots and LPAC policy.
+          # Run their launch freshness/capability tests on the actual platform.
+          go test -v -count=1 -timeout 10m ./internal/application -run '^TestLocalCommand'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test Desktop boundaries
         run: >-
           go test -tags "desktop,wv2runtime.error" -count=1

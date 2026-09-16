@@ -24,6 +24,14 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 	if _, _, err := st.ReleaseRunExecutionLease(ctx, f.lease); err != nil {
 		t.Fatal(err)
 	}
+	if paused, err := st.GetRun(ctx, f.base.run.ID); err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("ending the fixture attempt must pause the Run: %#v %v", paused, err)
+	}
+	// The subsequent proposal is explicit operator work, so resume before
+	// preparing its source under the existing running-Run guard.
+	if _, err := NewRunService(st).Resume(ctx, f.base.run.ID); err != nil {
+		t.Fatal(err)
+	}
 	proposalService := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithDrydock(f.base.service)
 	source, err := proposalService.IssueSource(ctx, f.base.run.ID, "tracked.txt")
 	if err != nil {

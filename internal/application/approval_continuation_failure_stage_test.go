@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -45,18 +47,30 @@ func TestApprovalContinuationSealsExactModelFailureStageBeforeClosingInput(t *te
 			if _, err := turns.Execute(t.Context(), input); err != nil {
 				t.Fatal(err)
 			}
+			waiting, err := st.GetRun(t.Context(), run.ID)
+			if err != nil || waiting.Status != domain.RunPaused {
+				t.Fatalf("ordinary approval wait did not pause: %#v err=%v", waiting, err)
+			}
+			if recovery, found, err := st.GetThreadRunRecovery(t.Context(), input.ThreadID); err != nil || found {
+				t.Fatalf("ordinary approval wait was classified as failed recovery: %#v found=%t err=%v", recovery, found, err)
+			}
 			edit := approveBoundaryEdit(t, st, run)
 			request := application.ApprovalContinuationRequest{RunID: run.ID, Kind: "file_edit", ProposalID: edit.ID}
 			result := turns.ResumeApproval(t.Context(), request)
 			if result.State != "failed" || result.ErrorCode != "FAILED_PRECONDITION" || len(provider.Requests()) != wantCalls {
 				t.Fatalf("continuation=%#v calls=%d", result, len(provider.Requests()))
 			}
+			paused, err := st.GetRun(t.Context(), run.ID)
+			if err != nil || paused.Status != domain.RunPaused {
+				t.Fatalf("failed approval continuation did not return control to the operator: %#v %v", paused, err)
+			}
 			cp, _, err := st.GetSupervisorCheckpoint(t.Context(), run.ID)
 			if err != nil || cp.Phase != domain.SupervisorIdle || cp.AttemptID != "" || cp.NextTurn != 3 {
 				t.Fatalf("checkpoint was not safely closed: %#v %v", cp, err)
 			}
 			recovery, found, err := st.GetThreadRunRecovery(t.Context(), input.ThreadID)
-			if err != nil || !found || recovery.FailureStage != tc.stage {
+			if err != nil || !found || recovery.FailureStage != tc.stage || !recovery.Quiescent ||
+				recovery.RunID != run.ID || recovery.HandoffOperationID != result.HandoffID {
 				t.Fatalf("closed checkpoint lost exact cause: %#v %v", recovery, err)
 			}
 			list, err := st.ListRunEvents(t.Context(), run.ID)
@@ -101,6 +115,40 @@ func TestApprovalContinuationSealsExactModelFailureStageBeforeClosingInput(t *te
 				t.Fatalf("saved approval changed: %#v %v", stored, err)
 			}
 			assertOneBoundaryTranscriptInput(t, st, input.ThreadID, input.Content)
+
+			// Paused failures remain recoverable, but never across an active
+			// execution lease or a different failed handoff identity.
+			lease, err := st.AcquireRunExecutionLease(t.Context(), domain.AcquireRunExecutionLeaseRequest{
+				RunID: run.ID, OwnerID: "approval-failure-fence", TTL: time.Minute,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _, _, _ = st.ReleaseRunExecutionLease(context.Background(), lease.Lease) })
+			recoverRequest := application.RecoverThreadRunRequest{Version: domain.ThreadRunRecoveryProtocolVersion,
+				ThreadID: input.ThreadID, RunID: run.ID, HandoffOperationID: result.HandoffID,
+				OperationKey: "recover-paused-approval-failure", RequestedBy: "test_operator"}
+			recoveries := application.NewThreadRunRecoveryService(st)
+			if _, err := recoveries.Recover(t.Context(), recoverRequest); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+				t.Fatalf("paused failure crossed an active lease: %v", err)
+			}
+			if _, _, _, err := st.RecoverThreadRunFromFailedHandoff(t.Context(), input.ThreadID, run.ID,
+				result.HandoffID, recoverRequest.RequestedBy, recoverRequest.OperationKey); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+				t.Fatalf("store recovery crossed an active lease: %v", err)
+			}
+			if _, _, err := st.ReleaseRunExecutionLease(t.Context(), lease.Lease); err != nil {
+				t.Fatal(err)
+			}
+			changed := recoverRequest
+			changed.HandoffOperationID = "run-handoff-unrelated"
+			if _, err := recoveries.Recover(t.Context(), changed); apperror.CodeOf(err) != apperror.CodeConflict {
+				t.Fatalf("paused failure accepted a different handoff: %v", err)
+			}
+			recovered, err := recoveries.Recover(t.Context(), recoverRequest)
+			if err != nil || recovered.FailedRun.Status != domain.RunFailed || recovered.Replayed ||
+				len(provider.Requests()) != wantCalls {
+				t.Fatalf("exact paused failure recovery changed execution: %#v calls=%d err=%v", recovered, len(provider.Requests()), err)
+			}
 		})
 	}
 }

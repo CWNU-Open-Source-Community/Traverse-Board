@@ -9,6 +9,10 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/toolbudget"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T) {
@@ -18,7 +22,8 @@ func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T
 	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 155); err != nil {
 		t.Fatal(err)
 	}
-	_, _, run, selected := populateStoreDeliveryGateFixture(t, st, "v156-legacy")
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, st)
+	run, selected := populateV155PlanDeliveryFixture(t, st)
 	work, err := application.NewWorkItemService(st).Transition(ctx, selected.WorkItems[0].ID, 0, domain.WorkItemInProgress, "")
 	if err != nil {
 		t.Fatal(err)
@@ -32,6 +37,7 @@ func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +92,79 @@ func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T
 	if rows.Next() {
 		t.Fatalf("upgrade left foreign key violations: %s", fkTable)
 	}
+}
+
+// Seed through the original proposal and turn ledgers. A current Supervisor
+// Step also loads image evidence, whose tables did not exist in v155.
+func populateV155PlanDeliveryFixture(t *testing.T, st *SQLiteStore) (domain.Run, application.SelectPlanDeliveryDirectionResult) {
+	t.Helper()
+	ctx := t.Context()
+	runs := application.NewRunService(st)
+	_, run, err := runs.Create(ctx, application.CreateRunRequest{
+		Goal: "exercise Delivery gates v156-legacy", Profile: "review", Phase: "plan",
+		ModelRoute: "store-plan/model", Budget: domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	lease := acquireTestRunExecutionLease(t, ctx, st, run.ID)
+	turn, err := st.BeginSupervisorTurn(ctx, lease, "prepare historical plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := st.ChargeToolCall(ctx, toolbudget.ChargeRequest{RunID: run.ID, SessionID: run.SessionID,
+		WorkspaceID: turn.Mission.WorkspaceID, ToolName: "plan_delivery_propose", ActionClass: "agent_proposal",
+		LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation, RequestedBy: "run_supervisor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := domain.DecodePlanDeliverySpec([]byte(storePlanDeliveryPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := application.NewPlanDeliveryToolExecutor(st).ProposePlan(ctx, toolgateway.PlanDeliveryContext{
+		InvocationID: usage.LastCharge, OperationKey: "legacy-v155-plan-proposal", RunID: run.ID,
+		SessionID: run.SessionID, WorkspaceID: turn.Mission.WorkspaceID, RootAgentID: turn.Agent.ID,
+		LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation, RequestedBy: "run_supervisor",
+		PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic,
+			Risk: "low", Reason: "historical Plan proposal fixture"},
+	}, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1, Provider: "store-plan", Model: "model"}
+	if _, err := st.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil {
+		t.Fatal(err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	response := llm.ChatResponse{Text: storeRootWaitResponse(t), Provider: "store-plan", Model: "model",
+		Usage: llm.Usage{InputTokens: 2, OutputTokens: 2, TotalTokens: 4}}
+	checkpoint, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionWait,
+		Message: "three directions are ready", Reason: "operator direction choice required"}
+	if _, _, _, err := st.CompleteSupervisorTurn(ctx, checkpoint, response, action,
+		policy.Decision{Allowed: true, Reason: "operator direction choice required"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.ReleaseRunExecutionLease(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := application.NewPlanDeliveryService(st).Select(ctx, application.SelectPlanDeliveryDirectionRequest{
+		ProposalID: proposal.ProposalID, Direction: 2, OperationKey: "store-delivery-choice-v156-legacy", RequestedBy: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.ChangePhase(ctx, application.ChangeRunPhaseRequest{RunID: run.ID, Phase: "deliver",
+		OperationKey: "store-delivery-mode-v156-legacy", RequestedBy: "operator", Reason: "accepted direction"}); err != nil {
+		t.Fatal(err)
+	}
+	return run, selected
 }
 
 func TestPlanDeliveryOnDemandCompletionKeepsPhaseDependenciesAndFinishGates(t *testing.T) {

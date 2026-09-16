@@ -139,6 +139,7 @@ func TestSchemaV145ResetsLegacyBroadThreadNetworkPreference(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 144); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	now := time.Now().UTC()
 	linkedSession := session.New("", "migrate a legacy broad network preference", "code")
 	linkedSession.ID = "session-v144-legacy-broad-network"
@@ -175,8 +176,26 @@ func TestSchemaV145ResetsLegacyBroadThreadNetworkPreference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[144]); err != nil {
 		t.Fatal(err)
+	}
+	if version, err := state.SchemaVersion(ctx); err != nil || version != 145 {
+		t.Fatalf("schema version=%d want=145 err=%v", version, err)
+	}
+	legacyMode, err := state.GetRunMode(ctx, predecessor.ID)
+	if err != nil || legacyMode.Scope.NetworkMode != "allowlist" || len(legacyMode.Scope.AllowedTargets) != 1 || legacyMode.Scope.AllowedTargets[0] != "public_https" {
+		t.Fatalf("v145 changed the historical network preference: %+v %v", legacyMode, err)
+	}
+	// Current Thread submission also needs the later message-intent and input
+	// migrations. The conservative reset happens when creating the successor,
+	// so verify that neither upgrade rewrites the historical broad preference.
+	if err := state.applyMigrations(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	currentMode, err := state.GetRunMode(ctx, predecessor.ID)
+	if err != nil || currentMode.ID != legacyMode.ID || !sameRunModeScope(currentMode.Scope, legacyMode.Scope) {
+		t.Fatalf("later migration rewrote the broad preference before submission: %+v %v", currentMode, err)
 	}
 	continued, err := application.NewThreadService(state).Submit(ctx,
 		application.SubmitThreadMessageRequest{

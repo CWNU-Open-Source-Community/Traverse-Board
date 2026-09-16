@@ -128,6 +128,7 @@ func TestSchemaV150RebuildsAuthorityBoundBrowserAndMCPSupervisorLedger(t *testin
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 149); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	_, run := createStructuredToolTestRun(t, ctx, state, "preserve v149 Supervisor call")
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
@@ -171,6 +172,7 @@ func TestSchemaV150RebuildsAuthorityBoundBrowserAndMCPSupervisorLedger(t *testin
 		checkpoint.AttemptID, ts(time.Now().UTC())); err != nil {
 		t.Fatalf("create legacy unbound MCP call: %v", err)
 	}
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[149]); err != nil {
 		t.Fatal(err)
 	}

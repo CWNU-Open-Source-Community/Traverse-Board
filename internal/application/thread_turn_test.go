@@ -82,6 +82,17 @@ func TestThreadTurnConfirmsCommittedMessageAfterIndependentHandoffRecovery(t *te
 	if _, err := turns.Execute(ctx, request); apperror.CodeOf(err) != apperror.CodeFailedPrecondition || provider.calls != 1 {
 		t.Fatalf("pending original failure was reported successful or reexecuted: calls=%d err=%v", provider.calls, err)
 	}
+	if paused, err := st.GetRun(ctx, created.ID); err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("failed handoff must remain paused before operator recovery: %#v %v", paused, err)
+	}
+	// This low-level handoff is an explicit recovery action. Unlike the
+	// product Thread facade, it requires the operator to resume the Run first.
+	if _, err := application.NewRunLifecycleControlService(st).Apply(ctx, application.ControlRunLifecycleRequest{
+		Version: domain.RunLifecycleControlProtocolVersion, RunID: created.ID,
+		Action: domain.RunLifecycleResume, OperationKey: "explicit-same-run-resume", RequestedBy: "http_run_operator",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	recovered, err := execution.Execute(ctx, application.ExecuteRunHandoffRequest{
 		Version: domain.RunExecutionHandoffProtocolVersion, RunID: created.ID,
 		OperationKey: "explicit-same-run-recovery", RequestedBy: "http_run_operator", MaxSteps: 1})

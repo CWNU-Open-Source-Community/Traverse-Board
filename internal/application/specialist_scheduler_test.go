@@ -347,6 +347,14 @@ func TestSpecialistSchedulerStopsBeforeCallsWhenAggregateExecutionBudgetIsSpent(
 		t.Fatal(err)
 	}
 	releaseTestRunExecutionLease(t, ctx, st, run.ID)
+	if paused, err := st.GetRun(ctx, run.ID); err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("spent failed turn must pause the Run: %#v %v", paused, err)
+	}
+	// Explicitly resume so the scheduler reaches its aggregate budget guard;
+	// resuming must not reset the already charged execution time.
+	if _, err := application.NewRunService(st).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := scheduler.Execute(ctx, application.SpecialistScheduleRequest{
 		RunID: run.ID, AgentIDs: childIDs(children), MaxRounds: 2,
