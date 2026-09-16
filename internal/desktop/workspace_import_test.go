@@ -98,10 +98,14 @@ func TestDesktopWorkspaceImportProjectsRegisteredLongNameWithoutChangingStoredId
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Workspace == nil || result.Workspace.ID != original.ID ||
+		if result.Workspace == nil {
+			t.Fatalf("existing import returned no workspace: %#v", result)
+		}
+		if result.Workspace.ID != original.ID ||
 			result.Workspace.Name != strings.Repeat("a", 125)+"..." ||
 			!result.Workspace.CreatedAt.Equal(original.CreatedAt) {
-			t.Fatalf("existing import did not pass the native projection boundary: %#v", result)
+			t.Fatalf("existing import did not pass the native projection boundary: original=%#v projected=%#v",
+				original, *result.Workspace)
 		}
 		stored, err := plane.stateStore.GetWorkspaceByID(t.Context(), original.ID)
 		if err != nil || stored.ID != original.ID || stored.Name != original.Name ||

@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -72,6 +74,62 @@ func TestWorkspaceImportRegistersExistingDirectoryWithoutWritingIntoIt(t *testin
 	}
 	if len(entries) != 0 {
 		t.Fatalf("workspace import wrote into selected directory: %#v", entries)
+	}
+}
+
+func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T) {
+	home := t.TempDir()
+	state, err := store.Open(filepath.Join(home, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	realHome := filepath.Join(home, "real")
+	if err := os.Mkdir(realHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasHome := filepath.Join(home, "alias")
+	if runtime.GOOS == "windows" {
+		// Directory junctions also exercise reparse-backed Windows temp paths
+		// without requiring the symbolic-link privilege.
+		command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"),
+			"/d", "/c", "mklink", "/J", aliasHome, realHome)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("create directory junction: %v output=%s", err, output)
+		}
+	} else if err := os.Symlink(realHome, aliasHome); err != nil {
+		t.Fatalf("create directory alias: %v", err)
+	}
+	manager := NewManager(aliasHome, state)
+	original, err := manager.Init(t.Context(), "Registered Project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(realHome, "workspaces", original.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved == original.RootPath {
+		t.Fatal("directory alias fixture did not change the root representation")
+	}
+	for _, selected := range []string{resolved, resolved + string(filepath.Separator)} {
+		imported, err := manager.Import(t.Context(), selected)
+		if err != nil {
+			t.Fatalf("Import(%q): %v", selected, err)
+		}
+		if imported.ID != original.ID || imported.Name != original.Name ||
+			imported.RootPath != original.RootPath || !imported.CreatedAt.Equal(original.CreatedAt) {
+			t.Fatalf("Import(%q) changed registration: original=%#v imported=%#v", selected, original, imported)
+		}
+	}
+	records, err := state.ListWorkspaces(t.Context())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("alias import created another registration: records=%#v err=%v", records, err)
+	}
+	stored := records[0]
+	if stored.ID != original.ID || stored.Name != original.Name ||
+		stored.RootPath != original.RootPath || !stored.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("alias import rewrote registration: original=%#v stored=%#v", original, stored)
 	}
 }
 

@@ -177,10 +177,15 @@ func canonicalImportRoot(selectedPath string) (string, error) {
 func sameWorkspaceRoot(left, right string) bool {
 	left = filepath.Clean(left)
 	right = filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
+	if left == right || runtime.GOOS == "windows" && strings.EqualFold(left, right) {
+		return true
 	}
-	return left == right
+	// Init and older registrations retain the caller's path spelling. Match
+	// existing directory aliases without rewriting the durable registration.
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && leftInfo.IsDir() && rightInfo.IsDir() &&
+		os.SameFile(leftInfo, rightInfo)
 }
 
 func workspaceRootIdentity(root string) string {
