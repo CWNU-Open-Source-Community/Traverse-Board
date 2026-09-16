@@ -73,40 +73,10 @@ func (s *SQLiteStore) PrepareRunExecutionHandoff(ctx context.Context,
 	if err != nil {
 		return domain.RunExecutionHandoff{}, false, err
 	}
-	operation.SelectedCount = len(items)
-	event, err := newRunExecutionHandoffEvent(run,
-		events.RunExecutionHandoffRequestedEvent, operation.ID, operation.CreatedAt,
-		map[string]any{"max_steps": operation.MaxSteps,
-			"selected_count": operation.SelectedCount})
+	handoff, err := insertRunExecutionHandoffTx(ctx, tx, run, operation, items)
 	if err != nil {
 		return domain.RunExecutionHandoff{}, false, err
 	}
-	storedEvent, err := insertRunEventTx(ctx, tx, event)
-	if err != nil {
-		return domain.RunExecutionHandoff{}, false, err
-	}
-	operation.EventSequence = storedEvent.Sequence
-	if err := operation.Validate(); err != nil {
-		return domain.RunExecutionHandoff{}, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO run_execution_handoff_operations
-		(id, operation_key_digest, request_fingerprint, protocol_version, run_id,
-		session_id, requested_by, max_steps, selected_count, event_sequence, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.ID, operation.KeyDigest,
-		operation.RequestFingerprint, operation.ProtocolVersion, operation.RunID,
-		operation.SessionID, operation.RequestedBy, operation.MaxSteps,
-		operation.SelectedCount, operation.EventSequence, ts(operation.CreatedAt)); err != nil {
-		return domain.RunExecutionHandoff{}, false, err
-	}
-	for _, item := range items {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO run_execution_handoff_items
-			(operation_id, ordinal, message_id, message_sequence, prepared)
-			VALUES (?, ?, ?, ?, ?)`, item.OperationID, item.Ordinal, item.MessageID,
-			item.MessageSequence, boolInt(item.Prepared)); err != nil {
-			return domain.RunExecutionHandoff{}, false, err
-		}
-	}
-	handoff := domain.RunExecutionHandoff{Operation: operation, Items: items}
 	if len(items) == 0 {
 		result, err := completeRunExecutionHandoffTx(ctx, tx, handoff, run,
 			domain.RunExecutionHandoffCompleted, "queue_empty", "", 0, false, false,
@@ -123,6 +93,55 @@ func (s *SQLiteStore) PrepareRunExecutionHandoff(ctx context.Context,
 		return domain.RunExecutionHandoff{}, false, err
 	}
 	return handoff, false, nil
+}
+
+func insertRunExecutionHandoffTx(ctx context.Context, tx *sql.Tx, run domain.Run,
+	operation domain.RunExecutionHandoffOperation, items []domain.RunExecutionHandoffItem,
+) (domain.RunExecutionHandoff, error) {
+	return insertRunExecutionHandoffWithContextTx(ctx, tx, run, operation, items, nil)
+}
+
+func insertRunExecutionHandoffWithContextTx(ctx context.Context, tx *sql.Tx, run domain.Run,
+	operation domain.RunExecutionHandoffOperation, items []domain.RunExecutionHandoffItem,
+	continuation any,
+) (domain.RunExecutionHandoff, error) {
+	operation.SelectedCount = len(items)
+	payload := map[string]any{"max_steps": operation.MaxSteps, "selected_count": operation.SelectedCount}
+	if continuation != nil {
+		payload["approval_continuation"] = continuation
+	}
+	event, err := newRunExecutionHandoffEvent(run,
+		events.RunExecutionHandoffRequestedEvent, operation.ID, operation.CreatedAt,
+		payload)
+	if err != nil {
+		return domain.RunExecutionHandoff{}, err
+	}
+	storedEvent, err := insertRunEventTx(ctx, tx, event)
+	if err != nil {
+		return domain.RunExecutionHandoff{}, err
+	}
+	operation.EventSequence = storedEvent.Sequence
+	if err := operation.Validate(); err != nil {
+		return domain.RunExecutionHandoff{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO run_execution_handoff_operations
+		(id, operation_key_digest, request_fingerprint, protocol_version, run_id,
+		session_id, requested_by, max_steps, selected_count, event_sequence, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.ID, operation.KeyDigest,
+		operation.RequestFingerprint, operation.ProtocolVersion, operation.RunID,
+		operation.SessionID, operation.RequestedBy, operation.MaxSteps,
+		operation.SelectedCount, operation.EventSequence, ts(operation.CreatedAt)); err != nil {
+		return domain.RunExecutionHandoff{}, err
+	}
+	for _, item := range items {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO run_execution_handoff_items
+			(operation_id, ordinal, message_id, message_sequence, prepared)
+			VALUES (?, ?, ?, ?, ?)`, item.OperationID, item.Ordinal, item.MessageID,
+			item.MessageSequence, boolInt(item.Prepared)); err != nil {
+			return domain.RunExecutionHandoff{}, err
+		}
+	}
+	return domain.RunExecutionHandoff{Operation: operation, Items: items}, nil
 }
 
 func (s *SQLiteStore) CompleteRunExecutionHandoff(ctx context.Context,
@@ -200,14 +219,24 @@ func completeRunExecutionHandoffTx(ctx context.Context, tx *sql.Tx,
 	if err != nil {
 		return domain.RunExecutionHandoffResult{}, err
 	}
+	payload := map[string]any{"status": status, "stop_reason": stopReason, "requested_by": handoff.Operation.RequestedBy,
+		"error_code": errorCode, "steps_completed": stepsCompleted,
+		"selected_count": handoff.Operation.SelectedCount,
+		"pending_count":  pending, "prepared_count": prepared,
+		"committed_count": committed, "cancelled_count": cancelled,
+		"model_called": modelCalled, "tool_called": toolCalled}
+	if handoff.Operation.RequestedBy == approvalContinuationActor && status == domain.RunExecutionHandoffFailed &&
+		errorCode == "failed_precondition" && modelCalled {
+		stage, attemptID, stageErr := approvalContinuationFailureStageTx(ctx, tx, handoff, lease)
+		if stageErr != nil {
+			return domain.RunExecutionHandoffResult{}, stageErr
+		}
+		if stage != "" {
+			payload["failure_stage"], payload["failure_attempt_id"] = stage, attemptID
+		}
+	}
 	event, err := newRunExecutionHandoffEvent(run,
-		events.RunExecutionHandoffCompletedEvent, handoff.Operation.ID, completedAt,
-		map[string]any{"status": status, "stop_reason": stopReason,
-			"error_code": errorCode, "steps_completed": stepsCompleted,
-			"selected_count": handoff.Operation.SelectedCount,
-			"pending_count":  pending, "prepared_count": prepared,
-			"committed_count": committed, "cancelled_count": cancelled,
-			"model_called": modelCalled, "tool_called": toolCalled})
+		events.RunExecutionHandoffCompletedEvent, handoff.Operation.ID, completedAt, payload)
 	if err != nil {
 		return domain.RunExecutionHandoffResult{}, err
 	}

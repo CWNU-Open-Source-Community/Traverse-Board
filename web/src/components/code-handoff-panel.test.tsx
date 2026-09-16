@@ -5,6 +5,7 @@ import type { CyberAgentClient } from "../api/client";
 import { downloadTextFile } from "../lib/download";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { CodeHandoffPanel } from "./code-handoff-panel";
+import { LocaleProvider } from "../lib/locale";
 
 vi.mock("../lib/download", () => ({ downloadTextFile: vi.fn() }));
 
@@ -13,7 +14,7 @@ describe("CodeHandoffPanel", () => {
 		const user = userEvent.setup();
     const codeHandoff = vi.fn().mockResolvedValue({
       protocol_version: "code_handoff.v1", run_id: "run-1", mission_id: "mission-1",
-      session_id: "session-1", workspace_id: "workspace-1", run_status: "paused",
+      session_id: "session-1", workspace_id: "workspace-1", run_status: "running",
       surface: "code", phase: "deliver", mode_revision: 2,
       source_event_sequence: 42,
       generated_at: "2026-07-19T12:00:00Z",
@@ -72,12 +73,13 @@ describe("CodeHandoffPanel", () => {
     const onOpenDelivery = vi.fn();
     const client = { codeHandoff, codeHandoffExport } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={queryClient}>
+    const view = render(<QueryClientProvider client={queryClient}>
       <CodeHandoffPanel client={client} runID="run-1"
         onOpenDelivery={onOpenDelivery}
         onOpenReceiptReview={onOpenReceiptReview} />
     </QueryClientProvider>);
     expect(await screen.findByText("selected")).toBeInTheDocument();
+    expect(screen.getByText("Not ended").closest(".projection-heading")).toHaveTextContent("Recorded execution state: Not ended");
     expect(screen.getByText("file edit review")).toBeInTheDocument();
     expect(screen.getByText("2 findings")).toBeInTheDocument();
     expect(screen.getByText("1 pass / 1 fail / 0 unknown")).toBeInTheDocument();
@@ -105,5 +107,12 @@ describe("CodeHandoffPanel", () => {
       "text/markdown; charset=utf-8", "handoff");
     expect(screen.queryByText(/proposal body|verification summary|secret-command/i))
       .not.toBeInTheDocument();
+    localStorage.setItem("prayu.locale.v1", "zh-CN");
+    view.rerender(<LocaleProvider><QueryClientProvider client={queryClient}>
+      <CodeHandoffPanel client={client} runID="run-1" />
+    </QueryClientProvider></LocaleProvider>);
+    expect(await screen.findByText("已选定")).toBeInTheDocument();
+    expect(screen.getByText("交付")).toBeInTheDocument();
+    expect(screen.getByText("元数据已确认")).toBeInTheDocument();
   });
 });

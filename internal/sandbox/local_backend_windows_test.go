@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -135,6 +136,14 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 	if err := os.MkdirAll(drydock, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	userHome := filepath.Join(drydock, ".traverse-board", "home")
+	if err := os.MkdirAll(userHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userNote := filepath.Join(userHome, "user-note.txt")
+	if err := os.WriteFile(userNote, []byte("existing user content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(outside), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +238,18 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 		!result.TreeReaped || !result.ProfileDeleted || !result.ACLsRestored ||
 		result.CapabilityGrant {
 		t.Fatalf("unexpected Local Sandbox result: %#v", result)
+	}
+	if content, err := os.ReadFile(userNote); err != nil || string(content) != "existing user content" {
+		t.Fatalf("preexisting project HOME content changed: %q err=%v", content, err)
+	}
+	if entries, err := os.ReadDir(userHome); err != nil || len(entries) != 1 {
+		t.Fatalf("runtime polluted the project HOME: %v err=%v", entries, err)
+	}
+	if _, err := os.Lstat(filepath.Join(drydock, ".traverse-board", "tmp")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime created project tmp: %v", err)
+	}
+	if entries, err := os.ReadDir(ownerRoot); err != nil || len(entries) != 1 || entries[0].Name() != localOwnerLockName {
+		t.Fatalf("runtime owner/scratch not removed: %v err=%v", entries, err)
 	}
 	payload, err := os.ReadFile(filepath.Join(drydock, "child-proof.txt"))
 	if err != nil || strings.TrimSpace(string(payload)) != "sandboxed" {
@@ -384,7 +405,19 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 		{name: "cancellation", cancel: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			base := windowsTestTempDir(t)
+			// Keep the private owner/profile root comparable to the supported
+			// application-data layout; t.TempDir's complete test name can make
+			// Windows nested process initialization depend on unrelated path length.
+			base, err := os.MkdirTemp("", "local-tree-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(base); err != nil {
+					t.Error(err)
+				}
+			})
+			base = windowsTestCanonicalRoot(t, base)
 			ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 			drydock := filepath.Clean(filepath.Join(base, "drydock"))
 			if err := os.MkdirAll(drydock, 0o700); err != nil {
@@ -417,6 +450,10 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 				[]string{"-test.run=^TestWindowsLocalSandboxTreeChild$", "--", pidPath})
 			request.Manifest.Environment = []EnvironmentBinding{{
 				Name: "TRAVERSE_BOARD_TREE_CHILD", Source: EnvironmentLiteral, Value: "root"}}
+			// Both processes inherit Go race instrumentation in a -race run. The
+			// shared 256 MiB fixture budget stalls nested process startup even with
+			// the legacy HOME layout; memory-limit behavior has its own tests.
+			request.Manifest.Resources.MemoryBytes = 1024 * 1024 * 1024
 			request.Manifest.TimeoutSeconds = 1
 			type runResponse struct {
 				result LocalExecutionResult
@@ -441,7 +478,9 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 						break
 					}
 					if time.Now().After(deadline) {
-						t.Fatal("Local Sandbox grandchild did not start before cancellation")
+						cancel()
+						failed := <-response
+						t.Fatalf("Local Sandbox grandchild did not start before cancellation: err=%v stdout=%s stderr=%s", failed.err, failed.result.Stdout.Data, failed.result.Stderr.Data)
 					}
 					time.Sleep(10 * time.Millisecond)
 				}
@@ -468,7 +507,7 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 			}
 			payload, err := os.ReadFile(pidPath)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%v; stdout=%s stderr=%s", err, completed.result.Stdout.Data, completed.result.Stderr.Data)
 			}
 			pid, err := strconv.ParseUint(strings.TrimSpace(string(payload)), 10, 32)
 			if err != nil {
@@ -489,6 +528,7 @@ func TestWindowsLocalSandboxEnforcesOutputAndDiskWriteLimits(t *testing.T) {
 	}{
 		{name: "output", mode: "output"},
 		{name: "disk-write", mode: "disk"},
+		{name: "private-temp-write", mode: "scratch"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			base := windowsTestTempDir(t)
@@ -552,8 +592,12 @@ func TestWindowsLocalSandboxLimitChild(t *testing.T) {
 		for index := 0; index < 512; index++ {
 			_, _ = os.Stdout.Write(payload)
 		}
-	case "disk":
-		file, err := os.Create("large-artifact.bin")
+	case "disk", "scratch":
+		path := "large-artifact.bin"
+		if os.Getenv("TRAVERSE_BOARD_LIMIT_CHILD") == "scratch" {
+			path = filepath.Join(os.Getenv("TEMP"), path)
+		}
+		file, err := os.Create(path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -573,6 +617,11 @@ func TestWindowsLocalSandboxLimitChild(t *testing.T) {
 }
 
 func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthority(t *testing.T) {
+	testWindowsLocalSandboxOwnerRecovery(t, false, false)
+}
+
+func testWindowsLocalSandboxOwnerRecovery(t *testing.T, instrumentation, legacy bool) {
+	t.Helper()
 	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
@@ -594,7 +643,7 @@ func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthori
 		first.mu.Unlock()
 		t.Fatal(err)
 	}
-	profile, err := prepareLocalProfile(localFingerprint(t.Name()))
+	profile, err := prepareLocalProfileWithInstrumentation(localFingerprint(t.Name()), instrumentation)
 	if err != nil {
 		root.close()
 		first.mu.Unlock()
@@ -624,13 +673,49 @@ func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthori
 		first.mu.Unlock()
 		t.Fatal(err)
 	}
-	owner := localOwnerRecord{ProtocolVersion: localOwnerProtocolVersion,
+	owner := localOwnerRecord{ProtocolVersion: localPreviousOwnerProtocolVersion,
+		PolicyVersion:      localPreviousPolicyVersion,
+		Instrumentation:    instrumentation,
 		OwnerID:            localFingerprint("crash-owner", profile.name),
 		BindingFingerprint: localFingerprint("crash-binding", t.Name()),
 		ProfileName:        profile.name, ProfileSID: profile.sid.String(),
 		Snapshots: []localSecuritySnapshot{snapshot}, CreatedAt: time.Now().UTC()}
 	owner.seal()
-	if err := first.writeOwnerLocked(owner); err != nil {
+	if legacy {
+		owner.ProtocolVersion, owner.PolicyVersion = localLegacyOwnerProtocolVersion, ""
+		owner.Instrumentation = false
+		// Construct the old v1 fingerprint independently. This record models a
+		// crash before the binary upgrade, not a new v2 writer downgrading itself.
+		parts := []string{"local_sandbox_owner.v1", owner.OwnerID, owner.BindingFingerprint,
+			owner.ProfileName, owner.ProfileSID, owner.CreatedAt.UTC().Format(time.RFC3339Nano)}
+		for _, previous := range owner.Snapshots {
+			parts = append(parts, previous.PathSHA256, previous.RootIdentity, previous.DACLSDDL,
+				fmt.Sprint(previous.DACLProtected), previous.LabelSDDL, fmt.Sprint(previous.SACLProtected))
+		}
+		owner.Fingerprint = localFingerprint(parts...)
+		payload, marshalErr := json.Marshal(owner)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		err = os.WriteFile(filepath.Join(ownerRoot, owner.OwnerID+".json"), payload, 0o600)
+	} else {
+		// The v2 byte contract predates private scratch. Construct its digest
+		// independently instead of asking the current writer to downgrade.
+		parts := []string{"local_sandbox_owner.v2", owner.OwnerID, owner.BindingFingerprint,
+			owner.ProfileName, owner.ProfileSID, owner.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"windows_appcontainer_policy.v2", fmt.Sprint(owner.Instrumentation)}
+		for _, previous := range owner.Snapshots {
+			parts = append(parts, previous.PathSHA256, previous.RootIdentity, previous.DACLSDDL,
+				fmt.Sprint(previous.DACLProtected), previous.LabelSDDL, fmt.Sprint(previous.SACLProtected))
+		}
+		owner.Fingerprint = localFingerprint(parts...)
+		payload, marshalErr := json.Marshal(owner)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		err = os.WriteFile(filepath.Join(ownerRoot, owner.OwnerID+".json"), payload, 0o600)
+	}
+	if err != nil {
 		root.close()
 		first.mu.Unlock()
 		t.Fatal(err)
@@ -950,6 +1035,7 @@ func TestWindowsLocalSandboxTreeChild(t *testing.T) {
 	command := exec.Command(os.Args[0], "-test.run=^TestWindowsLocalSandboxTreeChild$",
 		"--", pidPath)
 	command.Env = append(os.Environ(), "TRAVERSE_BOARD_TREE_CHILD=grandchild")
+	command.Stdout, command.Stderr = os.Stdout, os.Stderr
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1067,10 +1153,19 @@ func TestWindowsLocalSandboxChildProbe(t *testing.T) {
 	}
 	for _, name := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
 		"TEMP", "TMP"} {
-		if value := os.Getenv(name); !localHostPathWithin(value, working) {
-			t.Fatalf("%s is not isolated beneath Drydock: value=%q working=%q",
+		if value := os.Getenv(name); value == "" || localRootsOverlap(value, working) || !localHostPathWithin(value, filepath.Dir(os.Getenv("HOME"))) {
+			t.Fatalf("%s is not isolated in private runtime storage: value=%q working=%q",
 				name, value, working)
 		}
+	}
+	for _, name := range []string{"HOME", "TEMP"} {
+		if err := os.WriteFile(filepath.Join(os.Getenv(name), "runtime-state.txt"), []byte("scratch"), 0o600); err != nil {
+			t.Fatalf("private %s is not writable: %v", name, err)
+		}
+	}
+	journalRoot := filepath.Dir(filepath.Dir(os.Getenv("HOME")))
+	if _, err := os.ReadDir(journalRoot); err == nil {
+		t.Fatal("sandbox could enumerate the private owner journal")
 	}
 }
 

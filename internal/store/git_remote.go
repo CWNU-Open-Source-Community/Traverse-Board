@@ -131,14 +131,14 @@ func getRemoteOperationRecord(ctx context.Context, queryer skillPackageQueryer, 
 	row := queryer.QueryRowContext(ctx, `SELECT id, protocol_version, operation_key_digest,
 		request_fingerprint, run_id, workspace_id, operation, spec_json, remote_host, remote_port,
 		protocol, branch, pre_head, post_head, commit_id, pull_request_url, pull_request_number,
-		stderr_prefix, completed_at, created_at FROM git_remote_operations WHERE id = ?`, id)
+		stderr_prefix, completed_at, created_at, started_at FROM git_remote_operations WHERE id = ?`, id)
 	var record RemoteOperationRecord
-	var completedAt, created sql.NullString
+	var completedAt, created, startedAt sql.NullString
 	err := row.Scan(&record.ID, &record.ProtocolVersion, &record.OperationKeyDigest,
 		&record.RequestFingerprint, &record.RunID, &record.WorkspaceID, &record.Operation,
 		&record.SpecJSON, &record.RemoteHost, &record.RemotePort, &record.Protocol, &record.Branch,
 		&record.PreHead, &record.PostHead, &record.CommitID, &record.PullRequestURL,
-		&record.PullRequestNumber, &record.StderrPrefix, &completedAt, &created)
+		&record.PullRequestNumber, &record.StderrPrefix, &completedAt, &created, &startedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RemoteOperationRecord{}, false, nil
 	}
@@ -146,6 +146,10 @@ func getRemoteOperationRecord(ctx context.Context, queryer skillPackageQueryer, 
 		return RemoteOperationRecord{}, false, err
 	}
 	record.CreatedAt = parseTS(created.String)
+	if startedAt.Valid {
+		value := parseTS(startedAt.String)
+		record.StartedAt = &value
+	}
 	if completedAt.Valid {
 		if parsed := parseTS(completedAt.String); !parsed.IsZero() {
 			record.CompletedAt = &parsed

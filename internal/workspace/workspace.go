@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"cyberagent-workbench/internal/agent"
 	"cyberagent-workbench/internal/session"
@@ -24,6 +25,7 @@ type Manager struct {
 
 type WorkspaceStore interface {
 	SaveWorkspace(ctx context.Context, rec session.WorkspaceRecord) error
+	CreateWorkspaceIfAbsent(ctx context.Context, rec session.WorkspaceRecord) (bool, error)
 	GetWorkspaceByName(ctx context.Context, name string) (session.WorkspaceRecord, error)
 	ListWorkspaces(ctx context.Context) ([]session.WorkspaceRecord, error)
 }
@@ -81,35 +83,70 @@ func (m *Manager) Import(ctx context.Context, selectedPath string) (session.Work
 	if err != nil {
 		return session.WorkspaceRecord{}, err
 	}
-	records, err := m.Store.ListWorkspaces(ctx)
-	if err != nil {
-		return session.WorkspaceRecord{}, fmt.Errorf("list workspaces: %w", err)
-	}
-	for _, record := range records {
-		if sameWorkspaceRoot(record.RootPath, root) {
-			return record, nil
-		}
-	}
-
 	fingerprint := sha256.Sum256([]byte(workspaceRootIdentity(root)))
 	suffix := hex.EncodeToString(fingerprint[:4])
-	name := Slug(importDirectoryName(root))
-	for _, record := range records {
-		if record.Name == name {
-			name += "-" + suffix
-			break
+	baseName := Slug(importDirectoryName(root))
+	// Leave space for a suffix and the bounded native metadata projection.
+	if len(baseName) > 96 {
+		baseName = strings.TrimRight(baseName[:96], "-")
+	}
+	identity := "ws-import-" + hex.EncodeToString(fingerprint[:12])
+	rejectedNames := make(map[string]bool)
+	for attempt := 0; attempt < 32; attempt++ {
+		records, err := m.Store.ListWorkspaces(ctx)
+		if err != nil {
+			return session.WorkspaceRecord{}, fmt.Errorf("list workspaces: %w", err)
 		}
+		names := make(map[string]bool, len(records))
+		for name := range rejectedNames {
+			names[name] = true
+		}
+		for _, record := range records {
+			if sameWorkspaceRoot(record.RootPath, root) {
+				return record, nil
+			}
+			if record.ID == identity {
+				return session.WorkspaceRecord{}, errors.New("workspace import identity is already registered to another directory")
+			}
+			names[record.Name] = true
+		}
+		name := baseName
+		if names[name] {
+			name = baseName + "-" + suffix
+			for number := 2; names[name]; number++ {
+				name = fmt.Sprintf("%s-%s-%d", baseName, suffix, number)
+			}
+		}
+		record := session.WorkspaceRecord{ID: identity, Name: name,
+			RootPath: root, CreatedAt: time.Now().UTC()}
+		created, err := m.Store.CreateWorkspaceIfAbsent(ctx, record)
+		if err != nil {
+			return session.WorkspaceRecord{}, fmt.Errorf("save imported workspace: %w", err)
+		}
+		if created {
+			return record, nil
+		}
+		rejectedNames[name] = true
+		// Another registration won the identity or name. Reload its durable
+		// result. Also remember names omitted by the store's Drydock filter;
+		// never use SaveWorkspace's historical name-based root upsert.
 	}
-	record := session.WorkspaceRecord{
-		ID:        "ws-import-" + hex.EncodeToString(fingerprint[:12]),
-		Name:      name,
-		RootPath:  root,
-		CreatedAt: time.Now().UTC(),
+	return session.WorkspaceRecord{}, errors.New("workspace import registration remained busy")
+}
+
+// ImportDisplayName bounds only the metadata shown by HTTP and the native
+// picker. Existing CLI registrations can have longer names; their stored name,
+// directory and identity must remain unchanged when selected again.
+func ImportDisplayName(name string) string {
+	const maximumBytes = 128
+	if len(name) <= maximumBytes {
+		return name
 	}
-	if err := m.Store.SaveWorkspace(ctx, record); err != nil {
-		return session.WorkspaceRecord{}, fmt.Errorf("save imported workspace: %w", err)
+	prefix := name[:maximumBytes-3]
+	for !utf8.ValidString(prefix) {
+		prefix = prefix[:len(prefix)-1]
 	}
-	return record, nil
+	return prefix + "..."
 }
 
 func canonicalImportRoot(selectedPath string) (string, error) {

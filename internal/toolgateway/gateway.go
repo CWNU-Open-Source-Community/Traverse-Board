@@ -51,6 +51,7 @@ type Gateway struct {
 	policyRecorder             policy.DecisionRecorder
 	checker                    policy.Checker
 	workspaceRootResolver      WorkspaceRootResolver
+	agentCodeWorkspaceResolver AgentCodeWorkspaceResolver
 	legacyTools                *toolrun.Manager
 	legacyEdits                *fileedit.Manager
 	scriptStore                scriptprocess.Store
@@ -58,6 +59,7 @@ type Gateway struct {
 	scriptProcesses            *scriptprocess.Manager
 	artifacts                  *artifact.Manager
 	structuredMemory           StructuredMemoryExecutor
+	historyRecall              HistoryRecallExecutor
 	delegationProposals        SpecialistDelegationExecutor
 	childTaskProposals         ChildTaskProposalExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
@@ -275,6 +277,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 		}
 	}
 	switch normalized.Name {
+	case HistorySearchTool, HistoryReadTool:
+		return g.invokeHistoryRecall(ctx, normalized)
 	case WorkspaceListTool, WorkspaceReadTool, WorkspaceGlobTool, WorkspaceGrepTool,
 		WorkspaceChangeTool, WorkspaceApplyTool, WorkspaceDeleteTool:
 		return g.invokeAgentCode(ctx, normalized)
@@ -855,6 +859,9 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 }
 
 func validateToolArguments(call ToolCall) error {
+	if IsHistoryRecallTool(call.Name) {
+		return validateHistoryRecallCall(call)
+	}
 	if IsCodeIntelTool(call.Name) {
 		if len(call.Arguments) != 0 || call.RunID == "" || call.MissionID == "" ||
 			call.AgentID == "" || call.SessionID == "" || call.WorkspaceID == "" ||

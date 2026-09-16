@@ -146,8 +146,15 @@ func TestOpenAIResponsesSearchProviderRejectsUngroundedDeepSeekStructuredOutput(
 	tests := []struct {
 		name   string
 		output string
+		reason string
 	}{
-		{name: "no completed hosted call", output: `{"type":"web_search_call","status":"failed","action":{"type":"search"}},` +
+		{name: "plain answer without hosted call", reason: NativeSearchReasonSearchNotPerformed,
+			output: `{"type":"message","status":"completed","content":[{"type":"output_text","text":"I cannot perform a live search; here is a general answer with https://example.com/"}]}`},
+		{name: "textual tool imitation", reason: NativeSearchReasonSearchNotPerformed,
+			output: `{"type":"message","status":"completed","content":[{"type":"output_text","text":"<tool_call>web_search</tool_call>"}]}`},
+		{name: "structured answer without hosted call", reason: NativeSearchReasonSearchNotPerformed,
+			output: `{"type":"message","status":"completed","content":[{"type":"output_text","text":"{\"results\":[{\"url\":\"https://example.com/\",\"title\":\"Example\",\"snippet\":\"Unverified answer\"}]}"}]}`},
+		{name: "no completed hosted call", reason: NativeSearchReasonSearchNotPerformed, output: `{"type":"web_search_call","status":"failed","action":{"type":"search"}},` +
 			`{"type":"message","status":"completed","content":[{"type":"output_text","text":"{\"results\":[{\"url\":\"https://example.com/\",\"title\":\"Example\",\"snippet\":\"Result\"}]}"}]}`},
 		{name: "empty results", output: `{"type":"web_search_call","status":"completed","action":{"type":"search"}},` +
 			`{"type":"message","status":"completed","content":[{"type":"output_text","text":"{\"results\":[]}"}]}`},
@@ -163,6 +170,10 @@ func TestOpenAIResponsesSearchProviderRejectsUngroundedDeepSeekStructuredOutput(
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wantReason := test.reason
+			if wantReason == "" {
+				wantReason = NativeSearchReasonResponseInvalid
+			}
 			requests := 0
 			client := responsesSearchTestClientForHost(t, "api.deepseek.com",
 				func(*http.Request) (*http.Response, error) {
@@ -181,7 +192,7 @@ func TestOpenAIResponsesSearchProviderRejectsUngroundedDeepSeekStructuredOutput(
 				NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{"api.deepseek.com"}})
 			var qualification *NativeSearchQualificationError
 			if !errors.As(err, &qualification) ||
-				qualification.Reason != NativeSearchReasonResponseInvalid || requests != 1 {
+				qualification.Reason != wantReason || requests != 1 {
 				t.Fatalf("qualification=%#v requests=%d err=%v", qualification,
 					requests, err)
 			}
@@ -211,12 +222,13 @@ func successfulResponsesSearchBody() string {
 func TestOpenAIResponsesSearchProviderRequiresCompletedResponseAndSearchCall(t *testing.T) {
 	completed := successfulResponsesSearchBody()
 	tests := []struct {
-		name string
-		body string
+		name   string
+		body   string
+		reason string
 	}{
 		{name: "missing response status", body: strings.Replace(completed,
 			`"status":"completed",`, "", 1)},
-		{name: "incomplete response", body: strings.Replace(completed,
+		{name: "incomplete response", reason: NativeSearchReasonResponseIncomplete, body: strings.Replace(completed,
 			`"status":"completed"`, `"status":"incomplete"`, 1)},
 		{name: "in progress response", body: strings.Replace(completed,
 			`"status":"completed"`, `"status":"in_progress"`, 1)},
@@ -235,13 +247,17 @@ func TestOpenAIResponsesSearchProviderRequiresCompletedResponseAndSearchCall(t *
 			`{"type":"message"`,
 			`{"type":"web_search_call","status":"failed","action":{"type":"open_page"}},`+
 				`{"type":"message"`, 1)},
-		{name: "citations without hosted call", body: `{"status":"completed","output":[` +
+		{name: "citations without hosted call", reason: NativeSearchReasonSearchNotPerformed, body: `{"status":"completed","output":[` +
 			`{"type":"message","status":"completed","content":[{"type":"output_text",` +
 			`"text":"answer","annotations":[{"type":"url_citation",` +
 			`"url":"https://docs.example.com/report","title":"citation"}]}]}]}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wantReason := test.reason
+			if wantReason == "" {
+				wantReason = NativeSearchReasonResponseInvalid
+			}
 			requests := 0
 			client := responsesSearchTestClient(t,
 				func(*http.Request) (*http.Response, error) {
@@ -258,13 +274,13 @@ func TestOpenAIResponsesSearchProviderRequiresCompletedResponseAndSearchCall(t *
 			_, err = provider.Qualify(t.Context(), responsesSearchAuthority())
 			var qualification *NativeSearchQualificationError
 			if !errors.As(err, &qualification) ||
-				qualification.Reason != NativeSearchReasonResponseInvalid || requests != 1 {
+				qualification.Reason != wantReason || requests != 1 {
 				t.Fatalf("qualification=%#v requests=%d err=%v", qualification,
 					requests, err)
 			}
 			snapshot := provider.QualificationSnapshot(t.Context(), responsesSearchAuthority())
 			if snapshot.Status != SearchQualificationUnavailable ||
-				snapshot.Reason != NativeSearchReasonResponseInvalid || requests != 1 {
+				snapshot.Reason != wantReason || requests != 1 {
 				t.Fatalf("snapshot=%+v requests=%d", snapshot, requests)
 			}
 		})
@@ -694,6 +710,16 @@ func TestOpenAIResponsesSearchProviderBoundsNegativeQualificationCache(t *testin
 		response   func() (*http.Response, error)
 		wantReason string
 	}{
+		{name: "search not performed", response: func() (*http.Response, error) {
+			return webResponse(http.StatusOK,
+				http.Header{"Content-Type": {"application/json"}},
+				`{"status":"completed","output":[{"type":"message","status":"completed","content":[{"type":"output_text","text":"General answer only"}]}]}`), nil
+		}, wantReason: NativeSearchReasonSearchNotPerformed},
+		{name: "response incomplete", response: func() (*http.Response, error) {
+			return webResponse(http.StatusOK,
+				http.Header{"Content-Type": {"application/json"}},
+				`{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}`), nil
+		}, wantReason: NativeSearchReasonResponseIncomplete},
 		{name: "unauthorized", response: func() (*http.Response, error) {
 			return webResponse(http.StatusUnauthorized,
 				http.Header{"Content-Type": {"application/json"}},

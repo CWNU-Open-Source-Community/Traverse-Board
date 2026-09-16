@@ -30,6 +30,7 @@ type SearchProvider interface {
 const (
 	SearchPolicyDisabled       = "disabled"
 	SearchPolicyAuto           = "auto"
+	SearchPolicyWeb            = "web"
 	SearchPolicySearXNG        = "searxng"
 	SearchPolicyProviderNative = "provider_native"
 )

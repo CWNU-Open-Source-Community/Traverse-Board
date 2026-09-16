@@ -229,6 +229,8 @@ type Store interface {
 	GetFileEditPreview(ctx context.Context, id string) (fileedit.Preview, error)
 	ListFileEditPreviewsPage(ctx context.Context, filter fileedit.ListFilter,
 		offset int, limit int) ([]fileedit.Preview, error)
+	ListRunFileEditPreviewsPage(ctx context.Context, runID string, offset int, limit int) ([]fileedit.Preview, error)
+	FileEditWorkspaceBelongsToRun(ctx context.Context, runID string, sessionID string, workspaceID string) (bool, error)
 
 	GetSession(ctx context.Context, id string) (session.Session, error)
 	SaveSession(ctx context.Context, record session.Session) error
@@ -310,6 +312,9 @@ type Config struct {
 	BrowserCDPPermissionControlEnabled      bool
 	FullCDPSessionControlEnabled            bool
 	RunCreationEnabled                      bool
+	WorkspaceImportEnabled                  bool
+	WorkspaceImporter                       WorkspaceImporter
+	FileWorkspaceDrydocks                   *application.DrydockService
 	StandardCodePresetEnabled               bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
@@ -351,6 +356,9 @@ type Config struct {
 	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
 	RunLifecycleController                  RunLifecycleController
 	ThreadTurnController                    ThreadTurnController
+	ThreadReviewReader                      ThreadReviewReader
+	ThreadGitController                     ThreadGitController
+	ThreadPullRequestController             ThreadPullRequestController
 	StandardCodePresetController            StandardCodePresetController
 	StandardCodeDeliveryController          StandardCodeDeliveryController
 	RunExecutionController                  RunExecutionController
@@ -400,6 +408,8 @@ type API struct {
 	browserCDPPermissionControlEnabled      bool
 	fullCDPSessionControlEnabled            bool
 	runCreationEnabled                      bool
+	workspaceImportEnabled                  bool
+	workspaceImporter                       WorkspaceImporter
 	standardCodePresetEnabled               bool
 	sessionMessageEnabled                   bool
 	sessionSteeringControlEnabled           bool
@@ -414,6 +424,7 @@ type API struct {
 	providerDefinitionEnabled               bool
 	providerCredentialEnabled               bool
 	fileEditReviewEnabled                   bool
+	fileWorkspaceDrydocks                   *application.DrydockService
 	fileEditProposalEnabled                 bool
 	runWakeControlEnabled                   bool
 	fileEditApplyEnabled                    bool
@@ -444,6 +455,9 @@ type API struct {
 	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
 	runLifecycleController                  RunLifecycleController
 	threadTurnController                    ThreadTurnController
+	threadReview                            ThreadReviewReader
+	threadGitController                     ThreadGitController
+	threadPullRequestController             ThreadPullRequestController
 	standardCodePresetController            StandardCodePresetController
 	standardCodeDeliveryController          StandardCodeDeliveryController
 	runExecutionController                  RunExecutionController
@@ -512,7 +526,7 @@ func New(store Store, config Config) (*API, error) {
 	if (config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
 		config.BrowserCDPPermissionControlEnabled ||
 		config.FullCDPSessionControlEnabled ||
-		config.RunCreationEnabled || config.StandardCodePresetEnabled ||
+		config.RunCreationEnabled || config.WorkspaceImportEnabled || config.StandardCodePresetEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
@@ -539,6 +553,10 @@ func New(store Store, config Config) (*API, error) {
 	if config.RunLifecycleEnabled && config.RunLifecycleController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Run lifecycle controller is required when enabled")
+	}
+	if config.WorkspaceImportEnabled && config.WorkspaceImporter == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API workspace importer is required when enabled")
 	}
 	if config.FullCDPSessionControlEnabled && config.FullCDPSessionController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -824,6 +842,9 @@ func New(store Store, config Config) (*API, error) {
 		fullCDPSessionControlEnabled: controlTokenPresent &&
 			config.FullCDPSessionControlEnabled,
 		runCreationEnabled:            controlTokenPresent && config.RunCreationEnabled,
+		workspaceImportEnabled:        controlTokenPresent && config.WorkspaceImportEnabled,
+		workspaceImporter:             config.WorkspaceImporter,
+		fileWorkspaceDrydocks:         config.FileWorkspaceDrydocks,
 		standardCodePresetEnabled:     controlTokenPresent && config.StandardCodePresetEnabled,
 		appVersion:                    version,
 		sessionMessageEnabled:         controlTokenPresent && config.SessionMessageEnabled,
@@ -874,6 +895,9 @@ func New(store Store, config Config) (*API, error) {
 		capabilityReadinessRuntime:          readinessRuntime,
 		runLifecycleController:              config.RunLifecycleController,
 		threadTurnController:                config.ThreadTurnController,
+		threadReview:                        config.ThreadReviewReader,
+		threadGitController:                 config.ThreadGitController,
+		threadPullRequestController:         config.ThreadPullRequestController,
 		standardCodePresetController:        config.StandardCodePresetController,
 		standardCodeDeliveryController:      config.StandardCodeDeliveryController,
 		runExecutionController:              config.RunExecutionController,
@@ -1055,8 +1079,16 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveGitAdvanced(tracked, request, requestID, runID, action)
 		return
 	}
+	if threadID, remaining, matched := matchThreadGitPath(request.URL.Path); matched {
+		a.routeThreadGit(tracked, request, requestID, threadID, remaining)
+		return
+	}
 	if route, matched := matchGitHubReviewPath(request.URL.Path); matched {
 		a.serveGitHubReview(tracked, request, requestID, route)
+		return
+	}
+	if route, matched := matchThreadPullRequestPath(request.URL.Path); matched {
+		a.serveThreadPullRequest(tracked, request, requestID, route)
 		return
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {
@@ -1065,6 +1097,18 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if identity, kind, matched := matchExtensionMutationPath(request.URL.Path); matched {
 		a.serveExtensionMutation(tracked, request, requestID, identity, kind)
+		return
+	}
+	if request.URL.Path == WorkspaceImportPath {
+		a.serveWorkspaceImport(tracked, request, requestID)
+		return
+	}
+	if workspaceID, attachmentID, content, matched := matchWorkspaceFileAttachmentPath(request.URL.Path); matched {
+		a.serveWorkspaceFileAttachment(tracked, request, requestID, workspaceID, attachmentID, content)
+		return
+	}
+	if workspaceID, imageID, content, matched := matchWorkspaceImagePath(request.URL.Path); matched {
+		a.serveWorkspaceImage(tracked, request, requestID, workspaceID, imageID, content)
 		return
 	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {
@@ -1081,6 +1125,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if threadID, matched := matchThreadModelRoutePath(request.URL.Path); matched {
 		a.serveThreadModelRoute(tracked, request, requestID, threadID)
+		return
+	}
+	if threadID, matched := matchThreadPlanControlPath(request.URL.Path); matched && request.Method != http.MethodGet {
+		a.serveThreadPlanControl(tracked, request, requestID, threadID)
 		return
 	}
 	if threadID, action, matched := matchThreadMutationPath(request.URL.Path); matched &&
@@ -1125,6 +1173,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.servePlanDeliveryControl(tracked, request, requestID, runID)
 		return
 	}
+	if runID, itemID, action, matched := matchPlanDeliveryWorkItemControlPath(request.URL.Path); matched {
+		a.servePlanDeliveryWorkItemControl(tracked, request, requestID, runID, itemID, action)
+		return
+	}
 	if runID, approvalID, matched := matchApprovalDecisionControlPath(request.URL.Path); matched {
 		a.serveApprovalDecisionControl(tracked, request, requestID, runID, approvalID)
 		return
@@ -1161,6 +1213,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchFileEditProposalControlPath(request.URL.Path); matched {
 		a.serveFileEditProposalControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, sourceEditID, matched := matchFileEditRevertProposalControlPath(request.URL.Path); matched {
+		a.serveFileEditRevertProposalControl(tracked, request, requestID, runID, sourceEditID)
 		return
 	}
 	if runID, editID, matched := matchFileEditReviewControlPath(request.URL.Path); matched {
@@ -1229,6 +1285,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunExecutionProfileControlPath(request.URL.Path); matched {
 		a.serveRunExecutionProfileControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, image, matched := matchFullCDPPreviewPath(request.URL.Path); matched {
+		a.serveFullCDPPreview(tracked, request, requestID, runID, image)
 		return
 	}
 	if runID, closeSession, matched :=
@@ -1437,7 +1497,7 @@ func setSecurityHeaders(header http.Header, requestID string) {
 func setUISecurityHeaders(header http.Header, requestID string) {
 	header.Set("Cache-Control", "no-store")
 	header.Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; connect-src 'self'; "+
-		"font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; "+
+		"font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; "+
 		"manifest-src 'self'; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self'")
 	header.Set("Cross-Origin-Opener-Policy", "same-origin")
 	header.Set("Cross-Origin-Resource-Policy", "same-origin")

@@ -121,7 +121,7 @@ func TestProjectThreadActivityTypedFileEditProjectsSafeDiffReferenceAndStatistic
 	stdout, _ := json.Marshal(map[string]any{
 		"version": toolgateway.AgentCodeRegistryVersion, "edit_id": "edit-safe-reference",
 		"operation": "propose_patch",
-		"path": "src/session.ts", "status": "proposed", "file_written": false,
+		"path":      "src/session.ts", "status": "proposed", "file_written": false,
 		"diff": "@@ -1,2 +1,3 @@\n-old secret=sk-abcdefghijklmnopqrstuvwxyz\n+new secret=sk-zyxwvutsrqponmlkjihgfedcba\n+safe line\n",
 	})
 	call := threadActivityFactsCall(toolgateway.WorkspaceChangeTool, payload,
@@ -156,6 +156,48 @@ func TestThreadActivityTypedFileEditRejectsAvailableDiffWithoutReference(t *test
 	}}
 	if err := value.Validate(); err == nil {
 		t.Fatal("available file-edit diff without an opaque reference unexpectedly validated")
+	}
+}
+
+func TestProjectThreadActivityTypedRevertConflictRequiresReview(t *testing.T) {
+	for _, test := range []struct {
+		action string
+		code   string
+		want   string
+	}{
+		{"propose_revert", "CONFLICT", "撤销请求与当前编辑状态不一致。请先核对来源编辑和当前文件，保留后续修改。"},
+		{"propose_revert", "POLICY_DENIED", "当前执行边界未授权此操作"},
+		{"propose_patch", "CONFLICT", "执行上下文已变化，请重试"},
+	} {
+		t.Run(test.action+"/"+test.code, func(t *testing.T) {
+			input := toolgateway.WorkspaceChangePayload{Version: toolgateway.AgentCodeRegistryVersion,
+				Action: test.action, Path: "review.txt", ExpectedSHA256: strings.Repeat("b", 64)}
+			if test.action == "propose_revert" {
+				input.SourceRunID, input.SourceEditID = "run-source", "edit-source"
+			} else {
+				input.Replacements = []toolgateway.WorkspaceReplacement{{OldText: "old", NewText: "new", ExpectedOccurrences: 1}}
+			}
+			payload, _ := json.Marshal(input)
+			result, _ := json.Marshal(map[string]any{"version": supervisorToolResultVersion,
+				"tool": toolgateway.WorkspaceChangeTool, "status": "failed", "code": test.code,
+				"stderr": "private failure details must not be displayed"})
+			call := domain.SupervisorToolCall{ToolName: string(toolgateway.WorkspaceChangeTool),
+				PayloadJSON: string(payload), Status: domain.SupervisorToolFailed,
+				ErrorCode: test.code, ResultJSON: string(result)}
+			detail, found, err := ProjectThreadActivityTypedDetail(call)
+			if err != nil || !found || detail.FileEdit == nil {
+				t.Fatalf("detail=%+v found=%t err=%v", detail, found, err)
+			}
+			edit := detail.FileEdit
+			if edit.Action != test.action || edit.Boundary.ErrorCode != test.code ||
+				edit.Boundary.FailureReason != test.want || edit.Applied || edit.FileWritten {
+				t.Fatalf("incorrect failure presentation: %+v", edit)
+			}
+			encoded, _ := json.Marshal(detail)
+			if strings.Contains(string(encoded), "private failure details") {
+				t.Fatalf("raw failure exposed: %s", encoded)
+			}
+		})
 	}
 }
 

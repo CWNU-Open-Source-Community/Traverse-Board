@@ -36,7 +36,8 @@ const statusLabels: Record<string, [string, string]> = {
   expired: ["已超时", "Expired"],
   failed: ["失败", "Failed"],
   pending: ["待处理", "Pending"],
-  running: ["进行中", "Running"],
+  // This table labels saved Harness disclosures, never live tool preparation.
+  running: ["记录时执行中", "Executing when recorded"],
   satisfied: ["已满足", "Satisfied"],
   selected: ["已选择", "Selected"],
   superseded: ["已替换", "Superseded"],
@@ -266,7 +267,8 @@ function HarnessDisclosure({ items, t }: { items: RunActivityItemView[]; t: Tran
           <ChevronRight aria-hidden="true" className="disclosure-chevron" size={15} />
           <ActivityIcon kind={first.kind} source="harness" />
           <strong>{disclosureTitle(first.kind, rows.length, t)}</strong>
-          {status && <span className={`run-activity-status status-${status}`}>
+          {status && <span className={`run-activity-status status-${status}`}
+            title={status === "running" ? t("已保存事件中的状态，不代表 Agent 当前仍在工作。", "A saved event state; it does not mean the Agent is still working.") : undefined}>
             {statusLabels[status] ? t(...statusLabels[status]) : status}
           </span>}
           <time dateTime={last.created_at}>{formatDate(last.created_at)}</time>

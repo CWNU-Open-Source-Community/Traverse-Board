@@ -3,8 +3,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CyberAgentClient } from "../../api/client";
-import type { NarrativeEntry } from "../projection/narrative";
-import { projectThreadActivityDetail, V2ActivityGroup } from "./activity-detail";
+import type { ThreadActivityDetailView } from "../../api/types";
+import { projectThreadNarrative, type NarrativeEntry,
+  type ThreadTranscriptActivityItem } from "../projection/narrative";
+import { projectThreadActivityDetail, ThreadActivityToolDetailPanel, V2ActivityGroup } from "./activity-detail";
+import { LocaleProvider } from "../../lib/locale";
 
 type ActivityEntry = Extract<NarrativeEntry, { kind: "activity" }>;
 
@@ -90,6 +93,163 @@ function typedDetail(kind: "web_search" | "web_fetch" | "file_read" | "file_edit
 }
 
 describe("V2ActivityGroup", () => {
+  it.each([
+    ["Host · Full Access", "宿主网络未隔离"],
+    ["Workspace Sandbox", "无网络"],
+    ["Legacy execution boundary", "网络隔离未确认"],
+  ] as const)("describes the trusted %s network boundary consistently in both detail readers", (environment, networkLabel) => {
+    const response: ThreadActivityDetailView = { version: "thread_activity_detail.v2", activity_ref: "command-network",
+      run_id: "run-1", tools: [{ name: "command_runtime", label: "运行命令", agent_id: "agent-root", agent_role: "root",
+        agent_label: "Root Agent", status: "completed", started_at: "2026-09-12T05:00:00Z",
+        completed_at: "2026-09-12T05:00:00.125Z", duration_milliseconds: 125,
+        detail: { kind: "command", command: { commands: [{ command: "Read the uploaded ZIP", working_directory: ".",
+          execution_environment: environment, network: "disabled", status: "completed", exit_code: 0,
+          duration_milliseconds: 125, stdout_preview: "原件SHA已保存", stderr_preview: "", truncated: false, artifacts: [] }] } },
+      }] };
+    const expected = `${environment} · ${networkLabel}`;
+    expect(projectThreadActivityDetail(response).commands[0].environment_label).toBe(expected);
+    render(<ThreadActivityToolDetailPanel activityRef="command-network" runID="run-1" threadID="thread-1"
+      client={{} as CyberAgentClient} tool={response.tools[0]} />);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.getByText("原件SHA已保存")).toBeInTheDocument();
+    if (environment !== "Workspace Sandbox") expect(screen.queryByText(/无网络/u)).not.toBeInTheDocument();
+  });
+
+  it("keeps the entire long command and output available when the summary is visually constrained", async () => {
+    const command = `$p=Join-Path $env:TRAVERSE_ATTACHMENTS_DIR '${"attachment-0123456789abcdef/".repeat(24)}content.zip'; Get-FileHash -LiteralPath $p`;
+    const stdout = `原始输出\n${"0123456789abcdef".repeat(40)}\n中文结果仍完整。`;
+    const client = { threadActivityDetail: vi.fn().mockResolvedValue({
+      version: "thread_activity_detail.v2", activity_ref: "command-long", run_id: "run-1",
+      tools: [{ name: "command_runtime", label: "运行命令", agent_id: "agent-root", agent_role: "root",
+        agent_label: "Root Agent", status: "completed", duration_milliseconds: 25,
+        detail: commandDetail([{ command, working_directory: ".", status: "completed", exit_code: 0,
+          duration_milliseconds: 25, stdout_preview: stdout, stderr_preview: "", truncated: false,
+          artifacts: [], execution_environment: "Host", network: "disabled" }]) }],
+    }) } as unknown as CyberAgentClient;
+    const view = renderActivity(client, activity({ items: [{ ...activity().items[0], title: "长命令",
+      detailRef: "command-long", summary: { version: "thread_activity_summary.v1", activity_ref: "command-long",
+        command, status: "completed", exit_code: 0, duration_milliseconds: 25, command_count: 1 } }] }));
+    expect(command.length).toBeGreaterThan(500);
+    expect(view.container.querySelector(".v2-activity > summary small")).toHaveTextContent(command);
+    const user = userEvent.setup();
+    await user.click(screen.getByText("运行"));
+    await user.click(screen.getByLabelText("查看长命令的执行详情"));
+    await waitFor(() => expect(view.container.querySelector(".v2-command-detail > header > code")?.textContent).toBe(command));
+    expect(view.container.querySelector(".v2-command-detail pre code")?.textContent).toBe(stdout);
+  });
+
+  it.each([
+    { status: "pending", duration: 0, exitCode: undefined, label: "待处理" },
+    { status: "failed", duration: 125, exitCode: undefined, label: "失败" },
+    { status: "completed", duration: 0, exitCode: 0, label: "Exit 0" },
+  ] as const)("renders the structured $status summary without object coercion or an invented pending duration", async ({ status, duration, exitCode, label }) => {
+    localStorage.setItem("prayu.locale.v1", "zh-CN");
+    const callID = "toolu_695f966522275d3775352cde";
+    const runID = "run-20260912044054-4bd2d4524e1b";
+    const activityRef = `command-${callID}`;
+    const items: ThreadTranscriptActivityItem[] = [{
+      version: "thread_transcript.v1", id: "event-136", canonical_id: callID,
+      run_id: runID, run_ordinal: 1, sequence: 136, kind: "tool_call", source: "harness",
+      activity_type: "execute", stage: status === "pending" ? "started" : "result",
+      title: "运行命令", detail: "command_runtime", tool_name: "command_runtime", status,
+      durable_call_id: callID, stream_item_id: "item_fd4d91b0003f25312b1a9d18",
+      stream_call_id: "call_d4b8e0893a3ff9634c26899b", verifiable: true,
+      instruction_authorized: false, provisional: false, durable: true,
+      created_at: "2026-09-12T04:55:23.6526771Z", activity_detail_ref: activityRef, detail_available: true,
+      activity_summary: { version: "thread_activity_summary.v1", activity_ref: activityRef,
+        command: "command_runtime", status, duration_milliseconds: duration, command_count: 1,
+        ...(exitCode === undefined ? {} : { exit_code: exitCode }) },
+    }];
+    const entry = projectThreadNarrative(items)[0];
+    expect(entry.kind).toBe("activity");
+    const client = { threadActivityDetail: vi.fn().mockResolvedValue({
+      version: "thread_activity_detail.v2", activity_ref: activityRef, run_id: runID,
+      tools: [{ name: "command_runtime", label: "运行命令", agent_id: "agent-root", agent_role: "root",
+        agent_label: "Root Agent", status, duration_milliseconds: duration,
+        detail: commandDetail([{ command: "command_runtime", working_directory: ".", status,
+          ...(exitCode === undefined ? {} : { exit_code: exitCode }), duration_milliseconds: duration,
+          stdout_preview: "", stderr_preview: status === "failed" ? "真实工具失败原因" : "",
+          truncated: false, artifacts: [], execution_environment: "Host", network: "disabled" }]) }],
+    }) } as unknown as CyberAgentClient;
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<LocaleProvider><QueryClientProvider client={queries}>
+      <V2ActivityGroup client={client} entry={entry as ActivityEntry} threadID="thread-1" />
+    </QueryClientProvider></LocaleProvider>);
+    const summary = view.container.querySelector(".v2-activity > summary")!;
+    expect(summary).toHaveTextContent(`command_runtime · ${label}`);
+    expect(summary).not.toHaveTextContent("[object Object]");
+    if (status === "pending") {
+      expect(summary).not.toHaveTextContent("0ms");
+      expect(summary).not.toHaveTextContent(/已完成|通过|Exit/u);
+      const user = userEvent.setup();
+      await user.click(screen.getByText("运行"));
+      await user.click(screen.getByLabelText("查看command_runtime的执行详情"));
+      await waitFor(() => expect(view.container.querySelector(".v2-command-detail")).toBeInTheDocument());
+      expect(view.container).not.toHaveTextContent("0ms");
+      expect(view.container).not.toHaveTextContent(/Exit 0|已完成/u);
+    } else {
+      expect(summary).toHaveTextContent(`${duration}ms`);
+      if (status === "failed") expect(await screen.findByText("真实工具失败原因")).toBeInTheDocument();
+    }
+    view.unmount(); queries.clear();
+  });
+
+  it("localizes a failed command status while preserving its actual output and exit code", async () => {
+    localStorage.setItem("prayu.locale.v1", "zh-CN");
+    const client = { threadActivityDetail: vi.fn().mockResolvedValue({
+      version: "thread_activity_detail.v2", run_id: "run-1", tools: [{
+        tool_name: "command_runtime", agent_id: "agent-1", agent_label: "Root Agent", agent_role: "root",
+        status: "failed", duration_milliseconds: 99,
+        detail: commandDetail([{ command: "actual check", status: "failed", exit_code: 7,
+          duration_milliseconds: 99, stdout_preview: "original completed text", stderr_preview: "", artifacts: [],
+          execution_environment: "Host", network: "disabled" }]),
+      }],
+    }) } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<LocaleProvider><QueryClientProvider client={queryClient}>
+      <V2ActivityGroup client={client} threadID="thread-1" entry={activity({ status: "failed",
+        items: [{ ...activity().items[0], status: "failed" }] })} />
+    </QueryClientProvider></LocaleProvider>);
+    expect(await screen.findByText("original completed text")).toBeInTheDocument();
+    expect(view.container.querySelector(".v2-command-detail header .is-failed")).toHaveTextContent("失败");
+    expect(screen.getByText("Exit 7 · 99ms")).toBeInTheDocument();
+    expect(screen.queryByText("通过")).not.toBeInTheDocument();
+  });
+
+  it("keeps proposal, approval and application distinct without counting a completed tool as another file", () => {
+    // Matches the durable Go projection: the file event and tool result have
+    // different canonical IDs, with no shared edit ID in the public transcript.
+    const base = { version: "thread_transcript.v1", run_id: "run-1", run_ordinal: 1,
+      activity_type: "edit", source: "harness", verifiable: true,
+      instruction_authorized: false, provisional: false, durable: true,
+      created_at: "2026-09-08T16:03:17Z" } as const;
+    const client = {} as CyberAgentClient;
+    for (const [status, expected] of [
+      ["pending", "已提出修改，等待审阅"],
+      ["approved", "修改已批准，尚未应用"],
+      ["completed", "修改已应用"],
+    ] as const) {
+      const transcript: ThreadTranscriptActivityItem[] = [
+        { ...base, id: "file-event", canonical_id: "file-event", sequence: 1,
+          kind: "file_change", stage: status === "pending" ? "started" : "result",
+          title: "文件修改", status },
+        { ...base, id: "tool-result", canonical_id: "tool-call", sequence: 2,
+          kind: "tool_call", stage: "result", status: "completed",
+          tool_name: "workspace_change", title: "工具结果已记录", detail: "workspace_change" },
+      ];
+      const entries = projectThreadNarrative(transcript);
+      expect(entries).toHaveLength(1);
+      const entry = entries[0] as ActivityEntry;
+      expect(entry.items).toHaveLength(2); // Both original audit records remain accessible.
+      const rendered = renderActivity(client, entry);
+      const summary = rendered.container.querySelector(".v2-activity > summary");
+      expect(summary).toHaveTextContent(expected);
+      expect(summary).not.toHaveTextContent(/修改了|2 项|workspace_change/u);
+      if (status !== "completed") expect(summary).not.toHaveTextContent("修改已应用");
+      rendered.unmount();
+    }
+  });
+
   it("loads a sanitized command projection only when its activity item is expanded", async () => {
     const threadActivityDetail = vi.fn(() => Promise.resolve({
       version: "thread_activity_detail.v2",
@@ -126,6 +286,66 @@ describe("V2ActivityGroup", () => {
     expect(screen.getByTitle("agent-root")).toHaveTextContent("agent-root");
     expect(screen.getByText("Workspace Sandbox · 无网络")).toBeInTheDocument();
     expect(screen.getByText("Exit 0 · 2.4s")).toBeInTheDocument();
+    expect(screen.queryByText("部分输出字符无法正确解码，当前文本可能不完整。")).not.toBeInTheDocument();
+  });
+
+  it.each(["stdout_preview", "stderr_preview"] as const)(
+    "keeps failed command %s visible and flags replacement characters without retrying", async (stream) => {
+      const output = "PSEtwLog: 初始化失败 \uFFFD\uFFFD";
+      const threadActivityDetail = vi.fn().mockResolvedValue({
+        version: "thread_activity_detail.v2", activity_ref: "command-1", run_id: "run-1",
+        tools: [{ name: "command_runtime", label: "运行命令", agent_id: "agent-root",
+          agent_role: "root", agent_label: "Root Agent", status: "failed",
+          started_at: "2026-09-02T00:00:00Z", completed_at: "2026-09-02T00:00:00.099Z",
+          duration_milliseconds: 99,
+          detail: commandDetail([{ command: "powershell -NoProfile -File check.ps1",
+            working_directory: ".", execution_environment: "Workspace Sandbox", network: "disabled",
+            status: "failed", exit_code: 4294901760, duration_milliseconds: 99,
+            stdout_preview: "", stderr_preview: "", [stream]: output, truncated: false, artifacts: [] }]),
+        }],
+      });
+      const view = renderActivity({ threadActivityDetail } as unknown as CyberAgentClient,
+        activity({ status: "failed", items: [{ ...activity().items[0], status: "failed" }] }));
+
+      expect(await screen.findByText(output)).toBeInTheDocument();
+      expect(screen.getByText("部分输出字符无法正确解码，当前文本可能不完整。")).toBeInTheDocument();
+      expect(view.container.querySelector(".v2-command-detail header .is-failed")).toHaveTextContent("failed");
+      expect(screen.getByText("Exit 4294901760 · 99ms")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+      expect(threadActivityDetail).toHaveBeenCalledTimes(1);
+    });
+
+  it.each([
+    { name: "decoded startup output", exitCode: 4294901760, notice: true,
+      output: "Windows PowerShell 被终止，返回以下错误: \n “System.Management.Automation.Tracing.PSEtwLog”的类型初始值设定项引发异常。\n" },
+    { name: "preserved historical startup output", exitCode: 4294901760, notice: true,
+      output: "Windows PowerShell \ufffd\ufffd\ufffd~bk\ufffd\u050f\ufffdV\ufffdNN\ufffd\ufffd\ufffd: \n  System.Management.Automation.Tracing.PSEtwLog \ufffdv{|\ufffdWR\ufffdY<P\ufffd\ufffd\ufffd[y\ufffd_\ufffdS_8^0\n" },
+    { name: "ordinary test failure", exitCode: 4294901760, notice: false,
+      output: "Assertion failed: expected 2, received 1" },
+    { name: "startup text with a different exit", exitCode: 1, notice: false,
+      output: "Windows PowerShell System.Management.Automation.Tracing.PSEtwLog test fixture" },
+  ])("explains only the known startup failure signature: $name", async ({ exitCode, notice, output }) => {
+    const threadActivityDetail = vi.fn().mockResolvedValue({
+      version: "thread_activity_detail.v2", activity_ref: "command-1", run_id: "run-1",
+      tools: [{ name: "command_runtime", label: "运行命令", agent_id: "agent-root",
+        agent_role: "root", agent_label: "Root Agent", status: "failed",
+        started_at: "2026-09-02T00:00:00Z", duration_milliseconds: 99,
+        detail: commandDetail([{ command: "& ./check.ps1", working_directory: ".",
+          execution_environment: "Workspace Sandbox", network: "disabled", status: "failed",
+          exit_code: exitCode, duration_milliseconds: 99, stdout_preview: "",
+          stderr_preview: output, truncated: false, artifacts: [] }]),
+      }],
+    });
+    const view = renderActivity({ threadActivityDetail } as unknown as CyberAgentClient,
+      activity({ status: "failed", items: [{ ...activity().items[0], status: "failed" }] }));
+    await waitFor(() => expect(view.container.querySelector("[aria-label='标准错误'] code")?.textContent).toBe(output));
+    const explanation = screen.queryByText("输出提示 PowerShell 初始化失败，当前检查未完成。若使用 Windows 隔离工作区，请安装 PowerShell 7，并在宿主环境中将 CYBERAGENT_POWERSHELL_PATH 设置为 pwsh.exe 的绝对路径，重启应用后重试。完整错误仍保留在下方。");
+    if (notice) expect(explanation).toBeInTheDocument();
+    else expect(explanation).not.toBeInTheDocument();
+    expect(view.container.querySelector(".v2-command-detail header .is-failed")).toHaveTextContent("failed");
+    expect(screen.getByText(`Exit ${exitCode} · 99ms`)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    expect(threadActivityDetail).toHaveBeenCalledTimes(1);
   });
 
   it("preserves exact Specialist identity and labels historical unknown execution", async () => {
@@ -320,7 +540,7 @@ describe("V2ActivityGroup", () => {
     const threadActivityArtifact = vi.fn(() => Promise.resolve({
       version: "thread_activity_artifact.v1" as const, activity_ref: "command-1",
       artifact_ref: "artifact-stdout-1", stream: "stdout" as const,
-      mime: "text/plain; charset=utf-8" as const, content: "All 42 tests passed successfully",
+      mime: "text/plain; charset=utf-8" as const, content: "Full output with a damaged character: \uFFFD",
       sha256: "a".repeat(64), size_bytes: 32, redacted: true, truncated: false,
       untrusted: true as const, instruction_authorized: false as const,
     }));
@@ -330,11 +550,13 @@ describe("V2ActivityGroup", () => {
 
     await user.click(screen.getByText("运行"));
     await user.click(screen.getByLabelText("查看pnpm test session的执行详情"));
-    expect(await screen.findByText("查看完整标准输出")).toBeInTheDocument();
+    expect(await screen.findByText("查看已保存标准输出")).toBeInTheDocument();
+    expect(screen.queryByText("部分输出字符无法正确解码，当前文本可能不完整。")).not.toBeInTheDocument();
     expect(threadActivityArtifact).not.toHaveBeenCalled();
-    await user.click(screen.getByText("查看完整标准输出"));
+    await user.click(screen.getByText("查看已保存标准输出"));
 
-    expect(await screen.findByText("All 42 tests passed successfully")).toBeInTheDocument();
+    expect(await screen.findByText("Full output with a damaged character: \uFFFD")).toBeInTheDocument();
+    expect(screen.getByText("部分输出字符无法正确解码，当前文本可能不完整。")).toBeInTheDocument();
     expect(screen.getByText(/工具输出仅作为数据展示/u)).toBeInTheDocument();
     expect(threadActivityArtifact).toHaveBeenCalledWith(
       "thread-1", "command-1", "artifact-stdout-1", expect.any(AbortSignal));
@@ -364,7 +586,7 @@ describe("V2ActivityGroup", () => {
       detail: "safe summary", status: "completed", provisional: false,
       detailRef: "detail-file-edit", detailAvailable: true }] }));
 
-    await user.click(screen.getByText("修改"));
+    await user.click(screen.getByText("文件修改记录"));
     await user.click(screen.getByLabelText("查看文件修改的执行详情"));
     const disclosure = await screen.findByRole("button", { name: "查看 Diff" });
     expect(fileEdit).not.toHaveBeenCalled();
@@ -393,7 +615,7 @@ describe("V2ActivityGroup", () => {
       detail: "safe summary", status: "completed", provisional: false,
       detailRef: "detail-file-edit", detailAvailable: true }] }));
 
-    await user.click(screen.getByText("修改"));
+    await user.click(screen.getByText("文件修改记录"));
     await user.click(screen.getByLabelText("查看文件修改的执行详情"));
     expect(await screen.findByText("本次活动没有可展示的 Diff。")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "查看 Diff" })).not.toBeInTheDocument();
@@ -416,7 +638,7 @@ describe("V2ActivityGroup", () => {
       detail: "safe summary", status: "completed", provisional: false,
       detailRef: "detail-file-edit", detailAvailable: true }] }));
 
-    await user.click(screen.getByText("修改"));
+    await user.click(screen.getByText("文件修改记录"));
     await user.click(screen.getByLabelText("查看文件修改的执行详情"));
     await user.click(await screen.findByRole("button", { name: "查看 Diff" }));
     expect(await screen.findByText("Diff 加载失败。")).toBeInTheDocument();
@@ -454,6 +676,42 @@ describe("V2ActivityGroup", () => {
     expect(await screen.findByText(`${label} · inspect`)).toBeInTheDocument();
     expect(screen.getByText(expected)).toBeInTheDocument();
     expect(screen.queryByText(/payload_json/u)).not.toBeInTheDocument();
+  });
+
+  it.each(["failed", "completed"] as const)("describes a %s search with no sources using its actual outcome", async (status) => {
+    const detail = typedDetail("web_search");
+    if (detail.kind !== "web_search") throw new Error("expected search fixture");
+    detail.web_search.source_count = 0;
+    detail.web_search.sources = [];
+    detail.web_search.citeable = false;
+    detail.web_search.boundary.error_code = status === "failed" ? "UNAVAILABLE" : "";
+    detail.web_search.boundary.failure_reason = status === "failed"
+      ? "供应商原生搜索返回了无效响应。" : "";
+    const threadActivityDetail = vi.fn().mockResolvedValue({
+      version: "thread_activity_detail.v2", activity_ref: "search-no-sources", run_id: "run-1",
+      tools: [{ name: "web_search", label: "联网搜索", agent_id: "agent-root", agent_role: "root",
+        agent_label: "Root Agent", status, duration_milliseconds: 20, detail }],
+    });
+    renderActivity({ threadActivityDetail } as unknown as CyberAgentClient, activity({
+      activity: "read", status, items: [{ title: "联网搜索", detail: "safe summary", status,
+        provisional: false, detailRef: "search-no-sources", detailAvailable: true }],
+    }));
+    if (status === "completed") {
+      const user = userEvent.setup();
+      await user.click(screen.getByText("读取"));
+      await user.click(screen.getByLabelText("查看联网搜索的执行详情"));
+    }
+    await screen.findByText("联网搜索 · inspect");
+    if (status === "failed") {
+      expect(screen.getByText("未取得搜索结果")).toBeInTheDocument();
+      expect(screen.getByText("UNAVAILABLE")).toBeInTheDocument();
+      expect(screen.getByText("供应商原生搜索返回了无效响应。")).toBeInTheDocument();
+      expect(screen.queryByText(/待验证/)).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByText("0 个来源 · 待验证")).toBeInTheDocument();
+      expect(screen.queryByText("未取得搜索结果")).not.toBeInTheDocument();
+    }
+    expect(threadActivityDetail).toHaveBeenCalledTimes(1);
   });
 
   it("expands existing typed web evidence without making a detail request", async () => {

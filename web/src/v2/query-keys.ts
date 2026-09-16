@@ -1,6 +1,7 @@
 export const v2QueryKeys = {
   threads: (status: "active" | "archived" = "active") => ["v2", "threads", status] as const,
   thread: (threadID: string) => ["v2", "thread", threadID] as const,
+  execution: (threadID: string) => ["v2", "thread", threadID, "execution"] as const,
   transcript: (threadID: string) => ["v2", "thread", threadID, "transcript"] as const,
   permission: (threadID: string) => ["v2", "thread", threadID, "permission"] as const,
   searchReadiness: (threadID: string) => ["v2", "thread", threadID, "search-readiness"] as const,

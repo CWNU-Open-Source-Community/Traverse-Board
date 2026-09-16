@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -21,6 +22,13 @@ type HTTPProviderRuntime interface {
 	BindingDigest() string
 }
 
+// KeylessHTTPProviderRuntime is an optional, endpoint-bound exception for a
+// validated local provider. Static API-key configurations remain unchanged.
+type KeylessHTTPProviderRuntime interface {
+	HTTPProviderRuntime
+	AllowsKeylessEndpoint(string) bool
+}
+
 func validateHTTPProviderRuntime(runtime HTTPProviderRuntime) error {
 	if runtime == nil {
 		return nil
@@ -34,7 +42,7 @@ func validateHTTPProviderRuntime(runtime HTTPProviderRuntime) error {
 }
 
 func providerRequestCredential(ctx context.Context, provider string, static string,
-	runtime HTTPProviderRuntime,
+	runtime HTTPProviderRuntime, endpoint string,
 ) (string, error) {
 	secret := static
 	if runtime != nil {
@@ -43,6 +51,18 @@ func providerRequestCredential(ctx context.Context, provider string, static stri
 			return "", errors.New("provider credential is unavailable")
 		}
 		secret = resolved
+	}
+	if secret == "" {
+		// The adapter independently checks its actual configured endpoint; a
+		// runtime created for one local endpoint cannot authorize another URL.
+		if local, ok := runtime.(KeylessHTTPProviderRuntime); ok {
+			normalized, err := normalizeProviderBaseURL(endpoint, provider)
+			parsed, parseErr := url.Parse(normalized)
+			if err == nil && parseErr == nil && providerLoopbackHost(parsed.Hostname()) &&
+				local.AllowsKeylessEndpoint(normalized) {
+				return "", nil
+			}
+		}
 	}
 	if err := validateProviderAPIKey(secret, provider); err != nil {
 		return "", errors.New("provider credential is unavailable")

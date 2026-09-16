@@ -219,7 +219,7 @@ func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Cont
 				return commandruntimeadapter.Identity{}, false, nil
 			}
 		}
-		workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+		workspace, found, err := readRunFileDrydock(ctx, s.store, runID)
 		if err != nil {
 			return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
 		}
@@ -280,10 +280,14 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 		if err := s.completeTerminalCommandRuntimeBoundaries(ctx, scope.RunID); err != nil {
 			return result, err
 		}
-		resolved, err := runner.NormalizeCommandRuntimeSpec(input.Commands[0],
+		resolved, err := s.normalizeCommandRuntimeSpec(input.Commands[0],
 			bindings.rootPath)
 		if err != nil {
 			return result, commandRuntimeError(err)
+		}
+		resolved, err = s.bindOriginalAttachmentInputs(ctx, bindings, resolved)
+		if err != nil {
+			return result, err
 		}
 		operationDigest, jobID := runner.CommandRuntimeOperationIdentity(scope.RunID,
 			scope.OperationKey)
@@ -488,10 +492,14 @@ func (s *CommandRuntimeService) runForeground(ctx context.Context,
 ) (toolgateway.CommandRuntimeExecutionResult, error) {
 	resolvedCommands := make([]runner.CommandRuntimeResolvedSpec, len(input.Commands))
 	for index, command := range input.Commands {
-		resolved, err := runner.NormalizeCommandRuntimeSpec(command,
+		resolved, err := s.normalizeCommandRuntimeSpec(command,
 			bindings.rootPath)
 		if err != nil {
 			return result, commandRuntimeError(err)
+		}
+		resolved, err = s.bindOriginalAttachmentInputs(ctx, bindings, resolved)
+		if err != nil {
+			return result, err
 		}
 		resolvedCommands[index] = resolved
 	}
@@ -697,18 +705,16 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	value.rootPath = value.workspace.RootPath
 	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
 		var drydockFound bool
-		if value.drydock, drydockFound, err = s.store.GetDrydockByRun(ctx,
+		if value.drydock, drydockFound, err = readRunFileDrydock(ctx, s.store,
 			value.run.ID); err != nil {
 			return value, apperror.Normalize(err)
 		}
-		if !drydockFound || value.drydock.RunID != value.run.ID ||
-			value.drydock.MissionID != value.mission.ID ||
-			value.drydock.SessionID != value.run.SessionID ||
-			value.drydock.SourceWorkspaceID != value.workspace.ID ||
-			(value.drydock.State != drydock.StateReady &&
-				value.drydock.State != drydock.StateDelivered) {
-			return value, apperror.New(apperror.CodeConflict,
-				"command runtime Drydock binding is stale")
+		bound, bindErr := commandRuntimeDrydockBound(ctx, s.store, value.drydock, value.run.ID, value.mission.ID, value.run.SessionID, value.workspace.ID)
+		if bindErr != nil {
+			return value, apperror.Normalize(bindErr)
+		}
+		if !drydockFound || !bound {
+			return value, apperror.New(apperror.CodeConflict, "command runtime Drydock binding is stale")
 		}
 		value.rootPath = value.drydock.Path
 	}
@@ -948,14 +954,15 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 	}
 	rootPath := workspace.RootPath
 	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
-		owned, drydockFound, drydockErr := s.store.GetDrydockByRun(ctx, runRecord.ID)
+		owned, drydockFound, drydockErr := readRunFileDrydock(ctx, s.store, runRecord.ID)
 		if drydockErr != nil {
 			return false, apperror.Normalize(drydockErr)
 		}
-		if !drydockFound || owned.RunID != runRecord.ID ||
-			owned.MissionID != mission.ID || owned.SessionID != runRecord.SessionID ||
-			owned.SourceWorkspaceID != workspace.ID ||
-			(owned.State != drydock.StateReady && owned.State != drydock.StateDelivered) {
+		bound, bindErr := commandRuntimeDrydockBound(ctx, s.store, owned, runRecord.ID, mission.ID, runRecord.SessionID, workspace.ID)
+		if bindErr != nil {
+			return false, apperror.Normalize(bindErr)
+		}
+		if !drydockFound || !bound {
 			return false, nil
 		}
 		rootPath = owned.Path
@@ -1124,11 +1131,21 @@ func commandRuntimeWorkspaceBoundaryKey(action, operationKey string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func (s *CommandRuntimeService) normalizeCommandRuntimeSpec(spec runner.CommandRuntimeSpec, root string) (runner.CommandRuntimeResolvedSpec, error) {
+	if s.adapter.Backend == CommandRuntimeLocalSandboxBackend {
+		return runner.NormalizeLocalSandboxCommandRuntimeSpec(spec, root)
+	}
+	return runner.NormalizeCommandRuntimeSpec(spec, root)
+}
+
 func commandRuntimeError(err error) error {
 	if err == nil {
 		return nil
 	}
 	switch {
+	case errors.Is(err, runner.ErrCommandRuntimeLocalPowerShell):
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"Windows 隔离工作区需要 PowerShell 7。请在启动服务的环境中将 CYBERAGENT_POWERSHELL_PATH 配置为已安装的 pwsh.exe 完整路径，然后重启服务；当前命令尚未启动。", err)
 	case errors.Is(err, runner.ErrCommandRuntimeBoundary):
 		return apperror.Wrap(apperror.CodeInvalidArgument,
 			"command runtime boundary rejected the request", err)

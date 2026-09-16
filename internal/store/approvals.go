@@ -250,6 +250,8 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 		}
 	}
 	switch proposal.ToolName {
+	case "thread.git":
+		return validateThreadGitApprovalSourceTx(ctx, tx, proposal)
 	case "shell":
 		var sessionID, workspaceID sql.NullString
 		var command, status string
@@ -355,6 +357,8 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			operationStatus != string(gitadvanced.OperationProposed) || approvalID.Valid {
 			return errors.New("approval request does not match the stored Git advanced preview")
 		}
+	case "github.pull_request":
+		return validateThreadPullRequestApprovalSourceTx(ctx, tx, proposal)
 	case githubreview.ApprovalToolName:
 		var sessionID, workspaceID, approvalFingerprint, operationStatus string
 		var approvalID sql.NullString
@@ -495,7 +499,14 @@ func ensureApprovalTx(ctx context.Context, tx *sql.Tx, proposal approval.Proposa
 	runID := ""
 	if bound {
 		if strings.TrimSpace(binding.WorkspaceID) != proposal.WorkspaceID {
-			return approval.Record{}, false, errors.New("approval workspace does not match the attached run")
+			if proposal.ToolName == "thread.git" && proposal.ActionClass == "git_write" {
+				if err := requireFileEditWorkspaceTx(ctx, tx, proposal.SessionID, proposal.WorkspaceID, true); err != nil {
+					return approval.Record{}, false, err
+				}
+			} else if err := requireFileEditApprovalWorkspaceTx(ctx, tx, proposal.SessionID,
+				proposal.WorkspaceID, proposal.ProposalID, proposal.ToolName, proposal.ActionClass); err != nil {
+				return approval.Record{}, false, err
+			}
 		}
 		runID = binding.RunID
 	}

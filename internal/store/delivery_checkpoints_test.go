@@ -147,13 +147,24 @@ func TestSchemaV44LeavesPartiallyCompletedLegacySelectionExplicitlyExempt(t *tes
 	}
 }
 
-func createStoreDeliveryGateFixture(t *testing.T, suffix string) (*SQLiteStore,
+func createStoreDeliveryGateFixture(t *testing.T, suffix string, manual ...domain.PlanDeliveryManualAcceptance) (*SQLiteStore,
 	context.Context, domain.Run, application.SelectPlanDeliveryDirectionResult,
 ) {
 	t.Helper()
 	st, err := Open(filepath.Join(t.TempDir(), "delivery-"+suffix+".db"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	return populateStoreDeliveryGateFixture(t, st, suffix, manual...)
+}
+
+func populateStoreDeliveryGateFixture(t *testing.T, st *SQLiteStore, suffix string,
+	manual ...domain.PlanDeliveryManualAcceptance,
+) (*SQLiteStore, context.Context, domain.Run, application.SelectPlanDeliveryDirectionResult) {
+	t.Helper()
+	acceptance := domain.PlanDeliveryManualAcceptanceRequired
+	if len(manual) != 0 {
+		acceptance = manual[0]
 	}
 	ctx := context.Background()
 	runService := application.NewRunService(st)
@@ -188,7 +199,7 @@ func createStoreDeliveryGateFixture(t *testing.T, suffix string) (*SQLiteStore,
 	}
 	selected, err := application.NewPlanDeliveryService(st).Select(ctx,
 		application.SelectPlanDeliveryDirectionRequest{
-			ProposalID: proposals[0].ID, Direction: 2,
+			ProposalID: proposals[0].ID, Direction: 2, ManualAcceptance: acceptance,
 			OperationKey: "store-delivery-choice-" + suffix,
 			RequestedBy:  "operator",
 		})

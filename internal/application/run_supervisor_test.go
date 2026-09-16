@@ -82,7 +82,7 @@ func TestRunSupervisorCompletesOneTurnAndEnforcesBudget(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorAppliesAggregateContextWindowAndTrimsOldestHistory(t *testing.T) {
+func TestRunSupervisorAppliesAggregateContextWindowAndCompactsOldestHistory(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-context-window.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -131,9 +131,10 @@ func TestRunSupervisorAppliesAggregateContextWindowAndTrimsOldestHistory(t *test
 		t.Fatalf("provider calls=%d, want 1", len(provider.requests))
 	}
 	request := provider.requests[0]
-	if request.MaxTokens != 256 || request.Metadata["context_window_source"] != "integration_test" ||
-		request.Metadata["context_history_omitted"] == "" ||
-		request.Metadata["context_history_omitted"] == "0" {
+	if request.MaxTokens != 512 || request.Metadata["context_window_source"] != "integration_test" ||
+		request.Metadata["context_history_omitted"] != "0" ||
+		request.Metadata["context_compacted_messages"] != "19" ||
+		request.Metadata["context_summary_id"] == "" {
 		t.Fatalf("aggregate context gate was not applied: max=%d metadata=%#v",
 			request.MaxTokens, request.Metadata)
 	}
@@ -141,8 +142,8 @@ func TestRunSupervisorAppliesAggregateContextWindowAndTrimsOldestHistory(t *test
 	for _, message := range request.Messages {
 		joined += message.Content
 	}
-	if strings.Contains(joined, "history-00") || !strings.Contains(joined, "history-19") {
-		t.Fatalf("context gate did not retain newest history deterministically")
+	if !strings.Contains(joined, "history-00") || !strings.Contains(joined, "history-19") {
+		t.Fatalf("context gate lost the original intent or newest history")
 	}
 }
 
@@ -794,16 +795,18 @@ func TestRunSupervisorStoreRejectsWorkItemCreatedDuringModelCall(t *testing.T) {
 		t.Fatalf("stale finish was not rejected at commit: code=%s err=%v", apperror.CodeOf(err), err)
 	}
 	loaded, err := st.GetRun(ctx, run.ID)
-	if err != nil || loaded.Status != domain.RunRunning {
-		t.Fatalf("stale finish changed run state: %#v err=%v", loaded, err)
+	if err != nil || loaded.Status != domain.RunPaused {
+		t.Fatalf("stale finish must pause the failed run for the operator: %#v err=%v", loaded, err)
 	}
 	messages, err := st.ListSessionMessages(ctx, run.SessionID, true)
 	if err != nil || len(messages) != 0 {
 		t.Fatalf("stale finish committed messages: %#v err=%v", messages, err)
 	}
 	checkpoint, ok, err := st.GetSupervisorCheckpoint(ctx, run.ID)
-	if err != nil || !ok || checkpoint.Phase != domain.SupervisorTurnStarted {
-		t.Fatalf("stale finish lost recoverable checkpoint: %#v ok=%t err=%v", checkpoint, ok, err)
+	if err != nil || !ok || checkpoint.Phase != domain.SupervisorTurnFailed ||
+		checkpoint.NextTurn != 1 || checkpoint.PendingInput != "close completion race" ||
+		!strings.Contains(checkpoint.LastError, "active work item") {
+		t.Fatalf("stale finish lost its precise failed checkpoint and pending input: %#v ok=%t err=%v", checkpoint, ok, err)
 	}
 	timeline, err := st.ListRunEvents(ctx, run.ID)
 	if err != nil {
@@ -1087,6 +1090,9 @@ func TestRunSupervisorPreservesPendingInputAfterRateLimitExhaustion(t *testing.T
 	}
 	if first.Checkpoint.Phase != domain.SupervisorTurnFailed || first.Checkpoint.PendingInput != "durable rate-limited input" || first.ModelOutcome != llm.OutcomeRateLimited {
 		t.Fatalf("rate limit did not preserve input: %#v", first)
+	}
+	if _, err := application.NewRunService(st).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
 	}
 	second, err := supervisor.Step(ctx, run.ID)
 	if err != nil {
@@ -1437,7 +1443,8 @@ func TestRunSupervisorRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.
 		t.Fatalf("unexpected tool-call rejection code=%s err=%v", apperror.CodeOf(err), err)
 	}
 	if result.Checkpoint.Phase != domain.SupervisorTurnFailed || result.ToolCalls != 0 ||
-		!strings.Contains(result.Checkpoint.LastError, "protocol repair response cannot request tools") {
+		result.ModelAttempts != 2 || result.ProtocolRepairs != 1 ||
+		!strings.Contains(result.Checkpoint.LastError, `provider requested unsupported supervisor tool "shell"`) {
 		t.Fatalf("tool-call failure was not checkpointed: %#v", result)
 	}
 	runs, err := st.ListToolRuns(ctx, toolrun.ListFilter{SessionID: run.SessionID})
@@ -1447,11 +1454,17 @@ func TestRunSupervisorRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.
 	if len(runs) != 0 {
 		t.Fatalf("tool call was persisted or executed: %#v", runs)
 	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 2)
+	if err != nil || len(rounds) != 0 {
+		t.Fatalf("non-allowlisted call reached the durable tool ledger: %#v err=%v", rounds, err)
+	}
 	items, err := st.ListRunEvents(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if countEventType(items, events.AgentTurnFailedEvent) != 1 || countEventType(items, events.AgentTurnCompletedEvent) != 0 {
+	if countEventType(items, events.AgentTurnFailedEvent) != 1 ||
+		countEventType(items, events.AgentTurnCompletedEvent) != 0 ||
+		countEventType(items, events.ProtocolRepairRequestedEvent) != 1 {
 		t.Fatalf("unexpected failed-turn events: %#v", items)
 	}
 	finalized, err := supervisor.Finalize(ctx, run.ID, application.LifecycleOutcomeFailed, "tool call rejected")
@@ -1636,6 +1649,9 @@ func TestRunSupervisorEnforcesPersistedExecutionTimeout(t *testing.T) {
 		t.Fatalf("elapsed execution time was not persisted: %#v", checkpoint)
 	}
 	releaseTestRunExecutionLease(t, ctx, st, run.ID)
+	if _, err := service.Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	if _, err := supervisor.Step(ctx, run.ID); apperror.CodeOf(err) != apperror.CodeDeadlineExceeded {
 		t.Fatalf("unexpected timeout code=%s err=%v", apperror.CodeOf(err), err)
@@ -1668,6 +1684,9 @@ func TestRunSupervisorAppliesRemainingExecutionDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	releaseTestRunExecutionLease(t, ctx, st, run.ID)
+	if _, err := service.Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	router := llm.NewRouter(llm.ModelRef{Provider: "blocking-test", Model: "model"})
 	router.RegisterProvider(blockingProvider{})
 	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
@@ -2025,6 +2044,11 @@ func TestRunSupervisorRepairsMalformedRootActionOnce(t *testing.T) {
 	if provider.requests[1].Metadata["protocol_repair"] != "1" || len(provider.requests[1].Tools) != 0 {
 		t.Fatalf("repair request metadata is missing: %#v", provider.requests[1].Metadata)
 	}
+	if !slices.ContainsFunc(provider.requests[1].Messages, func(message llm.Message) bool {
+		return strings.Contains(message.Content, `unknown field \"unknown\"`)
+	}) {
+		t.Fatal("protocol repair omitted the decoder's actionable rejection reason")
+	}
 	for _, message := range provider.requests[1].Messages {
 		if strings.Contains(message.Content, invalidRaw) || strings.Contains(message.Content, "do-not-persist-secret-value") {
 			t.Fatalf("repair prompt replayed the invalid model output: %#v", provider.requests[1].Messages)
@@ -2081,18 +2105,24 @@ func TestRunSupervisorSeparatesRepairTransportAttemptsFromGlobalSequence(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantAttempts := []string{
-		`"model_attempt":1,"protocol_repair":0,"provider":"lifecycle-test","tool_round":0,"transport_attempt":1`,
-		`"model_attempt":2,"protocol_repair":1,"provider":"lifecycle-test","tool_round":0,"transport_attempt":1`,
-		`"model_attempt":3,"protocol_repair":1,"provider":"lifecycle-test","tool_round":0,"transport_attempt":2`,
-	}
+	wantAttempts := []struct{ model, repair, transport int }{{1, 0, 1}, {2, 1, 1}, {3, 1, 2}}
 	found := make([]bool, len(wantAttempts))
 	for _, item := range items {
 		if item.Type != events.ModelStartedEvent {
 			continue
 		}
+		var payload struct {
+			Model     int    `json:"model_attempt"`
+			Repair    int    `json:"protocol_repair"`
+			Transport int    `json:"transport_attempt"`
+			Round     int    `json:"tool_round"`
+			Provider  string `json:"provider"`
+		}
+		if err := json.Unmarshal([]byte(item.PayloadJSON), &payload); err != nil {
+			t.Fatal(err)
+		}
 		for index, want := range wantAttempts {
-			if strings.Contains(item.PayloadJSON, want) {
+			if payload.Model == want.model && payload.Repair == want.repair && payload.Transport == want.transport && payload.Round == 0 && payload.Provider == "lifecycle-test" {
 				found[index] = true
 			}
 		}
@@ -2271,20 +2301,20 @@ func TestRunSupervisorPersistsProtocolRepairWhenCancelledAfterResponse(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	run := newStartedRunForProvider(t, st, "lifecycle-test", domain.Budget{MaxTurns: 2, MaxTokens: 10})
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	provider := &lifecycleProvider{responses: []string{
 		`{"version":"root_lifecycle.v1","action":"continue","message":"invalid","unknown":true}`,
 		rootActionResponse(domain.RootActionContinue, "repaired after cancellation", "", ""),
 	}}
-	provider.afterResponse = func(index int) {
-		if index == 0 {
-			cancel()
-		}
-	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	first, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	// Cancel after the response and repair receipt are durably accepted. A
+	// provider cancelling before it returns races stream receipt consumption
+	// and only proves pre-acceptance cancellation, not restart of Pending repair.
+	first, err := application.NewRunSupervisor(&cancelAfterProtocolReceiptStore{SQLiteStore: st, cancel: cancel}, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeCancelled || provider.calls != 1 || first.ModelAttempts != 1 ||
 		first.ProtocolRepairs != 1 || first.Checkpoint.Phase != domain.SupervisorTurnStarted ||
 		first.Checkpoint.RepairPhase != domain.ProtocolRepairPending || first.Checkpoint.TotalTokens != 2 {
@@ -2315,6 +2345,19 @@ func TestRunSupervisorPersistsProtocolRepairWhenCancelledAfterResponse(t *testin
 		countEventType(items, events.ProtocolRepairCompletedEvent) != 1 || countEventType(items, events.AgentTurnStartedEvent) != 1 {
 		t.Fatalf("cancelled repair recovery duplicated lifecycle events: %#v", items)
 	}
+}
+
+type cancelAfterProtocolReceiptStore struct {
+	*store.SQLiteStore
+	cancel context.CancelFunc
+}
+
+func (s *cancelAfterProtocolReceiptStore) RecordSupervisorProtocolFailure(ctx context.Context, cp domain.SupervisorCheckpoint, attempt llm.ModelAttempt, response llm.ChatResponse, reason string, repair bool) (domain.SupervisorCheckpoint, error) {
+	updated, err := s.SQLiteStore.RecordSupervisorProtocolFailure(ctx, cp, attempt, response, reason, repair)
+	if err == nil && repair {
+		s.cancel()
+	}
+	return updated, err
 }
 
 func countEventType(items []events.Event, eventType string) int {

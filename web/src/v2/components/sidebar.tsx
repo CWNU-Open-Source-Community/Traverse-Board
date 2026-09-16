@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, ArrowLeft, Box, ChevronDown, CircleUserRound, Code2, Cpu,
-  Folder, GitBranch, Globe2, Keyboard, Link2, MessagesSquare, Mic2, MonitorCog, MoreHorizontal,
-  Palette, Plug, Search, Settings, ShieldCheck, SquarePen, UserRound, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, Box, Cpu, Folder, MessagesSquare, MoreHorizontal, RefreshCw,
+  Info, Keyboard, PackageSearch, Palette, PlugZap, Route, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
 import type { ThreadView, WorkspaceView } from "../../api/types";
 
 export type V2SettingsSection = "general" | "permissions" | "appearance" | "voice" |
   "models" | "plugins" | "browser" | "hooks" | "git" | "environment" |
-  "worktrees" | "keyboard" | "inspector" | "archived";
+  "worktrees" | "keyboard" | "inspector" | "archived" | "extensions" | "skills" |
+  "advanced-models" | "about" | "shortcuts";
 
 export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, onSearchOpen,
-  onNewConversation, onOpenModels, onSelectThread, onOpenSettings, onArchive }: {
+  onNewConversation, onOpenModels, onSelectThread, onOpenSettings, onArchive,
+  hasMore = false, loading = false, loadingMore = false, loadFailed = false, onLoadMore, onRefresh }: {
   threads: ThreadView[];
   workspaces: WorkspaceView[];
   selectedThreadID: string;
@@ -20,6 +21,8 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
   onSelectThread: (threadID: string) => void;
   onOpenSettings: () => void;
   onArchive: (thread: ThreadView) => void;
+  hasMore?: boolean; loading?: boolean; loadingMore?: boolean; loadFailed?: boolean;
+  onLoadMore?: () => void; onRefresh?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [menuThreadID, setMenuThreadID] = useState("");
@@ -31,21 +34,28 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
   const grouped = useMemo(() => {
     const result = new Map<string, ThreadView[]>();
     for (const thread of visible) {
-      const label = thread.workspace_id ? workspaceNames.get(thread.workspace_id) ?? "工作区" : "本地任务";
-      result.set(label, [...(result.get(label) ?? []), thread]);
+      const id = thread.workspace_id ?? "";
+      const group = result.get(id);
+      if (group) group.push(thread);
+      else result.set(id, [thread]);
     }
     return [...result.entries()];
-  }, [visible, workspaceNames]);
+  }, [visible]);
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const { name } of workspaces) counts.set(name, (counts.get(name) ?? 0) + 1);
+    return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [workspaces]);
 
   return <aside className="v2-sidebar">
-    <div className="v2-sidebar-brand"><button type="button"><strong>Traverse</strong>
-      <ChevronDown aria-hidden="true" size={14} /></button>
+    <div className="v2-sidebar-brand"><strong>Traverse</strong>
+      {onRefresh && <button aria-label="刷新对话列表" onClick={onRefresh} type="button"><RefreshCw aria-hidden="true" size={15} /></button>}
       <button aria-label="搜索" onClick={() => onSearchOpen(!searchOpen)} type="button">
         {searchOpen ? <X aria-hidden="true" size={16} /> : <Search aria-hidden="true" size={16} />}
       </button></div>
     <nav aria-label="对话导航" className="v2-sidebar-actions">
       <button onClick={onNewConversation} type="button"><SquarePen aria-hidden="true" size={16} />
-        <span>新对话</span><kbd>Ctrl N</kbd></button>
+        <span>新对话</span></button>
       <button onClick={onOpenModels} type="button"><Cpu aria-hidden="true" size={16} />
         <span>接入模型</span></button>
       <button onClick={() => onSearchOpen(true)} type="button"><Search aria-hidden="true" size={16} />
@@ -53,11 +63,20 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
     </nav>
     {searchOpen && <label className="v2-sidebar-search"><Search aria-hidden="true" size={15} />
       <input aria-label="搜索对话" autoFocus onChange={(event) => setSearch(event.target.value)}
-        placeholder="搜索对话…" type="search" value={search} /></label>}
+        placeholder="搜索已加载的对话标题…" type="search" value={search} /></label>}
+    {searchOpen && <p className="v2-history-scope">搜索{threads.length}条已加载的未归档对话标题，不含消息正文。
+      {loading ? "正在读取列表。" : loadFailed ? "本次加载未完成，请重试。"
+        : hasMore ? "更早记录可在下方继续加载。" : "当前列表已加载完毕。"}归档对话请到设置查看。</p>}
     <div className="v2-thread-scroll">
-      {grouped.length === 0 && <div className="v2-sidebar-empty"><MessagesSquare size={16} />暂无对话</div>}
-      {grouped.map(([workspace, workspaceThreads]) => <section className="v2-thread-group" key={workspace}>
-        <header><Folder aria-hidden="true" size={15} /><span>{workspace}</span></header>
+      {loading && <p className="v2-history-scope" role="status">正在加载对话…</p>}
+      {!loading && !loadFailed && grouped.length === 0 && <div className="v2-sidebar-empty"><MessagesSquare size={16} />
+        {normalized ? "已加载的标题中没有匹配项" : "暂无对话"}</div>}
+      {grouped.map(([workspaceID, workspaceThreads]) => {
+        const name = workspaceID ? workspaceNames.get(workspaceID) ?? "工作区" : "本地任务";
+        const label = workspaceID && (duplicateNames.has(name) || !workspaceNames.has(workspaceID))
+          ? `${name} · ${workspaceID}` : name;
+        return <section aria-label={`项目 ${label}`} className="v2-thread-group" key={workspaceID}>
+        <header title={workspaceID || name}><Folder aria-hidden="true" size={15} /><span>{label}</span></header>
         {workspaceThreads.map((thread) => <div className={`v2-thread-row-shell${selectedThreadID === thread.id
           ? " is-selected" : ""}`} key={thread.id}>
           <button className="v2-thread-row" onClick={() => onSelectThread(thread.id)} type="button">
@@ -73,7 +92,11 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
               <Archive aria-hidden="true" size={14} />归档</button>
           </div>}
         </div>)}
-      </section>)}
+      </section>; })}
+      {loadFailed && <p className="v2-history-scope" role="alert">对话列表加载失败，已有记录仍可打开。
+        <button onClick={hasMore ? onLoadMore : onRefresh} type="button">重试加载对话</button></p>}
+      {hasMore && <button className="v2-load-history" disabled={loadingMore}
+        onClick={onLoadMore} type="button">{loadingMore ? "正在加载更早对话…" : "加载更早对话"}</button>}
     </div>
     <div className="v2-sidebar-footer">
       <button onClick={onOpenSettings} type="button"><Settings aria-hidden="true" size={16} />设置</button>
@@ -84,24 +107,21 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
 const settingsGroups: Array<{ label: string; items: Array<{
   id: V2SettingsSection; label: string; icon: typeof Settings;
 }> }> = [
-  { label: "个人", items: [
+  { label: "应用", items: [
     { id: "general", label: "常规", icon: Settings },
-    { id: "models", label: "模型", icon: Cpu },
-    { id: "permissions", label: "权限", icon: ShieldCheck },
     { id: "appearance", label: "外观", icon: Palette },
-    { id: "voice", label: "语音", icon: Mic2 },
-    { id: "keyboard", label: "键盘快捷键", icon: Keyboard },
+    { id: "shortcuts", label: "快捷键", icon: Keyboard },
+    { id: "about", label: "关于", icon: Info },
   ] },
-  { label: "集成", items: [
-    { id: "plugins", label: "插件", icon: Plug },
-    { id: "browser", label: "浏览器", icon: Globe2 },
+  { label: "模型与扩展", items: [
+    { id: "models", label: "模型", icon: Cpu },
+    { id: "advanced-models", label: "全局模型路由与价格", icon: Route },
+    { id: "extensions", label: "扩展与代码智能", icon: PlugZap },
+    { id: "skills", label: "Skill 包", icon: PackageSearch },
   ] },
-  { label: "编码", items: [
-    { id: "hooks", label: "钩子", icon: Link2 },
-    { id: "git", label: "Git", icon: GitBranch },
-    { id: "environment", label: "环境", icon: MonitorCog },
-    { id: "worktrees", label: "Worktrees", icon: Code2 },
-    { id: "inspector", label: "Inspector", icon: Box },
+  { label: "任务与诊断", items: [
+    { id: "permissions", label: "当前任务权限", icon: ShieldCheck },
+    { id: "inspector", label: "Inspector 偏好与诊断", icon: Box },
   ] },
 ];
 
@@ -123,7 +143,10 @@ export function V2SettingsSidebar({ section, onBack, onSelect }: {
         const items = group.items.filter((item) => !normalized || item.label.toLocaleLowerCase().includes(normalized));
         if (!items.length) return null;
         return <section key={group.label}><h2>{group.label}</h2>{items.map(({ id, label, icon: Icon }) =>
-          <button aria-current={section === id ? "page" : undefined} className={section === id ? "is-active" : ""}
+          <button aria-current={(section === id || section === "plugins" && id === "extensions" ||
+            section === "keyboard" && id === "shortcuts") ? "page" : undefined}
+            className={(section === id || section === "plugins" && id === "extensions" ||
+              section === "keyboard" && id === "shortcuts") ? "is-active" : ""}
             key={id} onClick={() => onSelect(id)} type="button"><Icon aria-hidden="true" size={16} />{label}</button>)}</section>;
       })}
     </nav>

@@ -135,17 +135,16 @@ func TestDeliverPhaseRejectsUnadvertisedPlanDeliveryToolBeforeBudget(t *testing.
 			"ignored an unavailable Plan tool", "", "")),
 	}}
 	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
-	if err != nil || result.ProtocolRepairs != 1 || result.ToolCalls != 0 ||
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || result.ProtocolRepairs != 1 || result.ToolCalls != 0 ||
 		result.ModelAttempts != 2 {
-		t.Fatalf("Deliver-phase Plan tool did not use bounded protocol repair: %#v err=%v",
+		t.Fatalf("unadvertised Plan tool was not rejected before execution: %#v err=%v",
 			result, err)
 	}
 	requests := provider.Requests()
 	if len(requests) != 2 ||
 		hasToolSpec(requests[0], "plan_delivery_propose") ||
-		!hasToolSpec(requests[0], "controlled_command_propose") ||
-		len(requests[1].Tools) != 0 {
-		t.Fatalf("Deliver or repair request advertised an invalid tool: %#v", requests)
+		!hasToolSpec(requests[0], "controlled_command_propose") {
+		t.Fatalf("Deliver advertised an invalid tool or tried a tool-less replacement answer: %#v", requests)
 	}
 	proposals, err := st.ListPlanDeliveryProposals(ctx, run.ID, 10)
 	if err != nil || len(proposals) != 0 {
@@ -282,6 +281,13 @@ func createPausedPlanProposal(t *testing.T, ctx context.Context,
 	st *store.SQLiteStore,
 ) (domain.Run, domain.PlanDeliveryProposal) {
 	t.Helper()
+	return createPausedPlanProposalWithPayload(t, ctx, st, planDeliveryTestPayload)
+}
+
+func createPausedPlanProposalWithPayload(t *testing.T, ctx context.Context,
+	st *store.SQLiteStore, payload string,
+) (domain.Run, domain.PlanDeliveryProposal) {
+	t.Helper()
 	runService := application.NewRunService(st)
 	_, run, err := runService.Create(ctx, application.CreateRunRequest{
 		Goal: "plan lease gate", Profile: "review", Phase: "plan",
@@ -295,7 +301,7 @@ func createPausedPlanProposal(t *testing.T, ctx context.Context,
 		t.Fatal(err)
 	}
 	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		toolResponse("provider-plan-lease", "plan_delivery_propose", planDeliveryTestPayload),
+		toolResponse("provider-plan-lease", "plan_delivery_propose", payload),
 		textResponse(rootActionResponse(domain.RootActionWait,
 			"directions ready", "", "operator choice")),
 	}}

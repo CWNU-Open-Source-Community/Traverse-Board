@@ -26,6 +26,7 @@ type ModelRouteCatalogItem struct {
 	Selectable          bool
 	UnavailableReason   string
 	DefaultForRoutes    []string
+	VisionCapability    llm.VisionCapability
 	// DefinitionRevision is intentionally not projected by the HTTP catalog.
 	// It is an internal CAS token used by Change to close the Registry-to-Store
 	// race for custom Provider definitions.
@@ -69,6 +70,7 @@ type ThreadModelRouteView struct {
 	AppliesTo          string
 	ActiveRunUnchanged bool
 	Replayed           bool
+	VisionCapability   llm.VisionCapability
 }
 
 type ChangeThreadModelRouteRequest struct {
@@ -125,6 +127,7 @@ func (s *ThreadModelRouteService) Catalog(_ context.Context) (ModelRouteCatalog,
 				HarnessReady: harnessReady, Selectable: selectable,
 				DefaultForRoutes: append([]string(nil), defaults[provider.Name+"\x00"+model]...),
 				Custom:           provider.Custom, DefinitionRevision: provider.DefinitionRevision,
+				VisionCapability: s.registry.Router().DescribeVision(llm.ModelRef{Provider: provider.Name, Model: model}),
 			}
 			if item.ProviderName == "" {
 				item.ProviderName = item.ProviderID
@@ -274,7 +277,7 @@ func (s *ThreadModelRouteService) routeView(ctx context.Context, threadRecord do
 ) (ThreadModelRouteView, error) {
 	view := ThreadModelRouteView{ProtocolVersion: domain.ThreadModelRouteProtocolVersion,
 		ThreadID: threadRecord.ID, Provider: desired.Provider, Model: desired.Model,
-		Source: source, AppliesTo: "next_run"}
+		Source: source, AppliesTo: "next_run", VisionCapability: s.registry.Router().DescribeVision(desired)}
 	if threadRecord.ActiveRunID == "" {
 		return view, nil
 	}

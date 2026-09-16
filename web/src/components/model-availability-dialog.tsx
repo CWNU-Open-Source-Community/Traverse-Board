@@ -22,11 +22,16 @@ export function ModelAvailabilityWorkspace({ client }: { client: CyberAgentClien
     presentation="workspace" />;
 }
 
+export function ModelAvailabilitySettings({ client }: { client: CyberAgentClient }) {
+  return <ModelAvailabilitySurface client={client} onClose={() => undefined} open
+    presentation="settings" />;
+}
+
 function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   client: CyberAgentClient;
   open: boolean;
   onClose: () => void;
-  presentation: "dialog" | "workspace";
+  presentation: "dialog" | "workspace" | "settings";
 }) {
   const { t } = useLocale();
   const qualificationStatusLabel = (status: string) => {
@@ -74,7 +79,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   const credentialQuery = useQuery({
     queryKey: ["models", "credentials"],
     queryFn: ({ signal }) => client.providerCredentialStatuses(signal),
-    enabled: open && client.hasProviderCredentials,
+    enabled: open && presentation !== "settings" && client.hasProviderCredentials,
   });
   const routeMutation = useMutation({
     mutationFn: ({ route, reference }: { route: string; reference: string }) => {
@@ -134,13 +139,13 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     return null;
   }
   const surface = (
-      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : t("模型切换", "Model selection")}
+      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : presentation === "settings" ? t("全局模型路由与价格", "Global model routes and prices") : t("模型切换", "Model selection")}
         aria-modal={presentation === "dialog" ? "true" : undefined}
         className={presentation === "dialog"
           ? "desktop-dialog model-availability-dialog" : "model-control-workspace"}
         ref={dialogRef} role={presentation === "dialog" ? "dialog" : "region"}
         tabIndex={presentation === "dialog" ? -1 : undefined}>
-        <header>
+        {presentation !== "settings" && <header>
           <div>
             <span className="dialog-icon"><Cpu aria-hidden="true" size={18} /></span>
             <div><h2>{presentation === "dialog" ? t("模型", "Models") : t("模型切换", "Model selection")}</h2>
@@ -150,12 +155,13 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
             onClick={onClose} title={t("关闭", "Close")} type="button">
             <X aria-hidden="true" size={17} />
           </button>}
-        </header>
+        </header>}
         <div className="desktop-dialog-body model-availability-body">
           {query.isLoading && <LoadingState label={t("加载模型可用性", "Loading model availability")} />}
           {query.isError && <ErrorState error={query.error} />}
           {query.data && (
             <>
+              {presentation !== "settings" && <>
               <section className="model-availability-section">
                 <h3><Cpu aria-hidden="true" size={14} />{t("提供商", "Provider")}</h3>
                 <div className="model-provider-list">
@@ -292,6 +298,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                   {credentialError}
                 </div>}
               </section>}
+              </>}
               <PriceSnapshotsSection client={client} />
               <section className="model-availability-section">
                 <h3><Route aria-hidden="true" size={14} />{t("模型路由", "Routes")}</h3>
@@ -334,6 +341,6 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         </div>
       </section>
   );
-  if (presentation === "workspace") return surface;
+  if (presentation !== "dialog") return surface;
   return <div className="desktop-dialog-backdrop" role="presentation">{surface}</div>;
 }

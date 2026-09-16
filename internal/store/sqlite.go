@@ -26,6 +26,7 @@ type SQLiteStore struct {
 	db                    *sql.DB
 	home                  string
 	hideDrydockWorkspaces bool
+	dataStoreID           string
 }
 
 const maxStoreListOffset = 100000
@@ -77,6 +78,10 @@ func Open(path string) (*SQLiteStore, error) {
 	}
 	s := &SQLiteStore{db: db, home: filepath.Dir(absolutePath)}
 	if err := s.Migrate(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := s.initializeDataStoreIdentity(context.Background(), absolutePath); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -392,6 +397,16 @@ func migrationPlan() []migration {
 		{Version: 149, Name: "inline public HTTPS web fetch approvals", Statements: webFetchInlineAuthorizationStatements},
 		{Version: 150, Name: "authority-bound browser action and MCP Supervisor ledger", Statements: browserActionSupervisorLedgerStatements},
 		{Version: 151, Name: "durable Supervisor and Command Runtime Agent attribution", Statements: supervisorAgentAttributionStatements},
+		{Version: 152, Name: "Thread message file preparation intent", Statements: threadMessageIntentStatements},
+		{Version: 153, Name: "Run-owned Drydock FileEdit apply scope", Statements: drydockFileEditScopeStatements},
+		{Version: 154, Name: "Thread working directory bindings", Statements: append(append(append(append([]string{}, threadDrydockCleanupStatements...), threadDrydockBindingStatements...), threadDrydockRuntimeScopeStatements...), threadDrydockDeliveryScopeStatements...)},
+		{Version: 155, Name: "Thread coding continuation provenance", Statements: append(append([]string{}, threadStandardCodeContinuationStatements...), threadPlanContinuationStatements...)},
+		{Version: 156, Name: "Plan alternatives and optional manual acceptance", Statements: planDeliverySimplificationStatements, DisableForeignKeys: true},
+		{Version: 157, Name: "Reviewed proposal continuation input binding", Statements: approvalContinuationStatements},
+		{Version: 158, Name: "Immutable workspace image inputs and Thread message bindings", Statements: workspaceImageStatements, DisableForeignKeys: true},
+		{Version: 159, Name: "Claim reviewed Git and pull request execution exactly once", Statements: threadGitStartedStatements},
+		{Version: 160, Name: "Immutable uploaded files and exact Thread attachment inputs", Statements: workspaceFileAttachmentStatements, DisableForeignKeys: true},
+		{Version: 161, Name: "Fenced Thread history recall Supervisor tools", Statements: historyRecallSupervisorStatements, DisableForeignKeys: true},
 	}
 }
 
@@ -577,13 +592,29 @@ func (s *SQLiteStore) GetProviderSetting(ctx context.Context, key string) (strin
 }
 
 func (s *SQLiteStore) SaveContextSummary(ctx context.Context, summary contextmgr.Summary) (contextmgr.Summary, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return contextmgr.Summary{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	saved, err := saveContextSummaryTx(ctx, tx, summary)
+	if err != nil {
+		return contextmgr.Summary{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return contextmgr.Summary{}, err
+	}
+	return saved, nil
+}
+
+func saveContextSummaryTx(ctx context.Context, tx *sql.Tx, summary contextmgr.Summary) (contextmgr.Summary, error) {
 	summary, err := contextmgr.PrepareSummaryForStorage(summary)
 	if err != nil {
 		return contextmgr.Summary{}, err
 	}
 	var latestID int64
 	var latestCreated string
-	err = s.db.QueryRowContext(ctx, `SELECT id, created_at FROM context_summaries
+	err = tx.QueryRowContext(ctx, `SELECT id, created_at FROM context_summaries
 		WHERE task_id = ? ORDER BY id DESC LIMIT 1`, summary.TaskID).Scan(&latestID, &latestCreated)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return contextmgr.Summary{}, err
@@ -602,7 +633,7 @@ func (s *SQLiteStore) SaveContextSummary(ctx context.Context, summary contextmgr
 	if summary.PreviousSummaryID != 0 {
 		previous = summary.PreviousSummaryID
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO context_summaries
+	res, err := tx.ExecContext(ctx, `INSERT INTO context_summaries
 		(task_id, workspace_id, protocol_version, previous_summary_id, content, content_sha256,
 		 compacted_message_count, source_message_count, preserved_message_count, token_estimate, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -621,7 +652,15 @@ func (s *SQLiteStore) SaveContextSummary(ctx context.Context, summary contextmgr
 }
 
 func (s *SQLiteStore) LatestContextSummary(ctx context.Context, taskID string) (contextmgr.Summary, bool, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, workspace_id, protocol_version,
+	return latestContextSummary(ctx, s.db, taskID)
+}
+
+type contextSummaryReader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func latestContextSummary(ctx context.Context, reader contextSummaryReader, taskID string) (contextmgr.Summary, bool, error) {
+	row := reader.QueryRowContext(ctx, `SELECT id, task_id, workspace_id, protocol_version,
 		coalesce(previous_summary_id, 0), content, content_sha256, compacted_message_count,
 		source_message_count, preserved_message_count, token_estimate, created_at
 		FROM context_summaries WHERE task_id = ? ORDER BY id DESC LIMIT 1`, taskID)
@@ -895,6 +934,14 @@ func (s *SQLiteStore) ListToolRuns(ctx context.Context, filter toolrun.ListFilte
 }
 
 func (s *SQLiteStore) SaveFileEdit(ctx context.Context, edit fileedit.Edit) (fileedit.Edit, error) {
+	edit, err := normalizeStoredFileEdit(edit)
+	if err != nil {
+		return fileedit.Edit{}, err
+	}
+	return s.saveNormalizedFileEdit(ctx, edit)
+}
+
+func normalizeStoredFileEdit(edit fileedit.Edit) (fileedit.Edit, error) {
 	if strings.TrimSpace(edit.ID) == "" {
 		return fileedit.Edit{}, errors.New("file edit id is required")
 	}
@@ -930,6 +977,10 @@ func (s *SQLiteStore) SaveFileEdit(ctx context.Context, edit fileedit.Edit) (fil
 	if edit.UpdatedAt.IsZero() {
 		edit.UpdatedAt = time.Now().UTC()
 	}
+	return edit, nil
+}
+
+func (s *SQLiteStore) saveNormalizedFileEdit(ctx context.Context, edit fileedit.Edit) (fileedit.Edit, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fileedit.Edit{}, err

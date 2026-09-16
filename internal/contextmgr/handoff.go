@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -34,6 +35,12 @@ type handoffMemoryEnvelope struct {
 	LastOrdinal            int                   `json:"last_ordinal"`
 	RecordsOmitted         int                   `json:"records_omitted"`
 	Records                []handoffMemoryRecord `json:"records"`
+	Generated              *GeneratedSummary     `json:"generated,omitempty"`
+	// Continuity windows already link the exact current summary for readback.
+	// Under their extra outer-metadata pressure, original operator sources take
+	// precedence over an assistant-progress excerpt, never over actual evidence.
+	preferOperatorRecords bool
+	generatedAnchorsOnly  bool
 }
 
 type handoffMemoryRecord struct {
@@ -44,13 +51,13 @@ type handoffMemoryRecord struct {
 	SourceRef             string `json:"source_ref,omitempty"`
 	SourceMessageID       int64  `json:"source_message_id,omitempty"`
 	SourceContentSHA256   string `json:"source_content_sha256,omitempty"`
-	ContentSHA256         string `json:"content_sha256"`
+	ContentSHA256         string `json:"content_sha256,omitempty"`
 	InstructionAuthorized bool   `json:"instruction_authorized"`
 	Content               string `json:"content"`
 }
 
-func buildHandoffMemory(taskID string, workspaceID string, previous Summary,
-	hasPrevious bool, older []Message, preservedCount int, config Config,
+func buildHandoffMemory(ctx context.Context, taskID string, workspaceID string, previous Summary,
+	hasPrevious bool, older []Message, preservedCount int, config Config, strategy SummaryStrategy,
 ) (string, int, int, error) {
 	records, previousOmitted, compactedCount, lastOrdinal, sourceThrough :=
 		previousHandoffRecords(taskID, workspaceID, previous, hasPrevious, config.MaxLineChars)
@@ -60,7 +67,7 @@ func buildHandoffMemory(taskID string, workspaceID string, previous Summary,
 	}
 	for _, message := range newOlder {
 		role := normalizeRole(message.Role)
-		content := trimRunes(collapseWhitespace(redact.String(message.Content)), config.MaxLineChars)
+		content := excerptHandoffContent(redact.String(message.Content), config.MaxLineChars)
 		if content == "" {
 			continue
 		}
@@ -92,8 +99,9 @@ func buildHandoffMemory(taskID string, workspaceID string, previous Summary,
 	}
 	if hasPrevious {
 		envelope.PreviousSummaryID = previous.ID
+		envelope.Generated = generatedFromSummaryContent(previous.Content)
 	}
-	content, err := fitHandoffRecords(envelope, records, config.MaxSummaryChars)
+	content, err := fitHandoffRecords(ctx, envelope, records, config.MaxSummaryChars, strategy)
 	if err != nil {
 		return "", 0, 0, err
 	}
@@ -114,7 +122,7 @@ func previousHandoffRecords(taskID string, workspaceID string, previous Summary,
 			lastOrdinal := envelope.LastOrdinal
 			for index := range envelope.Records {
 				record := &envelope.Records[index]
-				record.Content = trimRunes(collapseWhitespace(redact.String(record.Content)),
+				record.Content = excerptHandoffContent(redact.String(record.Content),
 					maxLineChars)
 				record.SourceKind = normalizeHandoffSourceKind(record.SourceKind)
 				record.SourceRef = sanitizeHandoffSourceRef(record.SourceRef)
@@ -128,7 +136,7 @@ func previousHandoffRecords(taskID string, workspaceID string, previous Summary,
 				envelope.CompactedMessageCount, lastOrdinal, envelope.SourceThroughMessageID
 		}
 	}
-	content := trimRunes(collapseWhitespace(redact.String(previous.Content)), maxLineChars)
+	content := excerptHandoffContent(redact.String(previous.Content), maxLineChars)
 	compacted := previous.SourceMessageCount - previous.PreservedMessageCount
 	if compacted < 1 && content != "" {
 		compacted = 1
@@ -169,49 +177,58 @@ func newHandoffMessages(messages []Message, previousThrough int64) ([]Message, i
 	return out, nextThrough, nil
 }
 
-func fitHandoffRecords(envelope handoffMemoryEnvelope, records []handoffMemoryRecord,
-	maxRunes int,
+func fitHandoffRecords(ctx context.Context, envelope handoffMemoryEnvelope, records []handoffMemoryRecord,
+	maxRunes int, strategy SummaryStrategy,
+) (string, error) {
+	if envelope.Generated != nil {
+		return fitGeneratedHandoffRecords(ctx, envelope, records, maxRunes, strategy)
+	}
+	return fitPlainHandoffRecords(ctx, envelope, records, maxRunes, strategy)
+}
+
+func fitPlainHandoffRecords(ctx context.Context, envelope handoffMemoryEnvelope, records []handoffMemoryRecord,
+	maxRunes int, strategy SummaryStrategy,
 ) (string, error) {
 	if maxRunes < 512 {
 		return "", errors.New("handoff memory requires at least 512 summary characters")
 	}
-	baseOmitted := envelope.RecordsOmitted
-	candidates := append([]handoffMemoryRecord(nil), records...)
-	sort.SliceStable(candidates, func(left int, right int) bool {
-		leftPriority := handoffRetentionPriority(candidates[left])
-		rightPriority := handoffRetentionPriority(candidates[right])
-		if leftPriority != rightPriority {
-			return leftPriority > rightPriority
-		}
-		return candidates[left].Ordinal > candidates[right].Ordinal
-	})
-	selected := make([]handoffMemoryRecord, 0, len(candidates))
-	for _, candidate := range candidates {
-		trial := append(append([]handoffMemoryRecord(nil), selected...), candidate)
-		if len(trial) > MaxHandoffMemoryRecords {
-			continue
-		}
-		sort.SliceStable(trial, func(left int, right int) bool {
-			return trial[left].Ordinal < trial[right].Ordinal
-		})
-		trialEnvelope := envelope
-		trialEnvelope.Records = trial
-		trialEnvelope.RecordsOmitted = saturatingTokenAdd(baseOmitted,
-			len(records)-len(trial))
-		encoded, err := json.Marshal(trialEnvelope)
+	candidates, err := rankHandoffRecords(ctx, records, strategy)
+	if err != nil {
+		return "", err
+	}
+	// Reserve independently sourced context before spending the remaining space
+	// on recent history. Recency alone lets repeated "continue" messages evict
+	// the objective, and model progress must not crowd out actual tool evidence.
+	selected := handoffAnchorRecordsWithPolicy(records, envelope.preferOperatorRecords, envelope.generatedAnchorsOnly)
+	for len(selected) > 0 {
+		fitted, ok, err := fitHandoffSelection(envelope, selected, len(records), maxRunes, 0)
 		if err != nil {
 			return "", err
 		}
-		if utf8.RuneCount(encoded) <= maxRunes {
-			selected = trial
+		if ok {
+			selected = fitted
+			break
+		}
+		// Keep recent operator sources ahead of the initial objective and older
+		// updates when source metadata alone exhausts this bounded envelope.
+		selected = selected[:len(selected)-1]
+	}
+	for _, candidate := range candidates {
+		if len(selected) >= MaxHandoffMemoryRecords || handoffRecordAlreadySelected(selected, candidate) {
+			continue
+		}
+		trial := append(append([]handoffMemoryRecord(nil), selected...), candidate)
+		// Optional records may use spare space, but cannot further shorten the
+		// reserved objective, correction, progress, or evidence.
+		fitted, ok, err := fitHandoffSelection(envelope, trial, len(records), maxRunes, len(selected))
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			selected = fitted
 		}
 	}
-	sort.SliceStable(selected, func(left int, right int) bool {
-		return selected[left].Ordinal < selected[right].Ordinal
-	})
-	envelope.Records = selected
-	envelope.RecordsOmitted = saturatingTokenAdd(baseOmitted, len(records)-len(selected))
-	encoded, err := json.Marshal(envelope)
+	encoded, err := encodeHandoffSelection(envelope, selected, len(records))
 	if err != nil {
 		return "", err
 	}
@@ -221,8 +238,192 @@ func fitHandoffRecords(envelope handoffMemoryEnvelope, records []handoffMemoryRe
 	return string(encoded), nil
 }
 
+func encodeHandoffSelection(envelope handoffMemoryEnvelope, selected []handoffMemoryRecord,
+	recordCount int,
+) ([]byte, error) {
+	selected = append(make([]handoffMemoryRecord, 0, len(selected)), selected...)
+	sort.SliceStable(selected, func(left int, right int) bool {
+		return selected[left].Ordinal < selected[right].Ordinal
+	})
+	envelope.Records = selected
+	envelope.RecordsOmitted = saturatingTokenAdd(envelope.RecordsOmitted, recordCount-len(selected))
+	return json.Marshal(envelope)
+}
+
+func fitHandoffSelection(envelope handoffMemoryEnvelope, records []handoffMemoryRecord,
+	recordCount, maxRunes, fixedCount int,
+) ([]handoffMemoryRecord, bool, error) {
+	encoded, err := encodeHandoffSelection(envelope, records, recordCount)
+	if err != nil {
+		return nil, false, err
+	}
+	if utf8.RuneCount(encoded) <= maxRunes {
+		return records, true, nil
+	}
+	// Metadata and content share the existing envelope budget. A common content
+	// ceiling gives each reserved source space without assigning semantic truth
+	// to any of its text. Short records remain complete.
+	low, high := 96, MaxHandoffRecordChars
+	if envelope.preferOperatorRecords {
+		// The window's two exact source references consume additional space.
+		// Short operator corrections remain complete; long excerpts still have
+		// a fixed lower bound and explicit readback sources, never empty text.
+		low = 64
+	}
+	var best []handoffMemoryRecord
+	for low <= high {
+		limit := low + (high-low)/2
+		trial := append([]handoffMemoryRecord(nil), records...)
+		for index := fixedCount; index < len(trial); index++ {
+			trial[index].Content = excerptHandoffContent(trial[index].Content, limit)
+			trial[index].ContentSHA256 = handoffContentSHA256(trial[index].Content)
+			// A complete source needs only its original digest on the wire. Do
+			// not shorten a small update if adding a separate excerpt digest
+			// would consume more space than preserving that update completely.
+			before, _ := json.Marshal(records[index])
+			after, _ := json.Marshal(trial[index])
+			if utf8.RuneCount(after) >= utf8.RuneCount(before) {
+				trial[index] = records[index]
+			}
+		}
+		encoded, err := encodeHandoffSelection(envelope, trial, recordCount)
+		if err != nil {
+			return nil, false, err
+		}
+		if utf8.RuneCount(encoded) <= maxRunes {
+			best = trial
+			low = limit + 1
+		} else {
+			high = limit - 1
+		}
+	}
+	return best, best != nil, nil
+}
+
+func handoffAnchorRecords(records []handoffMemoryRecord) []handoffMemoryRecord {
+	return handoffAnchorRecordsWithPolicy(records, false, true)
+}
+
+func handoffAnchorRecordsWithPolicy(records []handoffMemoryRecord, preferOperatorRecords, generatedAnchorsOnly bool) []handoffMemoryRecord {
+	var firstIntent, latestProgress, latestEvidence *handoffMemoryRecord
+	var operators []handoffMemoryRecord
+	evidencePriority := -1
+	for index := range records {
+		record := &records[index]
+		if record.Category == "operator_intent" && record.InstructionAuthorized {
+			if firstIntent == nil || record.Ordinal < firstIntent.Ordinal {
+				firstIntent = record
+			}
+			if !handoffContinuationOnly(record.Content) {
+				operators = append(operators, *record)
+			}
+		}
+		if record.Category == "assistant_progress" &&
+			(latestProgress == nil || record.Ordinal > latestProgress.Ordinal) {
+			latestProgress = record
+		}
+		if record.Category == "external_evidence" {
+			priority := 0
+			if record.SourceKind == "tool_result" || record.SourceKind == "go_command_result" {
+				priority = 1
+			}
+			if latestEvidence == nil || priority > evidencePriority ||
+				(priority == evidencePriority && record.Ordinal > latestEvidence.Ordinal) {
+				latestEvidence, evidencePriority = record, priority
+			}
+		}
+	}
+	// Treat every substantive operator source as a possible correction. A fixed
+	// first-follow-up slot and one latest slot lost intermediate corrections as
+	// soon as another request arrived. These sources now share the content budget;
+	// source recency decides overflow, not business keywords or model claims.
+	sort.SliceStable(operators, func(i, j int) bool { return operators[i].Ordinal > operators[j].Ordinal })
+	selected := make([]handoffMemoryRecord, 0, MaxHandoffMemoryRecords)
+	add := func(record *handoffMemoryRecord) {
+		if record != nil && len(selected) < MaxHandoffMemoryRecords && !handoffRecordAlreadySelected(selected, *record) {
+			selected = append(selected, *record)
+		}
+	}
+	for index := 0; index < len(operators) && index < 2; index++ {
+		add(&operators[index])
+	}
+	add(latestEvidence)
+	if !preferOperatorRecords && !generatedAnchorsOnly {
+		add(latestProgress)
+	}
+	add(firstIntent)
+	if !generatedAnchorsOnly {
+		for index := range operators {
+			if len(selected) >= MaxHandoffMemoryRecords {
+				break
+			}
+			add(&operators[index])
+		}
+	}
+	if preferOperatorRecords && !generatedAnchorsOnly {
+		add(latestProgress)
+	}
+	return selected
+}
+
+func handoffRecordAlreadySelected(selected []handoffMemoryRecord, candidate handoffMemoryRecord) bool {
+	for _, record := range selected {
+		if record.Ordinal == candidate.Ordinal {
+			return true
+		}
+		// Deduplicate only identical operator text for selection. The durable
+		// source rows and cumulative counters are never removed or rewritten.
+		if record.Category == "operator_intent" && candidate.Category == "operator_intent" &&
+			record.InstructionAuthorized && candidate.InstructionAuthorized &&
+			((record.SourceContentSHA256 != "" && record.SourceContentSHA256 == candidate.SourceContentSHA256) ||
+				(record.SourceContentSHA256 == "" && candidate.SourceContentSHA256 == "" && record.Content == candidate.Content)) {
+			return true
+		}
+	}
+	return false
+}
+
+func handoffContinuationOnly(content string) bool {
+	// Exact, closed phrases only: "continue, but do not ..." remains substantive
+	// operator input. This is selection priority, never an instruction classifier.
+	switch strings.ToLower(strings.TrimSpace(content)) {
+	case "继续", "继续吧", "继续推进", "继续推进吧", "继续。", "继续吧。",
+		"continue", "continue.", "please continue", "please continue.", "go on", "go on.":
+		return true
+	default:
+		return false
+	}
+}
+
+const handoffExcerptMarker = "\n[... bounded excerpt: middle omitted ...]\n"
+
+func excerptHandoffContent(content string, maxRunes int) string {
+	content = strings.TrimSpace(content)
+	if utf8.RuneCountInString(content) <= maxRunes {
+		return content
+	}
+	marker := handoffExcerptMarker
+	if maxRunes < 96 {
+		marker = "\n[... middle omitted ...]\n"
+	}
+	markerRunes := utf8.RuneCountInString(marker)
+	if maxRunes <= markerRunes+2 {
+		marker, markerRunes = "...", 3
+	}
+	if maxRunes <= markerRunes {
+		return trimRunes(content, maxRunes)
+	}
+	runes := []rune(content)
+	remaining := maxRunes - markerRunes
+	head := (remaining + 1) / 2
+	tail := remaining - head
+	return string(runes[:head]) + marker + string(runes[len(runes)-tail:])
+}
+
 func handoffRetentionPriority(record handoffMemoryRecord) int {
 	switch {
+	case record.InstructionAuthorized && record.Category == "operator_intent" && handoffContinuationOnly(record.Content):
+		return 0
 	case record.InstructionAuthorized && record.Category == "operator_intent":
 		return 4
 	case record.Category == "assistant_progress":
@@ -260,6 +461,9 @@ func validHandoffAuthority(role string, sourceKind string, authorized bool) bool
 func validateHandoffEnvelope(envelope handoffMemoryEnvelope, taskID string,
 	workspaceID string,
 ) error {
+	if err := validateGeneratedSummary(envelope.Generated); err != nil {
+		return err
+	}
 	if envelope.Version != HandoffMemoryProtocolVersion || envelope.TaskID != taskID ||
 		envelope.WorkspaceID != workspaceID || envelope.PreviousSummaryID < 0 ||
 		envelope.SourceThroughMessageID < 0 ||
@@ -308,7 +512,17 @@ func PrepareSummaryForStorage(summary Summary) (Summary, error) {
 		summary.PreservedMessageCount > summary.SourceMessageCount {
 		return Summary{}, errors.New("handoff summary source counters are invalid")
 	}
-	summary.Content = strings.TrimSpace(redact.String(summary.Content))
+	if summary.ProtocolVersion == HandoffMemoryProtocolVersion && generatedFromSummaryContent(summary.Content) != nil {
+		// Generated JSON has byte-bound text and receipt fields. Verify each
+		// decoded string is already redacted; applying a text regex to serialized
+		// JSON would consume escaped newlines and invalidate an honest digest.
+		if err := validateGeneratedHandoffRedaction(summary.Content); err != nil {
+			return Summary{}, err
+		}
+		summary.Content = strings.TrimSpace(summary.Content)
+	} else {
+		summary.Content = strings.TrimSpace(redact.String(summary.Content))
+	}
 	if summary.Content == "" || !utf8.ValidString(summary.Content) {
 		return Summary{}, errors.New("handoff summary content must be nonempty UTF-8")
 	}
@@ -317,7 +531,7 @@ func PrepareSummaryForStorage(summary Summary) (Summary, error) {
 		if compacted < 1 {
 			compacted = 1
 		}
-		recordContent := trimRunes(summary.Content, 1000)
+		recordContent := excerptHandoffContent(summary.Content, MaxHandoffRecordChars)
 		record := handoffMemoryRecord{
 			Ordinal: 1, Category: "prior_handoff", Role: "tool",
 			SourceKind: "compacted_transcript", ContentSHA256: handoffContentSHA256(recordContent),

@@ -206,12 +206,132 @@ describe("HostCommandProposalPanel", () => {
     const { container } = renderPanel(client);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("keeps a saved approval with no execution result visible after an HTTP failure", async () => {
+    const approved = { ...proposal, review: approvedReview() };
+    const queue = vi.fn().mockResolvedValueOnce({ items: [proposal], page: { limit: 100 } })
+      .mockResolvedValue({ items: [approved], page: { limit: 100 } });
+    const review = vi.fn().mockRejectedValue(new Error("host command execution did not return a valid sealed result"));
+    const client = { hasHostCommandProposalControl: true, hostCommandProposals: queue,
+      reviewHostCommandProposal: review } as unknown as CyberAgentClient;
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+    renderPanel(client, "thread-1");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Approve and execute once" }));
+    expect(await screen.findByText("Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded."))
+      .toBeInTheDocument();
+    expect(screen.getByText("host command execution did not return a valid sealed result")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve and execute once" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Refresh command records" }));
+    await waitFor(() => expect(queue.mock.calls.length).toBeGreaterThanOrEqual(3));
+    expect(review).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded."))
+      .toBeInTheDocument();
+  });
+
+  it.each([{ exit: 7, cancelled: false }, { exit: 0, cancelled: true }])(
+    "retains an exact failed command receipt and reads saved output in the conversation: $exit/$cancelled", async ({ exit, cancelled }) => {
+      const recorded = recordedProposal(exit, cancelled);
+      const detail = vi.fn().mockResolvedValue({ ...recorded,
+        untrusted_evidence: "UNTRUSTED HOST COMMAND RESULT\nstderr_begin\nactual command output\nstderr_end" });
+      const review = vi.fn();
+      const client = { hasHostCommandProposalControl: true,
+        hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
+        hostCommandProposal: detail, reviewHostCommandProposal: review } as unknown as CyberAgentClient;
+      renderPanel(client, "thread-1");
+      expect(await screen.findByText(`Execution result recorded, exit code ${exit}`)).toBeInTheDocument();
+      if (cancelled) expect(screen.getByText("The command was cancelled.")).toBeInTheDocument();
+      expect(detail).not.toHaveBeenCalled();
+      await userEvent.setup().click(screen.getByRole("button", { name: "Read saved output" }));
+      expect(await screen.findByText(/actual command output/)).toBeInTheDocument();
+      expect(detail).toHaveBeenCalledWith("run-1", proposal.id, expect.any(AbortSignal));
+      expect(review).not.toHaveBeenCalled();
+    });
+
+  it("retains the failed continuation notice after the saved review is refreshed", async () => {
+    const denied = { ...proposal, review: { ...approvedReview(), decision: "deny", single_use_execution_authorized: false } };
+    const queue = vi.fn().mockResolvedValueOnce({ items: [proposal], page: { limit: 100 } })
+      .mockResolvedValue({ items: [denied], page: { limit: 100 } });
+    const review = vi.fn().mockResolvedValue({ ...denied, continuation: { state: "failed",
+      replayed: false, model_called: true, tool_called: false, error_code: "FAILED_PRECONDITION" } });
+    const client = { hasHostCommandProposalControl: true, hostCommandProposals: queue,
+      reviewHostCommandProposal: review } as unknown as CyberAgentClient;
+    renderPanel(client, "thread-1");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(queue.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText("Review saved, but subsequent execution failed. Check the records and continue in this conversation."))
+      .toBeInTheDocument();
+    expect(screen.getByText("Proposal denied; no execution result.")).toBeInTheDocument();
+    expect(screen.queryByText("Host command review failed")).not.toBeInTheDocument();
+  });
+
+  it("does not display saved output from a different execution binding", async () => {
+    const recorded = recordedProposal(7, false);
+    const detail = vi.fn().mockResolvedValue({ ...recorded, session_id: "other-session",
+      untrusted_evidence: "wrong execution output" });
+    const client = { hasHostCommandProposalControl: true,
+      hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
+      hostCommandProposal: detail } as unknown as CyberAgentClient;
+    renderPanel(client, "thread-1");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Read saved output" }));
+    expect(await screen.findByText("Saved output does not match this command receipt.")).toBeInTheDocument();
+    expect(screen.queryByText("wrong execution output")).not.toBeInTheDocument();
+  });
+
+  it.each(["UX_Q_HOST_ACTUAL_OUTPUT \uFFFD", "UX_Q_HOST_ACTUAL_OUTPUT 中文"])(
+    "explains damaged saved Host text without altering it or retrying execution: %s", async (output) => {
+      const recorded = recordedProposal(7, false);
+      const detail = vi.fn().mockResolvedValue({ ...recorded, untrusted_evidence: output });
+      const review = vi.fn();
+      const client = { hasHostCommandProposalControl: true,
+        hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
+        hostCommandProposal: detail, reviewHostCommandProposal: review } as unknown as CyberAgentClient;
+      renderPanel(client, "thread-1");
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Read saved output" }));
+      const saved = await screen.findByText(output);
+      expect(saved.tagName).toBe("PRE");
+      expect(saved.textContent).toBe(output);
+      expect(Boolean(screen.queryByText("Some characters could not be decoded correctly; the displayed text may be incomplete.")))
+        .toBe(output.includes("\uFFFD"));
+      expect(screen.getByText("Execution result recorded, exit code 7")).toBeInTheDocument();
+      expect(detail).toHaveBeenCalledTimes(1);
+      expect(review).not.toHaveBeenCalled();
+    });
 });
 
-function renderPanel(client: CyberAgentClient) {
+function approvedReview() {
+  return { id: "review-1", decision: "approve", reviewed_by: "http_control_operator", reason: "Exact command approved",
+    single_use_execution_authorized: true, capability_grant: false, created_at: "2026-08-09T00:01:00Z" };
+}
+
+function recordedProposal(exit: number, cancelled: boolean) {
+  return { ...proposal, review: approvedReview(),
+    result: { id: "result-1", status: "failed", content_sha256: "e".repeat(64) },
+    receipt: { request_id: "host-exec-1", exit_code: exit, cancelled, timed_out: false,
+      stdout_truncated: false, stderr_truncated: false, output_limit_exceeded: false } };
+}
+
+function renderPanel(client: CyberAgentClient, threadID = "", compact = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false },
     mutations: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>
-    <HostCommandProposalPanel client={client} runID="run-1" />
+    <HostCommandProposalPanel client={client} runID="run-1" threadID={threadID} compact={compact} />
   </QueryClientProvider>);
 }
+
+it("keeps uncertain approvals and failed continuations actionable in the compact Inspector", async () => {
+  const settled = { ...recordedProposal(7, false), id: "settled", purpose: "Settled command" };
+  const uncertain = { ...proposal, id: "uncertain", purpose: "Uncertain command", review: approvedReview() };
+  const failed = { ...recordedProposal(0, false), id: "failed-continuation", purpose: "Failed continuation",
+    continuation: { state: "failed", replayed: false, model_called: true, tool_called: false } };
+  const review = vi.fn();
+  const client = { hasHostCommandProposalControl: true, reviewHostCommandProposal: review,
+    hostCommandProposals: vi.fn().mockResolvedValue({ items: [settled, uncertain, failed], page: { limit: 100 } }) } as unknown as CyberAgentClient;
+  renderPanel(client, "thread-1", true);
+  expect(await screen.findByText("Uncertain command")).toBeInTheDocument();
+  expect(screen.getByText("Failed continuation")).toBeInTheDocument();
+  expect(screen.queryByText("Settled command")).not.toBeInTheDocument();
+  expect(screen.getByText("Review saved, but subsequent execution failed. Check the records and continue in this conversation.")).toBeInTheDocument();
+  expect(review).not.toHaveBeenCalled();
+});

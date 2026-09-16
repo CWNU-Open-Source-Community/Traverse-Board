@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -40,6 +39,25 @@ func (c *SafeHTTPClient) PostJSONAuthorizedNoRedirect(ctx context.Context,
 	rawURL string, body []byte, maxBytes int, headers http.Header,
 	authorize func(string) error,
 ) (HTTPDocument, error) {
+	return c.postAuthorizedNoRedirect(ctx, rawURL, body, maxBytes, headers, authorize,
+		"application/json", "application/json")
+}
+
+// PostFormAuthorizedNoRedirect sends one bounded public form request. The
+// caller supplies urlencoded bytes; no credentials or custom headers are
+// accepted. It shares the exact authorization, public DNS pinning, TLS/proxy,
+// response bounds, no-redirect and no-retry path used by JSON POST requests.
+func (c *SafeHTTPClient) PostFormAuthorizedNoRedirect(ctx context.Context,
+	rawURL string, body []byte, maxBytes int, authorize func(string) error,
+) (HTTPDocument, error) {
+	return c.postAuthorizedNoRedirect(ctx, rawURL, body, maxBytes, nil, authorize,
+		"application/x-www-form-urlencoded", "text/html, application/xhtml+xml")
+}
+
+func (c *SafeHTTPClient) postAuthorizedNoRedirect(ctx context.Context,
+	rawURL string, body []byte, maxBytes int, headers http.Header,
+	authorize func(string) error, contentType, accept string,
+) (HTTPDocument, error) {
 	if c == nil {
 		return HTTPDocument{}, errors.New("safe web HTTP client is required")
 	}
@@ -47,7 +65,10 @@ func (c *SafeHTTPClient) PostJSONAuthorizedNoRedirect(ctx context.Context,
 		return HTTPDocument{}, errors.New("safe web HTTP context is required")
 	}
 	if len(body) == 0 || len(body) > DefaultMaxRequest {
-		return HTTPDocument{}, errors.New("safe web JSON request limit is invalid")
+		if contentType == "application/json" {
+			return HTTPDocument{}, errors.New("safe web JSON request limit is invalid")
+		}
+		return HTTPDocument{}, errors.New("safe web form request limit is invalid")
 	}
 	if maxBytes <= 0 || maxBytes > DefaultMaxResponse {
 		return HTTPDocument{}, errors.New("safe web response limit is invalid")
@@ -61,13 +82,16 @@ func (c *SafeHTTPClient) PostJSONAuthorizedNoRedirect(ctx context.Context,
 			return HTTPDocument{}, fmt.Errorf("web request is outside Run authority: %w", err)
 		}
 	}
-	response, err := c.postJSONOnce(ctx, requested, body, headers)
+	response, err := c.postOnce(ctx, requested, body, headers, contentType, accept)
 	if err != nil {
 		return HTTPDocument{}, err
 	}
 	if response.StatusCode >= http.StatusMultipleChoices &&
 		response.StatusCode < http.StatusBadRequest {
 		_ = response.Body.Close()
+		if contentType == "application/x-www-form-urlencoded" {
+			return HTTPDocument{}, errors.New("web form POST redirects are forbidden")
+		}
 		return HTTPDocument{}, errors.New("credentialed web POST redirects are forbidden")
 	}
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, int64(maxBytes)+1))
@@ -275,8 +299,8 @@ func (c *SafeHTTPClient) getOnce(ctx context.Context, canonicalURL, accept strin
 	return response, nil
 }
 
-func (c *SafeHTTPClient) postJSONOnce(ctx context.Context, canonicalURL string,
-	body []byte, headers http.Header,
+func (c *SafeHTTPClient) postOnce(ctx context.Context, canonicalURL string,
+	body []byte, headers http.Header, contentType, accept string,
 ) (*http.Response, error) {
 	parsed, _ := url.Parse(canonicalURL)
 	host := parsed.Hostname()
@@ -329,8 +353,8 @@ func (c *SafeHTTPClient) postJSONOnce(ctx context.Context, canonicalURL string,
 	if headers != nil {
 		request.Header = headers.Clone()
 	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", accept)
+	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("User-Agent", WebEvidenceUserAgent)
 	request.Header.Set("Cache-Control", "no-cache")
 	request.Header.Del("Content-Length")
@@ -364,7 +388,11 @@ func (b *cancelOnCloseBody) Close() error {
 }
 
 func pinnedTransport(host string, addresses []netip.Addr) http.RoundTripper {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: -1}
+	proxyURL, proxyErr := configuredWebProxy(host)
+	return pinnedTransportWithProxy(host, addresses, proxyURL, proxyErr)
+}
+
+func pinnedTransportWithProxy(host string, addresses []netip.Addr, proxyURL *url.URL, proxyErr error) *http.Transport {
 	return &http.Transport{
 		Proxy: nil, DisableKeepAlives: true, DisableCompression: false,
 		ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second,
@@ -372,20 +400,14 @@ func pinnedTransport(host string, addresses []netip.Addr) http.RoundTripper {
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12,
 			ServerName: host},
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if proxyErr != nil {
+				return nil, proxyErr
+			}
 			_, port, err := net.SplitHostPort(address)
 			if err != nil || port != "443" {
 				return nil, errors.New("web transport attempted a non-HTTPS dial")
 			}
-			var last error
-			for _, candidate := range addresses {
-				conn, dialErr := dialer.DialContext(ctx, network,
-					net.JoinHostPort(candidate.String(), strconv.Itoa(443)))
-				if dialErr == nil {
-					return conn, nil
-				}
-				last = dialErr
-			}
-			return nil, fmt.Errorf("dial pinned public web address: %w", last)
+			return dialPinnedWebTarget(ctx, addresses, proxyURL)
 		},
 	}
 }

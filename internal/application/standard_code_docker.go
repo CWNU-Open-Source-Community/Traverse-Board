@@ -354,6 +354,14 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 		return result, nil
 	}
 	result.AdmissionID = admission.Admission.ID
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		if runLease == nil {
+			return result, errors.New("Docker Command Runtime output requires its bound execution lease")
+		}
+		if err := output.bind(scope.RunID, admission.Admission.ID); err != nil {
+			return result, err
+		}
+	}
 	var releaseStdin func()
 	if stdinPolicy == sandbox.DockerStandardCodeStdinPipe {
 		releaseStdin, err = s.docker.registerCommandRuntimeStdin(
@@ -583,7 +591,7 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 	if err != nil {
 		return standardcode.ExecutionContext{}, sandbox.Manifest{}, apperror.Normalize(err)
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, run.ID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, run.ID)
 	if err != nil || !found {
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound,
@@ -607,7 +615,7 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 	if err != nil {
 		return standardcode.ExecutionContext{}, sandbox.Manifest{}, err
 	}
-	if mission.ID != workspace.MissionID || run.SessionID != workspace.SessionID ||
+	if mission.ID != workspace.MissionID || requireCurrentRunFileDrydock(ctx, s.store, run.ID, workspace) != nil ||
 		mission.WorkspaceID != workspace.SourceWorkspaceID ||
 		workspace.Generation != expectedGeneration ||
 		workspace.LastCheckpointID != expectedCheckpoint ||
@@ -693,8 +701,8 @@ func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context
 			return false
 		}
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, scope.RunID)
-	return err == nil && found && workspace.ID == scope.DrydockID &&
+	workspace, found, err := readRunFileDrydock(ctx, s.store, scope.RunID)
+	return err == nil && found && requireCurrentRunFileDrydock(ctx, s.store, scope.RunID, workspace) == nil && workspace.ID == scope.DrydockID &&
 		workspace.Generation == scope.DrydockGeneration &&
 		workspace.LastCheckpointID == scope.CheckpointID &&
 		workspace.State != drydock.StateCleaned &&

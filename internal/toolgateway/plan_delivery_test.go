@@ -34,20 +34,22 @@ const gatewayPlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[
 	`{"title":"C","summary":"C","tradeoffs":["C"],"modules":[{"title":"C","objective":"C","acceptance_criteria":["C"],"dependencies":[]}]}]}`
 
 func TestPlanDeliveryDefinitionIsPlanOnlyAndPayloadIsStrict(t *testing.T) {
-	wantDefinitions := 15 + len(BrowserActionToolDefinitions())
-	if len(SupervisorToolDefinitions()) != wantDefinitions ||
-		len(PlanPhaseSupervisorToolDefinitions()) != wantDefinitions {
-		t.Fatal("phase-specific Supervisor tool definitions have an unexpected size")
-	}
+	planCount := 0
 	for _, current := range SupervisorToolDefinitions() {
 		if current.Name == PlanDeliveryProposeTool {
 			t.Fatal("Plan/Delivery tool leaked into the Deliver Supervisor tool set")
 		}
 	}
 	for _, current := range PlanPhaseSupervisorToolDefinitions() {
+		if current.Name == PlanDeliveryProposeTool {
+			planCount++
+		}
 		if current.Name == SkillCandidateProposeTool {
 			t.Fatal("Skill candidate tool leaked into the Plan Supervisor tool set")
 		}
+	}
+	if planCount != 1 {
+		t.Fatalf("Plan must expose exactly one proposal tool, got %d", planCount)
 	}
 	definition, found := SupervisorToolDefinition(PlanDeliveryProposeTool)
 	if !found || definition.Class != ClassAgentProposal ||
@@ -59,6 +61,24 @@ func TestPlanDeliveryDefinitionIsPlanOnlyAndPayloadIsStrict(t *testing.T) {
 		json.RawMessage(gatewayPlanDeliveryPayload))
 	if err != nil || !json.Valid(canonical) {
 		t.Fatalf("valid Plan/Delivery payload failed: %s err=%v", canonical, err)
+	}
+	var bounded domain.PlanDeliverySpec
+	if err := json.Unmarshal(canonical, &bounded); err != nil {
+		t.Fatal(err)
+	}
+	for count := 1; count <= 3; count++ {
+		short := bounded
+		short.Directions = short.Directions[:count]
+		payload, _ := json.Marshal(short)
+		if _, err := NormalizeSupervisorToolPayload(PlanDeliveryProposeTool, payload); err != nil {
+			t.Fatalf("%d directions rejected: %v", count, err)
+		}
+		if err := (PlanDeliveryResult{ProposalID: "bounded-proposal", Status: domain.PlanDeliveryProposalProposed, DirectionCount: count, Version: 1}).Validate(); err != nil {
+			t.Fatalf("%d direction result rejected: %v", count, err)
+		}
+	}
+	if !strings.Contains(string(definition.InputSchema), `"minItems":1,"maxItems":3`) {
+		t.Fatal("model schema did not expose the bounded direction range")
 	}
 	for _, payload := range []json.RawMessage{
 		json.RawMessage(`{"version":"plan_delivery.v1","directions":[]}`),

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -265,6 +266,9 @@ func (s *SQLiteStore) CommitStandardCodePreset(ctx context.Context,
 		permission, cdp, commit); err != nil {
 		return domain.StandardCodePresetOperation{}, domain.Run{}, false, err
 	}
+	if err := synchronizeStandardCodeThreadPermissionTx(ctx, tx, stored, commit); err != nil {
+		return domain.StandardCodePresetOperation{}, domain.Run{}, false, err
+	}
 	if commit.Mode.ID != mode.ID {
 		if err := insertRunModeSnapshotTx(ctx, tx, commit.Mode); err != nil {
 			return domain.StandardCodePresetOperation{}, domain.Run{}, false, err
@@ -429,13 +433,22 @@ func validateStandardCodeIntentRun(run domain.Run,
 func insertStandardCodePresetIntentTx(ctx context.Context, tx *sql.Tx,
 	operation domain.StandardCodePresetOperation,
 ) (domain.StandardCodePresetOperation, error) {
+	thread, permission, found, err := standardCodeThreadPermissionTx(ctx, tx, operation)
+	if err != nil {
+		return domain.StandardCodePresetOperation{}, err
+	}
+	binding := standardCodeThreadPermissionBinding{}
+	if found {
+		binding = standardCodeThreadPermissionBinding{ThreadID: thread.ID,
+			SnapshotID: permission.ID, Revision: permission.Revision}
+	}
 	event, err := events.New(operation.RunID, operation.MissionID,
 		events.StandardCodePresetIntentRecordedEvent, "standard_code_preset",
 		operation.RunID, map[string]any{"action": operation.Action,
 			"backend_intent":   operation.BackendIntent,
 			"selected_backend": operation.SelectedBackend,
 			"selection_reason": operation.SelectionReason, "status": operation.Status,
-			"capability_grant": false})
+			"thread_permission_binding": binding, "capability_grant": false})
 	if err != nil {
 		return domain.StandardCodePresetOperation{}, err
 	}
@@ -468,6 +481,109 @@ func insertStandardCodePresetIntentTx(ctx context.Context, tx *sql.Tx,
 		return domain.StandardCodePresetOperation{}, err
 	}
 	return operation, nil
+}
+
+type standardCodeThreadPermissionBinding struct {
+	ThreadID   string `json:"thread_id"`
+	SnapshotID string `json:"snapshot_id"`
+	Revision   int64  `json:"revision"`
+}
+
+func standardCodeThreadPermissionTx(ctx context.Context, tx *sql.Tx,
+	operation domain.StandardCodePresetOperation,
+) (domain.Thread, domain.ThreadExecutionPermissionSnapshot, bool, error) {
+	thread, err := scanThread(tx.QueryRowContext(ctx, threadSelect+`
+		WHERE id = (SELECT thread_id FROM thread_runs WHERE run_id = ?)`, operation.RunID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Thread{}, domain.ThreadExecutionPermissionSnapshot{}, false, nil
+	}
+	if err != nil {
+		return domain.Thread{}, domain.ThreadExecutionPermissionSnapshot{}, false, err
+	}
+	if thread.Status != domain.ThreadActive || thread.ActiveRunID != operation.RunID ||
+		thread.MissionID != operation.MissionID || thread.WorkspaceID != operation.WorkspaceID {
+		return domain.Thread{}, domain.ThreadExecutionPermissionSnapshot{}, false,
+			apperror.New(apperror.CodeConflict, "Standard Code preset Thread binding changed")
+	}
+	permission, err := getCurrentThreadExecutionPermissionSnapshot(ctx, tx, thread.ID)
+	if err != nil {
+		return domain.Thread{}, domain.ThreadExecutionPermissionSnapshot{}, false, err
+	}
+	return thread, permission, true, nil
+}
+
+// The intent event already belongs to the atomic preset operation. Pinning the
+// existing preference there avoids a new ledger and compares commit order, not
+// wall-clock timestamps: a permission request prepared earlier may commit later.
+func synchronizeStandardCodeThreadPermissionTx(ctx context.Context, tx *sql.Tx,
+	operation domain.StandardCodePresetOperation, commit domain.StandardCodePresetCommit,
+) error {
+	thread, current, found, err := standardCodeThreadPermissionTx(ctx, tx, operation)
+	if err != nil {
+		return err
+	}
+	var payload string
+	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM run_events
+		WHERE run_id = ? AND mission_id = ? AND sequence = ? AND type = ?`,
+		operation.RunID, operation.MissionID, operation.EventSequenceStart,
+		events.StandardCodePresetIntentRecordedEvent).Scan(&payload); err != nil {
+		return err
+	}
+	var intent struct {
+		Binding *standardCodeThreadPermissionBinding `json:"thread_permission_binding"`
+	}
+	if err := json.Unmarshal([]byte(payload), &intent); err != nil {
+		return err
+	}
+	if !found {
+		if intent.Binding != nil && *intent.Binding != (standardCodeThreadPermissionBinding{}) {
+			return standardCodeThreadPermissionConflict("Standard Code preset Thread binding changed")
+		}
+		return nil
+	}
+	if intent.Binding == nil {
+		return standardCodeThreadPermissionConflict(
+			"This pending Standard Code preset predates Thread permission binding; start a new configuration attempt")
+	}
+	if intent.Binding.ThreadID != thread.ID || intent.Binding.SnapshotID != current.ID ||
+		intent.Binding.Revision != current.Revision {
+		return standardCodeThreadPermissionConflict(
+			"Thread permission changed after the Standard Code preset intent; review settings and start a new configuration attempt")
+	}
+	if runPermissionMatchesThreadPreference(commit.Permission, current) {
+		return nil
+	}
+	next, err := current.Next("thread-preset-permission-"+operation.KeyDigest[:32],
+		commit.Permission.Mode, commit.Permission.OperatorConfirmed, operation.RequestedBy,
+		"Standard Code preset selected workspace access for this Thread", commit.CommittedAt)
+	if err != nil {
+		return err
+	}
+	if err := insertThreadExecutionPermissionSnapshotTx(ctx, tx, next); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(map[string]any{
+		"protocol": next.ProtocolVersion, "revision": next.Revision,
+		"from": current.Mode, "to": next.Mode, "policy_version": next.PolicyVersion,
+		"requested_by": next.RequestedBy, "reason": next.Reason,
+		"process_enabled": false, "execution_authorized": false, "capability_grant": false,
+		"current_run_id": operation.RunID, "current_run_effect": domain.ThreadExecutionPermissionApplied,
+		"current_run_permission_snapshot_id": commit.Permission.ID,
+		"applies_to_current_run":             true, "applies_to_future_successor_runs": true,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO thread_events
+		(thread_id, run_id, type, source, payload_json, created_at)
+		VALUES (?, ?, 'thread.execution_permission_selected', 'standard_code_preset', ?, ?)`,
+		thread.ID, operation.RunID, string(encoded), ts(next.CreatedAt))
+	return err
+}
+
+func standardCodeThreadPermissionConflict(message string) error {
+	return apperror.Wrap(apperror.CodeConflict, message,
+		domain.ErrStandardCodePresetThreadPreferenceChanged)
 }
 
 func getStandardCodePresetOperation(ctx context.Context,

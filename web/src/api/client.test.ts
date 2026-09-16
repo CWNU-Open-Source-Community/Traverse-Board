@@ -2,6 +2,7 @@ import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
 import type { ProviderDefinitionView, RunEventStreamView, RunLifecycleControlView,
   ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
+import pausedPlanReadiness from "../test/fixtures/readiness-paused-plan.json";
 
 const healthEnvelope = {
   version: "api.v1",
@@ -20,6 +21,7 @@ function commandRuntimeAdapterData() {
 function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   return {
     protocol_version: "runtime_capabilities.v1",
+    workspace_import_enabled: false,
     agent_code_tools_enabled: true,
     code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
@@ -332,6 +334,151 @@ describe("CyberAgentClient", () => {
     vi.unstubAllGlobals();
   });
 
+  it("imports a confirmed directory with the independent control bearer and no operation key", async () => {
+    const data = { protocol_version: "workspace_import.v1",
+      workspace: { id: "ws-import-1", name: "project", created_at: "2026-09-08T00:00:00Z" },
+      directory_content_modified: false, agent_authority_granted: false };
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-import", data,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, workspaceImportEnabled: true,
+    });
+    const signal = new AbortController().signal;
+    const directory = "D:\\用户 项目\\project";
+    expect(client.hasControl).toBe(false);
+    expect(await client.importWorkspace(directory, signal)).toEqual(data);
+    expect(await client.importWorkspace(directory, signal)).toEqual(data);
+    const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/workspaces/import");
+    expect(request).toMatchObject({ method: "POST", signal, cache: "no-store",
+      credentials: "omit", referrerPolicy: "no-referrer" });
+    expect(request.headers).toEqual({ Accept: "application/json", Authorization: "Bearer control-secret",
+      "Content-Type": "application/json" });
+    expect(JSON.parse(request.body as string)).toEqual({ version: "workspace_import.v1",
+      directory_path: directory, confirmed: true });
+  });
+
+  it("keeps workspace import disabled without both advertised capability and control bearer", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const [token, capability] of [["", true], ["control-secret", false],
+      ["control-secret", undefined]] as const) {
+      const client = new CyberAgentClient("read-secret", "/api/v1", token,
+        { workspaceImportEnabled: capability });
+      expect(client.hasWorkspaceImport).toBe(false);
+      await expect(client.importWorkspace("D:\\private-project"))
+        .rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects workspace import authority drift, path disclosure and malformed metadata", async () => {
+    const valid = { protocol_version: "workspace_import.v1",
+      workspace: { id: "ws-import-1", name: "project", created_at: "2026-09-08T00:00:00Z" },
+      directory_content_modified: false, agent_authority_granted: false };
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { workspaceImportEnabled: true });
+    const bad = [{ ...valid, agent_authority_granted: true },
+      { ...valid, directory_content_modified: true }, { ...valid, protocol_version: "invalid-version" },
+      { ...valid, directory_path: "D:\\private-project" },
+      ...[{ root_path: "D:\\private-project" }, { id: "D:\\private-project" },
+        { name: "D:\\private-project" }, { created_at: "invalid" }]
+        .map((drift) => ({ ...valid, workspace: { ...valid.workspace, ...drift } })),
+      { protocol_version: valid.protocol_version, workspace: valid.workspace }];
+    for (const data of bad) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-import", data,
+      }), { status: 200 })));
+      await expect(client.importWorkspace("D:\\private-project"))
+        .rejects.toMatchObject({ code: "INVALID_RESPONSE", status: 502 });
+    }
+  });
+
+  it("removes host paths from import server and transport failures", async () => {
+    const directory = "D:\\private-project";
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { workspaceImportEnabled: true });
+    for (const fetchMock of [vi.fn().mockRejectedValue(new Error(directory)),
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: "api.v1", request_id: directory,
+        error: { code: "INVALID_ARGUMENT", message: `invalid directory: ${directory}` },
+      }), { status: 400 }))]) {
+      vi.stubGlobal("fetch", fetchMock);
+      const failure = await client.importWorkspace(directory).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(String(failure)).not.toContain(directory);
+      expect(JSON.stringify(failure)).not.toContain(directory);
+    }
+  });
+
+  it("rejects empty, control-bearing and oversized directory input before sending", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { workspaceImportEnabled: true });
+    for (const directory of ["", "  ", "D:\\project\nother", "D:\\project\0", "项".repeat(1_400)]) {
+      await expect(client.importWorkspace(directory)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("treats a missing import capability as disabled and rejects a malformed advertised flag", async () => {
+    for (const advertised of [undefined, false, true, "true"]) {
+      const data: Record<string, unknown> = runtimeCapabilitiesData();
+      if (advertised === undefined) delete data.workspace_import_enabled;
+      else data.workspace_import_enabled = advertised;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-capabilities", data,
+      }), { status: 200 })));
+      const request = new CyberAgentClient("read-secret").runtimeCapabilities();
+      if (typeof advertised === "string") {
+        await expect(request).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+      } else {
+        const view = await request;
+        expect(clientCapabilitiesFromRuntime(view).workspaceImportEnabled).toBe(advertised === true);
+      }
+    }
+  });
+
+  it("reads interruption history while rejecting execution identity and authority drift", async () => {
+    const valid = { version: "thread_execution.v1", thread_id: "thread-1", state: "idle",
+      queued_messages: 0, capability_grant: false, last_turn_interrupted: true };
+    const respond = (data: unknown) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ version: "api.v1", request_id: "req-execution", data }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      })));
+    const client = new CyberAgentClient("read-secret");
+    respond(valid);
+    expect(await client.threadExecution("thread-1")).toEqual(valid);
+    for (const drift of [{ thread_id: "thread-2" }, { capability_grant: true },
+      { state: "running" }, { execution_id: "stale-execution" }, { last_turn_interrupted: "yes" }]) {
+      respond({ ...valid, ...drift });
+      await expect(client.threadExecution("thread-1")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
+  });
+
+  it("requires an explicit boolean execution read capability without requiring a control token", async () => {
+    for (const advertised of [undefined, false, true, "true"]) {
+      const data: Record<string, unknown> = runtimeCapabilitiesData();
+      if (advertised !== undefined) data.thread_execution_read_enabled = advertised;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-capabilities", data,
+      }), { status: 200 })));
+      const readClient = new CyberAgentClient("read-secret");
+      const request = readClient.runtimeCapabilities();
+      if (typeof advertised === "string") {
+        await expect(request).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+      } else {
+        const runtime = await request;
+        const connected = new CyberAgentClient("read-secret", "/api/v1", "", clientCapabilitiesFromRuntime(runtime));
+        expect(connected.hasThreadExecutionRead).toBe(advertised === true);
+        expect(connected.hasRunExecution).toBe(false);
+        expect(connected.hasThreadControl).toBe(false);
+      }
+    }
+  });
+
   it("keeps the bearer out of the URL and sends it only in Authorization", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(healthEnvelope), {
       status: 200,
@@ -463,6 +610,7 @@ describe("CyberAgentClient", () => {
   it("discovers Run-owned commands and model workspace tools independently", async () => {
     const data = {
       protocol_version: "runtime_capabilities.v1",
+      workspace_import_enabled: false,
       agent_code_tools_enabled: true,
       code_intel_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
@@ -625,6 +773,30 @@ describe("CyberAgentClient", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/runs/run-1/capability-readiness");
     expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
+  it("accepts the captured paused Plan response with a selected LPAC adapter and no active Run grant", async () => {
+    // Captured from Phase H's real HTTP service after two workspace reads and
+    // plan_delivery_propose paused the same Run; no idealized readiness builder.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(pausedPlanReadiness), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })));
+    const client = new CyberAgentClient("read-secret");
+    await expect(client.runCapabilityReadiness(pausedPlanReadiness.data.run_id)).resolves.toEqual(pausedPlanReadiness.data);
+  });
+
+  it("rejects incomplete or malformed adapter identities even without an active Run grant", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const patch of [{ adapter_kind: undefined }, { backend: undefined }, { adapter_kind: "unknown_adapter" },
+      { adapter_kind: ["sandboxed_workspace"] }, { backend: "b".repeat(257) }, { adapter_kind: "" }, { backend: "" }]) {
+      const data = { ...pausedPlanReadiness.data, command_runtime: { ...pausedPlanReadiness.data.command_runtime, ...patch } };
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...pausedPlanReadiness, data }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      }));
+      await expect(new CyberAgentClient("read-secret").runCapabilityReadiness(data.run_id))
+        .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
   });
 
   it("creates a first-run Standard Code target without leaking control authority", async () => {
@@ -1171,6 +1343,37 @@ describe("CyberAgentClient", () => {
       "Idempotency-Key": "web-thread-create-operation-0001" });
   });
 
+  it("accepts the Go-resolved default route while preserving identity and authority checks", async () => {
+    const routed = {
+      ...threadCreationData,
+      run: { ...threadCreationData.run,
+        config: { ...threadCreationData.run.config, model_route: "openai/default-model" } },
+      session: { ...threadCreationData.session, route: "openai/default-model" },
+    };
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const request = { version: "thread_creation.v1", goal: "Create parser",
+      workspace_id: "workspace-1" } as const;
+    const respond = (data: unknown) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ version: "api.v1", request_id: "req-default-route", data }),
+        { status: 202, headers: { "Content-Type": "application/json" } })));
+    respond(routed);
+    await expect(client.createThread(request, "web-default-route-0001")).resolves.toEqual(routed);
+    for (const invalid of [
+      { ...routed, session: { ...routed.session, route: "openai/other-model" } },
+      { ...routed, mission: { ...routed.mission, workspace_id: "other-workspace" } },
+      { ...routed, mode: { ...routed.mode, capability_grant: true } },
+      { ...routed, run: { ...routed.run,
+        config: { ...routed.run.config, model_route: "openai//model" } },
+        session: { ...routed.session, route: "openai//model" } },
+    ]) {
+      respond(invalid);
+      await expect(client.createThread(request, "web-default-route-0002")).rejects.toThrow();
+    }
+    respond(routed);
+    await expect(client.createThread({ ...request, provider: "openai", model: "chosen-model" },
+      "web-default-route-0003")).rejects.toThrow("closed authority");
+  });
+
   it("binds an explicitly selected Provider/model to the first Thread Run", async () => {
     const routed = {
       ...threadCreationData,
@@ -1256,6 +1459,151 @@ describe("CyberAgentClient", () => {
     await expect(client.submitThreadTurn("thread-created", {
       version: "thread_message_submission.v1", content: "Finish synchronously",
     }, "web-thread-message-completed-0001")).resolves.toEqual(response);
+  });
+
+  it("accepts a prepared pending Thread input when its tool call awaits approval", async () => {
+    // The real initial web_fetch journey leaves the selected operator message
+    // pending/prepared while the Run waits for the operator's decision.
+    const response = { ...threadMessageData,
+      thread: { ...threadData, composer_state: "waiting_approval" },
+      steering: { ...threadMessageData.steering, prepared: true },
+      execution_started: true, model_called: true, tool_called: true };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-prepared-input", data: response,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.submitThreadTurn("thread-created", {
+      version: "thread_message_submission.v1", content: "Read the official documentation",
+    }, "web-thread-prepared-input-0001")).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps prepared input status, identity, and execution authority checks closed", async () => {
+    const valid = { ...threadMessageData,
+      thread: { ...threadData, composer_state: "waiting_approval" },
+      steering: { ...threadMessageData.steering, prepared: true },
+      execution_started: true, model_called: true, tool_called: true };
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    for (const response of [
+      { ...valid, steering: { ...valid.steering, prepared: "true" } },
+      { ...valid, steering: { ...valid.steering, prepared: undefined } },
+      { ...valid, steering: { ...valid.steering, status: "committed", committed_at: "2026-08-24T00:02:00Z" } },
+      { ...valid, steering: { ...valid.steering, status: "cancelled", cancelled_at: "2026-08-24T00:02:00Z" } },
+      { ...valid, steering: { ...valid.steering, committed_at: "2026-08-24T00:02:00Z" } },
+      { ...valid, steering: { ...valid.steering, cancelled_at: "2026-08-24T00:02:00Z" } },
+      { ...valid, thread: { ...valid.thread, id: "thread-other" } },
+      { ...valid, run_id: "run-other" },
+      { ...valid, execution_started: false },
+      { ...valid, capability_grant: true },
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-invalid-prepared-input", data: response,
+      }), { status: 202, headers: { "Content-Type": "application/json" } })));
+      await expect(client.submitThreadTurn("thread-created", {
+        version: "thread_message_submission.v1", content: "Read the official documentation",
+      }, "web-thread-invalid-prepared-input-0001")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
+  });
+
+  it("sends file snapshots only through the unified turn with its control token and operation identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-turn-files", data: threadMessageData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const body = { version: "thread_message_submission.v1", content: "Use these project files",
+      files: [{ source_kind: "workspace_file", path: "docs/说明.md", expected_sha256: "a".repeat(64) }] } as const;
+    await expect(client.submitThreadTurn("thread-created", { ...body, files: [...body.files] },
+      "web-turn-files-0001")).resolves.toEqual(threadMessageData);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/threads/thread-created/turns");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-turn-files-0001" });
+    expect(JSON.parse(String(init.body))).toEqual(body);
+  });
+
+  it("rejects malformed, repeated, excessive or unavailable file references before dispatch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const file = { source_kind: "workspace_file", path: "README.md", expected_sha256: "a".repeat(64) };
+    const invalidLists = [[{ ...file, path: "../outside.md" }], [{ ...file, path: "." }],
+      [{ ...file, expected_sha256: "A".repeat(64) }], [{ ...file, instruction_authorized: true }],
+      [file, file], Array.from({ length: 5 }, (_, index) => ({ ...file, path: `file-${index}.md` }))];
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    for (const files of invalidLists) {
+      await expect(client.submitThreadTurn("thread-created", {
+        version: "thread_message_submission.v1", content: "Use files", files,
+      } as Parameters<CyberAgentClient["submitThreadTurn"]>[1], "web-invalid-files-0001")).rejects.toThrow("重新选择");
+    }
+    const disabled = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { evidenceAttachmentEnabled: false });
+    await expect(disabled.submitThreadTurn("thread-created", {
+      version: "thread_message_submission.v1", content: "Use files", files: [file],
+    } as Parameters<CyberAgentClient["submitThreadTurn"]>[1], "web-disabled-files-0001")).rejects.toThrow("重新选择");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a terminal unqueued turn rejection from an unknown error and rejects widened markers", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    for (const marker of [false, undefined, true]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "turn-rejected",
+        error: { code: "CONFLICT", message: "Cannot complete submission",
+          ...(marker !== undefined ? { message_queued: marker } : {}) },
+      }), { status: 409, headers: { "Content-Type": "application/json" } }));
+      await expect(client.submitThreadTurn("thread-created", {
+        version: "thread_message_submission.v1", content: "Check this file",
+      }, "web-turn-rejected-0001")).rejects.toMatchObject({
+        code: marker === true ? "INVALID_RESPONSE" : "CONFLICT", messageQueued: marker === false ? false : undefined,
+      });
+    }
+  });
+
+  it("only accepts an explicit true operation-key invalidation marker", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: true, standardCodePresetEnabled: true,
+    });
+    for (const marker of [true, undefined, false, "true", null]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "preset-invalidated",
+        error: { code: "CONFLICT", message: "Configuration changed",
+          ...(marker !== undefined ? { operation_key_invalidated: marker } : {}) },
+      }), { status: 409, headers: { "Content-Type": "application/json" } }));
+      await expect(client.configureStandardCode("run-1", "configure", {
+        version: "standard_code_preset.v1", backend_intent: "auto", confirm_workspace_trust: false,
+      }, "web-preset-rejected-0001")).rejects.toMatchObject({
+        code: marker === true || marker === undefined ? "CONFLICT" : "INVALID_RESPONSE",
+        operationKeyInvalidated: marker === true ? true : undefined,
+      });
+    }
+  });
+
+  it("only trusts an explicit terminal failed-turn marker and rejects contradictory queue facts", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    for (const marker of [true, undefined, false, "true", null]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "turn-failed",
+        error: { code: "UNAVAILABLE", message: "This turn failed",
+          ...(marker !== undefined ? { turn_failed: marker } : {}) },
+      }), { status: 503, headers: { "Content-Type": "application/json" } }));
+      await expect(client.submitThreadTurn("thread-created", {
+        version: "thread_message_submission.v1", content: "Continue the task",
+      }, "web-turn-failure-0001")).rejects.toMatchObject({
+        code: marker === true || marker === undefined ? "UNAVAILABLE" : "INVALID_RESPONSE",
+        turnFailed: marker === true ? true : undefined,
+      });
+    }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "contradiction",
+      error: { code: "CONFLICT", message: "Invalid facts", turn_failed: true, message_queued: false },
+    }), { status: 409, headers: { "Content-Type": "application/json" } }));
+    await expect(client.submitThreadTurn("thread-created", {
+      version: "thread_message_submission.v1", content: "Continue the task",
+    }, "web-turn-failure-0001")).rejects.toMatchObject({ code: "INVALID_RESPONSE", turnFailed: undefined });
   });
 
   it("recovers an exact failed Thread boundary without widening successor authority", async () => {
@@ -2220,6 +2568,54 @@ describe("CyberAgentClient", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/v1/runs/run-1/plan/deliver");
   });
 
+  it("binds approval previews to identity and actual effect before allowing a decision", async () => {
+    const preview = { protocol_version: "approval_queue.v1", run_id: "run-1",
+      approval_id: "approval-1", proposal_id: "proposal-1", workspace_id: "workspace-1",
+      tool_name: "shell", effect: "dry_run", working_directory: ".",
+      fields: [{ name: "command", value: "echo inspection" }], source_current: true,
+      redacted: false, truncated: false };
+    const respond = (data: unknown) => new Response(JSON.stringify({
+      version: "api.v1", request_id: "request-preview", data }), {
+      status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn().mockResolvedValueOnce(respond(preview));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.approvalPreview("run-1", "approval-1")).resolves.toEqual(preview);
+    for (const drift of [{ run_id: "run-other" }, { approval_id: "another" },
+      { effect: "fetch_public_https" }, { truncated: true }, { capability_grant: true }]) {
+      fetchMock.mockResolvedValueOnce(respond({ ...preview, ...drift }));
+      await expect(client.approvalPreview("run-1", "approval-1")).rejects.toThrow();
+    }
+  });
+
+  it("accepts exact file approval previews for all four edit operations without granting an effect", async () => {
+    // Shape captured from the real package.json create proposal; no mutation is performed.
+    const preview = { protocol_version: "approval_queue.v1", run_id: "run-20260910064350-a4f973a7ede3",
+      approval_id: "approval-20260910072057-6583f54ed917", proposal_id: "edit-99e4b9e0fc83e37efdda6745e8835851",
+      tool_name: "create_file", workspace_id: "ws-import-ddd63ce66f99ecc63b9ff3c8",
+      effect: "file_review_required", working_directory: ".", fields: [
+        { name: "operation", value: "create" }, { name: "path", value: "package.json" }],
+      source_current: true, redacted: false, truncated: false };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const respond = (data: unknown) => new Response(JSON.stringify({ version: "api.v1", request_id: "request-preview", data }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+    for (const operation of ["create", "replace", "move", "delete"]) {
+      const value = { ...preview, tool_name: `${operation}_file`, fields: [
+        { name: "operation", value: operation }, { name: "path", value: "package.json" }] };
+      fetchMock.mockResolvedValueOnce(respond(value));
+      await expect(client.approvalPreview(value.run_id, value.approval_id)).resolves.toEqual(value);
+      fetchMock.mockResolvedValueOnce(respond({ ...value, effect: "dry_run" }));
+      await expect(client.approvalPreview(value.run_id, value.approval_id)).rejects.toThrow("different effect");
+    }
+    for (const drift of [{ run_id: "another-run" }, { approval_id: "another-approval" },
+      { capability_grant: true }, { effect: "fetch_public_https" }, { tool_name: "unknown_file" }]) {
+      fetchMock.mockResolvedValueOnce(respond({ ...preview, ...drift }));
+      await expect(client.approvalPreview(preview.run_id, preview.approval_id)).rejects.toThrow();
+    }
+  });
+
   it("validates a metadata-only approval queue and closed approve-once response", async () => {
     const queue = {
       protocol_version: "approval_queue.v1", run_id: "run-1", truncated: false,
@@ -2445,6 +2841,8 @@ describe("CyberAgentClient", () => {
       },
       review_replayed: false, execution_replayed: false,
       untrusted_evidence: "UNTRUSTED HOST COMMAND RESULT\nstdout_begin\nok\nstdout_end",
+      continuation: { state: "failed", replayed: false, model_called: true, tool_called: false,
+        handoff_id: "handoff-after-review", error_code: "FAILED_PRECONDITION", message: "Subsequent model step failed" },
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -2481,6 +2879,40 @@ describe("CyberAgentClient", () => {
     await expect(client.reviewHostCommandProposal(
       "run-1", "host-command-proposal-1", body, "web-host-command-operation-0002",
     )).rejects.toThrow("boundary");
+    for (const continuation of [
+      { ...reviewed.continuation, state: "unknown" },
+      { ...reviewed.continuation, model_called: undefined },
+      { ...reviewed.continuation, execution_authorized: true },
+    ]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "invalid-continuation", data: { ...reviewed, continuation } }), { status: 200 }));
+      await expect(client.reviewHostCommandProposal("run-1", "host-command-proposal-1", body,
+        "web-host-command-operation-0003")).rejects.toThrow("continuation");
+    }
+    const savedOutput = {
+      result_id: reviewed.result.id, request_id: reviewed.receipt.request_id,
+      stdout: { text: "中文\nstdout_end\nstderr_begin", utf8_bytes: 30, truncated: false, redacted: true },
+      stderr: { text: "", utf8_bytes: 0, truncated: false, redacted: true },
+    };
+    savedOutput.stdout.utf8_bytes = new TextEncoder().encode(savedOutput.stdout.text).byteLength;
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+      request_id: "saved-output", data: { ...reviewed, saved_output: savedOutput } }), { status: 200 }));
+    await expect(client.hostCommandProposal("run-1", pending.id))
+      .resolves.toMatchObject({ saved_output: savedOutput });
+    for (const saved_output of [
+      null, { ...savedOutput, result_id: "another-result" },
+      { ...savedOutput, request_id: "another-request" },
+      { ...savedOutput, stdout: { ...savedOutput.stdout, utf8_bytes: 1 } },
+      { ...savedOutput, stdout: { ...savedOutput.stdout, redacted: false } },
+      { ...savedOutput, stdout: { ...savedOutput.stdout, raw: "unreviewed" } },
+      { ...savedOutput, stdout: { ...savedOutput.stdout, truncated: "false" } },
+      { ...savedOutput, stdout: { ...savedOutput.stdout, text: "a".repeat(16384), utf8_bytes: 16384 },
+        stderr: { ...savedOutput.stderr, text: "b", utf8_bytes: 1 } },
+    ]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "invalid-saved-output", data: { ...reviewed, saved_output } }), { status: 200 }));
+      await expect(client.hostCommandProposal("run-1", pending.id)).rejects.toThrow("saved output");
+    }
   });
 
   it("accepts durable risk escalation state and validates bounded current-Run grants", async () => {
@@ -2723,13 +3155,13 @@ describe("CyberAgentClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("reads a fail-closed Provider search readiness projection", async () => {
+  it.each(["provider_native", "web"])("reads a fail-closed %s search readiness projection", async (searchPolicy) => {
     const readiness = {
       protocol_version: "provider_search_readiness.v1", thread_id: "thread-1",
       run_id: "run-1", model_route: "deepseek/deepseek-chat", provider: "deepseek",
-      model: "deepseek-chat", search_policy: "provider_native",
+      model: "deepseek-chat", search_policy: searchPolicy,
       state: "missing_allowlist", reason: "search_endpoint_not_allowlisted",
-      remediation: "add_required_target", required_target: "api.deepseek.com",
+      remediation: "add_required_target", required_target: searchPolicy === "web" ? "html.duckduckgo.com" : "api.deepseek.com",
       network_mode: "allowlist", mode_revision: 4, runtime_ready: false,
       capability_grant: false,
     };
@@ -2746,11 +3178,11 @@ describe("CyberAgentClient", () => {
     );
   });
 
-  it("rejects contradictory or authority-bearing search readiness", async () => {
+  it.each(["provider_native", "web"])("rejects contradictory or authority-bearing %s search readiness", async (searchPolicy) => {
     const invalid = {
       protocol_version: "provider_search_readiness.v1", thread_id: "thread-1",
       run_id: "run-1", model_route: "deepseek/deepseek-chat", provider: "deepseek",
-      model: "deepseek-chat", search_policy: "provider_native", state: "ready",
+      model: "deepseek-chat", search_policy: searchPolicy, state: "ready",
       reason: "search_backend_ready", remediation: "add_required_target",
       required_target: "api.deepseek.com/path", network_mode: "allowlist", mode_revision: 4,
       runtime_ready: false, capability_grant: true,
@@ -2820,6 +3252,37 @@ describe("CyberAgentClient", () => {
       data: { ...queue, items: [{ ...edit, proposed_text: "private body" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(client.fileEditQueue("run-1")).rejects.toThrow("metadata-only");
+
+    const continuation = { state: "completed", replayed: false, model_called: true,
+      tool_called: true, handoff_id: "handoff-after-review" };
+    const reviewResponse = (data: unknown) => new Response(JSON.stringify({ version: "api.v1",
+      request_id: "req-review-continuation", data }), { status: 200 });
+    for (const next of [
+      continuation,
+      { state: "not_started", replayed: false, model_called: false, tool_called: false },
+      { state: "queued", replayed: true, model_called: false, tool_called: false },
+      { state: "failed", replayed: false, model_called: false, tool_called: false,
+        error_code: "UNAVAILABLE", message: "Continuation unavailable" },
+    ]) {
+      fetchMock.mockResolvedValueOnce(reviewResponse({ ...decided, continuation: next }));
+      await expect(client.reviewFileEdit("run-1", "edit-1", {
+        version: "file_edit_review.v1", action: "approve_intent",
+      })).resolves.toMatchObject({ file_written: false, edit: { status: "approved" }, continuation: next });
+    }
+    for (const invalid of [
+      { ...decided, continuation: { ...continuation, state: "queued" } },
+      { ...decided, continuation: { ...continuation, state: ["completed"] } },
+      { ...decided, continuation: { ...continuation, tool_called: undefined } },
+      { ...decided, continuation: { ...continuation, future_authority: true } },
+      { ...decided, continuation: { ...continuation, handoff_id: undefined } },
+      { ...decided, continuation, file_written: true },
+      { ...decided, continuation, edit: { ...decided.edit, status: "applied" } },
+    ]) {
+      fetchMock.mockResolvedValueOnce(reviewResponse(invalid));
+      await expect(client.reviewFileEdit("run-1", "edit-1", {
+        version: "file_edit_review.v1", action: "approve_intent",
+      })).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
   });
 
   it("validates a multi-file change set without accepting batch authority", async () => {
@@ -3136,6 +3599,48 @@ describe("CyberAgentClient", () => {
       .rejects.toThrow("receipt reviews widened authority");
     await expect(client.codeHandoff("run-1"))
       .rejects.toThrow("delivery truth projection");
+    for (const count of [1, 2, 3]) {
+      const actualPlan = { ...handoff, plan: { ...handoff.plan, state: "selected", proposal_id: "proposal-1",
+        selection_id: "selection-1", direction_count: count, selected_direction: count } };
+      fetchMock.mockResolvedValueOnce(envelope(`req-plan-${count}`, actualPlan));
+      await expect(client.codeHandoff("run-1")).resolves.toEqual(actualPlan);
+      for (const policy of ["required", "on_demand"]) {
+        const withPolicy = { ...actualPlan, plan: { ...actualPlan.plan, manual_acceptance: policy } };
+        fetchMock.mockResolvedValueOnce(envelope(`req-plan-${count}-${policy}`, withPolicy));
+        await expect(client.codeHandoff("run-1")).resolves.toEqual(withPolicy);
+      }
+      fetchMock.mockResolvedValueOnce(envelope(`req-plan-${count}-outside`, { ...actualPlan,
+        plan: { ...actualPlan.plan, selected_direction: count + 1 } }));
+      await expect(client.codeHandoff("run-1")).rejects.toThrow();
+    }
+    for (const policy of [null, true, "optional"]) {
+      fetchMock.mockResolvedValueOnce(envelope("req-invalid-plan-policy", { ...handoff,
+        plan: { ...handoff.plan, manual_acceptance: policy } }));
+      await expect(client.codeHandoff("run-1")).rejects.toThrow("Plan summary is inconsistent");
+    }
+    const hostCommand = { proposal_id: "host-proposal-1", run_id: handoff.run_id,
+      session_id: handoff.session_id, workspace_id: handoff.workspace_id, purpose: "Run project tests",
+      working_directory: "D:/project", spec_fingerprint: "c".repeat(64), created_at: handoff.generated_at };
+    const hostReceipt = { request_id: "host-request-1", exit_code: 0, timed_out: false, cancelled: false,
+      stdout_truncated: false, stderr_truncated: false, output_limit_exceeded: false,
+      tree_reaped: true, non_sandboxed: true, started_at: handoff.generated_at, completed_at: handoff.generated_at };
+    const executedHost = { ...hostCommand, review_id: "host-review-1", review_decision: "approve",
+      result_id: "host-result-1", result_status: "completed", source_ref: "host-command-proposal:host-proposal-1",
+      content_sha256: "d".repeat(64), receipt: hostReceipt };
+    for (const command of [hostCommand, executedHost,
+      { ...executedHost, result_status: "failed", receipt: { ...hostReceipt, exit_code: 3 } }]) {
+      const projected = { ...handoff, host_commands: { items: [command], truncated: false } };
+      fetchMock.mockResolvedValueOnce(envelope("req-host-facts", projected));
+      await expect(client.codeHandoff("run-1")).resolves.toEqual(projected);
+    }
+    for (const command of [{ ...executedHost, run_id: "another-run" },
+      { ...hostCommand, result_status: "completed" }, { ...executedHost, verified: true },
+      { ...executedHost, receipt: { ...hostReceipt, exit_code: 2 } },
+      { ...executedHost, source_ref: "host-command-proposal:another-proposal" }]) {
+      fetchMock.mockResolvedValueOnce(envelope("req-host-invalid", { ...handoff,
+        host_commands: { items: [command], truncated: false } }));
+      await expect(client.codeHandoff("run-1")).rejects.toThrow(/Code handoff host/);
+    }
     await expect(client.recordVerificationEvidence("run-1", {
       version: "operator_verification_evidence.v1", outcome: "pass",
       title: "Focused tests", summary: "line one\rline two",
@@ -3812,14 +4317,14 @@ describe("CyberAgentClient", () => {
       action: "set", secret, confirm: true });
   });
 
-  it("persists custom Provider definitions and accepts their OS-owned credential", async () => {
+  it.each(["auto", "web"] as const)("persists custom Provider definitions with %s search and accepts their OS-owned credential", async (searchMode) => {
     const draft: ProviderDefinitionView = {
       version: "provider_definition.v1", id: "team-gateway", display_name: "Team Gateway",
       note: "Responses-compatible company endpoint", website_url: "",
       endpoint_url: "https://models.example.org/v1/responses",
       default_model: "team-model", models: ["team-model"],
-      transport: "openai_responses", search_mode: "auto",
-      native_web_search_capability: "declared_unverified",
+      transport: "openai_responses", search_mode: searchMode,
+      native_web_search_capability: searchMode === "web" ? "unsupported" : "declared_unverified",
       advanced_config: { request_headers: {
         Authorization: { $credential: "team-gateway", template: "Bearer ${secret}" },
       } }, enabled: true, revision: 0,
@@ -3888,7 +4393,8 @@ describe("CyberAgentClient", () => {
     expect(deleteURL).toBe("/api/v1/models/provider-definitions/team-gateway/delete");
   });
 
-  it("accepts OpenAI-compatible availability and rejects unknown qualification reasons", async () => {
+  it.each([false, true])("accepts OpenAI-compatible availability (custom web=%s) and rejects unknown qualification reasons", async (customWeb) => {
+    const providerID = customWeb ? "team-openai" : "openai";
     const harness = {
       protocol_version: "model_harness.v1", model: "gpt-4.1-mini",
       transport_protocol: "openai_chat_completions", tool_strategy: "native",
@@ -3901,14 +4407,14 @@ describe("CyberAgentClient", () => {
     };
     const availability = {
       protocol_version: "model_availability.v2", generation: 2,
-      providers: [{ name: "openai", kind: "openai_compatible", status: "available",
-        display_name: "openai", custom: false, enabled: true, definition_revision: 0,
-        transport: "openai_chat_completions", search_mode: "disabled",
+      providers: [{ name: providerID, kind: "openai_compatible", status: "available",
+        display_name: providerID, custom: customWeb, enabled: true, definition_revision: customWeb ? 1 : 0,
+        transport: "openai_chat_completions", search_mode: customWeb ? "web" : "disabled",
         native_web_search_capability: "unsupported",
         native_web_search_runtime_enabled: false,
         models: ["gpt-4.1-mini"], harnesses: [harness], credential_source: "environment",
         network_required: true, configuration_error: false }],
-      routes: [{ name: "code", provider: "openai", model: "gpt-4.1-mini",
+      routes: [{ name: "code", provider: providerID, model: "gpt-4.1-mini",
         available: true, harness_ready: false }],
     };
     const diagnostic = {
@@ -4086,6 +4592,44 @@ describe("CyberAgentClient", () => {
       { fileEditProposalEnabled: true });
     await expect(client.recoverFileEditProposal("run-1", "edit-new"))
       .resolves.toEqual(recovery);
+  });
+
+  it("binds a no-write inverse proposal to the exact source and existing review authority", async () => {
+    const edit = { id: "edit-inverse", session_id: "session-1", workspace_id: "workspace-1",
+      path: "README.md", operation: "replace", status: "proposed",
+      diff: "--- a/README.md\n+++ b/README.md\n-after\n+before\n",
+      original_hash: "b".repeat(64), proposed_hash: "a".repeat(64),
+      secrets_redacted: false, allowed_actions: ["approve_intent", "deny"],
+      apply_enabled: false, created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" };
+    const data = { protocol_version: "file_edit_proposal.v1", run_id: "run-1", source_edit_id: "edit-source",
+      edit, replayed: false, file_written: false };
+    const response = (value: unknown) => new Response(JSON.stringify({ version: "api.v1", request_id: "req-inverse", data: value }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(response(data)));
+    vi.stubGlobal("fetch", fetchMock);
+    for (const disabled of [new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: false }),
+      new CyberAgentClient("read-secret", "/api/v1", "", { fileEditReviewEnabled: true }),
+      new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditProposalEnabled: true, fileEditReviewEnabled: false })]) {
+      await expect(disabled.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).rejects.toThrow(/review authority/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: true });
+    await expect(client.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).resolves.toEqual(data);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/file-edits/edit-source/revert-proposal");
+    expect(JSON.parse(String(init.body))).toEqual({ version: "file_edit_proposal.v1" });
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer control-secret");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe("web-revert-contract-key-1");
+    const replay = { ...data, replayed: true, edit: { ...edit, status: "applied", allowed_actions: [] } };
+    fetchMock.mockResolvedValueOnce(response(replay));
+    await expect(client.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).resolves.toEqual(replay);
+    for (const invalid of [{ ...data, run_id: "other-run" }, { ...data, source_edit_id: "other-source" },
+      { ...data, file_written: true }, { ...data, approval_required: true },
+      { ...data, edit: { ...edit, id: "edit-source" } }, { ...data, edit: { ...edit, status: "applied", allowed_actions: [] } },
+      { ...data, edit: { ...edit, secrets_redacted: true } }]) {
+      fetchMock.mockResolvedValueOnce(response(invalid));
+      await expect(client.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
   });
 
   it("accepts bounded Code Intel health without exposing process launch details", async () => {

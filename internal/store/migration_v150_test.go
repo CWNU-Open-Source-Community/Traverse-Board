@@ -80,7 +80,9 @@ func removeSchemaV150ForTestStatements() []string {
 // removeSchemaV151ForTestStatements restores the v150 schema before older
 // cumulative downgrade fixtures rebuild either underlying ledger.
 func removeSchemaV151ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV153ForTestStatements(), []string{
+		`DROP TABLE IF EXISTS thread_message_intents`,
+		`DELETE FROM schema_migrations WHERE version = 152`,
 		`DROP TRIGGER trg_command_runtime_job_agent_immutable`,
 		`DROP INDEX idx_command_runtime_job_agents_actor`,
 		`DROP TABLE command_runtime_job_agents`,
@@ -88,7 +90,7 @@ func removeSchemaV151ForTestStatements() []string {
 		`DROP INDEX idx_supervisor_tool_call_agents_actor`,
 		`DROP TABLE run_supervisor_tool_call_agents`,
 		`DELETE FROM schema_migrations WHERE version = 151`,
-	}
+	}...)
 }
 
 func assertSupervisorToolCallSchemaV150(t *testing.T, state *SQLiteStore) {

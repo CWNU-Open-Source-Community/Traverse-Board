@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/tools"
@@ -165,45 +166,56 @@ func NewManager(store Store) *Manager {
 }
 
 func (m *Manager) Propose(ctx context.Context, proposal Proposal) (Edit, error) {
+	edit, err := m.PrepareProposal(ctx, proposal)
+	if err != nil {
+		return Edit{}, err
+	}
+	return m.store.SaveFileEdit(ctx, edit)
+}
+
+// PrepareProposal reads and verifies the exact current file without persisting
+// a proposal or writing the workspace. Interactive callers can then insert the
+// prepared edit atomically without resetting a concurrently reviewed proposal.
+func (m *Manager) PrepareProposal(ctx context.Context, proposal Proposal) (Edit, error) {
 	if m == nil || m.store == nil {
 		return Edit{}, errors.New("file edit store is required")
 	}
 	proposal.WorkspaceID = strings.TrimSpace(proposal.WorkspaceID)
 	proposal.WorkspaceRoot = strings.TrimSpace(proposal.WorkspaceRoot)
 	if proposal.WorkspaceID == "" {
-		return Edit{}, errors.New("workspace id is required")
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, "workspace id is required")
 	}
 	if proposal.WorkspaceRoot == "" {
-		return Edit{}, errors.New("workspace root is required")
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, "workspace root is required")
 	}
 	operation, err := NormalizeOperation(proposal.Operation)
 	if err != nil {
-		return Edit{}, err
+		return Edit{}, apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
 	if len([]byte(proposal.ProposedText)) > MaxContentBytes {
-		return Edit{}, fmt.Errorf("proposed content exceeds %d bytes", MaxContentBytes)
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, fmt.Sprintf("proposed content exceeds %d bytes", MaxContentBytes))
 	}
 	if !utf8.ValidString(proposal.ProposedText) {
-		return Edit{}, errors.New("proposed content is not valid UTF-8 text")
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, "proposed content is not valid UTF-8 text")
 	}
 
 	relPath, err := normalizePath(proposal.Path)
 	if err != nil {
-		return Edit{}, err
+		return Edit{}, apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
-	root, rootedPath, _, err := openWorkspaceRootForFile(proposal.WorkspaceRoot, relPath)
+	root, rootedPath, _, err := openWorkspaceRootForFile(proposal.WorkspaceRoot, relPath, operation == OperationCreate)
 	if err != nil {
 		return Edit{}, err
 	}
 	defer root.Close()
-	original, exists, err := readCurrentTextFromRoot(root, rootedPath)
+	original, exists, err := readProposalTextFromRoot(root, rootedPath)
 	if err != nil {
 		return Edit{}, err
 	}
 	originalHash := contentHash(original, exists)
 	if proposal.ExpectedOriginalHash != "" &&
 		proposal.ExpectedOriginalHash != originalHash {
-		return Edit{}, errors.New(
+		return Edit{}, apperror.New(apperror.CodeConflict,
 			"workspace file changed after the proposal source was issued")
 	}
 	destinationPath := ""
@@ -217,50 +229,55 @@ func (m *Manager) Propose(ctx context.Context, proposal Proposal) (Edit, error) 
 			// operation for new proposals that explicitly select create.
 		}
 	case OperationCreate:
-		if exists || proposal.ExpectedOriginalHash != missingHash {
-			return Edit{}, errors.New("create requires an absent target and the missing hash")
+		if exists {
+			return Edit{}, apperror.New(apperror.CodeConflict, "create requires an absent target")
+		}
+		if proposal.ExpectedOriginalHash != missingHash {
+			return Edit{}, apperror.New(apperror.CodeInvalidArgument, "create requires the missing hash")
 		}
 	case OperationMove:
 		if !exists {
-			return Edit{}, errors.New("move source does not exist")
+			return Edit{}, apperror.New(apperror.CodeConflict, "move source does not exist")
 		}
 		destinationPath, err = normalizePath(proposal.DestinationPath)
 		if err != nil || destinationPath == relPath {
-			return Edit{}, errors.New("move destination path is invalid")
+			return Edit{}, apperror.New(apperror.CodeInvalidArgument, "move destination path is invalid")
 		}
 		if _, resolveErr := tools.NewWorkspaceFS(proposal.WorkspaceRoot).
 			ResolveForWrite(destinationPath); resolveErr != nil {
 			return Edit{}, resolveErr
 		}
 		rootedDestination := filepath.FromSlash(destinationPath)
-		current, destinationExists, readErr := readCurrentTextFromRoot(root, rootedDestination)
+		current, destinationExists, readErr := readProposalTextFromRoot(root, rootedDestination)
 		if readErr != nil {
 			return Edit{}, readErr
 		}
 		destinationOriginalHash = contentHash(current, destinationExists)
-		if proposal.ExpectedDestinationHash == "" ||
-			proposal.ExpectedDestinationHash != destinationOriginalHash {
-			return Edit{}, errors.New("move destination changed after the proposal source was issued")
+		if proposal.ExpectedDestinationHash == "" {
+			return Edit{}, apperror.New(apperror.CodeInvalidArgument, "move destination expected hash is required")
+		}
+		if proposal.ExpectedDestinationHash != destinationOriginalHash {
+			return Edit{}, apperror.New(apperror.CodeConflict, "move destination changed after the proposal source was issued")
 		}
 		if destinationOriginalHash != missingHash {
-			return Edit{}, errors.New("move destination must be absent")
+			return Edit{}, apperror.New(apperror.CodeConflict, "move destination must be absent")
 		}
 		proposedRaw = ""
 		destinationProposedHash = originalHash
 	case OperationDelete:
 		if !exists {
-			return Edit{}, errors.New("delete target does not exist")
+			return Edit{}, apperror.New(apperror.CodeConflict, "delete target does not exist")
 		}
 		if proposal.ProposedText != "" || proposal.DestinationPath != "" ||
 			proposal.ExpectedDestinationHash != "" {
-			return Edit{}, errors.New("delete cannot contain replacement or destination data")
+			return Edit{}, apperror.New(apperror.CodeInvalidArgument, "delete cannot contain replacement or destination data")
 		}
 		proposedRaw = ""
 	}
 	proposed := redact.String(proposedRaw)
 	secretsRedacted := proposed != proposedRaw
 	if operation == OperationReplace && exists && original == proposed {
-		return Edit{}, errors.New("proposed content does not change the file")
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, "proposed content does not change the file")
 	}
 
 	originalPreview := redact.String(original)
@@ -284,7 +301,7 @@ func (m *Manager) Propose(ctx context.Context, proposal Proposal) (Edit, error) 
 	if editID == "" {
 		editID = newID("edit")
 	} else if editID != proposal.ID || !validProposedEditID(editID) {
-		return Edit{}, errors.New("file edit proposal id is invalid")
+		return Edit{}, apperror.New(apperror.CodeInvalidArgument, "file edit proposal id is invalid")
 	}
 	now := time.Now().UTC()
 	edit := Edit{
@@ -306,7 +323,7 @@ func (m *Manager) Propose(ctx context.Context, proposal Proposal) (Edit, error) 
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
-	return m.store.SaveFileEdit(ctx, edit)
+	return edit, nil
 }
 
 func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) (Edit, error) {
@@ -338,7 +355,7 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 		return m.fail(ctx, edit, errors.New("stored proposed content failed integrity validation"))
 	}
 
-	root, rootedPath, target, err := openWorkspaceRootForFile(workspaceRoot, edit.Path)
+	root, rootedPath, target, err := openWorkspaceRootForFile(workspaceRoot, edit.Path, operation == OperationCreate)
 	if err != nil {
 		return m.fail(ctx, edit, err)
 	}
@@ -364,6 +381,11 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 	edit, err = m.store.SaveFileEdit(ctx, edit)
 	if err != nil {
 		return Edit{}, err
+	}
+	if operation == OperationCreate {
+		if createErr := prepareCreateDirectories(root, workspaceRoot, rootedPath); createErr != nil {
+			return m.fail(ctx, edit, createErr)
+		}
 	}
 	writeTarget, err := tools.NewWorkspaceFS(workspaceRoot).ResolveForWrite(edit.Path)
 	if err != nil {
@@ -878,6 +900,9 @@ func (m *Manager) List(ctx context.Context, filter ListFilter) ([]Edit, error) {
 }
 
 func (m *Manager) fail(ctx context.Context, edit Edit, cause error) (Edit, error) {
+	if edit.Operation == OperationCreate {
+		cause = fmt.Errorf("%w; newly created parent directories, if any, are retained", cause)
+	}
 	edit.Status = StatusFailed
 	edit.Reason = redact.String(cause.Error())
 	edit.UpdatedAt = time.Now().UTC()
@@ -903,7 +928,7 @@ func normalizePath(path string) (string, error) {
 	return filepath.ToSlash(clean), nil
 }
 
-func openWorkspaceRootForFile(workspaceRoot string, path string) (
+func openWorkspaceRootForFile(workspaceRoot string, path string, createParents ...bool) (
 	*os.Root, string, string, error,
 ) {
 	relPath, err := normalizePath(path)
@@ -911,7 +936,11 @@ func openWorkspaceRootForFile(workspaceRoot string, path string) (
 		return nil, "", "", err
 	}
 	fs := tools.NewWorkspaceFS(workspaceRoot)
-	target, err := fs.ResolveForWrite(relPath)
+	resolve := fs.ResolveForWrite
+	if len(createParents) != 0 && createParents[0] {
+		resolve = fs.ResolveForCreate
+	}
+	target, err := resolve(relPath)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -931,7 +960,7 @@ func openWorkspaceRootForFile(workspaceRoot string, path string) (
 		_ = root.Close()
 		return nil, "", "", cause
 	}
-	latestTarget, err := fs.ResolveForWrite(relPath)
+	latestTarget, err := resolve(relPath)
 	if err != nil || latestTarget != target {
 		return fail(errors.New("workspace path changed while opening its root handle"))
 	}
@@ -942,6 +971,27 @@ func openWorkspaceRootForFile(workspaceRoot string, path string) (
 		return fail(errors.New("workspace root changed while opening its root handle"))
 	}
 	return root, filepath.FromSlash(relPath), target, nil
+}
+
+// workspaceReadError records a proven read limitation without making it
+// recoverable in approval/apply paths, where a write may already have happened.
+type workspaceReadError struct {
+	message string
+	changed bool
+}
+
+func (e *workspaceReadError) Error() string { return e.message }
+
+func readProposalTextFromRoot(root *os.Root, path string) (string, bool, error) {
+	content, exists, err := readCurrentTextFromRoot(root, path)
+	if known, ok := err.(*workspaceReadError); ok {
+		code := apperror.CodeFailedPrecondition
+		if known.changed {
+			code = apperror.CodeConflict
+		}
+		return content, exists, apperror.Wrap(code, known.Error(), known)
+	}
+	return content, exists, err
 }
 
 func readCurrentTextFromRoot(root *os.Root, path string) (string, bool, error) {
@@ -956,7 +1006,7 @@ func readCurrentTextFromRoot(root *os.Root, path string) (string, bool, error) {
 		return "", false, err
 	}
 	if !expected.Mode().IsRegular() || expected.Mode()&os.ModeSymlink != 0 {
-		return "", false, fmt.Errorf("%s is not a regular workspace file", path)
+		return "", false, &workspaceReadError{message: fmt.Sprintf("%s is not a regular workspace file", path)}
 	}
 	file, err := root.Open(path)
 	if os.IsNotExist(err) {
@@ -971,17 +1021,17 @@ func readCurrentTextFromRoot(root *os.Root, path string) (string, bool, error) {
 		return "", false, err
 	}
 	if !opened.Mode().IsRegular() || !os.SameFile(expected, opened) {
-		return "", false, errors.New("workspace file changed while it was opened")
+		return "", false, &workspaceReadError{message: "workspace file changed while it was opened", changed: true}
 	}
 	data, err := io.ReadAll(io.LimitReader(file, MaxContentBytes+1))
 	if err != nil {
 		return "", false, err
 	}
 	if len(data) > MaxContentBytes {
-		return "", false, fmt.Errorf("file exceeds %d bytes", MaxContentBytes)
+		return "", false, &workspaceReadError{message: fmt.Sprintf("file exceeds %d bytes", MaxContentBytes)}
 	}
 	if !utf8.Valid(data) {
-		return "", false, errors.New("file is not valid UTF-8 text")
+		return "", false, &workspaceReadError{message: "file is not valid UTF-8 text"}
 	}
 	return string(data), true, nil
 }
@@ -1023,6 +1073,16 @@ func HashText(content string) string {
 // workspace boundary used for writes and returns either its SHA-256 or the
 // stable "missing" sentinel.
 func CurrentHash(workspaceRoot string, path string) (string, error) {
+	return currentHash(workspaceRoot, path, false)
+}
+
+// CurrentCreateHash is read-only and treats an absent parent suffix as an
+// absent create target. Existing-path integrity checks are unchanged.
+func CurrentCreateHash(workspaceRoot string, path string) (string, error) {
+	return currentHash(workspaceRoot, path, true)
+}
+
+func currentHash(workspaceRoot string, path string, createParents bool) (string, error) {
 	if strings.TrimSpace(workspaceRoot) == "" {
 		return "", errors.New("workspace root is required")
 	}
@@ -1030,7 +1090,7 @@ func CurrentHash(workspaceRoot string, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, rootedPath, _, err := openWorkspaceRootForFile(workspaceRoot, relPath)
+	root, rootedPath, _, err := openWorkspaceRootForFile(workspaceRoot, relPath, createParents)
 	if err != nil {
 		return "", err
 	}

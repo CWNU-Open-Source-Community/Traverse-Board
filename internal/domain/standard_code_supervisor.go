@@ -230,6 +230,7 @@ type StandardCodeSupervisorSnapshot struct {
 	CapabilityGeneration         string                       `json:"capability_generation"`
 	ExpectedCapabilityGeneration string                       `json:"expected_capability_generation,omitempty"`
 	PlanSelectionID              string                       `json:"plan_selection_id,omitempty"`
+	Continuation                 *StandardCodeContinuation    `json:"continuation,omitempty"`
 	Turn                         int                          `json:"turn"`
 	AttemptID                    string                       `json:"attempt_id"`
 	TurnToolRounds               int                          `json:"turn_tool_rounds"`
@@ -264,6 +265,14 @@ type StandardCodeSupervisorSnapshot struct {
 }
 
 func (s StandardCodeSupervisorSnapshot) Validate() error {
+	if s.Continuation != nil {
+		if err := s.Continuation.Validate(); err != nil {
+			return err
+		}
+		if s.Continuation.PredecessorRunID == s.RunID || s.MutationEpoch < s.Continuation.MutationEpoch {
+			return errors.New("Standard Code continuation cannot replace its source epoch")
+		}
+	}
 	if s.ProtocolVersion != StandardCodeSupervisorProtocolVersion || !s.State.Valid() ||
 		s.Limits.Validate() != nil {
 		return errors.New("Standard Code Supervisor snapshot protocol, state, or limits are invalid")

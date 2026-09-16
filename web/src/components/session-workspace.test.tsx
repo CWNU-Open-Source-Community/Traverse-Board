@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import type { CyberAgentClient } from "../api/client";
@@ -20,6 +20,19 @@ describe("SessionWorkspace", () => {
     sessionStorage.clear();
   });
 
+  it("does not present the stale bound Run as current after its refresh fails", async () => {
+    const client = workspaceClient(run("running"), run("running"));
+    client.get.mockImplementation((path: string) => path === "/sessions/sess-1"
+      ? Promise.resolve({ session, run: run("running") } as SessionDetailView)
+      : Promise.reject(new Error("run unavailable")));
+    renderWorkspace(client);
+    await waitFor(() => expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("State temporarily unavailable"));
+    expect(screen.getByText("Bound execution record state").parentElement).not.toHaveTextContent("Not ended");
+    expect(screen.getByText("Not closed")).toBeVisible();
+    expect(client.submitSessionMessage).not.toHaveBeenCalled();
+    expect(client.executeRun).not.toHaveBeenCalled();
+  });
+
   it("uses the fresh completed Run for a message-only client", async () => {
     const client = workspaceClient(run("paused"), run("completed"));
 
@@ -27,8 +40,11 @@ describe("SessionWorkspace", () => {
 
     await waitFor(() => expect(client.get).toHaveBeenCalledWith("/runs/run-1", {},
       expect.any(AbortSignal)));
-    expect(await screen.findByText("completed")).toBeInTheDocument();
-    expect(screen.getByRole("note")).toHaveTextContent("Session is the current Run's local context and authority boundary");
+    await waitFor(() => expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("completed"));
+    expect(screen.getByText("Bound execution record state")).toBeVisible();
+    expect(screen.getByRole("note")).toHaveTextContent("This view shows context records for this execution");
+    expect(screen.getByLabelText("Run-local Session message")).not.toBeVisible();
+    await userEvent.setup().click(screen.getByText("Add input to this Session (advanced)"));
     expect(screen.getByLabelText("Run-local Session message")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeDisabled();
     expect(client.controlRunLifecycle).not.toHaveBeenCalled();
@@ -42,6 +58,12 @@ describe("SessionWorkspace", () => {
     renderWorkspace(client);
 
     const composer = await screen.findByLabelText("Run-local Session message");
+    expect(screen.getByText("Not closed")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("Not ended"));
+    expect(screen.getByText("Not closed").closest("[title]")).toHaveAttribute("title",
+      "Describes only this context record; it does not determine whether the conversation can continue or whether the Agent is currently executing.");
+    expect(composer).not.toBeVisible();
+    await user.click(screen.getByText("Add input to this Session (advanced)"));
     await waitFor(() => expect(composer).toBeEnabled());
     await user.type(composer, "Inspect the latest changes");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
@@ -52,9 +74,77 @@ describe("SessionWorkspace", () => {
     expect(client.controlRunLifecycle).not.toHaveBeenCalled();
     expect(client.executeRun).not.toHaveBeenCalled();
   });
+
+  it("keeps bound failed state visible when advanced input is collapsed without starting any work", async () => {
+    const client = workspaceClient(run("paused"), run("failed"));
+    const user = userEvent.setup();
+    renderWorkspace(client);
+    await screen.findByText("Add input to this Session (advanced)");
+    const status = screen.getByText("Bound execution record state").parentElement!;
+    await waitFor(() => expect(within(status).getByText("failed")).toBeVisible());
+    const toggle = screen.getByText("Add input to this Session (advanced)");
+    await user.click(toggle);
+    expect(screen.getByLabelText("Run-local Session message")).toBeDisabled();
+    expect(screen.getByText(/Input here belongs only to this Session's bound Run/u)).toBeVisible();
+    await user.click(toggle);
+    expect(within(status).getByText("failed")).toBeVisible();
+    expect(screen.getByLabelText("Run-local Session message")).not.toBeVisible();
+    expect(client.submitSessionMessage).not.toHaveBeenCalled();
+    expect(client.controlRunLifecycle).not.toHaveBeenCalled();
+    expect(client.executeRun).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unsent draft across collapse and keeps pending messages outside the input disclosure", async () => {
+    const client = workspaceClient(run("running"), run("running"), true);
+    const user = userEvent.setup();
+    renderWorkspace(client);
+    const input = await screen.findByLabelText("Run-local Session message");
+    const toggle = screen.getByText("Add input to this Session (advanced)");
+    await user.click(toggle);
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "Keep this draft for this Run only");
+    await user.click(toggle);
+    expect(input).not.toBeVisible();
+    const queue = screen.getByRole("region", { name: "Queued Run-local Session messages" });
+    expect(queue).toBeVisible();
+    expect(within(queue).getByText("pending")).toBeVisible();
+    expect(within(queue).getByRole("button", { name: "Cancel queued message 1" })).toBeVisible();
+    await user.click(toggle);
+    expect(input).toHaveValue("Keep this draft for this Run only");
+    expect(client.submitSessionMessage).not.toHaveBeenCalled();
+    expect(client.executeRun).not.toHaveBeenCalled();
+  });
+
+  it("reveals the original submission error after pending input is collapsed without retrying or clearing the draft", async () => {
+    const client = workspaceClient(run("running"), run("running"));
+    let reject!: (reason: Error) => void;
+    client.submitSessionMessage.mockImplementation(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    const user = userEvent.setup();
+    renderWorkspace(client);
+    const input = await screen.findByLabelText("Run-local Session message");
+    const toggle = screen.getByText("Add input to this Session (advanced)");
+    await user.click(toggle);
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "Preserve the exact original request");
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
+    await waitFor(() => expect(client.submitSessionMessage).toHaveBeenCalledTimes(1));
+    const originalKey = client.submitSessionMessage.mock.calls[0][2];
+    await user.click(toggle);
+    expect(input).not.toBeVisible();
+    expect(await screen.findByText(/Input in progress/u)).toBeVisible();
+    await act(async () => reject(new Error("fixture transport response lost")));
+    await waitFor(() => expect(screen.getByText("fixture transport response lost")).toBeVisible());
+    expect(screen.getAllByText("fixture transport response lost")).toHaveLength(1);
+    expect(input).toBeVisible();
+    expect(input).toHaveValue("Preserve the exact original request");
+    expect(client.submitSessionMessage).toHaveBeenCalledTimes(1);
+    expect(client.submitSessionMessage.mock.calls[0][2]).toBe(originalKey);
+    expect(client.executeRun).not.toHaveBeenCalled();
+    expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("Not ended");
+  });
 });
 
-function workspaceClient(staleRun: RunView, freshRun: RunView) {
+function workspaceClient(staleRun: RunView, freshRun: RunView, hasQueuedMessage = false) {
   const submission = {
     version: "session_message_submission.v1", run_id: "run-1", session_id: "sess-1",
     steering: { id: "steer-1", sequence: 1, status: "pending", prepared: false,
@@ -63,14 +153,16 @@ function workspaceClient(staleRun: RunView, freshRun: RunView) {
   } as SessionMessageControlView;
   return {
     hasSessionMessages: true,
-    hasSessionSteeringControl: false,
+    hasSessionSteeringControl: hasQueuedMessage,
     hasPlanDelivery: false,
     hasRunLifecycle: false,
     hasRunExecution: false,
     hasEvidenceAttachment: false,
     get: vi.fn((path: string) => Promise.resolve(path === "/sessions/sess-1"
       ? { session, run: staleRun } as SessionDetailView
-      : { run: freshRun, mode: { phase: "deliver" } } as RunDetailView)),
+      : { run: freshRun, mode: { phase: "deliver" }, operator_steering: hasQueuedMessage ? {
+        messages: [{ id: "existing-message", sequence: 1, status: "pending", prepared: false, created_at: session.created_at }],
+      } : null } as RunDetailView)),
     getPage: vi.fn().mockResolvedValue({
       items: [], page: { limit: 100 }, requestID: "request-messages",
     }),

@@ -18,6 +18,14 @@ type webFetchAuthorizationResumeStore interface {
 	ResumeWebFetchAuthorizationRun(context.Context, string) (domain.Run, bool, error)
 }
 
+type webFetchAuthorizationFailureStore interface {
+	PrepareWebFetchAuthorizationHandoff(context.Context, string, string, domain.SupervisorPhase) (domain.RunExecutionHandoff, bool, error)
+}
+
+type webFetchContinuationModelStore interface {
+	GetWebFetchContinuationModelAttempt(context.Context, domain.WebFetchAuthorization, string) (int, error)
+}
+
 // ResumeWebFetchAuthorization resumes the exact pending Supervisor call. It
 // never creates a new Turn and therefore cannot silently resend user input.
 func (s *RunExecutionHandoffService) ResumeWebFetchAuthorization(ctx context.Context,
@@ -53,6 +61,21 @@ func (s *RunExecutionHandoffService) ResumeWebFetchAuthorization(ctx context.Con
 		return LifecycleResult{}, !resumable, err
 	}
 	var execution LifecycleResult
+	var continuation domain.RunExecutionHandoff
+	if recorder, ok := s.store.(webFetchAuthorizationFailureStore); ok {
+		checkpoint, found, readErr := s.store.GetSupervisorCheckpoint(ctx, value.RunID)
+		if readErr != nil || !found {
+			return execution, false, apperror.Normalize(readErr)
+		}
+		continuation, _, err = recorder.PrepareWebFetchAuthorizationHandoff(ctx, value.ID,
+			checkpoint.AttemptID, domain.SupervisorTurnStarted)
+		if err != nil {
+			return execution, false, apperror.Normalize(err)
+		}
+		if continuation.Result != nil {
+			return execution, true, storedThreadTurnExecutionError(continuation)
+		}
+	}
 	err = s.supervisor.withRunExecutionLease(ctx, value.RunID,
 		func(leaseCtx context.Context, lease domain.RunExecutionLease) error {
 			stillResumable, checkErr := s.webFetchAuthorizationTurnResumable(leaseCtx, value)
@@ -61,15 +84,74 @@ func (s *RunExecutionHandoffService) ResumeWebFetchAuthorization(ctx context.Con
 			}
 			var stepErr error
 			execution, stepErr = s.supervisor.stepWithLease(leaseCtx, lease, "")
+			if continuation.Operation.ID != "" {
+				if execution.ToolCalls > 0 && execution.ModelAttempts == 0 {
+					// Like ordinary recovered Supervisor results, handoff flags cover
+					// the logical turn. A resumed stored tool batch may reach another
+					// approval before any NEW model request. Require the exact original
+					// model completion; do not infer one merely from ToolCalls > 0.
+					provenance, ok := s.store.(webFetchContinuationModelStore)
+					if !ok || execution.Handle.RunID != value.RunID || execution.Turn != value.SupervisorTurn {
+						return errors.Join(stepErr, apperror.New(apperror.CodeFailedPrecondition,
+							"Web fetch continuation model provenance is unavailable"))
+					}
+					modelAttempt, proofErr := provenance.GetWebFetchContinuationModelAttempt(leaseCtx, value, execution.AttemptID)
+					if proofErr != nil {
+						return errors.Join(stepErr, apperror.Normalize(proofErr))
+					}
+					if modelAttempt <= 0 {
+						return errors.Join(stepErr, apperror.New(apperror.CodeFailedPrecondition,
+							"Web fetch continuation has no matching completed model attempt"))
+					}
+					execution.ModelAttempts = modelAttempt
+				}
+				if recordErr := s.completeWebFetchContinuation(leaseCtx, lease, &continuation, execution, stepErr, ""); recordErr != nil {
+					return errors.Join(stepErr, recordErr)
+				}
+			}
 			return stepErr
 		})
 	if err != nil {
+		if failureStore, ok := s.store.(threadTurnFailureStore); ok && continuation.Result != nil {
+			if failure, closed, closeErr := closeFailedProductTurn(ctx, failureStore, value.ThreadID, continuation); closeErr != nil {
+				return execution, false, closeErr
+			} else if closed {
+				return execution, false, failedProductTurnError(failure)
+			}
+		}
 		return execution, false, apperror.Normalize(err)
 	}
 	if execution.Turn == 0 {
 		return LifecycleResult{}, true, nil
 	}
 	return execution, false, nil
+}
+
+func (s *RunExecutionHandoffService) completeWebFetchContinuation(ctx context.Context, lease domain.RunExecutionLease,
+	handoff *domain.RunExecutionHandoff, execution LifecycleResult, cause error, stopReason string,
+) error {
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	status, errorCode := domain.RunExecutionHandoffCompleted, ""
+	if cause != nil {
+		status, errorCode = domain.RunExecutionHandoffFailed, strings.ToLower(string(apperror.CodeOf(apperror.Normalize(cause))))
+	}
+	if stopReason == "" {
+		stopReason = "web_fetch_continuation"
+		if cause != nil {
+			stopReason = errorCode
+		}
+	}
+	steps := 0
+	if execution.Turn > 0 {
+		steps = 1
+	}
+	result, _, err := s.store.CompleteRunExecutionHandoff(settleCtx, handoff.Operation.ID, lease,
+		status, stopReason, errorCode, steps, execution.ModelAttempts > 0, execution.ToolCalls > 0)
+	if err == nil {
+		handoff.Result = &result
+	}
+	return apperror.Normalize(err)
 }
 
 func resumeWebFetchAuthorizationRun(ctx context.Context,

@@ -496,14 +496,21 @@ type commandIntent struct {
 func validateCommandJobs(facts runFacts, fixture packagede2e.FixtureRepository,
 	backend string,
 ) (int, int, int, error) {
+	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(facts.drydock.Path)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("resolve Command Runtime Drydock root: %w", err)
+	}
 	failed, passed, artifacts := 0, 0, 0
 	var failureAt time.Time
 	var successAt time.Time
 	jobsByID := map[string]runner.CommandRuntimeJob{}
 	for _, job := range facts.jobs {
+		// Jobs retain the source control identity; the root digest binds the
+		// physical workspace used by the sandbox to this Run's exact Drydock.
 		if err := job.Validate(); err != nil || job.RunID != facts.run.ID ||
-			job.SessionID != facts.run.SessionID || job.WorkspaceID != facts.drydock.WorkspaceID {
-			return 0, 0, 0, errors.New("Command Runtime Job is invalid or cross-Run")
+			job.MissionID != facts.run.MissionID || job.SessionID != facts.run.SessionID ||
+			job.WorkspaceID != facts.mission.WorkspaceID || job.WorkspaceRootSHA256 != rootSHA256 {
+			return 0, 0, 0, errors.New("Command Runtime Job is invalid or its Run/Drydock binding differs")
 		}
 		var intent commandIntent
 		if err := json.Unmarshal([]byte(job.IntentJSON), &intent); err != nil {

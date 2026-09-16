@@ -110,6 +110,7 @@ func (c SupervisorToolCall) Validate() error {
 		return errors.New("supervisor tool turn, round, position, and model attempt are invalid")
 	}
 	if c.ToolName != "work_item_create" && c.ToolName != "note_create" &&
+		c.ToolName != "history_search" && c.ToolName != "history_read" &&
 		c.ToolName != "specialist_delegation_propose" &&
 		c.ToolName != "child_task_propose" &&
 		c.ToolName != "plan_delivery_propose" &&

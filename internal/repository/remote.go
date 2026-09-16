@@ -49,6 +49,10 @@ type RemoteSpec struct {
 	PRNumber         int64           `json:"pr_number,omitempty"`
 	CredentialName   string          `json:"credential_name,omitempty"`
 	NetworkTTLMillis int64           `json:"network_ttl_millis,omitempty"`
+	// Exact push fields are optional for historical CLI records. New Thread
+	// actions always provide both; "missing" denotes a reviewed absent ref.
+	CommitOID         string `json:"commit_oid,omitempty"`
+	ExpectedRemoteOID string `json:"expected_remote_oid,omitempty"`
 }
 
 // RemoteBinding pins the exact local state and the authorized network scope
@@ -168,6 +172,12 @@ func (e *RemoteExecutor) ValidateSpec(spec RemoteSpec) error {
 			return errors.New("PR body exceeds its bound")
 		}
 	}
+	if spec.CommitOID != "" || spec.ExpectedRemoteOID != "" {
+		if spec.Operation != RemotePushBranch || !validGitOID(spec.CommitOID) ||
+			(spec.ExpectedRemoteOID != "missing" && !validGitOID(spec.ExpectedRemoteOID)) {
+			return errors.New("exact push requires a commit OID and expected remote OID")
+		}
+	}
 	if spec.NetworkTTLMillis < 1 || spec.NetworkTTLMillis > MaxRemoteTTL.Milliseconds() {
 		return errors.New("network TTL must be between 1ms and 15m")
 	}
@@ -203,6 +213,29 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 	case RemotePullFF:
 		args = []string{"pull", "--quiet", "--ff-only", spec.RemoteURL, spec.Branch}
 	case RemotePushBranch:
+		if spec.CommitOID != "" {
+			observed, err := e.readRemoteOID(ctx, root, spec, askpass, secret)
+			if err != nil {
+				return RemoteReceipt{}, err
+			}
+			expected := spec.ExpectedRemoteOID
+			if expected == "missing" {
+				expected = ""
+			}
+			if observed != expected {
+				return RemoteReceipt{}, apperror.New(apperror.CodeConflict, "remote branch changed after review")
+			}
+			if expected != "" {
+				// Explicit CAS protects a concurrent update; the independent
+				// ancestry test disallows every history rewrite.
+				cmd := e.remoteGitCommand(ctx, root, askpass, secret, "merge-base", "--is-ancestor", expected, spec.CommitOID)
+				if err := cmd.Run(); err != nil {
+					return RemoteReceipt{}, apperror.New(apperror.CodeFailedPrecondition, "push must fast-forward the exact reviewed remote commit; fetch and review first")
+				}
+			}
+			args = []string{"push", "--quiet", "--force-with-lease=refs/heads/" + spec.Branch + ":" + expected, spec.RemoteURL, spec.CommitOID + ":refs/heads/" + spec.Branch}
+			break
+		}
 		// New branch only: refuse to touch a branch that already exists.
 		exists, err := e.remoteBranchExists(ctx, root, spec, askpass, secret)
 		if err != nil {
@@ -245,7 +278,55 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 	if spec.Operation == RemotePullFF {
 		receipt.CommitID = postHead
 	}
+	if spec.Operation == RemotePushBranch && spec.CommitOID != "" {
+		observed, observeErr := e.readRemoteOID(ctx, root, spec, askpass, secret)
+		if observeErr != nil {
+			return receipt, observeErr
+		}
+		if observed != spec.CommitOID {
+			return receipt, apperror.New(apperror.CodeConflict, "remote branch does not match the pushed commit")
+		}
+		receipt.CommitID = observed
+	}
 	return receipt, nil
+}
+
+// ReadRemoteOID performs only a bounded ls-remote using the original named
+// credential and validated URL. It never fetches, pushes, or changes config.
+func (e *RemoteExecutor) ReadRemoteOID(ctx context.Context, root string, spec RemoteSpec) (string, error) {
+	if e == nil || !e.Available() {
+		return "", apperror.New(apperror.CodeFailedPrecondition, "remote Git reader is unavailable")
+	}
+	if err := e.ValidateSpec(spec); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(spec.NetworkTTLMillis)*time.Millisecond)
+	defer cancel()
+	askpass, secret, err := e.askpassHelper(ctx, spec.CredentialName)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(askpass)
+	return e.readRemoteOID(ctx, root, spec, askpass, secret)
+}
+
+func (e *RemoteExecutor) readRemoteOID(ctx context.Context, root string, spec RemoteSpec, askpass, secret string) (string, error) {
+	cmd := e.remoteGitCommand(ctx, root, askpass, secret, "ls-remote", "--heads", spec.RemoteURL, "refs/heads/"+spec.Branch)
+	var stdout, stderr boundedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", apperror.New(apperror.CodeUnavailable, "remote branch could not be observed")
+	}
+	text := strings.TrimSpace(stdout.String())
+	if text == "" {
+		return "", nil
+	}
+	fields := strings.Fields(text)
+	if len(fields) != 2 || !validGitOID(fields[0]) || fields[1] != "refs/heads/"+spec.Branch {
+		return "", apperror.New(apperror.CodeFailedPrecondition, "remote branch observation is ambiguous")
+	}
+	return fields[0], nil
 }
 
 func (e *RemoteExecutor) remoteBranchExists(ctx context.Context, root string, spec RemoteSpec,

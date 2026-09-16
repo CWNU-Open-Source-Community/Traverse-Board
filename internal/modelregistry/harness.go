@@ -37,16 +37,16 @@ const (
 )
 
 type HarnessAvailability struct {
-	ProtocolVersion        string
-	Model                  string
-	TransportProtocol      string
-	ToolStrategy           string
-	JSONStrategy           string
-	QualificationStatus    string
-	ToolCallsQualified     bool
-	ToolResultsQualified   bool
-	StrictJSONQualified    bool
-	StreamingQualified     bool
+	ProtocolVersion           string
+	Model                     string
+	TransportProtocol         string
+	ToolStrategy              string
+	JSONStrategy              string
+	QualificationStatus       string
+	ToolCallsQualified        bool
+	ToolResultsQualified      bool
+	StrictJSONQualified       bool
+	StreamingQualified        bool
 	RootEligible              bool
 	StructuredJSONEligible    bool
 	LatestQualificationStatus string
@@ -119,10 +119,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		return HarnessQualificationResult{
 			ProtocolVersion: HarnessQualificationProtocolVersion,
 			Provider:        provider, Model: model, Status: HarnessDiagnosticUnreachable,
-			Outcome:            string(llm.OutcomePermanent),
-			FailureReason:      llm.ProviderFailureNotConfigured,
+			Outcome:             string(llm.OutcomePermanent),
+			FailureReason:       llm.ProviderFailureNotConfigured,
 			QualificationStatus: QualificationStatusNotConfigured,
-			Harness:            fallbackHarness,
+			Harness:             fallbackHarness,
 		}, nil
 	}
 	if providerStatus != ProviderAvailable {
@@ -245,7 +245,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 		Parameters:  schema}
 	first := llm.ChatRequest{
 		Messages: []llm.Message{
-			{Role: "system", Content: "Traverse Board model Harness qualification. Use only the supplied synthetic tool. Do not answer with text."},
+			{Role: "system", Content: "Traverse Board model Harness qualification. First call only the supplied synthetic tool as requested. After receiving its result, return the requested JSON acknowledgement without another tool call. No external work is performed by this probe."},
 			{Role: "user", Content: "Call prayu_harness_echo exactly once with nonce " + nonce + "."},
 		},
 		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,
@@ -258,7 +258,10 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 	if err != nil {
 		return llm.HarnessQualification{}, 1, 0, err
 	}
-	if strings.TrimSpace(firstResponse.Text) != "" || len(firstResponse.ToolCalls) != 1 ||
+	// Native tool responses may include an accompanying assistant message. The
+	// tool identity and exact nonce establish compatibility; prose is neither a
+	// tool result nor proof of execution. The stream collector bounds its size.
+	if len(firstResponse.ToolCalls) != 1 ||
 		firstResponse.ToolCalls[0].Name != tool.Name {
 		return llm.HarnessQualification{}, 1, len(firstResponse.ToolCalls),
 			llm.NewProviderError(llm.OutcomeInvalidResponse, ref.Provider,
@@ -281,7 +284,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 	}
 	second := llm.ChatRequest{
 		Messages: append(append([]llm.Message(nil), first.Messages...),
-			llm.Message{Role: "assistant", ToolCalls: firstResponse.ToolCalls},
+			llm.Message{Role: "assistant", Content: firstResponse.Text, ToolCalls: firstResponse.ToolCalls},
 			llm.Message{Role: "user",
 				Content: "Return exactly one JSON object with version model_harness_probe.v1, status ok, and the same nonce. Do not call a tool.",
 				ToolResults: []llm.ToolResult{{
@@ -293,6 +296,14 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 			"purpose": "model_harness_qualification",
 			"phase":   "tool_result_and_json",
 		},
+	}
+	if base.TransportProtocol == llm.HarnessTransportOpenAIResponses &&
+		base.JSONStrategy == llm.HarnessJSONStrategyNative {
+		// This phase explicitly asks for an acknowledgement, not another tool.
+		// Keep the real function-call/result history, but stop offering tools so
+		// providers that separate tool output from native JSON mode are actually
+		// tested in JSON mode. Prompt-only JSON must not certify native JSON.
+		second.Tools = nil
 	}
 	secondResponse, err := collectHarnessProbeStream(ctx, r.router, ref, second)
 	if err != nil {

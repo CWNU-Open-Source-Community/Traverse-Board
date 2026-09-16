@@ -23,6 +23,20 @@ import (
 
 const hostJobExitCode = 126
 
+// ResolveHostPowerShellExecutable shares the trusted host-process selection
+// used by Command Runtime. It does not authorize execution; callers must still
+// bind the exact executable hash, command, and operator approval.
+func ResolveHostPowerShellExecutable() (string, error) {
+	path, err := resolveCommandRuntimeShell(CommandRuntimePowerShell)
+	if err != nil {
+		return "", err
+	}
+	if err := commandRuntimeExecutableAttributes(path); err != nil {
+		return "", fmt.Errorf("%w: executable is not a supported native image", ErrCommandRuntimeBoundary)
+	}
+	return path, nil
+}
+
 type windowsHostStarter struct{}
 
 func newPlatformHostStarter() HostProcessStarter {

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
-import type { ApprovalQueueItemView, ThreadDetailView, ThreadMessageControlView,
+import type { ApprovalQueueItemView, ThreadDetailView, ThreadExecutionView, ThreadMessageControlView,
   ThreadTranscriptItemView } from "../api/types";
 import { ThreadWorkspace } from "./thread-workspace";
 
@@ -50,10 +50,12 @@ function continuation(successor: boolean): ThreadMessageControlView {
 
 function renderThread(current: ThreadDetailView, result: ThreadMessageControlView,
   resolvedRunStatus = "", transcriptItems: ThreadTranscriptItemView[] = [],
-  approvalItems: ApprovalQueueItemView[] = [], hasThreadControl = true) {
+  approvalItems: ApprovalQueueItemView[] = [], hasThreadControl = true,
+  execution?: () => Promise<ThreadExecutionView>) {
   const submitThreadMessage = vi.fn().mockResolvedValue(result);
   const controlRunLifecycle = vi.fn().mockResolvedValue({ run: { status: "running" } });
   const executeRun = vi.fn().mockResolvedValue({ run_id: result.run_id });
+  const threadExecution = vi.fn(execution);
   const get = vi.fn().mockImplementation((path: string) => {
     if (path.startsWith("/threads/")) return Promise.resolve(current);
     const selected = current.runs.find((binding) => binding.run.id === result.run_id)?.run ??
@@ -73,6 +75,7 @@ function renderThread(current: ThreadDetailView, result: ThreadMessageControlVie
     });
   const client = {
     hasThreadControl, hasRunLifecycle: true, hasRunExecution: true,
+    hasThreadExecutionRead: Boolean(execution), threadExecution,
     hasApprovalControl: true,
     get,
     getPage: vi.fn().mockResolvedValue({ items: transcriptItems,
@@ -88,10 +91,34 @@ function renderThread(current: ThreadDetailView, result: ThreadMessageControlVie
   render(<QueryClientProvider client={new QueryClient()}>
     <ThreadWorkspace client={client} threadID="thread-1" />
   </QueryClientProvider>);
-  return { get, submitThreadMessage, controlRunLifecycle, executeRun };
+  return { get, submitThreadMessage, controlRunLifecycle, executeRun, threadExecution };
 }
 
 describe("ThreadWorkspace", () => {
+  it.each([
+    ["idle", "Waiting for a new message"], ["running", "Working"],
+    ["stopping", "Stopping"], ["stop_failed", "Stop incomplete"],
+  ] as const)("shows current Thread %s independently of its open Run lifecycle", async (state, label) => {
+    const controls = renderThread(detail("running"), continuation(false), "", [], [], true, async () => ({
+      version: "thread_execution.v1", thread_id: "thread-1", state, queued_messages: 0, capability_grant: false,
+    }));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Agent activity" })).toHaveTextContent(label));
+    expect(screen.getAllByText("Not ended").length).toBeGreaterThan(0);
+    expect(controls.threadExecution).toHaveBeenCalledWith("thread-1", expect.any(AbortSignal));
+    expect(controls.executeRun).not.toHaveBeenCalled();
+    expect(controls.submitThreadMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["mismatched Thread", "read failure"])("does not substitute idle for %s", async (mode) => {
+    renderThread(detail("running"), continuation(false), "", [], [], true, async () => {
+      if (mode === "read failure") throw new Error("offline");
+      return { version: "thread_execution.v1", thread_id: "another-thread", state: "idle", queued_messages: 0, capability_grant: false };
+    });
+    await waitFor(() => expect(screen.getByRole("status", { name: "Agent activity" })).toHaveTextContent(
+      mode === "read failure" ? "Could not read activity status" : "Activity unknown"));
+    expect(screen.queryByText(/Agent activity: Waiting for a new message/)).not.toBeInTheDocument();
+  });
+
   it("keeps the composer open on a terminal Run and starts its authority-free successor", async () => {
     const controls = renderThread(detail("failed"), continuation(true));
     const user = userEvent.setup();

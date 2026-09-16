@@ -44,6 +44,48 @@ Job Object, ACL, and runtime-generation readiness proof succeeds. A current Run 
 advertised only for `local + workspace_access + controlled`; execution mounts the
 exact Run-owned Drydock at `/workspace` and a read-only executable toolchain root.
 
+The `process` profile accepts native development runtimes such as Node.js and
+Python with literal argv, under the same executable hash and Workspace boundary
+as other native programs. The read-only toolchain input remains the selected
+executable's directory; selecting a shell does not make a separate host runtime
+directory visible. Shells, system script hosts, and system/privilege brokers remain
+excluded as process targets. Removing the former language-runtime name blacklist
+does not replace isolation: already-allowed programs such as `go test` execute
+project code. LPAC/WFP, input mounts, Policy, permissions, and leases remain the
+actual Local boundary. The shared normalizer also applies to the existing Full
+Access/Debug Host adapter, which remains explicitly unsandboxed; this change
+neither grants that authority nor supplies a Host fallback.
+
+The adapter uses the existing Local default disk-write budget of 2 GiB per
+command. Windows Job accounting counts cumulative writes across the process
+tree; the post-exit check also bounds positive workspace growth plus runtime
+scratch, including compiler cache and temporary files. This is not a 2 GiB
+allocation or a workspace-only growth promise. The previous use of Docker's
+16 MiB workspace-growth constant incorrectly included cold compilation in that
+small budget. Docker retains its separate fixed workspace and cache limits.
+
+### Known Windows Local runtime compatibility limits
+
+Accepting a native runtime is not a guarantee that its default test runner or
+complete SDK works under LPAC. The 2026-09-13 Node 24.19.0 / libuv 1.52.1 probes
+separate three limitations: a SYSTEM-owned installation may deny the current
+process `WRITE_DAC` needed for the exact toolchain root grant; libuv's older
+non-`LOCAL` named-pipe namespace prevents piped child-process startup inside an
+AppContainer; and Node's module resolver can require ancestor-directory metadata
+outside the mounted workspace. These are separate boundaries, not evidence that
+the program should receive Full Access.
+
+With an existing user-owned Node installation, `--version`, a builtin `-e`
+script, and child processes using inherited/ignored stdio succeeded. Default
+`node --test` and a piped child timed out; `--test-isolation=none` instead reached
+an `EPERM` on ancestor `lstat('D:\\')`, so it is not a verified workaround.
+The [upstream libuv fix](https://github.com/libuv/libuv/pull/5181) is merged but
+was not in a released libuv version at this audit; checked Node tags 24.19.0,
+24.21.0 and 26.8.0 still contained the old pipe implementation. This audit adds
+no implicit root grants, IPC bridge, runtime staging, permission changes or Host
+fallback. Exact versions, result receipts and remaining limits are recorded in
+the [Node LPAC compatibility evidence](../../output/playwright/ux-context-reliability/node-lpac-compatibility.md).
+
 The Docker adapter compiles only the fixed Go, Node, Python, or Rust Standard Code
 toolchains into the existing fixed-image `network=none` backend. Image, endpoint,
 user, mounts, environment, resource limits, and Docker flags remain Go-owned. It

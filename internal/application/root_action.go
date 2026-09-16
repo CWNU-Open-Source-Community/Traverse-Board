@@ -24,6 +24,10 @@ type rootActionTrailingCommentaryRecovery struct {
 }
 
 func parseRootAction(raw string) (domain.RootAction, error) {
+	return parseRootActionForTurn(raw, false)
+}
+
+func parseRootActionForTurn(raw string, threadEndTurn bool) (domain.RootAction, error) {
 	if len(raw) > maxRootActionJSONBytes {
 		return domain.RootAction{}, apperror.New(apperror.CodeResourceExhausted, "provider root lifecycle action exceeds 65536 bytes")
 	}
@@ -55,6 +59,15 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 	action.Message = strings.TrimSpace(action.Message)
 	action.Summary = strings.TrimSpace(action.Summary)
 	action.Reason = strings.TrimSpace(action.Reason)
+	// An interactive Thread reply does not complete the Run or its work board.
+	// When the provider omits the redundant finish summary, retain its message
+	// as an explicit end-of-reply instead of spending another call to duplicate
+	// it. Keep finish distinct from a request to continue tool work; the Store
+	// still projects this exact interactive completion to a running Run.
+	// All other JSON, field and authority validation remains unchanged.
+	if threadEndTurn && action.Kind == domain.RootActionFinish && action.Summary == "" && action.Reason == "" {
+		action.Summary = action.Message
+	}
 	if err := action.Validate(); err != nil {
 		return domain.RootAction{}, apperror.Wrap(apperror.CodeFailedPrecondition, "provider returned an invalid root lifecycle action", err)
 	}
@@ -69,7 +82,7 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 func recoverRootActionWithTrailingCommentary(raw string) (
 	domain.RootAction, rootActionTrailingCommentaryRecovery, bool,
 ) {
-	if len(raw) > maxRootActionJSONBytes || !utf8.ValidString(raw) {
+	if len(raw) > maxRootActionJSONBytes || !utf8.ValidString(raw) || domain.RootActionHasTrailingToolCalls(raw) {
 		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
 	}
 	raw = strings.TrimSpace(raw)
@@ -101,6 +114,7 @@ func recoverRootActionWithTrailingCommentary(raw string) (
 func validRootActionTrailingCommentary(commentary string) bool {
 	if commentary == "" || len(commentary) > maxRootActionTrailingCommentaryBytes ||
 		!utf8.ValidString(commentary) ||
+		strings.HasPrefix(commentary, "<｜｜DSML｜｜") || strings.HasPrefix(commentary, "<｜DSML｜") ||
 		strings.Contains(strings.ToLower(commentary), "root_lifecycle") ||
 		strings.ContainsAny(commentary, "{}[]") {
 		return false

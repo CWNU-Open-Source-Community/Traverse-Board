@@ -69,12 +69,14 @@ type RuntimeCapabilitiesView struct {
 	FullCDPDebugEnabled                bool                         `json:"full_cdp_debug_enabled"`
 	FullCDPSessionControlEnabled       bool                         `json:"full_cdp_session_control_enabled"`
 	RunCreationEnabled                 bool                         `json:"run_creation_enabled"`
+	WorkspaceImportEnabled             bool                         `json:"workspace_import_enabled"`
 	StandardCodePresetEnabled          bool                         `json:"standard_code_preset_enabled"`
 	SessionMessageEnabled              bool                         `json:"session_message_enabled"`
 	ThreadControlEnabled               bool                         `json:"thread_control_enabled"`
 	SessionSteeringControlEnabled      bool                         `json:"session_steering_control_enabled"`
 	RunLifecycleEnabled                bool                         `json:"run_lifecycle_enabled"`
 	RunExecutionEnabled                bool                         `json:"run_execution_enabled"`
+	ThreadExecutionReadEnabled         *bool                        `json:"thread_execution_read_enabled,omitempty"`
 	PlanDeliveryControlEnabled         bool                         `json:"plan_delivery_control_enabled"`
 	ApprovalControlEnabled             bool                         `json:"approval_control_enabled"`
 	ControlledCommandProposalEnabled   bool                         `json:"controlled_command_proposal_control_enabled"`
@@ -184,9 +186,12 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 				CredentialPolicy: string(adapter.CredentialPolicy), Ready: ready})
 	}
 	commandRuntimeEnabled := a.runExecutionEnabled && commandRuntimeReady
+	_, threadExecutionControllerPresent := a.threadTurnController.(ThreadExecutionController)
+	threadExecutionReadable := a.runExecutionEnabled && threadExecutionControllerPresent
 	return RuntimeCapabilitiesView{
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
+		WorkspaceImportEnabled:             a.workspaceImportEnabled,
 		StandardCodePresetEnabled:          a.standardCodePresetEnabled,
 		ExecutionPermissionControlEnabled:  a.executionPermissionControlEnabled,
 		WorkspaceSandboxEnabled:            a.executionPermissionCapabilities.WorkspaceSandboxEnabled,
@@ -205,6 +210,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		ThreadControlEnabled:               a.runCreationEnabled && a.sessionMessageEnabled,
 		SessionSteeringControlEnabled:      a.sessionSteeringControlEnabled,
 		RunLifecycleEnabled:                a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
+		ThreadExecutionReadEnabled:         &threadExecutionReadable,
 		PlanDeliveryControlEnabled:         a.planDeliveryControlEnabled,
 		ApprovalControlEnabled:             a.approvalControlEnabled,
 		ControlledCommandProposalEnabled:   a.controlledCommandProposalControlEnabled,

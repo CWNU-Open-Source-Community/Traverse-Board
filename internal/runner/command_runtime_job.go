@@ -229,6 +229,12 @@ type CommandRuntimeJob struct {
 // collapsed activity summaries. It deliberately excludes intent JSON,
 // stdout/stderr, output frames, process identity and authority snapshots.
 type CommandRuntimeJobMetadata struct {
+	MissionID        string
+	SessionID        string
+	WorkspaceID      string
+	StdinPolicy      CommandRuntimeStdinPolicy
+	StdinWriteCount  int
+	Credentials      CommandRuntimeCredentialPolicy
 	ID               string
 	OperationDigest  string
 	RunID            string
@@ -601,7 +607,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
 	if request.Spec.Spec.Version != CommandRuntimeProtocolVersion ||
-		request.Spec.WorkspaceRootSHA256 != request.Scope.WorkspaceRootSHA256 {
+		request.Spec.WorkspaceRootSHA256 != request.Scope.WorkspaceRootSHA256 ||
+		validateCommandRuntimeAttachmentInput(request.Spec) != nil {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
 	m.mu.Lock()
@@ -1143,12 +1150,17 @@ func (m *CommandRuntimeManager) collect(entry *commandRuntimeEntry,
 		return
 	}
 	defer reader.Close()
+	entry.mu.Lock()
+	legacyPowerShell := commandRuntimeLegacyPowerShellOutput(entry.record, stream)
+	entry.mu.Unlock()
+	decoded := commandRuntimeTextReader(commandRuntimeObservedReader{
+		reader: reader, observe: func(count int) { entry.observe(stream, count) },
+	}, legacyPowerShell)
 	sanitizer := &outputsafe.RedactingStream{}
 	buffer := make([]byte, 16*1024)
 	for {
-		count, err := reader.Read(buffer)
+		count, err := decoded.Read(buffer)
 		if count > 0 {
-			entry.observe(stream, count)
 			entry.appendOutput(stream, sanitizer.Feed(buffer[:count]), time.Now().UTC())
 		}
 		if err != nil {

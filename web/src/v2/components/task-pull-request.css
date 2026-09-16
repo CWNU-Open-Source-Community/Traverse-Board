@@ -1,0 +1,38 @@
+.v2-task-pr { gap: 14px; }
+.v2-task-pr .v2-pr-overview { display: grid; gap: 6px; min-width: 0; }
+.v2-task-pr .v2-pr-overview > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; }
+.v2-task-pr .v2-pr-overview h3 { margin: 0; }
+.v2-task-pr .v2-pr-overview h3 a { color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.v2-task-pr .v2-pr-overview h3 a:hover { text-decoration: underline; }
+.v2-task-pr .v2-pr-meta, .v2-task-pr .v2-pr-state { color: var(--v2-muted); }
+.v2-task-pr .v2-pr-state { font-size: 13px; }
+.v2-task-pr .v2-pr-details { border-top: 1px solid var(--v2-border); padding-top: 10px; min-width: 0; }
+.v2-task-pr .v2-pr-details > summary { color: var(--v2-muted); }
+.v2-task-pr .v2-pr-connection-name { margin-left: 10px; font-size: 12px; }
+.v2-task-pr .v2-pr-details > dl, .v2-task-pr .v2-pr-detail-content { margin-top: 12px; }
+.v2-task-pr .v2-pr-detail-content { display: grid; gap: 12px; }
+.v2-task-pr .v2-pr-detail-content > details > form { margin-top: 12px; }
+.v2-task-pr .v2-pr-compose { border: 1px solid var(--v2-border); border-radius: 9px; padding: 12px 14px; }
+.v2-task-pr .v2-pr-compose > summary { font-weight: 600; }
+.v2-task-pr .v2-pr-compose > form { margin-top: 14px; }
+.v2-task-pr .v2-pr-records { display: grid; gap: 10px; min-width: 0; }
+.v2-task-pr .v2-pr-records > h3 { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.v2-task-pr .v2-pr-records > h3 > span { font-size: 12px; font-weight: 400; }
+.v2-task-pr .v2-delivery-change { display: grid; gap: 8px; padding: 12px 14px; border-radius: 8px; }
+.v2-task-pr .v2-delivery-change > header { justify-content: space-between; align-items: baseline; }
+.v2-task-pr .v2-delivery-change > details { margin-top: 0; }
+.v2-task-pr .v2-delivery-change button { justify-self: start; }
+.v2-task-pr .v2-delivery-change pre { max-height: 260px; overflow: auto; margin: 8px 0; }
+.v2-task-pr .v2-delivery-operation, .v2-task-pr .v2-git-preview { display: grid; gap: 10px; }
+.v2-task-pr .v2-delivery-operation > button, .v2-task-pr .v2-git-preview > button { justify-self: start; }
+.v2-task-pr .v2-git-preview { padding: 12px; border-radius: 8px; }
+.v2-task-pr .v2-git-preview h3 { margin-top: 0; }
+.v2-task-pr .v2-pr-notice { border-left: 2px solid var(--v2-border); padding-left: 10px; display: grid; gap: 8px; }
+.v2-task-pr .v2-pr-notice > button { justify-self: start; }
+.v2-task-pr .v2-pr-empty { color: var(--v2-muted); }
+.v2-task-pr p, .v2-task-pr code, .v2-task-pr summary { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .v2-task-pr .v2-delivery-operation { padding: 12px; }
+  .v2-task-pr .v2-delivery-actions { align-items: stretch; }
+  .v2-task-pr .v2-delivery-actions > button { white-space: normal; text-align: left; }
+}

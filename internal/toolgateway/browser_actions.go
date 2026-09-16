@@ -240,6 +240,9 @@ type BrowserActionCapabilities struct {
 	FullCDPSessionID string `json:"full_cdp_session_id,omitempty"`
 }
 
+// PermissionActivation is zero for startup-gated Debug/static Full Access.
+// This projection is not a runtime grant: the application must prove the exact
+// live permission and nonzero Run fence before advertisement and execution.
 func BrowserActionCapabilitySnapshot(scope BrowserActionCapabilityContext) BrowserActionCapabilities {
 	available, refusal := true, ""
 	switch {
@@ -258,7 +261,7 @@ func BrowserActionCapabilitySnapshot(scope BrowserActionCapabilityContext) Brows
 		available, refusal = false, "browser actions require an operator-opened ready Full CDP session"
 	case !validMCPIdentity(scope.PermissionSnapshotID) || scope.ModeRevision < 1 ||
 		scope.PermissionRevision < 1 ||
-		scope.PermissionActivation == 0 || scope.RunAuthorizationFence == 0 ||
+		scope.RunAuthorizationFence == 0 ||
 		!validMCPIdentity(scope.FullCDPSessionID) ||
 		!validMCPIdentity(scope.BrowserPermissionSnapshotID) ||
 		scope.BrowserPermissionRevision < 1 || !validLoopbackBrowserOrigin(scope.TargetOrigin):
@@ -432,7 +435,6 @@ func (s BrowserActionExecutionScope) Validate() error {
 		!s.Surface.Valid() || !s.Phase.Valid() || s.Role != domain.AgentRoleRoot ||
 		!s.PermissionMode.IncludesFullAccess() || s.ModeRevision < 1 ||
 		!validMCPIdentity(s.PermissionSnapshotID) || s.PermissionRevision < 1 ||
-		s.PermissionActivation == 0 ||
 		s.RunAuthorizationFence == 0 || !validMCPIdentity(s.FullCDPSessionID) ||
 		!validMCPIdentity(s.BrowserPermissionSnapshotID) ||
 		s.BrowserPermissionRevision < 1 ||

@@ -320,14 +320,40 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 	if beforeOrdinal < 0 || beforeSequence < 0 || (beforeOrdinal == 0 && beforeSequence != 0) {
 		return nil, errors.New("thread transcript source cursor is invalid")
 	}
-	query := `WITH transcript AS (
+	// A committed Session message is recorded after its tools. Keep the user's
+	// original queue event as the narrative anchor only when both durable records
+	// are exactly bound. This lookup is independent of the requested page, so a
+	// queue event and its later Session record cannot produce two user bubbles.
+	query := `WITH bound_operator_messages AS (
+		SELECT queued.event_id AS queued_event_id, recorded.event_id AS session_event_id
+		FROM thread_runs binding
+		JOIN operator_steering_messages steering ON steering.run_id = binding.run_id
+			AND steering.session_id = binding.session_id AND steering.status = 'committed'
+		JOIN session_messages message ON message.id = steering.session_message_id
+			AND message.session_id = steering.session_id AND message.role = 'user'
+			AND message.source_kind = 'operator_message' AND message.instruction_authorized = 1
+			AND message.content_sha256 = steering.content_sha256 AND message.content = steering.content
+		JOIN run_events queued ON queued.run_id = steering.run_id
+			AND queued.type = 'operator.steering_queued' AND queued.subject_id = steering.id
+		JOIN run_events recorded ON recorded.run_id = steering.run_id
+			AND recorded.type = 'session.message_created' AND recorded.subject_id = CAST(message.id AS TEXT)
+			AND recorded.sequence > queued.sequence
+			AND json_extract(recorded.payload_json, '$.message_id') = message.id
+			AND json_extract(recorded.payload_json, '$.session_id') = message.session_id
+			AND json_extract(recorded.payload_json, '$.role') = 'user'
+			AND json_extract(recorded.payload_json, '$.source_kind') = 'operator_message'
+			AND json_extract(recorded.payload_json, '$.instruction_authorized') = 1
+			AND json_extract(recorded.payload_json, '$.content_sha256') = message.content_sha256
+			AND json_extract(recorded.payload_json, '$.content') = message.content
+		WHERE binding.thread_id = ?
+	), transcript AS (
 		SELECT binding.thread_id, binding.ordinal, binding.run_id, binding.session_id,
 			COALESCE(binding.predecessor_run_id, '') AS predecessor_run_id,
 			COALESCE(predecessor.status, '') AS predecessor_run_status,
 			current.status AS run_status, 0 AS sequence, '' AS event_id,
 			'' AS event_version, current.mission_id, '' AS event_type,
 			'' AS event_source, '' AS subject_id, '' AS payload_json,
-			'' AS operator_content, '' AS operator_status, binding.created_at
+			'' AS operator_content, '' AS operator_status, 0 AS operator_message_bound,0 AS operator_image_count,0 AS operator_attachment_count, binding.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
 		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
@@ -337,7 +363,21 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			COALESCE(predecessor.status, ''), current.status, event.sequence,
 			event.event_id, event.version, event.mission_id, event.type,
 			event.source, COALESCE(event.subject_id, ''), event.payload_json,
-			COALESCE(steering.content, ''), COALESCE(steering.status, ''), event.created_at
+			CASE WHEN EXISTS (SELECT 1 FROM bound_operator_messages bound WHERE bound.queued_event_id = event.event_id)
+				THEN COALESCE(steering.content, '')
+			WHEN EXISTS (SELECT 1 FROM run_events boundary
+				JOIN session_messages original ON original.id=json_extract(boundary.payload_json,'$.user_message_id')
+				WHERE boundary.run_id=event.run_id AND boundary.type='agent.turn_completed' AND boundary.source='run_supervisor'
+				AND json_extract(boundary.payload_json,'$.tool_round_boundary')=1
+				AND json_extract(boundary.payload_json,'$.operator_message_id')=steering.id
+				AND original.session_id=steering.session_id AND original.content_sha256=steering.content_sha256
+				AND original.content=steering.content AND original.role='user' AND original.source_kind='operator_message')
+				THEN '' ELSE COALESCE(steering.content, '') END,
+			COALESCE(steering.status, ''),
+			EXISTS (SELECT 1 FROM bound_operator_messages bound
+				WHERE bound.queued_event_id = event.event_id OR bound.session_event_id = event.event_id),
+			COALESCE(steering.image_count,0),COALESCE(steering.attachment_count,0),
+			event.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
 		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
@@ -347,9 +387,9 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 	SELECT ordinal, run_id, session_id, predecessor_run_id,
 		predecessor_run_status, run_status, sequence, event_id, event_version,
 		mission_id, event_type, event_source, subject_id, payload_json, created_at
-		, operator_content, operator_status
+		, operator_content, operator_status, operator_message_bound,operator_image_count,operator_attachment_count
 	FROM transcript WHERE thread_id = ?`
-	args := []any{threadID}
+	args := []any{threadID, threadID}
 	if beforeOrdinal > 0 {
 		query += ` AND (ordinal < ? OR (ordinal = ? AND sequence < ?))`
 		args = append(args, beforeOrdinal, beforeOrdinal, beforeSequence)
@@ -370,7 +410,7 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			&item.PredecessorRunID, &item.PredecessorRunStatus, &item.RunStatus,
 			&item.Sequence, &eventID, &eventVersion, &missionID, &eventType,
 			&eventSource, &subjectID, &payloadJSON, &created, &item.OperatorContent,
-			&item.OperatorStatus); err != nil {
+			&item.OperatorStatus, &item.OperatorMessageBound, &item.OperatorImageCount, &item.OperatorAttachmentCount); err != nil {
 			return nil, err
 		}
 		item.CreatedAt = parseTS(created)
@@ -394,15 +434,64 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 	expectedLastRunID string, mission domain.Mission, candidate domain.Run,
 	mode domain.RunModeSnapshot, linkedSession session.Session, initialEvents []events.Event,
 ) (domain.Thread, domain.Run, bool, error) {
+	return s.ensureThreadSuccessor(ctx, threadID, expectedLastRunID, mission, candidate, mode, linkedSession, initialEvents, nil, nil, nil)
+}
+
+func (s *SQLiteStore) EnsureThreadSuccessorForMessage(ctx context.Context, request domain.ThreadMessageIntentRequest,
+	expectedLastRunID string, mission domain.Mission, candidate domain.Run,
+	mode domain.RunModeSnapshot, linkedSession session.Session, initialEvents []events.Event,
+) (domain.Thread, domain.Run, bool, error) {
+	return s.ensureThreadSuccessor(ctx, request.ThreadID, expectedLastRunID, mission, candidate, mode, linkedSession, initialEvents, &request, nil, nil)
+}
+
+func (s *SQLiteStore) ensureThreadSuccessor(ctx context.Context, threadID,
+	expectedLastRunID string, mission domain.Mission, candidate domain.Run,
+	mode domain.RunModeSnapshot, linkedSession session.Session, initialEvents []events.Event,
+	messageIntent *domain.ThreadMessageIntentRequest,
+	files *domain.ThreadFileContinuation,
+	plan *threadPlanSuccessorBinding,
+) (domain.Thread, domain.Run, bool, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return domain.Thread{}, domain.Run{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if plan != nil {
+		if err := prepareThreadPlanSuccessorTx(ctx, tx, threadID, expectedLastRunID, mode, files, *plan); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+		if saved, found, err := readThreadPlanSuccessorTx(ctx, tx, threadID, expectedLastRunID, *plan); err != nil || found {
+			if err != nil {
+				return domain.Thread{}, domain.Run{}, false, err
+			}
+			thread, err := scanThread(tx.QueryRowContext(ctx, threadSelect+` WHERE id=?`, threadID))
+			return thread, saved, false, err
+		}
+	}
 	threadRecord, err := scanThread(tx.QueryRowContext(ctx, threadSelect+` WHERE id = ?`,
 		strings.TrimSpace(threadID)))
 	if err != nil {
 		return domain.Thread{}, domain.Run{}, false, err
+	}
+	if messageIntent != nil {
+		key, fingerprint, _, err := threadMessageIntentIdentity(*messageIntent)
+		if err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+		intent, found, err := getThreadMessageIntentTx(ctx, tx, key)
+		if err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+		if !found || intent.RequestFingerprint != fingerprint || intent.Rejected {
+			return domain.Thread{}, domain.Run{}, false, apperror.New(apperror.CodeConflict, "Thread message preparation intent changed")
+		}
+		if intent.MessageID != "" {
+			accepted, err := scanRun(tx.QueryRowContext(ctx, `SELECT id, mission_id, session_id, status, config_json, budget_json, started_at, finished_at, created_at, updated_at FROM runs WHERE id = ?`, intent.RunID))
+			if err != nil {
+				return domain.Thread{}, domain.Run{}, false, err
+			}
+			return threadRecord, accepted, false, tx.Commit()
+		}
 	}
 	if threadRecord.Status != domain.ThreadActive {
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
@@ -447,9 +536,22 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 		mission.WorkspaceID != threadRecord.WorkspaceID ||
 		!sameRunModeScope(mission.Scope, expectedScope) ||
 		!sameRunModeScope(mode.Scope, expectedScope) ||
-		mode.Surface != predecessorMode.Surface || mode.Phase != predecessorMode.Phase {
+		mode.Surface != predecessorMode.Surface || (plan == nil && mode.Phase != predecessorMode.Phase) {
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
 			apperror.CodeConflict, "Thread successor did not preserve its predecessor mode preference")
+	}
+	if files != nil {
+		if err := validateThreadFilePreparationTx(ctx, tx, *files); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+	} else {
+		var needsFiles bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM run_file_drydock_bindings WHERE run_id = ?)`, predecessor.ID).Scan(&needsFiles); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+		if needsFiles {
+			return domain.Thread{}, domain.Run{}, false, apperror.New(apperror.CodeFailedPrecondition, "Thread successor requires its current isolated workspace preparation")
+		}
 	}
 	if err := createRunGraphTx(ctx, tx, mission, candidate, mode, linkedSession, true,
 		false, initialEvents); err != nil {
@@ -482,9 +584,28 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 	if err != nil {
 		return domain.Thread{}, domain.Run{}, false, err
 	}
+	if err := carryThreadEpochInstructionsTx(ctx, tx, threadRecord.ID, predecessor, candidate); err != nil {
+		return domain.Thread{}, domain.Run{}, false, err
+	}
+	var executionSettings map[string]any
+	if files != nil {
+		if err := commitThreadFileContinuationTx(ctx, tx, predecessor, candidate, mode, *files); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+	} else {
+		executionSettings, err = materializeThreadExecutionSettingsTx(ctx, tx, threadRecord, predecessor, candidate, mode)
+		if err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+	}
+	if plan == nil {
+		if err := continueThreadPlanTx(ctx, tx, predecessor, candidate, mode, candidate.CreatedAt); err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+	}
 	networkInherited := mode.Scope.NetworkMode == "allowlist" &&
 		len(mode.Scope.AllowedTargets) > 0
-	payload, _ := json.Marshal(map[string]any{
+	payloadFields := map[string]any{
 		"predecessor_run_id": predecessor.ID, "successor_run_id": candidate.ID,
 		"authority_inherited":                 networkInherited,
 		"network_authority_inherited":         networkInherited,
@@ -498,7 +619,25 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 		"browser_cdp_permission_materialized": browserCDPMaterialized,
 		"browser_cdp_permission_mode":         materializedBrowserCDP.Mode,
 		"browser_cdp_permission_snapshot_id":  materializedBrowserCDP.ID,
-	})
+	}
+	for key, value := range executionSettings {
+		payloadFields[key] = value
+	}
+	if plan != nil {
+		payloadFields["plan_control_operation_digest"] = plan.keyDigest
+		payloadFields["plan_control_requested_by"] = plan.requestedBy
+		payloadFields["plan_control_phase"] = mode.Phase
+		payloadFields["plan_selection_inherited"] = false
+	}
+	if messageIntent != nil {
+		key, fingerprint, _, err := threadMessageIntentIdentity(*messageIntent)
+		if err != nil {
+			return domain.Thread{}, domain.Run{}, false, err
+		}
+		payloadFields["message_operation_key_digest"] = key
+		payloadFields["message_request_fingerprint"] = fingerprint
+	}
+	payload, _ := json.Marshal(payloadFields)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO thread_events
 		(thread_id, run_id, type, source, payload_json, created_at)
 		VALUES (?, ?, 'thread.run_successor_created', 'thread_continuation', ?, ?)`,

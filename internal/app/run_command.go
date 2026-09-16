@@ -24,7 +24,6 @@ import (
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
-	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
@@ -544,20 +543,10 @@ func (a *App) newStandardCodeDeliveryService(ctx context.Context,
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"Run has no configured Standard Code preset")
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(a.home, "drydocks"))
+	drydocks, err := a.newRunFileDrydockService(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
-	drydocks, err := application.NewDrydockService(a.store, executor)
-	if err != nil {
-		return nil, err
-	}
-	checkpoints, err := application.NewWorkspaceCheckpointService(a.store,
-		domain.ExecutionPermissionRuntimeCapabilities{})
-	if err != nil {
-		return nil, err
-	}
-	drydocks.WithCheckpointService(checkpoints)
 	return application.NewStandardCodeDeliveryService(a.store, drydocks)
 }
 
@@ -566,8 +555,16 @@ func (a *App) attachStandardCodeDelivery(ctx context.Context,
 ) error {
 	_, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx,
 		strings.TrimSpace(runID))
-	if err != nil || !configured {
+	if err != nil {
 		return err
+	}
+	if !configured {
+		drydocks, err := a.newRunFileDrydockService(ctx, runID)
+		if err != nil {
+			return err
+		}
+		supervisor.WithDrydock(drydocks)
+		return nil
 	}
 	delivery, err := a.newStandardCodeDeliveryService(ctx, runID)
 	if err != nil {
@@ -773,8 +770,9 @@ func (a *App) runPlanDeliveryChoose(ctx context.Context, args []string) error {
 	fs := newFlagSet("run plan choose", a.errOut)
 	operationKey := fs.String("operation-key", "", "stable direction choice operation key")
 	operator := fs.String("operator", "cli_operator", "operator identity")
+	manualAcceptance := fs.String("manual-acceptance", "required", "manual acceptance: required or on_demand")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
-		"operation-key": true, "operator": true,
+		"operation-key": true, "operator": true, "manual-acceptance": true,
 	})); err != nil {
 		return err
 	}
@@ -788,7 +786,8 @@ func (a *App) runPlanDeliveryChoose(ctx context.Context, args []string) error {
 	result, err := application.NewPlanDeliveryService(a.store).Select(ctx,
 		application.SelectPlanDeliveryDirectionRequest{
 			ProposalID: fs.Arg(0), Direction: direction,
-			OperationKey: *operationKey, RequestedBy: *operator,
+			ManualAcceptance: domain.PlanDeliveryManualAcceptance(*manualAcceptance),
+			OperationKey:     *operationKey, RequestedBy: *operator,
 		})
 	if err != nil {
 		return err
@@ -856,10 +855,10 @@ func planDeliveryCLIText(value string) string {
 }
 
 func printPlanDeliverySelection(a *App, selection domain.PlanDeliverySelection) {
-	fmt.Fprintf(a.out, "selection: %s\nproposal: %s\nrun: %s\ndirection: %d\nmodule_count: %d\nnote: %s\nrequested_by: %s\ncreated_at: %s\n",
+	fmt.Fprintf(a.out, "selection: %s\nproposal: %s\nrun: %s\ndirection: %d\nmodule_count: %d\nnote: %s\nrequested_by: %s\ncreated_at: %s\nmanual_acceptance: %s\n",
 		selection.ID, selection.ProposalID, selection.RunID,
 		selection.DirectionOrdinal, len(selection.Items), selection.NoteID,
-		selection.RequestedBy, selection.CreatedAt.Format(time.RFC3339Nano))
+		selection.RequestedBy, selection.CreatedAt.Format(time.RFC3339Nano), selection.EffectiveManualAcceptance())
 	for _, item := range selection.Items {
 		fmt.Fprintf(a.out, "selected_slice[%d]: module=%d work_item=%s\n",
 			item.Ordinal, item.ModuleOrdinal, item.WorkItemID)

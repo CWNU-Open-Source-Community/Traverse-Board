@@ -148,6 +148,26 @@ func renderCodeHandoffMarkdown(value CodeHandoff) string {
 	}
 
 	output.WriteString("## Verification\n\n")
+	if value.HostCommands != nil {
+		output.WriteString("### Recorded host commands\n\nThese are historical execution receipts, not proof that the current files are verified. Output is available from the exact proposal detail in the application.\n\n")
+		output.WriteString("| Proposal | Purpose | Working directory | Result | Exit | Timeout / cancelled / truncated |\n| --- | --- | --- | --- | --- | --- |\n")
+		for _, command := range value.HostCommands.Items {
+			status, exit, flags := "No recorded execution result", "—", "—"
+			if command.Receipt != nil {
+				receipt := command.Receipt
+				status = command.ResultID + " / " + command.ResultStatus + " / " + receipt.RequestID
+				exit = fmt.Sprint(receipt.ExitCode)
+				flags = fmt.Sprintf("%t / %t / %t", receipt.TimedOut, receipt.Cancelled,
+					receipt.StdoutTruncated || receipt.StderrTruncated || receipt.OutputLimitExceeded)
+			}
+			fmt.Fprintf(&output, "| `%s` | %s | %s | %s | %s | %s |\n", markdownCell(command.ProposalID),
+				markdownCell(command.Purpose), markdownCell(command.WorkingDirectory), markdownCell(status), exit, flags)
+		}
+		if value.HostCommands.Truncated {
+			output.WriteString("\nOnly the most recent host command proposals are included.\n")
+		}
+		output.WriteByte('\n')
+	}
 	fmt.Fprintf(&output, "Evidence: %d pass, %d fail, %d unknown%s.\n\n",
 		value.Verification.PassCount, value.Verification.FailCount,
 		value.Verification.UnknownCount, markdownTruncation(value.Verification.Truncated))

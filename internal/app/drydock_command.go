@@ -81,6 +81,16 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if action == "rewind" || action == "undo" || action == "fork" {
+		checkpoints, checkpointErr := application.NewWorkspaceCheckpointService(a.store,
+			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: *permissionControl,
+				DangerFullAccessEnabled:   *dangerFullAccess,
+				DebugMaximumAccessEnabled: *debugMaximumAccess})
+		if checkpointErr != nil {
+			return checkpointErr
+		}
+		service.WithCheckpointService(checkpoints)
+	}
 	actor := strings.TrimSpace(*requestedBy)
 	run := strings.TrimSpace(*runID)
 	key := strings.TrimSpace(*operationKey)
@@ -142,14 +152,6 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 			strings.TrimSpace(*forkBranch) == "" {
 			return errors.New(drydockCLIUsage)
 		}
-		checkpoints, checkpointErr := application.NewWorkspaceCheckpointService(a.store,
-			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-				DangerFullAccessEnabled:   *dangerFullAccess,
-				DebugMaximumAccessEnabled: *debugMaximumAccess})
-		if checkpointErr != nil {
-			return checkpointErr
-		}
-		service.WithCheckpointService(checkpoints)
 		value, err = service.Fork(ctx, application.DrydockForkRequest{RunID: run,
 			TargetCheckpointID:          strings.TrimSpace(*targetCheckpoint),
 			ExpectedCurrentCheckpointID: strings.TrimSpace(*expectedCurrentCheckpoint),

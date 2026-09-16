@@ -15,7 +15,7 @@ import {
   Terminal,
   UserCheck,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import { APIRequestError, type CyberAgentClient } from "../api/client";
 import type {
   CapabilityReadinessOptionView,
   RunDetailView,
@@ -35,6 +35,7 @@ import type {
 import { shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
+import { v2QueryKeys } from "../v2/query-keys";
 
 export function RunPermissionSettings({ client, runID }: {
   client: CyberAgentClient;
@@ -113,7 +114,7 @@ const executionProfiles: Array<{
 }> = [
   { id: "preview", chinese: "预览", english: "Preview", detailChinese: "不启动进程", detailEnglish: "No process execution", icon: Eye },
   { id: "docker", chinese: "Docker", english: "Docker", detailChinese: "隔离容器", detailEnglish: "Isolated container", icon: Container },
-  { id: "local", chinese: "本地工作区", english: "Local workspace", detailChinese: "系统沙箱", detailEnglish: "System sandbox", icon: Terminal },
+  { id: "local", chinese: "本地工作区", english: "Local workspace", detailChinese: "按当前权限执行本地命令", detailEnglish: "Local commands under the current permission", icon: Terminal },
 ];
 
 export function ExecutionProfilePanel({ client, detail, readiness }: {
@@ -135,6 +136,7 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
       queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
         ? { ...current, execution_profile: result.execution_profile }
         : current);
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
       void queryClient.invalidateQueries({
         queryKey: ["run", detail.run.id, "capability-readiness"],
@@ -477,6 +479,7 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
       queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
         ? { ...current, execution_interaction: result.execution_interaction }
         : current);
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
       void queryClient.invalidateQueries({
         queryKey: ["run", detail.run.id, "capability-readiness"],
@@ -555,62 +558,58 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
   );
 }
 
-export function StandardCodeReadinessPanel({ client, detail, readiness }: {
+type PresetAction = "configure" | "pause_and_configure";
+type PresetBackend = "auto" | "docker";
+interface PresetAttempt {
+  runID: string;
+  threadID?: string;
+  action: PresetAction;
+  body: StandardCodePresetControlRequestView;
+  operationKey: string;
+}
+interface PresetInteraction {
+  attempt: PresetAttempt;
+  state: "pending" | "unknown" | "invalidated" | "confirmed";
+  result?: StandardCodePresetControlView;
+  error?: string;
+}
+const presetIntentKey = (runID: string) => ["run", runID, "standard-code-preset-intent"] as const;
+
+export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason }: {
   client: CyberAgentClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
+  threadID?: string;
+  configureDisabledReason?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const option = capabilityReadinessOption(readiness.presets, "standard_code");
   const runtime = readiness.command_runtime;
-  type PresetAction = "configure" | "pause_and_configure";
-  type PresetBackend = "auto" | "docker";
-  type PresetAttempt = {
-    action: PresetAction;
-    backend: PresetBackend;
-    confirm: boolean;
-    digest?: string;
-    operationKey: string;
-  };
-  const [result, setResult] = useState<StandardCodePresetControlView | null>(null);
-  const [pendingTrust, setPendingTrust] = useState<{
-    action: PresetAction;
-    backend: PresetBackend;
-    digest: string;
-    operationKey: string;
-  } | null>(null);
-  const [retryAttempt, setRetryAttempt] = useState<PresetAttempt | null>(null);
+  const configuredDelivery = Boolean(threadID) && detail.run.standard_code_preset_configured === true &&
+    detail.mode.phase === "deliver";
+  const intent = useQuery<PresetInteraction | null>({ queryKey: presetIntentKey(detail.run.id),
+    queryFn: () => null, enabled: false, initialData: null, gcTime: Infinity });
+  const result = intent.data?.result;
+  const pending = intent.data?.state === "pending";
+  const unknown = intent.data?.state === "unknown";
+  const invalidated = intent.data?.state === "invalidated";
+  const waiting = intent.data?.state === "confirmed" && result?.status === "waiting_for_pause";
+  const pendingTrust = intent.data?.state === "confirmed" && result?.trust_required && result.trust_digest ? result : null;
   const action: PresetAction = detail.run.status === "running"
     ? "pause_and_configure" : "configure";
   const mutation = useMutation({
-    mutationFn: (attempt: PresetAttempt) => {
-      const body: StandardCodePresetControlRequestView = {
-        version: "standard_code_preset.v1",
-        backend_intent: attempt.backend,
-        confirm_workspace_trust: attempt.confirm,
-      };
-      if (attempt.digest !== undefined) body.expected_trust_digest = attempt.digest;
-      return client.configureStandardCode(detail.run.id, attempt.action, body,
-        attempt.operationKey);
-    },
+    mutationFn: (attempt: PresetAttempt) => client.configureStandardCode(attempt.runID, attempt.action,
+      attempt.body, attempt.operationKey),
     onSuccess: (next, attempt) => {
-      setResult(next);
-      setRetryAttempt(next.status === "waiting_for_pause" ? attempt : null);
-      if (next.trust_required && next.trust_digest) {
-        setPendingTrust({ action: next.action as PresetAction,
-          backend: next.backend_intent as PresetBackend, digest: next.trust_digest,
-          operationKey: attempt.confirm ? attempt.operationKey :
-            `settings-standard-code-${globalThis.crypto.randomUUID()}` });
-      } else {
-        setPendingTrust(null);
-      }
+      queryClient.setQueryData<PresetInteraction | null>(presetIntentKey(attempt.runID), (current) =>
+        current?.attempt.operationKey === attempt.operationKey ? { attempt, state: "confirmed", result: next } : current);
       if (next.status === "configured" && next.run && next.mode &&
         next.execution_profile && next.execution_interaction &&
         next.execution_permission && next.browser_cdp_permission) {
-        if (next.run.id === detail.run.id) {
-          queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
-            ? { ...current, run: next.run!, mode: next.mode!,
+        if (next.run.id === attempt.runID) {
+          queryClient.setQueryData<RunDetailView>(["run", attempt.runID], (current) => current
+            ? { ...current, run: { ...next.run!, standard_code_preset_configured: true }, mode: next.mode!,
                 execution_profile: next.execution_profile!,
                 execution_interaction: next.execution_interaction!,
                 execution_permission: next.execution_permission!,
@@ -621,20 +620,50 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
           void queryClient.invalidateQueries({ queryKey: ["run", next.run.id] });
         }
       }
-      const resultRunID = next.run_id || detail.run.id;
-      void queryClient.invalidateQueries({ queryKey: ["run", resultRunID, "events"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["run", resultRunID, "capability-readiness"],
-      });
+      if (next.run_id && next.run_id !== attempt.runID) void queryClient.invalidateQueries({ queryKey: ["run", next.run_id] });
+    },
+    onError: (error, attempt) => {
+      queryClient.setQueryData<PresetInteraction | null>(presetIntentKey(attempt.runID), (current) =>
+        current?.attempt.operationKey === attempt.operationKey
+          ? error instanceof APIRequestError && error.operationKeyInvalidated === true
+            ? { attempt, state: "invalidated", error: error.message }
+            : { ...current, state: "unknown", error: error.message } : current);
+    },
+    onSettled: (_next, _error, attempt) => {
+      void queryClient.invalidateQueries({ queryKey: ["run", attempt.runID] });
+      if (attempt.threadID) {
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(attempt.threadID) });
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.permission(attempt.threadID) });
+      }
     },
   });
-  const invoke = (backend: PresetBackend, selectedAction = action,
-    confirm = false, digest?: string, operationKey?: string) => {
-    mutation.mutate({ action: selectedAction, backend, confirm, digest,
-      operationKey: operationKey ??
-        `settings-standard-code-${globalThis.crypto.randomUUID()}` });
+  const submit = (attempt: PresetAttempt) => {
+    const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(attempt.runID));
+    if (!client.hasStandardCodePreset || current?.state === "pending" ||
+      (current?.state === "unknown" && current.attempt.operationKey !== attempt.operationKey)) return;
+    queryClient.setQueryData<PresetInteraction>(presetIntentKey(attempt.runID), { attempt, state: "pending", result: current?.result });
+    mutation.mutate(attempt);
   };
-  const statusLabel = result
+  const invoke = (backend: PresetBackend, selectedAction = action, confirm = false, digest?: string) => {
+    if (configuredDelivery) return;
+    const previous = intent.data?.attempt;
+    // A repeated response asking for the same confirmed digest is still the same
+    // attempt. A newly reviewed digest or first trust confirmation is a new intent.
+    const sameTrust = confirm && previous?.body.confirm_workspace_trust &&
+      previous.body.expected_trust_digest === digest && previous.body.backend_intent === backend && previous.action === selectedAction;
+    submit(sameTrust ? previous : { runID: detail.run.id, threadID, action: selectedAction,
+      body: { version: "standard_code_preset.v1", backend_intent: backend, confirm_workspace_trust: confirm,
+        ...(digest ? { expected_trust_digest: digest } : {}) },
+      operationKey: `settings-standard-code-${globalThis.crypto.randomUUID()}` });
+  };
+  const recheck = () => {
+    const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(detail.run.id));
+    if (current?.state !== "invalidated" || current.attempt.operationKey !== intent.data?.attempt.operationKey ||
+      configureDisabledReason || configuredDelivery || !client.hasStandardCodePreset) return;
+    queryClient.setQueryData(presetIntentKey(detail.run.id), null);
+    invoke(current.attempt.body.backend_intent as PresetBackend);
+  };
+  const statusLabel = configuredDelivery ? t("已配置，交付中", "Configured, in Deliver") : result
     ? result.status === "configured" ? t("已配置", "configured")
       : result.status === "waiting_for_pause" ? t("等待静止", "waiting for quiescence")
         : t("被阻止", "blocked")
@@ -642,48 +671,7 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
   const pauseCanResolve = detail.run.status === "running" &&
     option.blocked_by.length > 0 && option.blocked_by.every((blocker) =>
       blocker === "run_not_quiescent" || blocker === "execution_lease_active");
-  return <section className="permission-control-card standard-code-readiness-section">
-    <div className="section-heading">
-      <div>
-        <h2><Code2 aria-hidden="true" size={16} />Standard Code</h2>
-        <span>{capabilityReadinessSummary(option,
-          t("原子预设 readiness", "Atomic preset readiness"), t)}</span>
-      </div>
-      <StatusBadge status={result?.status === "configured" || option.selected
-        ? "ready" : "blocked"} />
-    </div>
-    <div aria-label={t("Standard Code 预设", "Standard Code preset")}
-      className="permission-option-grid permission-option-grid-two" role="group">
-      <button aria-pressed={option.selected}
-        disabled={!client.hasStandardCodePreset || mutation.isPending || option.selected ||
-          (!option.selectable && !pauseCanResolve)}
-        onClick={() => invoke("auto")} type="button">
-        <Code2 aria-hidden="true" size={17} />
-        <span>
-          <strong>{detail.run.status === "running"
-            ? t("暂停并开始编码", "Pause and start coding")
-            : t("开始编码", "Start coding")}</strong>
-          <CapabilityState option={option} />
-          <small>{capabilityReadinessDetail(option,
-            t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
-        </span>
-        {option.selected && <Check aria-hidden="true" size={15} />}
-      </button>
-      {result?.docker_readiness.available && result.next_steps.includes("select_docker") &&
-        <button disabled={mutation.isPending} onClick={() => invoke("docker")} type="button">
-          <Container aria-hidden="true" size={17} />
-          <span><strong>{t("显式使用 Docker", "Use Docker explicitly")}</strong>
-            <small>{t("固定 network=none 与无凭证", "Fixed network=none and no credentials")}</small>
-          </span>
-        </button>}
-    </div>
-    {pendingTrust && <PermissionConfirmation
-      description={`${t("确认当前工作区来源摘要后，创建或复用受信任 Drydock 并一次性提交完整预设。",
-        "Confirm the reviewed Workspace source digest, then create or reuse the trusted Drydock and commit the complete preset once.")} ${pendingTrust.digest}`}
-      label={t("确认工作区来源", "Confirm Workspace source")}
-      loading={mutation.isPending} onCancel={() => setPendingTrust(null)}
-      onConfirm={() => invoke(pendingTrust.backend, pendingTrust.action, true,
-        pendingTrust.digest, pendingTrust.operationKey)} />}
+  const runtimeFacts = <>
     <dl className="permission-facts">
       <div><dt>{t("已选择", "Selected")}</dt><dd>{option.selected ? t("是", "yes") : t("否", "no")}</dd></div>
       <div><dt>{t("可选择", "Selectable")}</dt><dd>{option.selectable ? t("是", "yes") : t("否", "no")}</dd></div>
@@ -696,9 +684,57 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
       <div><dt>{t("网络", "Network")}</dt><dd>{result?.network ?? "disabled"}</dd></div>
       <div><dt>{t("凭证", "Credentials")}</dt><dd>{result?.credentials ?? "none"}</dd></div>
     </dl>
-    {runtime.current_run_granted && <p className="permission-closed-note">
-      {runtime.adapter_kind} · {runtime.backend}
-    </p>}
+    {runtime.current_run_granted && <p className="permission-closed-note">{runtime.adapter_kind} · {runtime.backend}</p>}
+  </>;
+  return <section className="permission-control-card standard-code-readiness-section">
+    <div className="section-heading">
+      <div>
+        <h2><Code2 aria-hidden="true" size={16} />Standard Code</h2>
+        <span>{configuredDelivery ? t("编码环境已配置，继续交付已选计划。", "The coding environment is configured. Continue delivering the selected plan.")
+          : capabilityReadinessSummary(option,
+            threadID ? t("编码环境", "Coding environment") : t("原子预设 readiness", "Atomic preset readiness"), t)}</span>
+      </div>
+      <StatusBadge status={configuredDelivery ? "configured" : result?.status === "configured" || option.selected
+        ? "ready" : "blocked"} />
+    </div>
+    <div aria-label={t("Standard Code 预设", "Standard Code preset")}
+      className="permission-option-grid permission-option-grid-two" role="group">
+      <button aria-pressed={configuredDelivery || option.selected}
+        disabled={configuredDelivery || !client.hasStandardCodePreset || Boolean(configureDisabledReason) || pending || unknown || invalidated || waiting || Boolean(pendingTrust) || option.selected ||
+          (!option.selectable && !pauseCanResolve)}
+        onClick={() => invoke("auto")} type="button">
+        <Code2 aria-hidden="true" size={17} />
+        <span>
+          <strong>{configuredDelivery ? t("交付中", "In Deliver") : detail.run.status === "running"
+            ? t("暂停并开始编码", "Pause and start coding")
+            : t("开始编码", "Start coding")}</strong>
+          {configuredDelivery ? <em className="capability-state capability-state-selected">{t("已配置", "Configured")}</em>
+            : <CapabilityState option={option} />}
+          <small>{configuredDelivery
+            ? t("沿用已选计划继续交付；执行权限仍按每次操作检查。", "Continue with the selected plan; execution authority is checked for each operation.")
+            : capabilityReadinessDetail(option,
+              t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
+        </span>
+        {(configuredDelivery || option.selected) && <Check aria-hidden="true" size={15} />}
+      </button>
+      {result?.docker_readiness.available && result.next_steps.includes("select_docker") &&
+        <button disabled={configuredDelivery || pending || unknown || waiting || Boolean(configureDisabledReason)} onClick={() => invoke("docker")} type="button">
+          <Container aria-hidden="true" size={17} />
+          <span><strong>{t("显式使用 Docker", "Use Docker explicitly")}</strong>
+            <small>{t("固定 network=none 与无凭证", "Fixed network=none and no credentials")}</small>
+          </span>
+        </button>}
+    </div>
+    {configureDisabledReason && <p>{configureDisabledReason}</p>}
+    {pendingTrust && !configureDisabledReason && !configuredDelivery && <PermissionConfirmation
+      description={`${t("确认当前工作区来源摘要后，创建或复用受信任 Drydock 并一次性提交完整预设。",
+        "Confirm the reviewed Workspace source digest, then create or reuse the trusted Drydock and commit the complete preset once.")} ${pendingTrust.trust_digest}`}
+      label={t("确认工作区来源", "Confirm Workspace source")}
+      loading={pending} onCancel={() => queryClient.setQueryData(presetIntentKey(detail.run.id), null)}
+      onConfirm={() => invoke(pendingTrust.backend_intent as PresetBackend, pendingTrust.action as PresetAction, true,
+        pendingTrust.trust_digest)} />}
+    {threadID ? <><p>{t("此编码预设不启用网络，也不注入凭证。", "This coding preset enables no network access and injects no credentials.")}</p>
+      <details><summary>{t("查看运行环境详情", "View runtime environment details")}</summary>{runtimeFacts}</details></> : runtimeFacts}
     {result && result.status !== "configured" && result.next_steps.length > 0 &&
       <p className="permission-closed-note">
         {t("下一步", "Next")}: {result.next_steps.map((step) =>
@@ -716,18 +752,25 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
       <p className="permission-closed-note">
         {t("已创建新的 Code Run", "Created a new Code Run")}: {shortID(result.run_id)}
       </p>}
-    {result?.status === "waiting_for_pause" && retryAttempt &&
-      <button className="secondary-button" disabled={mutation.isPending}
-        onClick={() => mutation.mutate(retryAttempt)} type="button">
-        {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
+    {result?.status === "waiting_for_pause" && intent.data?.state === "confirmed" &&
+      <button className="command-button" disabled={pending}
+        onClick={() => submit(intent.data!.attempt)} type="button">
+        {pending ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
           : t("重新检查静止状态", "Check quiescence again")}
       </button>}
+    {pending && <p role="status">{t("正在确认编码配置；关闭后可回到此执行查看结果。",
+      "Checking the coding configuration; return to this execution after closing to see the result.")}</p>}
+    {unknown && <div role="alert"><p>{t("编码配置结果尚未确认，请使用原请求确认。", "The coding configuration result is unknown. Confirm the original request.")} {intent.data?.error}</p>
+      <button className="command-button" disabled={!client.hasStandardCodePreset} onClick={() => submit(intent.data!.attempt)} type="button">
+        {t("确认上次编码配置", "Confirm previous coding configuration")}</button></div>}
+    {invalidated && <div role="alert"><p>{t("任务配置已变化，之前的编码配置请求已失效，不会再应用。请重新核对环境与来源，确认后再配置。",
+      "The task configuration changed and the previous coding request can no longer be applied. Recheck the environment and source before configuring again.")}</p>
+      <button className="command-button" disabled={configuredDelivery || !client.hasStandardCodePreset || Boolean(configureDisabledReason)} onClick={recheck} type="button">
+        {t("重新核对编码配置", "Recheck coding configuration")}</button></div>}
     {!client.hasStandardCodePreset && <p className="permission-closed-note">
       {t("此进程未启用 Standard Code 原子预设控制。",
         "This process has not enabled Standard Code atomic preset control.")}
     </p>}
-    {mutation.isError && <MutationError error={mutation.error}
-      fallback={t("Standard Code 预设失败", "Standard Code preset failed")} />}
   </section>;
 }
 

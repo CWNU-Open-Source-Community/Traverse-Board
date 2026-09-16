@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert,
-  LoaderCircle, RotateCcw, Settings, Zap } from "lucide-react";
+  LoaderCircle, RotateCcw, Settings } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type { AvailableModelRouteCollectionView, AvailableModelRouteView,
   ThreadModelRouteView } from "../../api/types";
@@ -25,6 +25,36 @@ const knownProviderNames: Record<string, string> = {
   "opencode-go": "OpenCode Go",
   "github-copilot": "GitHub Copilot",
 };
+
+const modelVariantNames: Record<string, string> = {
+  flash: "Flash", pro: "Pro", chat: "Chat", reasoner: "Reasoner", coder: "Coder",
+  thinking: "Thinking", instruct: "Instruct", mini: "Mini", nano: "Nano",
+  terra: "Terra", sol: "Sol", luna: "Luna", astra: "Astra", codex: "Codex",
+};
+
+function modelDisplayName(model: string): string {
+  const basename = model.split("/").filter(Boolean).at(-1) || model;
+  const variants = (parts: string[]) => parts.map((part) => modelVariantNames[part.toLowerCase()] ?? part).join(" ");
+  const deepseek = /^deepseek-([vr]\d+(?:\.\d+)?)((?:-[a-z0-9.]+)*)$/iu.exec(basename);
+  if (deepseek) return ["DeepSeek", deepseek[1].toUpperCase(), variants(deepseek[2].split("-").filter(Boolean))].filter(Boolean).join(" ");
+  const gpt = /^gpt-(\d+(?:\.\d+)?o?)((?:-[a-z0-9.]+)*)$/iu.exec(basename);
+  if (gpt) return [`GPT-${gpt[1]}`, variants(gpt[2].split("-").filter(Boolean))].filter(Boolean).join(" ");
+  const claude = /^claude-(sonnet|opus|haiku)-(\d{1,2})(?:-(\d{1,2}))?((?:-[a-z0-9.]+)*)$/iu.exec(basename);
+  if (claude) {
+    const suffix = claude[4].split("-").filter(Boolean);
+    // Only the known Claude snapshot position may omit a valid calendar date.
+    // Keep all remaining variant tokens, including unrecognized/custom ones.
+    if (/^20\d{6}$/u.test(suffix[0] ?? "")) {
+      const stamp = suffix[0];
+      const year = Number(stamp.slice(0, 4)), month = Number(stamp.slice(4, 6)), day = Number(stamp.slice(6, 8));
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) suffix.shift();
+    }
+    const family = claude[1][0].toUpperCase() + claude[1].slice(1).toLowerCase();
+    return ["Claude", family, `${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`, variants(suffix)].filter(Boolean).join(" ");
+  }
+  return basename;
+}
 
 function unavailableReason(route: V2AvailableModelRoute): string {
   const reason = route.unavailable_reason.trim();
@@ -96,8 +126,22 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const modelsMenuRef = useRef<HTMLDivElement>(null);
   const modelRowRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusOriginRef = useRef<HTMLElement | null>(null);
   const routeKey = ["v2", "thread", threadID, "model-route"] as const;
   const catalogKey = ["v2", "models", "available-routes"] as const;
+
+  const closeMenu = () => {
+    // Restore before removing the focused menu item. A later animation frame
+    // could steal focus from a composer the operator has already returned to.
+    // Async route completion must likewise respect focus outside this control.
+    const active = document.activeElement;
+    const origin = pendingFocusOriginRef.current;
+    const disabledMenuLostFocus = active === document.body && origin &&
+      rootRef.current?.contains(origin) && origin.matches(":disabled");
+    pendingFocusOriginRef.current = null;
+    if (rootRef.current?.contains(active) || disabledMenuLostFocus) triggerRef.current?.focus();
+    setLevel("closed");
+  };
 
   const routeQuery = useQuery({
     queryKey: routeKey,
@@ -122,9 +166,9 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
     onSuccess: (route) => {
       queryClient.setQueryData(routeKey, route);
       setNextRunNotice(runActive && route.applies_to === "next_run");
-      setLevel("closed");
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      closeMenu();
     },
+    onError: () => { pendingFocusOriginRef.current = null; },
   });
 
   useEffect(() => {
@@ -134,13 +178,15 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   useEffect(() => {
     if (level === "closed") return;
     const outside = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setLevel("closed");
+      if (!rootRef.current?.contains(event.target as Node)) {
+        pendingFocusOriginRef.current = null;
+        setLevel("closed");
+      }
     };
     const keyboard = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setLevel("closed");
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      closeMenu();
     };
     document.addEventListener("mousedown", outside);
     window.addEventListener("keydown", keyboard);
@@ -182,40 +228,42 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   const providerLabel = current ? catalogQuery.data?.routes.find((route) =>
     route.provider_id === current.provider)?.provider_name ||
     knownProviderNames[current.provider] || current.provider : "";
-  const triggerLabel = providerLabel ? `${providerLabel} · ${label}` : label;
+  const triggerLabel = modelDisplayName(label);
+  const routeDescription = `${providerLabel || "默认"} · ${label}；推理强度：随模型`;
   const selectRoute = (route: V2AvailableModelRoute) => {
     if (!threadID) {
       onPendingRouteChange?.({ provider: route.provider_id, model: route.model });
-      setLevel("closed");
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      closeMenu();
       return;
     }
+    pendingFocusOriginRef.current = rootRef.current?.contains(document.activeElement)
+      ? document.activeElement as HTMLElement : null;
     mutation.mutate({ action: "select", route });
   };
   const resetRoute = () => {
     if (!threadID) {
       onPendingRouteChange?.(null);
-      setLevel("closed");
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      closeMenu();
       return;
     }
+    pendingFocusOriginRef.current = rootRef.current?.contains(document.activeElement)
+      ? document.activeElement as HTMLElement : null;
     mutation.mutate({ action: "reset" });
   };
   const closeForNavigation = () => {
+    pendingFocusOriginRef.current = null;
     setLevel("closed");
     onManageModels();
   };
 
   return <div className="v2-model-route-control" ref={rootRef}>
     <button aria-expanded={level !== "closed"} aria-haspopup="menu"
-      aria-label={`模型路由，当前 ${label}`} className="v2-model-route-trigger"
+      aria-label={`模型路由，当前 ${routeDescription}`} className="v2-model-route-trigger"
       disabled={!routeControlAvailable} onClick={() => setLevel((currentLevel) =>
         currentLevel === "closed" ? "settings" : "closed")} ref={triggerRef}
-      title={routeControlAvailable ? `${providerLabel || "默认"} · ${label}` : "当前启动未开放模型路由控制"}
+      title={routeControlAvailable ? routeDescription : "当前启动未开放模型路由控制"}
       type="button">
-      {routeQuery.isFetching || mutation.isPending
-        ? <LoaderCircle aria-hidden="true" className="spin" size={14} />
-        : <Zap aria-hidden="true" size={14} />}
+      {(routeQuery.isFetching || mutation.isPending) && <LoaderCircle aria-hidden="true" className="spin" size={14} />}
       <span>{triggerLabel}</span>{nextRunNotice && <em>下一轮</em>}
       <ChevronDown aria-hidden="true" size={14} />
     </button>
@@ -223,10 +271,14 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
     {level === "settings" && <div aria-label="模型与响应设置"
       className="v2-model-route-popover v2-model-route-settings" onKeyDown={moveMenuFocus}
       ref={settingsMenuRef} role="menu">
+      {current && <dl className="v2-model-route-current" aria-label="当前模型完整路由">
+        <div><dt>供应商</dt><dd>{providerLabel}{providerLabel !== current.provider ? `（${current.provider}）` : ""}</dd></div>
+        <div><dt>模型 ID</dt><dd><code>{current.model}</code></dd></div>
+      </dl>}
       <button onClick={() => setLevel("models")} onKeyDown={(event) => {
         if (event.key === "ArrowRight") { event.preventDefault(); setLevel("models"); }
       }} ref={modelRowRef} role="menuitem" type="button">
-        <span>模型</span><strong>{label}</strong><ChevronRight aria-hidden="true" size={15} />
+        <span>模型</span><strong title={routeDescription}>{triggerLabel}</strong><ChevronRight aria-hidden="true" size={15} />
       </button>
       <button disabled role="menuitem" title="当前供应商尚未声明 reasoning_effort" type="button">
         <span>推理强度</span><strong>随模型</strong><ChevronRight aria-hidden="true" size={15} />
@@ -239,7 +291,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
         onClick={resetRoute} role="menuitem" type="button">
         <RotateCcw aria-hidden="true" size={15} /><span>重置为默认设置</span>
       </button>
-      {nextRunNotice && <p className="v2-model-route-notice">当前 Run 保持不变，下一轮使用所选模型。</p>}
+      {nextRunNotice && <p className="v2-model-route-notice">当前执行继续使用原模型，下一轮使用所选模型。</p>}
       {mutation.isError && <p className="v2-model-route-error" role="alert">
         <CircleAlert aria-hidden="true" size={14} />{mutation.error instanceof Error
           ? mutation.error.message : "模型路由更新失败"}</p>}

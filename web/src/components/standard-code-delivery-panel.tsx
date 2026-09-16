@@ -1,58 +1,96 @@
 import { useQuery } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { FileCheck2, RefreshCw, RotateCcw, TestTube2 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
+import { APIRequestError } from "../api/client";
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
+import { ArtifactDetail } from "./artifact-detail";
+import { SavedCommandOutput } from "./saved-command-output";
 
-export function StandardCodeDeliveryPanel({ client, runID, onOpenArtifacts, onOpenCheckpoints,
+const observationReasons: Record<string, [string, string]> = {
+  workspace_modified_after_verification: ["报告记录后项目内容已变化", "Workspace changed after the report was recorded"],
+  permission_generation_drift: ["验证时的权限版本已变化", "Permission revision changed after verification"],
+  backend_generation_drift: ["验证时的执行环境已变化", "Execution backend changed after verification"],
+  drydock_binding_unavailable: ["报告对应的隔离工作区已不可用", "The report's isolated workspace is unavailable"],
+  workspace_revision_unavailable: ["目前无法读取项目版本", "The current workspace revision could not be read"],
+};
+
+const outputSourceReasons: Record<string, [string, string]> = {
+  activity_source_unavailable: ["此历史记录缺少可读取正文的命令活动来源。", "This historical record has no readable command activity source."],
+  output_not_public: ["此命令的输出不适合公开展示，仍可核对来源记录。", "This command's output is not eligible for public display; its source record remains available."],
+  artifact_binding_mismatch: ["输出记录的来源无法与报告精确对应，正文暂不可读。", "The output source could not be matched exactly to this report; its text is unavailable."],
+};
+
+export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
   onOpenFile }: {
   client: CyberAgentClient;
   runID: string;
-  onOpenArtifacts: () => void;
   onOpenCheckpoints: () => void;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (path: string, workspaceID?: string) => void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const [openOutputKey, setOpenOutputKey] = useState("");
+  const outputRegionID = useId();
   const query = useQuery({
     queryKey: ["run", runID, "standard-code-delivery"],
     queryFn: ({ signal }) => client.standardCodeDelivery(runID, signal),
     enabled: Boolean(runID),
   });
   const report = query.data;
+  const observed = report?.observation;
+  const observationConfirmed = Boolean(report && observed?.observed_at && query.isSuccess && !query.isFetching);
+  const status = observationConfirmed ? report!.status : "unknown";
+  const reason = observed?.reason_code;
+  const outputs = report?.verifications.find((verification) => `${report.id}:${verification.job_id}` === openOutputKey);
+  const heading = query.isError ? t("本次核对失败，当前版本未确认", "The latest check failed; the current revision is unconfirmed")
+    : query.isFetching ? t("正在核对当前版本…", "Checking the current revision…")
+      : !observed?.observed_at ? t("尚未核对当前版本", "The current revision has not been checked")
+        : report?.status === "stale" ? t("报告已过期，当前版本未验证", "The report is stale; the current revision is not verified")
+          : report?.verified ? t("最近核对的版本已验证", "The last checked revision was verified")
+            : t("最近核对的版本未验证", "The last checked revision was not verified");
   return <section aria-label={t("Standard Code 交付", "Standard Code delivery")}
     className="standard-code-delivery-panel">
     <header className="projection-heading">
       <div><FileCheck2 aria-hidden="true" size={17} />
         <h2>{t("交付真实性", "Delivery truth")}</h2></div>
-      <div>{report && <StatusBadge status={report.status} />}
+      <div>{report && <StatusBadge status={status} />}
         <button aria-label={t("刷新交付报告", "Refresh delivery report")} className="icon-button"
           disabled={query.isFetching} onClick={() => void query.refetch()} type="button">
           <RefreshCw aria-hidden="true" className={query.isFetching ? "spin" : ""} size={15} />
         </button></div>
     </header>
     {query.isLoading && <LoadingState label={t("加载交付报告", "Loading delivery report")} />}
-    {query.isError && <ErrorState error={query.error} />}
+    {query.isError && (!report && query.error instanceof APIRequestError && query.error.code === "NOT_FOUND"
+      ? <p role="status">{t("当前连接未能读取交付报告：可能尚未生成，或报告接口未启用。请核对服务配置后刷新；不能据此判断检查是否通过。已有执行结果可在「执行记录」查看。",
+        "This connection could not read the delivery report. A report may not have been generated, or the reporting endpoint may be disabled. Check the service configuration and refresh; this does not establish whether checks passed. Existing results remain available in execution records.")}</p>
+      : <ErrorState error={query.error} />)}
     {report && <>
-      <section className={`delivery-truth-summary delivery-truth-${report.status}`}>
-        <div><strong>{report.verified ? t("已验证当前版本", "Current revision verified") :
-          t("当前版本未验证", "Current revision is not verified")}</strong>
-          <p>{t("状态只来自当前 Workspace revision 的终态命令证据。Agent 文本和 CI 名称不作为证明。",
-            "Status comes only from terminal command evidence for the current Workspace revision. Agent prose and CI names are not proof.")}</p></div>
-        <StatusBadge status={report.status} />
+      <section className={`delivery-truth-summary delivery-truth-${status}`}>
+        <div><strong>{heading}</strong>
+          <p>{t("下方保留报告记录的版本与终态命令证据；核对失败或版本变化时，历史通过不能证明当前内容通过。",
+            "The recorded revision and terminal command evidence remain below. A previous pass does not verify the current contents after a failed check or revision change.")}</p>
+          {reason && <p>{t(...(observationReasons[reason] ?? ["报告需要重新核对", "The report needs to be checked again"]))}</p>}
+        </div>
+        <StatusBadge status={status} />
       </section>
+      <p>{t("报告范围是隔离工作区中记录的版本，不代表源项目已合并或发布。打开文件会读取该隔离工作区的当前内容，内容可能已变化。",
+        "The report covers a recorded revision in the isolated workspace; it does not establish that the source project was merged or published. Opening a file reads its current isolated-workspace contents, which may have changed.")}</p>
       <dl className="handoff-grid delivery-truth-grid">
-        <KeyValue label={t("受影响文件", "Affected files")} value={report.diff.changed_count} />
+        <KeyValue label={t("受影响文件", "Affected files")} value={String(report.diff.changed_count)} />
         <KeyValue label={t("已跟踪 / 未跟踪", "Tracked / untracked")}
           value={`${report.diff.tracked_count} / ${report.diff.untracked_count}`} />
         <KeyValue label={t("索引 / 工作树", "Index / worktree")}
           value={`${report.diff.index_count} / ${report.diff.worktree_count}`} />
-        <KeyValue label={t("验证命令", "Verification commands")} value={report.verifications.length} />
+        <KeyValue label={t("验证命令", "Verification commands")} value={String(report.verifications.length)} />
         <KeyValue label={t("Diff 大小", "Diff size")} value={formatBytes(report.diff.bytes)} />
-        <KeyValue label={t("冲突", "Conflicts")} value={report.diff.conflict_count} />
+        <KeyValue label={t("冲突", "Conflicts")} value={String(report.diff.conflict_count)} />
         <KeyValue label={t("恢复级别", "Recovery level")}
           value={<StatusBadge status={report.final_checkpoint.recovery_level} />} />
         <KeyValue label={t("记录时间", "Recorded") } value={formatDate(report.created_at)} />
+        <KeyValue label={t("最近版本核对", "Last revision check")} value={observed?.observed_at ? formatDate(observed.observed_at) : t("尚无核对记录", "No check recorded")} />
+        <KeyValue label={t("原始报告结论", "Recorded conclusion")} value={<StatusBadge status={report.receipt_status} />} />
       </dl>
       <div className="delivery-truth-identities">
         <div><span>{t("收据", "Receipt")}</span><code title={report.receipt_sha256}>{report.receipt_sha256}</code></div>
@@ -66,7 +104,7 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenArtifacts, onOp
           {report.diff.files.length === 0 ? <EmptyState>{t("没有文件变更", "No changed files")}</EmptyState> :
             <div className="delivery-truth-list">{report.diff.files.map((file) =>
               <div key={file.path_sha256}><span>{file.path ? <button className="link-button"
-                onClick={() => onOpenFile(file.path!)} type="button">{file.path}</button> :
+                onClick={() => onOpenFile(file.path!, report.binding.drydock_workspace_id)} type="button">{file.path}</button> :
                 <code>{t("路径已脱敏", "redacted path")} · {shortID(file.path_sha256)}</code>}
                 <small>{[
                   file.committed && t("已提交", "committed"),
@@ -75,20 +113,43 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenArtifacts, onOp
                   file.untracked && t("未跟踪", "untracked"),
                   file.conflicted && t("冲突", "conflict"),
                 ].filter(Boolean).join(" · ")}</small></span>
-                <StatusBadge status={file.path_redacted ? "redacted" : "current"} /></div>)}</div>}
+                <StatusBadge status={file.path_redacted ? "redacted" : "recorded"}
+                  label={file.path_redacted ? undefined : t("报告记录", "Reported")} /></div>)}</div>}
         </section>
         <section><h3><TestTube2 aria-hidden="true" size={14} />{t("验证命令", "Verification commands")}</h3>
-          {report.verifications.length === 0 ? <EmptyState>{t("未运行验证", "No verification run")}</EmptyState> :
+          {report.verifications.length === 0 ? <EmptyState>{t("本报告未纳入验证命令", "This report contains no verification commands")}</EmptyState> :
             <div className="delivery-truth-list">{report.verifications.map((verification) =>
               <div key={verification.job_id}><span><strong>{shortID(verification.job_id)}</strong>
                 <small>{verification.state} · exit {verification.exit_code ?? "—"} · {t("重试", "retries")} {verification.retry_count}</small>
                 {verification.output_truncated && <small className="inline-warning">{t("输出已截断", "output truncated")}</small>}
                 {verification.artifacts.length > 0 && <button className="link-button"
-                  onClick={onOpenArtifacts} type="button">{t(`打开 ${verification.artifacts.length} 个输出 Artifact`,
-                    `Open ${verification.artifacts.length} output artifacts`)}</button>}</span>
+                  aria-controls={outputRegionID} aria-expanded={openOutputKey === `${report.id}:${verification.job_id}`}
+                  onClick={() => setOpenOutputKey((current) => current === `${report.id}:${verification.job_id}` ? "" :
+                    `${report.id}:${verification.job_id}`)} type="button">{t(`查看 ${verification.artifacts.length} 条输出记录`,
+                    `Inspect ${verification.artifacts.length} output records`)}</button>}</span>
                 <StatusBadge status={verification.conclusion} /></div>)}</div>}
         </section>
       </div>
+      {outputs && <section id={outputRegionID} aria-label={t("报告对应的输出记录", "Output records referenced by this report")}>
+        <h3>{t("输出记录", "Output records")} · {shortID(outputs.job_id)}</h3>
+        <p>{t("来源记录保留报告当时的大小和摘要。展示正文会再次脱敏，其大小和摘要可能不同；超出保存上限的内容无法恢复。",
+          "Source records retain the size and digest recorded by the report. Displayed text is redacted again and may have a different size and digest; uncaptured output cannot be recovered.")}</p>
+        {outputs.artifacts.map((artifact) => {
+          const source = report.output_sources?.find((item) => item.job_id === outputs.job_id && item.artifact_id === artifact.id);
+          const available = source?.status === "available" && source.thread_id && source.activity_ref;
+          const unavailable = source?.reason && outputSourceReasons[source.reason];
+          return <ArtifactDetail client={client} id={artifact.id} key={`${report.id}:${outputs.job_id}:${artifact.id}`}
+            expected={{ runID: report.binding.run_id, sourceID: outputs.job_id, sha256: artifact.sha256,
+              sizeBytes: artifact.size_bytes, stream: artifact.stream }}>
+            {available ? <SavedCommandOutput client={client} threadID={source.thread_id!}
+              activityRef={source.activity_ref!} artifactRef={artifact.id} locale={locale}
+              reference={{ artifact_ref: artifact.id, stream: artifact.stream,
+                mime: "text/plain; charset=utf-8", size_bytes: artifact.size_bytes, truncated: outputs.output_truncated }} />
+              : <p role="status">{unavailable ? t(...unavailable) : t("当前服务未提供这条输出的正文来源，仍可查看来源记录。",
+                "This service did not provide a readable source for this output; its source record remains available.")}</p>}
+          </ArtifactDetail>;
+        })}
+      </section>}
       {(report.reasons.length > 0 || report.uncovered_items.length > 0) &&
         <section className="delivery-truth-reasons"><h3>{t("结论与未覆盖项", "Conclusion and uncovered items")}</h3>
           <div>{report.reasons.map((reason) => <StatusBadge key={reason.provenance_sha256}
@@ -99,10 +160,8 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenArtifacts, onOp
         <span><strong>{t("恢复入口", "Recovery entry points")}</strong>
           <small>{t("Checkpoint 仅覆盖记录的 Workspace 内容；Workspace 外副作用不在其承诺内。",
             "The Checkpoint covers recorded Workspace content only; effects outside it are not promised reversible.")}</small></span></div>
-        <div><button className="compact-command" onClick={onOpenCheckpoints} type="button">Checkpoint</button>
-          <button className="compact-command" onClick={onOpenCheckpoints} type="button">Undo</button>
-          <button className="compact-command" onClick={onOpenCheckpoints} type="button">Rewind</button>
-          <button className="compact-command" onClick={onOpenCheckpoints} type="button">Fork</button></div>
+        <div><button className="compact-command" onClick={onOpenCheckpoints} type="button">
+          {t("查看项目恢复选项", "View workspace recovery options")}</button></div>
       </section>
       <p className="delivery-truth-boundary">{t(
         "本报告不会自动 commit、push、merge 或覆盖源文件，也不包含原始环境、无限输出、私有 reasoning 或绝对主机路径。",

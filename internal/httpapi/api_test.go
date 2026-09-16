@@ -673,6 +673,127 @@ func TestThreadTranscriptUsesStableCrossRunCursorAndSafeProjection(t *testing.T)
 		http.StatusNotFound, "NOT_FOUND")
 }
 
+func TestThreadTranscriptKeepsCommittedInputBeforeToolsAcrossPages(t *testing.T) {
+	ctx := t.Context()
+	st, err := store.Open(filepath.Join(t.TempDir(), "transcript-input-order.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runs := application.NewRunService(st)
+	_, run, err := runs.Create(ctx, application.CreateRunRequest{Goal: "review the plan", Profile: "review", Phase: "plan",
+		ModelRoute: "http-plan/model", Budget: domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	thread, err := st.GetThreadByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := st.EnqueueOperatorSteering(ctx, domain.EnqueueOperatorSteeringRequest{
+		RunID: run.ID, SessionID: run.SessionID, Content: "prepare one reviewed plan", RequestedBy: "test-operator",
+		OperationKey: "transcript-order-queued-input-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := New(st, Config{AccessToken: testAccessToken, AppVersion: "test-version"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll := func(limit int) []ThreadTranscriptItemView {
+		t.Helper()
+		var result []ThreadTranscriptItemView
+		cursor := ""
+		for count := 0; count < 250; count++ {
+			path := fmt.Sprintf("/api/v1/threads/%s/transcript?limit=%d", thread.ID, limit)
+			if cursor != "" {
+				path += "&cursor=" + url.QueryEscape(cursor)
+			}
+			response := performRequest(t, api, http.MethodGet, path, testAccessToken,
+				"127.0.0.1:8765", "127.0.0.1:45000", nil)
+			var items []ThreadTranscriptItemView
+			envelope := decodeData(t, response, &items)
+			result = append(items, result...)
+			if envelope.Page == nil || envelope.Page.NextCursor == "" {
+				return result
+			}
+			if envelope.Page.NextCursor == cursor {
+				t.Fatal("transcript cursor did not advance through an empty source page")
+			}
+			cursor = envelope.Page.NextCursor
+		}
+		t.Fatal("transcript exceeded its bounded fixture history")
+		return nil
+	}
+	var queued ThreadTranscriptItemView
+	for _, item := range readAll(1) {
+		if item.SourceRef == input.Message.ID {
+			queued = item
+		}
+	}
+	if queued.ID == "" || queued.Status != "pending" {
+		t.Fatalf("queue input missing before execution: %#v", queued)
+	}
+	provider := &httpPlanProvider{responses: []*llm.ChatResponse{
+		{Provider: "http-plan", Model: "model", ToolCalls: []llm.ToolCall{{ID: "transcript-plan-call",
+			Name: "plan_delivery_propose", Arguments: json.RawMessage(httpPlanDeliveryPayload)}}},
+		{Text: httpRootWaitResponse(t), Provider: "http-plan", Model: "model"},
+	}}
+	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+	router.RegisterProvider(provider)
+	if _, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A later, independent legacy input can have identical text; it must not be
+	// merged with the exact steering/Session pair merely because the words match.
+	if _, err := st.SaveSessionMessage(ctx, session.NewMessage(run.SessionID, "user", input.Message.Content)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, limit := range []int{1, 2, 100} {
+		items := readAll(limit)
+		users, tools := 0, 0
+		seen := make(map[string]bool)
+		for _, item := range items {
+			if seen[item.ID] {
+				t.Fatalf("page size %d duplicated %s", limit, item.ID)
+			}
+			seen[item.ID] = true
+			if item.Kind == "operator_input" && item.Detail == input.Message.Content {
+				users++
+				if users == 1 && (item.ID != queued.ID || item.Sequence != queued.Sequence ||
+					!item.CreatedAt.Equal(queued.CreatedAt) || item.Status != "committed") {
+					t.Fatalf("page size %d moved the input to commit time: %#v", limit, item)
+				}
+			}
+			if item.Kind == "tool_call" && item.ToolName == "plan_delivery_propose" {
+				tools++
+				if users != 1 || item.Sequence <= queued.Sequence {
+					t.Fatalf("page size %d placed tools before their input: %#v", limit, item)
+				}
+			}
+		}
+		if users != 2 || tools == 0 {
+			t.Fatalf("page size %d lost or duplicated input/tool facts: users=%d tools=%d", limit, users, tools)
+		}
+	}
+	after, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeJSON, _ := json.Marshal(before)
+	afterJSON, _ := json.Marshal(after)
+	if string(beforeJSON) != string(afterJSON) {
+		t.Fatal("read-only transcript projection changed durable event history")
+	}
+}
+
 func TestReadAPIPaginationCursorIsOpaqueScopedAndBounded(t *testing.T) {
 	fixture := newAPIFixture(t)
 	first := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/notes?limit=2")

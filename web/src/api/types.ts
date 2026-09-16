@@ -1,10 +1,14 @@
 import type { components } from "./schema";
 
+export type ThreadExecutionView = components["schemas"]["ThreadExecutionState"];
+
+export type ThreadTurnFailureReferenceView = components["schemas"]["ThreadTurnFailureReferenceView"];
 export type APIErrorView = components["schemas"]["APIError"];
 export type ApprovalDecisionControlRequestView = components["schemas"]["ApprovalDecisionControlRequestView"];
 export type ApprovalDecisionControlView = components["schemas"]["ApprovalDecisionControlView"];
 export type ApprovalQueueItemView = components["schemas"]["ApprovalQueueItemView"];
 export type ApprovalQueueView = components["schemas"]["ApprovalQueueView"];
+export type ApprovalPreviewView = components["schemas"]["ApprovalPreviewView"];
 export type ControlledCommandProposalReviewRequestView =
   components["schemas"]["ControlledCommandProposalReviewRequestView"];
 export type ControlledCommandProposalView =
@@ -13,6 +17,7 @@ export type HostCommandProposalReviewRequestView =
   components["schemas"]["HostCommandProposalReviewRequestView"];
 export type HostCommandProposalView =
   components["schemas"]["HostCommandProposalView"];
+export type ApprovalContinuationView = components["schemas"]["ApprovalContinuationResult"];
 export type AgentGraphView = components["schemas"]["AgentGraphView"];
 export type AgentNodeView = components["schemas"]["AgentNodeView"];
 export type ArtifactView = components["schemas"]["ArtifactView"];
@@ -60,6 +65,7 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type WorkspaceImportView = components["schemas"]["WorkspaceImportView"];
 export type FullCDPBrowserSelectionView =
   components["schemas"]["FullCDPBrowserSelectionView"];
 export type FullCDPSessionOpenRequestView =
@@ -99,6 +105,7 @@ export type ThreadCreationControlRequestView =
 export type ThreadCreationControlView = components["schemas"]["ThreadCreationControlView"];
 export type ThreadMessageControlRequestView =
   components["schemas"]["ThreadMessageControlRequestView"];
+export type ThreadTurnControlRequestView = components["schemas"]["ThreadTurnControlRequestView"];
 export type ThreadMessageControlView = components["schemas"]["ThreadMessageControlView"];
 export type ThreadLifecycleControlRequestView =
   components["schemas"]["ThreadLifecycleControlRequestView"];
@@ -118,11 +125,13 @@ export type StandardCodePresetControlRequestView =
 export type StandardCodePresetControlView =
   components["schemas"]["StandardCodePresetControlView"];
 export type StandardCodeDeliveryView =
-  components["schemas"]["StandardCodeDeliveryReport"];
+  components["schemas"]["StandardCodeDeliveryReportView"];
+export type StandardCodeDeliveryOutputSourceView =
+  components["schemas"]["StandardCodeDeliveryOutputSourceView"];
 export type StandardCodeDeliveryRecordRequestView =
   components["schemas"]["StandardCodeDeliveryRecordView"];
 export type StandardCodeDeliveryRecordResultView =
-  components["schemas"]["StandardCodeDeliveryRecordResult"];
+  components["schemas"]["StandardCodeDeliveryRecordResultView"];
 export type GitAdvancedAuthorityView = components["schemas"]["GitAdvancedAuthorityView"];
 export type GitAdvancedCapabilityView = components["schemas"]["GitAdvancedCapabilitySnapshot"];
 export type GitAdvancedConflictView = components["schemas"]["GitAdvancedConflictState"];
@@ -221,6 +230,7 @@ export type FileEditProposalRequestView = components["schemas"]["FileEditProposa
 export type FileEditProposalRecoveryView = components["schemas"]["FileEditProposalRecoveryView"];
 export type FileEditProposalSourceView = components["schemas"]["FileEditProposalSourceView"];
 export type FileEditProposalView = components["schemas"]["FileEditProposalView"];
+export type FileEditRevertProposalView = components["schemas"]["FileEditRevertProposalView"];
 export type FileEditPreviewView = components["schemas"]["FileEditPreviewView"];
 export type FileEditApplyRequestView = components["schemas"]["FileEditApplyRequestView"];
 export type FileEditApplyView = components["schemas"]["FileEditApplyView"];
@@ -239,14 +249,25 @@ export type SkillPackageInstallView = components["schemas"]["SkillPackageInstall
 export type NoteView = components["schemas"]["NoteView"];
 export type OperatorSteeringQueueView = components["schemas"]["OperatorSteeringQueueView"];
 export type Page = components["schemas"]["Page"];
-export type PlanDeliveryStateView = components["schemas"]["PlanDeliveryStateView"];
+export type PlanManualAcceptance = "required" | "on_demand";
+// Older servers omit the selection policy; absence retains their required manual acceptance.
+export type PlanDeliveryStateView = Omit<components["schemas"]["PlanDeliveryStateView"], "selection" | "continued_completions"> & {
+  continued_completions?: Array<NonNullable<components["schemas"]["PlanDeliveryStateView"]["continued_completions"]>[number] & { completion_event_id?: string }>;
+  selection?: Omit<NonNullable<components["schemas"]["PlanDeliveryStateView"]["selection"]>, "manual_acceptance"> & {
+    manual_acceptance?: PlanManualAcceptance;
+  };
+};
 export type PlanModeTransitionControlRequestView = components["schemas"]["PlanModeTransitionControlRequestView"];
 export type PlanModeTransitionControlView = components["schemas"]["PlanModeTransitionControlView"];
 export type PlanDeliveryTransitionControlRequestView = components["schemas"]["PlanDeliveryTransitionControlRequestView"];
 export type PlanDeliveryTransitionControlView = components["schemas"]["PlanDeliveryTransitionControlView"];
-export type PlanDirectionControlRequestView = components["schemas"]["PlanDirectionControlRequestView"];
-export type PlanDirectionControlView = components["schemas"]["PlanDirectionControlView"];
-export type RunDetailView = components["schemas"]["RunDetailView"];
+export type PlanDeliveryWorkItemControlRequestView = components["schemas"]["PlanDeliveryWorkItemControlRequestView"];
+export type PlanDeliveryWorkItemControlView = components["schemas"]["PlanDeliveryWorkItemControlView"];
+export type PlanDeliveryCheckpointControlRequestView = components["schemas"]["PlanDeliveryCheckpointControlRequestView"];
+export type PlanDeliveryCheckpointControlView = components["schemas"]["PlanDeliveryCheckpointControlView"];
+export type PlanDirectionControlRequestView = components["schemas"]["PlanDirectionControlRequestView"] & { manual_acceptance?: PlanManualAcceptance };
+export type PlanDirectionControlView = Omit<components["schemas"]["PlanDirectionControlView"], "manual_acceptance"> & { manual_acceptance?: PlanManualAcceptance };
+export type RunDetailView = Omit<components["schemas"]["RunDetailView"], "plan_delivery"> & { plan_delivery?: PlanDeliveryStateView };
 export type RunActivityItemView = components["schemas"]["RunActivityItemView"];
 export type RunActivityView = components["schemas"]["RunActivityView"];
 export type RunEventPollView = components["schemas"]["RunEventPollView"];

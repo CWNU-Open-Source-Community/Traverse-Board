@@ -10,36 +10,36 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [activity-event-projection](#activity-event-projection) | `projection` | Run activity and HTTP maintainers | 5 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 38 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 42 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 3 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 97 | true |
-| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 17 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 101 | true |
+| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 18 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
-| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 14 | true |
+| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 40 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 98 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 104 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
-| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 52 | true |
+| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 53 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 4 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
 | [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 3 | true |
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
-| [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 196 | true |
+| [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
-| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 37 | true |
+| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 44 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 31 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 36 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
-| [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 9 | true |
+| [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
 ## Families
 
@@ -229,7 +229,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>38 active identifiers</summary>
+<details><summary>42 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -243,6 +243,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `once_command_spec.v1`
 - `operator_steering_cancellation_operation.v1`
 - `operator_steering_cancellation_request.v1`
+- `operator_steering_image_request.v1`
 - `operator_steering_operation.v1`
 - `operator_steering_request.v1`
 - `run_browser_cdp_permission_change_request.v1`
@@ -267,6 +268,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `thread_execution_permission_current_run_operation.v1`
 - `thread_execution_permission_materialization_operation.v1`
 - `thread_execution_permission_operation.v1`
+- `thread_message_image_intent_request.v1`
+- `thread_message_intent_operation.v1`
+- `thread_message_intent_request.v1`
 - `thread_model_route_operation.v1`
 - `thread_model_route_request.v1`
 
@@ -437,9 +441,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>97 active identifiers</summary>
+<details><summary>101 active identifiers</summary>
 
 - `byte_identical.v1`
+- `data_store_scope.v1`
 - `direct_exe_signing.v1`
 - `direct_exe_signing_handoff.v1`
 - `direct_exe_signing_request.v1`
@@ -449,6 +454,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `drydock-create-request.v1`
 - `drydock-delivery-proposal.v1`
 - `drydock-delivery-request.v1`
+- `drydock-file-boundary-cursor.v1`
 - `drydock-fork-request.v1`
 - `drydock-lifecycle-receipt.v1`
 - `drydock-reconcile.v1`
@@ -466,6 +472,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `msix_manifest.v2`
 - `pe_authenticode_normalized.v1`
 - `provider_grounded_citation.v1`
+- `recovery.data_store_seed.v1`
 - `sanitized_host_environment.v1`
 - `scheduled-job-worker.v1`
 - `scheduled_job_create_request.v1`
@@ -519,6 +526,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `web_evidence_presentation.v1`
 - `web_fetch.v1`
 - `web_fetch_authorization.v1`
+- `web_fetch_continuation.v1`
 - `web_search.v1`
 - `windows-two-deliverable-contract.v1`
 - `windows_artifact_attestations.v1`
@@ -552,7 +560,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `credential-provider-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>17 active identifiers</summary>
+<details><summary>18 active identifiers</summary>
 
 - `model_cancellation_operation.v1`
 - `model_cancellation_request.v1`
@@ -571,6 +579,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `provider_native_search_tool.v1`
 - `provider_registry_reload.v1`
 - `provider_request_runtime.v1`
+- `supervisor_model_cost.v1`
 
 </details>
 
@@ -608,8 +617,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `desktop-web-presentation-state-reader` (`v1`, active) at `web/src`
 
-<details><summary>14 active identifiers</summary>
+<details><summary>15 active identifiers</summary>
 
+- `desktop_clipboard_files.v1`
 - `desktop_connection_bootstrap.v1`
 - `desktop_debug_terminal_agent_input.v1`
 - `desktop_file_selection.v1`
@@ -623,7 +633,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `desktop_workspace_open.v1`
 - `prayu.run-navigation.v1`
 - `prayu.settings.sidebar.width.v1`
-- `prayu.sidebar.width.v1`
+- `v2_file_upload.v1`
+
+</details>
+
+<details><summary>1 retained retirement records</summary>
+
+- `prayu.sidebar.width.v1`: The authorized unified-shell replacement removed the legacy App sidebar reader/writer. This is presentation retirement only; existing localStorage values are neither deleted nor migrated.
 
 </details>
 
@@ -771,7 +787,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>98 active identifiers</summary>
+<details><summary>104 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_graph.v1`
@@ -798,6 +814,8 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `file_edit_proposal.v1`
 - `file_edit_proposal_recovery.v1`
 - `file_edit_review.v1`
+- `full_cdp_preview.v1`
+- `full_cdp_preview_action.v1`
 - `full_cdp_session.v1`
 - `full_cdp_session_close.v1`
 - `mode_policy.v1`
@@ -858,6 +876,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `thread_activity_detail.v2`
 - `thread_activity_summary.v1`
 - `thread_creation.v1`
+- `thread_execution.v1`
 - `thread_export.v1`
 - `thread_lifecycle.v1`
 - `thread_message_submission.v1`
@@ -870,6 +889,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `ui-evidence.v1`
 - `windows_wfp_dynamic.v1`
 - `workspace_explorer.v1`
+- `workspace_file_upload.v1`
+- `workspace_image_upload.v1`
+- `workspace_import.v1`
 - `workspace_search.v1`
 
 </details>
@@ -976,7 +998,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `process-runtime-lifecycle-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>52 active identifiers</summary>
+<details><summary>53 active identifiers</summary>
 
 - `application_docker_container_lifecycle_post_exit.v1`
 - `application_docker_container_lifecycle_running.v1`
@@ -1007,6 +1029,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `debug_terminal_agent_input_audit_record.v1`
 - `debug_terminal_agent_input_operation.v1`
 - `debug_terminal_agent_input_policy.v1`
+- `file_attachment_inputs.v1`
 - `host-process.v1`
 - `host_command.v1`
 - `host_command_execution.v1`
@@ -1154,11 +1177,12 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Compatibility rule: Preserve container/image/config identity, lease fencing, external-effect order, and cleanup-first recovery.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
-  - `sandbox-docker-lifecycle-writer` (`v1, v2`, write-new) at `internal/sandbox`
+  - `sandbox-docker-lifecycle-writer` (`v1, v2, v3`, write-new) at `internal/sandbox`
 - Readers:
   - `sandbox-docker-lifecycle-reader` (`v1, v2`, active) at `internal/store`
+  - `local-sandbox-owner-recovery-reader` (`v1, v2, v3`, active) at `internal/sandbox`
 
-<details><summary>196 active identifiers</summary>
+<details><summary>200 active identifiers</summary>
 
 - `docker-standard-code.v1`
 - `docker_sandbox_admission.v1`
@@ -1187,6 +1211,8 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `local-runtime-generation.v1`
 - `local_sandbox_execution.v1`
 - `local_sandbox_owner.v1`
+- `local_sandbox_owner.v2`
+- `local_sandbox_owner.v3`
 - `local_sandbox_readiness.v1`
 - `sandbox_authorization.v1`
 - `sandbox_backend_evidence_item.v1`
@@ -1356,6 +1382,8 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `sandbox_validation.v1`
 - `sandbox_workspace_binding.v1`
 - `windows_appcontainer_policy.v1`
+- `windows_appcontainer_policy.v2`
+- `windows_appcontainer_policy.v3`
 
 </details>
 
@@ -1391,23 +1419,27 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Thread, Run, Session, context, and message maintainers
-- Source of truth: `internal/session`, `internal/store`
-- Persistence/export boundary: SQLite preserves user history, ordering, Run succession, provenance, notes, and messages.
+- Source of truth: `internal/session`, `internal/store`, `web/src/v2`
+- Persistence/export boundary: SQLite preserves user history, ordering, Run succession, provenance, notes, and messages. Scoped browser recovery storage retains unsent drafts and exact unknown-request identities; these cannot be reconstructed from server history.
 - Compatibility rule: Add versions without rewriting identity/history; retain every reader needed by supported databases and exports.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `thread-run-session-ledgers-writer` (`v0, v1, v2, v3`, write-new) at `internal/application`
+  - `thread-local-recovery-writer` (`v1`, write-new) at `web/src/v2`
 - Readers:
   - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3`, active) at `internal/store`
+  - `thread-local-recovery-reader` (`v1`, active) at `web/src/v2`
 
-<details><summary>37 active identifiers</summary>
+<details><summary>44 active identifiers</summary>
 
 - `context_memory.v1`
 - `continuity_context.v1`
 - `continuity_snapshot.v1`
 - `deterministic_id.v1`
+- `generated_handoff.v1`
 - `handoff_memory.v0`
 - `handoff_memory.v1`
+- `history_recall.v1`
 - `llm.item_stream.identity.v1`
 - `long_term_memory.v1`
 - `note_context.v1`
@@ -1429,16 +1461,27 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `session_grant.v1`
 - `session_grant_revoke.v1`
 - `session_tree.v1`
+- `task_goal.v1`
 - `thread_epoch_transition_operation.v1`
 - `thread_epoch_transition_request.v1`
 - `thread_lifecycle_operation.v1`
 - `thread_lifecycle_request.v1`
 - `thread_run_recovery_operation.v1`
 - `thread_run_recovery_request.v1`
-- `thread_turn_auto_recovery_operation.v1`
+- `thread_summary_window.v1`
 - `thread_turn_epoch_transition_operation.v1`
 - `thread_turn_handoff_operation.v1`
 - `thread_turn_lifecycle_operation.v1`
+- `v2_creation_recovery.v1`
+- `v2_draft_document.v1`
+- `v2_native_clipboard_recovery.v1`
+- `v2_recovery.v1`
+
+</details>
+
+<details><summary>1 retained retirement records</summary>
+
+- `thread_turn_auto_recovery_operation.v1`: Explicit new Thread messages close the prior failed product turn while retaining usable Run context. They no longer automatically terminate every failed Run and cancel accepted inputs.
 
 </details>
 
@@ -1475,10 +1518,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>31 active identifiers</summary>
+<details><summary>36 active identifiers</summary>
 
 - `file_edit_apply_operation.v1`
 - `file_edit_apply_request.v1`
+- `file_edit_revert_proposal.v1`
 - `file_mutation.v1`
 - `git-advanced-api.v1`
 - `git-advanced-authority.v1`
@@ -1508,6 +1552,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `repository_mutation_binding.v1`
 - `repository_remote.v1`
 - `repository_remote_binding.v1`
+- `thread_git.v1`
+- `thread_git_operation.v1`
+- `thread_git_request.v1`
+- `thread_pull_request.v1`
 
 </details>
 
@@ -1547,13 +1595,15 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `workspace-repository-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>9 active identifiers</summary>
+<details><summary>11 active identifiers</summary>
 
 - `repository_commit_detail.v1`
 - `repository_history.v1`
 - `workspace_checkpoint_manual.v1`
 - `workspace_fork_operation.v1`
 - `workspace_fork_request.v1`
+- `workspace_image_operation.v1`
+- `workspace_image_request.v1`
 - `workspace_mutation_boundary.v1`
 - `workspace_mutation_boundary_request.v1`
 - `workspace_restore_operation.v1`
@@ -1600,6 +1650,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `archive.inventory.v1` | `test-fixture` | `analyzers/fixture/src/lib.rs`, `analyzers/testdata/archive_inventory_v1_vectors.json`, `internal/analyzer/descriptor.go` | Analyzer ZIP inventory is retained only for protocol/test conformance vectors. |
 | `archive.zip.inventory.v1` | `test-fixture` | `analyzers/fixture/src/lib.rs`, `analyzers/testdata/archive_inventory_v1_vectors.json`, `internal/analyzer/descriptor.go` | Analyzer ZIP inventory implementation is retained only for protocol/test conformance. |
 | `archive_inventory_golden_vectors.v1` | `golden-vector` | `analyzers/fixture/tests/shared_vectors.rs`, `analyzers/testdata/archive_inventory_v1_vectors.json`, `internal/analyzer/archive_golden_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `asm.v3` | `conformance-test` | `cmd/cyberagent-desktop/windows_resources_test.go` | Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol. |
 | `batch-mailbox.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `batch-owner-token.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `batch-receipt.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1607,6 +1658,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `browser_network_containment_evidence.v0` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `browser_network_containment_policy.v1` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `call.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `compatibility.v1` | `conformance-test` | `cmd/cyberagent-desktop/windows_resources_test.go` | Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol. |
 | `controlled_command_proposal.v2` | `test-fixture` | `internal/toolgateway/controlled_command_proposal_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `desktop_test_matrix.v2` | `test-fixture` | `scripts/desktop-test-matrix.ps1` | CI/Desktop test-matrix report identifier, not a product runtime protocol. |
 | `detached_signature.v1` | `test-fixture` | `internal/analyzer/release_manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1621,10 +1673,13 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `fixture.wrong.v1` | `negative-version-fixture` | `internal/analyzer/subprocess_conformance_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `full_cdp_session.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP session decoding. |
 | `full_cdp_session_close.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP close decoding. |
+| `generated_handoff.v2` | `negative-version-fixture` | `internal/contextmgr/generated_summary_test.go` | Unsupported generated summary version used only to verify rejection; not a production protocol. |
+| `handoff_memory.v999` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Negative fixture verifies unknown summary versions fail closed. |
 | `linux_ephemeral_user_namespace.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_inherited_read_fd.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_user_namespace_landlock.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `local-windows-lpac.v1` | `test-fixture` | `internal/application/standard_code_preset_test.go`, `internal/application/standard_code_supervisor_test.go`, `internal/commandruntimeadapter/adapter_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `my-document.v1` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Opaque historical document fixture; its version is not a product protocol. |
 | `next.good.v4` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ok.v1` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `other.v1` | `negative-version-fixture` | `internal/application/session_message_submission_test.go`, `internal/httpapi/session_message_control_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1661,6 +1716,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `standard_code_security_recovery.v1` | `conformance-test` | `internal/desktop/standard_code_security_recovery_windows.go` | Fixed packaged-only Standard Code crash/restart evidence; contains hashes and bounded lifecycle facts but grants no runtime or release authority. |
 | `standard_code_test_root.v1` | `test-fixture` | `internal/application/standard_code_supervisor_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `test-output.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `thread_summary_window.v99` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Negative fixture verifies unknown rolling window versions fail closed. |
 | `ui-evidence-ci-launch.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ui-evidence-ci-smoke.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ui-evidence-ci-startup-diagnostic.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

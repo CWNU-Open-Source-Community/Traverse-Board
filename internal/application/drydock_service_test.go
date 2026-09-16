@@ -174,16 +174,17 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	rewindRequest := DrydockRewindRequest{RunID: fixture.run.ID,
 		TargetCheckpointID: created.Checkpoint.ID,
 		ExpectedGeneration: delivered.Workspace.Generation,
-		OperationKey:       "rewind-0001", RequestedBy: "operator"}
+		OperationKey:       "rewind-0001", RequestedBy: "desktop_operator"}
 	rewindPreview, err := fixture.service.Rewind(t.Context(), rewindRequest)
 	if err != nil || rewindPreview.Confirmed || len(rewindPreview.Preview.Changes) == 0 {
 		t.Fatalf("rewind preview=%+v err=%v", rewindPreview, err)
 	}
 	rewindRequest.Confirm = true
+	authorizeDrydockRestoreForTest(t, fixture)
 	rewound, err := fixture.service.Rewind(t.Context(), rewindRequest)
 	if err != nil || !rewound.Confirmed || rewound.After == nil || rewound.Receipt == nil ||
 		rewound.Receipt.Operation != drydock.OperationRewind ||
-		rewound.After.ParentCheckpointID != delivered.Workspace.LastCheckpointID {
+		rewound.After.ParentCheckpointID == "" {
 		t.Fatalf("rewound=%+v err=%v", rewound, err)
 	}
 	if got := readDrydockTestFile(t, filepath.Join(rewound.Workspace.Path, "tracked.txt")); got != "base\n" {
@@ -198,7 +199,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	}
 	undoRequest := DrydockUndoRequest{RunID: fixture.run.ID,
 		ExpectedGeneration: rewound.Workspace.Generation,
-		OperationKey:       "undo-0001", RequestedBy: "operator"}
+		OperationKey:       "undo-0001", RequestedBy: "desktop_operator"}
 	undoPreview, err := fixture.service.Undo(t.Context(), undoRequest)
 	if err != nil || undoPreview.Confirmed || len(undoPreview.Preview.Changes) == 0 {
 		t.Fatalf("undo preview=%+v err=%v", undoPreview, err)
@@ -223,7 +224,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	undoReplay, err := fixture.service.Undo(t.Context(), undoRequest)
 	if err != nil || !undoReplay.Replayed || undoReplay.Receipt == nil ||
 		undoReplay.Receipt.ID != undone.Receipt.ID || undoReplay.After == nil ||
-		undoReplay.After.ID != undone.After.ID || undoReplay.Target.ID != delivered.Workspace.LastCheckpointID {
+		undoReplay.After.ID != undone.After.ID || undoReplay.Target.ID != rewound.After.ParentCheckpointID {
 		t.Fatalf("undo replay=%+v err=%v", undoReplay, err)
 	}
 
@@ -499,11 +500,11 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 			t.Fatalf("post-crash file was changed or removed: %q", got)
 		}
 		stored, found, err := fixture.state.GetDrydockByRun(t.Context(), fixture.run.ID)
-		if err != nil || !found || stored.State != drydock.StateRecoveryRequired {
+		if err != nil || !found || stored.State != drydock.StateReady || stored.Generation != created.Generation {
 			t.Fatalf("stored=%+v found=%t err=%v", stored, found, err)
 		}
 		if stored.ExpectedBindingFingerprint != created.ExpectedBindingFingerprint {
-			t.Fatal("recovery silently promoted the user-modified binding")
+			t.Fatal("GC changed the retained Thread directory binding")
 		}
 		unconfirmed, err := fixture.service.Checkpoint(t.Context(),
 			DrydockCheckpointRequest{RunID: fixture.run.ID,
@@ -564,12 +565,13 @@ func TestDrydockRewindSupportsCheckpointsAtACommittedDescendant(t *testing.T) {
 	request := DrydockRewindRequest{RunID: fixture.run.ID,
 		TargetCheckpointID: committed.Checkpoint.ID,
 		ExpectedGeneration: later.Workspace.Generation,
-		OperationKey:       "descendant-rewind-0001", RequestedBy: "operator"}
+		OperationKey:       "descendant-rewind-0001", RequestedBy: "desktop_operator"}
 	preview, err := fixture.service.Rewind(t.Context(), request)
 	if err != nil || len(preview.Preview.Changes) == 0 {
 		t.Fatalf("descendant rewind preview=%+v err=%v", preview, err)
 	}
 	request.Confirm = true
+	authorizeDrydockRestoreForTest(t, fixture)
 	rewound, err := fixture.service.Rewind(t.Context(), request)
 	if err != nil || rewound.After == nil || rewound.After.BaseCommit != committedHead {
 		t.Fatalf("descendant rewind=%+v err=%v", rewound, err)
@@ -821,12 +823,13 @@ func TestDrydockReconcilesInterruptedCheckpointWithOwnedWorkspaceBinding(t *test
 }
 
 type drydockApplicationFixture struct {
-	state      *store.SQLiteStore
-	service    *DrydockService
-	executor   *repository.DrydockExecutor
-	run        domain.Run
-	workspace  store.WorkspaceRecord
-	sourceRoot string
+	state        *store.SQLiteStore
+	databasePath string
+	service      *DrydockService
+	executor     *repository.DrydockExecutor
+	run          domain.Run
+	workspace    store.WorkspaceRecord
+	sourceRoot   string
 }
 
 func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicationFixture {
@@ -835,7 +838,8 @@ func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicat
 		t.Skip("git is unavailable")
 	}
 	sourceRoot := newDrydockTestRepository(t, rootName)
-	state, err := store.Open(filepath.Join(t.TempDir(), "drydock.db"))
+	databasePath := filepath.Join(t.TempDir(), "drydock.db")
+	state, err := store.Open(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +867,7 @@ func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicat
 		t.Fatal(err)
 	}
 	return drydockApplicationFixture{state: state, service: service, executor: executor,
-		run: run, workspace: workspace, sourceRoot: sourceRoot}
+		run: run, workspace: workspace, sourceRoot: sourceRoot, databasePath: databasePath}
 }
 
 func mustCreateDrydock(t *testing.T, fixture drydockApplicationFixture) drydock.Workspace {

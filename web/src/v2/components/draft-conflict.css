@@ -1,0 +1,71 @@
+.v2-composer-dock:has(.v2-draft-conflict) {
+  min-height: 0;
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+/* Keep the Inspector controls inside their own scroll area when comparing
+   tall drafts; its non-shrinking toolbar must not overflow into the editor. */
+.v2-conversation.is-inspector:has(.v2-draft-conflict) > .v2-inspector-content {
+  min-height: min(240px, 30dvh);
+  overflow: auto;
+  overscroll-behavior-y: contain;
+}
+.v2-conversation.is-inspector .v2-composer-dock:has(.v2-draft-conflict) {
+  flex-shrink: 1;
+}
+
+.v2-draft-conflict {
+  min-width: 0;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--v2-border-strong);
+  border-radius: 10px;
+  background: var(--v2-control);
+  color: var(--v2-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.v2-draft-conflict p { margin: 0; }
+.v2-draft-conflict-summary { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; }
+.v2-draft-conflict-summary > p { flex: 1 1 240px; }
+.v2-draft-conflict strong { font-weight: 600; }
+.v2-draft-conflict button {
+  max-width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--v2-border-strong);
+  border-radius: 7px;
+  padding: 5px 10px;
+  background: var(--v2-control);
+  color: var(--v2-ink);
+  font: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.v2-draft-conflict button:hover:not(:disabled) { background: var(--v2-control-hover); }
+.v2-draft-conflict button:disabled { opacity: .55; cursor: default; }
+.v2-draft-conflict :is(button, input, pre):focus-visible { outline: 2px solid var(--v2-accent); outline-offset: 2px; }
+.v2-draft-conflict-versions { margin-top: 12px; }
+.v2-draft-conflict-versions > p { margin-bottom: 10px; }
+.v2-draft-conflict fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.v2-draft-conflict legend { margin-bottom: 8px; padding: 0; font-weight: 600; }
+.v2-draft-conflict-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.v2-draft-conflict-version { min-width: 0; border: 1px solid var(--v2-border); border-radius: 8px; padding: 10px; }
+.v2-draft-conflict-version.is-selected { border-color: var(--v2-accent); }
+.v2-draft-conflict-version > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.v2-draft-conflict-version label { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.v2-draft-conflict-version input { flex-shrink: 0; accent-color: var(--v2-accent); }
+.v2-draft-conflict-version header > span, .v2-draft-conflict-empty { color: var(--v2-muted); }
+.v2-draft-conflict-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; margin: 10px 0; font: inherit; }
+.v2-draft-conflict-files { padding-left: 18px; margin: 6px 0 10px; }
+.v2-draft-conflict-files li { min-width: 0; margin: 5px 0; }
+.v2-draft-conflict-files code { display: block; overflow-wrap: anywhere; font-size: 12px; color: var(--v2-muted); }
+.v2-draft-conflict-version .v2-image-list { padding: 6px 0; }
+.v2-draft-conflict-version .v2-image-thumb { color: var(--v2-ink); }
+.v2-draft-conflict-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.v2-draft-conflict-actions > button { border-color: var(--v2-accent); }
+.v2-draft-conflict-error { color: var(--v2-danger); }
+.v2-draft-conflict-error + .v2-draft-conflict-summary { margin-top: 10px; }
+.v2-draft-conflict-versions > .v2-draft-conflict-error { margin-top: 10px; }

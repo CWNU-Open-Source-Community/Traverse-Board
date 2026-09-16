@@ -43,8 +43,12 @@ type ModelInfo struct {
 type Message struct {
 	Role        string       `json:"role"`
 	Content     string       `json:"content,omitempty"`
+	Images      []ImagePart  `json:"-"`
 	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
 	ToolResults []ToolResult `json:"tool_results,omitempty"`
+	// Go-only marker for already leaf-redacted compaction JSON. It cannot be
+	// set through provider/model JSON and becomes invalid if Content changes.
+	contextCompactionContentSHA256 string
 }
 
 type ToolSpec struct {
@@ -195,9 +199,10 @@ func NormalizeToolCalls(calls []ToolCall) ([]ToolCall, error) {
 }
 
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Content    string `json:"content"`
-	IsError    bool   `json:"is_error,omitempty"`
+	ToolCallID          string `json:"tool_call_id"`
+	Content             string `json:"content"`
+	IsError             bool   `json:"is_error,omitempty"`
+	storedHistoryDigest [32]byte
 }
 
 func NormalizeToolResult(result ToolResult) (ToolResult, error) {

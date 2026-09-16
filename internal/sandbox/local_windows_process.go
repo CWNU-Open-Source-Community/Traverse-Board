@@ -136,6 +136,7 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		!spec.profile.filesystemCapabilitySID.IsValid() ||
 		spec.profile.registryReadCapabilitySID == nil ||
 		!spec.profile.registryReadCapabilitySID.IsValid() ||
+		(spec.profile.instrumentationCapabilitySID != nil && !spec.profile.instrumentationCapabilitySID.IsValid()) ||
 		!validLocalProfileName(spec.profile.name) || spec.timeout <= 0 ||
 		spec.writeMaximum < 1 || spec.resources.MaxOutputBytes < 1 {
 		return localProcessResult{}, ErrLocalSandboxBoundary
@@ -519,8 +520,11 @@ func verifyLocalProcessToken(process windows.Handle,
 	}
 	capabilityGroups := (*windows.Tokengroups)(unsafe.Pointer(&capabilities[0]))
 	allCapabilities := capabilityGroups.AllGroups()
-	proof.matchingCapabilitySIDs = localTokenHasExactCapabilities(allCapabilities,
-		profile.filesystemCapabilitySID, profile.registryReadCapabilitySID)
+	expectedCapabilities := []*windows.SID{profile.filesystemCapabilitySID, profile.registryReadCapabilitySID}
+	if profile.instrumentationCapabilitySID != nil {
+		expectedCapabilities = append(expectedCapabilities, profile.instrumentationCapabilitySID)
+	}
+	proof.matchingCapabilitySIDs = localTokenHasExactCapabilities(allCapabilities, expectedCapabilities...)
 	proof.zeroNetworkCapabilities = proof.matchingCapabilitySIDs
 	containerInfo, err := localTokenInformation(token, localTokenAppContainerSID)
 	if err != nil {
@@ -576,7 +580,7 @@ func localTokenHasExactCapabilities(actual []windows.SIDAndAttributes,
 	matched := make([]bool, len(expected))
 	for _, group := range actual {
 		if group.Sid == nil || !group.Sid.IsValid() ||
-			group.Attributes&windows.SE_GROUP_ENABLED == 0 {
+			group.Attributes != windows.SE_GROUP_ENABLED {
 			return false
 		}
 		found := false

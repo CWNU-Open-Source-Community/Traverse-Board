@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
@@ -189,6 +190,8 @@ func HostCommandSpecFingerprint(spec HostCommandSpec) string {
 	return hex.EncodeToString(digest[:])
 }
 
+const hostPowerShellUTF8Bootstrap = "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding;"
+
 // CanonicalHostShellArguments converts one explicitly selected shell dialect
 // into the only argv shape accepted by approval-mode host proposals. Profiles,
 // interactive input, startup files, and persistent/background ownership stay
@@ -202,7 +205,17 @@ func CanonicalHostShellArguments(shell string, command string) ([]string, error)
 	}
 	switch strings.ToLower(strings.TrimSpace(shell)) {
 	case "powershell":
-		return []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}, nil
+		if hostPowerShellStartsWithDeclaration(command) {
+			return nil, fmt.Errorf("%w: inline PowerShell param/using declarations require a project .ps1 file; invoke it with & ./script.ps1", ErrHostCommandBoundary)
+		}
+		// CREATE_NO_WINDOW with redirected pipes can make even PowerShell 7
+		// write the host OEM code page. Set UTF-8 before the user's command;
+		// decoding afterwards cannot recover characters already emitted as '?'.
+		// PowerShell joins -Command's remaining arguments into one top-level
+		// script. Keeping that scope preserves explicit exits and final failures.
+		// The bootstrap is part of the reviewed argv/fingerprint, never inserted
+		// by the starter after approval or into an existing durable command.
+		return []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command", hostPowerShellUTF8Bootstrap, command}, nil
 	case "bash":
 		return []string{"--noprofile", "--norc", "-c", command}, nil
 	default:
@@ -226,11 +239,82 @@ func HostCommandShellDialect(spec HostCommandSpec) (string, bool) {
 	if len(spec.Argv) == 0 {
 		return "", false
 	}
-	expected, err := CanonicalHostShellArguments(shell, spec.Argv[len(spec.Argv)-1])
-	if err != nil || !equalStrings(expected, spec.Argv) {
+	// Recognition of a stored old envelope does not apply new construction
+	// restrictions or modify the exact command which was already reviewed.
+	if shell == "powershell" && equalStrings(spec.Argv, []string{
+		"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", spec.Argv[len(spec.Argv)-1],
+	}) {
+		command := spec.Argv[len(spec.Argv)-1]
+		if command != "" && utf8.ValidString(command) && !strings.ContainsAny(command, "\r\n\x00") &&
+			len([]byte(command)) <= MaxHostCommandArgumentBytes && redact.String(command) == command {
+			return shell, true
+		}
 		return "", false
 	}
-	return shell, true
+	expected, err := CanonicalHostShellArguments(shell, spec.Argv[len(spec.Argv)-1])
+	if err != nil {
+		return "", false
+	}
+	if equalStrings(expected, spec.Argv) {
+		return shell, true
+	}
+	return "", false
+}
+
+// Only inspect the opening declaration tokens, never occurrences in quoted
+// values or function bodies. A declaration needs to precede initialization;
+// invoking a .ps1 file preserves its own using/param scope. Comment removal is
+// limited to PowerShell's leading block comments, including nested comments.
+func hostPowerShellStartsWithDeclaration(command string) bool {
+	for {
+		command = strings.TrimLeftFunc(command, unicode.IsSpace)
+		if !strings.HasPrefix(command, "<#") {
+			break
+		}
+		depth, index := 1, 2
+		for depth > 0 && index+1 < len(command) {
+			switch command[index : index+2] {
+			case "<#":
+				depth++
+				index += 2
+			case "#>":
+				depth--
+				index += 2
+			default:
+				index++
+			}
+		}
+		if depth != 0 {
+			return false // PowerShell rejects the incomplete comment itself.
+		}
+		command = command[index:]
+	}
+	lower := strings.ToLower(command)
+	// Cover the conventional advanced-script prefix without attempting to
+	// parse arbitrary attribute arguments. Full declarations belong in .ps1.
+	if strings.HasPrefix(lower, "[cmdletbinding()]") {
+		lower = strings.TrimLeftFunc(lower[len("[cmdletbinding()]"):], unicode.IsSpace)
+	}
+	if strings.HasPrefix(lower, "param") {
+		return strings.HasPrefix(strings.TrimLeftFunc(lower[len("param"):], unicode.IsSpace), "(")
+	}
+	if !strings.HasPrefix(lower, "using") {
+		return false
+	}
+	rest := lower[len("using"):]
+	trimmed := strings.TrimLeftFunc(rest, unicode.IsSpace)
+	if rest == trimmed {
+		return false
+	}
+	for _, keyword := range []string{"namespace", "module", "assembly"} {
+		if strings.HasPrefix(trimmed, keyword) && len(trimmed) > len(keyword) {
+			r, _ := utf8.DecodeRuneInString(trimmed[len(keyword):])
+			if unicode.IsSpace(r) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ValidateHostCommandProposalTransport accepts native literal argv plus two
@@ -657,12 +741,14 @@ type HostCommandProposalResult struct {
 	AutomaticRetryAllowed bool
 	Fingerprint           string
 	CreatedAt             time.Time
+	// Omitted for historical records, preserving their original JSON fingerprint.
+	SavedOutput *HostCommandSavedOutput `json:"SavedOutput,omitempty"`
 }
 
 func NewHostCommandProposalResult(id string, proposal HostCommandProposal,
 	review HostCommandReview, requestID string, status string,
 	sourceKind string, sourceRef string, contentSHA256 string,
-	createdAt time.Time,
+	createdAt time.Time, savedOutput ...HostCommandSavedOutput,
 ) (HostCommandProposalResult, error) {
 	result := HostCommandProposalResult{
 		ID: strings.TrimSpace(id), ProtocolVersion: HostCommandResultProtocolVersion,
@@ -675,6 +761,13 @@ func NewHostCommandProposalResult(id string, proposal HostCommandProposal,
 		ContentSHA256: strings.ToLower(strings.TrimSpace(contentSHA256)),
 		CreatedAt:     createdAt.UTC(),
 	}
+	if len(savedOutput) > 1 {
+		return HostCommandProposalResult{}, ErrHostCommandBoundary
+	}
+	if len(savedOutput) == 1 {
+		copy := savedOutput[0]
+		result.SavedOutput = &copy
+	}
 	result.Fingerprint = HostCommandProposalResultFingerprint(result)
 	if proposal.Validate() != nil || review.Validate() != nil ||
 		review.ProposalID != proposal.ID ||
@@ -685,6 +778,9 @@ func NewHostCommandProposalResult(id string, proposal HostCommandProposal,
 }
 
 func (r HostCommandProposalResult) Validate() error {
+	if r.SavedOutput != nil && r.SavedOutput.Validate() != nil {
+		return ErrHostCommandBoundary
+	}
 	for _, value := range []string{
 		r.ID, r.ProposalID, r.ReviewID, r.RequestID, r.RunID, r.SessionID,
 		r.SourceKind, r.SourceRef,

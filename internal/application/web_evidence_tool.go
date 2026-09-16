@@ -54,6 +54,9 @@ type webFetchToolSnapshot struct {
 	MIME                  string                  `json:"mime"`
 	Charset               string                  `json:"charset,omitempty"`
 	Body                  string                  `json:"body,omitempty"`
+	BodyOffset            int                     `json:"body_offset,omitempty"`
+	BodyRunes             int                     `json:"body_runes,omitempty"`
+	NextOffset            *int                    `json:"next_offset,omitempty"`
 	State                 webevidence.SourceState `json:"state"`
 	Robots                string                  `json:"robots"`
 	ErrorCode             string                  `json:"error_code,omitempty"`
@@ -71,6 +74,8 @@ type webFetchToolOutput struct {
 	Source          webevidence.SourcePresentation `json:"source"`
 	Snapshot        webFetchToolSnapshot           `json:"snapshot"`
 	Replayed        bool                           `json:"replayed"`
+	SourceRunID     string                         `json:"source_run_id,omitempty"`
+	Historical      bool                           `json:"historical,omitempty"`
 }
 
 func NewWebEvidenceToolExecutor(store WebEvidenceToolStore,
@@ -193,6 +198,9 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		var request toolgateway.WebFetchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
+		if request.SnapshotID != "" {
+			return e.readWebSnapshotPage(ctx, scope, request)
 		}
 		canonicalURL := request.URL
 		if request.SourceID != "" {

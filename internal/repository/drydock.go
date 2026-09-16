@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -541,6 +542,12 @@ func (e *DrydockExecutor) drydockGit(ctx context.Context, root string,
 	defer cancel()
 	base := []string{"-C", root, "--no-optional-locks", "-c", "core.autocrlf=false",
 		"-c", "submodule.recurse=false", "--literal-pathspecs"}
+	if runtime.GOOS == "windows" {
+		// Git for Windows otherwise rejects or silently skips long untracked
+		// paths even when the filesystem and checkpoint capture support them.
+		// Keep every path in the evidence; do not change repository/global config.
+		base = append(base, "-c", "core.longpaths=true")
+	}
 	command := repositoryCommandContext(commandCtx, e.advanced.gitPath, append(base, args...)...)
 	command.Dir = root
 	command.Env = append(hardenedGitEnvironment(), extraEnv...)

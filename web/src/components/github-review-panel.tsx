@@ -86,7 +86,7 @@ export function GitHubReviewPanel({ client, runID, onOpenApprovals,
   });
   const qualify = useMutation({ mutationFn: () => client.qualifyGitHubReview(connectionID, pullRequest) });
   const fetchSnapshot = useMutation({
-    mutationFn: () => client.fetchGitHubReview(connectionID, pullRequest), onSuccess: invalidate,
+    mutationFn: (number?: number) => client.fetchGitHubReview(connectionID, number ?? pullRequest), onSuccess: invalidate,
   });
   const buildEvidence = useMutation({
     mutationFn: (snapshotID: string) => client.buildGitHubReviewEvidence(runID, snapshotID),
@@ -138,7 +138,9 @@ export function GitHubReviewPanel({ client, runID, onOpenApprovals,
 
   return <section aria-label="GitHub Review" className="repository-state-panel github-review-panel">
     <header className="panel-header"><div><GitPullRequest size={17} /><h2>GitHub Review</h2></div>
-      <button className="icon-button" disabled={pending} onClick={() => { void connections.refetch(); void projection.refetch(); }} type="button">
+      <button className="icon-button" disabled={pending} aria-label={t("刷新连接和远端 PR", "Refresh connection and remote PR")}
+        onClick={() => { void connections.refetch(); const number = pullRequest || latest?.identity.number;
+          if (connectionID && number) fetchSnapshot.mutate(number); else void projection.refetch(); }} type="button">
         <RefreshCw className={pending ? "spin" : ""} size={16} />
       </button></header>
     {error && <ErrorState error={error} />}
@@ -179,7 +181,7 @@ export function GitHubReviewPanel({ client, runID, onOpenApprovals,
       <div className="github-review-form"><input aria-label={t("PR 编号", "PR number")} min={1}
         onChange={(event) => setPullRequest(Number(event.target.value))} type="number" value={pullRequest || ""} />
         <button disabled={pending || pullRequest < 1} onClick={() => qualify.mutate()} type="button">{t("资格诊断", "Qualify")}</button>
-        <button disabled={pending || pullRequest < 1} onClick={() => fetchSnapshot.mutate()} type="button">{t("抓取快照", "Fetch snapshot")}</button></div>
+        <button disabled={pending || pullRequest < 1} onClick={() => fetchSnapshot.mutate(undefined)} type="button">{t("抓取快照", "Fetch snapshot")}</button></div>
       {qualify.data && <div className="github-review-diagnostics"><StatusBadge status={qualify.data.qualification.eligible ? "qualified" : "blocked"} />
         {qualify.data.qualification.diagnostics.map((item) => <small key={item.code}>{item.code}: {item.message}</small>)}</div>}
       {projection.isLoading && <LoadingState />}

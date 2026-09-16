@@ -570,6 +570,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		return domain.SupervisorToolCall{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
 			"invalid supervisor tool result", err)
 	}
+	originalResultJSON := result.ResultJSON
 	redactResult := redactJSONPayload
 	if supervisorWebEvidenceResultEnvelope(result.ResultJSON) {
 		redactResult = redactJSONPayloadWithoutHTMLEscape
@@ -597,6 +598,17 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 	if err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
+	if result.Status == domain.SupervisorToolCompleted &&
+		(call.ToolName == "history_search" || call.ToolName == "history_read") {
+		result.ResultJSON, err = s.preserveSupervisorHistoryResultTx(ctx, tx, call, originalResultJSON, result.ResultJSON)
+		if err != nil {
+			return domain.SupervisorToolCall{}, false, err
+		}
+		if err := result.Validate(); err != nil {
+			return domain.SupervisorToolCall{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
+				"verified history tool result is invalid", err)
+		}
+	}
 	if call.Status.Terminal() {
 		if call.Status != result.Status || call.ResultJSON != result.ResultJSON || call.ErrorCode != result.ErrorCode {
 			return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeConflict,
@@ -616,6 +628,19 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition,
 			"supervisor tool result requires a durable execution start")
 	}
+	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result)
+	if err != nil {
+		return domain.SupervisorToolCall{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.SupervisorToolCall{}, false, err
+	}
+	return call, false, nil
+}
+
+func recordSupervisorToolResultTx(ctx context.Context, tx *sql.Tx, run domain.Run, current domain.SupervisorCheckpoint,
+	call domain.SupervisorToolCall, result domain.SupervisorToolResult,
+) (domain.SupervisorToolCall, error) {
 	completedAt := result.CompletedAt.UTC()
 	update, err := tx.ExecContext(ctx, `UPDATE run_supervisor_tool_calls
 		SET status = ?, result_json = ?, error_code = ?, completed_at = ?
@@ -623,14 +648,14 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		result.Status, result.ResultJSON, result.ErrorCode, ts(completedAt), current.RunID, current.NextTurn,
 		current.AttemptID, result.CallID, domain.SupervisorToolPending)
 	if err != nil {
-		return domain.SupervisorToolCall{}, false, err
+		return domain.SupervisorToolCall{}, err
 	}
 	rows, err := update.RowsAffected()
 	if err != nil {
-		return domain.SupervisorToolCall{}, false, err
+		return domain.SupervisorToolCall{}, err
 	}
 	if rows != 1 {
-		return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeConflict,
+		return domain.SupervisorToolCall{}, apperror.New(apperror.CodeConflict,
 			"supervisor tool call changed before its result was recorded")
 	}
 	call.Status = result.Status
@@ -641,7 +666,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		events.SupervisorToolExecutionCompletedEvent, "run_supervisor", call.CallID,
 		supervisorToolStreamEventPayload(call, call.Status,
 			llm.StreamToolExecutionCompleted)); err != nil {
-		return domain.SupervisorToolCall{}, false, err
+		return domain.SupervisorToolCall{}, err
 	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.SupervisorToolResultEvent, "run_supervisor",
 		call.CallID, func() map[string]any {
@@ -649,38 +674,35 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 			payload["error_code"] = call.ErrorCode
 			return payload
 		}()); err != nil {
-		return domain.SupervisorToolCall{}, false, err
+		return domain.SupervisorToolCall{}, err
 	}
 	var pending int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_supervisor_tool_calls
 		WHERE run_id = ? AND turn = ? AND attempt_id = ? AND round = ? AND status = ?`,
 		call.RunID, call.Turn, call.AttemptID, call.Round, domain.SupervisorToolPending).Scan(&pending); err != nil {
-		return domain.SupervisorToolCall{}, false, err
+		return domain.SupervisorToolCall{}, err
 	}
 	if pending == 0 {
 		updated, err := tx.ExecContext(ctx, `UPDATE run_supervisor_tool_rounds SET completed_at = ?
 			WHERE run_id = ? AND turn = ? AND attempt_id = ? AND round = ? AND completed_at IS NULL`,
 			ts(completedAt), call.RunID, call.Turn, call.AttemptID, call.Round)
 		if err != nil {
-			return domain.SupervisorToolCall{}, false, err
+			return domain.SupervisorToolCall{}, err
 		}
 		changed, err := updated.RowsAffected()
 		if err != nil {
-			return domain.SupervisorToolCall{}, false, err
+			return domain.SupervisorToolCall{}, err
 		}
 		if changed == 1 {
 			if err := appendSupervisorEventTx(ctx, tx, run, events.SupervisorToolCompleteEvent,
 				"run_supervisor", supervisorToolRoundSubject(current, call.Round), map[string]any{
 					"turn": call.Turn, "attempt_id": call.AttemptID, "round": call.Round,
 				}); err != nil {
-				return domain.SupervisorToolCall{}, false, err
+				return domain.SupervisorToolCall{}, err
 			}
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return domain.SupervisorToolCall{}, false, err
-	}
-	return call, false, nil
+	return call, nil
 }
 
 func supervisorWebEvidenceResultEnvelope(raw string) bool {

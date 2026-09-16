@@ -33,17 +33,25 @@ type FileEditChangeSet struct {
 func BuildFileEditChangeSet(run domain.Run, mission domain.Mission,
 	previews []fileedit.Preview,
 ) (FileEditChangeSet, error) {
+	return BuildFileEditChangeSetForWorkspace(run, mission, mission.WorkspaceID, previews)
+}
+
+// BuildFileEditChangeSetForWorkspace projects one already-resolved target. It
+// does not rewrite the Mission's source identity or merge another target's history.
+func BuildFileEditChangeSetForWorkspace(run domain.Run, mission domain.Mission,
+	workspaceID string, previews []fileedit.Preview,
+) (FileEditChangeSet, error) {
 	if !validControlIdentity(run.ID) || !validControlIdentity(run.SessionID) ||
-		!validControlIdentity(mission.WorkspaceID) || run.MissionID != mission.ID ||
+		!validControlIdentity(mission.WorkspaceID) || !validControlIdentity(workspaceID) || run.MissionID != mission.ID ||
 		len(previews) > MaxFileEditChangeSetItems {
 		return FileEditChangeSet{}, apperror.New(apperror.CodeInternal,
 			"file edit change set binding is invalid")
 	}
 	result := FileEditChangeSet{RunID: run.ID, SessionID: run.SessionID,
-		WorkspaceID: mission.WorkspaceID, Items: append([]fileedit.Preview{}, previews...)}
+		WorkspaceID: workspaceID, Items: append([]fileedit.Preview{}, previews...)}
 	for _, preview := range previews {
 		if !validControlIdentity(preview.ID) || preview.SessionID != run.SessionID ||
-			preview.WorkspaceID != mission.WorkspaceID ||
+			preview.WorkspaceID != workspaceID ||
 			preview.Path == "" || preview.Path != strings.TrimSpace(preview.Path) ||
 			!fileedit.ValidStatus(preview.Status) || len([]byte(preview.Diff)) > fileedit.MaxDiffBytes {
 			return FileEditChangeSet{}, apperror.New(apperror.CodeInternal,

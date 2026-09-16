@@ -31,7 +31,7 @@ type ProviderDraft = {
   models: string;
   defaultModel: string;
   enabled: boolean;
-  searchMode: "disabled" | "auto" | "searxng" | "provider_native";
+  searchMode: "disabled" | "auto" | "web" | "searxng" | "provider_native";
   nativeSearchDeclared: boolean;
   advancedJSON: string;
   apiKey: string;
@@ -111,6 +111,7 @@ function draftFromDefinition(definition: ProviderDefinitionView): ProviderDraft 
 }
 
 function draftFromPreset(preset: V2ProviderDraftPreset): ProviderDraft {
+  const nativeUnsupported = knownNativeSearchUnsupported(preset.endpointURL);
   return {
     existing: null,
     id: preset.id,
@@ -122,8 +123,8 @@ function draftFromPreset(preset: V2ProviderDraftPreset): ProviderDraft {
     models: preset.models.join("\n"),
     defaultModel: preset.defaultModel,
     enabled: true,
-    searchMode: preset.searchMode,
-    nativeSearchDeclared: preset.nativeSearchDeclared,
+    searchMode: nativeUnsupported && preset.searchMode === "provider_native" ? "auto" : preset.searchMode,
+    nativeSearchDeclared: !nativeUnsupported && preset.nativeSearchDeclared,
     advancedJSON: JSON.stringify(preset.advancedConfig, null, 2),
     apiKey: "",
     syncCredentialReference: true,
@@ -134,6 +135,48 @@ function normalizeModels(value: string): string[] {
   return [...new Set(value.split(/[\n,]/u).map((model) => model.trim()).filter(Boolean))];
 }
 
+function knownNativeSearchUnsupported(endpoint: string): boolean {
+  try {
+    return new URL(endpoint).hostname.toLowerCase().replace(/\.$/u, "") === "api.deepseek.com";
+  } catch {
+    return false;
+  }
+}
+
+function knownVisionDeclaration(value: unknown): value is { vision: string } {
+  return isRecord(value) && Object.keys(value).length === 1 &&
+    typeof value.vision === "string" && ["supported", "unsupported", "unknown"].includes(value.vision);
+}
+
+function draftWithModels(draft: ProviderDraft, models: string): ProviderDraft {
+  const next = { ...draft, models };
+  const advanced = parseAdvancedJSON(draft.advancedJSON).value;
+  if (!advanced || !isRecord(advanced.model_capabilities)) return next;
+  const selected = new Set(normalizeModels(models));
+  const capabilities = { ...advanced.model_capabilities };
+  let changed = false;
+  for (const model of normalizeModels(draft.models)) {
+    // Removing a model also removes its exact, understood declaration. A new
+    // model never inherits vision support from a renamed identifier. Handwritten
+    // unknown values stay intact for the operator to inspect in advanced JSON.
+    if (!selected.has(model) && knownVisionDeclaration(capabilities[model])) {
+      delete capabilities[model];
+      changed = true;
+    }
+  }
+  return changed ? { ...next, advancedJSON: JSON.stringify({ ...advanced, model_capabilities: capabilities }, null, 2) } : next;
+}
+
+function modelCapabilitiesError(config: Record<string, unknown>, models: string[]): string | undefined {
+  if (config.model_capabilities === undefined) return undefined;
+  if (!isRecord(config.model_capabilities)) return "高级 JSON 中的 model_capabilities 必须是对象；原内容已保留，请手动修正。";
+  for (const [model, value] of Object.entries(config.model_capabilities)) {
+    if (!models.includes(model)) return `图片能力仍引用模型列表以外的“${model}”；原内容已保留，请在高级 JSON 中核对修正。`;
+    if (!knownVisionDeclaration(value)) return `模型“${model}”的图片能力配置含无效或未知字段；原内容已保留，请在高级 JSON 中核对修正。`;
+  }
+  return undefined;
+}
+
 function validHTTPSURL(value: string, optional = false): boolean {
   if (optional && value === "") return true;
   try {
@@ -142,6 +185,33 @@ function validHTTPSURL(value: string, optional = false): boolean {
   } catch {
     return false;
   }
+}
+
+export function validProviderEndpointURL(value: string): boolean {
+  if (new TextEncoder().encode(value).length > 2_048 || /[\\\u0000-\u0020\u007f?#]/u.test(value)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    if (!/^https?:\/\//iu.test(value) || parsed.username || parsed.password) return false;
+    // URL normalizes shorthand, integer and escaped IPv4 hosts. Inspect the
+    // original authority as well, matching Go's literal net.ParseIP boundary.
+    const authority = value.slice(value.indexOf("://") + 3).split("/", 1)[0];
+    if (authority.includes("@") || authority.endsWith(":") || /[^\x21-\x7e]|%/u.test(authority)) return false;
+    if (parsed.protocol === "https:") return true;
+    return parsed.protocol === "http:" && literalProviderLoopbackHost(authority, parsed);
+  } catch {
+    return false;
+  }
+}
+
+function literalProviderLoopbackHost(authority: string, parsed: URL): boolean {
+  const host = authority.startsWith("[")
+    ? authority.slice(0, authority.indexOf("]") + 1) : authority.split(":", 1)[0];
+  if (host.toLowerCase() === "localhost") return true;
+  if (/^127(?:\.(?:0|[1-9]\d{0,2})){3}$/u.test(host)) return parsed.hostname === host;
+  return host.startsWith("[") && (parsed.hostname === "[::1]" ||
+    /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/u.test(parsed.hostname));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -302,11 +372,20 @@ function scanPlaintextSecrets(value: unknown, providerID: string): SecretScan | 
   return { secret, sanitized: replace(value), count: 1 };
 }
 
-function hasOwnedCredentialReference(value: unknown, providerID: string): boolean {
+function hasOwnedCredentialReference(value: unknown, providerID?: string): boolean {
   if (Array.isArray(value)) return value.some((child) => hasOwnedCredentialReference(child, providerID));
   if (!isRecord(value)) return false;
-  if (value.$credential === providerID) return true;
+  if (Object.hasOwn(value, "$credential") && (providerID === undefined || value.$credential === providerID)) return true;
   return Object.values(value).some((child) => hasOwnedCredentialReference(child, providerID));
+}
+
+function permitsKeylessLocalProvider(definition: ProviderDefinitionView | undefined): boolean {
+  if (!definition || !validProviderEndpointURL(definition.endpoint_url)) return false;
+  const authority = definition.endpoint_url.slice(definition.endpoint_url.indexOf("://") + 3).split("/", 1)[0];
+  if (!literalProviderLoopbackHost(authority, new URL(definition.endpoint_url))) return false;
+  const config = definition.advanced_config;
+  return isRecord(config) && !hasOwnedCredentialReference(config.request_headers) &&
+    !hasOwnedCredentialReference(config.request_body);
 }
 
 function withSyncedCredentialReference(value: unknown, draft: ProviderDraft): {
@@ -337,7 +416,7 @@ function definitionFromDraft(draft: ProviderDraft): { definition?: ProviderDefin
     return { error: "供应商 ID 需以小写字母开头，只能包含小写字母、数字、_ 或 -，且不能使用内置名称。" };
   }
   if (draft.displayName.trim() === "") return { error: "请填写供应商名称。" };
-  if (!validHTTPSURL(draft.endpointURL.trim())) return { error: "请求地址必须是无内嵌凭据的 HTTPS URL。" };
+  if (!validProviderEndpointURL(draft.endpointURL.trim())) return { error: "请求地址必须使用 HTTPS；仅本机回环地址可使用 HTTP。地址不能包含凭据、查询参数或片段。" };
   if (!validHTTPSURL(draft.websiteURL.trim(), true)) return { error: "官网链接必须是 HTTPS URL。" };
   const models = normalizeModels(draft.models);
   if (models.length === 0) return { error: "请至少填写一个模型名称。" };
@@ -349,6 +428,8 @@ function definitionFromDraft(draft: ProviderDraft): { definition?: ProviderDefin
   const advanced = parseAdvancedJSON(draft.advancedJSON);
   if (!advanced.value) return { error: advanced.error };
   const advancedConfig = advanced.value;
+  const capabilitiesError = modelCapabilitiesError(advancedConfig, models);
+  if (capabilitiesError) return { error: capabilitiesError };
   return { definition: {
     version: "provider_definition.v1",
     id,
@@ -369,7 +450,7 @@ function definitionFromDraft(draft: ProviderDraft): { definition?: ProviderDefin
 }
 
 function searchModeLabel(mode: string): string {
-  return ({ disabled: "关闭", auto: "自动选择", searxng: "SearXNG", provider_native: "供应商原生" })[mode]
+  return ({ disabled: "关闭", auto: "自动选择", web: "普通网页搜索（DuckDuckGo）", searxng: "SearXNG", provider_native: "供应商原生" })[mode]
     ?? mode;
 }
 
@@ -577,7 +658,11 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
       }
       queryClient.setQueryData<ProviderDefinitionCollectionView>(definitionQueryKey,
         result.collection);
-      await queryClient.invalidateQueries({ queryKey: credentialQueryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: credentialQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
+        queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === "v2" && query.queryKey[1] === "thread" && query.queryKey[3] === "model-route" }),
+      ]);
       setNotice(`已保存 ${definition.display_name}`);
       setDraft(null);
       onSaved?.(result.definition ?? definition);
@@ -776,7 +861,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
               <small>{provider.id} · {provider.default_model}</small></span>
             <span className="v2-provider-tags"><i className={provider.enabled ? "is-ready" : ""}>
               {provider.enabled ? "已启用" : "已停用"}</i>
-              <i>{credential?.configured ? "密钥已存储" : "无系统密钥"}</i>
+              <i>{credential?.configured ? "密钥已存储" : permitsKeylessLocalProvider(provider)
+                ? "本机 · 可不填密钥" : "无系统密钥"}</i>
               <i>{searchModeLabel(provider.search_mode)}</i></span>
             <ChevronRight aria-hidden="true" size={16} /></button>;
         })}
@@ -787,13 +873,17 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
   const configuredCredential = credentialByProvider.get(draft.id)?.configured ?? false;
   const modelOptions = normalizeModels(draft.models);
   const parsedDraftDefinition = definitionFromDraft(draft).definition;
+  const parsedCapabilities = parseAdvancedJSON(draft.advancedJSON).value;
+  const modelCapabilities = isRecord(parsedCapabilities?.model_capabilities) ? parsedCapabilities.model_capabilities : {};
+  const capabilitiesError = parsedCapabilities ? modelCapabilitiesError(parsedCapabilities, modelOptions) : undefined;
+  const keylessLocal = permitsKeylessLocalProvider(parsedDraftDefinition);
   const savedConfiguration = Boolean(draft.existing && parsedDraftDefinition && !draft.apiKey &&
     definitionFingerprint(parsedDraftDefinition) === definitionFingerprint(draft.existing));
   const harnessControlAvailable = client.hasModelControl &&
     typeof client.diagnoseProvider === "function" && typeof client.qualifyModelHarness === "function";
   const harnessBlocker = !draft.existing ? "先保存供应商配置后才能验证。"
     : !savedConfiguration ? "当前更改尚未保存；请先保存，再验证已持久化的精确配置。"
-      : !configuredCredential ? "请先把 API Key 保存到系统凭据管理器。"
+      : !configuredCredential && !keylessLocal ? "请先把 API Key 保存到系统凭据管理器；只有未引用凭据的本机模型可不填密钥。"
         : !harnessControlAvailable ? "当前桌面启动未开放模型诊断与 Harness 验证。"
           : !draft.enabled ? "供应商已停用；启用并保存后才能验证。" : "";
   return <><div className="v2-provider-editor-heading">
@@ -804,7 +894,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
       <p>高级 JSON 可自由编辑；受保护字段与明文密钥会在保存边界被拒绝。</p></div></div>
     <form className="v2-provider-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-basics-title">
-        <header><div><h2 id="provider-basics-title">连接</h2><p>请求只发送到你明确填写的 HTTPS 端点。</p></div>
+        <header><div><h2 id="provider-basics-title">连接</h2><p>请求发送到你填写的模型地址；外部服务须使用 HTTPS，本机回环地址可使用 HTTP。</p></div>
           <label className="v2-provider-enabled"><input checked={draft.enabled}
             onChange={(event) => update("enabled", event.target.checked)} type="checkbox" />
             <span aria-hidden="true"><i /></span>启用</label></header>
@@ -824,7 +914,16 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
             onChange={(event) => update("websiteURL", event.target.value)}
             placeholder="https://example.com（可选）" type="url" value={draft.websiteURL} /></label>
           <label className="is-wide">请求地址<input inputMode="url"
-            onChange={(event) => update("endpointURL", event.target.value)}
+            onChange={(event) => {
+              const endpointURL = event.target.value;
+              setDraft((current) => current ? { ...current, endpointURL,
+                ...(knownNativeSearchUnsupported(endpointURL) ? {
+                  searchMode: current.searchMode === "provider_native" ? "auto" : current.searchMode,
+                  nativeSearchDeclared: false,
+                } : {}),
+              } : current);
+              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null);
+            }}
             placeholder="https://api.example.com/v1/chat/completions" required type="url"
             value={draft.endpointURL} /></label>
           <label>协议<select onChange={(event) => {
@@ -832,16 +931,12 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
             setDraft((current) => current ? {
               ...current,
               transport,
-              // Responses-compatible routes get the Provider-hosted search
-              // adapter by default. This remains a declaration, not trust: the
-              // first real search still has to pass Go's bounded qualification.
-              ...(transport === "openai_responses" ? {
-                searchMode: "provider_native" as const,
-                nativeSearchDeclared: true,
-              } : {
+              // Transport compatibility does not declare hosted-search support.
+              // Keep an explicit declaration only while its transport can use it.
+              ...(transport !== "openai_responses" ? {
                 searchMode: current.searchMode === "provider_native" ? "auto" : current.searchMode,
                 nativeSearchDeclared: false,
-              }),
+              } : {}),
             } : current);
             setError("");
             setNotice("");
@@ -860,15 +955,36 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
             {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
           <label className="is-wide">模型列表<textarea aria-describedby="provider-models-help"
             aria-label="模型列表"
-            onChange={(event) => update("models", event.target.value)}
+            onChange={(event) => {
+              const models = event.target.value;
+              setDraft((current) => current ? draftWithModels(current, models) : current);
+              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null);
+            }}
             placeholder={"model-a\nmodel-b"} rows={3} spellCheck={false} value={draft.models} />
-            <small id="provider-models-help">每行或逗号分隔；名称会原样传给供应商。</small></label>
+            <small id="provider-models-help">每行或逗号分隔；名称会原样传给供应商。移除模型会清除对应图片能力声明，新名称需重新确认。</small></label>
         </div>
+      </section>
+
+      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
+        <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明确认每个模型是否接收图片。保存的是能力声明，不代表已经验证图像理解；原始图片会发送到上方的请求地址。</p></div></header>
+        <div className="v2-provider-grid">{modelOptions.map((model) => {
+          const capability = modelCapabilities[model];
+          const state = isRecord(capability) && ["supported", "unsupported", "unknown"].includes(String(capability.vision)) ? String(capability.vision) : "unknown";
+          return <label key={model}>{model}<select aria-label={`${model} 图片输入`} disabled={!parsedCapabilities || Boolean(capabilitiesError)}
+            value={state} onChange={(event) => {
+              if (!parsedCapabilities || capabilitiesError) return;
+              update("advancedJSON", JSON.stringify({ ...parsedCapabilities,
+                model_capabilities: { ...modelCapabilities, [model]: { vision: event.target.value } } }, null, 2));
+            }}><option value="unknown">尚未确认</option><option value="supported">支持图片</option><option value="unsupported">不支持图片</option></select></label>;
+        })}</div>
+        {!modelOptions.length && <p>先填写模型列表。</p>}
+        {!parsedCapabilities && <p>先修正下方高级 JSON，再设置图片能力。</p>}
+        {capabilitiesError && <p>{capabilitiesError}</p>}
       </section>
 
       <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-search-title">
         <header><div><h2 id="provider-search-title">网页搜索</h2>
-          <p>选择 Responses API 时会默认注册供应商原生搜索；首次真实搜索由 Go 做有界资格验证，不支持时会明确降级为不可用。</p></div></header>
+          <p>兼容 Responses API 不代表支持原生搜索。请按供应商实际能力选择；原生搜索的首次真实调用仍须通过有界资格验证。</p></div></header>
         <div className="v2-provider-grid">
           <label className="is-wide">搜索策略<select aria-label="搜索策略" onChange={(event) => {
             const mode = event.target.value as ProviderDraft["searchMode"];
@@ -881,15 +997,29 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
             setQualification(null);
           }} value={draft.searchMode}>
             <option value="disabled">关闭</option><option value="auto">自动选择</option>
-            <option value="searxng">SearXNG</option><option value="provider_native">供应商原生</option>
-          </select><small>{draft.searchMode === "searxng" || draft.searchMode === "auto"
-            ? "SearXNG endpoint 当前由 Desktop 启动配置提供；本页只选择策略，不会自动扩大 Run 网络范围。"
-            : "选择供应商原生时会绑定当前模型、端点、定义 revision 与系统凭据代际。"}</small></label>
+            <option value="web">普通网页搜索（DuckDuckGo）</option>
+            <option value="searxng">SearXNG</option>
+            <option disabled={knownNativeSearchUnsupported(draft.endpointURL)} value="provider_native">供应商原生</option>
+          </select><small>{draft.searchMode === "web"
+            ? "搜索查询会发送到 DuckDuckGo，不依赖当前模型的原生搜索能力，也不需要额外搜索密钥。搜索和网页读取仍受当前任务的网页访问范围限制。"
+            : draft.searchMode === "auto"
+              ? "自动按已配置的 SearXNG 与供应商原生能力选择；没有显式 SearXNG 且原生搜索不可用时使用 DuckDuckGo。不会自动扩大任务的网页访问范围。"
+              : draft.searchMode === "searxng"
+                ? "SearXNG 地址仍由 Desktop 启动配置提供；未配置时不可用。不会自动切换后端或扩大任务的网页访问范围。"
+                : draft.searchMode === "disabled"
+                  ? "关闭此供应商的网页搜索；不会更改当前任务的网页访问范围。"
+                  : "选择供应商原生时会绑定当前模型、端点、定义 revision 与系统凭据代际。"}</small></label>
+          {knownNativeSearchUnsupported(draft.endpointURL) && <p className="is-wide">
+            {draft.existing && draft.searchMode === "provider_native"
+              ? "此官方 DeepSeek 旧配置的原生搜索选择已兼容为普通网页搜索（DuckDuckGo）；已保存的模型、密钥和配置不会因此改写。搜索仍受当前任务的网页访问范围限制。"
+              : "此官方 DeepSeek 地址不支持原生搜索，可使用自动选择或普通网页搜索（DuckDuckGo）。"}
+          </p>}
           <label className="v2-provider-check is-wide"><input aria-label="声明供应商具备原生 Web Search"
             checked={draft.nativeSearchDeclared}
+            disabled={knownNativeSearchUnsupported(draft.endpointURL)}
             onChange={(event) => update("nativeSearchDeclared", event.target.checked)} type="checkbox" />
             <span><strong>声明供应商具备原生 Web Search</strong>
-              <small>该声明本身不扩大网络权限。供应商原生模式会在当前 Run 已精确授权端点后立即注册受控搜索工具，首次真实搜索再完成有界验证，可能产生一次供应商 API 调用费用。</small></span></label>
+              <small>声明不代表搜索已经可用，也不扩大网页抓取权限。原生搜索只使用当前供应商端点的授权范围，首次真实搜索须完成有界验证，可能产生供应商 API 调用费用。</small></span></label>
         </div>
       </section>
 
@@ -909,7 +1039,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
           onChange={(event) => update("syncCredentialReference", event.target.checked)} type="checkbox" />
           <span><strong>把凭据引用同步到高级 JSON</strong>
             <small>输入新 API Key 时，默认写入对应协议的 request_headers。这里只保存 $credential 引用；你仍可自由移动、改模板或关闭同步。</small></span></label>
-        <p id="provider-key-help" className="v2-provider-help">保存后输入框会立即清空。高级 JSON 应使用 <code>$credential</code> 引用。</p>
+        <p id="provider-key-help" className="v2-provider-help">{keylessLocal
+          ? "本机模型未引用凭据，可留空并进行连接验证；若服务要求认证，请填写其真实 API Key。"
+          : <>保存后输入框会立即清空。高级 JSON 应使用 <code>$credential</code> 引用。</>}</p>
       </section>
 
       <section className="v2-settings-card v2-provider-fields v2-provider-harness"

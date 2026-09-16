@@ -234,6 +234,25 @@ func TestApprovalHTTPQueueIsMetadataOnlyAndApproveOnceIsClosedAuthority(t *testi
 		queueEnvelope.Data.CapabilityGrant {
 		t.Fatalf("unexpected approval queue: %#v", queueEnvelope.Data)
 	}
+	previewPath := queuePath + "/" + record.ID + "/preview"
+	preview := performSessionMessageRequest(t, api, http.MethodGet, previewPath,
+		testAccessToken, "", "", nil)
+	var previewEnvelope struct {
+		Data ApprovalPreviewView `json:"data"`
+	}
+	if err := json.Unmarshal(preview.Body.Bytes(), &previewEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Code != http.StatusOK || previewEnvelope.Data.Effect != "dry_run" ||
+		!previewEnvelope.Data.SourceCurrent || previewEnvelope.Data.WorkingDirectory != "." ||
+		previewEnvelope.Data.ApprovalID != record.ID || previewEnvelope.Data.ProposalID != record.ProposalID ||
+		len(previewEnvelope.Data.Fields) != 1 || previewEnvelope.Data.Fields[0].Value != privateCommand {
+		t.Fatalf("preview must expose the bound simulated command: status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	unchanged, err := st.GetApproval(t.Context(), record.ID)
+	if err != nil || unchanged.Status != approval.StatusPending {
+		t.Fatalf("read-only preview decided approval: %#v %v", unchanged, err)
+	}
 
 	decisionPath := "/api/v1/runs/" + run.ID + "/approvals/" + record.ID + "/decision"
 	decision := performSessionMessageRequest(t, api, http.MethodPost, decisionPath,
@@ -264,6 +283,11 @@ func TestApprovalHTTPQueueIsMetadataOnlyAndApproveOnceIsClosedAuthority(t *testi
 		testAccessToken, "", "", nil)
 	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), `"items":[]`) {
 		t.Fatalf("decided approval remained queued: status=%d body=%s", empty.Code, empty.Body.String())
+	}
+	oldPreview := performSessionMessageRequest(t, api, http.MethodGet, previewPath,
+		testAccessToken, "", "", nil)
+	if oldPreview.Code != http.StatusOK || !strings.Contains(oldPreview.Body.String(), `"source_current":false`) {
+		t.Fatalf("decided proposal was still current: %d %s", oldPreview.Code, oldPreview.Body.String())
 	}
 }
 

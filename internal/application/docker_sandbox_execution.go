@@ -545,8 +545,15 @@ func (s *DockerSandboxService) HandleDockerContainerLifecyclePostExit(ctx contex
 	if err != nil {
 		return err
 	}
-	if _, _, err = s.ioService.CaptureOwnedLogs(ctx, request.LifecycleRequest,
-		logPlan); err != nil {
+	var deliver func(sandbox.DockerLogCaptureReceipt, sandbox.DockerLogOutput) error
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		if !output.matches(admission.RunID, admission.ID) {
+			return errors.New("Docker Command Runtime output does not own the exited admission")
+		}
+		deliver = output.accept
+	}
+	if _, _, err = s.ioService.captureOwnedLogs(ctx, request.LifecycleRequest,
+		logPlan, deliver); err != nil {
 		return err
 	}
 	if request.ExitObservation.ExitCode != 0 ||

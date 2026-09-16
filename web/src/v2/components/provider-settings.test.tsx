@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
 import type { ProviderDefinitionView } from "../../api/types";
-import { V2ProviderSettings, type V2ProviderDraftPreset } from "./provider-settings";
+import { V2ProviderSettings, validProviderEndpointURL, type V2ProviderDraftPreset } from "./provider-settings";
 
 const openAIPreset: V2ProviderDraftPreset = {
   id: "official-openai",
@@ -169,6 +169,122 @@ async function fillRequiredProvider(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("V2 custom Provider settings", () => {
+  it.each(["remove", "rename"])("keeps image declarations aligned when models %s without transferring vision support", async (action) => {
+    const controls = createClient([provider({ models: ["acme-pro", "acme-image"],
+      advanced_config: { custom_extension: { keep: "unchanged" }, model_capabilities: {
+        "acme-pro": { vision: "unknown" }, "acme-image": { vision: "supported" },
+      } } })]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    fireEvent.change(screen.getByLabelText("模型列表"), { target: { value: action === "remove" ? "acme-pro" : "acme-pro\nacme-renamed" } });
+    if (action === "rename") expect(screen.getByRole("combobox", { name: "acme-renamed 图片输入" })).toHaveValue("unknown");
+    const expected = { custom_extension: { keep: "unchanged" }, model_capabilities: { "acme-pro": { vision: "unknown" } } };
+    expect(JSON.parse((screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value)).toEqual(expected);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.advanced_config).toEqual(expected);
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { model_capabilities: "handwritten-invalid" },
+    { model_capabilities: { "acme-pro": { vision: "supported", future_detail: "do not discard" } } },
+  ])("preserves invalid handwritten image configuration through model edits and blocks lossy controls", async (advancedConfig) => {
+    const controls = createClient([provider({ advanced_config: advancedConfig })]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    const original = (screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value;
+    expect(screen.getByRole("combobox", { name: "acme-pro 图片输入" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("模型列表"), { target: { value: "acme-renamed" } });
+    await user.selectOptions(screen.getByLabelText("默认模型"), "acme-renamed");
+    expect(screen.getByRole("textbox", { name: "高级 JSON" })).toHaveValue(original);
+    expect(screen.getByRole("combobox", { name: "acme-renamed 图片输入" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("原内容已保留");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it("accepts HTTPS and literal loopback HTTP model endpoints without URL normalization aliases", () => {
+    for (const endpoint of ["https://api.example.com/v1/chat/completions",
+      "http://127.0.0.1:18867/v1/chat/completions", "http://127.2.3.4:80/v1",
+      "http://localhost:18867/v1", "http://LOCALHOST/v1", "http://[::1]:18867/v1",
+      "http://[0:0:0:0:0:0:0:1]/v1", "http://[::ffff:127.0.0.1]:18867/v1"]) {
+      expect(validProviderEndpointURL(endpoint), endpoint).toBe(true);
+    }
+    for (const endpoint of ["http://api.example.com/v1", "http://192.168.1.2/v1", "http://10.0.0.1/v1",
+      "http://127.0.0.1.example.com/v1", "http://localhost.example.com/v1", "http://localhost./v1",
+      "http://127.1/v1", "http://2130706433/v1", "http://0x7f000001/v1", "http://127.00.0.1/v1",
+      "http://%6cocalhost/v1", "http://%31%32%37.0.0.1/v1", "http://127.0.0.1@evil.example/v1",
+      "http://evil.example@localhost/v1", "http://127.0.0.1\\@evil.example/v1", "http://[::2]/v1",
+      "http://[::ffff:192.168.1.2]/v1", "https://user:pass@api.example.com/v1", "https://@api.example.com/v1",
+      "https://api.example.com/v1?key=secret", "http://localhost/v1#fragment", "http://localhost:/v1",
+      "http://local\nhost/v1", "http:localhost/v1", "ftp://localhost/v1"]) {
+      expect(validProviderEndpointURL(endpoint), endpoint).toBe(false);
+    }
+  });
+
+  it("saves an exact local HTTP endpoint while keeping website links HTTPS-only", async () => {
+    const controls = createClient();
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: "添加供应商" }));
+    await fillRequiredProvider(user);
+    const endpoint = "http://127.0.0.1:18867/v1/chat/completions";
+    fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: endpoint } });
+    fireEvent.change(screen.getByLabelText("官网链接"), { target: { value: "http://localhost/" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("官网链接必须是 HTTPS URL");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("官网链接"), { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.endpoint_url).toBe(endpoint);
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses and qualifies a saved keyless local model without writing a credential", async () => {
+    const controls = createClient([provider({ endpoint_url: "http://127.0.0.1:18867/v1/chat/completions",
+      advanced_config: { operator_notes: { $credential: "unused-extension-data" } } })]);
+    controls.providerCredentialStatuses.mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] });
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    const row = await screen.findByRole("button", { name: /Acme AI/u });
+    expect(within(row).getByText("本机 · 可不填密钥")).toBeInTheDocument();
+    await user.click(row);
+    expect(screen.getByText(/本机模型未引用凭据，可留空并进行连接验证/u)).toBeInTheDocument();
+    const verify = screen.getByRole("button", { name: "测试并验证 Harness" });
+    expect(verify).toBeEnabled();
+    await user.click(verify);
+    const dialog = screen.getByRole("dialog", { name: "测试并验证 Harness？" });
+    await user.click(within(dialog).getByRole("button", { name: "开始验证" }));
+    await waitFor(() => expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1));
+    expect(controls.diagnoseProvider).toHaveBeenCalledTimes(1);
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { endpoint_url: "https://api.example.com/v1", advanced_config: {} },
+    { endpoint_url: "http://localhost:18867/v1", advanced_config: {
+      request_headers: { Authorization: { $credential: "acme", template: "Bearer ${secret}" } },
+    } },
+    { endpoint_url: "http://[::1]:18867/v1", advanced_config: {
+      request_body: { nested: [{ $credential: "acme" }] },
+    } },
+  ])("requires missing credentials for remote or credential-referencing models ($endpoint_url)", async (overrides) => {
+    const controls = createClient([provider(overrides)]);
+    controls.providerCredentialStatuses.mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] });
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    expect(screen.getByRole("button", { name: "测试并验证 Harness" })).toBeDisabled();
+    expect(screen.getByText(/请先把 API Key 保存到系统凭据管理器/u)).toBeInTheDocument();
+    expect(controls.diagnoseProvider).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+  });
+
   it("opens a new preset only after definitions load and does not overwrite operator edits", async () => {
     const user = userEvent.setup();
     const controls = createClient();
@@ -297,7 +413,7 @@ describe("V2 custom Provider settings", () => {
     expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
   });
 
-  it("enables qualified Provider-hosted search when the operator selects Responses", async () => {
+  it("does not infer Provider-hosted search from Responses transport and retains an explicit choice", async () => {
     const user = userEvent.setup();
     const controls = createClient();
     renderSettings(controls.client);
@@ -308,13 +424,94 @@ describe("V2 custom Provider settings", () => {
 
     await user.selectOptions(screen.getByLabelText("协议"), "openai_responses");
 
-    expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
+    expect(screen.getByLabelText("搜索策略")).toHaveValue("auto");
+    expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
+    expect(screen.getByText(/兼容 Responses API 不代表支持原生搜索/u)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("搜索策略"), "provider_native");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
-    expect(screen.getByText(/首次真实搜索由 Go 做有界资格验证/u)).toBeInTheDocument();
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.diagnoseProvider).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
 
     await user.selectOptions(screen.getByLabelText("协议"), "openai_chat_completions");
     expect(screen.getByLabelText("搜索策略")).toHaveValue("auto");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
+  });
+
+  it.each([
+    ["https://api.deepseek.com/responses", false],
+    ["https://API.DEEPSEEK.COM./responses", false],
+    ["https://api.deepseek.com.proxy.example/responses", true],
+    ["https://gateway.example/responses", true],
+  ] as const)("uses exact endpoint support for a new preset at %s", async (endpointURL, declared) => {
+    const controls = createClient();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={{ ...openAIPreset,
+        id: "official-deepseek", displayName: "DeepSeek", endpointURL }} />
+    </QueryClientProvider>);
+    await screen.findByRole("heading", { name: "添加供应商" });
+    expect(screen.getByLabelText("搜索策略")).toHaveValue(declared ? "provider_native" : "auto");
+    expect(screen.getByLabelText("声明供应商具备原生 Web Search").getAttribute("type")).toBe("checkbox");
+    if (declared) expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
+    else expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
+    expect(screen.getByLabelText("请求地址")).toHaveValue(endpointURL);
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it("shows a stored official endpoint declaration without silently rewriting it from the preset", async () => {
+    const existing = provider({ id: "official-deepseek", endpoint_url: "https://api.deepseek.com/responses",
+      transport: "openai_responses", search_mode: "provider_native", native_web_search_capability: "declared_unverified" });
+    const controls = createClient([existing]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={{ ...openAIPreset,
+        id: "official-deepseek", endpointURL: existing.endpoint_url }} />
+    </QueryClientProvider>);
+    await screen.findByRole("heading", { name: "编辑供应商" });
+    expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
+    expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
+    expect(screen.getByText(/此官方 DeepSeek 旧配置的原生搜索选择已兼容为普通网页搜索（DuckDuckGo）/u)).toBeInTheDocument();
+    expect(screen.getByLabelText("默认模型")).toHaveValue(existing.default_model);
+    expect(screen.getByLabelText("API Key")).toHaveValue("");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it("saves independent DuckDuckGo search without a native declaration or credential changes", async () => {
+    const controls = createClient([provider()]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.selectOptions(screen.getByLabelText("搜索策略"), "web");
+    expect(screen.getByRole("option", { name: "普通网页搜索（DuckDuckGo）" })).toBeInTheDocument();
+    expect(screen.getByText(/搜索查询会发送到 DuckDuckGo/u)).toHaveTextContent("仍受当前任务的网页访问范围限制");
+    expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition).toMatchObject({
+      search_mode: "web", native_web_search_capability: "unsupported", models: ["acme-pro"],
+      endpoint_url: "https://api.acme.example/v1/chat/completions",
+    });
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+    expect(controls.diagnoseProvider).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+  });
+
+  it("clears an inherited native claim when the operator changes to the known unsupported endpoint", async () => {
+    const controls = createClient();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset} />
+    </QueryClientProvider>);
+    await screen.findByRole("heading", { name: "添加供应商" });
+    expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
+    fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: "https://api.deepseek.com/responses" } });
+    expect(screen.getByLabelText("搜索策略")).toHaveValue("auto");
+    expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
+    expect(screen.getByRole("option", { name: "供应商原生" })).toBeDisabled();
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-5");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
   });
 
   it("requires billing confirmation, diagnoses first, then displays Harness qualification expiry", async () => {

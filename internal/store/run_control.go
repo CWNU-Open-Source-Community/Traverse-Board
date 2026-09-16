@@ -81,6 +81,11 @@ func (s *SQLiteStore) TransitionRunWithLifecycleOperation(ctx context.Context,
 		operation.CreatedAt); err != nil {
 		return domain.RunLifecycleOperation{}, domain.Run{}, false, err
 	}
+	if operation.Action == domain.RunLifecycleStart || operation.AppliedStatus == domain.RunRunning {
+		if err := requireDrydockExecutionAdmissionTx(ctx, tx, run.ID, operation.CreatedAt); err != nil {
+			return domain.RunLifecycleOperation{}, domain.Run{}, false, err
+		}
+	}
 	if operation.Action == domain.RunLifecyclePause {
 		if err := requireQuiescentRunPauseTx(ctx, tx, run.ID); err != nil {
 			return domain.RunLifecycleOperation{}, domain.Run{}, false, err
@@ -259,6 +264,9 @@ func getRunControlRunTx(ctx context.Context, tx *sql.Tx, runID string) (domain.R
 func requireNoActiveRunControlLeaseTx(ctx context.Context, tx *sql.Tx, runID string,
 	at time.Time,
 ) error {
+	if err := requireNoOpenWorkspaceRestoreTx(ctx, tx, runID); err != nil {
+		return err
+	}
 	var active int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
 		WHERE run_id = ? AND status = 'active' AND julianday(expires_at) > julianday(?)`,

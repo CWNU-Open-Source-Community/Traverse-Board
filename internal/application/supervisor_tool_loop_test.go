@@ -21,6 +21,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
@@ -584,10 +585,59 @@ func TestRunSupervisorRecoversRootActionWithTrailingCommentaryAfterToolResult(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 2 || messages[1].Content != "SEARCH_UNAVAILABLE" ||
-		strings.Contains(messages[1].Content, commentary) {
-		t.Fatalf("discarded commentary reached the transcript: %#v", messages)
+	dialogue := dialogueWithSingleToolEvidence(t, st, run.ID, run.SessionID, messages,
+		"specialist_delegation_propose", domain.SupervisorToolFailed)
+	if len(dialogue) != 2 || dialogue[0].Role != "user" || dialogue[1].Role != "assistant" ||
+		dialogue[1].Content != "SEARCH_UNAVAILABLE" {
+		t.Fatalf("recovered answer changed the dialogue: %#v", dialogue)
 	}
+	for _, message := range messages {
+		if strings.Contains(message.Content, commentary) {
+			t.Fatalf("discarded commentary reached the transcript: %#v", message)
+		}
+	}
+}
+
+// A completed tool-backed turn now stores a separate, non-authorizing context
+// observation. It must not be mistaken for another operator/assistant turn.
+func dialogueWithSingleToolEvidence(t *testing.T, st *store.SQLiteStore, runID, sessionID string,
+	messages []session.Message, toolName string, status domain.SupervisorToolCallStatus,
+) []session.Message {
+	t.Helper()
+	rounds, err := st.ListRunSupervisorToolRoundsPage(t.Context(), runID, 0, 2)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
+		t.Fatalf("expected one persisted tool call: rounds=%#v err=%v", rounds, err)
+	}
+	call := rounds[0].Calls[0]
+	if call.ToolName != toolName || call.Status != status || call.ResultJSON == "" {
+		t.Fatalf("unexpected persisted tool result: %#v", call)
+	}
+	var dialogue []session.Message
+	evidenceCount := 0
+	for _, message := range messages {
+		if err := session.ValidateStoredMessage(message); err != nil || message.SessionID != sessionID {
+			t.Fatalf("invalid session message identity/provenance: %#v err=%v", message, err)
+		}
+		switch message.Role {
+		case "user", "assistant":
+			dialogue = append(dialogue, message)
+		case "tool":
+			evidenceCount++
+			if message.Provenance.SourceKind != session.SourceToolResult ||
+				message.Provenance.SourceRef != "supervisor-tools:"+call.AttemptID ||
+				message.Provenance.InstructionAuthorized ||
+				!strings.Contains(message.Content, call.CallID) ||
+				!strings.Contains(message.Content, session.ContentSHA256(call.ResultJSON)) {
+				t.Fatalf("tool context is not exact, non-authorizing persisted evidence: %#v", message)
+			}
+		default:
+			t.Fatalf("unexpected extra transcript message: %#v", message)
+		}
+	}
+	if evidenceCount != 1 {
+		t.Fatalf("tool context evidence count=%d want=1", evidenceCount)
+	}
+	return dialogue
 }
 
 func TestRunSupervisorRecoversPendingToolResultAcrossStoreRestart(t *testing.T) {
@@ -763,6 +813,9 @@ func TestRunSupervisorSemanticToolKeySurvivesFailedTurnAndChangedProviderID(t *t
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || first.Checkpoint.Phase != domain.SupervisorTurnFailed {
 		t.Fatalf("first turn attempt should fail protocol repair: %#v err=%v", first, err)
 	}
+	if _, err := application.NewRunService(st).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	second, err := supervisor.Step(ctx, run.ID)
 	if err != nil || second.ToolCalls != 1 || second.Text != "retry converged" {
 		t.Fatalf("second turn attempt did not recover: %#v err=%v", second, err)
@@ -840,7 +893,7 @@ func TestRunSupervisorBoundsStructuredToolRounds(t *testing.T) {
 	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
 		result.ToolRounds != domain.MaxSupervisorToolRounds ||
-		result.ToolCalls != domain.MaxSupervisorToolRounds || result.ProtocolRepairs != 1 {
+		result.ToolCalls != domain.MaxSupervisorToolRounds || result.ProtocolRepairs != 0 {
 		t.Fatalf("structured tool round limit was not enforced: %#v err=%v", result, err)
 	}
 	items, listErr := st.ListWorkItems(ctx, domain.WorkItemFilter{RunID: run.ID})

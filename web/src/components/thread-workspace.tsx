@@ -18,10 +18,13 @@ import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { submitComposerOnEnter } from "../lib/composer-keyboard";
 import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { threadActivityLabel } from "../lib/thread-activity-label";
 import { ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
+import { LifecycleStatusBadge } from "./lifecycle-status";
 import { ApprovalPanel } from "./approval-panel";
 import { RunControlPanel } from "./run-workspace";
 import { ThreadTranscript } from "./thread-transcript";
+import { useV2ThreadExecution } from "../v2/components/thread-execution-control";
 
 const maximumContentBytes = 16 * 1024;
 
@@ -72,15 +75,16 @@ export function ThreadWorkspace({ client, threadID }: {
   if (detailQuery.isError || !detailQuery.data) return <ErrorState error={detailQuery.error} />;
   const detail = detailQuery.data;
   const currentRun = detail.active_run ?? detail.last_run;
-  return <ThreadWorkspaceReady client={client} currentRunID={currentRun.id}
+  return <ThreadWorkspaceReady client={client} threadID={threadID} currentRunID={currentRun.id}
     detail={detail} durableItems={durableItems} pendingItems={pendingItems}
     refreshTimer={refreshTimer} setPendingItems={setPendingItems}
     transcriptQuery={transcriptQuery} />;
 }
 
-function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pendingItems,
+function ThreadWorkspaceReady({ client, threadID, currentRunID, detail, durableItems, pendingItems,
   refreshTimer, setPendingItems, transcriptQuery }: {
   client: CyberAgentClient;
+  threadID: string;
   currentRunID: string;
   detail: ThreadDetailView;
   durableItems: ThreadTranscriptItemView[];
@@ -91,6 +95,15 @@ function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pend
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
+  const execution = useV2ThreadExecution(client, threadID);
+  const activity = threadActivityLabel({ threadID, execution: execution.data,
+    readable: client.hasThreadExecutionRead === true, error: execution.isError });
+  const activityEnglish: Record<string, string> = {
+    "正在工作": "Working", "等待新消息": "Waiting for a new message", "正在停止": "Stopping",
+    "停止未完成": "Stop incomplete", "正在同步状态": "Syncing activity status",
+    "活动状态未提供": "Activity status not provided", "状态读取失败": "Could not read activity status",
+    "活动状态未知": "Activity unknown",
+  };
   const runDetailQuery = useQuery({
     queryKey: ["run", currentRunID],
     queryFn: ({ signal }) => client.get<RunDetailView>(
@@ -150,6 +163,8 @@ function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pend
         <div className="workspace-kicker">Thread {shortID(detail.thread.id)}</div>
         <h1>{detail.thread.title}</h1>
         <div className="header-meta"><StatusBadge status={detail.thread.status} />
+          <span role="status" aria-label={t("Agent 活动", "Agent activity")}>{t("Agent 活动：", "Agent activity: ")}
+            {t(activity, activityEnglish[activity] ?? "Execution state unavailable")}</span>
           <span>{t("稳定 Thread 身份", "Stable Thread identity")}</span>
           <span>{t("输入", "Composer")}: {detail.thread.composer_state}</span>
           {deliveryCount > 0 && <span>{t("交付", "Delivery")}: {deliveryCount}</span>}</div>
@@ -166,7 +181,7 @@ function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pend
     <details className="thread-control-drawer" open={detail.active_run?.status === "waiting_approval"}>
       <summary><span><Activity aria-hidden="true" size={15} />
         {t("运行与审批控制", "Run and approval controls")}</span>
-        <span><StatusBadge status={detail.active_run?.status ?? detail.last_run.status} />
+        <span><LifecycleStatusBadge status={detail.active_run?.status ?? detail.last_run.status} />
           <ChevronDown aria-hidden="true" size={15} /></span></summary>
       <div className="thread-control-content">
         {runDetailQuery.isLoading && <LoadingState />}

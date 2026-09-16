@@ -92,14 +92,16 @@ func (s *SQLiteStore) GetThreadCommandRuntimeJobMetadata(ctx context.Context,
 	var updatedAt string
 	err := s.db.QueryRowContext(ctx, `SELECT job.id, job.operation_digest, job.run_id,
 		job.working_directory, job.state, job.exit_code, job.started_at,
-		job.completed_at, job.updated_at
+		job.completed_at, job.updated_at, job.mission_id, job.session_id,
+		job.workspace_id, job.stdin_policy, job.stdin_write_count, job.credentials
 		FROM command_runtime_jobs job
 		WHERE job.id = ? AND EXISTS (
 			SELECT 1 FROM thread_runs binding
 			WHERE binding.thread_id = ? AND binding.run_id = job.run_id
 		) LIMIT 1`, jobID, threadID).Scan(&value.ID, &value.OperationDigest,
 		&value.RunID, &value.WorkingDirectory, &state, &exitCode, &startedAt,
-		&completedAt, &updatedAt)
+		&completedAt, &updatedAt, &value.MissionID, &value.SessionID,
+		&value.WorkspaceID, &value.StdinPolicy, &value.StdinWriteCount, &value.Credentials)
 	if errors.Is(err, sql.ErrNoRows) {
 		return runner.CommandRuntimeJobMetadata{}, apperror.New(
 			apperror.CodeNotFound, "Thread command activity was not found")

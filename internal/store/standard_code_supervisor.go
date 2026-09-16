@@ -115,6 +115,9 @@ func (s *SQLiteStore) AppendStandardCodeSupervisorLedger(ctx context.Context,
 	if err := requireStandardCodeSupervisorBindingTx(ctx, tx, entry); err != nil {
 		return domain.StandardCodeSupervisorLedgerEntry{}, false, err
 	}
+	if err := requireStandardCodeContinuationTx(ctx, tx, entry); err != nil {
+		return domain.StandardCodeSupervisorLedgerEntry{}, false, err
+	}
 	eventType := standardCodeSupervisorEventType(entry)
 	event, err := events.New(entry.Snapshot.RunID, entry.Snapshot.MissionID, eventType,
 		"standard_code_supervisor", entry.ID, map[string]any{

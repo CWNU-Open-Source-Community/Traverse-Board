@@ -120,31 +120,20 @@ func (e *MutationExecutor) CaptureBinding(ctx context.Context, root string) (Mut
 	if err != nil {
 		return MutationBinding{}, err
 	}
-	head, err := e.gitOutput(ctx, root, "rev-parse", "--verify", "HEAD")
+	// Share the complete content/metadata binding, including linked-worktree
+	// Git paths. Porcelain alone does not change when a tracked file is edited
+	// again between review and execution.
+	advanced := &AdvancedExecutor{gitPath: e.gitPath, commandContext: e.commandContext,
+		maxDuration: e.maxDuration, now: func() time.Time { return time.Now().UTC() }}
+	bound, err := advanced.CaptureAdvancedBinding(ctx, root)
 	if err != nil {
-		// Unborn HEAD is a valid repository state (no commits yet).
-		head = "unborn"
+		return MutationBinding{}, err
 	}
-	status, err := e.gitOutput(ctx, root, "status", "--porcelain=v1")
-	if err != nil {
-		return MutationBinding{}, apperror.Normalize(err)
-	}
-	branch, err := e.gitOutput(ctx, root, "branch", "--show-current")
-	if err != nil {
-		branch = ""
-	}
-	indexRaw, err := os.ReadFile(filepath.Join(root, ".git", "index"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return MutationBinding{}, apperror.Normalize(err)
-	}
-	indexDigest := sha256.Sum256(indexRaw)
-	untrackedHash := e.untrackedContentHash(ctx, root)
-	statusHash := sha256.Sum256([]byte(status + untrackedHash))
 	return MutationBinding{
 		ProtocolVersion: MutationProtocolVersion, Root: root,
-		Head: strings.TrimSpace(head), Branch: strings.TrimSpace(branch),
-		IndexSHA256:       hex.EncodeToString(indexDigest[:]),
-		StatusFingerprint: hex.EncodeToString(statusHash[:]),
+		Head: bound.Head, Branch: bound.Branch,
+		IndexSHA256:       bound.IndexSHA256,
+		StatusFingerprint: bound.Fingerprint(),
 		CapturedAt:        time.Now().UTC(),
 	}, nil
 }
@@ -159,11 +148,31 @@ func (e *MutationExecutor) Review(ctx context.Context, root string, spec Mutatio
 		return MutationReview{}, err
 	}
 	review := MutationReview{Binding: binding, TargetBranch: spec.Branch}
-	state, err := Inspect(ctx, root, "git-mutation")
+	state, err := e.InspectThreadGitState(ctx, root, "git-mutation")
 	if err != nil {
 		return MutationReview{}, err
 	}
 	review.Changes = state.Changes
+	if len(spec.Paths) > 0 && (spec.Operation == MutationCommit || spec.Operation == MutationStage || spec.Operation == MutationUnstage) {
+		var selected SelectedGitReview
+		if spec.Operation == MutationCommit {
+			selected, err = e.ReviewSelected(ctx, root, spec.Paths)
+		} else {
+			selected, err = e.ReviewIndexChange(ctx, root, spec.Paths, spec.Operation == MutationUnstage)
+		}
+		if err != nil {
+			return MutationReview{}, err
+		}
+		review.StagedDiff = selected.Diff
+		after, err := e.CaptureBinding(ctx, root)
+		if err != nil {
+			return MutationReview{}, err
+		}
+		if !bindingCurrent(binding, after) {
+			return MutationReview{}, apperror.New(apperror.CodeConflict, "repository changed during review")
+		}
+		return review, nil
+	}
 	if spec.Operation == MutationCommit || spec.Operation == MutationStage {
 		staged, err := e.gitOutput(ctx, root, "diff", "--cached", "--stat")
 		if err == nil {
@@ -466,7 +475,7 @@ func normalizeRepositoryRoot(root string) (string, error) {
 // ordinary editor is the no-op `true` command so a reviewed rebase continuation
 // can reuse Git's existing commit message without invoking a user editor.
 func hardenedGitEnvironment() []string {
-	return []string{
+	environment := []string{
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_ATTR_NOSYSTEM=1",
@@ -498,6 +507,17 @@ func hardenedGitEnvironment() []string {
 		"LANG=C",
 		"SystemRoot=" + os.Getenv("SystemRoot"),
 	}
+	// Git must expand repository-local include.path=~/... consistently with
+	// the read-only identity preview. This is only the home path; global and
+	// system config stay disabled and executable local drivers are rejected.
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home != "" {
+		environment = append(environment, "HOME="+home)
+	}
+	return environment
 }
 
 // validateHardenedGitRepository rejects repository-local executable Git
@@ -512,7 +532,7 @@ func validateHardenedGitRepository(ctx context.Context, gitPath, root string) er
 	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
 	defer cancel()
 	command := repositoryCommandContext(commandCtx, gitPath, "-C", root,
-		"--no-optional-locks", "config", "--local", "--null", "--get-regexp",
+		"--no-optional-locks", "config", "--includes", "--null", "--get-regexp",
 		`^(filter|diff|merge)\..*\.(clean|smudge|process|required|command|textconv|driver)$`)
 	command.Dir, command.Env = root, hardenedGitEnvironment()
 	var stdout, stderr boundedBuffer

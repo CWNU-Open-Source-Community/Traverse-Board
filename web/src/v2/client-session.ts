@@ -6,6 +6,7 @@ type ConnectionSnapshot = ReturnType<typeof useConnectionStore.getState>;
 function capabilities(state: ConnectionSnapshot): ClientCapabilities {
   return {
     runControlEnabled: state.runControlEnabled,
+    workspaceImportEnabled: state.workspaceImportEnabled,
     executionPermissionControlEnabled: state.executionPermissionControlEnabled,
     workspaceSandboxEnabled: state.workspaceSandboxEnabled,
     browserCDPPermissionControlEnabled: state.browserCDPPermissionControlEnabled,
@@ -25,6 +26,7 @@ function capabilities(state: ConnectionSnapshot): ClientCapabilities {
     sessionSteeringControlEnabled: state.sessionSteeringControlEnabled,
     runLifecycleEnabled: state.runLifecycleEnabled,
     runExecutionEnabled: state.runExecutionEnabled,
+    threadExecutionReadEnabled: state.threadExecutionReadEnabled,
     planDeliveryControlEnabled: state.planDeliveryControlEnabled,
     approvalControlEnabled: state.approvalControlEnabled,
     controlledCommandProposalControlEnabled: state.controlledCommandProposalControlEnabled,

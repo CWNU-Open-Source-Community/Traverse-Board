@@ -45,6 +45,18 @@ func (s *SQLiteStore) CreateDrydockTrust(ctx context.Context,
 		return drydock.Trust{}, false, err
 	}
 	defer tx.Rollback()
+	valueResult, replayed, err := createDrydockTrustTx(ctx, tx, value)
+	if err != nil {
+		return drydock.Trust{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return drydock.Trust{}, false, err
+	}
+	return valueResult, replayed, nil
+}
+
+func createDrydockTrustTx(ctx context.Context, tx *sql.Tx, value drydock.Trust) (drydock.Trust, bool, error) {
+	var err error
 	if existing, found, getErr := getDrydockTrustByRun(ctx, tx, value.RunID); getErr != nil {
 		return drydock.Trust{}, false, getErr
 	} else if found {
@@ -88,9 +100,6 @@ func (s *SQLiteStore) CreateDrydockTrust(ctx context.Context,
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 		return drydock.Trust{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return drydock.Trust{}, false, err
-	}
 	return value, false, nil
 }
 
@@ -111,6 +120,18 @@ func (s *SQLiteStore) PrepareDrydock(ctx context.Context,
 		return drydock.Workspace{}, false, err
 	}
 	defer tx.Rollback()
+	valueResult, replayed, err := prepareDrydockTx(ctx, tx, value)
+	if err != nil {
+		return drydock.Workspace{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return drydock.Workspace{}, false, err
+	}
+	return valueResult, replayed, nil
+}
+
+func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace) (drydock.Workspace, bool, error) {
+	var err error
 	if existing, found, getErr := getDrydockByRun(ctx, tx, value.RunID); getErr != nil {
 		return drydock.Workspace{}, false, getErr
 	} else if found {
@@ -174,9 +195,6 @@ func (s *SQLiteStore) PrepareDrydock(ctx context.Context,
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 		return drydock.Workspace{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return drydock.Workspace{}, false, err
-	}
 	return value, false, nil
 }
 
@@ -184,7 +202,7 @@ func (s *SQLiteStore) AdvanceDrydock(ctx context.Context, value drydock.Workspac
 	expectedGeneration int64, receipt drydock.Receipt,
 ) (drydock.Workspace, bool, error) {
 	if err := value.Validate(); err != nil || receipt.Validate() != nil ||
-		receipt.DrydockID != value.ID || receipt.RunID != value.RunID ||
+		receipt.DrydockID != value.ID ||
 		receipt.SourceIdentitySHA256 != value.Source.Fingerprint() ||
 		receipt.RootFingerprint != value.RootFingerprint ||
 		receipt.GenerationBefore != expectedGeneration ||
@@ -211,7 +229,7 @@ func (s *SQLiteStore) CreateDrydockDelivery(ctx context.Context,
 	expectedGeneration int64, receipt drydock.Receipt,
 ) (drydock.DeliveryProposal, drydock.Workspace, bool, error) {
 	if proposal.Validate() != nil || value.Validate() != nil || receipt.Validate() != nil ||
-		proposal.DrydockID != value.ID || proposal.RunID != value.RunID ||
+		proposal.DrydockID != value.ID || proposal.RunID != receipt.RunID ||
 		proposal.Generation != value.Generation || receipt.Operation != drydock.OperationDeliver ||
 		proposal.OperationKeySHA256 != receipt.OperationKeySHA256 ||
 		proposal.RequestFingerprint != receipt.RequestFingerprint ||
@@ -403,6 +421,36 @@ func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
 		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock ownership generation or identity changed")
 	}
+	hasBindings, bindingErr := hasRunFileDrydockBindings(ctx, tx)
+	if bindingErr != nil {
+		return drydock.Workspace{}, false, bindingErr
+	}
+	if hasBindings {
+		bound, present, err := getRunFileDrydock(ctx, tx, receipt.RunID)
+		if err != nil {
+			return drydock.Workspace{}, false, err
+		}
+		if !present || bound.ID != value.ID {
+			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt does not belong to this execution context")
+		}
+		if err := requireCurrentRunDrydockTx(ctx, tx, receipt.RunID); err != nil {
+			return drydock.Workspace{}, false, err
+		}
+		var cleaning bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM drydock_cleanup_operations cleanup
+			WHERE cleanup.drydock_id=? AND cleanup.status='prepared' AND NOT (
+			?='cleanup' AND cleanup.operation_key_sha256=? AND cleanup.request_fingerprint=?
+			AND cleanup.run_id=? AND cleanup.expected_generation=?))`, value.ID, receipt.Operation,
+			receipt.OperationKeySHA256, receipt.RequestFingerprint, receipt.RunID, expectedGeneration).Scan(&cleaning); err != nil {
+			return drydock.Workspace{}, false, err
+		}
+		if cleaning {
+			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+				"Thread working directory cleanup must be confirmed before changing its lifecycle")
+		}
+	} else if receipt.RunID != value.RunID {
+		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt owner differs")
+	}
 	if value.State == drydock.StateCleaned {
 		cleanup := receipt.Operation == drydock.OperationCleanup &&
 			receipt.Outcome == drydock.OutcomeSucceeded
@@ -500,7 +548,7 @@ func drydockReceiptEvent(value drydock.Workspace,
 			eventType = events.DrydockRecoveredEvent
 		}
 	}
-	event, err := events.New(value.RunID, value.MissionID, eventType, "drydock",
+	event, err := events.New(receipt.RunID, value.MissionID, eventType, "drydock",
 		receipt.ID, map[string]any{
 			"receipt_id": receipt.ID, "drydock_id": value.ID,
 			"workspace_id": value.WorkspaceID, "operation": receipt.Operation,

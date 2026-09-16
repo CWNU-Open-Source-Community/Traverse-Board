@@ -462,9 +462,12 @@ function Write-WindowsResource {
     )
 
     $outputPath = Join-Path $repoRoot $RelativeOutputPath
+    # Both architectures embed the same Wails DPI and non-elevating manifest.
+    $manifestPath = Join-Path $repoRoot "packaging/windows/TraverseBoard.exe.manifest"
     & go run github.com/akavel/rsrc@v0.10.2 `
         -arch $Architecture `
         -ico $IcoPath `
+        -manifest $manifestPath `
         -o $outputPath
     if ($LASTEXITCODE -ne 0) {
         throw "rsrc failed for $Architecture with exit code $LASTEXITCODE"

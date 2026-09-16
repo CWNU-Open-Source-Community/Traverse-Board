@@ -18,7 +18,7 @@ function canExpand(status: RunDetailView["run"]["status"] | undefined): boolean 
 
 function readinessLabel(value: ProviderSearchReadinessView | undefined): string {
   if (!value) return "检查搜索…";
-  if (value.state === "ready") return "搜索就绪";
+  if (value.state === "ready") return "搜索配置就绪";
   if (value.state === "network_disabled") return "搜索未联网";
   if (value.state === "missing_allowlist") return "搜索缺目标";
   if (value.state === "provider_unqualified") return "搜索待验证";
@@ -29,7 +29,7 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
   if (!value) return "正在核对当前 Run、Provider 与精确网络范围。";
   switch (value.reason) {
   case "run_network_disabled":
-    return "当前 Run 没有为自托管搜索后端开放出站；供应商原生搜索与直接 URL 抓取分别授权。";
+    return "当前任务没有为网页搜索后端开放出站；供应商原生搜索与直接 URL 抓取分别授权。";
   case "search_endpoint_not_allowlisted":
     return value.required_target
       ? `搜索后端需要明确允许 ${value.required_target}；未列出的主机仍会被拒绝。`
@@ -56,13 +56,13 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
   case "provider_search_policy_disabled":
     return "当前供应商明确关闭了搜索策略。";
   case "search_backend_not_configured":
-    return "当前供应商没有可用的原生搜索或 SearXNG 后端。";
+    return "当前选择的搜索后端尚未配置；选择 SearXNG 时需要提供外部搜索服务地址。";
   case "provider_search_configuration_invalid":
     return "当前供应商的搜索声明与传输配置不一致。";
   default:
     return value.search_policy === "provider_native"
-      ? `${value.provider || "当前 Provider"} 的托管搜索已就绪；它只访问供应商 API，不继承或扩大直接 URL 抓取权限。`
-      : `${value.provider || "当前 Provider"} · ${value.search_policy || "已选择后端"} 已通过运行时检查。`;
+      ? `${value.provider || "当前 Provider"} 的托管搜索配置与网络授权已就绪；它只访问供应商 API，不扩大直接 URL 抓取权限。实际搜索结果以本次工具返回为准。`
+      : `${value.search_policy === "web" ? "普通网页搜索（DuckDuckGo）" : value.search_policy === "searxng" ? "外部搜索服务（SearXNG）" : "网页搜索后端"}的配置与网络授权已就绪；实际搜索结果以本次工具返回为准。`;
   }
 }
 
@@ -75,7 +75,7 @@ function remediationLabel(value: ProviderSearchReadinessView | undefined): strin
   case "configure_search_provider": return "到模型设置检查供应商与搜索后端";
   case "enable_provider_search": return "到模型设置启用搜索策略";
   case "repair_provider_configuration": return "修正 Provider 传输与搜索声明";
-  default: return "Provider、网络范围与搜索后端均已就绪";
+  default: return "配置与网络授权允许发起搜索";
   }
 }
 
@@ -178,7 +178,7 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
         : current.length === 0 ? "无网络" : `${current.length} 个主机`}</span>
     </header>
     {threadID && <div className={`v2-search-readiness state-${readiness?.state ?? "loading"}`}
-      role="status"><span><strong>供应商搜索 · {readinessQuery.isError
+      role="status"><span><strong>{readiness?.search_policy === "provider_native" ? "供应商搜索" : "网页搜索"} · {readinessQuery.isError
         ? "无法检查" : readinessLabel(readiness)}</strong>
         <small>{readinessQuery.isError
           ? "搜索 readiness 接口暂不可用；网络白名单仍按下方事实显示。"

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CyberAgentClient } from "../api/client";
+import { APIRequestError, CyberAgentClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from
   "../test/capability-readiness";
@@ -246,6 +246,29 @@ describe("ExecutionPermissionPanel", () => {
 describe("StandardCodeReadinessPanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("keeps an already configured V2 task in Deliver without treating the preset tuple or current grant as configuration", async () => {
+    const configured = { ...detail(), run: { ...detail().run, standard_code_preset_configured: true } };
+    const readiness = standardCodeReadyReadiness();
+    expect(readiness.presets[0]?.selected).toBe(false);
+    expect(readiness.command_runtime.current_run_granted).toBe(false);
+    const configureStandardCode = vi.fn();
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient();
+    const content = (threadID?: string) => <QueryClientProvider client={queryClient}>
+      <StandardCodeReadinessPanel client={client} detail={configured} readiness={readiness} threadID={threadID} />
+    </QueryClientProvider>;
+    const view = render(content("thread-1"));
+    const delivering = screen.getByRole("button", { name: /交付中/ });
+    expect(delivering).toBeDisabled();
+    expect(delivering).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /开始编码/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("受阻")).not.toBeInTheDocument();
+    await userEvent.setup().click(delivering);
+    expect(configureStandardCode).not.toHaveBeenCalled();
+    view.rerender(content());
+    expect(screen.getByRole("button", { name: /开始编码/ })).toBeEnabled();
+  });
+
   it("shows protocol, installed adapter, backend readiness, and current Run grant separately", () => {
     const readiness = capabilityReadinessFixture();
     readiness.command_runtime = {
@@ -285,9 +308,9 @@ describe("StandardCodeReadinessPanel", () => {
       selection_reason: "auto_local_ready", status: "blocked",
       trust_digest: trustDigest, trust_required: true, workspace_id: "workspace-1",
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-standard-code", data: blocked,
-    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
@@ -416,6 +439,82 @@ describe("StandardCodeReadinessPanel", () => {
     expect(await screen.findByText(/已创建新的 Code Run/)).toHaveTextContent("run-new-");
     expect(queryClient.getQueryData<RunDetailView>(["run", "run-1"])?.run.id)
       .toBe("run-1");
+  });
+
+  it("retains the original unknown configuration across Run changes and unmounts without cross-scope callbacks", async () => {
+    let finishFirst!: (value: unknown) => void;
+    const configureStandardCode = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockRejectedValueOnce(new Error("configuration response lost"));
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const second = { ...detail(), run: { ...detail().run, id: "run-2" } };
+    const content = (value: RunDetailView, threadID: string) => <QueryClientProvider client={queryClient}>
+      <StandardCodeReadinessPanel client={client} detail={value} readiness={standardCodeReadyReadiness()} threadID={threadID} />
+    </QueryClientProvider>;
+    const user = userEvent.setup();
+    const view = render(content(detail(), "thread-1"));
+    await user.click(screen.getByRole("button", { name: /开始编码/ }));
+    view.rerender(content(second, "thread-2"));
+    await user.click(screen.getByRole("button", { name: /开始编码/ }));
+    await screen.findByText(/configuration response lost/);
+    const original = configureStandardCode.mock.calls[1];
+    expect(screen.getByRole("button", { name: /开始编码/ })).toBeDisabled();
+    const secondIntent = queryClient.getQueryData(["run", "run-2", "standard-code-preset-intent"]);
+    view.unmount();
+    const configured = (value: RunDetailView) => ({ status: "configured", run_id: value.run.id, run: value.run,
+      mode: value.mode, execution_profile: value.execution_profile, execution_interaction: value.execution_interaction,
+      execution_permission: value.execution_permission, browser_cdp_permission: value.browser_cdp_permission,
+      network: "disabled", credentials: "none", next_steps: [], docker_readiness: { available: false } });
+    invalidate.mockClear();
+    await act(async () => finishFirst(configured(detail())));
+    expect(queryClient.getQueryData(["run", "run-2", "standard-code-preset-intent"])).toEqual(secondIntent);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run", "run-1"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["v2", "thread", "thread-1", "permission"] });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["run", "run-2"] });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["v2", "thread", "thread-2"] });
+    configureStandardCode.mockResolvedValueOnce(configured(second));
+    render(content({ ...second, run: { ...second.run, standard_code_preset_configured: true } }, "thread-2"));
+    expect(screen.getByRole("button", { name: /交付中/ })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "确认上次编码配置" }));
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledTimes(3));
+    expect(configureStandardCode.mock.calls[2]).toEqual(original);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "确认上次编码配置" })).not.toBeInTheDocument());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["v2", "thread", "thread-2", "permission"] });
+  });
+
+  it.each([true, undefined] as const)("only restarts an invalidated configuration after explicit recheck (marker %s)", async (marker) => {
+    const trust = { status: "blocked", run_id: "run-1", action: "configure", backend_intent: "auto", trust_required: true,
+      trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"], docker_readiness: { available: false },
+      network: "disabled", credentials: "none" };
+    const configureStandardCode = vi.fn().mockResolvedValueOnce(trust)
+      .mockRejectedValueOnce(new APIRequestError("Configuration changed", "CONFLICT", 409, "request-1", undefined, marker))
+      .mockResolvedValueOnce({ ...trust, trust_digest: "b".repeat(64) });
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const content = <QueryClientProvider client={queryClient}><StandardCodeReadinessPanel
+      client={client} detail={detail()} readiness={standardCodeReadyReadiness()} threadID="thread-1" /></QueryClientProvider>;
+    const user = userEvent.setup();
+    const view = render(content);
+    await user.click(screen.getByRole("button", { name: /开始编码/ }));
+    await user.click(await screen.findByRole("button", { name: "确认" }));
+    const retryLabel = marker ? "重新核对编码配置" : "确认上次编码配置";
+    await screen.findByRole("button", { name: retryLabel });
+    const original = configureStandardCode.mock.calls[1];
+    expect(original[2]).toMatchObject({ confirm_workspace_trust: true, expected_trust_digest: "a".repeat(64) });
+    expect(screen.getByRole("button", { name: /开始编码/ })).toBeDisabled();
+    view.unmount();
+    render(content);
+    await user.click(screen.getByRole("button", { name: retryLabel }));
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledTimes(3));
+    const retry = configureStandardCode.mock.calls[2];
+    if (marker) {
+      expect(retry[0]).toBe(original[0]);
+      expect(retry[2]).toEqual({ version: "standard_code_preset.v1", backend_intent: "auto", confirm_workspace_trust: false });
+      expect(retry[3]).not.toBe(original[3]);
+    } else expect(retry).toEqual(original);
+    await screen.findByText(new RegExp("b".repeat(64)));
+    expect(configureStandardCode).toHaveBeenCalledTimes(3);
   });
 });
 

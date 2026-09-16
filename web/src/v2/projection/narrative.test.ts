@@ -42,6 +42,138 @@ function snapshot(overrides: Partial<PublicModelStreamSnapshot> = {}): PublicMod
 }
 
 describe("projectThreadNarrative", () => {
+  it("labels historical recall as search and read without implying a tool rerun", () => {
+    const projected = projectThreadNarrative([
+      item({ id: "search-history", canonical_id: "search-history", kind: "tool_call", source: "harness",
+        activity_type: "search", tool_name: "history_search", status: "completed", title: "工具执行已完成" }),
+      item({ id: "read-history", canonical_id: "read-history", kind: "tool_call", source: "harness", sequence: 2,
+        activity_type: "read", tool_name: "history_read", status: "completed", title: "工具执行已完成" }),
+    ]);
+    const encoded = JSON.stringify(projected);
+    expect(encoded).toContain("搜索对话历史");
+    expect(encoded).toContain("读取历史原文");
+    expect(encoded).not.toContain('"activity":"execute"');
+  });
+
+  it("groups the observed Plan tool lifecycle without turning audit text into an assistant answer", () => {
+    // Exact identity pattern from the isolated first-Plan transcript: the
+    // business result has its own event ID, unlike the four stream-bound rows.
+    const plan = { kind: "tool_call" as const, source: "harness" as const,
+      activity_type: "delivery" as const, tool_name: "plan_delivery_propose",
+      canonical_id: "item_3b4dcc0d070a952d5350d607",
+      durable_call_id: "toolu_82e499fbfbb029655496ec36" };
+    const projected = projectThreadNarrative([
+      item({ ...plan, id: "arguments", sequence: 27, stage: "arguments_ready", status: "pending", title: "工具参数已就绪", detail: undefined }),
+      item({ ...plan, id: "started", sequence: 28, stage: "running", status: "running", title: "工具执行已开始", detail: "生成交付计划" }),
+      item({ ...plan, id: "business-result", canonical_id: "business-result", durable_call_id: undefined,
+        sequence: 32, stage: "result", status: "completed", title: "工具操作完成", detail: "生成交付计划" }),
+      item({ ...plan, id: "completed", sequence: 33, stage: "result", status: "completed", title: "工具执行已完成", detail: "生成交付计划" }),
+      item({ ...plan, id: "recorded", sequence: 34, stage: "result", status: "completed", title: "工具结果已记录", detail: "生成交付计划" }),
+      item({ id: "answer", canonical_id: "answer", sequence: 40, detail: "已规划，等待你确认后执行。" }),
+    ]);
+    expect(projected).toEqual([
+      expect.objectContaining({ kind: "activity", activity: "plan", count: 2, status: "completed",
+        items: [expect.objectContaining({ title: "生成交付计划", status: "completed" }),
+          expect.objectContaining({ title: "规划结果记录", status: "completed" })] }),
+      expect.objectContaining({ kind: "assistant", text: "已规划，等待你确认后执行。" }),
+    ]);
+  });
+
+  it("keeps Plan failures, real model text and separate Run identities", () => {
+    const plan = { kind: "tool_call" as const, source: "harness" as const,
+      activity_type: "delivery" as const, tool_name: "plan_delivery_propose", canonical_id: "same-call",
+      durable_call_id: "durable-plan-call" };
+    const projected = projectThreadNarrative([
+      item({ ...plan, id: "started", sequence: 1, stage: "running", status: "running" }),
+      item({ ...plan, id: "failed", sequence: 2, stage: "blocked", status: "failed", detail: "计划参数不符合当前接口" }),
+      item({ id: "answer", canonical_id: "answer", sequence: 3, detail: "工具参数已就绪；生成交付计划是下一步。" }),
+      item({ ...plan, id: "next-run", sequence: 4, run_id: "run-2", run_ordinal: 2, stage: "result", status: "completed" }),
+    ]);
+    expect(projected).toEqual([
+      expect.objectContaining({ kind: "activity", activity: "plan", runId: "run-1", count: 1, status: "failed",
+        items: [expect.objectContaining({ detail: "计划参数不符合当前接口", status: "failed" })] }),
+      expect.objectContaining({ kind: "assistant", text: "工具参数已就绪；生成交付计划是下一步。" }),
+      expect.objectContaining({ kind: "activity", activity: "plan", runId: "run-2", count: 1 }),
+    ]);
+    const live = projectThreadNarrative([], { runId: "run-1", status: "live", snapshot: snapshot({ text: "",
+      items: [{ id: "live-plan", response_id: "response-1", type: "tool_call", status: "ready_for_validation",
+        tool_name: "plan_delivery_propose", durable: false, provisional: true }] }) });
+    expect(live).toEqual([expect.objectContaining({ kind: "activity", activity: "plan", provisional: true, title: "生成交付计划" })]);
+  });
+
+  it("projects a pure image without inventing user text from the queue status title", () => {
+    const images = [{ id: "image-pure", workspace_id: "workspace-pure", sha256: "a".repeat(64),
+      mime_type: "image/png" as const, byte_size: 120, width: 80, height: 80, name: "截图.png" }];
+    const projected = projectThreadNarrative([item({ source: "operator", kind: "operator_input",
+      title: "用户消息", detail: undefined, images })]);
+    expect(projected).toEqual([expect.objectContaining({ kind: "user", text: "", images })]);
+  });
+
+  it("retains uploaded file metadata for pure and mixed messages without inventing queue text", () => {
+    const attachment = { id: "file-original", workspace_id: "workspace-files", sha256: "b".repeat(64),
+      mime_type: "application/pdf", byte_size: 300, name: "说明.pdf", readability: "stored_only" as const,
+      text_bytes: 0, redacted: false, reason: "未解析此格式" };
+    const image = { id: "image-original", workspace_id: "workspace-files", sha256: "c".repeat(64),
+      mime_type: "image/png" as const, byte_size: 120, width: 80, height: 80, name: "截图.png" };
+    const projected = projectThreadNarrative([
+      item({ id: "pure-file", source: "operator", kind: "operator_input", title: "用户消息已排队",
+        detail: "", attachments: [attachment] }),
+      item({ id: "mixed", sequence: 2, source: "operator", kind: "operator_input", title: "用户消息",
+        detail: "按附件要求检查", attachments: [attachment], images: [image] }),
+    ]);
+    expect(projected).toEqual([
+      expect.objectContaining({ id: "pure-file", kind: "user", text: "", attachments: [attachment] }),
+      expect.objectContaining({ id: "mixed", kind: "user", text: "按附件要求检查", attachments: [attachment], images: [image] }),
+    ]);
+    expect(projected[0]).not.toHaveProperty("instruction_authorized", true);
+  });
+  it("hides empty artifact-storage delivery placeholders while preserving tool facts and actual messages", () => {
+    // Exact public shape captured from workspace_change's tool_output artifact.
+    // The artifact.created audit record is not a project delivery assertion.
+    const placeholder = item({ id: "evt-20260910072057-8803f1406cc2",
+      canonical_id: "evt-20260910072057-8803f1406cc2", run_id: "run-20260910064350-a4f973a7ede3",
+      run_ordinal: 2, sequence: 357, activity_type: "delivery", stage: "result", kind: "plan",
+      source: "harness", title: "交付物已记录", status: "completed", detail: undefined,
+      verifiable: true, instruction_authorized: false, provisional: false, durable: true,
+      created_at: "2026-09-10T07:20:57.8759082Z" });
+    const transcript = [
+      item({ id: "list", canonical_id: "list", sequence: 1, source: "harness", kind: "tool_call", activity_type: "search",
+        tool_name: "workspace_list", detail: "当前项目为空", status: "completed" }),
+      { ...placeholder, id: "stored-list-output", sequence: 2 },
+      item({ id: "failed", canonical_id: "failed", sequence: 3, source: "harness", kind: "tool_call", activity_type: "read",
+        tool_name: "workspace_read", detail: "读取失败", status: "failed" }),
+      { ...placeholder, id: "stored-failed-output", sequence: 4 },
+      item({ id: "proposal", canonical_id: "proposal", sequence: 5, source: "harness", kind: "file_change", activity_type: "edit",
+        status: "proposed", detail: "package.json，尚未应用" }),
+      placeholder,
+    ];
+    const before = JSON.stringify(transcript);
+    const projected = projectThreadNarrative(transcript);
+    expect(projected).toHaveLength(3);
+    expect(projected.every((entry) => entry.kind === "activity")).toBe(true);
+    expect(projected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ detail: "读取失败", status: "failed" }),
+      expect.objectContaining({ title: "已提出修改，等待审阅", status: "proposed" }),
+    ]));
+    expect(JSON.stringify(projected)).not.toContain("交付物已记录");
+    expect(JSON.stringify(transcript)).toBe(before);
+
+    const substantive = projectThreadNarrative([
+      { ...placeholder, id: "model-answer", source: "model", kind: "model_update", sequence: 1 } as ThreadTranscriptActivityItem,
+      { ...placeholder, id: "actual-detail", sequence: 2, detail: "具体交付记录可供审阅" },
+      { ...placeholder, id: "checkpoint", sequence: 3, title: "切片交付检查点已记录" },
+    ]);
+    expect(JSON.stringify(substantive)).toContain("交付物已记录");
+    expect(JSON.stringify(substantive)).toContain("具体交付记录可供审阅");
+    expect(JSON.stringify(substantive)).toContain("切片交付检查点已记录");
+  });
+
+  it("preserves cancellation on a durable user message instead of displaying it as accepted", () => {
+    const projected = projectThreadNarrative([item({ source: "operator", kind: "operator_input",
+      status: "cancelled", detail: "Cancelled follow-up", instruction_authorized: false })]);
+    expect(projected).toEqual([expect.objectContaining({ kind: "user", text: "Cancelled follow-up", status: "cancelled" })]);
+  });
+
   it("hides Run boundaries and groups tool activity", () => {
     const projected = projectThreadNarrative([
       item({ id: "boundary", sequence: 0, source: "harness", kind: "harness_status",

@@ -142,7 +142,8 @@ func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, prev
 	if existed && previousStatus == edit.Status {
 		return nil
 	}
-	if err := requireRunWorkspaceForSessionTx(ctx, tx, edit.SessionID, edit.WorkspaceID); err != nil {
+	if err := requireFileEditWorkspaceTx(ctx, tx, edit.SessionID, edit.WorkspaceID,
+		!existed || edit.Status == fileedit.StatusApproved || edit.Status == fileedit.StatusApplied); err != nil {
 		return err
 	}
 	eventType, ok := fileEditEventType(edit.Status)
@@ -159,6 +160,14 @@ func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, prev
 		"previous_status":  previousStatus,
 		"reason":           edit.Reason,
 		"secrets_redacted": edit.SecretsRedacted,
+	}
+	if edit.Status == fileedit.StatusApproved || edit.Status == fileedit.StatusDenied {
+		// Bodies remain in the immutable proposal; seal only the exact review
+		// projection so later application cannot turn approval replay into a
+		// different decision or a newly fabricated current-state snapshot.
+		snapshot := edit
+		snapshot.OriginalText, snapshot.ProposedText, snapshot.Diff = "", "", ""
+		payload["review_snapshot"] = snapshot
 	}
 	if edit.Status == fileedit.StatusProposed {
 		payload["diff"] = edit.Diff

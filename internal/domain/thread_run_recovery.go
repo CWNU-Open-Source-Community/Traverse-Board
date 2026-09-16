@@ -46,6 +46,7 @@ type ThreadRunRecovery struct {
 	HandoffOperationID string
 	Disposition        ThreadRunFailureDisposition
 	ErrorCode          string
+	FailureStage       string
 	StopReason         string
 	Detail             string
 	Quiescent          bool

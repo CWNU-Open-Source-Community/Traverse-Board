@@ -3,6 +3,7 @@ package application
 import (
 	"database/sql"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -556,6 +557,14 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 	beforeInteraction, _ := state.GetRunExecutionInteraction(t.Context(), run.ID)
 	beforePermission, _ := state.GetRunExecutionPermission(t.Context(), run.ID)
 	beforeCDP, _ := state.GetRunBrowserCDPPermission(t.Context(), run.ID)
+	thread, err := state.GetThreadByRun(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeThreadPermission, err := state.GetThreadExecutionPermission(t.Context(), thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, err := sql.Open("sqlite3", databasePath)
 	if err != nil {
 		t.Fatal(err)
@@ -587,6 +596,19 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 		afterCDP.ID != beforeCDP.ID {
 		t.Fatal("injected failure committed a partial Standard Code tuple")
 	}
+	afterThreadPermission, err := state.GetThreadExecutionPermission(t.Context(), thread.ID)
+	if err != nil || !reflect.DeepEqual(beforeThreadPermission, afterThreadPermission) {
+		t.Fatalf("injected failure committed the Thread preference: err=%v", err)
+	}
+	threadEvents, err := state.ListThreadEvents(t.Context(), thread.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range threadEvents {
+		if event.Source == "standard_code_preset" {
+			t.Fatal("injected failure committed the Thread preference event")
+		}
+	}
 	afterRun, err := state.GetRun(t.Context(), run.ID)
 	if err != nil || afterRun.Status != domain.RunRunning {
 		t.Fatalf("injected failure partially paused Run=%+v err=%v", afterRun, err)
@@ -603,6 +625,11 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 	if err != nil || retried.Status != StandardCodeResultConfigured || !retried.Replayed ||
 		retried.Run == nil || retried.Run.Status != domain.RunPaused {
 		t.Fatalf("retry=%+v err=%v", retried, err)
+	}
+	preference, err := state.GetThreadExecutionPermission(t.Context(), thread.ID)
+	if err != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		preference.Revision != beforeThreadPermission.Revision+1 {
+		t.Fatalf("successful retry did not atomically synchronize Thread: %+v err=%v", preference, err)
 	}
 }
 

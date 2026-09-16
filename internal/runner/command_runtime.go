@@ -124,7 +124,10 @@ type CommandRuntimeResolvedSpec struct {
 	ExecutablePinned     bool
 	ProfileStartupFiles  bool
 	EnvironmentInherited bool
+	AttachmentInput      *CommandRuntimeAttachmentInput
 }
+
+const commandRuntimeProcessProfileRestriction = "process profile does not accept shells, system script hosts, script files, or blocked launchers; native development runtimes such as Node/Python require an absolute executable and literal arguments; for shell syntax use script with a powershell or bash profile only when supported by the current adapter and omit executable and arguments"
 
 // NormalizeCommandRuntimeIntent validates every path-independent field before a
 // Supervisor call can enter the durable replay ledger. Workspace identity and
@@ -194,9 +197,11 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 	case CommandRuntimeProcess:
 		if spec.Executable == "" || !filepath.IsAbs(spec.Executable) ||
 			spec.Arguments == nil || spec.Script != "" ||
-			!validCommandRuntimeText(spec.Executable, false) ||
-			!commandRuntimeNativeExecutableAllowed(spec.Executable) {
+			!validCommandRuntimeText(spec.Executable, false) {
 			return CommandRuntimeSpec{}, fmt.Errorf("%w: process profile requires an absolute native executable and literal argv", ErrCommandRuntimeBoundary)
+		}
+		if !commandRuntimeNativeExecutableAllowed(spec.Executable) {
+			return CommandRuntimeSpec{}, fmt.Errorf("%w: %s", ErrCommandRuntimeBoundary, commandRuntimeProcessProfileRestriction)
 		}
 	}
 	environment, _, _, err := normalizeCommandRuntimeEnvironment(spec.Environment)
@@ -230,7 +235,10 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 			return CommandRuntimeResolvedSpec{}, err
 		}
 		if spec.Profile == CommandRuntimePowerShell {
-			canonicalArgv = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", spec.Script}
+			canonicalArgv, err = commandRuntimePowerShellArguments(spec.Script)
+			if err != nil {
+				return CommandRuntimeResolvedSpec{}, err
+			}
 		} else {
 			canonicalArgv = []string{"--noprofile", "--norc", "-c", spec.Script}
 		}
@@ -240,13 +248,13 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 			return CommandRuntimeResolvedSpec{}, err
 		}
 		if !commandRuntimeNativeExecutableAllowed(executablePath) {
-			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process profile cannot select a shell or script interpreter", ErrCommandRuntimeBoundary)
-		}
-		outside, outsideErr := commandRuntimeExecutableOutsideWorkspace(executablePath, root)
-		if outsideErr != nil || !outside {
-			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process executable must be outside the workspace", ErrCommandRuntimeBoundary)
+			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: %s", ErrCommandRuntimeBoundary, commandRuntimeProcessProfileRestriction)
 		}
 		canonicalArgv = cloneCommandRuntimeStrings(spec.Arguments)
+	}
+	outside, outsideErr := commandRuntimeExecutableOutsideWorkspace(executablePath, root)
+	if outsideErr != nil || !outside {
+		return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: runtime executable must be outside the workspace", ErrCommandRuntimeBoundary)
 	}
 	if err := commandRuntimeExecutableAttributes(executablePath); err != nil {
 		return CommandRuntimeResolvedSpec{}, fmt.Errorf(
@@ -294,23 +302,24 @@ func commandRuntimeExecutableOutsideWorkspace(executablePath, workspaceRoot stri
 
 func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {
 	value := struct {
-		Version             string                         `json:"version"`
-		Profile             CommandRuntimeProfile          `json:"profile"`
-		ExecutablePath      string                         `json:"executable_path"`
-		ExecutableSHA256    string                         `json:"executable_sha256"`
-		Argv                []string                       `json:"argv"`
-		WorkingDirectory    string                         `json:"working_directory"`
-		Environment         []CommandRuntimeEnvironment    `json:"environment"`
-		EnvironmentSHA256   string                         `json:"environment_sha256"`
-		StdinPolicy         CommandRuntimeStdinPolicy      `json:"stdin_policy"`
-		InitialStdinSHA256  string                         `json:"initial_stdin_sha256"`
-		CloseInitialStdin   bool                           `json:"close_initial_stdin"`
-		TimeoutMilliseconds int64                          `json:"timeout_milliseconds"`
-		Output              CommandRuntimeOutputPolicy     `json:"output"`
-		Network             CommandRuntimeNetwork          `json:"network"`
-		Credentials         CommandRuntimeCredentialPolicy `json:"credentials"`
-		Purpose             string                         `json:"purpose"`
-		WorkspaceRootSHA256 string                         `json:"workspace_root_sha256"`
+		Version                  string                         `json:"version"`
+		Profile                  CommandRuntimeProfile          `json:"profile"`
+		ExecutablePath           string                         `json:"executable_path"`
+		ExecutableSHA256         string                         `json:"executable_sha256"`
+		Argv                     []string                       `json:"argv"`
+		WorkingDirectory         string                         `json:"working_directory"`
+		Environment              []CommandRuntimeEnvironment    `json:"environment"`
+		EnvironmentSHA256        string                         `json:"environment_sha256"`
+		StdinPolicy              CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+		InitialStdinSHA256       string                         `json:"initial_stdin_sha256"`
+		CloseInitialStdin        bool                           `json:"close_initial_stdin"`
+		TimeoutMilliseconds      int64                          `json:"timeout_milliseconds"`
+		Output                   CommandRuntimeOutputPolicy     `json:"output"`
+		Network                  CommandRuntimeNetwork          `json:"network"`
+		Credentials              CommandRuntimeCredentialPolicy `json:"credentials"`
+		Purpose                  string                         `json:"purpose"`
+		WorkspaceRootSHA256      string                         `json:"workspace_root_sha256"`
+		AttachmentManifestSHA256 string                         `json:"attachment_manifest_sha256,omitempty"`
 	}{
 		Version: spec.Spec.Version, Profile: spec.Spec.Profile,
 		ExecutablePath: spec.ExecutablePath, ExecutableSHA256: spec.ExecutableSHA256,
@@ -325,6 +334,7 @@ func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {
 		Output:              spec.Spec.Output, Network: spec.Spec.Network,
 		Credentials: spec.Spec.Credentials,
 		Purpose:     spec.Spec.Purpose, WorkspaceRootSHA256: spec.WorkspaceRootSHA256,
+		AttachmentManifestSHA256: commandRuntimeAttachmentManifest(spec),
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -498,7 +508,8 @@ func validCommandRuntimeEnvironmentName(value string) bool {
 		"ld_preload", "ld_library_path", "dyld_insert_libraries",
 		"node_options", "pythonstartup", "git_config_global",
 		"git_config_system", "git_config_count", "git_ssh", "git_ssh_command",
-		"ssh_command", "cargo_home", "uv_config_file", "poetry_config_dir":
+		"ssh_command", "cargo_home", "uv_config_file", "poetry_config_dir",
+		"cyberagent_powershell_path", "traverse_attachments_dir":
 		return false
 	case "aws_access_key_id", "aws_profile", "aws_default_profile", "azure_config_dir",
 		"cloudsdk_config", "docker_config", "gh_config_dir", "kubeconfig",
@@ -589,6 +600,9 @@ func CommandRuntimeWorkspaceRootSHA256(workspaceRoot string) (string, error) {
 }
 
 func validateCommandRuntimeLaunchDirectory(spec CommandRuntimeResolvedSpec) error {
+	if err := validateCommandRuntimeAttachmentInput(spec); err != nil {
+		return err
+	}
 	root, err := filepath.EvalSymlinks(spec.WorkspaceRoot)
 	if err != nil {
 		return ErrCommandRuntimeBoundary
@@ -646,24 +660,25 @@ func commandRuntimeBaseEnvironment() []string {
 
 func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {
 	value := struct {
-		Version             string                         `json:"version"`
-		PolicyVersion       string                         `json:"policy_version"`
-		Profile             CommandRuntimeProfile          `json:"profile"`
-		ExecutablePath      string                         `json:"executable_path"`
-		ExecutableSHA256    string                         `json:"executable_sha256"`
-		Argv                []string                       `json:"argv"`
-		WorkingDirectory    string                         `json:"working_directory"`
-		Environment         []CommandRuntimeEnvironment    `json:"environment"`
-		EnvironmentSHA256   string                         `json:"environment_sha256"`
-		StdinPolicy         CommandRuntimeStdinPolicy      `json:"stdin_policy"`
-		InitialStdinBytes   int                            `json:"initial_stdin_bytes"`
-		InitialStdinSHA256  string                         `json:"initial_stdin_sha256"`
-		CloseInitialStdin   bool                           `json:"close_initial_stdin"`
-		TimeoutMilliseconds int64                          `json:"timeout_milliseconds"`
-		Output              CommandRuntimeOutputPolicy     `json:"output"`
-		Network             CommandRuntimeNetwork          `json:"network"`
-		Credentials         CommandRuntimeCredentialPolicy `json:"credentials"`
-		Purpose             string                         `json:"purpose"`
+		Version                  string                         `json:"version"`
+		PolicyVersion            string                         `json:"policy_version"`
+		Profile                  CommandRuntimeProfile          `json:"profile"`
+		ExecutablePath           string                         `json:"executable_path"`
+		ExecutableSHA256         string                         `json:"executable_sha256"`
+		Argv                     []string                       `json:"argv"`
+		WorkingDirectory         string                         `json:"working_directory"`
+		Environment              []CommandRuntimeEnvironment    `json:"environment"`
+		EnvironmentSHA256        string                         `json:"environment_sha256"`
+		StdinPolicy              CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+		InitialStdinBytes        int                            `json:"initial_stdin_bytes"`
+		InitialStdinSHA256       string                         `json:"initial_stdin_sha256"`
+		CloseInitialStdin        bool                           `json:"close_initial_stdin"`
+		TimeoutMilliseconds      int64                          `json:"timeout_milliseconds"`
+		Output                   CommandRuntimeOutputPolicy     `json:"output"`
+		Network                  CommandRuntimeNetwork          `json:"network"`
+		Credentials              CommandRuntimeCredentialPolicy `json:"credentials"`
+		Purpose                  string                         `json:"purpose"`
+		AttachmentManifestSHA256 string                         `json:"attachment_manifest_sha256,omitempty"`
 	}{
 		Version: spec.Spec.Version, PolicyVersion: CommandRuntimePolicyVersion,
 		Profile: spec.Spec.Profile, ExecutablePath: spec.ExecutablePath,
@@ -679,6 +694,7 @@ func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {
 		TimeoutMilliseconds: spec.Spec.TimeoutMilliseconds,
 		Output:              spec.Spec.Output, Network: spec.Spec.Network,
 		Credentials: spec.Spec.Credentials, Purpose: spec.Spec.Purpose,
+		AttachmentManifestSHA256: commandRuntimeAttachmentManifest(spec),
 	}
 	encoded, _ := json.Marshal(value)
 	return string(encoded)

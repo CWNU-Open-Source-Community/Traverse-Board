@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// ErrStandardCodePresetThreadPreferenceChanged distinguishes an obsolete
+// configuration intent from a Run that merely needs time to become quiescent.
+var ErrStandardCodePresetThreadPreferenceChanged = errors.New("Standard Code preset Thread preference changed")
+
 const StandardCodePresetProtocolVersion = "standard_code_preset.v1"
 
 type StandardCodeBackendIntent string

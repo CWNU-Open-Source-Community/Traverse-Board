@@ -111,14 +111,6 @@ func (s *ThreadActivityDetailService) GetArtifact(ctx context.Context, threadID,
 	if err != nil {
 		return ThreadActivityArtifact{}, apperror.Normalize(err)
 	}
-	if call.ToolName != string(toolgateway.CommandRuntimeTool) {
-		return ThreadActivityArtifact{}, threadActivityArtifactNotFound()
-	}
-	input, err := decodeThreadCommandActivityInput(call.PayloadJSON)
-	if err != nil {
-		return ThreadActivityArtifact{}, apperror.Wrap(apperror.CodeFailedPrecondition,
-			"durable Thread command activity could not be projected", err)
-	}
 	blob, err := artifacts.GetRunArtifact(ctx, artifactRef)
 	if err != nil {
 		return ThreadActivityArtifact{}, threadActivityArtifactNotFound()
@@ -127,27 +119,18 @@ func (s *ThreadActivityDetailService) GetArtifact(ctx context.Context, threadID,
 		return ThreadActivityArtifact{}, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"durable command output artifact is invalid", err)
 	}
-	var binding *threadCommandActivityJobBinding
-	for _, candidate := range threadCommandActivityJobBindings(call, input) {
-		if candidate.ID == blob.SourceID {
-			copy := candidate
-			binding = &copy
-			break
-		}
-	}
-	if binding == nil {
-		return ThreadActivityArtifact{}, threadActivityArtifactNotFound()
-	}
-	job, err := s.store.GetThreadCommandRuntimeJob(ctx, threadID, binding.ID)
+	job, err := s.store.GetThreadCommandRuntimeJob(ctx, threadID, blob.SourceID)
 	if err != nil {
 		return ThreadActivityArtifact{}, threadActivityArtifactNotFound()
 	}
-	if job.RunID != call.RunID ||
-		(binding.OperationDigest != "" && job.OperationDigest != binding.OperationDigest) ||
-		!validThreadActivityArtifactDescriptor(blob.Descriptor, job) ||
-		job.StdinPolicy != runner.CommandRuntimeStdinClosed ||
-		job.Credentials != runner.CommandRuntimeCredentialsNone {
-		return ThreadActivityArtifact{}, threadActivityArtifactNotFound()
+	input, err := validateThreadActivityArtifactBinding(call, blob.Descriptor,
+		runner.CommandRuntimeJobMetadata{ID: job.ID, RunID: job.RunID,
+			SessionID: job.SessionID, WorkspaceID: job.WorkspaceID,
+			OperationDigest: job.OperationDigest, State: job.State,
+			StdinPolicy: job.StdinPolicy, StdinWriteCount: job.StdinWriteCount,
+			Credentials: job.Credentials})
+	if err != nil {
+		return ThreadActivityArtifact{}, err
 	}
 	run, err := s.store.GetRun(ctx, call.RunID)
 	if err != nil {
@@ -229,4 +212,33 @@ func boundThreadActivityArtifactText(value string, maxBytes int) (string, bool) 
 func threadActivityArtifactNotFound() error {
 	return apperror.New(apperror.CodeNotFound,
 		"Thread activity output artifact was not found")
+}
+
+// validateThreadActivityArtifactBinding is shared by metadata-only report links
+// and the body reader. No output or private intent is needed to authorize a
+// link; GetArtifact additionally validates the full blob before returning text.
+func validateThreadActivityArtifactBinding(call domain.SupervisorToolCall,
+	descriptor artifact.Descriptor, job runner.CommandRuntimeJobMetadata,
+) (toolgateway.CommandRuntimeInput, error) {
+	var empty toolgateway.CommandRuntimeInput
+	if call.ToolName != string(toolgateway.CommandRuntimeTool) || call.RunID != job.RunID ||
+		!validThreadActivityArtifactDescriptor(descriptor, runner.CommandRuntimeJob{
+			ID: job.ID, RunID: job.RunID, SessionID: job.SessionID,
+			WorkspaceID: job.WorkspaceID, State: job.State}) ||
+		job.StdinPolicy != runner.CommandRuntimeStdinClosed || job.StdinWriteCount != 0 ||
+		job.Credentials != runner.CommandRuntimeCredentialsNone {
+		return empty, threadActivityArtifactNotFound()
+	}
+	input, err := decodeThreadCommandActivityInput(call.PayloadJSON)
+	if err != nil {
+		return empty, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"durable Thread command activity could not be projected", err)
+	}
+	for _, candidate := range threadCommandActivityJobBindings(call, input) {
+		if candidate.ID == job.ID && (candidate.OperationDigest == "" ||
+			candidate.OperationDigest == job.OperationDigest) {
+			return input, nil
+		}
+	}
+	return empty, threadActivityArtifactNotFound()
 }

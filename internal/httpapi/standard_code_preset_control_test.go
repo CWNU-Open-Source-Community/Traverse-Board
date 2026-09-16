@@ -2,23 +2,29 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 )
 
 type standardCodePresetControllerStub struct {
 	calls []application.ConfigureStandardCodeRequest
+	err   error
 }
 
 func (s *standardCodePresetControllerStub) Configure(_ context.Context,
 	request application.ConfigureStandardCodeRequest,
 ) (application.StandardCodePresetResult, error) {
 	s.calls = append(s.calls, request)
+	if s.err != nil {
+		return application.StandardCodePresetResult{}, s.err
+	}
 	workspaceID := request.WorkspaceID
 	if workspaceID == "" {
 		workspaceID = "workspace-standard-code-http"
@@ -108,6 +114,11 @@ func TestStandardCodePresetControlRoutesBindOperatorIntent(t *testing.T) {
 				strings.NewReader(test.body))
 			var view StandardCodePresetControlView
 			decodeDataStatus(t, response, http.StatusAccepted, &view)
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			assertStandardCodePresetArrayShape(t, envelope["data"])
 			if view.ProtocolVersion != domain.StandardCodePresetProtocolVersion ||
 				view.Action != domain.StandardCodePresetAction(test.action) ||
 				!view.TrustRequired || view.Network != "disabled" ||
@@ -134,6 +145,88 @@ func TestStandardCodePresetControlRoutesBindOperatorIntent(t *testing.T) {
 	decodeDataStatus(t, capabilityResponse, http.StatusOK, &runtime)
 	if !runtime.StandardCodePresetEnabled {
 		t.Fatal("runtime capabilities omitted Standard Code preset control")
+	}
+}
+
+func TestStandardCodePresetControlEmptyCollectionsEncodeAsArrays(t *testing.T) {
+	api := &API{}
+	// The application may return nil or allocated empty collections. The wire
+	// contract requires arrays in both cases, including a configured result's
+	// empty top-level blockers and next steps.
+	for _, allocated := range []bool{false, true} {
+		result := application.StandardCodePresetResult{
+			Status: application.StandardCodeResultConfigured,
+			LocalReadiness: application.StandardCodeBackendReadiness{
+				Backend: domain.StandardCodeSelectedLocal, Available: true},
+			DockerReadiness: application.StandardCodeBackendReadiness{
+				Backend: domain.StandardCodeSelectedDocker, Available: true},
+		}
+		if allocated {
+			result.BlockedBy = []application.CapabilityReadinessBlocker{}
+			result.NextSteps = []application.StandardCodeNextStep{}
+			result.LocalReadiness.BlockedBy = []application.CapabilityReadinessBlocker{}
+			result.LocalReadiness.Remediation = []application.CapabilityReadinessRemediation{}
+			result.DockerReadiness.BlockedBy = []application.CapabilityReadinessBlocker{}
+			result.DockerReadiness.Remediation = []application.CapabilityReadinessRemediation{}
+		}
+		body, err := json.Marshal(api.standardCodePresetControlView(result))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertStandardCodePresetArrayShape(t, body)
+	}
+}
+
+func TestStandardCodePresetControlOnlyMarksPermanentlyInvalidatedIntent(t *testing.T) {
+	_, api, controller := newStandardCodePresetTestAPI(t)
+	path := "/api/v1/runs/run-standard-code-invalidated/standard-code/preset"
+	body := `{"version":"standard_code_preset.v1","backend_intent":"auto","confirm_workspace_trust":false}`
+	for _, test := range []struct {
+		name        string
+		err         error
+		invalidated bool
+	}{
+		{"ordinary conflict", apperror.New(apperror.CodeConflict, "Thread binding changed"), false},
+		{"obsolete preference", apperror.Wrap(apperror.CodeConflict, "Thread permission changed after preset intent", domain.ErrStandardCodePresetThreadPreferenceChanged), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			controller.err = test.err
+			response := performControlPathRequest(t, api, path,
+				"standard-code-invalidated-0001", strings.NewReader(body))
+			var envelope errorEnvelope
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusConflict || envelope.Error.MessageQueued != nil ||
+				(envelope.Error.OperationKeyInvalidated != nil) != test.invalidated ||
+				(test.invalidated && !*envelope.Error.OperationKeyInvalidated) {
+				t.Fatalf("unexpected operation outcome marker: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func assertStandardCodePresetArrayShape(t *testing.T, body []byte) {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"blocked_by", "next_steps"} {
+		if _, ok := value[field].([]any); !ok {
+			t.Fatalf("%s must encode as a JSON array: %s", field, body)
+		}
+	}
+	for _, backend := range []string{"local_readiness", "docker_readiness"} {
+		readiness, ok := value[backend].(map[string]any)
+		if !ok {
+			t.Fatalf("%s must encode as a JSON object: %s", backend, body)
+		}
+		for _, field := range []string{"blocked_by", "remediation"} {
+			if _, ok := readiness[field].([]any); !ok {
+				t.Fatalf("%s.%s must encode as a JSON array: %s", backend, field, body)
+			}
+		}
 	}
 }
 

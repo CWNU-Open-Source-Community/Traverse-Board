@@ -29,13 +29,15 @@ export function ConnectionGate() {
       }
       const client = new CyberAgentClient(bootstrap.read_token, bootstrap.api_base_url,
         bootstrap.control_token);
-      const health = await client.health();
+      const [health, runtime] = await Promise.all([client.health(), client.runtimeCapabilities()]);
       if (!active) {
         return;
       }
       queryClient.clear();
       connect(bootstrap.read_token, health, bootstrap.control_token, {
         runControlEnabled: bootstrap.control_enabled,
+        // This HTTP capability is separate from the native directory picker.
+        workspaceImportEnabled: false,
         executionPermissionControlEnabled: bootstrap.execution_permission_control_enabled,
         workspaceSandboxEnabled: bootstrap.workspace_sandbox_enabled,
         browserCDPPermissionControlEnabled:
@@ -56,6 +58,7 @@ export function ConnectionGate() {
         sessionSteeringControlEnabled: bootstrap.session_steering_control_enabled,
         runLifecycleEnabled: bootstrap.run_lifecycle_enabled,
         runExecutionEnabled: bootstrap.run_execution_enabled,
+        threadExecutionReadEnabled: runtime.thread_execution_read_enabled === true,
         planDeliveryControlEnabled: bootstrap.plan_delivery_control_enabled,
         approvalControlEnabled: bootstrap.approval_control_enabled,
         controlledCommandProposalControlEnabled:

@@ -152,6 +152,9 @@ type SendResult struct {
 
 type RunChatResult struct {
 	RunID            string
+	ContextManaged   bool // Executor owns compaction while holding its execution lease.
+	ContextCompacted bool
+	ContextSummaryID int64
 	UserMessage      Message
 	ReplyMessage     Message
 	Text             string
@@ -316,9 +319,8 @@ func (m *Manager) SendWithOptions(ctx context.Context, sessionID string, input s
 			return SendResult{}, err
 		}
 		if handled {
-			var compacted bool
-			var summaryID int64
-			if !runResult.Queued {
+			compacted, summaryID := runResult.ContextCompacted, runResult.ContextSummaryID
+			if !runResult.Queued && !runResult.ContextManaged {
 				compacted, summaryID, err = m.compactAfterTurn(ctx, sess)
 				if err != nil {
 					return SendResult{}, err

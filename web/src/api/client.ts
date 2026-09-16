@@ -1,4 +1,6 @@
 import { consumeSSE } from "./sse";
+import { acceptedImageTypes, maximumImageBytes, validImageAttachment, validImageAttachments, type WorkspaceImageAttachment } from "./image-attachments";
+import { maximumFileBytes, validFileAttachment, validFileAttachments, type WorkspaceFileAttachment } from "./file-attachments";
 import {
   isGitAdvancedExecuteResult,
   isGitAdvancedProjection,
@@ -20,6 +22,7 @@ import {
 } from "./github-review";
 import { parseStandardCodeDelivery } from "./standard-code-delivery";
 import type {
+  ThreadTurnFailureReferenceView,
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
   DockerSandboxAdmissionRequestView,
@@ -49,6 +52,7 @@ import type {
   FanoutExecutionView,
   ApprovalDecisionControlView,
   ApprovalQueueView,
+  ApprovalPreviewView,
   ArtifactView,
   AvailableModelRouteCollectionView,
   BrowserSafeWebReadiness,
@@ -76,6 +80,7 @@ import type {
   FileEditProposalRecoveryView,
   FileEditProposalSourceView,
   FileEditProposalView,
+  FileEditRevertProposalView,
   FileEditPreviewView,
   FileEditQueueView,
   FileEditReviewRequestView,
@@ -120,6 +125,10 @@ import type {
   PlanModeTransitionControlView,
   PlanDeliveryTransitionControlRequestView,
   PlanDeliveryTransitionControlView,
+  PlanDeliveryWorkItemControlRequestView,
+  PlanDeliveryWorkItemControlView,
+  PlanDeliveryCheckpointControlRequestView,
+  PlanDeliveryCheckpointControlView,
   PlanDirectionControlRequestView,
   PlanDirectionControlView,
   ProviderDiagnosticRequestView,
@@ -161,9 +170,11 @@ import type {
   RunWakeExecutionRequestView,
   RunWakeExecutionView,
   RuntimeCapabilitiesView,
+  WorkspaceImportView,
   ThreadCreationControlRequestView,
   ThreadCreationControlView,
   ThreadMessageControlRequestView,
+  ThreadTurnControlRequestView,
   ThreadMessageControlView,
   ThreadLifecycleControlRequestView,
   ThreadLifecycleControlView,
@@ -230,6 +241,7 @@ export type QueryValue = boolean | number | string | undefined;
 
 export interface ClientCapabilities {
   runControlEnabled?: boolean;
+  workspaceImportEnabled?: boolean;
   executionPermissionControlEnabled?: boolean;
   workspaceSandboxEnabled?: boolean;
   browserCDPPermissionControlEnabled?: boolean;
@@ -249,6 +261,7 @@ export interface ClientCapabilities {
   sessionSteeringControlEnabled?: boolean;
   runLifecycleEnabled?: boolean;
   runExecutionEnabled?: boolean;
+  threadExecutionReadEnabled?: boolean;
   planDeliveryControlEnabled?: boolean;
   approvalControlEnabled?: boolean;
   controlledCommandProposalControlEnabled?: boolean;
@@ -285,6 +298,10 @@ export class APIRequestError extends Error {
     readonly code: string,
     readonly status: number,
     readonly requestID = "",
+    readonly messageQueued?: false,
+    readonly operationKeyInvalidated?: true,
+    readonly turnFailed?: true,
+    readonly turnFailure?: ThreadTurnFailureReferenceView,
   ) {
     super(message);
     this.name = "APIRequestError";
@@ -309,7 +326,20 @@ function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
   }
   const candidate = value as Partial<ErrorEnvelope>;
   return candidate.version === "api.v1" && typeof candidate.request_id === "string" &&
-    typeof candidate.error?.code === "string" && typeof candidate.error.message === "string";
+    typeof candidate.error?.code === "string" && typeof candidate.error.message === "string" &&
+    (!Object.prototype.hasOwnProperty.call(candidate.error, "message_queued") || candidate.error.message_queued === false) &&
+    (!Object.prototype.hasOwnProperty.call(candidate.error, "operation_key_invalidated") || candidate.error.operation_key_invalidated === true) &&
+    (!Object.prototype.hasOwnProperty.call(candidate.error, "turn_failed") || candidate.error.turn_failed === true) &&
+    !(candidate.error.turn_failed === true && candidate.error.message_queued === false) &&
+    (!Object.prototype.hasOwnProperty.call(candidate.error, "turn_failure") ||
+      candidate.error.turn_failed === true && validThreadFailureReference(candidate.error.turn_failure));
+}
+
+function validThreadFailureReference(value: unknown): value is ThreadTurnFailureReferenceView {
+  return hasExactKeys(value, ["thread_id", "run_id", "message_id", "event_sequence"]) &&
+    [value.thread_id, value.run_id, value.message_id].every((id) =>
+      typeof id === "string" && Boolean(boundedIdentity(id)) && boundedIdentity(id) === id) &&
+    typeof value.event_sequence === "number" && Number.isSafeInteger(value.event_sequence) && value.event_sequence > 0;
 }
 
 function isSuccessEnvelope<T>(value: unknown): value is SuccessEnvelope<T> {
@@ -367,7 +397,7 @@ function parseEventPoll(value: unknown, expectedRunID: string, requestID: string
 }
 
 function parseRunCreationControl(value: unknown,
-  request: RunCreationControlRequestView, requestedModelRoute = ""): RunCreationControlView {
+  request: RunCreationControlRequestView, requestedModelRoute: string | null = ""): RunCreationControlView {
   if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session"]) ||
     typeof value.replayed !== "boolean" || !isRecord(value.mission) ||
     !isRecord(value.mode) || !isRecord(value.run) || !isRecord(value.session) ||
@@ -381,6 +411,13 @@ function parseRunCreationControl(value: unknown,
   const workspaceID = boundedIdentity(value.mission.workspace_id);
   const expectedProfile = request.profile ?? "code";
   const expectedModelRoute = requestedModelRoute || expectedProfile;
+  const resolvedModelRoute = value.run.config.model_route;
+  // A Thread's default is resolved by Go's model registry. The client validates
+  // its shape and Run/Session binding, not a second copy of registry policy.
+  const defaultRouteValid = typeof resolvedModelRoute === "string" &&
+    (resolvedModelRoute === expectedProfile ||
+      (resolvedModelRoute.split("/").length === 2 && resolvedModelRoute.split("/")
+        .every((part) => Boolean(boundedIdentity(part)) && part.trim() === part)));
   const expectedSurface = request.surface ?? "code";
   const expectedPhase = request.phase ?? "deliver";
   const expectedNetwork = normalizeRequestedNetworkAuthority(request);
@@ -392,7 +429,8 @@ function parseRunCreationControl(value: unknown,
     value.run.status !== "created" || value.session.status !== "active" ||
     value.run.config.interactive !== true || value.mission.profile !== expectedProfile ||
     value.mode.profile !== expectedProfile ||
-    value.run.config.model_route !== expectedModelRoute || value.session.route !== expectedModelRoute ||
+    (requestedModelRoute === null ? !defaultRouteValid : resolvedModelRoute !== expectedModelRoute) ||
+    value.session.route !== resolvedModelRoute ||
     value.session.title !== value.mission.goal ||
     !scopeMatchesRequestedNetworkAuthority(value.mission.scope, expectedNetwork) ||
     !scopeMatchesRequestedNetworkAuthority(value.mode.scope, expectedNetwork) ||
@@ -451,7 +489,7 @@ function parseThreadCreationControl(value: unknown,
     throw new APIRequestError("Thread creation response is invalid", "INVALID_RESPONSE", 502);
   }
   const requestedModelRoute = request.provider && request.model
-    ? `${request.provider}/${request.model}` : "";
+    ? `${request.provider}/${request.model}` : null;
   const runCreation = parseRunCreationControl({ mission: value.mission, mode: value.mode,
     replayed: value.replayed, run: value.run, session: value.session }, {
     version: "run_creation.v1", goal: request.goal, workspace_id: request.workspace_id,
@@ -472,9 +510,10 @@ function parseThreadCreationControl(value: unknown,
 function isValidOperatorSteeringMessage(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value) || !hasOnlyKeys(value,
     ["cancelled_at", "committed_at", "created_at", "id", "prepared", "sequence", "status"]) ||
-    !boundedIdentity(value.id) || value.prepared !== false ||
+    !boundedIdentity(value.id) || typeof value.prepared !== "boolean" ||
     !safePositiveInteger(value.sequence) || !validDate(value.created_at) ||
-    !["pending", "committed", "cancelled"].includes(String(value.status))) {
+    !["pending", "committed", "cancelled"].includes(String(value.status)) ||
+    (value.prepared && value.status !== "pending")) {
     return false;
   }
   const committedAt = value.committed_at;
@@ -484,6 +523,21 @@ function isValidOperatorSteeringMessage(value: unknown): value is Record<string,
     (value.status !== "pending" || (committedAt === undefined && cancelledAt === undefined)) &&
     (value.status !== "committed" || (committedAt !== undefined && cancelledAt === undefined)) &&
     (value.status !== "cancelled" || (cancelledAt !== undefined && committedAt === undefined));
+}
+
+function parseThreadExecution(value: unknown, threadID: string): import("./types").ThreadExecutionView {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "thread_id", "execution_id", "state",
+    "queued_messages", "capability_grant", "last_turn_interrupted"]) || value.version !== "thread_execution.v1" ||
+    value.thread_id !== threadID || value.capability_grant !== false ||
+    !["idle", "running", "stopping", "stop_failed"].includes(String(value.state)) ||
+    !safeBoundedCount(value.queued_messages, Number.MAX_SAFE_INTEGER) ||
+    (value.last_turn_interrupted !== undefined && typeof value.last_turn_interrupted !== "boolean") ||
+    (value.state !== "idle" && value.last_turn_interrupted === true) ||
+    (value.state === "idle" ? value.execution_id !== undefined || value.queued_messages !== 0
+      : !boundedIdentity(value.execution_id))) {
+    throw new APIRequestError("Thread execution response is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as import("./types").ThreadExecutionView;
 }
 
 function parseThreadMessageControl(value: unknown, expectedThreadID: string,
@@ -615,7 +669,7 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
   const optional = ["activity_detail_ref", "activity_summary", "attempt_id", "boundary_reason", "detail",
     "detail_available", "durable_call_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
-    "stream_response_id", "tool_name", "tool_round", "web_evidence"];
+    "stream_response_id", "tool_name", "tool_round", "web_evidence", "images", "attachments"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.version !== "thread_transcript.v1" || !boundedIdentity(value.id) ||
@@ -652,6 +706,12 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.images !== undefined && (!validImageAttachments(value.images) || value.source !== "operator")) {
+    throw new APIRequestError("消息图片引用无效。", "INVALID_RESPONSE", 502);
+  }
+  if (value.attachments !== undefined && (!validFileAttachments(value.attachments) || value.source !== "operator")) {
+    throw new APIRequestError("消息附件引用无效。", "INVALID_RESPONSE", 502);
   }
   if (value.activity_summary !== undefined) {
     const summary = value.activity_summary;
@@ -1292,7 +1352,7 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
       !["mock", "anthropic_messages", "openai_chat_completions", "openai_responses",
         "ollama_chat"].includes(
         String(provider.transport)) ||
-      !["disabled", "auto", "searxng", "provider_native"].includes(
+      !["disabled", "auto", "web", "searxng", "provider_native"].includes(
         String(provider.search_mode)) ||
       !["unsupported", "declared_unverified"].includes(
         String(provider.native_web_search_capability)) ||
@@ -1388,11 +1448,13 @@ function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailability
 
 function parsePlanDirectionControl(value: unknown, expectedRunID: string,
   request: PlanDirectionControlRequestView): PlanDirectionControlView {
-  if (!hasExactKeys(value, ["capability_grant", "direction", "execution_started", "model_called",
+  if (!hasRequiredOnlyKeys(value, ["capability_grant", "direction", "execution_started", "model_called",
     "note_id", "phase_changed", "proposal_id", "replayed", "run_id", "selection_id",
-    "tool_called", "version", "work_item_count"]) ||
+    "tool_called", "version", "work_item_count"], ["manual_acceptance"]) ||
     value.version !== "plan_delivery_control.v1" || value.run_id !== expectedRunID ||
     value.proposal_id !== request.proposal_id || value.direction !== request.direction ||
+    (value.manual_acceptance !== undefined && value.manual_acceptance !== "required" && value.manual_acceptance !== "on_demand") ||
+    (value.manual_acceptance ?? "required") !== (request.manual_acceptance ?? "required") ||
     !boundedIdentity(value.run_id) || !boundedIdentity(value.proposal_id) ||
     !boundedIdentity(value.selection_id) || !boundedIdentity(value.note_id) ||
     !safeBoundedCount(value.work_item_count, 32) || value.work_item_count < 1 ||
@@ -1420,6 +1482,27 @@ function parsePlanModeTransition(value: unknown,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as PlanModeTransitionControlView;
+}
+
+function validatePlanWorkItemRequest(enabled: boolean, runID: string, itemID: string,
+  body: PlanDeliveryWorkItemControlRequestView) {
+  if (!enabled || boundedIdentity(runID) !== runID || boundedIdentity(itemID) !== itemID ||
+    body.version !== "plan_delivery_control.v1" || !safePositiveInteger(body.expected_work_item_version)) {
+    throw new Error("Plan controls and exact Run, item, and version identities are required");
+  }
+}
+
+function validPlanWorkItemResult(value: unknown, runID: string, itemID: string):
+  value is Record<string, unknown> & { current_work_item: WorkItemView } {
+  if (!isRecord(value) || value.version !== "plan_delivery_control.v1" || value.run_id !== runID ||
+    typeof value.replayed !== "boolean" || value.execution_started !== false || value.model_called !== false ||
+    value.tool_called !== false || value.capability_grant !== false || !isRecord(value.current_work_item)) return false;
+  const item = value.current_work_item;
+  return item.id === itemID && item.run_id === runID && safePositiveInteger(item.version) &&
+    typeof item.title === "string" && Array.isArray(item.acceptance_criteria) &&
+    item.acceptance_criteria.every((entry) => typeof entry === "string") && Array.isArray(item.dependencies) &&
+    item.dependencies.every((entry) => typeof entry === "string") &&
+    typeof item.status === "string" && ["pending", "in_progress", "blocked", "completed", "cancelled"].includes(item.status);
 }
 
 function parsePlanDeliveryTransition(value: unknown,
@@ -1710,8 +1793,8 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     "permission_revision", "policy_version", "protocol_version", "purpose", "run_id",
     "session_id", "spec_fingerprint", "timeout_milliseconds", "working_directory",
     "workspace_id"];
-  const optional = ["execution_replayed", "receipt", "result", "review", "review_replayed",
-    "untrusted_evidence", ...hostCommandRiskFields];
+  const optional = ["continuation", "execution_replayed", "receipt", "result", "review", "review_replayed",
+    "untrusted_evidence", "saved_output", ...hostCommandRiskFields];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     (value.protocol_version !== "host_command_proposal.v1" &&
@@ -1803,7 +1886,37 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     throw new APIRequestError("Host command proposal response crossed its execution boundary",
       "INVALID_RESPONSE", 502);
   }
+  if (value.continuation !== undefined) {
+    validateApprovalContinuation(value.continuation);
+    if (value.review === undefined) {
+      throw new APIRequestError("Approval continuation has no saved review", "INVALID_RESPONSE", 502);
+    }
+  }
+  if (value.saved_output !== undefined) {
+    validateHostCommandSavedOutput(value.saved_output, value);
+  }
   return value as unknown as HostCommandProposalView;
+}
+
+function validateHostCommandSavedOutput(output: unknown, proposal: Record<string, unknown>): void {
+  const validStream = (value: unknown): value is Record<string, unknown> => {
+    if (!hasExactKeys(value, ["text", "utf8_bytes", "truncated", "redacted"]) ||
+      typeof value.text !== "string" || value.redacted !== true ||
+      typeof value.truncated !== "boolean" || typeof value.utf8_bytes !== "number" ||
+      !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 0) return false;
+    return new TextEncoder().encode(value.text).byteLength === value.utf8_bytes &&
+      value.utf8_bytes <= 16 * 1024;
+  };
+  if (proposal.protocol_version !== "host_command_proposal.v1" ||
+    !isRecord(proposal.result) || !isRecord(proposal.receipt) ||
+    !hasExactKeys(output, ["result_id", "request_id", "stdout", "stderr"]) ||
+    output.result_id !== proposal.result.id || output.request_id !== proposal.receipt.request_id ||
+    !validStream(output.stdout) || !validStream(output.stderr) ||
+    Number(output.stdout.utf8_bytes) + Number(output.stderr.utf8_bytes) > 16 * 1024 ||
+    (proposal.receipt.stdout_truncated === true && output.stdout.truncated !== true) ||
+    (proposal.receipt.stderr_truncated === true && output.stderr.truncated !== true)) {
+    throw new APIRequestError("Host command saved output does not match its result", "INVALID_RESPONSE", 502);
+  }
 }
 
 function validateRiskEscalationProposal(value: Record<string, unknown>): void {
@@ -1894,10 +2007,19 @@ const unavailableRouteReasons = ["", "provider_disabled", "credential_not_config
   "not_configured", "protocol_mismatch", "auth_failed", "network_failed", "rate_limit",
   "capacity", "model_unsupported"] as const;
 
+function validVisionCapability(value: unknown): boolean {
+  return hasExactKeys(value, ["state", "source"]) &&
+    ["supported", "unsupported", "unknown"].includes(String(value.state)) &&
+    ["operator_declared", "provider_metadata", "unknown", "adapter_unsupported"].includes(String(value.source));
+}
+
 function parseAvailableModelRoute(value: unknown): AvailableModelRouteCollectionView["routes"][number] {
-  if (!hasExactKeys(value, ["credential_status", "default_for_routes", "enabled",
+  const required = ["credential_status", "default_for_routes", "enabled",
     "harness_ready", "model", "provider_id", "provider_name", "qualification_status",
-    "selectable", "unavailable_reason"]) ||
+    "selectable", "unavailable_reason"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "vision_capability"]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    (value.vision_capability !== undefined && !validVisionCapability(value.vision_capability)) ||
     !boundedIdentity(value.provider_id) || !boundedText(value.provider_name, 256) ||
     !boundedIdentity(value.model) || typeof value.enabled !== "boolean" ||
     typeof value.harness_ready !== "boolean" || typeof value.selectable !== "boolean" ||
@@ -1943,7 +2065,8 @@ function parseThreadModelRoute(value: unknown, threadID: string,
   request?: ThreadModelRouteControlRequestView): ThreadModelRouteView {
   const required = ["active_run_unchanged", "applies_to", "model", "protocol_version",
     "provider", "replayed", "source", "thread_id"];
-  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "effective_run_id"]) ||
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "effective_run_id", "vision_capability"]) ||
+    (value.vision_capability !== undefined && !validVisionCapability(value.vision_capability)) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.protocol_version !== "thread_model_route.v1" || value.thread_id !== threadID ||
     !boundedIdentity(value.thread_id) || !boundedIdentity(value.provider) ||
@@ -2009,7 +2132,7 @@ function parseProviderSearchReadiness(value: unknown,
     (value.model_route !== undefined && !boundedText(value.model_route, 512)) ||
     (value.provider !== undefined && !boundedIdentity(value.provider)) ||
     (value.model !== undefined && !boundedIdentity(value.model)) ||
-    (value.search_policy !== undefined && !["disabled", "searxng", "provider_native", "auto"]
+    (value.search_policy !== undefined && !["disabled", "searxng", "provider_native", "auto", "web"]
       .includes(String(value.search_policy))) ||
     (value.detail_code !== undefined && !boundedText(value.detail_code, 256)) ||
     (value.required_target !== undefined && !validSearchTarget(value.required_target)) ||
@@ -2235,7 +2358,7 @@ function parseProviderDefinition(value: unknown): ProviderDefinitionView {
     !value.models.includes(value.default_model as string) ||
     !["openai_chat_completions", "openai_responses", "anthropic_messages"]
       .includes(String(value.transport)) ||
-    !["disabled", "auto", "searxng", "provider_native"].includes(String(value.search_mode)) ||
+    !["disabled", "auto", "web", "searxng", "provider_native"].includes(String(value.search_mode)) ||
     !["unsupported", "declared_unverified"].includes(
       String(value.native_web_search_capability)) ||
     (value.search_mode === "provider_native" &&
@@ -2660,7 +2783,12 @@ function parseUIEvidenceBundle(value: unknown, attemptID: string): UIEvidenceBun
 }
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
+  // Older servers cannot grant a capability they do not advertise.
+  if (isRecord(value) && !Object.hasOwn(value, "workspace_import_enabled")) {
+    value = { ...value, workspace_import_enabled: false };
+  }
   const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled",
+    "workspace_import_enabled",
     "command_runtime_enabled", "command_runtime_protocol_available",
     "command_runtime_adapter_installed", "command_runtime_adapter_ready",
     "command_runtime_adapters", "docker_execution_enabled",
@@ -2687,6 +2815,9 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "scheduled_job_worker_enabled", "scheduled_job_worker", "session_message_enabled",
     "session_steering_control_enabled", "shell_execution_enabled",
     "skill_installation_enabled", "thread_control_enabled", "wake_worker"];
+  if (isRecord(value) && Object.hasOwn(value, "thread_execution_read_enabled")) {
+    capabilityKeys.push("thread_execution_read_enabled");
+  }
   if (!hasExactKeys(value, capabilityKeys) || value.protocol_version !== "runtime_capabilities.v1") {
     throw new APIRequestError("Runtime capability response is invalid", "INVALID_RESPONSE", 502);
   }
@@ -3020,6 +3151,8 @@ function parseRunCapabilityReadiness(value: unknown,
   const commandRuntimeRequired = ["adapter_installed", "adapter_ready",
     "current_run_granted", "protocol_available"];
   const commandRuntimeAllowed = [...commandRuntimeRequired, "adapter_kind", "backend"];
+  const hasAdapterKind = isRecord(commandRuntime) && Object.prototype.hasOwnProperty.call(commandRuntime, "adapter_kind");
+  const hasBackend = isRecord(commandRuntime) && Object.prototype.hasOwnProperty.call(commandRuntime, "backend");
   if (!isRecord(commandRuntime) || !hasOnlyKeys(commandRuntime, commandRuntimeAllowed) ||
     commandRuntimeRequired.some((key) =>
       !Object.prototype.hasOwnProperty.call(commandRuntime, key)) ||
@@ -3028,12 +3161,13 @@ function parseRunCapabilityReadiness(value: unknown,
     typeof commandRuntime.adapter_ready !== "boolean" ||
     typeof commandRuntime.current_run_granted !== "boolean" ||
     (commandRuntime.adapter_ready && !commandRuntime.adapter_installed) ||
-    (commandRuntime.current_run_granted && (!commandRuntime.adapter_ready ||
-      !["sandboxed_workspace", "host_unsandboxed"].includes(
-        String(commandRuntime.adapter_kind)) || !boundedIdentity(commandRuntime.backend))) ||
-    (!commandRuntime.current_run_granted &&
-      (Object.prototype.hasOwnProperty.call(commandRuntime, "adapter_kind") ||
-        Object.prototype.hasOwnProperty.call(commandRuntime, "backend")))) {
+    hasAdapterKind !== hasBackend ||
+    (hasAdapterKind && (typeof commandRuntime.adapter_kind !== "string" ||
+      !["sandboxed_workspace", "host_unsandboxed"].includes(commandRuntime.adapter_kind) ||
+      !boundedIdentity(commandRuntime.backend))) ||
+    // An installed, selected adapter remains identifiable while Plan or a paused
+    // Run has no active command grant. Selection is not execution authority.
+    (commandRuntime.current_run_granted && (!commandRuntime.adapter_ready || !hasAdapterKind))) {
     throw new APIRequestError("Command Runtime readiness response is invalid",
       "INVALID_RESPONSE", 502);
   }
@@ -3210,6 +3344,7 @@ function parseEmbeddedAnalyzerExecution(value: unknown,
 export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): ClientCapabilities {
   return {
     runControlEnabled: value.run_control_enabled,
+    workspaceImportEnabled: value.workspace_import_enabled === true,
     executionPermissionControlEnabled: value.execution_permission_control_enabled,
     workspaceSandboxEnabled: value.workspace_sandbox_enabled,
     browserCDPPermissionControlEnabled: value.browser_cdp_permission_control_enabled,
@@ -3229,6 +3364,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     sessionSteeringControlEnabled: value.session_steering_control_enabled,
     runLifecycleEnabled: value.run_lifecycle_enabled,
     runExecutionEnabled: value.run_execution_enabled,
+    threadExecutionReadEnabled: value.thread_execution_read_enabled === true,
     planDeliveryControlEnabled: value.plan_delivery_control_enabled,
     approvalControlEnabled: value.approval_control_enabled,
     controlledCommandProposalControlEnabled:
@@ -3318,6 +3454,20 @@ function parseFileEditProposalRecovery(value: unknown, runID: string,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as FileEditProposalRecoveryView;
+}
+
+function parseFileEditRevertProposal(value: unknown, runID: string, sourceEditID: string): FileEditRevertProposalView {
+  if (!hasExactKeys(value, ["edit", "file_written", "protocol_version", "replayed", "run_id", "source_edit_id"]) ||
+    value.protocol_version !== "file_edit_proposal.v1" || value.run_id !== runID ||
+    value.source_edit_id !== sourceEditID || value.file_written !== false || typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Revert proposal response violated its no-write identity contract", "INVALID_RESPONSE", 502);
+  }
+  const edit = parseFileEditPreview(value.edit);
+  if (edit.id === sourceEditID || edit.operation === "move" || edit.secrets_redacted ||
+    (!value.replayed && (edit.status !== "proposed" || edit.apply_enabled))) {
+    throw new APIRequestError("Revert proposal did not return a reviewable inverse edit", "INVALID_RESPONSE", 502);
+  }
+  return { ...value, edit } as unknown as FileEditRevertProposalView;
 }
 
 function parseFileEditPreview(value: unknown): FileEditPreviewView {
@@ -3439,7 +3589,9 @@ function parseFileEditChangeSet(value: unknown, runID: string): FileEditChangeSe
 
 function parseFileEditReview(value: unknown, runID: string, editID: string,
   request: FileEditReviewRequestView): FileEditReviewView {
-  if (!hasExactKeys(value, ["action", "edit", "file_written", "protocol_version", "replayed", "run_id"]) ||
+  const required = ["action", "edit", "file_written", "protocol_version", "replayed", "run_id"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation"]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.protocol_version !== "file_edit_review.v1" || value.run_id !== runID ||
     value.action !== request.action || value.file_written !== false || typeof value.replayed !== "boolean") {
     throw new APIRequestError("File edit review response violated its no-write contract",
@@ -3451,7 +3603,24 @@ function parseFileEditReview(value: unknown, runID: string, editID: string,
     throw new APIRequestError("File edit review result does not match the requested decision",
       "INVALID_RESPONSE", 502);
   }
+  if (value.continuation !== undefined) validateApprovalContinuation(value.continuation);
   return { ...value, edit } as unknown as FileEditReviewView;
+}
+
+function validateApprovalContinuation(value: unknown): void {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["state", "replayed", "model_called", "tool_called",
+    "handoff_id", "error_code", "message"]) ||
+    typeof value.state !== "string" || !["not_started", "queued", "completed", "failed"].includes(value.state) ||
+    typeof value.replayed !== "boolean" || typeof value.model_called !== "boolean" ||
+    typeof value.tool_called !== "boolean" ||
+    (value.handoff_id !== undefined && boundedIdentity(value.handoff_id) !== value.handoff_id) ||
+    (value.error_code !== undefined && boundedIdentity(value.error_code) !== value.error_code) ||
+    (value.message !== undefined && !boundedText(value.message, 4_096)) ||
+    (value.state === "completed" && (!boundedIdentity(value.handoff_id) || value.error_code !== undefined)) ||
+    ((value.state === "not_started" || value.state === "queued") &&
+      (value.model_called || value.tool_called || value.handoff_id !== undefined || value.error_code !== undefined))) {
+    throw new APIRequestError("Approval continuation response is invalid", "INVALID_RESPONSE", 502);
+  }
 }
 
 function parseFileEditApply(value: unknown, runID: string, editID: string): FileEditApplyView {
@@ -4835,6 +5004,7 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
   const hasStandardCodeDelivery = isRecord(value) &&
     Object.prototype.hasOwnProperty.call(value, "standard_code_delivery");
   if (hasStandardCodeDelivery) keys.push("standard_code_delivery");
+  if (isRecord(value) && Object.prototype.hasOwnProperty.call(value, "host_commands")) keys.push("host_commands");
   if (!hasExactKeys(value, keys) || value.protocol_version !== "code_handoff.v1" ||
     value.run_id !== runID || !boundedIdentity(value.mission_id) || !boundedIdentity(value.session_id) ||
     !boundedIdentity(value.workspace_id) || value.surface !== "code" ||
@@ -4863,7 +5033,9 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
   const plan = value.plan;
   const planCounts = [plan.pending_count, plan.in_progress_count, plan.blocked_count,
     plan.completed_count, plan.cancelled_count];
-  if (!hasExactKeys(plan, planKeys) || !["none", "proposed", "selected"].includes(String(plan.state)) ||
+  if (!hasRequiredOnlyKeys(plan, planKeys, ["manual_acceptance"]) || !["none", "proposed", "selected"].includes(String(plan.state)) ||
+    (plan.manual_acceptance !== undefined && (plan.state !== "selected" ||
+      (plan.manual_acceptance !== "required" && plan.manual_acceptance !== "on_demand"))) ||
     typeof plan.proposal_id !== "string" || typeof plan.selection_id !== "string" ||
     !safeBoundedCount(plan.direction_count, 3) || !safeBoundedCount(plan.selected_direction, 3) ||
     !safeBoundedCount(plan.module_count, 8) ||
@@ -4872,10 +5044,10 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
     (plan.state === "none" && (plan.proposal_id !== "" || plan.selection_id !== "" ||
       plan.direction_count !== 0 || plan.selected_direction !== 0 || plan.module_count !== 0)) ||
     (plan.state === "proposed" && (!boundedIdentity(plan.proposal_id) || plan.selection_id !== "" ||
-      plan.direction_count !== 3 || plan.selected_direction !== 0 || plan.module_count !== 0)) ||
+      plan.direction_count < 1 || plan.selected_direction !== 0 || plan.module_count !== 0)) ||
     (plan.state === "selected" && (!boundedIdentity(plan.proposal_id) ||
-      !boundedIdentity(plan.selection_id) || plan.direction_count !== 3 ||
-      plan.selected_direction < 1))) {
+      !boundedIdentity(plan.selection_id) || plan.direction_count < 1 ||
+      plan.selected_direction < 1 || plan.selected_direction > plan.direction_count))) {
     throw new APIRequestError("Code handoff Plan summary is inconsistent", "INVALID_RESPONSE", 502);
   }
   const queue = value.queue;
@@ -5106,6 +5278,49 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
         "INVALID_RESPONSE", 502);
     }
     reportIDs.add(String(report.id));
+  }
+  if (value.host_commands !== undefined) {
+    const commands = value.host_commands;
+    if (!hasExactKeys(commands, ["items", "truncated"]) || !Array.isArray(commands.items) ||
+      commands.items.length > 20 || typeof commands.truncated !== "boolean") {
+      throw new APIRequestError("Code handoff host commands are invalid", "INVALID_RESPONSE", 502);
+    }
+    const ids = new Set<string>();
+    for (const item of commands.items) {
+      if (!hasRequiredOnlyKeys(item, ["proposal_id", "run_id", "session_id", "workspace_id", "purpose",
+        "working_directory", "spec_fingerprint", "created_at"], ["review_id", "review_decision",
+        "result_id", "result_status", "source_ref", "content_sha256", "receipt"]) ||
+        !boundedIdentity(item.proposal_id) || ids.has(String(item.proposal_id)) || item.run_id !== runID ||
+        item.session_id !== value.session_id || item.workspace_id !== value.workspace_id ||
+        !boundedText(item.purpose, 4096) || !boundedText(item.working_directory, 4096) ||
+        !isSHA256(item.spec_fingerprint) || !validDate(item.created_at) ||
+        (item.review_id === undefined ? item.review_decision !== undefined :
+          !boundedIdentity(item.review_id) || !["approve", "deny"].includes(String(item.review_decision)))) {
+        throw new APIRequestError("Code handoff host command binding is invalid", "INVALID_RESPONSE", 502);
+      }
+      ids.add(String(item.proposal_id));
+      if (item.receipt === undefined) {
+        if ([item.result_id, item.result_status, item.source_ref, item.content_sha256].some((field) => field !== undefined)) {
+          throw new APIRequestError("Code handoff host result has no receipt", "INVALID_RESPONSE", 502);
+        }
+        continue;
+      }
+      const receipt = item.receipt;
+      if (!hasExactKeys(receipt, ["request_id", "exit_code", "timed_out", "cancelled", "stdout_truncated",
+        "stderr_truncated", "output_limit_exceeded", "tree_reaped", "non_sandboxed", "started_at", "completed_at"]) ||
+        item.review_decision !== "approve" || !boundedIdentity(item.result_id) ||
+        item.source_ref !== `host-command-proposal:${item.proposal_id}` || !isSHA256(item.content_sha256) ||
+        !boundedIdentity(receipt.request_id) || !Number.isSafeInteger(receipt.exit_code) ||
+        [receipt.timed_out, receipt.cancelled, receipt.stdout_truncated, receipt.stderr_truncated,
+          receipt.output_limit_exceeded].some((field) => typeof field !== "boolean") ||
+        (receipt.timed_out && receipt.cancelled) || receipt.tree_reaped !== true || receipt.non_sandboxed !== true ||
+        !validDate(receipt.started_at) || !validDate(receipt.completed_at) ||
+        Date.parse(receipt.completed_at) < Date.parse(receipt.started_at) ||
+        item.result_status !== (receipt.exit_code !== 0 || receipt.timed_out || receipt.cancelled ||
+          receipt.output_limit_exceeded ? "failed" : "completed")) {
+        throw new APIRequestError("Code handoff host receipt is inconsistent", "INVALID_RESPONSE", 502);
+      }
+    }
   }
   if (hasStandardCodeDelivery) {
     return { ...value,
@@ -5862,6 +6077,7 @@ function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
 export class CyberAgentClient {
   readonly baseURL: string;
   readonly hasControl: boolean;
+  readonly hasWorkspaceImport: boolean;
   readonly hasExecutionPermissionControl: boolean;
   readonly hasBrowserCDPPermissionControl: boolean;
   readonly hasFullCDPDebug: boolean;
@@ -5873,6 +6089,7 @@ export class CyberAgentClient {
   readonly hasSessionSteeringControl: boolean;
   readonly hasRunLifecycle: boolean;
   readonly hasRunExecution: boolean;
+  readonly hasThreadExecutionRead: boolean;
   readonly hasPlanDelivery: boolean;
   readonly hasApprovalControl: boolean;
   readonly hasControlledCommandProposalControl: boolean;
@@ -5912,6 +6129,7 @@ export class CyberAgentClient {
     this.baseURL = normalizeBaseURL(baseURL);
     const controlPresent = controlToken.trim() !== "";
     this.hasControl = controlPresent && (capabilities.runControlEnabled ?? true);
+    this.hasWorkspaceImport = controlPresent && capabilities.workspaceImportEnabled === true;
     this.hasExecutionPermissionControl = controlPresent &&
       (capabilities.executionPermissionControlEnabled ?? false);
     this.hasBrowserCDPPermissionControl = controlPresent &&
@@ -5932,6 +6150,7 @@ export class CyberAgentClient {
       (capabilities.sessionSteeringControlEnabled ?? true);
     this.hasRunLifecycle = controlPresent && (capabilities.runLifecycleEnabled ?? true);
     this.hasRunExecution = controlPresent && (capabilities.runExecutionEnabled ?? true);
+    this.hasThreadExecutionRead = capabilities.threadExecutionReadEnabled === true;
     this.hasPlanDelivery = controlPresent && (capabilities.planDeliveryControlEnabled ?? true);
     this.hasApprovalControl = controlPresent && (capabilities.approvalControlEnabled ?? true);
     this.hasControlledCommandProposalControl = controlPresent &&
@@ -5991,6 +6210,46 @@ export class CyberAgentClient {
 
   async runtimeCapabilities(signal?: AbortSignal): Promise<RuntimeCapabilitiesView> {
     return parseRuntimeCapabilities(await this.get<unknown>("/capabilities", {}, signal));
+  }
+
+  async importWorkspace(directoryPath: string, signal?: AbortSignal): Promise<WorkspaceImportView> {
+    if (!this.hasWorkspaceImport) {
+      throw new APIRequestError("Workspace import is unavailable for this connection",
+        "PERMISSION_DENIED", 403);
+    }
+    if (typeof directoryPath !== "string" || !directoryPath.trim() ||
+      /[\u0000-\u001f\u007f]/u.test(directoryPath) ||
+      new TextEncoder().encode(directoryPath).length > 4_096) {
+      throw new APIRequestError("A valid project directory is required", "INVALID_ARGUMENT", 400);
+    }
+    try {
+      const value = await this.sendControlRequest<unknown>("/workspaces/import", {
+        version: "workspace_import.v1", directory_path: directoryPath, confirmed: true,
+      }, signal);
+      if (!hasExactKeys(value, ["protocol_version", "workspace",
+        "directory_content_modified", "agent_authority_granted"]) ||
+        value.protocol_version !== "workspace_import.v1" ||
+        value.directory_content_modified !== false || value.agent_authority_granted !== false ||
+        !hasExactKeys(value.workspace, ["id", "name", "created_at"]) ||
+        typeof value.workspace.id !== "string" ||
+        !/^[A-Za-z0-9_.-]{1,256}$/u.test(value.workspace.id) ||
+        !boundedText(value.workspace.name, 128) ||
+        /[\\/\u0000-\u001f\u007f]/u.test(value.workspace.name) ||
+        !validDate(value.workspace.created_at)) {
+        throw new APIRequestError("Workspace import response is invalid", "INVALID_RESPONSE", 502);
+      }
+      return value as unknown as WorkspaceImportView;
+    } catch (error) {
+      // Transport and server messages may contain the submitted host path.
+      // Keep bounded machine status for recovery while discarding raw details.
+      if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        throw new DOMException("Workspace import was cancelled", "AbortError");
+      }
+      const code = error instanceof APIRequestError && /^[A-Z_]{1,64}$/u.test(error.code)
+        ? error.code : "UNAVAILABLE";
+      throw new APIRequestError("Unable to import the project. Check the directory and try again.",
+        code, error instanceof APIRequestError ? error.status : 0);
+    }
   }
 
   async runCapabilityReadiness(runID: string,
@@ -6452,6 +6711,112 @@ export class CyberAgentClient {
       throw new APIRequestError("UI evidence artifact digest verification failed", "INVALID_RESPONSE", 502);
     }
     return new Blob([bytes], { type: metadata.mime });
+  }
+
+  async uploadWorkspaceFile(workspaceID: string, file: File, operationKey: string,
+    signal?: AbortSignal): Promise<WorkspaceFileAttachment> {
+    if (!boundedIdentity(workspaceID) || file.size > maximumFileBytes) throw new Error("每个文件不能超过 5 MiB。");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
+    const name = [...file.name.replace(/[\u0000-\u001f\u007f/\\]/gu, "_")].slice(0, 160).join("") || "附件";
+    const result = await this.postControl<{ attachment: unknown }>(
+      `/workspaces/${encodeURIComponent(workspaceID)}/file-attachments`, {
+        version: "workspace_file_upload.v1", name, mime_type: file.type || "application/octet-stream", data_base64: btoa(binary),
+      }, operationKey, signal);
+    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (!validFileAttachment(result?.attachment) || result.attachment.workspace_id !== workspaceID ||
+        result.attachment.sha256 !== digest || result.attachment.byte_size !== bytes.length || result.attachment.name !== name) {
+      throw new APIRequestError("文件上传结果与原文件不一致，原请求标识已保留。", "INVALID_RESPONSE", 502);
+    }
+    return result.attachment;
+  }
+
+  async inspectWorkspaceFileUpload(workspaceID: string, operationKey: string, signal?: AbortSignal):
+    Promise<{ state: "not_received" | "stored"; attachment?: WorkspaceFileAttachment }> {
+    if (!boundedIdentity(workspaceID) || !boundedIdentity(operationKey)) throw new Error("文件上传请求标识无效。");
+    const value = (await this.request<unknown>(`/workspaces/${encodeURIComponent(workspaceID)}/file-attachments/request`,
+      {}, signal, operationKey)).data;
+    if (!isRecord(value) || !["not_received", "stored"].includes(String(value.state)) ||
+        (value.state === "stored" && (!validFileAttachment(value.attachment) || value.attachment.workspace_id !== workspaceID)) ||
+        (value.state === "not_received" && value.attachment !== undefined)) {
+      throw new APIRequestError("文件上传状态无法核对，原请求已保留。", "INVALID_RESPONSE", 502);
+    }
+    return value as { state: "not_received" | "stored"; attachment?: WorkspaceFileAttachment };
+  }
+
+  async downloadWorkspaceFile(metadata: WorkspaceFileAttachment, signal?: AbortSignal): Promise<Blob> {
+    if (!validFileAttachment(metadata)) throw new Error("文件引用无效，无法下载。");
+    return this.downloadVerifiedAttachment(`/workspaces/${encodeURIComponent(metadata.workspace_id)}/file-attachments/` +
+      `${encodeURIComponent(metadata.id)}/content`, { ...metadata, mime_type: "application/octet-stream" }, signal);
+  }
+
+  async uploadWorkspaceImage(workspaceID: string, file: File, operationKey: string,
+    signal?: AbortSignal): Promise<WorkspaceImageAttachment> {
+    if (!boundedIdentity(workspaceID) || !acceptedImageTypes.includes(file.type) ||
+      file.size < 1 || file.size > maximumImageBytes) throw new Error("请选择不超过 5 MiB 的 PNG、JPEG 或 WebP 图片。");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let start = 0; start < bytes.length; start += 8192) binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
+    const result = await this.postControl<{ image: unknown }>(
+      `/workspaces/${encodeURIComponent(workspaceID)}/image-attachments`, {
+        version: "workspace_image_upload.v1", name: [...file.name.replace(/[\u0000-\u001f\u007f/\\]/gu, "_")].slice(0, 160).join(""), mime_type: file.type,
+        data_base64: btoa(binary),
+      }, operationKey, signal);
+    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (!validImageAttachment(result?.image) || result.image.workspace_id !== workspaceID ||
+      result.image.sha256 !== digest || result.image.byte_size !== bytes.length || result.image.mime_type !== file.type) {
+      throw new APIRequestError("图片上传结果与原图不一致，请重新选择。", "INVALID_RESPONSE", 502);
+    }
+    return result.image;
+  }
+
+  async downloadWorkspaceImage(metadata: WorkspaceImageAttachment, signal?: AbortSignal): Promise<Blob> {
+    if (!validImageAttachment(metadata)) throw new Error("图片引用无效，无法预览。");
+    return this.downloadVerifiedImage(`/workspaces/${encodeURIComponent(metadata.workspace_id)}/image-attachments/` +
+      `${encodeURIComponent(metadata.id)}/content`, metadata, signal);
+  }
+
+  // Both user attachments and live previews are fetched with the read token.
+  // Object URLs are created only after the declared size and digest match.
+  async downloadVerifiedImage(path: string, metadata: { mime_type: string; byte_size: number; sha256: string },
+    signal?: AbortSignal): Promise<Blob> {
+    if (!acceptedImageTypes.includes(metadata.mime_type) || !isSHA256(metadata.sha256) ||
+      !Number.isSafeInteger(metadata.byte_size) || metadata.byte_size < 1 || metadata.byte_size > 20 * 1024 * 1024) {
+      throw new Error("图片元信息无效。");
+    }
+    return this.downloadVerifiedAttachment(path, metadata, signal);
+  }
+
+  private async downloadVerifiedAttachment(path: string, metadata: { mime_type: string; byte_size: number; sha256: string },
+    signal?: AbortSignal): Promise<Blob> {
+    const response = await fetch(this.url(path), { method: "GET", headers: { ...this.headers(), Accept: metadata.mime_type },
+      signal, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" });
+    if (!response.ok) throw await this.responseError(response);
+    if (response.headers.get("content-type") !== metadata.mime_type ||
+      response.headers.get("etag") !== `"${metadata.sha256}"` ||
+      response.headers.get("x-cyberagent-content-sha256") !== metadata.sha256 ||
+      response.headers.get("content-length") !== String(metadata.byte_size) || (!response.body && metadata.byte_size !== 0)) {
+      throw new APIRequestError("附件内容已变化或无法验证，请重新读取。", "INVALID_RESPONSE", 502);
+    }
+    const bytes = new Uint8Array(metadata.byte_size);
+    const reader = response.body?.getReader();
+    let offset = 0;
+    try {
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (offset + value.byteLength > bytes.byteLength) { await reader.cancel(); throw new Error("附件大小超出已验证范围。"); }
+        bytes.set(value, offset);
+        offset += value.byteLength;
+      }
+    } finally { reader?.releaseLock(); }
+    const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (offset !== bytes.length || sha256 !== metadata.sha256) throw new Error("附件内容验证失败，请重新读取。");
+    return new Blob([bytes], { type: metadata.mime_type });
   }
 
   async modelAvailability(signal?: AbortSignal): Promise<ModelAvailabilityView> {
@@ -7370,15 +7735,89 @@ export class CyberAgentClient {
       idempotencyKey, signal), runID, body);
   }
 
-  async submitThreadTurn(threadID: string, body: ThreadMessageControlRequestView,
+  async threadExecution(threadID: string, signal?: AbortSignal): Promise<import("./types").ThreadExecutionView> {
+    return parseThreadExecution(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/execution`, {}, signal), threadID);
+  }
+
+  async inspectThreadCreationRequest(workspaceID: string, operationKey: string,
+    signal?: AbortSignal): Promise<unknown> {
+    if (!boundedIdentity(workspaceID) || workspaceID.trim() !== workspaceID) {
+      throw new Error("A normalized workspace is required");
+    }
+    return (await this.request<unknown>("/threads/creation-request", { workspace_id: workspaceID },
+      signal, operationKey)).data;
+  }
+
+  async inspectThreadTurnRequest(threadID: string, operationKey: string,
+    signal?: AbortSignal): Promise<unknown> {
+    if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
+      throw new Error("A normalized Thread is required");
+    }
+    return (await this.request<unknown>(`/threads/${encodeURIComponent(threadID)}/turn-request`, {},
+      signal, operationKey)).data;
+  }
+
+  async inspectThreadPlanRequest(threadID: string, runID: string, action: "enter_plan" | "enter_deliver" | "confirm",
+    operationKey: string, signal?: AbortSignal): Promise<unknown> {
+    if (!boundedIdentity(threadID) || threadID.trim() !== threadID ||
+      !boundedIdentity(runID) || runID.trim() !== runID) throw new Error("A normalized Thread and Run are required");
+    return (await this.request<unknown>(`/threads/${encodeURIComponent(threadID)}/plan`,
+      { run_id: runID, action }, signal, operationKey)).data;
+  }
+
+  async createFileEditRevertProposal(runID: string, sourceEditID: string,
+    idempotencyKey: string, signal?: AbortSignal): Promise<FileEditRevertProposalView> {
+    if (!this.hasFileEditReview || !boundedIdentity(runID) || !boundedIdentity(sourceEditID) ||
+      runID.trim() !== runID || sourceEditID.trim() !== sourceEditID) {
+      throw new Error("File edit review authority and normalized source identities are required");
+    }
+    return parseFileEditRevertProposal(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/file-edits/${encodeURIComponent(sourceEditID)}/revert-proposal`,
+      { version: "file_edit_proposal.v1" }, idempotencyKey, signal,
+    ), runID, sourceEditID);
+  }
+
+  async interruptThread(threadID: string, executionID: string, idempotencyKey: string,
+    signal?: AbortSignal): Promise<import("./types").ThreadExecutionView> {
+    if (!this.hasThreadControl || !this.hasRunExecution || !boundedIdentity(threadID) ||
+      !boundedIdentity(executionID)) throw new Error("A current controllable Thread execution is required");
+    return parseThreadExecution(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/interrupt`, {
+        version: "thread_execution.v1", execution_id: executionID,
+      }, idempotencyKey, signal), threadID);
+  }
+
+  async submitThreadTurn(threadID: string, body: ThreadTurnControlRequestView,
     idempotencyKey: string, signal?: AbortSignal): Promise<ThreadMessageControlView> {
     if (!this.hasThreadControl || !this.hasSessionMessages || !boundedIdentity(threadID) ||
       threadID.trim() !== threadID || body.version !== "thread_message_submission.v1") {
       throw new Error("Thread turn capability and a normalized Thread are required");
     }
-    return parseThreadMessageControl(await this.sendControl<unknown>(
-      `/threads/${encodeURIComponent(threadID)}/turns`, body, idempotencyKey, signal,
-    ), threadID, true);
+    if (body.files !== undefined && (!this.hasEvidenceAttachment || !Array.isArray(body.files) ||
+      body.files.length > 4 || new Set(body.files.map((file) => file?.path)).size !== body.files.length ||
+      body.files.some((file) => !hasExactKeys(file, ["source_kind", "path", "expected_sha256"]) ||
+        file.source_kind !== "workspace_file" || file.path === "." || !validWorkspaceRelativePath(file.path) ||
+        !isSHA256(file.expected_sha256)))) {
+      throw new Error("最多引用 4 个不同的项目文件；请重新选择有效文件后重试。");
+    }
+    if (body.attachments !== undefined && (!Array.isArray(body.attachments) || body.attachments.length > 4 ||
+        new Set(body.attachments.map((file) => file?.id)).size !== body.attachments.length ||
+        body.attachments.some((file) => !hasExactKeys(file, ["id", "workspace_id", "sha256", "byte_size"]) ||
+          !boundedIdentity(file.id) || !boundedIdentity(file.workspace_id) || !isSHA256(file.sha256) ||
+          !Number.isSafeInteger(file.byte_size) || file.byte_size < 0 || file.byte_size > maximumFileBytes))) {
+      throw new Error("文件附件身份无效，请重新核对已保存的文件。");
+    }
+    try {
+      return parseThreadMessageControl(await this.sendControl<unknown>(
+        `/threads/${encodeURIComponent(threadID)}/turns`, body, idempotencyKey, signal,
+      ), threadID, true);
+    } catch (error) {
+      if (error instanceof APIRequestError && error.turnFailure && error.turnFailure.thread_id !== threadID) {
+        throw new APIRequestError("Thread failure response belongs to another conversation", "INVALID_RESPONSE", 502);
+      }
+      throw error;
+    }
   }
 
   async recoverThreadRun(threadID: string, body: ThreadRunRecoveryControlRequestView,
@@ -7806,8 +8245,10 @@ export class CyberAgentClient {
     if (!this.hasPlanDelivery) {
       throw new Error("Plan/Delivery control capability is required for this operation");
     }
-    if (!boundedIdentity(runID) || runID.trim() !== runID || body.direction < 1 ||
-      body.direction > 3 || !boundedIdentity(body.proposal_id)) {
+    if (!boundedIdentity(runID) || runID.trim() !== runID || !safePositiveInteger(body.direction) ||
+      body.direction > 3 || !boundedIdentity(body.proposal_id) || body.version !== "plan_delivery_control.v1" ||
+      !hasRequiredOnlyKeys(body, ["version", "proposal_id", "direction"], ["manual_acceptance"]) ||
+      (body.manual_acceptance !== undefined && body.manual_acceptance !== "required" && body.manual_acceptance !== "on_demand")) {
       throw new Error("A normalized Run, proposal, and direction are required");
     }
     const result = await this.sendControl<unknown>(
@@ -7842,6 +8283,94 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/plan/deliver`, body, idempotencyKey, signal,
     );
     return parsePlanDeliveryTransition(result, runID);
+  }
+
+  async controlPlanDeliveryWorkItem(runID: string, workItemID: string, action: "start" | "complete",
+    body: PlanDeliveryWorkItemControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<PlanDeliveryWorkItemControlView> {
+    validatePlanWorkItemRequest(this.hasPlanDelivery, runID, workItemID, body);
+    if ((action !== "start" && action !== "complete") ||
+      !hasExactKeys(body, ["version", "expected_work_item_version"])) {
+      throw new Error("An exact Plan item transition is required");
+    }
+    const value = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/plan/work-items/${encodeURIComponent(workItemID)}/${action}`,
+      body, idempotencyKey, signal);
+    if (!validPlanWorkItemResult(value, runID, workItemID) ||
+      !hasExactKeys(value, ["version", "run_id", "work_item_id", "applied_status", "applied_version",
+        "current_work_item", "replayed", "execution_started", "model_called", "tool_called", "capability_grant"]) ||
+      value.work_item_id !== workItemID || value.applied_status !== (action === "start" ? "in_progress" : "completed") ||
+      value.applied_version !== body.expected_work_item_version + 1 ||
+      value.current_work_item.version < value.applied_version) {
+      throw new APIRequestError("Plan item result does not match the submitted operation", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as PlanDeliveryWorkItemControlView;
+  }
+
+  async recordPlanDeliveryCheckpoint(runID: string, workItemID: string,
+    body: PlanDeliveryCheckpointControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<PlanDeliveryCheckpointControlView> {
+    validatePlanWorkItemRequest(this.hasPlanDelivery, runID, workItemID, body);
+    if (!hasRequiredOnlyKeys(body, ["version", "expected_work_item_version", "focused_verification",
+      "diff_audit", "security_audit", "handoff_summary"], ["functional_verification", "robustness_audit"]) ||
+      ![body.focused_verification, body.diff_audit, body.security_audit].every((text) => boundedText(text, 1_024)) ||
+      !boundedText(body.handoff_summary, 2_048) ||
+      [body.functional_verification, body.robustness_audit].some((text) => text !== undefined && !boundedText(text, 1_024))) {
+      throw new Error("Bounded manual verification evidence and a handoff summary are required");
+    }
+    const value = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/plan/work-items/${encodeURIComponent(workItemID)}/checkpoint`,
+      body, idempotencyKey, signal);
+    if (!validPlanWorkItemResult(value, runID, workItemID) ||
+      !hasExactKeys(value, ["version", "run_id", "checkpoint", "note", "current_work_item", "replayed",
+        "execution_started", "model_called", "tool_called", "capability_grant"]) ||
+      !isRecord(value.checkpoint) || !boundedIdentity(value.checkpoint.id) ||
+      value.checkpoint.work_item_id !== workItemID ||
+      value.checkpoint.work_item_version !== body.expected_work_item_version ||
+      typeof value.checkpoint.gate_ready !== "boolean" || typeof value.checkpoint.full_gate_required !== "boolean" ||
+      !safePositiveInteger(value.checkpoint.mode_revision) || !safePositiveInteger(value.checkpoint.module_ordinal) ||
+      !safePositiveInteger(value.checkpoint.module_count) ||
+      value.checkpoint.module_ordinal > value.checkpoint.module_count || !validDate(value.checkpoint.created_at) ||
+      !isRecord(value.note) || !boundedIdentity(value.note.id) || value.note.run_id !== runID ||
+      value.note.id !== value.checkpoint.handoff_note_id || typeof value.note.content !== "string") {
+      throw new APIRequestError("Manual checkpoint result does not match the submitted operation", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as PlanDeliveryCheckpointControlView;
+  }
+
+  async approvalPreview(runID: string, approvalID: string,
+    signal?: AbortSignal): Promise<ApprovalPreviewView> {
+    if (!boundedIdentity(runID) || !boundedIdentity(approvalID)) {
+      throw new Error("A Run and exact approval identity are required");
+    }
+    const value = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/approvals/${encodeURIComponent(approvalID)}/preview`, {}, signal);
+    if (!hasExactKeys(value, ["protocol_version", "run_id", "approval_id", "proposal_id",
+      "tool_name", "workspace_id", "effect", "working_directory", "fields", "source_current",
+      "redacted", "truncated"]) || value.protocol_version !== "approval_queue.v1" ||
+      value.run_id !== runID || value.approval_id !== approvalID ||
+      !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
+      (value.workspace_id !== "" && !boundedIdentity(value.workspace_id)) ||
+      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "unavailable"]
+        .includes(String(value.effect)) || typeof value.working_directory !== "string" ||
+      !["", "."].includes(value.working_directory) ||
+      typeof value.source_current !== "boolean" || typeof value.redacted !== "boolean" ||
+      typeof value.truncated !== "boolean" || (value.truncated && value.source_current) ||
+      (value.effect === "unavailable" && value.source_current) ||
+      !Array.isArray(value.fields) || value.fields.length > 8 ||
+      !value.fields.every((field) => hasExactKeys(field, ["name", "value"]) &&
+        boundedText(field.name, 64) && typeof field.value === "string" &&
+        [...field.value].length <= 8192 && !field.value.includes("\u0000"))) {
+      throw new APIRequestError("Approval preview violated its exact binding", "INVALID_RESPONSE", 502);
+    }
+    const effects: Record<string, string> = { shell: "dry_run", script_process: "dry_run",
+      "git.advanced": "record_git_approval", replace_file: "file_review_required",
+      create_file: "file_review_required", move_file: "file_review_required", delete_file: "file_review_required",
+      web_fetch: "fetch_public_https" };
+    if (value.effect !== (effects[value.tool_name] ?? "unavailable")) {
+      throw new APIRequestError("Approval preview returned a different effect", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as ApprovalPreviewView;
   }
 
   async approvalQueue(runID: string, signal?: AbortSignal): Promise<ApprovalQueueView> {
@@ -8039,7 +8568,10 @@ export class CyberAgentClient {
     const payload = await this.readJSON(response);
     if (!response.ok) {
       if (isErrorEnvelope(payload)) {
-        throw new APIRequestError(payload.error.message, payload.error.code, response.status, payload.request_id);
+        throw new APIRequestError(payload.error.message, payload.error.code, response.status, payload.request_id,
+          payload.error.message_queued === false ? false : undefined,
+          payload.error.operation_key_invalidated === true ? true : undefined,
+          payload.error.turn_failed === true ? true : undefined, payload.error.turn_failure);
       }
       throw new APIRequestError("CyberAgent control request failed", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
@@ -8112,10 +8644,15 @@ export class CyberAgentClient {
     path: string,
     query: Record<string, QueryValue>,
     signal?: AbortSignal,
+    observationKey?: string,
   ): Promise<SuccessEnvelope<T>> {
+    if (observationKey !== undefined && (observationKey.length < 16 || observationKey.length > 256 ||
+      /[\s\u0000-\u001f\u007f]/u.test(observationKey))) {
+      throw new Error("A normalized original operation key is required");
+    }
     const response = await fetch(this.url(path, query), {
       method: "GET",
-      headers: this.headers(),
+      headers: { ...this.headers(), ...(observationKey === undefined ? {} : { "Idempotency-Key": observationKey }) },
       signal,
       cache: "no-store",
       credentials: "omit",

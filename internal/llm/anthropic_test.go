@@ -526,6 +526,48 @@ func TestParseRetryAfterSupportsSecondsAndHTTPDate(t *testing.T) {
 	}
 }
 
+func TestAnthropicCompatibleProviderListModelsEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name, basePath, modelsPath string
+	}{
+		{"base URL", "", "/v1/models"},
+		{"version base URL", "/v1", "/v1/models"},
+		{"messages endpoint", "/v1/messages", "/v1/models"},
+		{"prefixed messages endpoint", "/gateway/v1/messages", "/gateway/v1/models"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != test.modelsPath {
+					t.Errorf("model-list request = %s %s, want GET %s", r.Method, r.URL.Path, test.modelsPath)
+					http.NotFound(w, r)
+					return
+				}
+				if got := r.Header.Get("x-api-key"); got != "test-secret" {
+					t.Errorf("API key = %q", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[{"id":"listed-model","display_name":"Listed Model"}]}`))
+			}))
+			defer server.Close()
+
+			provider, err := NewAnthropicCompatibleProvider(AnthropicCompatibleConfig{
+				Name: "test", BaseURL: server.URL + test.basePath, APIKey: "test-secret",
+				DefaultModel: "fallback-model",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			models, err := provider.ListModels(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(models) != 1 || models[0].ID != "listed-model" || models[0].DisplayName != "Listed Model" {
+				t.Fatalf("unexpected model list: %#v", models)
+			}
+		})
+	}
+}
+
 func TestAnthropicCompatibleProviderListModelsFallback(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()

@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/pricing"
 )
 
@@ -260,7 +261,8 @@ func (s *SQLiteStore) ReserveModelCost(ctx context.Context,
 		return domain.MonetaryUsage{}, false, err
 	}
 	openMicros := aggregate.ReservedMicros - aggregate.SettledMicros - aggregate.ReleasedMicros
-	if openMicros > capMicros-normalized.ReservedMicros {
+	consumedMicros := aggregate.ReservedMicros - aggregate.ReleasedMicros
+	if consumedMicros > capMicros-normalized.ReservedMicros {
 		if !aggregate.ExhaustedAt.Valid {
 			if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_usage SET updated_at = ?,
 				exhausted_at = ? WHERE run_id = ? AND exhausted_at IS NULL`, ts(now), ts(now),
@@ -400,8 +402,8 @@ func (s *SQLiteStore) SettleModelCost(ctx context.Context,
 	event, err := events.New(normalized.RunID, missionID, events.MonetaryBudgetSettledEvent,
 		"monetary_budget", reservation.ID, map[string]any{"scope": normalized.Scope,
 			"settled_micros": settledMicros, "released_micros": releasedMicros,
-			"actual_micros": normalized.ActualMicros,
-			"under_reserved": normalized.ActualMicros > reservation.ReservedMicros,
+			"actual_micros":   normalized.ActualMicros,
+			"under_reserved":  normalized.ActualMicros > reservation.ReservedMicros,
 			"estimate_source": reservation.EstimateSource})
 	if err != nil {
 		return domain.MonetaryUsage{}, false, err
@@ -463,6 +465,15 @@ func (s *SQLiteStore) ReleaseModelCost(ctx context.Context,
 		return domain.MonetaryUsage{}, false, apperror.New(apperror.CodeConflict,
 			"model attempt monetary reservation was already settled")
 	}
+	if normalized.Scope == domain.MonetaryScopeRoot {
+		evidence, e := monetaryModelEvidenceTx(ctx, tx, normalized.RunID, reservation.ID, normalized.Scope, normalized.AttemptNumber, reservation.Provider, reservation.Model)
+		if e != nil {
+			return domain.MonetaryUsage{}, false, e
+		}
+		if evidence.Sent {
+			return domain.MonetaryUsage{}, false, apperror.New(apperror.CodeConflict, "sent model monetary reservation must be settled, not released")
+		}
+	}
 	aggregate, err := loadMonetaryAggregateTx(ctx, tx, normalized.RunID)
 	if err != nil {
 		return domain.MonetaryUsage{}, false, err
@@ -509,12 +520,11 @@ func (s *SQLiteStore) ReleaseModelCost(ctx context.Context,
 func (s *SQLiteStore) GetMonetaryUsage(ctx context.Context, runID string) (domain.MonetaryUsage, error) {
 	runID = strings.TrimSpace(runID)
 	var budgetJSON string
-	var status domain.RunStatus
-	if err := s.db.QueryRowContext(ctx, `SELECT budget_json, status FROM runs WHERE id = ?`,
-		runID).Scan(&budgetJSON, &status); err != nil {
+	var runCreatedAt string
+	if err := s.db.QueryRowContext(ctx, `SELECT budget_json, created_at FROM runs WHERE id = ?`,
+		runID).Scan(&budgetJSON, &runCreatedAt); err != nil {
 		return domain.MonetaryUsage{}, err
 	}
-	_ = status
 	var budget domain.Budget
 	if err := json.Unmarshal([]byte(budgetJSON), &budget); err != nil {
 		return domain.MonetaryUsage{}, err
@@ -522,6 +532,26 @@ func (s *SQLiteStore) GetMonetaryUsage(ctx context.Context, runID string) (domai
 	capMicros, err := pricing.USDToMicros(budget.MaxCostUSD)
 	if err != nil || capMicros <= 0 {
 		return domain.MonetaryUsage{}, nil
+	}
+	var hasAggregate, hasReservations bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM run_monetary_usage WHERE run_id=?),
+		EXISTS(SELECT 1 FROM run_monetary_reservations WHERE run_id=?)`, runID, runID).Scan(&hasAggregate, &hasReservations); err != nil {
+		return domain.MonetaryUsage{}, err
+	}
+	if !hasAggregate {
+		if hasReservations {
+			return domain.MonetaryUsage{}, apperror.New(apperror.CodeFailedPrecondition, "monetary reservations are missing their aggregate")
+		}
+		// The Run is real, but no call has reserved money yet. This is a
+		// read-only initial projection, not a fabricated ledger update. Avoid
+		// acquiring the write transaction used to reconcile existing receipts.
+		createdAt, err := parseMonetaryStoreTime(runCreatedAt)
+		if err != nil {
+			return domain.MonetaryUsage{}, err
+		}
+		usage := domain.MonetaryUsage{RunID: runID, Currency: pricing.CurrencyUSD, CapMicros: capMicros,
+			RemainingMicros: capMicros, Tracked: true, UpdatedAt: createdAt}
+		return usage, usage.Validate()
 	}
 	tx, txErr := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if txErr != nil {
@@ -537,8 +567,8 @@ func (s *SQLiteStore) GetMonetaryUsage(ctx context.Context, runID string) (domai
 	return getMonetaryUsageTx(ctx, s.db, runID, capMicros)
 }
 
-// ReleaseOpenMonetaryReservations releases every open reservation for a run
-// (used when the run reaches a terminal state).
+// ReleaseOpenMonetaryReservations releases unused reservations on a terminal
+// Run. Sent root model calls retain their ceiling until their outcome is known.
 func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID string) (int, error) {
 	runID = strings.TrimSpace(runID)
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
@@ -546,13 +576,18 @@ func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, `SELECT id, scope, attempt_number, reserved_micros,
+	// A request already sent to a provider is not free on Run cancel.
+	if err := reconcileMonetaryReservationsTx(ctx, tx, runID); err != nil {
+		return 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, scope, attempt_number, provider, model, reserved_micros,
 		settled_micros FROM run_monetary_reservations WHERE run_id = ? AND status = 'reserved'`,
 		runID)
 	if err != nil {
 		return 0, err
 	}
 	type openReservation struct {
+		provider, model string
 		id              string
 		scope           string
 		attemptNumber   int64
@@ -562,7 +597,7 @@ func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID
 	var open []openReservation
 	for rows.Next() {
 		var current openReservation
-		if err := rows.Scan(&current.id, &current.scope, &current.attemptNumber,
+		if err := rows.Scan(&current.id, &current.scope, &current.attemptNumber, &current.provider, &current.model,
 			&current.reservedMicros, &current.settledMicros); err != nil {
 			rows.Close()
 			return 0, err
@@ -580,8 +615,18 @@ func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID
 		return 0, nil
 	}
 	now := time.Now().UTC()
+	releasedCount := 0
 	for _, reservation := range open {
 		releasedMicros := reservation.reservedMicros - reservation.settledMicros
+		if reservation.scope == domain.MonetaryScopeRoot {
+			evidence, err := monetaryModelEvidenceTx(ctx, tx, runID, reservation.id, reservation.scope, reservation.attemptNumber, reservation.provider, reservation.model)
+			if err != nil {
+				return 0, err
+			}
+			if evidence.Sent {
+				continue
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_usage SET
 			released_micros = released_micros + ?, updated_at = ? WHERE run_id = ?`,
 			releasedMicros, ts(now), runID); err != nil {
@@ -592,11 +637,12 @@ func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID
 			status = 'reserved'`, releasedMicros, ts(now), reservation.id); err != nil {
 			return 0, err
 		}
+		releasedCount++
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return len(open), nil
+	return releasedCount, nil
 }
 
 type monetaryReservationRow struct {
@@ -677,8 +723,7 @@ func getMonetaryUsageTx(ctx context.Context, queryer interface {
 		ReleasedMicros: aggregate.ReleasedMicros, UpdatedAt: aggregate.UpdatedAt,
 		Tracked: true, EstimateSource: pricing.SourceOperatorImport,
 	}
-	usage.RemainingMicros = max(0, capMicros-usage.ReservedMicros+
-		usage.SettledMicros+usage.ReleasedMicros)
+	usage.RemainingMicros = max(0, capMicros-(usage.ReservedMicros-usage.ReleasedMicros))
 	if aggregate.ExhaustedAt.Valid {
 		exhausted, parseErr := parseMonetaryStoreTime(aggregate.ExhaustedAt.String)
 		if parseErr != nil {
@@ -705,106 +750,72 @@ func parseMonetaryStoreTime(value string) (time.Time, error) {
 // transiently, or a worker crash between reserve and settle, therefore
 // self-heals on the next reserve or usage read instead of leaking capacity.
 func reconcileMonetaryReservationsTx(ctx context.Context, tx *sql.Tx, runID string) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id, scope, attempt_number, provider, model,
-		reserved_micros, settled_micros FROM run_monetary_reservations
-		WHERE run_id = ? AND status = 'reserved'`, runID)
+	rows, err := tx.QueryContext(ctx, `SELECT id,scope,attempt_number,provider,model,reserved_micros
+		FROM run_monetary_reservations WHERE run_id=? AND status='reserved'`, runID)
 	if err != nil {
 		return err
 	}
 	type openRow struct {
-		id              string
-		scope           string
-		attemptNumber   int64
-		provider        string
-		model           string
-		reservedMicros  int64
-		settledMicros   int64
+		id, scope, provider, model    string
+		attemptNumber, reservedMicros int64
 	}
 	var open []openRow
 	for rows.Next() {
-		var current openRow
-		if err := rows.Scan(&current.id, &current.scope, &current.attemptNumber,
-			&current.provider, &current.model, &current.reservedMicros,
-			&current.settledMicros); err != nil {
+		var r openRow
+		if err := rows.Scan(&r.id, &r.scope, &r.attemptNumber, &r.provider, &r.model, &r.reservedMicros); err != nil {
 			rows.Close()
 			return err
 		}
-		open = append(open, current)
+		open = append(open, r)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, reservation := range open {
-		var eventType, payloadJSON string
-		err := tx.QueryRowContext(ctx, `SELECT type, payload_json FROM run_events
-			WHERE run_id = ? AND type IN ('model.completed', 'model.failed') AND
-			json_extract(payload_json, '$.model_attempt') = ?
-			ORDER BY sequence DESC LIMIT 1`, runID, reservation.attemptNumber).
-			Scan(&eventType, &payloadJSON)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
+	for _, r := range open {
+		evidence, err := monetaryModelEvidenceTx(ctx, tx, runID, r.id, r.scope, r.attemptNumber, r.provider, r.model)
 		if err != nil {
 			return err
 		}
+		if evidence.EventType == "" {
+			continue
+		}
 		var payload struct {
-			Provider      string `json:"provider"`
-			Model         string `json:"model"`
-			ToolCallCount int    `json:"tool_call_count"`
-			Usage         struct {
-				InputTokens  int64 `json:"input_tokens"`
-				OutputTokens int64 `json:"output_tokens"`
-			} `json:"usage"`
+			Usage         *llm.Usage `json:"usage"`
+			UsageUnknown  bool       `json:"usage_unknown"`
+			ToolCallCount int        `json:"tool_call_count"`
 		}
-		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-			continue
-		}
-		// The terminal event must bind the exact provider/model of the
-		// reservation; a mismatched or redacted identity leaves the reservation
-		// open rather than guessing.
-		if payload.Provider != reservation.provider || payload.Model != reservation.model {
-			continue
-		}
-		now := time.Now().UTC()
-		settledMicros := int64(0)
-		releasedMicros := reservation.reservedMicros - reservation.settledMicros
-		if eventType == events.ModelCompletedEvent {
-			entry, ok, lookupErr := activePriceEntryTx(ctx, tx, reservation.provider, reservation.model)
-			if lookupErr != nil {
-				return lookupErr
-			}
-			if ok {
-				actual := entry.EstimateCost(payload.Usage.InputTokens, payload.Usage.OutputTokens,
-					0, int64(payload.ToolCallCount))
-				settledMicros = min(actual, reservation.reservedMicros)
-				releasedMicros = reservation.reservedMicros - settledMicros
-			} else {
-				// No active price for the model: charge the full reservation
-				// conservatively instead of under-counting.
-				settledMicros = reservation.reservedMicros
-				releasedMicros = 0
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_usage SET
-			settled_micros = settled_micros + ?, released_micros = released_micros + ?,
-			updated_at = ? WHERE run_id = ?`, settledMicros, releasedMicros, ts(now), runID); err != nil {
+		if err := json.Unmarshal([]byte(evidence.PayloadJSON), &payload); err != nil {
 			return err
 		}
-		if eventType == events.ModelCompletedEvent {
-			if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_reservations SET
-				settled_micros = ?, released_micros = ?, status = 'settled', settled_at = ?
-				WHERE id = ? AND status = 'reserved'`, settledMicros, releasedMicros,
-				ts(now), reservation.id); err != nil {
-				return err
+		settle := r.scope == domain.MonetaryScopeRoot || evidence.EventType == events.ModelCompletedEvent
+		settledMicros := int64(0)
+		if settle {
+			// Even an invalid response can contain billable known usage. An
+			// absent/incomplete breakdown retains the reserved upper bound.
+			settledMicros = r.reservedMicros
+			if !monetaryTerminalUnknown(payload.Usage, payload.UsageUnknown) && payload.ToolCallCount >= 0 {
+				entry, ok, err := modelReservationPriceTx(ctx, tx, runID, r.scope, r.attemptNumber)
+				if err != nil {
+					return err
+				}
+				if ok {
+					settledMicros = min(r.reservedMicros, entry.EstimateCost(int64(payload.Usage.InputTokens), int64(payload.Usage.OutputTokens), 0, int64(payload.ToolCallCount)))
+				}
 			}
+		}
+		releasedMicros := r.reservedMicros - settledMicros
+		now := time.Now().UTC()
+		if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_usage SET settled_micros=settled_micros+?,released_micros=released_micros+?,updated_at=? WHERE run_id=?`, settledMicros, releasedMicros, ts(now), runID); err != nil {
+			return err
+		}
+		if settle {
+			_, err = tx.ExecContext(ctx, `UPDATE run_monetary_reservations SET settled_micros=?,released_micros=?,status='settled',settled_at=? WHERE id=? AND status='reserved'`, settledMicros, releasedMicros, ts(now), r.id)
 		} else {
-			if _, err := tx.ExecContext(ctx, `UPDATE run_monetary_reservations SET
-				released_micros = ?, status = 'released', released_at = ?
-				WHERE id = ? AND status = 'reserved'`, releasedMicros, ts(now),
-				reservation.id); err != nil {
-				return err
-			}
+			_, err = tx.ExecContext(ctx, `UPDATE run_monetary_reservations SET released_micros=?,status='released',released_at=? WHERE id=? AND status='reserved'`, releasedMicros, ts(now), r.id)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -853,4 +864,3 @@ func loadMonetaryRunTx(ctx context.Context, tx *sql.Tx, runID string) (
 	}
 	return budget, status, missionID, nil
 }
-

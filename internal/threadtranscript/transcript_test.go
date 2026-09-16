@@ -73,6 +73,46 @@ func TestBuildProjectsPendingAndCancelledComposerInputWithoutDuplicatingCommitte
 	}
 }
 
+func TestBuildAnchorsExactlyBoundCommittedInputAcrossPages(t *testing.T) {
+	now := time.Now().UTC()
+	queued := eventSource("run-1", 1, 30, events.OperatorSteeringQueuedEvent, `{}`, now)
+	queued.Event.SubjectID = "steering-2"
+	queued.OperatorContent, queued.OperatorStatus = "read README.md", "committed"
+	queued.OperatorMessageBound = true
+	tool := eventSource("run-1", 1, 40, events.SupervisorToolExecutionStartedEvent,
+		`{"tool":"workspace_read","status":"pending","durable_call_id":"read-2"}`, now.Add(time.Second))
+	recorded := eventSource("run-1", 1, 50, events.SessionMessageEvent,
+		`{"role":"user","content":"read README.md","source_kind":"operator_message","instruction_authorized":true}`, now.Add(2*time.Second))
+	recorded.OperatorMessageBound = true
+	for _, page := range [][]Source{{queued, tool, recorded}, {queued}, {recorded}} {
+		before, _ := json.Marshal(page)
+		items, err := Build("thread-1", page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 3 && (len(items) != 2 || items[0].Sequence != 30 || items[1].Sequence != 40) {
+			t.Fatalf("tools preceded the original input: %#v", items)
+		}
+		if page[0].Sequence == 30 && (len(items) == 0 || items[0].CanonicalID != "steering-2" ||
+			items[0].CreatedAt != now || items[0].Stage != StageResult || items[0].Status != "committed") {
+			t.Fatalf("committed input lost its queue identity: %#v", items)
+		}
+		if page[0].Sequence == 50 && len(items) != 0 {
+			t.Fatalf("later page duplicated the bound input: %#v", items)
+		}
+		after, _ := json.Marshal(page)
+		if string(before) != string(after) {
+			t.Fatal("projection mutated source records")
+		}
+	}
+	// Equal text is not a binding: legacy/direct Session input stays visible.
+	recorded.OperatorMessageBound = false
+	items, err := Build("thread-1", []Source{recorded})
+	if err != nil || len(items) != 1 || items[0].Sequence != 50 {
+		t.Fatalf("unbound history disappeared: items=%#v err=%v", items, err)
+	}
+}
+
 func TestBuildRejectsUnboundedOrInconsistentSource(t *testing.T) {
 	now := time.Now().UTC()
 	source := make([]Source, MaxSourceRecords+1)

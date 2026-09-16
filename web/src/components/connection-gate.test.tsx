@@ -46,6 +46,25 @@ describe("ConnectionGate", () => {
     expect(input).toHaveValue("");
     expect(controlInput).toHaveValue("");
     expect(useConnectionStore.getState().fileEditProposalEnabled).toBe(true);
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(true);
+    expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(true);
+  });
+
+  it("retains the advertised execution read route when connecting without a control token", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-health",
+      data: { status: "ok", api_version: "api.v1", app_version: "test", schema_version: 37 },
+    }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-capabilities", data: runtimeCapabilities(),
+    }), { status: 200 })));
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
+    await user.type(screen.getByLabelText("只读访问令牌"), "read-only-token");
+    await user.click(screen.getByRole("button", { name: "连接" }));
+    await waitFor(() => expect(useConnectionStore.getState().token).toBe("read-only-token"));
+    expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(true);
+    expect(useConnectionStore.getState().runExecutionEnabled).toBe(false);
+    expect(useConnectionStore.getState().threadControlEnabled).toBe(false);
   });
 
   it("auto-connects a closed-authority Desktop bootstrap without rendering its token", async () => {
@@ -120,16 +139,21 @@ describe("ConnectionGate", () => {
       SelectSkillPackage: vi.fn(),
       PreviewSkillPackage: vi.fn(),
     } } };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1",
       request_id: "req-desktop-health",
       data: { status: "ok", api_version: "api.v1", app_version: "test", schema_version: 71 },
-    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-desktop-capabilities", data: { ...runtimeCapabilities(),
+          thread_execution_read_enabled: false } }), { status: 200 })));
 
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
     await waitFor(() => expect(useConnectionStore.getState().token)
       .toBe("desktop-read-token-0123456789abcdef"));
     expect(useConnectionStore.getState().controlToken).toBe("");
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
+    expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(false);
     expect(screen.queryByText("desktop-read-token-0123456789abcdef")).not.toBeInTheDocument();
     expect(bootstrap).toHaveBeenCalledTimes(1);
   });
@@ -138,6 +162,7 @@ describe("ConnectionGate", () => {
 function runtimeCapabilities() {
   return {
     protocol_version: "runtime_capabilities.v1",
+    workspace_import_enabled: true,
     agent_code_tools_enabled: true,
     code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
@@ -157,6 +182,7 @@ function runtimeCapabilities() {
     run_control_enabled: true, run_creation_enabled: true,
     standard_code_preset_enabled: true, session_message_enabled: true,
     thread_control_enabled: true,
+    thread_execution_read_enabled: true,
     session_steering_control_enabled: true, run_lifecycle_enabled: true,
     run_execution_enabled: true, plan_delivery_control_enabled: true,
     approval_control_enabled: true, model_control_enabled: true,

@@ -9,6 +9,28 @@ import (
 	"cyberagent-workbench/internal/events"
 )
 
+func TestGeneratedCompactionActivityDoesNotRenderAuxiliaryTextAsAReply(t *testing.T) {
+	now := time.Now().UTC()
+	fallback := event(3, "session.context_compacted", `{"generated":false,"generation_fallback_reason":"internal provider diagnostic"}`, now)
+	fallback.Source = "context_manager"
+	projection, err := Build("run-1", []events.Event{
+		event(1, events.ModelStartedEvent, `{"purpose":"context_compaction"}`, now),
+		event(2, events.ModelCompletedEvent, `{"purpose":"context_compaction","compaction_response":"hidden handoff text"}`, now),
+		fallback,
+	}, false)
+	if err != nil || len(projection.Items) != 3 {
+		t.Fatalf("compaction activity missing: %+v %v", projection, err)
+	}
+	if projection.Items[0].Title != "正在整理上下文" || projection.Items[1].Title != "上下文整理调用已结束" || projection.Items[2].Title != "已采用原文摘录摘要" {
+		t.Fatalf("auxiliary call was presented as ordinary answer: %+v", projection.Items)
+	}
+	for _, item := range projection.Items {
+		if item.Source != SourceHarness || strings.Contains(item.Detail, "hidden handoff") || strings.Contains(item.Detail, "internal provider") {
+			t.Fatalf("internal compaction content leaked into activity: %+v", item)
+		}
+	}
+}
+
 func TestBuildSeparatesPublicModelUpdatesFromHarnessEvents(t *testing.T) {
 	now := time.Now().UTC()
 	source := []events.Event{
@@ -53,6 +75,22 @@ func TestBuildSeparatesPublicModelUpdatesFromHarnessEvents(t *testing.T) {
 	}
 }
 
+func TestBuildKeepsClosedThreadFailureVisibleAfterContinuation(t *testing.T) {
+	now := time.Now().UTC()
+	got, err := Build("run-1", []events.Event{
+		event(1, events.ThreadTurnFailedEvent, `{"error_code":"UNAVAILABLE","handoff_operation_id":"handoff-original"}`, now),
+		event(2, events.SessionMessageEvent, `{"role":"user","content":"继续","source_kind":"operator_message","instruction_authorized":true}`, now),
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 || got.Items[0].Title != "本轮执行失败" ||
+		got.Items[0].Status != "failed" || got.Items[0].Source != SourceHarness ||
+		!strings.Contains(got.Items[0].Detail, "模型服务暂时不可用") || got.Items[1].Source != SourceOperator {
+		t.Fatalf("failed product turn disappeared behind the next message: %#v", got.Items)
+	}
+}
+
 func TestBuildProjectsToolExecutionBoundariesWithoutPayloads(t *testing.T) {
 	now := time.Now().UTC()
 	source := []events.Event{
@@ -78,6 +116,24 @@ func TestBuildProjectsToolExecutionBoundariesWithoutPayloads(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "private.md") || strings.Contains(string(encoded), "private bytes") {
 		t.Fatalf("tool payload leaked into public activity: %s", encoded)
+	}
+}
+
+func TestBuildFailureStageCannotRelabelCancellationOrLeakDiagnostic(t *testing.T) {
+	now := time.Now().UTC()
+	for _, tc := range []struct{ payload, title string }{
+		{`{"error_code":"CANCELLED","failure_stage":"tool_request_rejected"}`, "本轮已停止"},
+		{`{"error_code":"FAILED_PRECONDITION","failure_stage":"unknown","error":"private tool arguments"}`, "本轮执行失败"},
+		{`{"error_code":"FAILED_PRECONDITION","failure_stage":"invalid_model_response","error":"private response"}`, "模型答复格式无效"},
+		{`{"error_code":"FAILED_PRECONDITION"}`, "本轮执行失败"},
+		{`{"error_code":"RESOURCE_EXHAUSTED","failure_stage":"context_window_exceeded"}`, "当前模型的上下文空间不足"},
+		{`{"error_code":"RESOURCE_EXHAUSTED"}`, "本轮执行失败"},
+		{`{"error_code":"CANCELLED","failure_stage":"context_window_exceeded"}`, "本轮已停止"},
+	} {
+		got, err := Build("run-1", []events.Event{event(1, events.ThreadTurnFailedEvent, tc.payload, now)}, false)
+		if err != nil || len(got.Items) != 1 || got.Items[0].Title != tc.title || strings.Contains(got.Items[0].Detail, "private") {
+			t.Fatalf("failure stage changed a stronger outcome or exposed raw content: %#v %v", got, err)
+		}
 	}
 }
 
@@ -468,5 +524,54 @@ func TestBuildProjectsBrowserLifecycleAsGoObservedFacts(t *testing.T) {
 	}
 	if got.Items[4].Status != "completed" || got.Items[4].Title != "浏览器运行时收据已记录" {
 		t.Fatalf("receipt item is wrong: %#v", got.Items[4])
+	}
+}
+
+func TestBuildCheckpointTransactionsUseRecordedOperation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload string
+		titles  [3]string
+	}{
+		{"command", `{"kind":"command_batch","before_checkpoint_id":"before","after_checkpoint_id":"after","error_code":"internal"}`,
+			[3]string{"命令操作已准备", "命令操作已完成", "命令操作失败"}},
+		{"file", `{"kind":"file_tool"}`,
+			[3]string{"文件操作已准备", "文件操作已完成", "文件操作失败"}},
+		{"undo", `{"kind":"undo"}`,
+			[3]string{"工作区撤销已准备", "工作区撤销已完成", "工作区撤销失败"}},
+		{"rewind", `{"kind":"rewind"}`,
+			[3]string{"工作区回退已准备", "工作区回退已完成", "工作区回退失败"}},
+		{"redo", `{"kind":"redo"}`,
+			[3]string{"工作区重做已准备", "工作区重做已完成", "工作区重做失败"}},
+		{"fork", `{"kind":"fork"}`,
+			[3]string{"检查点分支创建已准备", "检查点分支创建已完成", "检查点分支创建失败"}},
+		{"legacy missing kind", `{}`,
+			[3]string{"检查点操作已准备", "检查点操作已完成", "检查点操作失败"}},
+		{"unknown kind", `{"kind":"unknown_future_operation","reason":"private input"}`,
+			[3]string{"检查点操作已准备", "检查点操作已完成", "检查点操作失败"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 9, 8, 16, 31, 3, 0, time.UTC)
+			source := []events.Event{
+				event(1, events.WorkspaceCheckpointTransactionPreparedEvent, test.payload, now),
+				event(2, events.WorkspaceCheckpointTransactionCompletedEvent, test.payload, now),
+				event(3, events.WorkspaceCheckpointTransactionFailedEvent, test.payload, now),
+			}
+			got, err := Build("run-1", source, false)
+			if err != nil || len(got.Items) != len(source) {
+				t.Fatalf("projection=%+v err=%v", got, err)
+			}
+			statuses := [3]string{"pending", "completed", "failed"}
+			for index, item := range got.Items {
+				if item.Title != test.titles[index] {
+					t.Errorf("event %s title=%q want=%q", source[index].Type, item.Title, test.titles[index])
+				}
+				if item.Status != statuses[index] || item.ID != source[index].EventID ||
+					item.Sequence != source[index].Sequence || !item.CreatedAt.Equal(source[index].CreatedAt) ||
+					item.Kind != KindPlan || item.Source != SourceHarness || !item.Verifiable || item.Detail != "" {
+					t.Errorf("operation wording changed audit provenance or exposed payload: %+v", item)
+				}
+			}
+		})
 	}
 }

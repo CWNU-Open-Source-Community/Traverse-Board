@@ -70,6 +70,9 @@ type GitAdvancedService struct {
 	permissionCapabilities domain.ExecutionPermissionRuntimeCapabilities
 	checkpoints            *WorkspaceCheckpointService
 	now                    func() time.Time
+	// Installed only on a short-lived application-owned copy for an explicit
+	// Thread operator action. The public advanced API keeps its running rule.
+	operatorThreadID string
 }
 
 func NewGitAdvancedService(store GitAdvancedStore,
@@ -335,6 +338,9 @@ func (s *GitAdvancedService) Review(ctx context.Context,
 		CapabilityGeneration: preview.Capability.Generation,
 		LeaseID:              authority.lease.LeaseID, LeaseGeneration: authority.lease.Generation,
 		Status: gitadvanced.OperationProposed, ReceiptJSON: "{}", CreatedAt: s.now().UTC()}
+	if s.operatorThreadID != "" {
+		record.ID = "thread-git-worktree-" + request.OperationKey
+	}
 	record, replayed, err := s.store.CreateGitAdvancedOperation(ctx, record)
 	if err != nil {
 		return GitAdvancedReviewResult{}, apperror.Normalize(err)
@@ -1053,7 +1059,20 @@ func (s *GitAdvancedService) loadMutationAuthority(ctx context.Context, runID st
 		return value, apperror.Normalize(err)
 	}
 	capability := s.executor.Capability()
-	if !found || value.run.Status != domain.RunRunning ||
+	operatorIdle := false
+	if s.operatorThreadID != "" {
+		checker, ok := s.store.(interface {
+			CheckThreadGitIdle(context.Context, string, string, *domain.RunExecutionLease) error
+		})
+		if !ok || !strings.HasPrefix(value.lease.OwnerID, "thread-git:") {
+			return value, apperror.New(apperror.CodeConflict, "operator Git lease is unavailable")
+		}
+		if err := checker.CheckThreadGitIdle(ctx, s.operatorThreadID, value.run.ID, &value.lease); err != nil {
+			return value, err
+		}
+		operatorIdle = true
+	}
+	if !found || (!operatorIdle && value.run.Status != domain.RunRunning) ||
 		value.mode.RunID != value.run.ID || value.mode.MissionID != value.mission.ID ||
 		value.mode.Surface != domain.ExecutionSurfaceCode ||
 		value.mode.Phase != domain.ExecutionPhaseDeliver ||

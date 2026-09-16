@@ -1,6 +1,8 @@
 package application
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -74,6 +76,77 @@ func TestResolveProposalPowerShellIgnoresPATHDecoy(t *testing.T) {
 	}
 	if strings.EqualFold(filepath.Clean(resolved), filepath.Clean(decoy)) {
 		t.Fatal("PowerShell resolver accepted a PATH-controlled executable")
+	}
+}
+
+func TestHostProposalPowerShellUsesOnlyExactConfiguredRuntime(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell resolution")
+	}
+	// Copy a native PE image only to test resolution and identity. This fixture
+	// is never started and does not claim PowerShell runtime compatibility.
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation := t.TempDir()
+	executable := filepath.Join(installation, "pwsh.exe")
+	if err := os.WriteFile(executable, image, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	t.Setenv("CYBERAGENT_POWERSHELL_PATH", executable)
+	resolved, err := resolveProposalShellExecutable(toolgateway.HostCommandShellPowerShell)
+	if err != nil || !strings.EqualFold(resolved, executable) {
+		t.Fatalf("configured PowerShell was not selected: %q (%v)", resolved, err)
+	}
+	path, digest, err := proposalExecutableIdentity(resolved, workspace)
+	want := sha256.Sum256(image)
+	if err != nil || path != resolved || digest != hex.EncodeToString(want[:]) {
+		t.Fatalf("configured runtime identity was not pinned: %q %q (%v)", path, digest, err)
+	}
+	for _, untrusted := range []string{
+		filepath.Join(installation, "other.exe"),
+		filepath.Join(filepath.Dir(installation), "sibling", "pwsh.exe"),
+	} {
+		if proposalExecutableRootAllowed(untrusted, workspace) {
+			t.Fatalf("configured runtime expanded trust to %q", untrusted)
+		}
+	}
+	t.Setenv("CYBERAGENT_POWERSHELL_PATH", "")
+	if proposalExecutableRootAllowed(executable, workspace) {
+		t.Fatal("removed host configuration kept trusting the portable executable")
+	}
+}
+
+func TestHostProposalInvalidConfiguredPowerShellDoesNotFallback(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell resolution")
+	}
+	textImage := filepath.Join(t.TempDir(), "pwsh.exe")
+	if err := os.WriteFile(textImage, []byte(strings.Repeat("not a native image", 64)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		"pwsh.exe", "  ", `"C:\Tools\PowerShell\pwsh.exe"`,
+		`\\server\share\pwsh.exe`, `\\?\C:\Tools\pwsh.exe`,
+		filepath.Join(t.TempDir(), "cmd.exe"),
+		filepath.Join(t.TempDir(), "pwsh.exe"), textImage,
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CYBERAGENT_POWERSHELL_PATH", value)
+			resolved, err := resolveProposalShellExecutable(toolgateway.HostCommandShellPowerShell)
+			if err == nil || resolved != "" {
+				t.Fatalf("invalid explicit runtime silently fell back: %q (%v)", resolved, err)
+			}
+			if proposalExecutableRootAllowed(value, t.TempDir()) {
+				t.Fatalf("invalid explicit runtime became a trusted executable: %q", value)
+			}
+		})
 	}
 }
 

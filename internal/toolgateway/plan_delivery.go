@@ -69,7 +69,7 @@ type PlanDeliveryResult struct {
 func (r PlanDeliveryResult) Validate() error {
 	if !domain.ValidAgentID(r.ProposalID) ||
 		r.Status != domain.PlanDeliveryProposalProposed ||
-		r.DirectionCount != domain.PlanDeliveryDirectionCount || r.Version != 1 {
+		(r.DirectionCount < domain.MinPlanDeliveryDirections || r.DirectionCount > domain.PlanDeliveryDirectionCount) || r.Version != 1 {
 		return errors.New("Plan/Delivery result is invalid")
 	}
 	return nil
@@ -83,8 +83,8 @@ type PlanDeliveryExecutor interface {
 var planDeliveryDefinition = ToolDefinition{
 	Name: PlanDeliveryProposeTool, Class: ClassAgentProposal,
 	Approval:    ApprovalAutomatic,
-	Description: "Record exactly three bounded Plan/Delivery directions for operator choice without selecting one, changing phase, or executing work.",
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","directions"],"properties":{"version":{"const":"plan_delivery.v1"},"directions":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","additionalProperties":false,"required":["title","summary","tradeoffs","modules"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"summary":{"type":"string","minLength":1,"maxLength":1200},"tradeoffs":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"modules":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["title","objective","acceptance_criteria","dependencies"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"objective":{"type":"string","minLength":1,"maxLength":2400},"acceptance_criteria":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"dependencies":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"type":"integer","minimum":1,"maximum":7}}}}}}}}}}`),
+	Description: "Record one to three bounded Plan/Delivery directions for operator choice. Prefer one for a clear small task; offer alternatives only for meaningful tradeoffs. This does not select a direction, choose manual acceptance policy, change phase, or execute work.",
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","directions"],"properties":{"version":{"const":"plan_delivery.v1"},"directions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"required":["title","summary","tradeoffs","modules"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"summary":{"type":"string","minLength":1,"maxLength":1200},"tradeoffs":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"modules":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["title","objective","acceptance_criteria","dependencies"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"objective":{"type":"string","minLength":1,"maxLength":2400},"acceptance_criteria":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"dependencies":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"type":"integer","minimum":1,"maximum":7}}}}}}}}}}`),
 }
 
 func PlanPhaseSupervisorToolDefinitions() []ToolDefinition {

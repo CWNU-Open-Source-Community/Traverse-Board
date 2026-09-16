@@ -543,24 +543,7 @@ func buildControlledCommandEvidence(
 }
 
 func sanitizeControlledCommandEvidence(data []byte) string {
-	value := strings.ToValidUTF8(string(data), "\uFFFD")
-	var builder strings.Builder
-	builder.Grow(len(value))
-	for _, current := range value {
-		switch current {
-		case '\n', '\t':
-			builder.WriteRune(current)
-		case '\r':
-			builder.WriteRune('\n')
-		default:
-			if unicode.IsControl(current) {
-				builder.WriteRune('\uFFFD')
-				continue
-			}
-			builder.WriteRune(current)
-		}
-	}
-	return builder.String()
+	return runner.SanitizeCommandEvidence(data)
 }
 
 func truncateUTF8Bytes(value string, limit int) string {

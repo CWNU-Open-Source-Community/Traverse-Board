@@ -124,4 +124,14 @@ func TestStandardCodeDeliveryLedgerSealsReplaysAndRejectsMutation(t *testing.T) 
 	if err != nil || !found || latest.ReceiptSHA256 != stored.ReceiptSHA256 {
 		t.Fatalf("latest=%+v found=%t err=%v", latest, found, err)
 	}
+	byOperation, found, err := state.GetStandardCodeDeliveryByOperation(ctx, stored.OperationKeySHA256)
+	if err != nil || !found || byOperation.ID != stored.ID || byOperation.ReceiptSHA256 != stored.ReceiptSHA256 {
+		t.Fatalf("operation lookup=%+v found=%t err=%v", byOperation, found, err)
+	}
+	if _, found, err := state.GetStandardCodeDeliveryByOperation(ctx, standardcodedelivery.Hash("unknown")); err != nil || found {
+		t.Fatalf("unknown operation found=%t err=%v", found, err)
+	}
+	if _, _, err := state.GetStandardCodeDeliveryByOperation(ctx, "invalid digest"); err == nil {
+		t.Fatal("invalid operation digest was accepted")
+	}
 }

@@ -29,18 +29,19 @@ const (
 )
 
 type fullCDPDocumentIdentity struct {
-	CanonicalURL string
-	FrameID      string
-	LoaderID     string
-	RootNodeID   int64
-	HTMLSHA256   string
+	CanonicalURL      string
+	FrameID           string
+	LoaderID          string
+	RootNodeID        int64
+	RootBackendNodeID int64
+	HTMLSHA256        string
 }
 
 func (identity fullCDPDocumentIdentity) sameNavigation(other fullCDPDocumentIdentity) bool {
 	return identity.CanonicalURL != "" && identity.CanonicalURL == other.CanonicalURL &&
 		identity.FrameID != "" && identity.FrameID == other.FrameID &&
 		identity.LoaderID != "" && identity.LoaderID == other.LoaderID &&
-		identity.RootNodeID > 0 && identity.RootNodeID == other.RootNodeID
+		identity.RootBackendNodeID > 0 && identity.RootBackendNodeID == other.RootBackendNodeID
 }
 
 func (identity fullCDPDocumentIdentity) sameExact(other fullCDPDocumentIdentity) bool {
@@ -158,9 +159,10 @@ func (client *restrictedCDPClient) captureFullCDPDocument(ctx context.Context,
 	}
 	var document struct {
 		Root struct {
-			NodeID      int64  `json:"nodeId"`
-			NodeName    string `json:"nodeName"`
-			DocumentURL string `json:"documentURL"`
+			NodeID        int64  `json:"nodeId"`
+			BackendNodeID int64  `json:"backendNodeId"`
+			NodeName      string `json:"nodeName"`
+			DocumentURL   string `json:"documentURL"`
 		} `json:"root"`
 	}
 	if err := client.call(ctx, client.sessionID, "DOM.getDocument",
@@ -169,12 +171,13 @@ func (client *restrictedCDPClient) captureFullCDPDocument(ctx context.Context,
 	}
 	documentDecision := client.scope.AuthorizeNavigation(document.Root.DocumentURL)
 	if !documentDecision.Allowed || documentDecision.CanonicalURL != frameDecision.CanonicalURL ||
-		document.Root.NodeID <= 0 || !validDOMNodeName(document.Root.NodeName) {
+		document.Root.NodeID <= 0 || document.Root.BackendNodeID <= 0 || !validDOMNodeName(document.Root.NodeName) {
 		return fullCDPDocumentIdentity{}, "", errors.New(
 			"full CDP document identity changed or is malformed")
 	}
 	identity := fullCDPDocumentIdentity{CanonicalURL: documentDecision.CanonicalURL,
-		FrameID: frame.ID, LoaderID: frame.LoaderID, RootNodeID: document.Root.NodeID}
+		FrameID: frame.ID, LoaderID: frame.LoaderID, RootNodeID: document.Root.NodeID,
+		RootBackendNodeID: document.Root.BackendNodeID}
 	if !includeHTML {
 		return identity, "", nil
 	}
@@ -206,6 +209,12 @@ func (runtime *FullCDPSession) captureFullCDPSelectorProvenance(ctx context.Cont
 ) (map[string]fullCDPSelectorProvenance, error) {
 	selectors := make(map[string]fullCDPSelectorProvenance, len(elements))
 	for _, element := range elements {
+		// Disabled controls remain readable in the snapshot, but do not grant
+		// action authority. The enclosing before/after document check still
+		// rejects HTML drift; newly disabled active candidates fail below.
+		if element.Disabled {
+			continue
+		}
 		if _, duplicate := selectors[element.Selector]; duplicate {
 			return nil, errors.New("full CDP snapshot emitted an ambiguous selector")
 		}
@@ -322,6 +331,27 @@ func validateFullCDPElement(provenance fullCDPSelectorProvenance,
 		return errors.New("full CDP selector target drifted or is not interactable")
 	}
 	return nil
+}
+
+// DOM.getDocument discards Chromium's frontend node bindings. After reading
+// document identity again, resolve a fresh frontend node ID and verify that it
+// still names the exact backend element authorized by the snapshot.
+func (runtime *FullCDPSession) resolveFullCDPSnapshotElement(ctx context.Context,
+	selector string, provenance fullCDPSelectorProvenance, forType bool,
+) (int64, fullCDPElementIdentity, error) {
+	nodeID, found, err := runtime.client.querySelector(ctx, selector)
+	if err != nil || !found {
+		return 0, fullCDPElementIdentity{}, errors.Join(err,
+			errors.New("full CDP snapshotted selector no longer resolves"))
+	}
+	element, err := runtime.client.describeFullCDPElement(ctx, nodeID)
+	if err != nil {
+		return 0, fullCDPElementIdentity{}, err
+	}
+	if err := validateFullCDPElement(provenance, element, forType); err != nil {
+		return 0, fullCDPElementIdentity{}, err
+	}
+	return nodeID, element, nil
 }
 
 func (runtime *FullCDPSession) NavigateFullCDP(ctx context.Context,
@@ -486,7 +516,8 @@ func (runtime *FullCDPSession) ClickFullCDP(ctx context.Context,
 		return FullCDPInteractionResult{}, errors.Join(err,
 			errors.New("full CDP document changed before click dispatch"))
 	}
-	stableElement, err := runtime.client.describeFullCDPElement(operationContext, nodeID)
+	_, stableElement, err := runtime.resolveFullCDPSnapshotElement(operationContext,
+		selector, provenance, false)
 	if err != nil || stableElement.BackendNodeID != element.BackendNodeID ||
 		validateFullCDPElement(provenance, stableElement, false) != nil {
 		return FullCDPInteractionResult{}, errors.Join(err,
@@ -571,6 +602,12 @@ func (runtime *FullCDPSession) TypeFullCDP(ctx context.Context,
 		return FullCDPInteractionResult{}, errors.Join(err,
 			errors.New("full CDP document changed before input focus"))
 	}
+	nodeID, stableElement, err := runtime.resolveFullCDPSnapshotElement(operationContext,
+		selector, provenance, true)
+	if err != nil || stableElement.BackendNodeID != element.BackendNodeID {
+		return FullCDPInteractionResult{}, errors.Join(err,
+			errors.New("full CDP input target changed before focus"))
+	}
 	if err := runtime.client.call(operationContext, runtime.client.sessionID,
 		"DOM.focus", map[string]any{"nodeId": nodeID}, &struct{}{}); err != nil {
 		return FullCDPInteractionResult{}, err
@@ -580,7 +617,8 @@ func (runtime *FullCDPSession) TypeFullCDP(ctx context.Context,
 		return FullCDPInteractionResult{}, errors.Join(err,
 			errors.New("full CDP document changed while the input was focused"))
 	}
-	focusedElement, err := runtime.client.describeFullCDPElement(operationContext, nodeID)
+	_, focusedElement, err := runtime.resolveFullCDPSnapshotElement(operationContext,
+		selector, provenance, true)
 	if err != nil || focusedElement.BackendNodeID != element.BackendNodeID ||
 		validateFullCDPElement(provenance, focusedElement, true) != nil {
 		return FullCDPInteractionResult{}, errors.Join(err,
@@ -592,7 +630,10 @@ func (runtime *FullCDPSession) TypeFullCDP(ctx context.Context,
 		return FullCDPInteractionResult{}, err
 	}
 	after, _, err := runtime.client.captureFullCDPDocument(operationContext, true)
-	if err != nil || !before.sameExact(after) {
+	// Input handlers may legitimately update state text or the value attribute.
+	// Retain the document/navigation and exact input backend identity checks;
+	// only the pre-dispatch observations must have identical HTML.
+	if err != nil || !before.sameNavigation(after) {
 		return FullCDPInteractionResult{}, errors.Join(err,
 			errors.New("full CDP document changed while text was inserted"))
 	}

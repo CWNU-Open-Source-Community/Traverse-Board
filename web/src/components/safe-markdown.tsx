@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkCjkAutolinks } from "./remark-cjk-autolinks";
 
 const allowedElements = [
   "a", "blockquote", "br", "code", "del", "em", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -15,7 +16,7 @@ export function SafeMarkdown({ children, className = "" }: {
     <div className={`safe-markdown ${className}`.trim()}>
       <Markdown allowedElements={allowedElements} components={{
         a: ({ children: label, href }) => <SafeLink href={href}>{label}</SafeLink>,
-      }} remarkPlugins={[remarkGfm]} skipHtml>
+      }} remarkPlugins={[remarkGfm, remarkCjkAutolinks]} skipHtml>
         {children}
       </Markdown>
     </div>

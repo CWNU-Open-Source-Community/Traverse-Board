@@ -12,6 +12,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
@@ -48,6 +49,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fs := newFlagSet("api serve", a.errOut)
 	listenAddress := fs.String("listen", httpapi.DefaultListenAddress, "loopback listen address")
 	uiDirectory := fs.String("ui-dir", "", "optional built Web UI directory")
+	workspaceImport := fs.Bool("enable-workspace-import", false,
+		"allow the control-token operator to register an existing server-side directory")
 	fileEditProposals := fs.Bool("enable-file-edit-proposals", false,
 		"enable Go-issued interactive FileEdit proposal sources")
 	providerCredentials := fs.Bool("enable-provider-credentials", false,
@@ -83,6 +86,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	gitWorktreeRoot := fs.String("git-worktree-root", "",
 		"product-managed worktree root; defaults below CYBERAGENT_HOME")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
+		"enable-workspace-import":    false,
 		"code-intel-config":          true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-scheduled-job-worker": false,
@@ -113,11 +117,12 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 
 	accessToken := os.Getenv(apiTokenEnvironment)
 	controlToken := os.Getenv(apiControlTokenEnvironment)
-	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *permissionControl,
-		DangerFullAccessEnabled:   *dangerFullAccess,
-		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	if *workspaceImport && controlToken == "" {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-workspace-import requires CYBERAGENT_API_CONTROL_TOKEN")
 	}
+	permissionCapabilities := newAPIExecutionPermissionCapabilities(
+		*permissionControl, *dangerFullAccess, *debugMaximumAccess)
 	if *workspaceSandbox && !*permissionControl {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-workspace-sandbox requires --enable-permission-control")
@@ -309,6 +314,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
 	}
 	var standardCodeDelivery *application.StandardCodeDeliveryService
+	var standardCodeDeliveryController httpapi.StandardCodeDeliveryController
 	if commandRuntimeDrydocks != nil {
 		standardCodeDelivery, err = application.NewStandardCodeDeliveryService(
 			a.store, commandRuntimeDrydocks)
@@ -352,11 +358,12 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	webFetchAuthorizationSchedulerEnabled := controlToken != "" &&
 		*permissionControl && permissionCapabilities.OperatorApprovalEnabled
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
-		a.checker).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
+		a.checker).WithDrydock(commandRuntimeDrydocks).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
 		WithExecutionPermissionCapabilities(permissionCapabilities).
 		WithLifecycleHooks(hookEngine).WithWebEvidence(webEvidence).
 		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled)
 	if standardCodeDelivery != nil {
+		standardCodeDeliveryController = standardCodeDelivery
 		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
 	}
 	if a.codeIntel != nil {
@@ -451,12 +458,38 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if commandRuntime != nil {
 		executionControl.WithCommandRuntime(commandRuntime)
 	}
+	var fullCDPSessions *application.FullCDPProductionService
+	if controlToken != "" && *fullCDPDebug && *browserCDPControl &&
+		*permissionControl && permissionCapabilities.DangerFullAccessEnabled {
+		controller, controllerErr := browserruntime.NewPlatformBrowserProcessController()
+		if controllerErr != nil {
+			return controllerErr
+		}
+		if controller.FullCDPAvailable() {
+			fullCDPSessions, err = application.NewHomeFullCDPProductionService(a.store,
+				controller, browserruntime.FullCDPRuntimeCapabilities{StartEnabled: true,
+					DisposableProfileEnabled: true, TransportEnabled: true},
+				browserCDPCapabilities, permissionCapabilities, a.home)
+			if err != nil {
+				return err
+			}
+			executionControl.WithBrowserActions(fullCDPSessions)
+			defer func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := fullCDPSessions.Close(shutdownCtx); err != nil {
+					fmt.Fprintln(a.errOut, "Full CDP shutdown:", err)
+				}
+			}()
+		}
+	}
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		executionControl.WithDockerSandboxProposalExecutor(executor)
 	}
 	planDeliveryControl := application.NewPlanDeliveryControlService(a.store)
 	approvalControl := application.NewApprovalControlService(a.store,
-		a.newToolGateway(), a.checker)
+		a.newToolGateway().WithAgentCodeWorkspaceResolver(
+			application.NewAgentCodeWorkspaceResolver(a.store, commandRuntimeDrydocks)), a.checker)
 	modelControl := application.NewModelControlService(a.models, a.store)
 	threadModelRoutes := application.NewThreadModelRouteService(a.store, a.models)
 	providerSearchReadiness := application.NewProviderSearchReadinessService(
@@ -467,10 +500,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	}
 	providerCredentialControl := application.NewProviderCredentialService(a.credentials).
 		WithRegistryReload(a.models, a.store)
-	fileEditReview := application.NewFileEditReviewService(a.store)
-	fileEditProposal := application.NewFileEditProposalService(a.store, a.checker)
+	fileEditReview := application.NewFileEditReviewService(a.store).WithDrydock(commandRuntimeDrydocks)
+	fileEditProposal := application.NewFileEditProposalService(a.store, a.checker).WithDrydock(commandRuntimeDrydocks)
 	fileEditApply := application.NewFileEditApplyService(a.store, a.checker,
-		workspaceCheckpoints)
+		workspaceCheckpoints).WithDrydock(commandRuntimeDrydocks)
 	runWakeControl := application.NewRunWakeControlService(a.store)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(a.store,
 		executionControl)
@@ -576,8 +609,30 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		a.store, lifecycleControl, executionControl, permissionCapabilities).
 		WithModelRouteRegistry(a.models).
 		WithLifecycleHooks(hookEngine)
+	var workspaceImporter httpapi.WorkspaceImporter
+	if *workspaceImport {
+		manager, err := a.workspaceManager()
+		if err != nil {
+			return err
+		}
+		workspaceImporter = manager
+	}
+	var threadGit *application.ThreadGitService
+	if *gitAdvancedEnabled || *githubReviewEnabled {
+		localGit, gitErr := repository.NewMutationExecutor()
+		if gitErr != nil {
+			return gitErr
+		}
+		remoteGit, gitErr := repository.NewRemoteExecutor(a.credentials)
+		if gitErr != nil {
+			return gitErr
+		}
+		threadGit = application.NewThreadGitService(a.store, localGit, remoteGit,
+			workspaceCheckpoints, commandRuntimeDrydocks, permissionCapabilities).WithAdvanced(gitAdvancedService)
+	}
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
+		WorkspaceImportEnabled: *workspaceImport, WorkspaceImporter: workspaceImporter,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
 		StandardCodePresetEnabled:               standardCodePreset != nil,
 		SessionMessageEnabled:                   controlToken != "",
@@ -604,6 +659,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ExecutionPermissionCapabilities:         permissionCapabilities,
 		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
 		BrowserCDPPermissionCapabilities:        browserCDPCapabilities,
+		FullCDPSessionControlEnabled:            fullCDPSessions != nil,
+		FullCDPSessionController:                fullCDPSessions,
 		CapabilityReadinessRuntime:              localReadinessRuntime,
 		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
 		CommandRuntimeAdvertiser:                commandRuntime,
@@ -621,7 +678,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunLifecycleController:                  lifecycleControl,
 		ThreadTurnController:                    threadTurnControl,
 		StandardCodePresetController:            standardCodePreset,
-		StandardCodeDeliveryController:          standardCodeDelivery,
+		StandardCodeDeliveryController:          standardCodeDeliveryController,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
@@ -635,10 +692,13 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		PriceSnapshotController:                 a.store,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			a.store, a.router, a.checker),
-		ChildTaskControlController:          application.NewChildTaskControlService(a.store),
-		ProviderCredentialController:        providerCredentialControl,
-		FileEditReviewController:            fileEditReview,
-		FileEditProposalController:          fileEditProposal,
+		ChildTaskControlController:   application.NewChildTaskControlService(a.store),
+		ProviderCredentialController: providerCredentialControl,
+		FileEditReviewController:     fileEditReview,
+		FileEditProposalController:   fileEditProposal,
+		FileWorkspaceDrydocks:        commandRuntimeDrydocks,
+		ThreadReviewReader: application.NewThreadReviewService(a.store).WithDrydock(commandRuntimeDrydocks).
+			WithCodeHandoff(application.NewCodeHandoffService(a.store).WithStandardCodeDelivery(standardCodeDelivery)),
 		RunWakeController:                   runWakeControl,
 		FileEditApplyController:             fileEditApply,
 		RunWakeExecutionController:          runWakeExecution,
@@ -649,6 +709,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		GitAdvancedController:               gitAdvancedService,
+		ThreadGitController:                 threadGit,
+		ThreadPullRequestController:         application.NewThreadPullRequestService(a.store, githubReviewService, threadGit),
 		GitHubReviewController:              githubReviewService,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
@@ -771,10 +833,22 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "batch_delivery_host_validation_enabled: %t\n",
 		*batchValidationExecution)
 	fmt.Fprintf(a.out, "code_intel_enabled: %t\n", a.codeIntel != nil)
+	fmt.Fprintf(a.out, "workspace_import_enabled: %t\n", *workspaceImport)
 	fmt.Fprintf(a.out, "git_advanced_control_enabled: %t\n", *gitAdvancedEnabled)
 	fmt.Fprintf(a.out, "github_review_control_enabled: %t\n", *githubReviewEnabled)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
+}
+
+func newAPIExecutionPermissionCapabilities(approval, fullAccess, debug bool) domain.ExecutionPermissionRuntimeCapabilities {
+	return domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   approval,
+		DangerFullAccessEnabled:   fullAccess,
+		DebugMaximumAccessEnabled: debug,
+		// All API services share this process-local revocation fence. Creating
+		// the authority does not activate a grant or change the CLI startup gates.
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+	}
 }
 
 func runCommandRuntimeStartupReconciler(ctx context.Context,

@@ -3,13 +3,17 @@ package application
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/session"
 )
 
 const (
@@ -20,8 +24,8 @@ const (
 
 // ThreadTurnService is the product-facing execution facade. It owns the Run
 // lifecycle and Supervisor handoff details so a client only submits one Thread
-// turn. It composes existing durable operations and introduces no new stored
-// authority, event protocol, or database record.
+// turn. It composes the existing authority and event boundaries; the Thread
+// message intent binds file preparation before a message becomes consumable.
 type ThreadTurnService struct {
 	threads          *ThreadService
 	lifecycle        *RunLifecycleControlService
@@ -29,6 +33,9 @@ type ThreadTurnService struct {
 	recovery         *ThreadRunRecoveryService
 	lifecycleHooks   *hooks.Engine
 	runtimeAuthority *domain.ExecutionPermissionRuntimeAuthority
+	evidence         *EvidenceAttachmentService
+	turnMu           sync.Mutex
+	activeTurns      map[string]*activeThreadTurn
 }
 
 type threadEpochTransitionStore interface {
@@ -41,11 +48,15 @@ type threadEpochTransitionStore interface {
 }
 
 type ExecuteThreadTurnRequest struct {
+	plan         *threadPlanCommitBinding
 	Version      string
 	ThreadID     string
 	Content      string
 	OperationKey string
 	RequestedBy  string
+	Files        []domain.WorkspaceFileReference
+	Images       []domain.ImageReference
+	Attachments  []domain.FileAttachmentReference
 }
 
 type ExecuteThreadTurnResult struct {
@@ -62,6 +73,12 @@ func NewThreadTurnService(store ThreadStore, lifecycle *RunLifecycleControlServi
 ) *ThreadTurnService {
 	service := &ThreadTurnService{threads: NewThreadService(store), lifecycle: lifecycle,
 		execution: execution}
+	if execution != nil && execution.supervisor != nil {
+		service.threads.WithDrydock(execution.supervisor.drydocks)
+	}
+	if evidenceStore, ok := store.(EvidenceAttachmentStore); ok {
+		service.evidence = NewEvidenceAttachmentService(evidenceStore)
+	}
 	if recoveryStore, ok := store.(ThreadRunRecoveryStore); ok {
 		service.recovery = NewThreadRunRecoveryService(recoveryStore)
 	}
@@ -76,6 +93,12 @@ func NewThreadTurnServiceWithExecutionCapabilities(store ThreadStore,
 		threads:   NewThreadServiceWithExecutionCapabilities(store, capabilities),
 		lifecycle: lifecycle, execution: execution,
 		runtimeAuthority: capabilities.RuntimeAuthority,
+	}
+	if execution != nil && execution.supervisor != nil {
+		service.threads.WithDrydock(execution.supervisor.drydocks)
+	}
+	if evidenceStore, ok := store.(EvidenceAttachmentStore); ok {
+		service.evidence = NewEvidenceAttachmentService(evidenceStore)
 	}
 	if recoveryStore, ok := store.(ThreadRunRecoveryStore); ok {
 		service.recovery = NewThreadRunRecoveryService(recoveryStore).
@@ -115,7 +138,7 @@ func (s *ThreadTurnService) WithModelRouteRegistry(
 	return s
 }
 
-func (s *ThreadTurnService) Execute(ctx context.Context,
+func (s *ThreadTurnService) execute(ctx context.Context,
 	request ExecuteThreadTurnRequest,
 ) (ExecuteThreadTurnResult, error) {
 	if s == nil || s.threads == nil || s.threads.store == nil || s.lifecycle == nil ||
@@ -126,7 +149,12 @@ func (s *ThreadTurnService) Execute(ctx context.Context,
 	normalized, err := normalizeSubmitThreadMessageRequest(SubmitThreadMessageRequest{
 		Version: request.Version, ThreadID: request.ThreadID, Content: request.Content,
 		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
+		Files: request.Files, Images: request.Images, Attachments: request.Attachments, plan: request.plan,
 	})
+	if err != nil {
+		return ExecuteThreadTurnResult{}, err
+	}
+	intent, err := s.threads.reserveMessage(ctx, normalized)
 	if err != nil {
 		return ExecuteThreadTurnResult{}, err
 	}
@@ -136,20 +164,147 @@ func (s *ThreadTurnService) Execute(ctx context.Context,
 	if err := s.advancePastFailedTurn(ctx, normalized); err != nil {
 		return ExecuteThreadTurnResult{}, err
 	}
+	if err := s.advancePastExhaustedBudget(ctx, normalized); err != nil {
+		return ExecuteThreadTurnResult{}, err
+	}
 	if err := s.advanceForPendingConfiguration(ctx, normalized); err != nil {
 		return ExecuteThreadTurnResult{}, err
 	}
 
-	submission, err := s.threads.Submit(ctx, normalized)
+	var submission SubmitThreadMessageResult
+	if len(normalized.Files) == 0 && len(normalized.Images) == 0 && len(normalized.Attachments) == 0 {
+		submission, err = s.threads.Submit(ctx, normalized)
+	} else {
+		if len(normalized.Files) > 0 && s.evidence == nil {
+			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread file reference preparation is unavailable")
+		}
+		submission, intent, err = s.threads.prepareMessage(ctx, normalized, intent)
+		if err != nil {
+			return ExecuteThreadTurnResult{}, err
+		}
+		if len(normalized.Images) > 0 && submission.Message.ID == "" {
+			ref, refErr := supervisorModelRef(s.execution.supervisor.router, submission.Run.Config.ModelRoute)
+			if refErr != nil {
+				return ExecuteThreadTurnResult{}, refErr
+			}
+			capability := s.execution.supervisor.router.DescribeVision(ref)
+			if capability.State != llm.VisionSupported {
+				return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeFailedPrecondition, "Selected model image capability is "+string(capability.State)+"; select a confirmed vision model before sending images")
+			}
+		}
+		if submission.Message.ID == "" {
+			prepared := make([]session.PreparedEvidenceAttachment, 0, len(normalized.Files))
+			for index, file := range normalized.Files {
+				item, prepareErr := s.evidence.PrepareForThread(ctx, AttachEvidenceRequest{
+					Version: session.EvidenceAttachmentProtocolVersion, RunID: submission.Run.ID,
+					SourceKind: file.SourceKind, SourceRef: file.Path, ContentSHA256: file.ExpectedSHA256,
+					OperationKey: domain.ThreadMessageFileOperationKey(intent.OperationKeyDigest, index), AttachedBy: normalized.RequestedBy})
+				if prepareErr != nil {
+					return ExecuteThreadTurnResult{}, apperror.Wrap(apperror.CodeOf(apperror.Normalize(prepareErr)), "Thread file references could not be verified; refresh the selected files and retry", prepareErr)
+				}
+				prepared = append(prepared, item)
+			}
+			// No lifecycle action or model-visible persistence occurs until all
+			// selected snapshots have been validated against their expected hash.
+			ready, readyErr := s.prepareSubmissionLifecycle(ctx, normalized, ExecuteThreadTurnResult{Submission: submission})
+			if readyErr != nil {
+				return ExecuteThreadTurnResult{}, readyErr
+			}
+			submission, err = s.threads.commitMessage(ctx, normalized, ready.Submission, prepared)
+		}
+	}
 	if err != nil {
 		return ExecuteThreadTurnResult{}, err
 	}
 	result := ExecuteThreadTurnResult{Submission: submission, Replayed: submission.Replayed}
+	// Ordinary steering may queue only after the confirmation message itself
+	// has passed its atomic plan/input binding and entered the existing journal.
+	s.turnMu.Lock()
+	if active := s.activeTurns[normalized.ThreadID]; active != nil && active.operationKey == normalized.OperationKey {
+		active.preparingPlan = false
+	}
+	s.turnMu.Unlock()
+	if submission.Replayed && submission.Message.Status != domain.OperatorSteeringPending {
+		if replay, found, err := s.findCompletedReplay(ctx, normalized); err != nil || found {
+			return replay, err
+		}
+		if submission.Run.Terminal() {
+			return s.refresh(ctx, result)
+		}
+	}
+	return s.executeSubmission(ctx, normalized, result)
+}
+
+func (s *ThreadTurnService) executeSubmission(ctx context.Context,
+	normalized SubmitThreadMessageRequest, result ExecuteThreadTurnResult,
+) (ExecuteThreadTurnResult, error) {
+	submission := result.Submission
 	if submission.Message.Status == domain.OperatorSteeringCancelled ||
 		submission.Run.Status == domain.RunWaitingApproval {
 		return s.refresh(ctx, result)
 	}
 
+	var err error
+	result, err = s.prepareSubmissionLifecycle(ctx, normalized, result)
+	if err != nil {
+		return result, err
+	}
+
+	for batch := 1; batch <= threadTurnMaxBatches; batch++ {
+		// A product Thread turn is driven by the operator message selected into
+		// this handoff. The Supervisor may perform its complete model/tool loop
+		// while committing that message, but a requested/effective `continue`
+		// action must not manufacture another mission-driven Supervisor turn.
+		// The next explicit operator message is the next product turn.
+		executed, executeErr := s.execution.Execute(ctx,
+			threadTurnExecutionRequest(normalized, result.Submission.Run.ID, batch))
+		result.Execution = &executed
+		result.Replayed = result.Replayed || executed.Replayed
+		mergeThreadTurnExecution(&result, executed)
+		if err := storedThreadTurnExecutionError(executed.Handoff); err != nil {
+			if failure, closed, closeErr := s.closeFailedProductTurn(ctx, normalized.ThreadID, executed.Handoff); closeErr != nil {
+				return result, closeErr
+			} else if closed {
+				if result.Submission.Message.ID == failure.MessageID {
+					return result, failedProductTurnError(failure)
+				}
+				// An earlier accepted input failed before this explicit message.
+				// Its failure is sealed; the next batch may now reach this message.
+				if ctx.Err() == nil {
+					continue
+				}
+			}
+			return result, err
+		}
+		if executeErr != nil {
+			return result, executeErr
+		}
+		message, err := s.execution.store.GetOperatorSteering(ctx,
+			result.Submission.Message.ID)
+		if err != nil {
+			return result, apperror.Normalize(err)
+		}
+		result.Submission.Message = message
+		if message.Status != domain.OperatorSteeringPending {
+			return s.refresh(ctx, result)
+		}
+		current, err := s.threads.store.GetRun(ctx, result.Submission.Run.ID)
+		if err != nil {
+			return result, apperror.Normalize(err)
+		}
+		result.Submission.Run = current
+		if current.Status != domain.RunRunning {
+			return s.refresh(ctx, result)
+		}
+	}
+	return result, apperror.New(apperror.CodeResourceExhausted,
+		"Thread turn could not reach its queued message within the bounded handoff batches")
+}
+
+func (s *ThreadTurnService) prepareSubmissionLifecycle(ctx context.Context,
+	normalized SubmitThreadMessageRequest, result ExecuteThreadTurnResult,
+) (ExecuteThreadTurnResult, error) {
+	submission := result.Submission
 	switch submission.Run.Status {
 	case domain.RunCreated:
 		controlled, err := s.lifecycle.Apply(ctx, ControlRunLifecycleRequest{
@@ -185,43 +340,7 @@ func (s *ThreadTurnService) Execute(ctx context.Context,
 				submission.Run.Status))
 	}
 
-	for batch := 1; batch <= threadTurnMaxBatches; batch++ {
-		// A product Thread turn is driven by the operator message selected into
-		// this handoff. The Supervisor may perform its complete model/tool loop
-		// while committing that message, but a requested/effective `continue`
-		// action must not manufacture another mission-driven Supervisor turn.
-		// The next explicit operator message is the next product turn.
-		executed, executeErr := s.execution.Execute(ctx,
-			threadTurnExecutionRequest(normalized, result.Submission.Run.ID, batch))
-		result.Execution = &executed
-		result.Replayed = result.Replayed || executed.Replayed
-		mergeThreadTurnExecution(&result, executed)
-		if executeErr != nil {
-			return result, executeErr
-		}
-		if err := storedThreadTurnExecutionError(executed.Handoff); err != nil {
-			return result, err
-		}
-		message, err := s.execution.store.GetOperatorSteering(ctx,
-			result.Submission.Message.ID)
-		if err != nil {
-			return result, apperror.Normalize(err)
-		}
-		result.Submission.Message = message
-		if message.Status != domain.OperatorSteeringPending {
-			return s.refresh(ctx, result)
-		}
-		current, err := s.threads.store.GetRun(ctx, result.Submission.Run.ID)
-		if err != nil {
-			return result, apperror.Normalize(err)
-		}
-		result.Submission.Run = current
-		if current.Status != domain.RunRunning {
-			return s.refresh(ctx, result)
-		}
-	}
-	return result, apperror.New(apperror.CodeResourceExhausted,
-		"Thread turn could not reach its queued message within the bounded handoff batches")
+	return result, nil
 }
 
 func (s *ThreadTurnService) advanceForPendingConfiguration(ctx context.Context,
@@ -280,6 +399,38 @@ func (s *ThreadTurnService) advanceForPendingConfiguration(ctx context.Context,
 	return nil
 }
 
+func (s *ThreadTurnService) advancePastExhaustedBudget(ctx context.Context, request SubmitThreadMessageRequest) error {
+	store, ok := s.threads.store.(interface {
+		AdvanceThreadRunForExhaustedBudget(context.Context, string, string, string) (domain.Run, bool, error)
+	})
+	if !ok {
+		return nil
+	}
+	thread, err := s.threads.store.GetThread(ctx, request.ThreadID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if thread.ActiveRunID == "" {
+		return nil
+	}
+	retired, changed, err := store.AdvanceThreadRunForExhaustedBudget(ctx, thread.ID, thread.ActiveRunID, request.RequestedBy)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if changed {
+		if s.runtimeAuthority != nil {
+			s.runtimeAuthority.RevokeRun(retired.ID)
+		}
+		if releaser, ok := s.threads.store.(threadRunRecoveryMonetaryReleaser); ok {
+			_, _ = releaser.ReleaseOpenMonetaryReservations(ctx, retired.ID)
+		}
+		if reconciler, ok := s.threads.store.(threadRunRecoveryDependencyReconciler); ok {
+			_, _ = reconciler.ReconcileDependencyEdges(ctx, retired.ID)
+		}
+	}
+	return nil
+}
+
 func (s *ThreadTurnService) pendingEpochConfiguration(ctx context.Context,
 	store threadEpochTransitionStore, threadRecord domain.Thread, active domain.Run,
 ) (bool, error) {
@@ -312,6 +463,19 @@ func (s *ThreadTurnService) pendingEpochConfiguration(ctx context.Context,
 					"Thread model route is no longer resolvable")
 			}
 			if activeRef != desiredRef {
+				// Resolve alone only parses a model reference. Reuse the same
+				// eligibility projection as successor preparation before ending
+				// the current Run; the successor still validates it again.
+				catalog, catalogErr := NewThreadModelRouteService(nil, s.threads.modelRoutes).Catalog(ctx)
+				if catalogErr != nil {
+					return false, catalogErr
+				}
+				if !slices.ContainsFunc(catalog.Routes, func(route ModelRouteCatalogItem) bool {
+					return route.ProviderID == desiredRef.Provider && route.Model == desiredRef.Model && route.Selectable
+				}) {
+					return false, apperror.New(apperror.CodeFailedPrecondition,
+						"selected Thread model route is no longer eligible")
+				}
 				return true, nil
 			}
 		}
@@ -338,33 +502,38 @@ func (s *ThreadTurnService) advancePastFailedTurn(ctx context.Context,
 		return apperror.Normalize(err)
 	}
 	if !found {
-		return nil
+		return s.execution.closeHistoricalWebFetchThreadFailure(ctx, request.ThreadID)
 	}
 	if !recovery.Quiescent {
 		return apperror.New(apperror.CodeUnavailable,
 			"The previous Thread turn is still stopping; retry this message shortly")
 	}
-	_, err = s.recovery.RecoverForNextTurn(ctx, RecoverThreadRunRequest{
-		Version: domain.ThreadRunRecoveryProtocolVersion, ThreadID: request.ThreadID,
-		RunID: recovery.RunID, HandoffOperationID: recovery.HandoffOperationID,
-		OperationKey: "thread-turn-auto-recovery-" + runmutation.Fingerprint(
-			"thread_turn_auto_recovery_operation.v1", request.ThreadID,
-			recovery.RunID, recovery.HandoffOperationID, request.OperationKey),
-		RequestedBy: request.RequestedBy,
-	})
-	if err == nil {
-		return nil
-	}
-	// A concurrent explicit turn may have already advanced the same failed Run.
-	// Once the Thread no longer points at that exact Run, normal Submit can join
-	// the successor without exposing an internal recovery race to the user.
-	if apperror.CodeOf(err) == apperror.CodeConflict {
-		current, currentErr := s.threads.store.GetThread(ctx, request.ThreadID)
-		if currentErr == nil && current.ActiveRunID != recovery.RunID {
+	if store, ok := s.threads.store.(threadTurnFailureStore); ok {
+		_, closed, closeErr := store.EndFailedThreadTurn(ctx, request.ThreadID, recovery.RunID, recovery.HandoffOperationID)
+		if closeErr != nil {
+			return apperror.Normalize(closeErr)
+		}
+		if closed {
 			return nil
 		}
+		if reader, ok := s.threads.store.(interface {
+			GetSupervisorCheckpoint(context.Context, string) (domain.SupervisorCheckpoint, bool, error)
+		}); ok {
+			checkpoint, found, err := reader.GetSupervisorCheckpoint(ctx, recovery.RunID)
+			if err != nil {
+				return apperror.Normalize(err)
+			}
+			// A handoff may fail before preparing any input (for example an
+			// exhausted budget). No old attempt can be replayed in this case.
+			if !found || (checkpoint.AttemptID == "" && checkpoint.PendingInput == "") {
+				return nil
+			}
+		}
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"The earlier execution has no safely closable prepared input; inspect its recorded outcome before continuing")
 	}
-	return err
+	return apperror.New(apperror.CodeFailedPrecondition,
+		"Thread failed-turn persistence is unavailable; the previous input has been retained")
 }
 
 func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
@@ -378,8 +547,8 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 	if err != nil {
 		return ExecuteThreadTurnResult{}, false, apperror.Normalize(err)
 	}
-	expectedContent, err := domain.NormalizeOperatorSteeringContent(
-		redact.String(request.Content))
+	expectedContent, err := domain.NormalizeThreadMessageContent(
+		redact.String(request.Content), request.Images, request.Attachments)
 	if err != nil {
 		return ExecuteThreadTurnResult{}, false, apperror.Normalize(err)
 	}
@@ -423,6 +592,7 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 				queued, err := s.threads.store.EnqueueOperatorSteering(ctx,
 					domain.EnqueueOperatorSteeringRequest{RunID: run.ID,
 						SessionID: run.SessionID, Content: request.Content,
+						Images: request.Images, Attachments: request.Attachments,
 						OperationKey: request.OperationKey, RequestedBy: request.RequestedBy})
 				if err != nil {
 					return ExecuteThreadTurnResult{}, false, apperror.Normalize(err)
@@ -432,8 +602,36 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 						apperror.CodeConflict,
 						"Thread turn replay does not match its durable operator message")
 				}
+				continuation := SubmitThreadMessageResult{Run: run, Message: queued.Message}
+				if err := s.threads.projectMessageContinuation(ctx, request, &continuation); err != nil {
+					return ExecuteThreadTurnResult{}, false, apperror.Normalize(err)
+				}
+				if failureStore, ok := s.threads.store.(threadTurnFailureStore); ok {
+					failure, closed, failureErr := failureStore.GetThreadTurnFailure(ctx, run.ID, message.ID)
+					if failureErr != nil {
+						return ExecuteThreadTurnResult{}, false, apperror.Normalize(failureErr)
+					}
+					if closed {
+						linkedSession, sessionErr := s.threads.store.GetSession(ctx, run.SessionID)
+						if sessionErr != nil {
+							return ExecuteThreadTurnResult{}, false, apperror.Normalize(sessionErr)
+						}
+						executed := ExecuteRunHandoffResult{Handoff: handoff, Execution: executionResultFromHandoff(handoff), Replayed: true}
+						result := ExecuteThreadTurnResult{Submission: SubmitThreadMessageResult{Thread: threadRecord, Run: run, Session: linkedSession, Message: queued.Message, PredecessorRunID: continuation.PredecessorRunID, SuccessorCreated: continuation.SuccessorCreated, Replayed: true}, Execution: &executed, Replayed: true}
+						mergeThreadTurnExecution(&result, executed)
+						return result, true, failedProductTurnError(failure)
+					}
+				}
 				if queued.Message.Status == domain.OperatorSteeringPending {
 					if handoff.Result.Status == domain.RunExecutionHandoffFailed {
+						if failure, closed, closeErr := s.closeFailedProductTurn(ctx, request.ThreadID, handoff); closeErr != nil {
+							return ExecuteThreadTurnResult{}, true, closeErr
+						} else if closed {
+							if failure.MessageID == message.ID {
+								return ExecuteThreadTurnResult{Replayed: true}, true, failedProductTurnError(failure)
+							}
+							continue
+						}
 						linkedSession, sessionErr := s.threads.store.GetSession(ctx,
 							run.SessionID)
 						if sessionErr != nil {
@@ -445,7 +643,7 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 						result := ExecuteThreadTurnResult{
 							Submission: SubmitThreadMessageResult{Thread: threadRecord,
 								Run: run, Session: linkedSession, Message: queued.Message,
-								PredecessorRunID: binding.PredecessorRunID, Replayed: true},
+								PredecessorRunID: continuation.PredecessorRunID, SuccessorCreated: continuation.SuccessorCreated, Replayed: true},
 							Execution: &executed, Replayed: true,
 						}
 						mergeThreadTurnExecution(&result, executed)
@@ -465,15 +663,24 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 				result := ExecuteThreadTurnResult{
 					Submission: SubmitThreadMessageResult{Thread: threadRecord, Run: run,
 						Session: linkedSession, Message: queued.Message,
-						PredecessorRunID: binding.PredecessorRunID,
-						SuccessorCreated: binding.PredecessorRunID != "" &&
-							queued.Message.Sequence == 1,
-						Replayed: true},
+						PredecessorRunID: continuation.PredecessorRunID,
+						SuccessorCreated: continuation.SuccessorCreated,
+						Replayed:         true},
 					Execution: &executed, Replayed: true,
 				}
 				mergeThreadTurnExecution(&result, executed)
 				if err := storedThreadTurnExecutionError(handoff); err != nil {
-					return result, true, err
+					if queued.Message.Status != domain.OperatorSteeringCommitted {
+						return result, true, err
+					}
+					// A separate, explicitly requested Run handoff may have recovered
+					// this exact message. Confirm its committed delivery/event binding
+					// without rewriting or presenting the original failed handoff as
+					// successful. A pending/cancelled message retains the old error.
+					if _, _, commitErr := s.execution.store.GetCommittedOperatorSteeringLifecycleActions(ctx,
+						queued.Message.ID); commitErr != nil {
+						return result, true, apperror.Normalize(commitErr)
+					}
 				}
 				return result, true, nil
 			}

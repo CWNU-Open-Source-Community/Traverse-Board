@@ -553,6 +553,11 @@ func hashCaptureFile(ctx context.Context, path string, keep bool) (string, []byt
 	if !keep {
 		return hex.EncodeToString(hash.Sum(nil)), nil, nil
 	}
+	if buffer.Len() == 0 {
+		// nil means hash-only capture to the caller; a retained empty file
+		// still needs a content-addressed blob and must remain recoverable.
+		return hex.EncodeToString(hash.Sum(nil)), []byte{}, nil
+	}
 	return hex.EncodeToString(hash.Sum(nil)), buffer.Bytes(), nil
 }
 

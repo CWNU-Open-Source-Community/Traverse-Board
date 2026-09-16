@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const LocalBackendPolicyVersion = "windows_appcontainer_policy.v1"
+
 type unavailableLocalBackend struct {
 	generation string
 }

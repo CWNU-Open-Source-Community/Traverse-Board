@@ -1,9 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
+import type { WorkspaceFileAttachment } from "../../api/file-attachments";
+import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import type { ThreadExecutionPermissionControlView,
   ThreadExecutionPermissionView } from "../../api/types";
+import { v2AttachmentReferenceKey } from "../attachment-keys";
+import { V2Composer } from "./composer";
+import { v2ImageReferenceKey } from "./image-input";
 import { V2PermissionControl } from "./permission-control";
 
 function permission(overrides: Partial<ThreadExecutionPermissionView> = {}):
@@ -53,6 +58,130 @@ function renderPermission(initial = control(), changed = control(permission({
 }
 
 describe("V2PermissionControl", () => {
+  it.each([
+    ["full_access", "完全访问", "lucide-shield-off"],
+    ["debug", "调试模式", "lucide-bug"],
+  ] as const)("shows the saved %s risk icon without suggesting conservative protection", async (mode, label, icon) => {
+    renderPermission(control(permission({ mode, risk_tier: "high" })));
+    const trigger = await screen.findByRole("button", { name: label });
+    expect(trigger.querySelector(`.${icon}`)).not.toBeNull();
+    expect(trigger.querySelector(".lucide-shield-check")).toBeNull();
+  });
+
+  it("reads webpage and search status only when expanded inside permissions, without granting access", async () => {
+    const user = userEvent.setup();
+    const get = vi.fn().mockResolvedValue({ run: { status: "paused" },
+      mode: { scope: { network_mode: "disabled", allowed_targets: [] } }, execution_permission: { mode: "conservative" } });
+    const providerSearchReadiness = vi.fn().mockResolvedValue({ state: "provider_unqualified",
+      reason: "provider_native_qualification_required", remediation: "qualify_provider_search" });
+    const changeThreadExecutionPermission = vi.fn(); const expandRunNetworkAuthority = vi.fn();
+    const client = { getThreadExecutionPermission: vi.fn().mockResolvedValue(control()),
+      hasExecutionPermissionControl: true, hasControl: true, get, providerSearchReadiness,
+      changeThreadExecutionPermission, expandRunNetworkAuthority } as unknown as CyberAgentClient;
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queries}><V2PermissionControl client={client} threadID="thread-1" /></QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: "保守模式" }));
+    expect(get).not.toHaveBeenCalled(); expect(providerSearchReadiness).not.toHaveBeenCalled();
+    await user.click(screen.getByText("网页访问与搜索"));
+    expect(await screen.findByText("网页搜索 · 搜索待验证")).toBeInTheDocument();
+    expect(screen.getByText("直接 URL 抓取")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledExactlyOnceWith("/runs/run-1", {}, expect.any(AbortSignal));
+    expect(providerSearchReadiness).toHaveBeenCalledExactlyOnceWith("thread-1", expect.any(AbortSignal));
+    expect(changeThreadExecutionPermission).not.toHaveBeenCalled();
+    expect(expandRunNetworkAuthority).not.toHaveBeenCalled();
+    await user.click(screen.getByText("网页访问与搜索"));
+    await waitFor(() => expect(screen.queryByText("直接 URL 抓取")).not.toBeInTheDocument());
+  });
+
+  it.each(["click", "Enter"] as const)("keeps a real Composer draft and its attachments through cancellation and %s permission confirmation", async (activation) => {
+    const user = userEvent.setup();
+    const draft = "原回复未确认期间新写的要求，恢复后不要清掉。";
+    const workspaceID = "workspace-1";
+    const image: WorkspaceImageAttachment = { id: "draft-image", workspace_id: workspaceID,
+      name: "未发送.png", sha256: "a".repeat(64), byte_size: 64, mime_type: "image/png", width: 4, height: 4 };
+    const files: WorkspaceFileAttachment[] = Array.from({ length: 4 }, (_, index) => ({
+      id: `draft-file-${index}`, workspace_id: workspaceID, name: `未发送-${index}.txt`,
+      sha256: String(index + 1).repeat(64), byte_size: 12, mime_type: "text/plain",
+      readability: "text", text_bytes: 12, redacted: false,
+    }));
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queries.setQueryData(v2ImageReferenceKey(workspaceID, "thread-1"), [image]);
+    queries.setQueryData(v2AttachmentReferenceKey(workspaceID, "thread-1"), files);
+    const changed = control(permission({ mode: "full_access", revision: 2, operator_confirmed: true }));
+    const changeThreadExecutionPermission = vi.fn().mockResolvedValue(changed);
+    const client = { baseURL: "/api/v1", hasThreadControl: true, hasModelControl: true,
+      hasExecutionPermissionControl: true,
+      getThreadExecutionPermission: vi.fn().mockResolvedValue(control()), changeThreadExecutionPermission,
+      threadModelRoute: vi.fn().mockResolvedValue({ vision_capability: { state: "supported", source: "operator_declared" } }),
+      downloadWorkspaceImage: vi.fn().mockResolvedValue(new Blob(["verified image"], { type: "image/png" })),
+    } as unknown as CyberAgentClient;
+    const onSubmit = vi.fn(async (..._args: unknown[]) => {});
+    render(<QueryClientProvider client={queries}><V2Composer client={client} threadID="thread-1"
+      workspaceID={workspaceID} workspaces={[]} onWorkspaceChange={() => {}} onSubmit={onSubmit} />
+    </QueryClientProvider>);
+    const textarea = screen.getByRole("textbox", { name: "继续对话" });
+    fireEvent.change(textarea, { target: { value: draft } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled());
+    const openConfirmation = async () => {
+      await user.click(await screen.findByRole("button", { name: "保守模式" }));
+      await user.click(within(screen.getByRole("group", { name: "对话执行权限" }))
+        .getByRole("button", { name: /完全访问/u }));
+      return screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
+    };
+    const cancelled = await openConfirmation();
+    await user.click(within(cancelled).getByRole("button", { name: "取消" }));
+    expect(changeThreadExecutionPermission).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue(draft);
+
+    const dialog = await openConfirmation();
+    const confirm = within(dialog).getByRole("button", { name: "启用完全访问" });
+    if (activation === "click") await user.click(confirm);
+    else { confirm.focus(); await user.keyboard("{Enter}"); }
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(changeThreadExecutionPermission).toHaveBeenCalledExactlyOnceWith("thread-1", {
+      mode: "full_access", reason: "v2 Thread permission selection", confirm_danger_full_access: true,
+    }, expect.stringMatching(/^v2-thread-permission-/u));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue(draft);
+    expect(queries.getQueryData(v2ImageReferenceKey(workspaceID, "thread-1"))).toEqual([image]);
+    expect(queries.getQueryData(v2AttachmentReferenceKey(workspaceID, "thread-1"))).toEqual(files);
+    expect(screen.getByRole("button", { name: "移除图片 未发送.png" })).toBeEnabled();
+    for (const file of files) expect(screen.getByRole("button", { name: `移除文件 ${file.name}` })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith(draft, [], [image], undefined, files));
+    await waitFor(() => expect(textarea).toHaveValue(""));
+  });
+
+  it("searches project files inside the real portal without sending the draft, then permits a Composer keyboard send", async () => {
+    const user = userEvent.setup(); const onSubmit = vi.fn(async () => {});
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const workspaceSearch = vi.fn().mockResolvedValue({ query: "README", results: [], truncated: false });
+    const client = { baseURL: "/api/v1", hasThreadControl: true, hasEvidenceAttachment: true,
+      workspaceExplore: vi.fn().mockResolvedValue({ protocol_version: "workspace_explorer.v1",
+        workspace_id: "workspace-1", path: ".", kind: "directory", content: "", entries: [],
+        redaction_count: 0, truncated: false, returned_bytes: 0, total_bytes: 0,
+        provenance: { source_kind: "workspace_file", source_ref: ".", content_sha256: "b".repeat(64), instruction_authorized: false } }),
+      workspaceSearch,
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={queries}><V2Composer client={client} threadID="thread-1"
+      workspaceID="workspace-1" workspaces={[]} onWorkspaceChange={() => {}} onSubmit={onSubmit} />
+    </QueryClientProvider>);
+    const textarea = screen.getByRole("textbox", { name: "继续对话" });
+    fireEvent.change(textarea, { target: { value: "搜索文件不能代我发送" } });
+    await user.click(screen.getByRole("button", { name: "添加附件" }));
+    await user.click(screen.getByRole("menuitem", { name: /引用项目文件/u }));
+    const search = await screen.findByRole("searchbox", { name: "Search Workspace evidence" });
+    await user.type(search, "README{Enter}");
+    await waitFor(() => expect(workspaceSearch).toHaveBeenCalledExactlyOnceWith("workspace-1", "README", expect.any(AbortSignal)));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("搜索文件不能代我发送");
+    await user.click(screen.getByRole("button", { name: "关闭文件选择" }));
+    await user.click(textarea); await user.keyboard("{Enter}");
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("搜索文件不能代我发送"));
+  });
+
   it("requires explicit confirmation and sends the exact full-access acknowledgement", async () => {
     const user = userEvent.setup();
     const controls = renderPermission();

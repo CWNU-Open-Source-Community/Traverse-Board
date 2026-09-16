@@ -18,8 +18,10 @@ import (
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/fileattachment"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/githubreview"
+	"cyberagent-workbench/internal/imageattachment"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
@@ -363,6 +365,10 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Tag: "Control", Description: "Confirms a diff bound to both the pinned and reviewed-live fingerprints. Files never alter an active Run silently, and refreshed instructions remain non-authorizing.",
 			DataType: reflect.TypeOf(application.ProjectInstructionState{}), RequestType: reflect.TypeOf(projectInstructionRefreshRequestView{}),
 			Control: true, NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/runs/{run_id}/context-summary", OperationID: "getRunContextSummary",
+			Summary: "Read saved context summaries for one execution", Tag: "Runs",
+			Description: "Returns the exact Run, Thread and Session binding, latest persisted compaction and inherited context. Saved content is not a claim about the current model window. Redaction and truncation are explicit; this read never changes summaries or starts execution.",
+			DataType:    reflect.TypeOf(RunContextSummaryView{}), NotFound: true, Parameters: []openAPIParameter{runID}},
 		{Path: "/api/v1/sessions/{session_id}/tree", OperationID: "getSessionContinuityTree",
 			Summary: "Browse Session checkpoints and branches", Tag: "Sessions",
 			Description: "Returns the connected checkpoint/Fork/Resume component plus compaction, decision, Artifact, Delivery, Git drift, and memory expiry projections.",
@@ -386,12 +392,12 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: StandardCodeDeliveryPathTemplate,
 			OperationID: "getStandardCodeDelivery", Summary: "Inspect the Standard Code delivery truth receipt",
 			Tag: "Runs", Description: "Returns the one durable standard_code_delivery.v1 projection shared by Desktop, CLI, Code Handoff, GitHub Review, and final completion. The live observation marks a previously passed receipt stale when the current Drydock Workspace revision no longer matches; no Agent prose or CI check name is treated as verification evidence.",
-			DataType: reflect.TypeOf(standardcodedelivery.Report{}), NotFound: true,
+			DataType: reflect.TypeOf(StandardCodeDeliveryReportView{}), NotFound: true,
 			Parameters: []openAPIParameter{runID}},
 		{Path: StandardCodeDeliveryPathTemplate, Method: http.MethodPost,
 			OperationID: "recordStandardCodeDelivery", Summary: "Record a Standard Code delivery truth receipt",
 			Tag: "Control", Description: "Creates an immutable final Checkpoint, binds the exact Diff and Command Runtime artifacts to the current Drydock Workspace revision, and records a closed delivery conclusion. This operation does not commit, push, merge, overwrite the source Workspace, or retain raw output, environment, reasoning, or host paths.",
-			DataType:    reflect.TypeOf(application.StandardCodeDeliveryRecordResult{}),
+			DataType:    reflect.TypeOf(StandardCodeDeliveryRecordResultView{}),
 			RequestType: reflect.TypeOf(StandardCodeDeliveryRecordView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
 		{Path: "/api/v1/runs/{run_id}/workspace-checkpoints", Method: http.MethodPost,
@@ -779,6 +785,28 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(ThreadCreationControlView{}),
 			RequestType: reflect.TypeOf(ThreadCreationControlRequestView{}), Control: true,
 			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey}},
+		{Path: ThreadCreationRequestPath, OperationID: "inspectThreadCreationRequest",
+			Summary: "Observe an original Thread creation request", Tag: "Threads",
+			Description: "Pure read using the original Idempotency-Key and workspace identity. Does not create, replay, admit models, or execute. not_received means absent at this read; an in-flight original request may still arrive. completed confirms only the creation transaction, including after its Run has changed state.",
+			DataType:    reflect.TypeOf(ThreadRequestObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey, {Name: "workspace_id", In: "query", Required: true, Schema: map[string]any{"type": "string"}}}},
+		{Path: ThreadTurnRequestPathTemplate, OperationID: "inspectThreadTurnRequest",
+			Summary: "Observe an original Thread turn request", Tag: "Threads",
+			Description: "Pure read of the original Thread-scoped intent, message and exact durable completion or failure. Never reserves, enqueues, seals failures, grants authority or resumes execution. received includes reserved or unsettled work; committed input alone is not success. A not_received snapshot is not a guarantee against later arrival.",
+			DataType:    reflect.TypeOf(ThreadRequestObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
+		{Path: ThreadPlanControlPathTemplate, OperationID: "inspectThreadPlanRequest",
+			Summary: "Observe the original Thread Plan operation", Tag: "Threads",
+			Description: "Pure read of the original selection, mode transition and Thread turn ledgers. Requires the original key and run/action binding. Does not replay, enqueue or execute; prepared means saved planning steps with no confirmed execution message.",
+			DataType:    reflect.TypeOf(ThreadPlanControlView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey,
+				{Name: "run_id", In: "query", Required: true, Schema: map[string]any{"type": "string"}},
+				{Name: "action", In: "query", Required: true, Schema: map[string]any{"type": "string", "enum": []string{"enter_plan", "enter_deliver", "confirm"}}}}},
+		{Path: ThreadPlanControlPathTemplate, Method: http.MethodPost, OperationID: "controlThreadPlan",
+			Summary: "Plan or confirm and execute in the same Thread", Tag: "Control", Control: true,
+			Description: "Reuses Plan selection, mode transition and Thread turn services. Confirmation binds the current proposal, direction, acceptance and visible operator message. A stale plan is rejected; retry preserves the original key. Plan confirmation never grants tool or filesystem authority.",
+			DataType:    reflect.TypeOf(ThreadPlanControlView{}), RequestType: reflect.TypeOf(ThreadPlanControlRequestView{}),
+			SuccessStatus: http.StatusAccepted, NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
 		{Path: ThreadModelRoutePathTemplate, OperationID: "getThreadModelRoute",
 			Summary: "Read a Thread's preferred next-Run model route", Tag: "Threads",
 			Description: "Returns the explicit Thread preference or the inherited default without exposing credentials. A running Run is never changed.",
@@ -858,9 +886,80 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
 		{Path: ThreadTurnControlPathTemplate, Method: http.MethodPost,
 			OperationID: "executeThreadTurn", Summary: "Execute a Thread turn", Tag: "Control",
-			Description: "Submits one operator message and owns the associated Run start or resume plus bounded Supervisor execution until finish, wait, approval, concurrent steering, or an internal safety boundary. The client does not select a Run or provide a step limit. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.",
+			Description: "Submits operator text and/or up to four immutable workspace image references, plus up to four optional workspace_file references. Text may be empty when images or uploaded file attachments are present. Up to four immutable uploaded file references are accepted; binary attachments are stored_only, bounded text remains nonauthorizing evidence. The Thread idempotency key permanently binds content and ordered file/image/attachment identities. Image bytes are validated within the Thread workspace and sent natively only to a declared vision-capable route; images confer no authority. File snapshots require an idle task without queued messages or approval. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.",
 			DataType:    reflect.TypeOf(ThreadMessageControlView{}),
-			RequestType: reflect.TypeOf(ThreadMessageControlRequestView{}), Control: true,
+			RequestType: reflect.TypeOf(ThreadTurnControlRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
+		{Path: "/api/v1/workspaces/{workspace_id}/file-attachments", Method: http.MethodPost,
+			OperationID: "uploadWorkspaceFile", Summary: "Save an immutable file attachment", Tag: "Control", Control: true,
+			SuccessStatus: http.StatusOK, Description: "Save up to 5 MiB of original bytes without writing into the repository. The original upload key binds bytes and metadata. Bounded UTF-8 text is redacted; binary files are explicitly stored_only, not parsed. Import grants no execution authority.",
+			DataType: reflect.TypeOf(WorkspaceFileAttachmentView{}), RequestType: reflect.TypeOf(WorkspaceFileUploadRequestView{}),
+			NotFound: true, Parameters: []openAPIParameter{workspaceID, dockerSandboxIdempotencyKey}},
+		{Path: "/api/v1/workspaces/{workspace_id}/file-attachments/request",
+			OperationID: "inspectWorkspaceFileUpload", Summary: "Observe an original file upload without retrying", Tag: "Workspaces",
+			Description: "GET with the original Idempotency-Key only reads stored receipts. not_received does not rule out a request still arriving. No reservation, clipboard read, upload or model call.",
+			DataType:    reflect.TypeOf(domain.FileAttachmentObservation{}), NotFound: true,
+			Parameters: []openAPIParameter{workspaceID, dockerSandboxIdempotencyKey}},
+		{Path: "/api/v1/workspaces/{workspace_id}/file-attachments/{attachment_id}",
+			OperationID: "readWorkspaceFileAttachment", Summary: "Read an exact file attachment receipt", Tag: "Workspaces",
+			DataType: reflect.TypeOf(WorkspaceFileAttachmentView{}), NotFound: true,
+			Parameters: []openAPIParameter{workspaceID, pathIdentityParameter("attachment_id", "Immutable attachment identity")}},
+		{Path: "/api/v1/workspaces/{workspace_id}/file-attachments/{attachment_id}/content",
+			OperationID: "readWorkspaceFileAttachmentContent", Summary: "Download original authenticated file bytes", Tag: "Workspaces",
+			Description: "Exact original bytes with application/octet-stream attachment disposition, Content-Length, SHA256 ETag, X-Cyberagent-Content-SHA256, nosniff and no-store. Workspace identity and read bearer are required.",
+			RawArtifact: true, NotFound: true,
+			Parameters: []openAPIParameter{workspaceID, pathIdentityParameter("attachment_id", "Immutable attachment identity")}},
+		{Path: "/api/v1/workspaces/{workspace_id}/image-attachments", Method: http.MethodPost,
+			OperationID: "uploadWorkspaceImage", Summary: "Save an immutable workspace image", Tag: "Control", Control: true,
+			SuccessStatus: http.StatusOK,
+			Description:   "Validates original PNG/JPEG/WebP bytes and binds the upload key to exact bytes and display metadata. At most 5 MiB, 8192 pixels per side and 16 Mi pixels. No filesystem path, URL retrieval or execution authority.",
+			DataType:      reflect.TypeOf(WorkspaceImageView{}), RequestType: reflect.TypeOf(WorkspaceImageUploadRequestView{}),
+			NotFound: true, Parameters: []openAPIParameter{workspaceID, dockerSandboxIdempotencyKey}},
+		{Path: "/api/v1/workspaces/{workspace_id}/image-attachments/{image_id}",
+			OperationID: "readWorkspaceImage", Summary: "Read an exact workspace image receipt", Tag: "Workspaces",
+			DataType: reflect.TypeOf(WorkspaceImageView{}), NotFound: true,
+			Parameters: []openAPIParameter{workspaceID, pathIdentityParameter("image_id", "Immutable image identity")}},
+		{Path: "/api/v1/workspaces/{workspace_id}/image-attachments/{image_id}/content",
+			OperationID: "readWorkspaceImageContent", Summary: "Read original authenticated image bytes", Tag: "Workspaces",
+			Description: "Returns exact original bytes with stored MIME type, Content-Length, SHA256 ETag and X-Cyberagent-Content-SHA256. Read bearer required; no-store and nosniff. The image must belong to the exact workspace.",
+			RawArtifact: true, NotFound: true,
+			Parameters: []openAPIParameter{workspaceID, pathIdentityParameter("image_id", "Immutable image identity")}},
+		{Path: ThreadExecutionPathTemplate,
+			OperationID: "getThreadExecution", Summary: "Read current Thread execution ownership", Tag: "Threads",
+			Description: "Reports the active request owned by this service, its stopping state and durable queued input count. Idle does not assert that a different process is idle. This identity is not an execution lease or a capability and is never restored after restart.",
+			DataType:    reflect.TypeOf(application.ThreadExecutionState{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/review",
+			OperationID: "getThreadReview", Summary: "Review recorded task changes and current workspace revision", Tag: "Threads",
+			Description: "Aggregates bounded existing records across successor Runs and observes the actual current target without granting authority or attributing arbitrary workspace changes to the task. Revision freshness, missing bindings and omissions remain explicit.",
+			DataType:    reflect.TypeOf(application.ThreadReview{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/git", OperationID: "getThreadGit", Summary: "Inspect current task Git target", Tag: "Git",
+			DataType: reflect.TypeOf(application.ThreadGitState{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/git/preview", Method: http.MethodPost, OperationID: "previewThreadGit", Summary: "Preview an exact selected-file Git operation", Tag: "Git", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.ThreadGitPreview{}), RequestType: reflect.TypeOf(application.ThreadGitPreviewRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/git/execute", Method: http.MethodPost, OperationID: "executeThreadGit", Summary: "Execute the explicitly confirmed Git preview once", Tag: "Git", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.ThreadGitResult{}), RequestType: reflect.TypeOf(application.ThreadGitExecuteRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/git/requests/{operation_key}", OperationID: "observeThreadGit", Summary: "Observe the original Git intent without retrying a write", Tag: "Git",
+			DataType: reflect.TypeOf(application.ThreadGitResult{}), NotFound: true, Parameters: []openAPIParameter{threadID, pathIdentityParameter("operation_key", "Original operation key")}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request", OperationID: "discoverThreadPullRequest", Summary: "Discover remote PRs for the actual task branch", Tag: "GitHub Review",
+			DataType: reflect.TypeOf(application.ThreadPullRequestDiscovery{}), NotFound: true, Parameters: []openAPIParameter{threadID,
+				{Name: "connection_id", In: "query", Schema: map[string]any{"type": "string"}}, {Name: "base_branch", In: "query", Schema: map[string]any{"type": "string"}}}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request/preview", Method: http.MethodPost, OperationID: "previewThreadPullRequest", Summary: "Prepare an exact draft PR and one-time approval", Tag: "GitHub Review", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.ThreadPullRequestPreviewResult{}), RequestType: reflect.TypeOf(application.ThreadPullRequestPreviewRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request/create", Method: http.MethodPost, OperationID: "createThreadPullRequest", Summary: "Create the approved draft PR at most once", Tag: "GitHub Review", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.ThreadPullRequestResult{}), RequestType: reflect.TypeOf(application.ThreadPullRequestCreateRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request/request", OperationID: "observeThreadPullRequest", Summary: "Observe original draft PR intent without repeating creation", Tag: "GitHub Review",
+			DataType: reflect.TypeOf(application.ThreadPullRequestResult{}), NotFound: true, Parameters: []openAPIParameter{threadID, {Name: "operation_key", In: "query", Required: true, Schema: map[string]any{"type": "string"}}}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request/refresh", Method: http.MethodPost, OperationID: "refreshThreadPullRequest", Summary: "Fetch remote CI and comments and recheck PR head", Tag: "GitHub Review", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.ThreadPullRequestRefreshResult{}), RequestType: reflect.TypeOf(application.ThreadPullRequestRefreshRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: "/api/v1/threads/{thread_id}/pull-request/credential", Method: http.MethodPost, OperationID: "setThreadPullRequestCredential", Summary: "Save a connection credential in the system store", Tag: "GitHub Review", Control: true, SuccessStatus: http.StatusOK,
+			DataType: reflect.TypeOf(application.GitHubReviewCredentialView{}), RequestType: reflect.TypeOf(application.ThreadPullRequestCredentialRequest{}), NotFound: true, Parameters: []openAPIParameter{threadID}},
+		{Path: ThreadInterruptPathTemplate, Method: http.MethodPost,
+			OperationID: "interruptThreadExecution", Summary: "Stop the exact current Thread execution", Tag: "Control",
+			Description: "Cancels only the matching live execution context. Stopping remains visible until owned work and pending-message cleanup return. A stale identity cannot stop a later execution. Repeated requests are harmless; no running process authority is restored from persisted history.",
+			DataType:    reflect.TypeOf(application.ThreadExecutionState{}),
+			RequestType: reflect.TypeOf(ThreadInterruptRequestView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{threadID, dockerSandboxIdempotencyKey}},
 		{Path: ThreadRunRecoveryControlPathTemplate, Method: http.MethodPost,
 			OperationID: "recoverThreadRun", Summary: "End a failed Thread Run", Tag: "Control",
@@ -900,6 +999,12 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Collection: true, Paginated: true, Parameters: append(paginationParameters(),
 				stringQueryParameter("status", "Exact Run status filter", runStatuses()),
 				identityQueryParameter("mission_id", "Exact Mission identity filter"))},
+		{Path: WorkspaceImportPath, Method: http.MethodPost,
+			OperationID: "importWorkspace", Summary: "Register an existing server-side directory", Tag: "Control",
+			Description: "Requires an explicit startup capability and the distinct control token. Accepts a confirmed absolute directory on the server computer, resolves its canonical root and returns bounded workspace metadata. Repeating the same canonical directory returns the same durable workspace. Registration never overwrites another workspace root, modifies directory contents or grants Agent authority. No directory enumeration or browser-file upload is performed; the native Desktop picker remains a separate pathless entry point.",
+			DataType:    reflect.TypeOf(WorkspaceImportView{}),
+			RequestType: reflect.TypeOf(WorkspaceImportRequestView{}), Control: true,
+			SuccessStatus: http.StatusOK},
 		{Path: RunCreationControlPath, Method: http.MethodPost,
 			OperationID: "createRun", Summary: "Create a controlled Run", Tag: "Control",
 			Description: "Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist; wildcard and global network grants are rejected. The request cannot select a model, budget, existing Session, process backend, or capability grant.",
@@ -1407,6 +1512,27 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"maxLength": domain.MaxAgentOperationKeyBytes,
 						"pattern":   `^\S+$`}},
 			}},
+		{Path: FullCDPPreviewPathTemplate, Method: http.MethodPost,
+			OperationID: "captureRunFullCDPPreview", Summary: "Refresh the current browser preview",
+			SuccessStatus: http.StatusOK,
+			Tag:           "Control", Control: true, NotFound: true,
+			Description: "Observes the exact operator-opened session through the existing live CDP permission and runtime fence. Keeps only its latest bounded PNG in memory; this is not a durable test receipt. Page text and screenshot are sequential observations of the same URL.",
+			DataType:    reflect.TypeOf(application.FullCDPPreviewView{}), RequestType: reflect.TypeOf(FullCDPPreviewRequestView{}),
+			Parameters: []openAPIParameter{runID}},
+		{Path: FullCDPPreviewActionPathTemplate, Method: http.MethodPost,
+			OperationID: "actRunFullCDPPreview", Summary: "Interact with an observed preview element",
+			SuccessStatus: http.StatusOK,
+			Tag:           "Control", Control: true, NotFound: true,
+			Description: "Consumes one exact latest preview snapshot and invokes the existing browser click/type action for an observed enabled selector. Requires live session authority and runtime selector provenance. No JavaScript or coordinate action. On unknown response, refresh the observation instead of retrying the action.",
+			DataType:    reflect.TypeOf(application.FullCDPPreviewView{}), RequestType: reflect.TypeOf(FullCDPPreviewActionRequestView{}),
+			Parameters: []openAPIParameter{runID}},
+		{Path: FullCDPPreviewImagePathTemplate, Method: http.MethodGet,
+			OperationID: "readRunFullCDPPreviewImage", Summary: "Read the exact current preview PNG",
+			Tag: "Runs", RawArtifact: true, NotFound: true,
+			Description: "Returns authenticated image/png with exact SHA256 ETag and X-Cyberagent-Content-SHA256. Never captures again. Revalidates the current session and live permission; closed, revoked, or replaced references fail instead of returning another image.",
+			Parameters: []openAPIParameter{runID,
+				{Name: "session_id", In: "query", Required: true, Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 256}},
+				{Name: "sha256", In: "query", Required: true, Schema: map[string]any{"type": "string", "pattern": "^[a-f0-9]{64}$", "minLength": 64, "maxLength": 64}}}},
 		{Path: FullCDPSessionCloseControlPathTemplate, Method: http.MethodPost,
 			OperationID: "closeRunFullCDPSession", Summary: "Close and clean one exact Full CDP session",
 			Tag:         "Control",
@@ -1464,7 +1590,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: PlanDirectionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectPlanDirection", Summary: "Select one Plan direction",
 			Tag:         "Control",
-			Description: "Selects exactly one of a persisted proposal's three directions and atomically creates its bounded WorkItems and handoff Note. It does not change phase, start execution, call a model, or grant capability.",
+			Description: "Selects one actual direction from a persisted proposal of one to three directions and atomically records the operator's manual_acceptance choice with its bounded WorkItems and handoff Note. Omitted manual_acceptance retains required checkpoints; on_demand makes manual records optional without changing execution or real verification gates. Exact original-key replay remains available after phase changes. It does not change phase, start execution, call a model, or grant capability.",
 			DataType:    reflect.TypeOf(PlanDirectionControlView{}),
 			RequestType: reflect.TypeOf(PlanDirectionControlRequestView{}),
 			Control:     true, NotFound: true, Parameters: []openAPIParameter{
@@ -1500,6 +1626,26 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: PlanDeliveryWorkItemStartPathTemplate, Method: http.MethodPost,
+			OperationID: "startPlanDeliveryWorkItem", Summary: "Start a selected Plan work item", Tag: "Control",
+			Description: "Moves a pending selected WorkItem to in-progress only while its Run is paused in Deliver with completed dependencies and no active execution lease. The shared Run retry key binds the exact item, action and expected version. No execution or capability is started.",
+			DataType:    reflect.TypeOf(PlanDeliveryWorkItemControlView{}), RequestType: reflect.TypeOf(PlanDeliveryWorkItemControlRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID, workItemID, planDeliveryWorkItemIdempotencyParameter()}, SuccessStatus: http.StatusAccepted},
+		{Path: PlanDeliveryWorkItemCheckpointPathTemplate, Method: http.MethodPost,
+			OperationID: "recordPlanDeliveryCheckpoint", Summary: "Record a manual Delivery checkpoint", Tag: "Control",
+			Description: "Records bounded operator evidence for the exact selected in-progress WorkItem/version in a paused Deliver Run. Final modules require functional verification and robustness audit; non-final modules cannot submit those fields. Evidence remains operator attestation, not verified test success. Exact retries return the immutable checkpoint and current WorkItem without requiring the Run to remain writable.",
+			DataType:    reflect.TypeOf(PlanDeliveryCheckpointControlView{}), RequestType: reflect.TypeOf(PlanDeliveryCheckpointControlRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID, workItemID, planDeliveryWorkItemIdempotencyParameter()}, SuccessStatus: http.StatusAccepted},
+		{Path: PlanDeliveryWorkItemCompletePathTemplate, Method: http.MethodPost,
+			OperationID: "completePlanDeliveryWorkItem", Summary: "Complete a checked Plan work item", Tag: "Control",
+			Description: "Completes an in-progress selected WorkItem only when an exact current Delivery checkpoint satisfies the existing completion gate in a paused Deliver Run. Does not complete the Run, mark a Standard Code report passed, run a model, or grant capability. Exact retries identify the original applied transition separately from current WorkItem state.",
+			DataType:    reflect.TypeOf(PlanDeliveryWorkItemControlView{}), RequestType: reflect.TypeOf(PlanDeliveryWorkItemControlRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID, workItemID, planDeliveryWorkItemIdempotencyParameter()}, SuccessStatus: http.StatusAccepted},
+		{Path: "/api/v1/runs/{run_id}/approvals/{approval_id}/preview",
+			OperationID: "getApprovalPreview", Summary: "Inspect the exact approval-bound proposal",
+			Tag: "Control", NotFound: true, DataType: reflect.TypeOf(ApprovalPreviewView{}),
+			Description: "Returns a bounded, redacted read-only projection of the exact proposal bound to this Run and approval. Dry-run, Git authorization, file review and public HTTPS effects are distinguished; no decision or execution is performed. Stale bindings are refused and truncated previews cannot be approved in the UI.",
+			Parameters:  []openAPIParameter{runID, approvalID}},
 		{Path: "/api/v1/runs/{run_id}/approvals", OperationID: "listRunApprovals",
 			Summary: "List pending Run approvals", Tag: "Control",
 			Description: "Returns at most one hundred pending approval metadata records and their bounded operator actions. Commands, file content, fingerprints, decision reasons, paths, capability grants, and execution authority are omitted.",
@@ -1606,6 +1752,17 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(FileEditProposalView{}),
 			RequestType: reflect.TypeOf(FileEditProposalRequestView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}},
+		{Path: FileEditRevertProposalPathTemplate, Method: http.MethodPost,
+			OperationID: "createFileEditRevertProposal", Summary: "Propose reverting one applied file edit",
+			Tag:         "Control",
+			Description: "Derives a new pending FileEdit from one exact applied replacement, creation, or deletion. Requires the file-review capability, a running Run and active Session for a new proposal, complete unredacted source content, and an unchanged target file. The source approval must belong to this Run. No path or content is accepted from the client. The key is scoped to Run and source Edit; retries preserve the existing proposal and its decision even after the Run ends. No Workspace file is written, approval granted, or execution permission expanded. Move operations are unsupported.",
+			DataType:    reflect.TypeOf(FileEditRevertProposalView{}),
+			RequestType: reflect.TypeOf(FileEditRevertProposalRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID,
+				{Name: "source_edit_id", In: "path", Required: true, Schema: map[string]any{"type": "string"}},
+				{Name: "Idempotency-Key", In: "header", Description: "Opaque retry key scoped to Run and source Edit; preserve it after an uncertain response",
+					Required: true, Schema: map[string]any{"type": "string", "minLength": domain.MinAgentOperationKeyBytes,
+						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: "/api/v1/runs/{run_id}/file-edits/{edit_id}",
 			OperationID: "getRunFileEdit", Summary: "Inspect a Run file edit preview", Tag: "Runs",
 			Description: "Returns one exact Run-bound redacted diff without original or proposed file bodies.",
@@ -1860,6 +2017,22 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 			"image/png":                {Schema: map[string]any{"type": "string", "format": "binary"}},
 			"application/json":         {Schema: map[string]any{"type": "string", "format": "binary"}},
 		}}
+		if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" {
+			mediaTypes := []string{"image/png"}
+			if spec.OperationID == "readWorkspaceImageContent" {
+				mediaTypes = append(mediaTypes, "image/jpeg", "image/webp")
+			}
+			content := make(map[string]openAPIMediaType, len(mediaTypes))
+			for _, mediaType := range mediaTypes {
+				content[mediaType] = openAPIMediaType{Schema: map[string]any{"type": "string", "format": "binary"}}
+			}
+			responses[successStatus] = openAPIResponse{Description: "Authenticated hash-verified image bytes", Content: content}
+		}
+		if spec.OperationID == "readWorkspaceFileAttachmentContent" {
+			responses[successStatus] = openAPIResponse{Description: "Authenticated hash-verified original file bytes", Content: map[string]openAPIMediaType{
+				"application/octet-stream": {Schema: map[string]any{"type": "string", "format": "binary"}},
+			}}
+		}
 	} else {
 		if spec.DataType == nil {
 			return openAPIOperation{}, fmt.Errorf("OpenAPI path %q has no response DTO", spec.Path)
@@ -2089,6 +2262,9 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 		return r.schema(valueType)
 	}
 	name := valueType.Name()
+	if valueType == reflect.TypeOf(repository.Change{}) {
+		name = "RepositoryChange"
+	}
 	if strings.HasSuffix(valueType.PkgPath(), "/uievidence") {
 		name = "UIEvidence" + name
 	}
@@ -2160,6 +2336,15 @@ func (r *openAPISchemaRegistry) schema(valueType reflect.Type) map[string]any {
 }
 
 func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]any {
+	// The HTTP-only sidecar is flattened beside the sealed Report. Keep the
+	// original Report schema/field metadata intact instead of adding receipt data.
+	if valueType == reflect.TypeOf(StandardCodeDeliveryReportView{}) {
+		schema := r.objectSchema(reflect.TypeOf(standardcodedelivery.Report{}))
+		properties := schema["properties"].(map[string]any)
+		properties["output_sources"] = r.schema(reflect.TypeOf([]StandardCodeDeliveryOutputSourceView{}))
+		properties["output_sources"].(map[string]any)["maxItems"] = standardcodedelivery.MaxVerifications * standardcodedelivery.MaxArtifactsPerCommand
+		return schema
+	}
 	properties := make(map[string]any)
 	required := make([]string, 0, valueType.NumField())
 	metadataTypeName := valueType.Name()
@@ -2169,6 +2354,17 @@ func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]
 	for index := 0; index < valueType.NumField(); index++ {
 		field := valueType.Field(index)
 		if field.PkgPath != "" {
+			continue
+		}
+		// These DTOs use encoding/json's promoted anonymous context fields.
+		if field.Anonymous && field.Type == reflect.TypeOf(application.ThreadGitContext{}) {
+			contextSchema := r.objectSchema(field.Type)
+			for name, property := range contextSchema["properties"].(map[string]any) {
+				properties[name] = property
+			}
+			if contextRequired, ok := contextSchema["required"].([]string); ok {
+				required = append(required, contextRequired...)
+			}
 			continue
 		}
 		name, omitEmpty, skip := jsonField(field)
@@ -2188,6 +2384,14 @@ func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": properties}
 	if len(required) != 0 {
 		schema["required"] = required
+	}
+	if metadataTypeName == "ThreadTurnControlRequestView" {
+		alternatives := []any{
+			map[string]any{"required": []string{"content"}, "properties": map[string]any{"content": map[string]any{"type": "string", "minLength": 1}}},
+			map[string]any{"required": []string{"images"}, "properties": map[string]any{"images": map[string]any{"type": "array", "minItems": 1}}},
+			map[string]any{"required": []string{"attachments"}, "properties": map[string]any{"attachments": map[string]any{"type": "array", "minItems": 1}}},
+		}
+		return map[string]any{"allOf": []any{schema, map[string]any{"anyOf": alternatives}}}
 	}
 	return schema
 }
@@ -2241,6 +2445,17 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 }
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
+	if typeName == "HealthView" && fieldName == "data_store_id" {
+		schema["pattern"] = "^ds1_[0-9a-f]{64}$"
+		schema["minLength"] = 68
+		schema["maxLength"] = 68
+		schema["description"] = "Optional non-secret namespace for recovering local UI drafts and original request identities. Stable across restarts at the same data store path; different data stores or copied paths are isolated. Absence means durable recovery is unavailable. Never an authorization grant."
+		return
+	}
+	if typeName == "PlanDeliveryProposalView" && fieldName == "directions" {
+		schema["minItems"] = domain.MinPlanDeliveryDirections
+		schema["maxItems"] = domain.PlanDeliveryDirectionCount
+	}
 	if values := openAPIFieldEnums[typeName+"."+fieldName]; len(values) != 0 {
 		if schema["type"] == "array" {
 			if items, ok := schema["items"].(map[string]any); ok {
@@ -2258,6 +2473,24 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if maximum, ok := openAPIFieldMaxLengths[typeName+"."+fieldName]; ok {
 		schema["maxLength"] = maximum
+	}
+	if typeName == "PlanDeliveryWorkItemControlRequestView" || typeName == "PlanDeliveryCheckpointControlRequestView" {
+		if fieldName == "expected_work_item_version" {
+			schema["minimum"] = 1
+		}
+		if typeName == "PlanDeliveryCheckpointControlRequestView" {
+			switch fieldName {
+			case "focused_verification", "diff_audit", "security_audit":
+				schema["minLength"], schema["maxLength"] = 1, domain.MaxDeliveryEvidenceRunes
+			case "functional_verification", "robustness_audit":
+				schema["maxLength"] = domain.MaxDeliveryEvidenceRunes
+			case "handoff_summary":
+				schema["minLength"], schema["maxLength"] = 1, domain.MaxDeliveryHandoffSummaryRunes
+			}
+		}
+	}
+	if typeName == "PlanDeliveryWorkItemControlView" && fieldName == "applied_version" {
+		schema["minimum"] = 2
 	}
 	if strings.HasPrefix(typeName, "StandardCodeDelivery") &&
 		(schema["type"] == "string" || schema["type"] == nil) {
@@ -2336,8 +2569,24 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "RunNetworkAuthorityControlView" && fieldName == "capability_grant" {
 		schema["const"] = true
 	}
+	if typeName == "WorkspaceImportRequestView" {
+		if fieldName == "confirmed" {
+			schema["const"] = true
+		}
+		if fieldName == "directory_path" {
+			schema["minLength"] = 1
+			schema["maxLength"] = MaxWorkspaceImportDirectoryBytes
+			schema["description"] = "Operator-entered absolute existing directory on the server computer; at most 4096 UTF-8 bytes. Never a browser upload or directory enumeration request."
+		}
+	}
+	if typeName == "WorkspaceImportView" &&
+		(fieldName == "directory_content_modified" || fieldName == "agent_authority_granted") {
+		schema["const"] = false
+	}
 	if typeName == "HostCommandProposalView" {
 		switch fieldName {
+		case "saved_output":
+			schema["description"] = "Bound, saved and redacted stdout/stderr from newer Host results. Omitted for legacy results and metadata-only responses. Never reconstruct missing streams by parsing the untrusted evidence wrapper."
 		case "risk_kinds":
 			schema["minItems"] = 1
 			schema["maxItems"] = 6
@@ -2423,6 +2672,9 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if typeName == "CodeHandoffView" && fieldName == "report_references" {
 		schema["maxItems"] = application.MaxCodeHandoffReportReferences
+	}
+	if typeName == "CodeHandoffHostCommands" && fieldName == "items" {
+		schema["maxItems"] = application.MaxCodeHandoffHostCommands
 	}
 	if typeName == "StandardCodeDeliveryDiff" && fieldName == "files" {
 		schema["maxItems"] = standardcodedelivery.MaxChangedFiles
@@ -2518,6 +2770,101 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "ScheduledJobListView" && fieldName == "items" {
 		schema["maxItems"] = 100
 	}
+	if typeName == "ThreadTurnControlRequestView" && fieldName == "files" {
+		schema["maxItems"] = domain.MaxThreadMessageFiles
+	}
+	if typeName == "ThreadTurnControlRequestView" && fieldName == "content" {
+		schema["minLength"], schema["maxLength"] = 0, 16384
+		schema["description"] = "Trimmed UTF-8 operator text, at most 16 KiB. Empty only with one or more images or uploaded file attachments; no synthetic user text is inserted."
+	}
+	if (typeName == "ThreadTurnControlRequestView" || typeName == "ThreadTranscriptItemView") && fieldName == "attachments" {
+		schema["maxItems"] = domain.MaxThreadMessageAttachments
+	}
+	if typeName == "FileAttachmentReference" || typeName == "WorkspaceFileAttachment" {
+		switch fieldName {
+		case "sha256", "text_sha256":
+			schema["pattern"] = "^[a-f0-9]{64}$"
+		case "byte_size":
+			schema["minimum"], schema["maximum"] = 0, fileattachment.MaxBytes
+		case "text_bytes":
+			schema["minimum"], schema["maximum"] = 0, 64*1024
+		case "name":
+			schema["minLength"], schema["maxLength"] = 1, 160
+		}
+	}
+	if typeName == "WorkspaceFileUploadRequestView" {
+		switch fieldName {
+		case "name":
+			schema["minLength"], schema["maxLength"] = 1, 160
+		case "data_base64":
+			schema["minLength"], schema["maxLength"] = 0, base64.StdEncoding.EncodedLen(fileattachment.MaxBytes)
+			schema["contentEncoding"] = "base64"
+		}
+	}
+	if (typeName == "ThreadTurnControlRequestView" || typeName == "ThreadTranscriptItemView") && fieldName == "images" {
+		schema["maxItems"] = domain.MaxThreadMessageImages
+	}
+	if (typeName == "ImageReference" || typeName == "WorkspaceImage") && fieldName == "sha256" {
+		schema["pattern"] = "^[a-f0-9]{64}$"
+	}
+	if typeName == "WorkspaceImage" {
+		switch fieldName {
+		case "byte_size":
+			schema["minimum"], schema["maximum"] = 1, imageattachment.MaxBytes
+		case "width", "height":
+			schema["minimum"], schema["maximum"] = 1, imageattachment.MaxDimension
+		case "name":
+			schema["maxLength"] = 160
+		}
+	}
+	if typeName == "WorkspaceImageUploadRequestView" {
+		switch fieldName {
+		case "name":
+			schema["maxLength"] = 160
+		case "data_base64":
+			schema["minLength"], schema["maxLength"] = 4, base64.StdEncoding.EncodedLen(imageattachment.MaxBytes)
+			schema["contentEncoding"] = "base64"
+		}
+	}
+	if typeName == "WorkspaceFileReference" {
+		if fieldName == "path" {
+			schema["minLength"] = 1
+			schema["maxLength"] = workspace.MaxExplorerPathRunes
+		}
+		if fieldName == "expected_sha256" {
+			schema["pattern"] = "^[0-9a-f]{64}$"
+		}
+	}
+	if typeName == "HostCommandSavedStreamView" {
+		switch fieldName {
+		case "redacted":
+			schema["const"] = true
+		case "utf8_bytes":
+			schema["minimum"] = 0
+			schema["maximum"] = runner.MaxHostCommandSavedOutputBytes
+		case "text":
+			schema["maxLength"] = runner.MaxHostCommandSavedOutputBytes
+			schema["description"] = "Saved redacted UTF-8 text. Both streams share a 16 KiB byte budget; utf8_bytes describes saved text, not the raw captured receipt byte count."
+		}
+	}
+	if typeName == "apiErrorView" && fieldName == "turn_failure" {
+		schema["description"] = "Exact identity of an already sealed failure; present only with turn_failed=true. This reference grants no retry or execution authority."
+	}
+	if typeName == "ThreadTurnFailureReferenceView" && fieldName == "event_sequence" {
+		schema["minimum"] = 1
+	}
+	if typeName == "apiErrorView" && fieldName == "message_queued" {
+		schema["const"] = false
+		schema["description"] = "Only present as false after the identical Thread message intent is durably rejected before enqueue. A corrected submission must use a new turn idempotency key. Omission does not establish whether a message was accepted."
+	}
+	if typeName == "apiErrorView" && fieldName == "turn_failed" {
+		schema["const"] = true
+		schema["description"] = "Only present as true after the exact product Thread turn is durably closed as failed. The original input and completed tool evidence remain in the conversation. A new request must use a new operation key; absence does not establish the previous outcome."
+	}
+	if typeName == "apiErrorView" && fieldName == "operation_key_invalidated" {
+		schema["const"] = true
+		schema["description"] = "Only present as true when a pending Standard Code preset's immutable Thread preference binding is obsolete and the original operation key cannot apply. Explicitly review a new configuration attempt with a new key and fresh workspace trust preflight. Omission does not establish whether the operation succeeded."
+	}
 	if typeName == "ScheduledJobSnapshot" &&
 		(fieldName == "rounds" || fieldName == "notifications") {
 		schema["maxItems"] = 100
@@ -2563,6 +2910,16 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 }
 
 var openAPIFieldEnums = map[string][]string{
+	"WorkspaceImageUploadRequestView.version":     {WorkspaceImageUploadVersion},
+	"WorkspaceFileUploadRequestView.version":      {WorkspaceFileUploadVersion},
+	"WorkspaceFileAttachment.readability":         {"text", "partial_text", "stored_only"},
+	"FileAttachmentObservation.state":             {"not_received", "stored"},
+	"WorkspaceImageUploadRequestView.mime_type":   {"image/png", "image/jpeg", "image/webp"},
+	"WorkspaceImage.mime_type":                    {"image/png", "image/jpeg", "image/webp"},
+	"VisionCapability.state":                      {"supported", "unsupported", "unknown"},
+	"VisionCapability.source":                     {"operator_declared", "provider_metadata", "unknown", "adapter_unsupported"},
+	"StandardCodeDeliveryOutputSourceView.status": {"available", "metadata_only"},
+	"StandardCodeDeliveryOutputSourceView.reason": {"activity_source_unavailable", "output_not_public", "artifact_binding_mismatch"},
 	"DockerSandboxReadinessView.protocol_version": {sandbox.DockerReadinessProtocolVersion},
 	"DockerSandboxReadinessView.status": {sandbox.DockerReadinessStatusReady,
 		sandbox.DockerReadinessStatusDisabled, sandbox.DockerReadinessStatusUnavailable},
@@ -2625,6 +2982,8 @@ var openAPIFieldEnums = map[string][]string{
 	"HealthView.status":                                        {"ok"},
 	"HealthView.api_version":                                   {Version},
 	"RuntimeCapabilitiesView.protocol_version":                 {RuntimeCapabilitiesProtocolVersion},
+	"WorkspaceImportRequestView.version":                       {WorkspaceImportProtocolVersion},
+	"WorkspaceImportView.protocol_version":                     {WorkspaceImportProtocolVersion},
 	"StandardCodePresetControlRequestView.version":             {domain.StandardCodePresetProtocolVersion},
 	"StandardCodePresetControlRequestView.backend_intent":      {string(domain.StandardCodeBackendAuto), string(domain.StandardCodeBackendLocal), string(domain.StandardCodeBackendDocker)},
 	"StandardCodePresetControlView.protocol_version":           {domain.StandardCodePresetProtocolVersion},
@@ -2683,10 +3042,10 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadModelRouteControlRequestView.version":               {domain.ThreadModelRouteControlProtocolVersion},
 	"ThreadModelRouteControlRequestView.action":                {string(domain.ThreadModelRouteSelect), string(domain.ThreadModelRouteReset)},
 	"ProviderAvailabilityView.transport":                       {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat},
-	"ProviderAvailabilityView.search_mode":                     {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
+	"ProviderAvailabilityView.search_mode":                     {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeWeb, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
 	"ProviderAvailabilityView.native_web_search_capability":    {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},
 	"ProviderSearchReadinessView.protocol_version":             {application.ProviderSearchReadinessProtocolVersion},
-	"ProviderSearchReadinessView.search_policy":                {webevidence.SearchPolicyDisabled, webevidence.SearchPolicyAuto, webevidence.SearchPolicySearXNG, webevidence.SearchPolicyProviderNative},
+	"ProviderSearchReadinessView.search_policy":                {webevidence.SearchPolicyDisabled, webevidence.SearchPolicyAuto, webevidence.SearchPolicyWeb, webevidence.SearchPolicySearXNG, webevidence.SearchPolicyProviderNative},
 	"ProviderSearchReadinessView.state":                        {application.ProviderSearchStateNetworkDisabled, application.ProviderSearchStateMissingAllowlist, application.ProviderSearchStateProviderUnqualified, application.ProviderSearchStateProviderUnavailable, application.ProviderSearchStateReady},
 	"ProviderSearchReadinessView.reason":                       {application.ProviderSearchReasonRunNetworkDisabled, application.ProviderSearchReasonEndpointNotAllowlisted, application.ProviderSearchReasonQualificationRequired, application.ProviderSearchReasonQualificationFailed, application.ProviderSearchReasonNoActiveRun, application.ProviderSearchReasonModelProviderUnavailable, application.ProviderSearchReasonPolicyDisabled, application.ProviderSearchReasonBackendNotConfigured, application.ProviderSearchReasonConfigurationInvalid, application.ProviderSearchReasonBackendReady},
 	"ProviderSearchReadinessView.remediation":                  {application.ProviderSearchRemediationEnableNetwork, application.ProviderSearchRemediationAddRequiredTarget, application.ProviderSearchRemediationQualifyProvider, application.ProviderSearchRemediationCreateSuccessor, application.ProviderSearchRemediationConfigureProvider, application.ProviderSearchRemediationEnablePolicy, application.ProviderSearchRemediationRepairConfiguration, application.ProviderSearchRemediationNone},
@@ -2697,7 +3056,7 @@ var openAPIFieldEnums = map[string][]string{
 	"ModelHarnessAvailabilityView.transport_protocol":          {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
 	"ProviderDefinition.version":                               {modelregistry.ProviderDefinitionVersion},
 	"ProviderDefinition.transport":                             {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
-	"ProviderDefinition.search_mode":                           {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
+	"ProviderDefinition.search_mode":                           {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeWeb, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
 	"ProviderDefinition.native_web_search_capability":          {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},
 	"ModelHarnessAvailabilityView.tool_strategy":               {llm.HarnessToolStrategyNative, llm.HarnessToolStrategyNone},
 	"ModelHarnessAvailabilityView.json_strategy":               {llm.HarnessJSONStrategyNative, llm.HarnessJSONStrategyPrompt, llm.HarnessJSONStrategyNone},
@@ -2731,9 +3090,12 @@ var openAPIFieldEnums = map[string][]string{
 	"FileEditReviewRequestView.action":                         {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
 	"FileEditReviewView.protocol_version":                      {application.FileEditReviewProtocolVersion},
 	"FileEditReviewView.action":                                {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
+	"ApprovalContinuationResult.state":                         {"not_started", "queued", "completed", "failed"},
 	"FileEditPreviewView.status":                               {fileedit.StatusProposed, fileedit.StatusApproved, fileedit.StatusApplied, fileedit.StatusDenied, fileedit.StatusFailed},
 	"FileEditPreviewView.operation":                            {fileedit.OperationReplace, fileedit.OperationCreate, fileedit.OperationMove, fileedit.OperationDelete},
 	"FileEditApplyRequestView.version":                         {fileedit.FileEditApplyProtocolVersion},
+	"FileEditRevertProposalRequestView.version":                {application.FileEditProposalProtocolVersion},
+	"FileEditRevertProposalView.protocol_version":              {application.FileEditProposalProtocolVersion},
 	"FileEditApplyView.protocol_version":                       {fileedit.FileEditApplyProtocolVersion},
 	"FileEditApplyView.status":                                 {string(fileedit.ApplyCompleted), string(fileedit.ApplyFailed)},
 	"RunWakeScheduleRequestView.version":                       {domain.RunWakeControlProtocolVersion},
@@ -2852,13 +3214,25 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadCreationControlRequestView.phase":                   {string(domain.ExecutionPhasePlan), string(domain.ExecutionPhaseDeliver)},
 	"ThreadCreationControlRequestView.network_mode":            {"disabled", "allowlist"},
 	"ThreadMessageControlRequestView.version":                  {domain.ThreadMessageProtocolVersion},
+	"ThreadTurnControlRequestView.version":                     {domain.ThreadMessageProtocolVersion},
+	"ThreadPlanControlRequestView.version":                     {application.PlanDeliveryControlProtocolVersion},
+	"ThreadPlanControlView.version":                            {application.PlanDeliveryControlProtocolVersion},
+	"ThreadPlanControlRequestView.action":                      {"enter_plan", "enter_deliver", "confirm"},
+	"ThreadPlanControlView.action":                             {"enter_plan", "enter_deliver", "confirm"},
+	"ThreadPlanControlRequestView.manual_acceptance":           {"required", "on_demand"},
+	"ThreadPlanControlView.manual_acceptance":                  {"required", "on_demand"},
+	"ThreadPlanControlView.state":                              {"not_received", "prepared", "received", "completed", "failed", "rejected"},
+	"WorkspaceFileReference.source_kind":                       {"workspace_file"},
 	"ThreadMessageControlView.version":                         {domain.ThreadMessageProtocolVersion},
+	"ThreadExecutionState.version":                             {application.ThreadExecutionProtocolVersion},
+	"ThreadExecutionState.state":                               {"idle", "running", "stopping", "stop_failed"},
+	"ThreadInterruptRequestView.version":                       {application.ThreadExecutionProtocolVersion},
 	"ThreadRunRecoveryControlRequestView.version":              {domain.ThreadRunRecoveryProtocolVersion},
 	"ThreadRunRecoveryControlView.version":                     {domain.ThreadRunRecoveryProtocolVersion},
 	"ThreadRunRecoveryView.version":                            {domain.ThreadRunRecoveryProtocolVersion},
 	"ThreadMessageView.role":                                   {"system", "user", "assistant", "tool"},
 	"ThreadMessageView.provenance_version":                     {session.LegacyContextProvenanceVersion, session.ContextProvenanceVersion},
-	"ThreadMessageView.source_kind":                            {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
+	"ThreadMessageView.source_kind":                            {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceImage, session.SourceUploadedFile, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
 	"ThreadMessageView.status":                                 {"pending", "committed", "cancelled"},
 	"ThreadExecutionPermissionView.protocol_version":           {domain.ThreadExecutionPermissionProtocolVersion},
 	"ThreadExecutionPermissionView.mode":                       {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
@@ -2910,6 +3284,11 @@ var openAPIFieldEnums = map[string][]string{
 	"FullCDPSessionOpenRequestView.version":                    {application.FullCDPSessionProtocolVersion},
 	"FullCDPSessionCloseRequestView.version":                   {application.FullCDPSessionCloseProtocolVersion},
 	"FullCDPSessionView.version":                               {application.FullCDPSessionProtocolVersion},
+	"FullCDPPreviewView.version":                               {application.FullCDPPreviewProtocolVersion},
+	"FullCDPPreviewRequestView.version":                        {application.FullCDPPreviewProtocolVersion},
+	"FullCDPPreviewActionRequestView.version":                  {application.FullCDPPreviewActionProtocolVersion},
+	"FullCDPPreviewActionRequestView.action":                   {"click", "type"},
+	"FullCDPPreviewImage.media_type":                           {"image/png"},
 	"FullCDPSessionView.state":                                 {string(application.FullCDPSessionNone), string(application.FullCDPSessionStarting), string(application.FullCDPSessionReady), string(application.FullCDPSessionClosing), string(application.FullCDPSessionClosed), string(application.FullCDPSessionFailed)},
 	"FullCDPSessionView.close_reason":                          {application.FullCDPCloseOperator, application.FullCDPCloseExpired, application.FullCDPClosePermissionRevoked, application.FullCDPCloseProcessExited, application.FullCDPCloseRunTerminal, application.FullCDPCloseDesktopShutdown, application.FullCDPCloseOpenFailed},
 	"FullCDPBrowserSelectionView.product":                      {string(browserruntime.BrowserProductChrome), string(browserruntime.BrowserProductEdge)},
@@ -2957,11 +3336,22 @@ var openAPIFieldEnums = map[string][]string{
 	"RunExecutionControlView.run_status":                       runStatuses(),
 	"PlanDirectionControlRequestView.version":                  {application.PlanDeliveryControlProtocolVersion},
 	"PlanDirectionControlView.version":                         {application.PlanDeliveryControlProtocolVersion},
+	"PlanDirectionControlRequestView.manual_acceptance":        {string(domain.PlanDeliveryManualAcceptanceRequired), string(domain.PlanDeliveryManualAcceptanceOnDemand)},
+	"PlanDirectionControlView.manual_acceptance":               {string(domain.PlanDeliveryManualAcceptanceRequired), string(domain.PlanDeliveryManualAcceptanceOnDemand)},
+	"PlanDeliverySelectionView.manual_acceptance":              {string(domain.PlanDeliveryManualAcceptanceRequired), string(domain.PlanDeliveryManualAcceptanceOnDemand)},
+	"CodeHandoffPlanView.manual_acceptance":                    {string(domain.PlanDeliveryManualAcceptanceRequired), string(domain.PlanDeliveryManualAcceptanceOnDemand)},
 	"PlanModeTransitionControlRequestView.version":             {application.PlanDeliveryControlProtocolVersion},
 	"PlanModeTransitionControlView.version":                    {application.PlanDeliveryControlProtocolVersion},
 	"PlanDeliveryTransitionControlRequestView.version":         {application.PlanDeliveryControlProtocolVersion},
 	"PlanDeliveryTransitionControlView.version":                {application.PlanDeliveryControlProtocolVersion},
+	"PlanDeliveryWorkItemControlRequestView.version":           {application.PlanDeliveryControlProtocolVersion},
+	"PlanDeliveryCheckpointControlRequestView.version":         {application.PlanDeliveryControlProtocolVersion},
+	"PlanDeliveryWorkItemControlView.version":                  {application.PlanDeliveryControlProtocolVersion},
+	"PlanDeliveryCheckpointControlView.version":                {application.PlanDeliveryControlProtocolVersion},
+	"PlanDeliveryWorkItemControlView.applied_status":           {string(domain.WorkItemInProgress), string(domain.WorkItemCompleted)},
 	"ApprovalQueueView.protocol_version":                       {application.ApprovalQueueProtocolVersion},
+	"ApprovalPreviewView.protocol_version":                     {application.ApprovalQueueProtocolVersion},
+	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "unavailable"},
 	"ApprovalQueueItemView.status":                             {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
 	"ApprovalDecisionControlRequestView.version":               {application.ApprovalControlProtocolVersion},
 	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
@@ -3036,7 +3426,7 @@ var openAPIFieldEnums = map[string][]string{
 	"FindingView.status":                                       {string(domain.FindingStatusDraft), string(domain.FindingStatusValidated), string(domain.FindingStatusAccepted), string(domain.FindingStatusFixed), string(domain.FindingStatusRejected)},
 	"MessageView.role":                                         {"user", "assistant", "system", "tool"},
 	"MessageView.provenance_version":                           {session.LegacyContextProvenanceVersion, session.ContextProvenanceVersion},
-	"MessageView.source_kind":                                  {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
+	"MessageView.source_kind":                                  {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceImage, session.SourceUploadedFile, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
 
 	"ExecutionPermissionCapabilityMatrixView.out_of_scope_policy": {string(domain.ExecutionPermissionOutOfScopeDenied), string(domain.ExecutionPermissionOutOfScopeExactOnce), string(domain.ExecutionPermissionOutOfScopeNotNeeded)},
 }

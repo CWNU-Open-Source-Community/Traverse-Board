@@ -75,6 +75,7 @@ func TestPlanDeliveryHTTPControlsRequireExplicitSeparateOperations(t *testing.T)
 		t.Fatal(err)
 	}
 	if directionEnvelope.Data.Direction != 2 || directionEnvelope.Data.WorkItemCount != 1 ||
+		directionEnvelope.Data.ManualAcceptance != "required" ||
 		directionEnvelope.Data.PhaseChanged || directionEnvelope.Data.ExecutionStarted ||
 		directionEnvelope.Data.ModelCalled || directionEnvelope.Data.ToolCalled ||
 		directionEnvelope.Data.CapabilityGrant {
@@ -109,6 +110,11 @@ func TestPlanDeliveryHTTPControlsRequireExplicitSeparateOperations(t *testing.T)
 		!bytes.Contains(replay.Body.Bytes(), []byte(`"replayed":true`)) {
 		t.Fatalf("Deliver replay status=%d body=%s", replay.Code, replay.Body.String())
 	}
+	confirmed := planControlRequest(t, api, "/api/v1/runs/"+run.ID+"/plan/direction", directionBody, "http-plan-direction-0001")
+	if confirmed.Code != http.StatusAccepted || !bytes.Contains(confirmed.Body.Bytes(), []byte(`"replayed":true`)) {
+		t.Fatalf("original direction could not be confirmed after entering Deliver: %d %s", confirmed.Code, confirmed.Body.String())
+	}
+	exercisePlanDeliveryWorkItemHTTP(t, api, st, run.ID)
 	plan := planControlRequest(t, api,
 		"/api/v1/runs/"+run.ID+"/plan/enter",
 		`{"version":"plan_delivery_control.v1"}`, "http-plan-enter-0001")

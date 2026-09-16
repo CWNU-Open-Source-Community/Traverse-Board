@@ -15,6 +15,26 @@ const thread: ThreadView = {
 };
 
 describe("V2Sidebar archive menu", () => {
+  it("keeps identically named projects separate by identity and states search coverage", async () => {
+    const second = { ...workspace, id: "workspace-2" };
+    const user = userEvent.setup();
+    const onSelectThread = vi.fn();
+    const onLoadMore = vi.fn();
+    render(<V2Sidebar onArchive={vi.fn()} onNewConversation={vi.fn()} onOpenModels={vi.fn()}
+      onOpenSettings={vi.fn()} onSearchOpen={vi.fn()} onSelectThread={onSelectThread}
+      onLoadMore={onLoadMore} hasMore searchOpen selectedThreadID="" workspaces={[workspace, second]}
+      threads={[thread, { ...thread, id: "thread-2", workspace_id: second.id }]} />);
+    const first = screen.getByRole("region", { name: `项目 ${workspace.name} · ${workspace.id}` });
+    const other = screen.getByRole("region", { name: `项目 ${workspace.name} · ${second.id}` });
+    await user.click(within(other).getByRole("button", { name: thread.title }));
+    expect(onSelectThread).toHaveBeenCalledWith("thread-2");
+    expect(within(first).getByRole("button", { name: thread.title })).toBeInTheDocument();
+    expect(screen.getByText(/不含消息正文/)).toHaveTextContent("更早记录可在下方继续加载");
+    await user.type(screen.getByRole("searchbox", { name: "搜索对话" }), "missing");
+    expect(screen.getByText("已加载的标题中没有匹配项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "加载更早对话" }));
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
   it("passes the exact selected Thread to the archive confirmation owner and closes the menu", async () => {
     const user = userEvent.setup();
     const onArchive = vi.fn();
@@ -60,7 +80,8 @@ describe("V2 model navigation", () => {
 
     const navigation = screen.getByRole("navigation", { name: "设置分类" });
     const labels = within(navigation).getAllByRole("button").map((button) => button.textContent);
-    expect(labels.slice(0, 3)).toEqual(["常规", "模型", "权限"]);
+    expect(labels).toEqual(["常规", "外观", "快捷键", "关于", "模型", "全局模型路由与价格",
+      "扩展与代码智能", "Skill 包", "当前任务权限", "Inspector 偏好与诊断"]);
     expect(labels).not.toContain("智能伙伴");
     const models = within(navigation).getByRole("button", { name: "模型" });
     expect(models).toHaveAttribute("aria-current", "page");

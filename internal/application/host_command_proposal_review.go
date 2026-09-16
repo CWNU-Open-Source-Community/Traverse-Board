@@ -107,6 +107,7 @@ type HostCommandProposalView struct {
 	Review           *runner.HostCommandReview
 	Result           *runner.HostCommandProposalResult
 	Receipt          *runner.HostExecutionReceipt
+	SavedEvidence    string
 }
 
 func (v HostCommandProposalView) ID() string {
@@ -224,7 +225,23 @@ func (s *HostCommandProposalReviewService) Get(ctx context.Context,
 	if err != nil {
 		return HostCommandProposalView{}, apperror.Normalize(err)
 	}
-	return s.loadView(ctx, proposal)
+	view, err := s.loadView(ctx, proposal)
+	if err != nil {
+		return HostCommandProposalView{}, err
+	}
+	if reader, ok := s.store.(interface {
+		GetHostCommandProposalEvidence(context.Context, string) (session.Message, bool, error)
+	}); ok && view.Result != nil {
+		message, found, readErr := reader.GetHostCommandProposalEvidence(ctx, proposal.ID)
+		if readErr != nil {
+			return HostCommandProposalView{}, apperror.Normalize(readErr)
+		}
+		if !found {
+			return HostCommandProposalView{}, apperror.New(apperror.CodeConflict, "Host command result has no saved output evidence")
+		}
+		view.SavedEvidence = truncateUTF8Bytes(redact.String(sanitizeControlledCommandEvidence([]byte(message.Content))), MaxHostCommandEvidenceBytes)
+	}
+	return view, nil
 }
 
 func (s *HostCommandProposalReviewService) Review(ctx context.Context,
@@ -252,9 +269,42 @@ func (s *HostCommandProposalReviewService) Review(ctx context.Context,
 	if err != nil {
 		return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
 	}
+	operationDigest := runmutation.Fingerprint(
+		"host_command_proposal_review_operation.v1", proposal.RunID,
+		proposal.ID, normalized.OperationKey)
+	review, err := runner.NewHostCommandReview(
+		"host-command-review-"+operationDigest[:24], proposal, decision,
+		normalized.ReviewedBy, normalized.Reason, operationDigest, time.Now().UTC())
+	if err != nil {
+		return ReviewHostCommandProposalResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "host command proposal review is invalid", err)
+	}
+	// Confirm a sealed decision/result before mutable execution gates. A later
+	// automatic continuation may already have resumed the Run; confirmation is
+	// read-only and must never repeat the old command or require fresh authority.
+	if stored, found, err := s.store.GetHostCommandProposalReview(ctx, proposal.ID); err != nil {
+		return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+	} else if found {
+		if stored.OperationKeyDigest != review.OperationKeyDigest || stored.RequestFingerprint != review.RequestFingerprint || stored.ProposalFingerprint != proposal.Fingerprint {
+			return ReviewHostCommandProposalResult{}, apperror.New(apperror.CodeConflict, "host command review replay does not match the original decision")
+		}
+		_, completed, err := s.store.GetHostCommandProposalResult(ctx, proposal.ID)
+		if err != nil {
+			return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+		}
+		if stored.Decision == runner.HostCommandReviewDeny || completed {
+			view, err := s.loadView(ctx, proposal)
+			return ReviewHostCommandProposalResult{View: view, ReviewReplayed: true, ExecutionReplayed: completed}, err
+		}
+	}
 	bindings, err := s.loadAndVerifyBindings(ctx, proposal)
 	if err != nil {
 		return ReviewHostCommandProposalResult{}, err
+	}
+	// A saved result above remains readable after phase changes. Only a new
+	// approval may authorize execution; denying an old proposal is still safe.
+	if decision == runner.HostCommandReviewApprove && bindings.mode.Phase != domain.ExecutionPhaseDeliver {
+		return ReviewHostCommandProposalResult{}, apperror.New(
+			apperror.CodePolicyDenied, "host command approval requires the Deliver phase")
 	}
 	permissionDecision, err := executionauth.EvaluateExecutionPermission(
 		bindings.permission, s.capabilities, executionauth.PermissionRequest{
@@ -271,16 +321,6 @@ func (s *HostCommandProposalReviewService) Review(ctx context.Context,
 			apperror.CodePolicyDenied, permissionDecision.Reason)
 	}
 
-	operationDigest := runmutation.Fingerprint(
-		"host_command_proposal_review_operation.v1", proposal.RunID,
-		proposal.ID, normalized.OperationKey)
-	review, err := runner.NewHostCommandReview(
-		"host-command-review-"+operationDigest[:24], proposal, decision,
-		normalized.ReviewedBy, normalized.Reason, operationDigest, time.Now().UTC())
-	if err != nil {
-		return ReviewHostCommandProposalResult{}, apperror.Wrap(
-			apperror.CodeInvalidArgument, "host command proposal review is invalid", err)
-	}
 	storedReview, reviewReplayed, err := s.store.ReviewHostCommandProposal(ctx, review)
 	if err != nil {
 		return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
@@ -917,7 +957,7 @@ func (s *HostCommandProposalReviewService) loadAndVerifyRiskEscalationBindings(
 			apperror.CodeConflict, "risk escalation permission binding changed")
 	}
 	if mode.ID != proposal.ModeSnapshotID || mode.Revision != proposal.ModeRevision ||
-		mode.Surface != domain.ExecutionSurfaceCode {
+		mode.Surface != domain.ExecutionSurfaceCode || mode.Phase != domain.ExecutionPhaseDeliver {
 		return hostCommandProposalBindings{}, "mode_drift", apperror.New(
 			apperror.CodeConflict, "risk escalation mode binding changed")
 	}

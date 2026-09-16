@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,11 +28,13 @@ import (
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/pricing"
+	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
@@ -39,6 +43,7 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
+	"cyberagent-workbench/internal/workspace"
 )
 
 func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testing.T) {
@@ -350,6 +355,127 @@ func (c openAPILiveThreadModelRouteController) Change(ctx context.Context,
 	return c.delegate.Change(ctx, request)
 }
 
+// These route-catalog controllers keep writes and network calls out of this
+// contract test. Dedicated Thread Git/PR/Plan tests exercise the real services;
+// here the authenticated handlers must decode and forward the exact fixture.
+type openAPIThreadPlanController struct {
+	*threadTurnControllerStub
+	threadID, runID string
+}
+
+func (c openAPIThreadPlanController) InspectPlan(_ context.Context, r application.ThreadPlanControlRequest) (application.ThreadPlanControlResult, error) {
+	if r.Version != application.PlanDeliveryControlProtocolVersion || r.ThreadID != c.threadID || r.RunID != c.runID || r.Action != "enter_plan" || r.OperationKey == "" || r.RequestedBy != "http_thread_operator" {
+		return application.ThreadPlanControlResult{}, fmt.Errorf("Plan route did not forward the original request identity")
+	}
+	return application.ThreadPlanControlResult{ThreadID: c.threadID, RunID: c.runID, Action: r.Action, State: "not_received"}, nil
+}
+
+func (c openAPIThreadPlanController) ControlPlan(ctx context.Context, r application.ThreadPlanControlRequest) (application.ThreadPlanControlResult, error) {
+	result, err := c.InspectPlan(ctx, r)
+	result.State = "completed"
+	return result, err
+}
+
+type openAPIThreadGitController struct{ binding application.ThreadGitContext }
+
+func (c openAPIThreadGitController) State(_ context.Context, threadID string) (application.ThreadGitState, error) {
+	if threadID != c.binding.ThreadID {
+		return application.ThreadGitState{}, fmt.Errorf("Git route changed Thread identity")
+	}
+	return application.ThreadGitState{Version: application.ThreadGitProtocolVersion, ThreadGitContext: c.binding,
+		Branches: []string{"main", c.binding.Branch}, Changes: []repository.Change{}, CanExecute: true}, nil
+}
+
+func (c openAPIThreadGitController) Preview(ctx context.Context, threadID string, r application.ThreadGitPreviewRequest) (application.ThreadGitPreview, error) {
+	if _, err := c.State(ctx, threadID); err != nil {
+		return application.ThreadGitPreview{}, err
+	}
+	if r.Version != application.ThreadGitProtocolVersion || r.RunID != c.binding.RunID || !reflect.DeepEqual(r.Spec, application.ThreadGitSpec{Operation: "stage", Paths: []string{"README.md"}}) {
+		return application.ThreadGitPreview{}, fmt.Errorf("Git preview route changed the selected operation")
+	}
+	return application.ThreadGitPreview{Version: r.Version, ThreadGitContext: c.binding, Spec: r.Spec,
+		PreviewFingerprint: strings.Repeat("b", 64), CanExecute: true}, nil
+}
+
+func (c openAPIThreadGitController) Execute(ctx context.Context, threadID string, r application.ThreadGitExecuteRequest) (application.ThreadGitResult, error) {
+	if _, err := c.Preview(ctx, threadID, application.ThreadGitPreviewRequest{Version: r.Version, RunID: r.RunID, Spec: r.Spec}); err != nil {
+		return application.ThreadGitResult{}, err
+	}
+	if r.OperationKey != "openapi-thread-git-operation-0001" || r.ExpectedPreviewFingerprint != strings.Repeat("b", 64) || r.RequestedBy != "openapi_test" {
+		return application.ThreadGitResult{}, fmt.Errorf("Git execute route changed the reviewed request identity")
+	}
+	return application.ThreadGitResult{Version: r.Version, ThreadID: threadID, RunID: r.RunID, Spec: &r.Spec,
+		OperationID: "git-operation-openapi", State: "completed", ReceiptSaved: true}, nil
+}
+
+func (c openAPIThreadGitController) Observe(ctx context.Context, threadID, key string) (application.ThreadGitResult, error) {
+	if _, err := c.State(ctx, threadID); err != nil {
+		return application.ThreadGitResult{}, err
+	}
+	if key != "openapi-thread-git-operation-0001" {
+		return application.ThreadGitResult{}, fmt.Errorf("Git observation route did not forward the original key")
+	}
+	return application.ThreadGitResult{Version: application.ThreadGitProtocolVersion, ThreadID: threadID,
+		RunID: c.binding.RunID, State: "not_received", Observed: true}, nil
+}
+
+type openAPIThreadPullRequestController struct{ binding application.ThreadGitContext }
+
+func (c openAPIThreadPullRequestController) Discover(_ context.Context, threadID, connection, base string) (application.ThreadPullRequestDiscovery, error) {
+	if threadID != c.binding.ThreadID || connection != "github-connection-openapi" || base != "main" {
+		return application.ThreadPullRequestDiscovery{}, fmt.Errorf("PR discovery route changed the selected repository context")
+	}
+	return application.ThreadPullRequestDiscovery{Version: application.ThreadPullRequestVersion, Context: c.binding,
+		ConnectionID: connection, Repository: githubreview.RepositoryIdentity{Host: "github.com", Owner: "example", Name: "fixture", FullName: "example/fixture"},
+		BaseBranch: base, BaseSHA: strings.Repeat("c", 40), RemoteHeadSHA: c.binding.HeadSHA, HeadPublished: true,
+		PullRequests: []githubreview.PullRequest{}, Diagnostics: []githubreview.Diagnostic{}, CheckedAt: time.Now().UTC()}, nil
+}
+
+func (c openAPIThreadPullRequestController) Preview(ctx context.Context, threadID string, r application.ThreadPullRequestPreviewRequest) (application.ThreadPullRequestPreviewResult, error) {
+	if _, err := c.Discover(ctx, threadID, r.ConnectionID, r.BaseBranch); err != nil {
+		return application.ThreadPullRequestPreviewResult{}, err
+	}
+	if r.Version != application.ThreadPullRequestVersion || r.ExpectedRunID != c.binding.RunID || r.ExpectedHeadSHA != c.binding.HeadSHA || r.OperationKey != "openapi-thread-pr-operation-0001" || r.Title != "OpenAPI draft" || r.Body != "Reviewed fixture changes." {
+		return application.ThreadPullRequestPreviewResult{}, fmt.Errorf("PR preview route changed the reviewed intent")
+	}
+	return application.ThreadPullRequestPreviewResult{Version: r.Version, ExistingPullRequests: []githubreview.PullRequest{},
+		Preview: &application.ThreadPullRequestPreview{Version: r.Version, OperationID: "git-remote-openapi-pr", ThreadID: threadID,
+			RunID: c.binding.RunID, SessionID: c.binding.SessionID, WorkspaceID: c.binding.WorkspaceID,
+			SourceWorkspaceID: c.binding.SourceWorkspaceID, ConnectionID: r.ConnectionID, DraftOnly: true,
+			BindingFingerprint: c.binding.StatusFingerprint, ApprovalFingerprint: strings.Repeat("d", 64), CreatedAt: time.Now().UTC()}}, nil
+}
+
+func (c openAPIThreadPullRequestController) Observe(_ context.Context, threadID, key string) (application.ThreadPullRequestResult, error) {
+	if threadID != c.binding.ThreadID || key != "openapi-thread-pr-operation-0001" {
+		return application.ThreadPullRequestResult{}, fmt.Errorf("PR observation route did not forward the original key")
+	}
+	return application.ThreadPullRequestResult{Version: application.ThreadPullRequestVersion, ThreadID: threadID,
+		RunID: c.binding.RunID, State: "not_received", CheckedAt: time.Now().UTC()}, nil
+}
+
+func (c openAPIThreadPullRequestController) Create(_ context.Context, threadID string, r application.ThreadPullRequestCreateRequest) (application.ThreadPullRequestResult, error) {
+	if threadID != c.binding.ThreadID || r.Version != application.ThreadPullRequestVersion || r.OperationID != "git-remote-openapi-pr" || r.ApprovalID != "approval-openapi-pr" {
+		return application.ThreadPullRequestResult{}, fmt.Errorf("PR create route changed the reviewed operation and approval")
+	}
+	return application.ThreadPullRequestResult{Version: r.Version, ThreadID: threadID, RunID: c.binding.RunID,
+		OperationID: r.OperationID, State: "created", ReceiptSaved: true, CheckedAt: time.Now().UTC()}, nil
+}
+
+func (c openAPIThreadPullRequestController) Refresh(_ context.Context, threadID string, r application.ThreadPullRequestRefreshRequest) (application.ThreadPullRequestRefreshResult, error) {
+	if threadID != c.binding.ThreadID || r.Version != application.ThreadPullRequestVersion || r.ConnectionID != "github-connection-openapi" || r.PullRequest != 7 {
+		return application.ThreadPullRequestRefreshResult{}, fmt.Errorf("PR refresh route changed the selected PR")
+	}
+	return application.ThreadPullRequestRefreshResult{Version: r.Version, ThreadID: threadID, RunID: c.binding.RunID,
+		LocalHeadSHA: c.binding.HeadSHA, Omissions: []string{}}, nil
+}
+
+func (c openAPIThreadPullRequestController) ImportCredential(ctx context.Context, threadID string, r application.ThreadPullRequestCredentialRequest) (application.GitHubReviewCredentialView, error) {
+	if threadID != c.binding.ThreadID || r.Version != application.ThreadPullRequestVersion || r.ConnectionID != "github-connection-openapi" || r.Token != "openapi-fixture-token-not-a-real-credential" {
+		return application.GitHubReviewCredentialView{}, fmt.Errorf("PR credential route changed the selected connection")
+	}
+	return (&githubReviewControllerStub{}).CredentialStatus(ctx, r.ConnectionID)
+}
+
 func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture := newAPIFixture(t)
 	fixture.api.eventStream = testEventStreamConfig(1, 100*time.Millisecond)
@@ -374,10 +500,32 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fullCDPClosed.ProcessTreeQuiescent = true
 	fullCDPClosed.ProfileReleased = true
 	fullCDPClosed.ProfileCleaned = true
-	fixture.api.fullCDPSessionController = &fullCDPSessionControllerStub{
-		view:        fullCDPReady,
-		openResult:  application.FullCDPSessionResult{Session: fullCDPReady},
-		closeResult: application.FullCDPSessionResult{Session: fullCDPClosed},
+	var imageBuffer bytes.Buffer
+	if err := png.Encode(&imageBuffer, image.NewNRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+		t.Fatal(err)
+	}
+	imageBytes := imageBuffer.Bytes()
+	imageReceipt, err := fixture.store.SaveWorkspaceImage(t.Context(), fixture.workspace.ID,
+		"openapi-uploaded-image-seed", "image/png", "image.png", imageBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileBytes := []byte("上传附件原始文本")
+	fileReceipt, err := fixture.store.SaveWorkspaceFileAttachment(t.Context(), fixture.workspace.ID,
+		"openapi-uploaded-file-seed", "text/plain", "notes.txt", fileBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewView := application.FullCDPPreviewView{Version: application.FullCDPPreviewProtocolVersion,
+		RunID: fixture.run.ID, SessionID: fullCDPReady.SessionID, CanonicalURL: fullCDPReady.TargetOrigin + "/", CapturedAt: time.Now().UTC(),
+		Page:  application.FullCDPPreviewPage{SnapshotID: strings.Repeat("a", 64), UntrustedEvidence: true},
+		Image: application.FullCDPPreviewImage{MediaType: "image/png", Bytes: len(imageBytes), SHA256: imageReceipt.SHA256, Width: 2, Height: 3}}
+	fixture.api.fullCDPSessionController = &fullCDPPreviewStub{
+		fullCDPSessionControllerStub: fullCDPSessionControllerStub{
+			view: fullCDPReady, openResult: application.FullCDPSessionResult{Session: fullCDPReady},
+			closeResult: application.FullCDPSessionResult{Session: fullCDPClosed},
+		},
+		capture: application.FullCDPPreviewCapture{View: previewView, PNG: imageBytes},
 	}
 	fixture.api.fullCDPSessionControlEnabled = true
 	fixture.api.gitAdvancedController = &gitAdvancedControllerStub{}
@@ -479,6 +627,23 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		ProposedText: "bounded OpenAPI review\n",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	revertSource, err := fileedit.NewManager(fixture.store).Propose(t.Context(), fileedit.Proposal{
+		SessionID: fixture.run.SessionID, WorkspaceID: fixture.workspace.ID,
+		WorkspaceRoot: fixture.workspace.RootPath, Path: "openapi-revert-source.txt",
+		ProposedText: "bounded applied source\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewFileEditReviewService(fixture.store).Review(t.Context(), application.ReviewFileEditRequest{
+		Version: application.FileEditReviewProtocolVersion, RunID: fixture.run.ID,
+		EditID: revertSource.ID, Action: application.FileEditApproveIntent}); err != nil {
+		t.Fatal(err)
+	}
+	// Seed an applied tool edit under the fixture's existing execution owner.
+	if _, err := fileedit.NewManager(fixture.store).Approve(t.Context(), revertSource.ID,
+		fixture.workspace.RootPath); err != nil {
 		t.Fatal(err)
 	}
 	_, wakeCreated, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -850,17 +1015,30 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.api.threadTurnController = &threadTurnControllerStub{
-		result: application.ExecuteThreadTurnResult{
-			Submission: application.SubmitThreadMessageResult{Thread: openAPIThread,
-				Run: openAPIThreadRun, Session: openAPIThreadSession,
-				Message: domain.OperatorSteeringMessage{ID: "steer-openapi-thread-turn",
-					RunID: openAPIThreadRun.ID, SessionID: openAPIThreadRun.SessionID,
-					Sequence: 1, Status: domain.OperatorSteeringCommitted,
-					CreatedAt: time.Now().UTC()}},
-			ExecutionStarted: true, ModelCalled: true,
+	fixture.api.threadTurnController = &openAPIThreadPlanController{
+		threadID: openAPIThread.ID, runID: openAPIThreadRun.ID,
+		threadTurnControllerStub: &threadTurnControllerStub{
+			result: application.ExecuteThreadTurnResult{
+				Submission: application.SubmitThreadMessageResult{Thread: openAPIThread,
+					Run: openAPIThreadRun, Session: openAPIThreadSession,
+					Message: domain.OperatorSteeringMessage{ID: "steer-openapi-thread-turn",
+						RunID: openAPIThreadRun.ID, SessionID: openAPIThreadRun.SessionID,
+						Sequence: 1, Status: domain.OperatorSteeringCommitted,
+						CreatedAt: time.Now().UTC()}},
+				ExecutionStarted: true, ModelCalled: true,
+			},
 		},
 	}
+	fixture.api.threadReview = application.NewThreadReviewService(fixture.store).
+		WithCodeHandoff(application.NewCodeHandoffService(fixture.store))
+	threadGitBinding := application.ThreadGitContext{ThreadID: openAPIThread.ID,
+		RunID: openAPIThreadRun.ID, SessionID: openAPIThreadSession.ID,
+		WorkspaceID: fixture.workspace.ID, SourceWorkspaceID: fixture.workspace.ID,
+		RootPath: fixture.workspace.RootPath, HeadSHA: strings.Repeat("a", 40),
+		Branch: "feature/openapi", StatusFingerprint: strings.Repeat("a", 64),
+		RemoteURLs: []application.ThreadGitRemote{{Name: "origin", URL: "https://github.com/example/fixture.git"}}}
+	fixture.api.threadGitController = openAPIThreadGitController{binding: threadGitBinding}
+	fixture.api.threadPullRequestController = openAPIThreadPullRequestController{binding: threadGitBinding}
 	legacyArchiveSession := session.New(fixture.workspace.ID,
 		"OpenAPI legacy archive fixture", "review")
 	if err := fixture.store.SaveSession(t.Context(), legacyArchiveSession); err != nil {
@@ -881,6 +1059,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	standardCodeController := &standardCodePresetControllerStub{}
+	fixture.api.workspaceImportEnabled = true
+	fixture.api.workspaceImporter = workspace.NewManager("", fixture.store)
 	standardCodeAPI, err := New(fixture.store, Config{
 		AccessToken: testAccessToken, ControlToken: testControlToken,
 		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
@@ -896,9 +1076,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	}
 	replacements := map[string]string{
 		"{thread_id}":         openAPIThread.ID,
+		"{operation_key}":     "openapi-thread-git-operation-0001",
 		"{activity_ref}":      "activity-openapi-missing-0001",
 		"{run_id}":            fixture.run.ID,
 		"{workspace_id}":      fixture.workspace.ID,
+		"{image_id}":          imageReceipt.ID,
+		"{attachment_id}":     fileReceipt.ID,
 		"{agent_id}":          child.ID,
 		"{session_id}":        fixture.run.SessionID,
 		"{message_id}":        steering.Message.ID,
@@ -913,6 +1096,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{connection_id}":     "github-connection-openapi",
 		"{attempt_id}":        uiAttemptID,
 		"{edit_id}":           fileEditRecord.ID,
+		"{source_edit_id}":    revertSource.ID,
 		"{job_id}":            scheduledSeed.Job.ID,
 		"{action}":            string(domain.ScheduledJobPause),
 		"{object_id}":         strings.Repeat("a", 40),
@@ -959,6 +1143,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		} else if spec.Path == PlanDirectionControlPathTemplate ||
 			spec.Path == PlanDeliveryControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", planRun.ID)
+		} else if spec.Path == PlanDeliveryWorkItemStartPathTemplate || spec.Path == PlanDeliveryWorkItemCheckpointPathTemplate || spec.Path == PlanDeliveryWorkItemCompletePathTemplate {
+			item := selectedHTTPPlanWorkItem(t, fixture.store, planRun.ID)
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", planRun.ID)
+			requestPath = strings.ReplaceAll(requestPath, "{work_item_id}", item.ID)
 		} else if spec.Path == RunExecutionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", executionRun.ID)
 		} else if spec.Path == RunWakeIntentPathTemplate ||
@@ -999,6 +1187,16 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?run_id=" + fixture.run.ID
 		} else if spec.OperationID == "getGitHubReviewProjection" {
 			requestPath += "?connection_id=github-connection-openapi"
+		} else if spec.OperationID == "readRunFullCDPPreviewImage" {
+			requestPath += "?session_id=" + previewView.SessionID + "&sha256=" + previewView.Image.SHA256
+		} else if spec.OperationID == "inspectThreadCreationRequest" {
+			requestPath += "?workspace_id=" + fixture.workspace.ID
+		} else if spec.OperationID == "inspectThreadPlanRequest" {
+			requestPath += "?run_id=" + openAPIThreadRun.ID + "&action=enter_plan"
+		} else if spec.OperationID == "discoverThreadPullRequest" {
+			requestPath += "?connection_id=github-connection-openapi&base_branch=main"
+		} else if spec.OperationID == "observeThreadPullRequest" {
+			requestPath += "?operation_key=openapi-thread-pr-operation-0001"
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			requestAPI := fixture.api
@@ -1046,9 +1244,41 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				request.Header.Set("Content-Type", "application/json")
 				response = httptest.NewRecorder()
 				fixture.api.ServeHTTP(response, request)
+			} else if spec.OperationID == "inspectThreadCreationRequest" || spec.OperationID == "inspectThreadTurnRequest" || spec.OperationID == "inspectThreadPlanRequest" || spec.OperationID == "inspectWorkspaceFileUpload" {
+				request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+requestPath, nil)
+				request.Host, request.RemoteAddr = "127.0.0.1:8765", "127.0.0.1:45000"
+				request.Header.Set("Authorization", "Bearer "+testAccessToken)
+				request.Header.Set("Idempotency-Key", "openapi-observe-original-missing-key")
+				response = httptest.NewRecorder()
+				fixture.api.ServeHTTP(response, request)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.OperationID == "createContextMemory" {
+				if spec.OperationID == "controlThreadPlan" {
+					body = `{"version":"plan_delivery_control.v1","run_id":"` + openAPIThreadRun.ID + `","action":"enter_plan"}`
+				} else if spec.OperationID == "previewThreadGit" {
+					body = `{"version":"thread_git.v1","run_id":"` + openAPIThreadRun.ID + `","spec":{"operation":"stage","paths":["README.md"]}}`
+				} else if spec.OperationID == "executeThreadGit" {
+					body = `{"version":"thread_git.v1","run_id":"` + openAPIThreadRun.ID + `","spec":{"operation":"stage","paths":["README.md"]},` +
+						`"operation_key":"openapi-thread-git-operation-0001","expected_preview_fingerprint":"` + strings.Repeat("b", 64) + `","requested_by":"openapi_test"}`
+				} else if spec.OperationID == "previewThreadPullRequest" {
+					body = `{"version":"thread_pull_request.v1","connection_id":"github-connection-openapi","base_branch":"main",` +
+						`"expected_run_id":"` + openAPIThreadRun.ID + `","expected_head_sha":"` + threadGitBinding.HeadSHA + `",` +
+						`"operation_key":"openapi-thread-pr-operation-0001","title":"OpenAPI draft","body":"Reviewed fixture changes."}`
+				} else if spec.OperationID == "createThreadPullRequest" {
+					body = `{"version":"thread_pull_request.v1","operation_id":"git-remote-openapi-pr","approval_id":"approval-openapi-pr"}`
+				} else if spec.OperationID == "refreshThreadPullRequest" {
+					body = `{"version":"thread_pull_request.v1","connection_id":"github-connection-openapi","pull_request":7}`
+				} else if spec.OperationID == "setThreadPullRequestCredential" {
+					body = `{"version":"thread_pull_request.v1","connection_id":"github-connection-openapi","token":"openapi-fixture-token-not-a-real-credential"}`
+				} else if spec.OperationID == "uploadWorkspaceFile" {
+					body = `{"version":"workspace_file_upload.v1","mime_type":"text/plain","name":"notes.txt","data_base64":"` + base64.StdEncoding.EncodeToString(fileBytes) + `"}`
+				} else if spec.OperationID == "uploadWorkspaceImage" {
+					body = `{"version":"workspace_image_upload.v1","mime_type":"image/png","name":"image.png","data_base64":"` + base64.StdEncoding.EncodeToString(imageBytes) + `"}`
+				} else if spec.OperationID == "captureRunFullCDPPreview" {
+					body = `{"version":"full_cdp_preview.v1","expected_session_id":"` + previewView.SessionID + `"}`
+				} else if spec.OperationID == "actRunFullCDPPreview" {
+					body = `{"version":"full_cdp_preview_action.v1","expected_session_id":"` + previewView.SessionID + `","expected_snapshot_id":"` + previewView.Page.SnapshotID + `","action":"click","selector":"#press"}`
+				} else if spec.OperationID == "createContextMemory" {
 					body = `{"scope":"user","scope_id":"local-user",` +
 						`"title":"OpenAPI created memory","content":"Explicit test memory."}`
 				} else if spec.OperationID == "openRunFullCDPSession" {
@@ -1179,6 +1409,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					spec.OperationID == "executeThreadTurn" {
 					body = `{"version":"thread_message_submission.v1",` +
 						`"content":"OpenAPI live Thread message"}`
+				} else if spec.OperationID == "interruptThreadExecution" {
+					body = `{"version":"thread_execution.v1","execution_id":"thread-execution-openapi"}`
 				} else if spec.OperationID == "archiveThread" ||
 					spec.OperationID == "restoreThread" || spec.OperationID == "deleteThread" {
 					threadID := openAPIThread.ID
@@ -1200,6 +1432,14 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					spec.Path == StandardCodePauseAndConfigurePathTemplate {
 					body = `{"version":"standard_code_preset.v1",` +
 						`"backend_intent":"auto","confirm_workspace_trust":false}`
+				} else if spec.Path == WorkspaceImportPath {
+					encoded, err := json.Marshal(WorkspaceImportRequestView{
+						Version:       WorkspaceImportProtocolVersion,
+						DirectoryPath: t.TempDir(), Confirmed: true})
+					if err != nil {
+						t.Fatal(err)
+					}
+					body = string(encoded)
 				} else if spec.Path == RunCreationControlPath {
 					body = `{"version":"run_creation.v1","goal":"OpenAPI live Run",` +
 						`"workspace_id":"` + fixture.workspace.ID + `"}`
@@ -1222,6 +1462,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						planProposal.ID + `","direction":1}`
 				} else if spec.Path == PlanDeliveryControlPathTemplate {
 					body = `{"version":"plan_delivery_control.v1"}`
+				} else if spec.Path == PlanDeliveryWorkItemStartPathTemplate || spec.Path == PlanDeliveryWorkItemCompletePathTemplate {
+					item := selectedHTTPPlanWorkItem(t, fixture.store, planRun.ID)
+					body = fmt.Sprintf(`{"version":"plan_delivery_control.v1","expected_work_item_version":%d}`, item.Version)
+				} else if spec.Path == PlanDeliveryWorkItemCheckpointPathTemplate {
+					item := selectedHTTPPlanWorkItem(t, fixture.store, planRun.ID)
+					body = fmt.Sprintf(`{"version":"plan_delivery_control.v1","expected_work_item_version":%d,"focused_verification":"operator observation","diff_audit":"operator diff review","security_audit":"operator boundary review","handoff_summary":"manual assertion only","functional_verification":"operator functional review","robustness_audit":"operator failure review"}`, item.Version)
 				} else if spec.Path == ApprovalDecisionControlPathTemplate {
 					body = `{"version":"approval_control.v1","action":"approve_once"}`
 				} else if spec.Path == ControlledCommandProposalReviewPathTemplate {
@@ -1320,6 +1566,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						proposalSource.Handle + `","proposed_text":"OpenAPI proposal\\n"}`
 				} else if spec.Path == FileEditReviewPathTemplate {
 					body = `{"version":"file_edit_review.v1","action":"approve_intent"}`
+				} else if spec.Path == FileEditRevertProposalPathTemplate {
+					body = `{"version":"file_edit_proposal.v1"}`
 				} else if spec.Path == FileEditApplyPathTemplate {
 					body = `{"version":"file_edit_apply.v1"}`
 				} else if spec.Path == RunWakeIntentPathTemplate {
@@ -1434,6 +1682,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						t.Fatal(statusErr)
 					}
 				}
+				if spec.Path == FileEditApplyPathTemplate {
+					// This fixture intentionally retains a live model execution lease.
+					// Manual apply must now refuse to write concurrently with it.
+					expectedStatus = http.StatusConflict
+				}
 			} else {
 				response = fixture.get(t, requestPath)
 			}
@@ -1449,6 +1702,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						requestPath, response.Code, response.Body.String())
 				}
 			} else if response.Code != expectedStatus {
+				if spec.OperationID == "getRun" {
+					_, _, diagnostic := fixture.api.run(httptest.NewRequest(http.MethodGet, requestPath, nil), fixture.run.ID)
+					t.Logf("Run projection diagnostic: %v", diagnostic)
+				}
 				t.Fatalf("documented route is not live: path=%s status=%d body=%s",
 					requestPath, response.Code, response.Body.String())
 			}
@@ -1463,6 +1720,14 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if !strings.HasPrefix(contentType, openAPIContentType) ||
 					!bytes.Contains(response.Body.Bytes(), []byte(`"openapi": "3.1.0"`)) {
 					t.Fatalf("raw OpenAPI response is invalid: content-type=%q body=%s", contentType, response.Body.String())
+				}
+			} else if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" {
+				if contentType != "image/png" || !bytes.Equal(response.Body.Bytes(), imageBytes) || response.Header().Get("ETag") != `"`+imageReceipt.SHA256+`"` || response.Header().Get("X-Cyberagent-Content-SHA256") != imageReceipt.SHA256 {
+					t.Fatalf("raw image did not match saved identity: content-type=%q", contentType)
+				}
+			} else if spec.OperationID == "readWorkspaceFileAttachmentContent" {
+				if contentType != "application/octet-stream" || !bytes.Equal(response.Body.Bytes(), fileBytes) || response.Header().Get("ETag") != `"`+fileReceipt.SHA256+`"` || response.Header().Get("X-Cyberagent-Content-SHA256") != fileReceipt.SHA256 {
+					t.Fatal("raw attachment did not match saved identity")
 				}
 			} else if spec.RawArtifact {
 				if !strings.HasPrefix(contentType, "application/octet-stream") ||

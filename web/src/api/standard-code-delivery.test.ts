@@ -3,6 +3,32 @@ import { parseGitHubProjection } from "./github-review";
 import { parseStandardCodeDelivery } from "./standard-code-delivery";
 
 describe("Standard Code delivery projection", () => {
+  it("accepts optional read-source facts without changing the sealed verification conclusion", () => {
+    const report = standardCodeDeliveryFixture();
+    const available = { job_id: "verification-1", artifact_id: "artifact-stdout", status: "available",
+      thread_id: "thread-1", activity_ref: "command-1" };
+    expect(parseStandardCodeDelivery({ ...report, output_sources: [available] }, "run-1").output_sources)
+      .toEqual([available]);
+    const metadataOnly = { job_id: "verification-1", artifact_id: "artifact-stdout", status: "metadata_only",
+      reason: "activity_source_unavailable" };
+    expect(parseStandardCodeDelivery({ ...report, output_sources: [metadataOnly] }, "run-1").verified).toBe(true);
+    expect(parseStandardCodeDelivery(report, "run-1").output_sources).toBeUndefined();
+  });
+
+  it.each([
+    [],
+    [{ job_id: "another-job", artifact_id: "artifact-stdout", status: "available", thread_id: "thread-1", activity_ref: "command-1" }],
+    [{ job_id: "verification-1", artifact_id: "another-artifact", status: "available", thread_id: "thread-1", activity_ref: "command-1" }],
+    [{ job_id: "verification-1", artifact_id: "artifact-stdout", status: "available", thread_id: "thread-1" }],
+    [{ job_id: "verification-1", artifact_id: "artifact-stdout", status: "available", thread_id: "thread-1", activity_ref: "command-1", reason: "output_not_public" }],
+    [{ job_id: "verification-1", artifact_id: "artifact-stdout", status: "metadata_only", reason: "output_not_public", thread_id: "thread-1", activity_ref: "command-1" }],
+    [{ job_id: "verification-1", artifact_id: "artifact-stdout", status: "metadata_only", reason: "anything_is_readable" }],
+    Array(2).fill({ job_id: "verification-1", artifact_id: "artifact-stdout", status: "metadata_only", reason: "activity_source_unavailable" }),
+  ])("rejects incomplete, unrelated or contradictory output-source facts: %j", (...sources) => {
+    expect(() => parseStandardCodeDelivery({ ...standardCodeDeliveryFixture(), output_sources: sources }, "run-1"))
+      .toThrow("Invalid Standard Code delivery truth projection");
+  });
+
   it("accepts the exact shared projection and all closed statuses", () => {
     expect(parseStandardCodeDelivery(standardCodeDeliveryFixture(), "run-1").status).toBe("passed");
 

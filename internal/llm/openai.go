@@ -86,11 +86,11 @@ func NewOpenAICompatibleProvider(config OpenAICompatibleConfig) (*OpenAICompatib
 func (p *OpenAICompatibleProvider) Name() string { return p.name }
 
 func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.endpoint("/v1/models"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.modelsEndpoint(), nil)
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create model-list request")
 	}
@@ -157,7 +157,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare request")
 	}
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
@@ -203,7 +203,7 @@ func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatR
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare streaming request")
 	}
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
@@ -240,7 +240,12 @@ func (p *OpenAICompatibleProvider) SupportsTools(model string) bool {
 	return strings.TrimSpace(model) == p.defaultModel
 }
 
-func (p *OpenAICompatibleProvider) SupportsVision(string) bool { return false }
+func (p *OpenAICompatibleProvider) SupportsVision(model string) bool {
+	return p.DescribeVision(model).State == VisionSupported
+}
+func (p *OpenAICompatibleProvider) DescribeVision(model string) VisionCapability {
+	return runtimeVision(p.runtime, model)
+}
 
 func (p *OpenAICompatibleProvider) SupportsJSONMode(model string) bool {
 	return strings.TrimSpace(model) == p.defaultModel
@@ -292,6 +297,9 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 		return "", openAIChatRequest{}, errors.New("max tokens exceeds the provider request limit")
 	}
 	wire := openAIChatRequest{Model: wireModel, MaxTokens: maxTokens, Stream: stream}
+	if err := validateRequestImages(p, selectedModel, request.Messages); err != nil {
+		return "", openAIChatRequest{}, err
+	}
 	if request.Temperature > 0 {
 		wire.Temperature = &request.Temperature
 	}
@@ -330,9 +338,12 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 }
 
 func openAIMessages(message Message) ([]openAIMessage, error) {
+	if err := ValidateMessageImages(message); err != nil {
+		return nil, err
+	}
 	role := strings.ToLower(strings.TrimSpace(message.Role))
 	content := strings.TrimSpace(message.Content)
-	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 {
+	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 && len(message.Images) == 0 {
 		return nil, nil
 	}
 	switch role {
@@ -376,7 +387,16 @@ func openAIMessages(message Message) ([]openAIMessage, error) {
 				Role: "tool", Content: &resultContent, ToolCallID: normalized.ToolCallID,
 			})
 		}
-		if content != "" {
+		if len(message.Images) > 0 {
+			parts := make([]openAIContentPart, 0, len(message.Images)+1)
+			if content != "" {
+				parts = append(parts, openAIContentPart{Type: "text", Text: content})
+			}
+			for _, image := range message.Images {
+				parts = append(parts, openAIContentPart{Type: "image_url", ImageURL: &openAIImageURL{URL: imageDataURL(image), Detail: "auto"}})
+			}
+			mapped = append(mapped, openAIMessage{Role: "user", Parts: parts})
+		} else if content != "" {
 			mapped = append(mapped, openAIMessage{Role: "user", Content: &content})
 		}
 		if len(mapped) == 0 {
@@ -499,6 +519,13 @@ func validateOpenAIToolName(name string) error {
 	return err
 }
 
+func (p *OpenAICompatibleProvider) modelsEndpoint() string {
+	if strings.HasSuffix(p.baseURL, "/v1/chat/completions") {
+		return strings.TrimSuffix(p.baseURL, "/chat/completions") + "/models"
+	}
+	return p.endpoint("/v1/models")
+}
+
 func (p *OpenAICompatibleProvider) endpoint(path string) string {
 	if strings.HasSuffix(p.baseURL, path) {
 		return p.baseURL
@@ -518,7 +545,9 @@ func (p *OpenAICompatibleProvider) addHeaders(request *http.Request, stream bool
 	} else {
 		request.Header.Set("Accept", "application/json")
 	}
-	request.Header.Set("Authorization", "Bearer "+secret)
+	if secret != "" {
+		request.Header.Set("Authorization", "Bearer "+secret)
+	}
 	return applyProviderRequestHeaders(p.runtime, secret, request.Header)
 }
 
@@ -677,10 +706,32 @@ type openAIChatRequest struct {
 }
 
 type openAIMessage struct {
-	Role       string           `json:"role"`
-	Content    *string          `json:"content,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Role       string              `json:"role"`
+	Content    *string             `json:"content,omitempty"`
+	ToolCalls  []openAIToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Parts      []openAIContentPart `json:"-"`
+}
+
+type openAIImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail"`
+}
+type openAIContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+
+func (message openAIMessage) MarshalJSON() ([]byte, error) {
+	type plain openAIMessage
+	if len(message.Parts) == 0 {
+		return json.Marshal(plain(message))
+	}
+	return json.Marshal(struct {
+		plain
+		Content []openAIContentPart `json:"content"`
+	}{plain: plain(message), Content: message.Parts})
 }
 
 type openAITool struct {

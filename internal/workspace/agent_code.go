@@ -481,6 +481,16 @@ func AgentCodeGrepFiles(root, workspaceID, query, pattern, cursor string, limit 
 // used by model reads. The final component may be absent, but every parent
 // must exist and no component may be a symlink, junction, or case alias.
 func AgentCodeResolveWritePath(root, requested string, allowMissing bool) (string, string, error) {
+	return agentCodeResolveMutationPath(root, requested, allowMissing, false)
+}
+
+// AgentCodeResolveCreatePath verifies a create proposal without writing any
+// directory. Existing components, hidden paths and ignored paths remain closed.
+func AgentCodeResolveCreatePath(root, requested string) (string, string, error) {
+	return agentCodeResolveMutationPath(root, requested, true, true)
+}
+
+func agentCodeResolveMutationPath(root, requested string, allowMissing, allowMissingParents bool) (string, string, error) {
 	workspace, err := openAgentWorkspace(root)
 	if err != nil {
 		return "", "", err
@@ -493,7 +503,7 @@ func AgentCodeResolveWritePath(root, requested string, allowMissing bool) (strin
 		return "", "", apperror.New(apperror.CodePolicyDenied,
 			"workspace mutation target is hidden or ignored")
 	}
-	target, _, err := workspace.resolve(relative, allowMissing)
+	target, _, err := workspace.resolvePath(relative, allowMissing, allowMissingParents)
 	if err != nil {
 		return "", "", err
 	}
@@ -609,6 +619,10 @@ func openAgentWorkspace(root string) (agentWorkspace, error) {
 }
 
 func (w agentWorkspace) resolve(relative string, allowMissingFinal bool) (string, os.FileInfo, error) {
+	return w.resolvePath(relative, allowMissingFinal, false)
+}
+
+func (w agentWorkspace) resolvePath(relative string, allowMissingFinal, allowMissingParents bool) (string, os.FileInfo, error) {
 	current := w.root
 	components := strings.Split(relative, "/")
 	if relative == "." {
@@ -637,8 +651,8 @@ func (w agentWorkspace) resolve(relative string, allowMissingFinal bool) (string
 				return "", nil, apperror.New(apperror.CodeConflict,
 					"workspace path casing does not match the stored entry")
 			}
-			if allowMissingFinal && last {
-				target := filepath.Join(current, component)
+			if (allowMissingFinal && last) || allowMissingParents {
+				target := filepath.Join(append([]string{current}, components[index:]...)...)
 				if !explorerWithinRoot(w.root, target) {
 					return "", nil, apperror.New(apperror.CodePolicyDenied,
 						"workspace path cannot leave the workspace")

@@ -1,11 +1,24 @@
 import type { PublicModelStreamSnapshot, ThreadTranscriptItemView } from "../../api/types";
 import type { PublicModelStreamStatus } from "../../hooks/use-public-model-stream";
+import { validImageAttachments, type WorkspaceImageAttachment } from "../../api/image-attachments";
+import { validFileAttachments, type WorkspaceFileAttachment } from "../../api/file-attachments";
 
-export type NarrativeToolKind = "search" | "read" | "edit" | "execute" | "verify";
+export type NarrativeToolKind = "search" | "read" | "edit" | "execute" | "verify" | "plan";
+export type NarrativeFileChange = "proposed" | "approved" | "applied" | "denied" | "failed" | "unknown";
+
+export const fileChangeLabels: Record<NarrativeFileChange, string> = {
+  proposed: "已提出修改，等待审阅",
+  approved: "修改已批准，尚未应用",
+  applied: "修改已应用",
+  denied: "修改已拒绝",
+  failed: "文件修改失败",
+  unknown: "文件修改记录",
+};
 
 export type ThreadTranscriptActivityItem = ThreadTranscriptItemView & {
   activity_detail_ref?: string;
   detail_available?: boolean;
+  attachments?: WorkspaceFileAttachment[];
 };
 
 export type NarrativeEntry =
@@ -13,6 +26,9 @@ export type NarrativeEntry =
       id: string;
       kind: "user";
       text: string;
+      images?: WorkspaceImageAttachment[];
+      attachments?: WorkspaceFileAttachment[];
+      status?: string;
       createdAt: string;
       provisional: boolean;
     }
@@ -41,6 +57,7 @@ export type NarrativeEntry =
         provisional: boolean;
         detailRef?: string;
         detailAvailable: boolean;
+        fileChange?: NarrativeFileChange;
         summary?: NonNullable<ThreadTranscriptItemView["activity_summary"]>;
         webEvidence?: NonNullable<ThreadTranscriptItemView["web_evidence"]>;
       }>;
@@ -51,10 +68,11 @@ export type NarrativeEntry =
       tone: "neutral" | "warning" | "success";
       text: string;
       createdAt: string;
+      failureOrigin?: { runId: string; sourceRef: string; eventSequence: number };
     };
 
 const toolActivities = new Set<NarrativeToolKind>([
-  "search", "read", "edit", "execute", "verify",
+  "search", "read", "edit", "execute", "verify", "plan",
 ]);
 
 const hiddenHarnessStatuses = new Set([
@@ -84,6 +102,15 @@ function isInternalHarnessLifecycle(item: ThreadTranscriptItemView): boolean {
     /^(?:Agent 回合|Supervisor 检查点|Run 状态|模型调用|模型响应)/u.test(item.title.trim());
 }
 
+function isArtifactStoragePlaceholder(item: ThreadTranscriptActivityItem): boolean {
+  // artifact.created also records ordinary tool output. Its empty audit label
+  // is not a model answer or proof of delivery; the actual tool row remains.
+  return item.source === "harness" && item.kind === "plan" && item.activity_type === "delivery" &&
+    item.stage === "result" && item.status === "completed" && item.durable && !item.provisional &&
+    item.title.trim() === "交付物已记录" && !item.detail?.trim() &&
+    !item.activity_summary && !item.web_evidence && !item.activity_detail_ref && !item.detail_available;
+}
+
 function normalizedText(item: ThreadTranscriptItemView): string {
   const detail = item.detail?.trim() ?? "";
   const title = item.title.trim();
@@ -107,6 +134,7 @@ export function projectThreadNarrative(
   live?: LiveNarrativeProjection,
 ): NarrativeEntry[] {
   const result: NarrativeEntry[] = [];
+  const noticeEvents = new Set<string>();
   type ActivityEntry = Extract<NarrativeEntry, { kind: "activity" }>;
   type ActivityLeaf = ActivityEntry["items"][number];
   const canonicalActivities = new Map<string, {
@@ -124,20 +152,30 @@ export function projectThreadNarrative(
   });
 
   for (const item of ordered) {
-    if (item.sequence === 0) continue;
+    if (item.sequence === 0 || isArtifactStoragePlaceholder(item)) continue;
     if (item.source === "harness" && item.kind === "tool_call" && !item.tool_name &&
       item.title.trim() === "工具批次完成") continue;
-    const activity = item.activity_type as NarrativeToolKind;
+    // Delivery is also used by real model answers. Reclassify only the exact
+    // Plan tool, so lifecycle receipts cannot become assistant prose.
+    const planTool = item.kind === "tool_call" && item.tool_name === "plan_delivery_propose" &&
+      (item.source === "harness" || item.source === "model");
+    const activity = planTool ? "plan" : item.activity_type as NarrativeToolKind;
     if (toolActivities.has(activity)) {
       const evidence = safeWebEvidenceNarrative(item);
+      const fileChange = item.kind === "file_change" ? fileChangeState(item.status) : undefined;
       const leaf = {
-        title: evidence?.title ?? item.activity_summary?.command ??
+        title: (planTool && item.stage === "result" && !item.durable_call_id && !item.stream_item_id &&
+          !item.stream_call_id && (!item.canonical_id || item.canonical_id === item.id)
+          ? "规划结果记录" : undefined) ??
+          (fileChange ? fileChangeLabels[fileChange] : undefined) ??
+          evidence?.title ?? item.activity_summary?.command ??
           safeToolActivityTitle(item.tool_name ?? "", activity, item.title),
         detail: evidence?.detail ?? item.detail?.trim() ?? "",
         status: evidence?.status ?? item.status?.trim() ?? item.stage?.trim() ?? "",
         provisional: item.provisional,
         ...(item.activity_detail_ref ? { detailRef: item.activity_detail_ref } : {}),
         detailAvailable: item.detail_available === true && Boolean(item.activity_detail_ref),
+        ...(fileChange ? { fileChange } : {}),
         ...(item.activity_summary ? { summary: item.activity_summary } : {}),
         ...(item.web_evidence ? { webEvidence: item.web_evidence } : {}),
       };
@@ -191,9 +229,13 @@ export function projectThreadNarrative(
 
     if (item.source === "operator" || item.kind === "operator_input") {
       if (isSyntheticOperatorInput(item)) continue;
-      const text = normalizedText(item);
-      if (text) result.push({ id: item.id, kind: "user", text,
-        createdAt: item.created_at, provisional: item.provisional });
+      const images = validImageAttachments(item.images) ? item.images : undefined;
+      const attachments = validFileAttachments(item.attachments) ? item.attachments : undefined;
+      // A pure attachment has no user-authored text. Do not substitute the queue
+      // event's status title as if the user had typed it.
+      const text = images?.length || attachments?.length ? item.detail?.trim() ?? "" : normalizedText(item);
+      if (text || images?.length || attachments?.length) result.push({ id: item.id, kind: "user", text, images, attachments,
+        status: item.status, createdAt: item.created_at, provisional: item.provisional });
       continue;
     }
 
@@ -222,14 +264,30 @@ export function projectThreadNarrative(
     if (hiddenHarnessStatuses.has(status) && noticeTone(item) === "neutral") continue;
     if (tone !== "neutral") {
       const text = normalizedText(item);
-      const previous = result.at(-1);
-      if (previous?.kind === "notice" && previous.tone === tone && previous.text === text) continue;
+      const eventKey = `${item.run_id}:${item.sequence}:${item.id}`;
+      if (noticeEvents.has(eventKey)) continue;
+      noticeEvents.add(eventKey);
+      const failureOrigin = item.source === "harness" && item.kind === "harness_status" &&
+        item.stage === "blocked" && ["failed", "cancelled"].includes(item.status ?? "") &&
+        item.durable && !item.provisional && item.source_ref
+        ? { runId: item.run_id, sourceRef: item.source_ref, eventSequence: item.sequence } : undefined;
       result.push({ id: item.id, kind: "notice", tone,
-        text, createdAt: item.created_at });
+        text, createdAt: item.created_at, ...(failureOrigin ? { failureOrigin } : {}) });
     }
   }
 
   return result;
+}
+
+function fileChangeState(status: string | undefined): NarrativeFileChange {
+  switch (status) {
+  case "pending": case "proposed": return "proposed";
+  case "approved": return "approved";
+  case "completed": case "applied": return "applied";
+  case "denied": return "denied";
+  case "failed": return "failed";
+  default: return "unknown";
+  }
 }
 
 function safeWebEvidenceNarrative(item: ThreadTranscriptItemView): {
@@ -370,8 +428,10 @@ function snapshotItemIsDurable(item: PublicModelStreamSnapshot["items"][number],
     .some((identity) => Boolean(identity && identities.has(identity)));
 }
 
-function classifyLiveTool(name: string): NarrativeToolKind {
+function classifyLiveTool(name: string): Exclude<NarrativeToolKind, "plan"> {
   switch (name.toLowerCase()) {
+  case "history_search": return "search";
+  case "history_read": return "read";
   case "list_workspace": case "workspace_list": case "workspace_glob": case "workspace_grep":
   case "workspace_search": case "code_search": case "search": case "find_files":
   case "github_review_evidence_list": case "code_workspace_symbols": case "code_document_symbols":
@@ -391,18 +451,22 @@ function classifyLiveTool(name: string): NarrativeToolKind {
 function safeToolActivityTitle(toolName: string, activity: NarrativeToolKind,
   fallback: string): string {
   switch (toolName.toLowerCase()) {
+  case "history_search": return "搜索对话历史";
+  case "history_read": return "读取历史原文";
+  case "plan_delivery_propose": return "生成交付计划";
   case "read_file": case "workspace_read": return "读取文件";
   case "workspace_search": case "workspace_grep": case "workspace_glob": case "code_search":
   case "find_files": return "搜索工作区";
-  case "workspace_apply": case "workspace_change": case "replace_file": case "file_edit":
-  case "apply_patch": return "修改文件";
+  case "workspace_apply": return "文件应用请求";
+  case "workspace_change": case "replace_file": case "file_edit":
+  case "apply_patch": return "文件修改请求";
   case "run_tests": case "code_diagnostics": return "验证";
   case "web_search": return "联网搜索";
   case "web_fetch": return "抓取网页";
   }
   if (!toolName) return fallback;
   const generic: Record<NarrativeToolKind, string> = {
-    search: "搜索", read: "读取", edit: "修改", execute: "工具执行", verify: "验证",
+    search: "搜索", read: "读取", edit: "修改", execute: "工具执行", verify: "验证", plan: "规划",
   };
   return generic[activity];
 }

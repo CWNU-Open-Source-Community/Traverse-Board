@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -15,15 +16,17 @@ import (
 
 // providerRequestRuntime is created from an already validated and normalized
 // Provider definition. It deliberately interprets only the documented
-// request_headers, request_body, and model_mapping containers. Every other
-// advanced JSON field remains durable operator-owned extension data but has no
-// runtime authority.
+// request_headers, request_body, model_mapping, and model_capabilities
+// containers. Capability declarations stay local and never enter the HTTP
+// payload. Other advanced JSON remains inert operator-owned extension data.
 type providerRequestRuntime struct {
 	providerID string
+	endpoint   string
 	credential credentialLookup
 	headers    map[string]any
 	body       map[string]any
 	models     map[string]string
+	vision     map[string]llm.VisionSupport
 	binding    string
 }
 
@@ -35,13 +38,20 @@ var _ llm.HTTPProviderRuntime = (*providerRequestRuntime)(nil)
 func NewProviderRequestRuntime(definition ProviderDefinition,
 	reader CredentialReader,
 ) (llm.HTTPProviderRuntime, error) {
-	if reader == nil {
+	if reader != nil {
+		return newProviderRequestRuntime(definition,
+			func(ctx context.Context, provider string) (string, bool, error) {
+				return reader.Get(ctx, provider)
+			})
+	}
+	runtime, err := newProviderRequestRuntime(definition, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !runtime.AllowsKeylessEndpoint(definition.EndpointURL) {
 		return nil, errors.New("custom Provider credential reader is required")
 	}
-	return newProviderRequestRuntime(definition,
-		func(ctx context.Context, provider string) (string, bool, error) {
-			return reader.Get(ctx, provider)
-		})
+	return runtime, nil
 }
 
 func newProviderRequestRuntime(definition ProviderDefinition,
@@ -52,6 +62,9 @@ func newProviderRequestRuntime(definition ProviderDefinition,
 	if err != nil {
 		return nil, err
 	}
+	if err := validateDefinedVisionModels(normalized, definition.Models); err != nil {
+		return nil, err
+	}
 	decoder := json.NewDecoder(strings.NewReader(string(normalized)))
 	decoder.UseNumber()
 	var root map[string]any
@@ -60,10 +73,18 @@ func newProviderRequestRuntime(definition ProviderDefinition,
 	}
 	runtime := &providerRequestRuntime{
 		providerID: definition.ID,
+		endpoint:   definition.EndpointURL,
 		credential: credentials,
 		headers:    map[string]any{},
 		body:       map[string]any{},
 		models:     map[string]string{},
+		vision:     map[string]llm.VisionSupport{},
+	}
+	if value, found := root["model_capabilities"]; found {
+		runtime.vision, err = parseVisionCapabilities(value)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if value, found := root["request_headers"]; found {
 		object, ok := value.(map[string]any)
@@ -105,14 +126,60 @@ func newProviderRequestRuntime(definition ProviderDefinition,
 }
 
 func (r *providerRequestRuntime) ResolveCredential(ctx context.Context) (string, error) {
-	if r == nil || r.credential == nil || ctx == nil {
+	if r == nil || ctx == nil || ctx.Err() != nil {
+		return "", errors.New("custom Provider credential is unavailable")
+	}
+	if r.credential == nil {
+		if r.AllowsKeylessEndpoint(r.endpoint) {
+			return "", nil
+		}
 		return "", errors.New("custom Provider credential is unavailable")
 	}
 	secret, found, err := r.credential(ctx, r.providerID)
-	if err != nil || !found || secret == "" {
+	if err != nil {
+		return "", errors.New("custom Provider credential is unavailable")
+	}
+	if !found && r.AllowsKeylessEndpoint(r.endpoint) {
+		return "", nil
+	}
+	if !found || secret == "" {
 		return "", errors.New("custom Provider credential is unavailable")
 	}
 	return secret, nil
+}
+
+// AllowsKeylessEndpoint is recomputed for every request from the immutable
+// definition. Only the two containers actually applied to requests participate;
+// opaque extension metadata is not executed and adds no credential requirement.
+func (r *providerRequestRuntime) AllowsKeylessEndpoint(endpoint string) bool {
+	if r == nil || validateDefinitionURL(r.endpoint, false, maxProviderEndpointURLBytes) != nil ||
+		strings.TrimRight(endpoint, "/") != strings.TrimRight(r.endpoint, "/") {
+		return false
+	}
+	parsed, err := url.ParseRequestURI(r.endpoint)
+	return err == nil && definitionLoopbackHost(parsed.Hostname()) &&
+		!advancedRuntimeNeedsCredential(r.headers) && !advancedRuntimeNeedsCredential(r.body)
+}
+
+func advancedRuntimeNeedsCredential(value any) bool {
+	switch current := value.(type) {
+	case map[string]any:
+		if _, found := current["$credential"]; found {
+			return true
+		}
+		for _, child := range current {
+			if advancedRuntimeNeedsCredential(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range current {
+			if advancedRuntimeNeedsCredential(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *providerRequestRuntime) MapModel(model string) (string, error) {
@@ -171,7 +238,7 @@ func resolveAdvancedRuntimeValue(value any, secret string) (any, error) {
 	case map[string]any:
 		if reference, found := current["$credential"]; found {
 			provider, ok := reference.(string)
-			if !ok || provider == "" || len(current) > 2 {
+			if !ok || provider == "" || len(current) > 2 || secret == "" {
 				return nil, errors.New("credential reference is invalid")
 			}
 			result := secret

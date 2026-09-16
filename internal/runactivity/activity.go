@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
@@ -117,6 +118,9 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.ModelStartedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型调用开始", "running"
 		base.Detail = modelIdentity(event.PayloadJSON)
+		if stringField(event.PayloadJSON, "purpose") == "context_compaction" {
+			base.Title = "正在整理上下文"
+		}
 	case events.ModelPublicCommentaryEvent:
 		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Traverse Board"
 		base.Detail = stringField(event.PayloadJSON, "text")
@@ -127,8 +131,24 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.ModelCompletedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型响应完成", "completed"
 		base.Detail = completedModelDetail(event.PayloadJSON)
+		if stringField(event.PayloadJSON, "purpose") == "context_compaction" {
+			base.Title = "上下文整理调用已结束"
+		}
 	case events.ModelFailedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型调用失败", "failed"
+		if stringField(event.PayloadJSON, "purpose") == "context_compaction" {
+			base.Title = "上下文整理调用未完成"
+		}
+	case "session.context_compacted":
+		if event.Source != "context_manager" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "上下文摘要已保存", "completed"
+		base.Detail = "原始记录仍可按来源回读，可在任务上下文中查看摘要并补充纠正。"
+		if stringField(event.PayloadJSON, "generation_fallback_reason") != "" {
+			base.Title = "已采用原文摘录摘要"
+			base.Detail = "这次未采用模型生成说明，已保存原文摘录以继续对话。原始记录仍保留。"
+		}
 	case events.ModelCancelRequestedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型取消已请求", "cancelling"
 	case events.ModelCancelObservedEvent:
@@ -139,6 +159,57 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Title, base.Status = "Agent 回合完成", "completed"
 	case events.AgentTurnFailedEvent:
 		base.Title, base.Status = "Agent 回合失败", "failed"
+	case events.RunExecutionHandoffCompletedEvent:
+		// A saved approval and its later execution have separate outcomes.
+		// Other handoffs and successful continuations stay in the audit detail.
+		if event.Source != "run_execution_handoff" ||
+			stringField(event.PayloadJSON, "requested_by") != "approval_continuation" ||
+			stringField(event.PayloadJSON, "status") != "failed" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "审批已保存，后续执行未完成", "failed"
+		base.Detail = "审批已保存，后续执行未完成。请查看工具记录和当前任务状态；已完成的操作仍保留。"
+		if stringField(event.PayloadJSON, "error_code") == "cancelled" {
+			base.Title, base.Status = "审批已保存，后续执行已停止", "cancelled"
+			base.Detail = "审批已保存，后续执行已停止。请查看工具记录确认已完成的操作。"
+		} else if stringField(event.PayloadJSON, "error_code") == "failed_precondition" {
+			switch stringField(event.PayloadJSON, "failure_stage") {
+			case "empty_model_response":
+				base.Title = "审批已保存，模型没有返回有效答复"
+				base.Detail = "审批已保存，后续执行因模型没有返回有效答复而结束。此前已完成的操作仍保留，请查看工具记录。"
+			case "tool_request_rejected":
+				base.Title = "审批已保存，模型的工具请求无效"
+				base.Detail = "审批已保存，后续执行中的工具请求未通过校验，该批请求尚未执行。此前已完成的操作仍保留。"
+			case "invalid_model_response":
+				base.Title = "审批已保存，模型答复格式无效"
+				base.Detail = "审批已保存，后续执行中的模型答复未通过校验。此前已完成的操作仍保留，请查看工具记录。"
+			}
+		}
+	case events.ThreadTurnFailedEvent:
+		base.Title, base.Status = "本轮执行失败", "failed"
+		base.Detail = "本轮执行失败。输入和已完成的操作已保留，可发送新消息继续。"
+		if stringField(event.PayloadJSON, "error_code") == "UNAVAILABLE" {
+			base.Detail = "模型服务暂时不可用。输入和已完成的操作已保留，可发送新消息继续。"
+		} else if stringField(event.PayloadJSON, "error_code") == "CANCELLED" {
+			base.Title, base.Status = "本轮已停止", "cancelled"
+			base.Detail = "本轮已停止。已完成的修改和已受理的补充要求已保留，可发送消息继续。"
+		} else if stringField(event.PayloadJSON, "error_code") == "RESOURCE_EXHAUSTED" &&
+			stringField(event.PayloadJSON, "failure_stage") == domain.ThreadFailureContextWindowExceeded {
+			base.Title = "当前模型的上下文空间不足"
+			base.Detail = "任务上下文超出当前模型的输入窗口，本轮已结束。历史和已完成的操作已保留；请缩短本次输入，或切换到上下文窗口更大的模型后继续。"
+		} else if stringField(event.PayloadJSON, "error_code") == "FAILED_PRECONDITION" {
+			switch stringField(event.PayloadJSON, "failure_stage") {
+			case "tool_request_rejected":
+				base.Title = "模型的工具请求无效"
+				base.Detail = "模型的工具请求未通过校验，该批请求尚未执行。此前已完成的操作已保留，可发送新消息继续。"
+			case "empty_model_response":
+				base.Title = "模型没有返回有效答复"
+				base.Detail = "模型没有返回有效答复，本轮已结束。此前已完成的操作已保留，可发送新消息继续。"
+			case "invalid_model_response":
+				base.Title = "模型答复格式无效"
+				base.Detail = "模型答复未通过校验，本轮已结束。此前已完成的操作已保留，可发送新消息继续。"
+			}
+		}
 	case events.SupervisorToolBatchEvent:
 		base.Kind, base.Title, base.Status = KindToolCall, "工具调用已请求", "running"
 		base.Detail = toolList(event.PayloadJSON)
@@ -222,11 +293,11 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.WorkspaceCheckpointCreatedEvent:
 		base.Kind, base.Title, base.Status = KindPlan, "工作区检查点已创建", "completed"
 	case events.WorkspaceCheckpointTransactionPreparedEvent:
-		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复已准备", "pending"
+		base.Kind, base.Title, base.Status = KindPlan, checkpointOperationName(event.PayloadJSON)+"已准备", "pending"
 	case events.WorkspaceCheckpointTransactionCompletedEvent:
-		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复已完成", "completed"
+		base.Kind, base.Title, base.Status = KindPlan, checkpointOperationName(event.PayloadJSON)+"已完成", "completed"
 	case events.WorkspaceCheckpointTransactionFailedEvent:
-		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复失败", "failed"
+		base.Kind, base.Title, base.Status = KindPlan, checkpointOperationName(event.PayloadJSON)+"失败", "failed"
 	case events.ArtifactCreatedEvent:
 		base.Kind, base.Title, base.Status = KindPlan, "交付物已记录", "completed"
 	case events.ProtocolRepairStartedEvent, events.AgentProtocolRepairStartedEvent:
@@ -325,6 +396,27 @@ func projectEvent(event events.Event) (Item, bool) {
 	base.Detail = cleanDetail(base.Detail)
 	base.Status = cleanStatus(base.Status)
 	return base, base.Title != ""
+}
+
+func checkpointOperationName(payloadJSON string) string {
+	// Mutation journals also use checkpoint transaction events. Their failure
+	// describes the operation, not necessarily a restore or a failed capture.
+	switch stringField(payloadJSON, "kind") {
+	case "command_batch":
+		return "命令操作"
+	case "file_tool":
+		return "文件操作"
+	case "undo":
+		return "工作区撤销"
+	case "rewind":
+		return "工作区回退"
+	case "redo":
+		return "工作区重做"
+	case "fork":
+		return "检查点分支创建"
+	default:
+		return "检查点操作"
+	}
 }
 
 // projectDockerEvent deliberately treats the event type and a small set of

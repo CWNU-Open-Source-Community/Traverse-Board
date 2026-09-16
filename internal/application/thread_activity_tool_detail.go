@@ -348,6 +348,7 @@ type threadActivityResultEnvelope struct {
 	Stdout    string            `json:"stdout"`
 	Metadata  map[string]string `json:"metadata"`
 	Code      string            `json:"code"`
+	Message   string            `json:"message"`
 	Truncated bool              `json:"truncated"`
 }
 

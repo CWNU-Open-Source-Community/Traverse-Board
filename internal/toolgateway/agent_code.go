@@ -243,10 +243,10 @@ func DecodeAgentCodeCallAuthority(raw json.RawMessage) (AgentCodeCallAuthority, 
 
 var agentCodeDefinitions = []ToolDefinition{
 	{Name: WorkspaceListTool, Class: ClassWorkspaceRead, Approval: ApprovalAutomatic,
-		Description: "List one workspace directory with stable keyset pagination. Hidden and ignored entries stay excluded by Go policy.",
+		Description: "List one directory inside the already selected workspace with stable keyset pagination. Use path '.' for its root or a slash-separated relative path such as 'src'; never pass an absolute host path. Hidden and ignored entries stay excluded by Go policy.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","path","limit"],"properties":{"version":{"const":"agent-code-tools.v1"},"path":{"type":"string","maxLength":512},"cursor":{"type":"string","maxLength":8192},"limit":{"type":"integer","minimum":1,"maximum":200}}}`)},
 	{Name: WorkspaceReadTool, Class: ClassWorkspaceRead, Approval: ApprovalAutomatic,
-		Description: "Read a bounded UTF-8 line range and return encoding, newline, exact content hash, redaction, and root provenance diagnostics.",
+		Description: "Read a bounded UTF-8 line range from a slash-separated workspace-relative path such as 'src/main.js', never an absolute host path. Return encoding, newline, exact content hash, redaction, and root provenance diagnostics.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","path","start_line","end_line"],"properties":{"version":{"const":"agent-code-tools.v1"},"path":{"type":"string","minLength":1,"maxLength":512},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}}`)},
 	{Name: WorkspaceGlobTool, Class: ClassWorkspaceRead, Approval: ApprovalAutomatic,
 		Description: "Find workspace files by a bounded slash-separated glob with stable sorting and pagination.",
@@ -261,8 +261,8 @@ var agentCodeDefinitions = []ToolDefinition{
 		Description: "Read one immutable sanitized GitHub PR evidence graph only when it is bound to this exact Run. This grants no network or write-back authority.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","evidence_id"],"properties":{"version":{"const":"agent-code-tools.v1"},"evidence_id":{"type":"string","minLength":1,"maxLength":256}}}`)},
 	{Name: WorkspaceChangeTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
-		Description: "Create an exact-hash review proposal for a patch, new UTF-8 file, or recoverable no-clobber move. This never applies the change.",
-		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose_patch","create","move"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":7,"maxLength":64},"content":{"type":"string","maxLength":65536},"destination_path":{"type":"string","minLength":1,"maxLength":512},"destination_expected_sha256":{"type":"string","minLength":7,"maxLength":64},"replacements":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["old_text","new_text","expected_occurrences"],"properties":{"old_text":{"type":"string","minLength":1,"maxLength":32768},"new_text":{"type":"string","maxLength":32768},"expected_occurrences":{"type":"integer","minimum":1,"maximum":1024}}}}}}`)},
+		Description: "Create an exact-hash review proposal for a patch, new file, move, or reversal of one applied edit. All paths are slash-separated paths relative to the selected workspace, never absolute host paths. For action create, expected_sha256 must be the literal 'missing' and content is the new UTF-8 file text. propose_revert requires exact source_run_id, source_edit_id, path and the applied source hash; accepts no content; reads the saved source itself. This never applies or approves the change. A reversed creation needs separately confirmed workspace_delete apply.",
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose_patch","create","move","propose_revert"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":7,"maxLength":64},"content":{"type":"string","maxLength":65536},"destination_path":{"type":"string","minLength":1,"maxLength":512},"destination_expected_sha256":{"type":"string","minLength":7,"maxLength":64},"replacements":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["old_text","new_text","expected_occurrences"],"properties":{"old_text":{"type":"string","minLength":1,"maxLength":32768},"new_text":{"type":"string","maxLength":32768},"expected_occurrences":{"type":"integer","minimum":1,"maximum":1024}}}},"source_run_id":{"type":"string","minLength":1,"maxLength":256},"source_edit_id":{"type":"string","minLength":1,"maxLength":256}},"oneOf":[{"properties":{"action":{"const":"propose_revert"}},"required":["source_run_id","source_edit_id"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}}]},{"properties":{"action":{"enum":["propose_patch","create","move"]}},"allOf":[{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]}]}`)},
 	{Name: WorkspaceApplyTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
 		Description: "Apply one already operator-approved patch, create, or move proposal using exact hashes and a durable compare-and-swap receipt.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","edit_id","expected_action","expected_original_sha256","expected_proposed_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"edit_id":{"type":"string","minLength":1,"maxLength":256},"expected_action":{"enum":["propose_patch","create","move"]},"expected_original_sha256":{"type":"string","minLength":7,"maxLength":64},"expected_proposed_sha256":{"type":"string","minLength":7,"maxLength":64}}}`)},
@@ -335,6 +335,8 @@ type WorkspaceChangePayload struct {
 	DestinationPath           string                 `json:"destination_path,omitempty"`
 	DestinationExpectedSHA256 string                 `json:"destination_expected_sha256,omitempty"`
 	Replacements              []WorkspaceReplacement `json:"replacements,omitempty"`
+	SourceRunID               string                 `json:"source_run_id,omitempty"`
+	SourceEditID              string                 `json:"source_edit_id,omitempty"`
 }
 
 type WorkspaceApplyPayload struct {
@@ -419,6 +421,21 @@ func NormalizeAgentCodePayload(name ToolName, payload json.RawMessage) (json.Raw
 		if err := decodeStrictAgentCodePayload(payload, &value); err != nil {
 			return nil, err
 		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			return nil, err
+		}
+		for field := range fields {
+			if value.Action == "propose_revert" {
+				switch field {
+				case "version", "action", "path", "expected_sha256", "source_run_id", "source_edit_id":
+				default:
+					return nil, errors.New("workspace revert accepts source identities and expectations only")
+				}
+			} else if field == "source_run_id" || field == "source_edit_id" {
+				return nil, errors.New("workspace source identities require the revert action")
+			}
+		}
 		if err := normalizeWorkspaceChangePayload(&value); err != nil {
 			return nil, err
 		}
@@ -497,21 +514,34 @@ func normalizeWorkspaceChangePayload(value *WorkspaceChangePayload) error {
 		!validAgentCodeDigest(value.ExpectedSHA256, true) {
 		return errors.New("workspace change payload is invalid")
 	}
+	if value.Action != "propose_revert" && (value.SourceRunID != "" || value.SourceEditID != "") {
+		return errors.New("workspace source identities require the revert action")
+	}
 	switch value.Action {
+	case "propose_revert":
+		if !validAgentCodeIdentity(value.SourceRunID) || !validAgentCodeIdentity(value.SourceEditID) ||
+			value.Content != "" || value.DestinationPath != "" || value.DestinationExpectedSHA256 != "" ||
+			len(value.Replacements) != 0 {
+			return errors.New("workspace revert source coordinates are invalid")
+		}
 	case "propose_patch":
 		if value.ExpectedSHA256 == "missing" || value.Content != "" || value.DestinationPath != "" ||
 			value.DestinationExpectedSHA256 != "" || len(value.Replacements) == 0 ||
 			len(value.Replacements) > 64 {
 			return errors.New("workspace patch payload is invalid")
 		}
-		for _, replacement := range value.Replacements {
-			if replacement.OldText == "" || replacement.ExpectedOccurrences <= 0 ||
-				replacement.ExpectedOccurrences > 1024 ||
-				!validAgentCodeContent(replacement.OldText, maxAgentCodePatchRunes, false) ||
-				!validAgentCodeContent(replacement.NewText, maxAgentCodePatchRunes, true) ||
-				containsRedactableAgentCodeText(replacement.OldText) ||
-				containsRedactableAgentCodeText(replacement.NewText) {
-				return errors.New("workspace patch replacement is invalid")
+		for index, replacement := range value.Replacements {
+			if replacement.ExpectedOccurrences <= 0 || replacement.ExpectedOccurrences > 1024 {
+				return fmt.Errorf("workspace patch replacements[%d].expected_occurrences must be an integer from 1 to 1024", index)
+			}
+			if !validAgentCodeContent(replacement.OldText, maxAgentCodePatchRunes, false) {
+				return fmt.Errorf("workspace patch replacements[%d].old_text must be nonempty UTF-8 text of at most %d characters without NUL", index, maxAgentCodePatchRunes)
+			}
+			if !validAgentCodeContent(replacement.NewText, maxAgentCodePatchRunes, true) {
+				return fmt.Errorf("workspace patch replacements[%d].new_text must be UTF-8 text of at most %d characters without NUL; empty text is allowed", index, maxAgentCodePatchRunes)
+			}
+			if containsRedactableAgentCodeText(replacement.OldText) || containsRedactableAgentCodeText(replacement.NewText) {
+				return fmt.Errorf("workspace patch replacements[%d] contains credential-shaped text that cannot be persisted", index)
 			}
 		}
 	case "create":
@@ -592,12 +622,14 @@ func validAgentCodeDigest(value string, allowMissing bool) bool {
 
 type AgentCodeExecutionScope struct {
 	InvocationID         string
+	SupervisorToolCallID string
 	OperationKey         string
 	RunID                string
 	MissionID            string
 	RootAgentID          string
 	SessionID            string
 	WorkspaceID          string
+	SourceWorkspaceID    string
 	WorkspaceRoot        string
 	RootFingerprint      string
 	Surface              domain.ExecutionSurface
@@ -614,11 +646,29 @@ type AgentCodeExecutionScope struct {
 	PolicyDecision       Decision
 }
 
+func (s AgentCodeExecutionScope) ControlWorkspaceID() string {
+	if s.SourceWorkspaceID != "" {
+		return s.SourceWorkspaceID
+	}
+	return s.WorkspaceID
+}
+
+// CheckpointInvocationID identifies the durable Supervisor call whose attempt
+// owns the mutation. InvocationID remains the separate gateway budget charge.
+func (s AgentCodeExecutionScope) CheckpointInvocationID() string {
+	if s.SupervisorToolCallID != "" {
+		return s.SupervisorToolCallID
+	}
+	return s.InvocationID
+}
+
 func (s AgentCodeExecutionScope) Validate() error {
 	if !validAgentCodeIdentity(s.InvocationID) || s.OperationKey == "" ||
 		!validAgentCodeIdentity(s.RunID) || !validAgentCodeIdentity(s.MissionID) ||
 		!validAgentCodeIdentity(s.RootAgentID) || !validAgentCodeIdentity(s.SessionID) ||
 		!validAgentCodeIdentity(s.WorkspaceID) || s.WorkspaceRoot == "" ||
+		(s.SourceWorkspaceID != "" && !validAgentCodeIdentity(s.SourceWorkspaceID)) ||
+		(s.SupervisorToolCallID != "" && !validAgentCodeIdentity(s.SupervisorToolCallID)) ||
 		!validAgentCodeDigest(s.RootFingerprint, false) ||
 		!validAgentCodeDigest(s.CapabilityGeneration, false) ||
 		s.Surface != domain.ExecutionSurfaceCode || s.Role != domain.AgentRoleRoot ||
@@ -661,7 +711,7 @@ func (g *Gateway) invokeAgentCode(ctx context.Context, call ToolCall) (Outcome, 
 		return Outcome{}, err
 	}
 	call.Payload = canonical
-	root, err := g.bindWorkspaceRoot(ctx, call.WorkspaceID, call.WorkspaceRoot)
+	workspaceID, root, err := g.bindAgentCodeWorkspace(ctx, call)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -685,10 +735,11 @@ func (g *Gateway) invokeAgentCode(ctx context.Context, call ToolCall) (Outcome, 
 	if err != nil {
 		return Outcome{}, err
 	}
-	scope := AgentCodeExecutionScope{InvocationID: call.InvocationID,
+	scope := AgentCodeExecutionScope{InvocationID: call.InvocationID, SupervisorToolCallID: call.SupervisorToolCallID,
 		OperationKey: call.OperationKey, RunID: call.RunID, MissionID: call.MissionID,
-		RootAgentID: call.AgentID, SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
-		WorkspaceRoot: root, RootFingerprint: rootFingerprint,
+		RootAgentID: call.AgentID, SessionID: call.SessionID, WorkspaceID: workspaceID,
+		SourceWorkspaceID: call.WorkspaceID,
+		WorkspaceRoot:     root, RootFingerprint: rootFingerprint,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role, Profile: call.Profile,
 		PermissionMode: call.PermissionMode, ModeRevision: call.ModeRevision,
 		PermissionRevision:   call.PermissionRevision,

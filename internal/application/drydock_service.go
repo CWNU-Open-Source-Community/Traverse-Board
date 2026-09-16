@@ -80,7 +80,7 @@ func (s *DrydockService) WithCheckpointService(
 		s.checkpoints.withRunWorkspaceResolver(func(ctx context.Context,
 			runID string,
 		) (session.WorkspaceInfo, bool, error) {
-			workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+			workspace, found, err := readRunFileDrydock(ctx, s.store, runID)
 			if err != nil || !found {
 				return session.WorkspaceInfo{}, false, err
 			}
@@ -95,16 +95,78 @@ func (s *DrydockService) WithCheckpointService(
 	return s
 }
 
-// ReconcileWorkspaceCheckpoints restores interrupted checkpoint transactions
-// with the Run-owned Drydock Workspace resolver installed. The resolver falls
-// back to the ordinary source Workspace for Runs that do not own a Drydock, so
-// one startup pass safely covers both binding kinds.
+// ReconcileWorkspaceCheckpoints restores each transaction in its recorded
+// workspace. Source history keeps its own cursor even after a Run owns a Drydock.
 func (s *DrydockService) ReconcileWorkspaceCheckpoints(ctx context.Context) (int, error) {
 	if s == nil || s.checkpoints == nil {
 		return 0, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock Workspace checkpoint recovery is unavailable")
 	}
-	return s.checkpoints.Reconcile(ctx)
+	source := *s.checkpoints
+	source.runWorkspace = nil
+	return source.reconcile(ctx, func(ctx context.Context, transaction workspacecheckpoint.Transaction) (*WorkspaceCheckpointService, error) {
+		if (transaction.Kind == workspacecheckpoint.TransactionRewind || transaction.Kind == workspacecheckpoint.TransactionUndo) &&
+			transaction.TriggerReceiptID == drydockReceiptID(transaction.OperationKeyDigest) {
+			// This lifecycle owns its physical cursor. A restart must not turn
+			// its unresolved request into a different restore or source cursor.
+			if receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, transaction.OperationKeyDigest); err != nil {
+				return nil, apperror.Normalize(err)
+			} else if found {
+				return nil, s.finishDrydockRestoreJournal(ctx, transaction.OperationKeyDigest, receipt)
+			}
+			return nil, nil
+		}
+		run, err := s.store.GetRun(ctx, transaction.RunID)
+		if err != nil {
+			return nil, err
+		}
+		mission, err := s.store.GetMission(ctx, run.MissionID)
+		if err != nil {
+			return nil, err
+		}
+		if transaction.WorkspaceID == mission.WorkspaceID {
+			return &source, nil
+		}
+		resolved, err := ResolveRunFileWorkspace(ctx, s.checkpoints.store, run, mission, s)
+		if err != nil {
+			return nil, err
+		}
+		if resolved.Drydock == nil || transaction.WorkspaceID != resolved.Workspace.ID {
+			return nil, apperror.New(apperror.CodeConflict,
+				"checkpoint recovery transaction workspace does not match its owner")
+		}
+		// Older Drydock boundaries used the ordinary cursor table. Preserve that
+		// recorded identity when it still points at this transaction; never adopt
+		// a source cursor or a different Drydock boundary into the new file cursor.
+		cursor, found, err := s.checkpoints.store.GetWorkspaceCheckpointRunState(ctx, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		if found && cursor.WorkspaceID == transaction.WorkspaceID &&
+			(cursor.CurrentCheckpointID == transaction.BeforeCheckpointID ||
+				cursor.CurrentCheckpointID == transaction.ExpectedCurrentCheckpointID) {
+			legacy := *s.checkpoints
+			legacy.withRunWorkspaceResolver(func(ctx context.Context, runID string) (session.WorkspaceInfo, bool, error) {
+				if runID != run.ID {
+					return session.WorkspaceInfo{}, false, apperror.New(apperror.CodeConflict,
+						"legacy checkpoint recovery Run changed")
+				}
+				return resolved.Workspace, true, nil
+			})
+			return &legacy, nil
+		}
+		if transaction.Kind == workspacecheckpoint.TransactionFork {
+			return s.checkpoints, nil
+		}
+		if transaction.Kind == workspacecheckpoint.TransactionGitMutation {
+			return s.gitMutationCheckpointService(), nil
+		}
+		if transaction.Kind != workspacecheckpoint.TransactionFileTool {
+			return nil, apperror.New(apperror.CodeConflict,
+				"Drydock checkpoint recovery cursor is unavailable")
+		}
+		return s.FileEditCheckpointService(), nil
+	})
 }
 
 type DrydockCreateRequest struct {
@@ -386,9 +448,12 @@ func (s *DrydockService) Create(ctx context.Context,
 		return result, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock v1 rejects source symlink/reparse and submodule entries instead of following them implicitly")
 	}
-	if existing, found, getErr := s.store.GetDrydockByRun(ctx, binding.run.ID); getErr != nil {
+	if existing, found, getErr := readRunFileDrydock(ctx, s.store, binding.run.ID); getErr != nil {
 		return result, apperror.Normalize(getErr)
 	} else if found {
+		if err := requireCurrentRunFileDrydock(ctx, s.store, binding.run.ID, existing); err != nil {
+			return result, err
+		}
 		if existing.Source.Fingerprint() != source.Identity.Fingerprint() {
 			return result, apperror.New(apperror.CodeConflict,
 				"Drydock source root, branch, or base commit drifted")
@@ -610,7 +675,7 @@ func (s *DrydockService) Use(ctx context.Context,
 			"Drydock is not ready for use")
 	}
 	if observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
 			drydock.OperationUse, digest, request.RequestedBy,
 			drydockUseRequestFingerprint(workspace.ID, request), "unattributed_workspace_change",
 			"Drydock content changed outside its last attributed generation", &observed)
@@ -626,6 +691,7 @@ func (s *DrydockService) Use(ctx context.Context,
 		drydock.OutcomeSucceeded, "",
 		"attested the exact Drydock binding; no process authority was granted",
 		observed.Binding.Fingerprint(), observed.Binding.Fingerprint(), "", "", "")
+	receipt.RunID = request.RunID
 	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
 		beforeGeneration, receipt)
 	if err != nil {
@@ -667,7 +733,7 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 		if !found {
 			continue
 		}
-		workspace, workspaceFound, getErr := s.store.GetDrydockByRun(ctx, request.RunID)
+		workspace, workspaceFound, getErr := readRunFileDrydock(ctx, s.store, request.RunID)
 		if getErr != nil || !workspaceFound {
 			return DrydockCheckpointResult{}, apperror.Normalize(getErr)
 		}
@@ -705,7 +771,7 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 	changed := observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint
 	if (changed || workspace.State == drydock.StateRecoveryRequired) &&
 		!request.ConfirmObservedChanges {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
 			operation, digest, request.RequestedBy,
 			drydockCheckpointRequestFingerprint(workspace.ID, request),
 			"unconfirmed_workspace_change",
@@ -719,7 +785,7 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 	if title == "" {
 		title = "Drydock checkpoint"
 	}
-	checkpoint, err := s.captureCheckpoint(ctx, workspace, receiptID, title,
+	checkpoint, err := s.captureCheckpointForRun(ctx, request.RunID, workspace, receiptID, title,
 		request.RequestedBy, string(operation), workspace.LastCheckpointID)
 	if err != nil {
 		return DrydockCheckpointResult{}, apperror.Normalize(err)
@@ -738,6 +804,7 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 		drydockCheckpointRequestFingerprint(workspace.ID, request),
 		drydock.OutcomeSucceeded, "", "captured tracked, untracked, and raw Git index state",
 		previousBinding, observed.Binding.Fingerprint(), "", checkpoint.ID, "")
+	receipt.RunID = request.RunID
 	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
 		beforeGeneration, receipt)
 	if err != nil {
@@ -788,6 +855,14 @@ func (s *DrydockService) Undo(ctx context.Context,
 	}
 	digest := drydockOperationDigest(drydock.OperationUndo, request.RunID,
 		request.OperationKey)
+	if journal, err := s.drydockRestoreJournal(ctx, digest); err != nil {
+		return DrydockRewindResult{}, err
+	} else if journal != nil {
+		return s.rewind(ctx, DrydockRewindRequest{RunID: request.RunID,
+			TargetCheckpointID: journal.TargetCheckpointID, ExpectedGeneration: request.ExpectedGeneration,
+			OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
+			Confirm: request.Confirm, ConfirmObservedChanges: request.ConfirmObservedChanges}, drydock.OperationUndo)
+	}
 	if receipt, receiptFound, receiptErr := s.store.GetDrydockReceiptByOperation(ctx,
 		digest); receiptErr != nil {
 		return DrydockRewindResult{}, apperror.Normalize(receiptErr)
@@ -814,7 +889,7 @@ func (s *DrydockService) Undo(ctx context.Context,
 			Confirm:                request.Confirm,
 			ConfirmObservedChanges: request.ConfirmObservedChanges}, drydock.OperationUndo)
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, request.RunID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil || !found {
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found for this Run")
@@ -859,7 +934,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		if stored, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest); err != nil {
 			return DrydockRewindResult{}, apperror.Normalize(err)
 		} else if found {
-			workspace, workspaceFound, getErr := s.store.GetDrydockByRun(ctx, request.RunID)
+			workspace, workspaceFound, getErr := readRunFileDrydock(ctx, s.store, request.RunID)
 			if getErr != nil || !workspaceFound {
 				return DrydockRewindResult{}, apperror.Normalize(getErr)
 			}
@@ -868,6 +943,9 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 				request.ExpectedGeneration, fingerprint) {
 				return DrydockRewindResult{}, apperror.New(apperror.CodeConflict,
 					"Drydock rewind operation key was reused for different intent")
+			}
+			if err := s.finishDrydockRestoreJournal(ctx, digest, stored); err != nil {
+				return DrydockRewindResult{}, err
 			}
 			if stored.Outcome != drydock.OutcomeSucceeded || stored.CheckpointID == "" {
 				return DrydockRewindResult{ProtocolVersion: DrydockAPIProtocolVersion,
@@ -897,6 +975,22 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	if err != nil {
 		return DrydockRewindResult{}, err
 	}
+	if err := requireCurrentRunFileDrydock(ctx, s.store, request.RunID, workspace); err != nil {
+		return DrydockRewindResult{}, err
+	}
+	run, err := s.store.GetRun(ctx, request.RunID)
+	if err != nil {
+		return DrydockRewindResult{}, apperror.Normalize(err)
+	}
+	journal, err := s.drydockRestoreJournal(ctx, digest)
+	if err != nil {
+		return DrydockRewindResult{}, err
+	}
+	if journal != nil && (journal.RunID != request.RunID || journal.WorkspaceID != workspace.WorkspaceID ||
+		journal.RequestFingerprint != drydockRewindRequestFingerprint(workspace.ID, operation, request) ||
+		journal.TargetCheckpointID != request.TargetCheckpointID || journal.ExpectedCurrentCheckpointID != workspace.LastCheckpointID || journal.Status.Terminal()) {
+		return DrydockRewindResult{}, apperror.New(apperror.CodeConflict, "Drydock restore request or its physical cursor changed")
+	}
 	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
 		return DrydockRewindResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock is not ready for rewind")
@@ -909,11 +1003,11 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	if err != nil {
 		return DrydockRewindResult{}, apperror.Normalize(err)
 	}
-	if current.Checkpoint.RunID != workspace.RunID ||
-		current.Checkpoint.WorkspaceID != workspace.WorkspaceID ||
-		target.Checkpoint.RunID != workspace.RunID ||
-		target.Checkpoint.WorkspaceID != workspace.WorkspaceID ||
-		current.Checkpoint.BaseCommit != observed.Binding.Head ||
+	if err := errors.Join(s.requireDrydockCheckpoint(ctx, workspace, current.Checkpoint),
+		s.requireDrydockCheckpoint(ctx, workspace, target.Checkpoint)); err != nil {
+		return DrydockRewindResult{}, err
+	}
+	if current.Checkpoint.BaseCommit != observed.Binding.Head ||
 		target.Checkpoint.BaseCommit != current.Checkpoint.BaseCommit ||
 		current.Checkpoint.Branch != workspace.Branch ||
 		target.Checkpoint.Branch != workspace.Branch ||
@@ -921,7 +1015,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		return DrydockRewindResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"target checkpoint is not materializable in this exact Drydock")
 	}
-	if observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint &&
+	if journal == nil && observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint &&
 		!request.ConfirmObservedChanges {
 		if !request.Confirm {
 			return DrydockRewindResult{ProtocolVersion: DrydockAPIProtocolVersion,
@@ -929,7 +1023,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 					Before: current.Checkpoint}, apperror.New(apperror.CodeConflict,
 					"Drydock changed after its last attributed checkpoint")
 		}
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace, operation,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace, operation,
 			digest, request.RequestedBy,
 			drydockRewindRequestFingerprint(workspace.ID, operation, request),
 			"unattributed_workspace_change",
@@ -942,27 +1036,34 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	}
 	observedSnapshot, err := workspacecheckpoint.Capture(ctx,
 		workspacecheckpoint.CaptureRequest{ID: "drydock-rewind-observed-" + digest[:24],
-			RunID: workspace.RunID, MissionID: workspace.MissionID,
-			SessionID: workspace.SessionID, WorkspaceID: workspace.WorkspaceID,
+			RunID: run.ID, MissionID: run.MissionID,
+			SessionID: run.SessionID, WorkspaceID: workspace.WorkspaceID,
 			WorkspaceRoot: workspace.Path, Trigger: workspacecheckpoint.TriggerRewindPreflight,
 			Phase:              workspacecheckpoint.PhasePreflight,
-			TriggerReceiptID:   request.TargetCheckpointID,
+			TriggerReceiptID:   drydockReceiptID(digest),
 			ParentCheckpointID: current.Checkpoint.ID, RequestedBy: request.RequestedBy,
 			CreatedAt: s.now().UTC()})
 	if err != nil {
 		return DrydockRewindResult{}, apperror.Normalize(err)
 	}
 	expectedSnapshot := current
-	if current.Checkpoint.IndexSHA256 != observedSnapshot.Checkpoint.IndexSHA256 &&
-		drydockIndexProjectionEqual(current, observedSnapshot) {
+	if journal != nil {
+		expectedSnapshot, err = s.store.GetWorkspaceCheckpointSnapshot(ctx, journal.BeforeCheckpointID)
+		if err != nil {
+			return DrydockRewindResult{}, apperror.Normalize(err)
+		}
+		if err := s.requireDrydockCheckpoint(ctx, workspace, expectedSnapshot.Checkpoint); err != nil {
+			return DrydockRewindResult{}, err
+		}
+	}
+	if expectedSnapshot.Checkpoint.IndexSHA256 != observedSnapshot.Checkpoint.IndexSHA256 &&
+		drydockIndexProjectionEqual(expectedSnapshot, observedSnapshot) {
 		// Git may rewrite stat-cache-only bytes in an otherwise identical index.
 		// Use the freshly observed raw index as the CAS input only when every
 		// projected path/OID/mode/staged value is still exact.
-		expectedSnapshot.Checkpoint.IndexSHA256 = observedSnapshot.Checkpoint.IndexSHA256
-		expectedSnapshot.Checkpoint.IndexBlobSHA256 = observedSnapshot.Checkpoint.IndexBlobSHA256
-		expectedSnapshot.Blobs = observedSnapshot.Blobs
+		expectedSnapshot = drydockRestoreObservedIndex(expectedSnapshot, observedSnapshot)
 	}
-	preview, previewErr := workspacecheckpoint.PreviewRestore(expectedSnapshot, target,
+	preview, previewErr := workspacecheckpoint.PreviewWorkspaceRestore(expectedSnapshot, target,
 		observedSnapshot)
 	result := DrydockRewindResult{ProtocolVersion: DrydockAPIProtocolVersion,
 		Workspace: workspace, Target: target.Checkpoint, Before: current.Checkpoint,
@@ -977,28 +1078,46 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		}
 		return result, apperror.Normalize(previewErr)
 	}
-	_, applyErr := workspacecheckpoint.ApplyRestore(ctx, workspace.Path, expectedSnapshot,
+	if s.checkpoints == nil {
+		return result, apperror.New(apperror.CodeFailedPrecondition, "Drydock restore requires current workspace restore authority")
+	}
+	binding, err := s.checkpoints.loadBinding(ctx, request.RunID)
+	if err != nil {
+		return result, err
+	}
+	if err := s.checkpoints.requireRestoreAuthority(ctx, binding, request.RequestedBy); err != nil {
+		return result, err
+	}
+	if journal == nil {
+		journal, err = s.prepareDrydockRestore(ctx, request, operation, digest, workspace, observedSnapshot, preview)
+		if err != nil {
+			return result, err
+		}
+	}
+	// The prepared transaction excludes execution, cleanup and successor
+	// publication before the first filesystem write; retries retain it.
+	_, applyErr := workspacecheckpoint.ApplyWorkspaceRestore(ctx, workspace.Path, expectedSnapshot,
 		target, observedSnapshot)
 	if applyErr != nil {
 		post, inspectErr := s.executor.Inspect(ctx, source.Identity.RootPath,
 			source.Binding, workspace.Name)
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace, operation,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace, operation,
 			digest, request.RequestedBy,
 			drydockRewindRequestFingerprint(workspace.ID, operation, request),
 			"rewind_apply_failed",
 			"a partial or conflicted rewind was preserved for operator recovery", &post)
 		result.Workspace, result.Receipt, result.Confirmed = preserved, &receipt, true
-		return result, errors.Join(apperror.Normalize(applyErr), apperror.Normalize(inspectErr),
-			preserveErr)
+		return result, s.preserveDrydockRestore(ctx, digest, receipt, errors.Join(apperror.Normalize(applyErr), apperror.Normalize(inspectErr),
+			preserveErr))
 	}
 	receiptID := drydockReceiptID(digest)
 	afterSnapshot, captureErr := workspacecheckpoint.Capture(ctx,
 		workspacecheckpoint.CaptureRequest{ID: "drydock-checkpoint-" + digest[:32],
-			RunID: workspace.RunID, MissionID: workspace.MissionID,
-			SessionID: workspace.SessionID, WorkspaceID: workspace.WorkspaceID,
+			RunID: run.ID, MissionID: run.MissionID,
+			SessionID: run.SessionID, WorkspaceID: workspace.WorkspaceID,
 			WorkspaceRoot: workspace.Path, Trigger: workspacecheckpoint.TriggerRewindResult,
 			Phase: workspacecheckpoint.PhaseAfter, TriggerReceiptID: receiptID,
-			ParentCheckpointID: current.Checkpoint.ID, RequestedBy: request.RequestedBy,
+			ParentCheckpointID: journal.BeforeCheckpointID, RequestedBy: request.RequestedBy,
 			Title: "Drydock " + string(operation), CreatedAt: s.now().UTC()})
 	if captureErr == nil && (afterSnapshot.Checkpoint.ManifestSHA256 !=
 		target.Checkpoint.ManifestSHA256 || afterSnapshot.Checkpoint.IndexSHA256 !=
@@ -1008,14 +1127,27 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	if captureErr != nil {
 		post, inspectErr := s.executor.Inspect(ctx, source.Identity.RootPath,
 			source.Binding, workspace.Name)
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace, operation,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace, operation,
 			digest, request.RequestedBy,
 			drydockRewindRequestFingerprint(workspace.ID, operation, request),
 			"rewind_verification_failed",
 			"rewind output was preserved because exact checkpoint verification failed", &post)
 		result.Workspace, result.Receipt, result.Confirmed = preserved, &receipt, true
-		return result, errors.Join(apperror.Normalize(captureErr),
-			apperror.Normalize(inspectErr), preserveErr)
+		return result, s.preserveDrydockRestore(ctx, digest, receipt, errors.Join(apperror.Normalize(captureErr),
+			apperror.Normalize(inspectErr), preserveErr))
+	}
+	if storedAfter, getErr := s.store.GetWorkspaceCheckpointSnapshot(ctx, afterSnapshot.Checkpoint.ID); getErr == nil {
+		previous, actual := storedAfter.Checkpoint, afterSnapshot.Checkpoint
+		if previous.RunID != actual.RunID || previous.SessionID != actual.SessionID || previous.MissionID != actual.MissionID ||
+			previous.WorkspaceID != actual.WorkspaceID || previous.TriggerReceiptID != actual.TriggerReceiptID ||
+			previous.ParentCheckpointID != actual.ParentCheckpointID || previous.RootFingerprint != actual.RootFingerprint ||
+			previous.RootPathSHA256 != actual.RootPathSHA256 || previous.BaseCommit != actual.BaseCommit ||
+			previous.Branch != actual.Branch || previous.IndexSHA256 != actual.IndexSHA256 || previous.ManifestSHA256 != actual.ManifestSHA256 {
+			return result, apperror.New(apperror.CodeConflict, "Drydock restore changed after its result was captured")
+		}
+		afterSnapshot = storedAfter
+	} else if apperror.CodeOf(apperror.Normalize(getErr)) != apperror.CodeNotFound {
+		return result, apperror.Normalize(getErr)
 	}
 	afterCheckpoint, _, err := s.store.CreateWorkspaceCheckpoint(ctx, afterSnapshot)
 	if err != nil {
@@ -1025,14 +1157,14 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		workspace.Name)
 	validationErr := s.validateObservation(ctx, workspace, post)
 	if err != nil || validationErr != nil {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace, operation,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace, operation,
 			digest, request.RequestedBy,
 			drydockRewindRequestFingerprint(workspace.ID, operation, request),
 			"rewind_identity_failed",
 			"rewind output was preserved because its root identity could not be reverified", &post)
 		result.Workspace, result.Receipt, result.Confirmed = preserved, &receipt, true
-		return result, errors.Join(apperror.Normalize(err),
-			apperror.Normalize(validationErr), preserveErr)
+		return result, s.preserveDrydockRestore(ctx, digest, receipt, errors.Join(apperror.Normalize(err),
+			apperror.Normalize(validationErr), preserveErr))
 	}
 	beforeGeneration := workspace.Generation
 	previousBinding := workspace.ExpectedBindingFingerprint
@@ -1047,6 +1179,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		drydockRewindRequestFingerprint(workspace.ID, operation, request),
 		drydock.OutcomeSucceeded, "", "restored a reviewed Drydock checkpoint with exact tracked, untracked, and index verification",
 		previousBinding, post.Binding.Fingerprint(), "", afterCheckpoint.ID, "")
+	receipt.RunID = request.RunID
 	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
 		beforeGeneration, receipt)
 	if err != nil {
@@ -1054,7 +1187,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	}
 	result.Workspace, result.After, result.Receipt = workspace, &afterCheckpoint, &receipt
 	result.Confirmed, result.Replayed = true, replayed
-	return result, nil
+	return result, s.finishDrydockRestoreJournal(ctx, digest, receipt)
 }
 
 func drydockRewindRequestFingerprint(workspaceID string, operation drydock.Operation,
@@ -1127,7 +1260,7 @@ func (s *DrydockService) Fork(ctx context.Context,
 	if receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest); err != nil {
 		return DrydockForkResult{}, apperror.Normalize(err)
 	} else if found {
-		workspace, workspaceFound, getErr := s.store.GetDrydockByRun(ctx, request.RunID)
+		workspace, workspaceFound, getErr := readRunFileDrydock(ctx, s.store, request.RunID)
 		if getErr != nil || !workspaceFound {
 			return DrydockForkResult{}, apperror.Normalize(getErr)
 		}
@@ -1146,6 +1279,9 @@ func (s *DrydockService) Fork(ctx context.Context,
 	if err != nil {
 		return DrydockForkResult{}, err
 	}
+	if err := requireCurrentRunFileDrydock(ctx, s.store, request.RunID, workspace); err != nil {
+		return DrydockForkResult{}, err
+	}
 	if workspace.LastCheckpointID != request.ExpectedCurrentCheckpointID ||
 		observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
 		return DrydockForkResult{}, apperror.New(apperror.CodeConflict,
@@ -1156,10 +1292,10 @@ func (s *DrydockService) Fork(ctx context.Context,
 	if err != nil {
 		return DrydockForkResult{}, apperror.Normalize(err)
 	}
-	if target.Checkpoint.RunID != workspace.RunID ||
-		target.Checkpoint.WorkspaceID != workspace.WorkspaceID ||
-		target.Checkpoint.Branch != workspace.Branch ||
-		target.Checkpoint.RecoveryLevel == workspacecheckpoint.RecoveryUnavailable {
+	if err := s.requireDrydockCheckpoint(ctx, workspace, target.Checkpoint); err != nil {
+		return DrydockForkResult{}, err
+	}
+	if target.Checkpoint.RecoveryLevel == workspacecheckpoint.RecoveryUnavailable {
 		return DrydockForkResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"fork checkpoint is not materializable in this exact Drydock")
 	}
@@ -1189,6 +1325,7 @@ func (s *DrydockService) Fork(ctx context.Context,
 		"materialized a checkpoint into a distinct authority-reset Run and branch without changing the source Drydock",
 		observed.Binding.Fingerprint(), after.Binding.Fingerprint(), "",
 		request.TargetCheckpointID, "")
+	receipt.RunID = request.RunID
 	verified, replayed, err := s.store.AdvanceDrydock(ctx, verified,
 		beforeGeneration, receipt)
 	if err != nil {
@@ -1203,8 +1340,15 @@ func (s *DrydockService) Fork(ctx context.Context,
 func (s *DrydockService) forkOwnedCheckpoint(ctx context.Context,
 	workspace drydock.Workspace, request WorkspaceForkRequest,
 ) (WorkspaceForkResult, error) {
+	target, err := s.store.GetWorkspaceCheckpointSnapshot(ctx, request.TargetCheckpointID)
+	if err != nil {
+		return WorkspaceForkResult{}, apperror.Normalize(err)
+	}
+	if err := s.requireDrydockCheckpoint(ctx, workspace, target.Checkpoint); err != nil {
+		return WorkspaceForkResult{}, err
+	}
 	return s.checkpoints.forkFromOwnedCheckpoint(ctx, request,
-		workspacecheckpoint.RunState{RunID: workspace.RunID,
+		workspacecheckpoint.RunState{RunID: request.RunID,
 			WorkspaceID: workspace.WorkspaceID, CurrentCheckpointID: workspace.LastCheckpointID,
 			LastTransactionID: "", UpdatedAt: s.now().UTC()})
 }
@@ -1245,7 +1389,7 @@ func (s *DrydockService) Deliver(ctx context.Context,
 			"Drydock is not ready for delivery")
 	}
 	if observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace,
+		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
 			drydock.OperationDeliver, digest, request.RequestedBy,
 			drydockDeliveryRequestFingerprint(workspace.ID, request),
 			"unattributed_workspace_change",
@@ -1255,7 +1399,7 @@ func (s *DrydockService) Deliver(ctx context.Context,
 				apperror.New(apperror.CodeConflict, "delivery requires a fresh attributed checkpoint"))
 	}
 	receiptID := drydockReceiptID(digest)
-	checkpoint, err := s.captureCheckpoint(ctx, workspace, receiptID,
+	checkpoint, err := s.captureCheckpointForRun(ctx, request.RunID, workspace, receiptID,
 		"Drydock delivery", request.RequestedBy, "deliver", workspace.LastCheckpointID)
 	if err != nil {
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
@@ -1273,7 +1417,7 @@ func (s *DrydockService) Deliver(ctx context.Context,
 		ProtocolVersion:    drydock.DeliveryProtocolVersion,
 		OperationKeySHA256: digest,
 		RequestFingerprint: drydockDeliveryRequestFingerprint(workspace.ID, request),
-		DrydockID:          workspace.ID, RunID: workspace.RunID,
+		DrydockID:          workspace.ID, RunID: request.RunID,
 		Generation:           workspace.Generation + 1,
 		SourceIdentitySHA256: workspace.Source.Fingerprint(),
 		RootFingerprint:      workspace.RootFingerprint, BaseCommit: workspace.BaseCommit,
@@ -1302,6 +1446,7 @@ func (s *DrydockService) Deliver(ctx context.Context,
 		"recorded a review-only Diff proposal without push, force, merge, or source overwrite authority",
 		observed.Binding.Fingerprint(), evidence.Binding.Fingerprint(), "",
 		checkpoint.ID, proposal.ID)
+	receipt.RunID = request.RunID
 	proposal, workspace, replayed, err := s.store.CreateDrydockDelivery(ctx,
 		proposal, workspace, beforeGeneration, receipt)
 	if err != nil {
@@ -1322,6 +1467,12 @@ func drydockDeliveryRequestFingerprint(workspaceID string,
 func (s *DrydockService) Cleanup(ctx context.Context,
 	request DrydockCleanupRequest,
 ) (DrydockCleanupResult, error) {
+	return s.cleanup(ctx, request, s.executor)
+}
+
+func (s *DrydockService) cleanup(ctx context.Context,
+	request DrydockCleanupRequest, executor drydockCleanupExecutor,
+) (result DrydockCleanupResult, err error) {
 	request.RunID = strings.TrimSpace(request.RunID)
 	request.OperationKey = strings.TrimSpace(request.OperationKey)
 	request.RequestedBy = normalizeDrydockActor(request.RequestedBy)
@@ -1332,23 +1483,23 @@ func (s *DrydockService) Cleanup(ctx context.Context,
 	}
 	digest := drydockOperationDigest(drydock.OperationCleanup, request.RunID,
 		request.OperationKey)
-	if receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest); err != nil {
-		return DrydockCleanupResult{}, apperror.Normalize(err)
-	} else if found {
-		workspace, workspaceFound, getErr := s.store.GetDrydockByRun(ctx, request.RunID)
-		if getErr != nil || !workspaceFound {
-			return DrydockCleanupResult{}, apperror.Normalize(getErr)
+	// Another process confirming this exact request can finish while this
+	// caller is inspecting or committing. Return its sealed result, never our
+	// losing locally constructed receipt. Unresolved errors remain unknown.
+	defer func() {
+		if err == nil {
+			return
 		}
-		if receipt.Operation != drydock.OperationCleanup ||
-			!drydockReceiptMatchesRequest(receipt, workspace.ID,
-				request.ExpectedGeneration,
-				drydockCleanupRequestFingerprint(workspace.ID, request)) {
-			return DrydockCleanupResult{}, apperror.New(apperror.CodeConflict,
-				"Drydock cleanup operation key was reused for different intent")
+		result = DrydockCleanupResult{}
+		if replay, found, replayErr := s.replayDrydockCleanup(ctx, request, digest); replayErr == nil && found {
+			result, err = replay, nil
 		}
-		return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-			Workspace: workspace, Receipt: receipt,
-			Preserved: receipt.Outcome == drydock.OutcomePreserved, Replayed: true}, nil
+	}()
+	if replay, found, replayErr := s.replayDrydockCleanup(ctx, request, digest); replayErr != nil || found {
+		return replay, replayErr
+	}
+	if err := s.beginDrydockCleanup(ctx, request, digest); err != nil {
+		return DrydockCleanupResult{}, err
 	}
 	workspace, _, observed, err := s.loadDrydockForCleanup(ctx, request.RunID,
 		request.ExpectedGeneration)
@@ -1360,83 +1511,38 @@ func (s *DrydockService) Cleanup(ctx context.Context,
 			"Drydock is already cleaned")
 	}
 	if !observed.Found && !observed.Present {
-		now := s.now().UTC()
-		beforeGeneration := workspace.Generation
-		workspace.State = drydock.StateCleaned
-		workspace.RecoveryReason = ""
-		workspace.Generation++
-		workspace.UpdatedAt = now
-		workspace.CleanedAt = &now
-		receipt := s.transitionReceipt(workspace, beforeGeneration,
-			drydock.OperationCleanup, digest,
-			drydockCleanupRequestFingerprint(workspace.ID, request),
-			drydock.OutcomeSucceeded, "",
+		return s.completeDrydockCleanup(ctx, request, digest, workspace,
 			"closed an exactly absent Drydock registration after explicit confirmation; no filesystem entry was deleted",
-			workspace.ExpectedBindingFingerprint, "", "", "", "")
-		workspace, replayed, advanceErr := s.store.AdvanceDrydock(ctx, workspace,
-			beforeGeneration, receipt)
-		if advanceErr != nil {
-			return DrydockCleanupResult{}, apperror.Normalize(advanceErr)
-		}
-		return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-			Workspace: workspace, Receipt: receipt, Replayed: replayed}, nil
+			"", "")
+	}
+	if !observed.Present {
+		return s.confirmDrydockCleanupFailure(ctx, request, digest, "", nil)
 	}
 	if workspace.State == drydock.StatePreparing || workspace.State == drydock.StateRecoveryRequired ||
 		!observed.Clean || observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace,
-			drydock.OperationCleanup, digest, request.RequestedBy,
-			drydockCleanupRequestFingerprint(workspace.ID, request),
-			"cleanup_identity_or_content_drift",
-			"cleanup preserved a changed or uncertain Drydock for operator recovery", &observed)
-		return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-			Workspace: preserved, Receipt: receipt, Preserved: true}, preserveErr
+		// Same-key callers share a reservation; another one may already be
+		// removing this directory. A dirty observation cannot establish a
+		// final preserved outcome or release that caller's mutation fence.
+		return DrydockCleanupResult{}, apperror.New(apperror.CodeConflict,
+			"Drydock content or identity changed; removal is not confirmed. Keep the original cleanup request to inspect its outcome")
 	}
-	preview, err := s.executor.PlanRemove(ctx, workspace.Source.RootPath,
+	preview, err := executor.PlanRemove(ctx, workspace.Source.RootPath,
 		workspace.Name, workspace.ManagedWorktreeID)
 	if err != nil || !preview.Executable() {
-		preserved, receipt, preserveErr := s.markRecovery(ctx, workspace,
-			drydock.OperationCleanup, digest, request.RequestedBy,
-			drydockCleanupRequestFingerprint(workspace.ID, request),
-			"cleanup_preflight_blocked", "cleanup preflight could not prove exact ownership",
-			&observed)
-		return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-				Workspace: preserved, Receipt: receipt, Preserved: true},
-			errors.Join(apperror.Normalize(err), preserveErr)
+		return s.confirmDrydockCleanupFailure(ctx, request, digest, "", err)
 	}
-	gitReceipt, err := s.executor.ExecuteRemove(ctx, workspace.Source.RootPath, preview)
+	gitReceipt, err := executor.ExecuteRemove(ctx, workspace.Source.RootPath, preview)
 	receiptErr := gitReceipt.Validate()
 	if err != nil || receiptErr != nil || gitReceipt.Status != gitadvanced.ReceiptSucceeded {
 		gitErr := errors.Join(err, receiptErr)
 		if gitErr == nil {
 			gitErr = errors.New("Git advanced cleanup receipt did not succeed")
 		}
-		preserved, receipt, preserveErr := s.markRecoveryWithGit(ctx, workspace,
-			drydock.OperationCleanup, digest, request.RequestedBy,
-			drydockCleanupRequestFingerprint(workspace.ID, request),
-			"cleanup_git_failed", "Git refused exact non-force Drydock removal", &observed,
-			gitReceipt.ID)
-		return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-				Workspace: preserved, Receipt: receipt, Preserved: true},
-			errors.Join(apperror.Normalize(gitErr), preserveErr)
+		return s.confirmDrydockCleanupFailure(ctx, request, digest, gitReceipt.ID, gitErr)
 	}
-	now := s.now().UTC()
-	beforeGeneration := workspace.Generation
-	workspace.State = drydock.StateCleaned
-	workspace.Generation++
-	workspace.UpdatedAt = now
-	workspace.CleanedAt = &now
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationCleanup,
-		digest, drydockCleanupRequestFingerprint(workspace.ID, request),
-		drydock.OutcomeSucceeded, "",
+	return s.completeDrydockCleanup(ctx, request, digest, workspace,
 		"removed only the exact clean Git worktree; the local branch and source Workspace were retained",
-		observed.Binding.Fingerprint(), observed.Binding.Fingerprint(), gitReceipt.ID, "", "")
-	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
-		beforeGeneration, receipt)
-	if err != nil {
-		return DrydockCleanupResult{}, apperror.Normalize(err)
-	}
-	return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-		Workspace: workspace, Receipt: receipt, Replayed: replayed}, nil
+		observed.Binding.Fingerprint(), gitReceipt.ID)
 }
 
 func drydockCleanupRequestFingerprint(workspaceID string,
@@ -1464,7 +1570,7 @@ func (s *DrydockService) Projection(ctx context.Context, runID string,
 	} else if found {
 		value.Trust = &trust
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, runID)
 	if err != nil || !found {
 		return value, apperror.Normalize(err)
 	}
@@ -1534,6 +1640,14 @@ func (s *DrydockService) GarbageCollect(ctx context.Context, limit int) (Drydock
 			value.Preserved++
 			continue
 		}
+		retained, retainErr := s.threadRetainsDrydock(ctx, workspace)
+		if retainErr != nil {
+			return value, retainErr
+		}
+		if retained {
+			value.Preserved++
+			continue
+		}
 		result, cleanupErr := s.Cleanup(ctx, DrydockCleanupRequest{RunID: workspace.RunID,
 			ExpectedGeneration: workspace.Generation,
 			OperationKey:       "gc-" + workspace.ID + "-" + strconv.FormatInt(workspace.Generation, 10),
@@ -1558,7 +1672,7 @@ func (s *DrydockService) replayUse(ctx context.Context, request DrydockUseReques
 	if err != nil || !found {
 		return DrydockUseResult{}, false, apperror.Normalize(err)
 	}
-	workspace, workspaceFound, err := s.store.GetDrydockByRun(ctx, request.RunID)
+	workspace, workspaceFound, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil || !workspaceFound {
 		return DrydockUseResult{}, true, apperror.Normalize(err)
 	}
@@ -1584,7 +1698,7 @@ func (s *DrydockService) replayDelivery(ctx context.Context,
 	request DrydockDeliveryRequest,
 	receipt drydock.Receipt,
 ) (DrydockDeliveryResult, error) {
-	workspace, found, err := s.store.GetDrydockByRun(ctx, request.RunID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil || !found {
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
 	}
@@ -1629,7 +1743,7 @@ func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
 		return drydock.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, err
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, runID)
 	if err != nil || !found {
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found for this Run")
@@ -1675,7 +1789,7 @@ func (s *DrydockService) loadDrydockForCleanup(ctx context.Context, runID string
 		return drydock.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, err
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+	workspace, found, err := s.cleanupWorkspace(ctx, runID)
 	if err != nil || !found {
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found for this Run")
@@ -1687,6 +1801,9 @@ func (s *DrydockService) loadDrydockForCleanup(ctx context.Context, runID string
 		return workspace, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, apperror.New(apperror.CodeConflict,
 				"Drydock ownership generation changed")
+	}
+	if err := s.requireCurrentDrydockCleanupHolder(ctx, runID, workspace); err != nil {
+		return workspace, repository.DrydockSourceObservation{}, repository.DrydockObservation{}, err
 	}
 	source, err := s.executor.InspectSource(ctx, binding.workspace.ID,
 		binding.workspace.RootPath)
@@ -1766,11 +1883,24 @@ func (s *DrydockService) captureCheckpoint(ctx context.Context,
 	workspace drydock.Workspace, triggerReceiptID, title, requestedBy, phase,
 	parentID string,
 ) (workspacecheckpoint.Checkpoint, error) {
+	return s.captureCheckpointForRun(ctx, workspace.RunID, workspace, triggerReceiptID, title, requestedBy, phase, parentID)
+}
+
+func (s *DrydockService) captureCheckpointForRun(ctx context.Context, runID string,
+	workspace drydock.Workspace, triggerReceiptID, title, requestedBy, phase, parentID string,
+) (workspacecheckpoint.Checkpoint, error) {
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return workspacecheckpoint.Checkpoint{}, apperror.Normalize(err)
+	}
+	if run.MissionID != workspace.MissionID || run.SessionID == "" {
+		return workspacecheckpoint.Checkpoint{}, apperror.New(apperror.CodeConflict, "Checkpoint execution identity does not match its working directory")
+	}
 	digest := runmutation.Fingerprint("drydock-checkpoint.v1", workspace.ID,
 		triggerReceiptID, phase, parentID)
 	snapshot, err := workspacecheckpoint.Capture(ctx, workspacecheckpoint.CaptureRequest{
-		ID: "drydock-checkpoint-" + digest[:32], RunID: workspace.RunID,
-		MissionID: workspace.MissionID, SessionID: workspace.SessionID,
+		ID: "drydock-checkpoint-" + digest[:32], RunID: run.ID,
+		MissionID: workspace.MissionID, SessionID: run.SessionID,
 		WorkspaceID: workspace.WorkspaceID, WorkspaceRoot: workspace.Path,
 		CapabilityGeneration: drydock.Fingerprint("drydock-generation", workspace.ID,
 			strconv.FormatInt(workspace.Generation, 10)),
@@ -1847,15 +1977,15 @@ func (s *DrydockService) failCreate(ctx context.Context, workspace drydock.Works
 		apperror.Normalize(inspectErr), apperror.Normalize(transitionErr))
 }
 
-func (s *DrydockService) markRecovery(ctx context.Context, workspace drydock.Workspace,
+func (s *DrydockService) markRecovery(ctx context.Context, runID string, workspace drydock.Workspace,
 	operation drydock.Operation, digest, requestedBy, requestFingerprint, reason, summary string,
 	observed *repository.DrydockObservation,
 ) (drydock.Workspace, drydock.Receipt, error) {
-	return s.markRecoveryWithGit(ctx, workspace, operation, digest, requestedBy,
+	return s.markRecoveryWithGit(ctx, runID, workspace, operation, digest, requestedBy,
 		requestFingerprint, reason, summary, observed, "")
 }
 
-func (s *DrydockService) markRecoveryWithGit(ctx context.Context,
+func (s *DrydockService) markRecoveryWithGit(ctx context.Context, runID string,
 	workspace drydock.Workspace, operation drydock.Operation, digest, requestedBy,
 	requestFingerprint, reason, summary string, observed *repository.DrydockObservation,
 	gitReceiptID string,
@@ -1891,7 +2021,8 @@ func (s *DrydockService) markRecoveryWithGit(ctx context.Context,
 		requestFingerprint,
 		drydock.OutcomePreserved, reason, summary, bindingBefore, bindingAfter,
 		gitReceiptID, "", "")
-	advanced, _, err := s.store.AdvanceDrydock(ctx, workspace, beforeGeneration, receipt)
+	receipt.RunID = runID
+	advanced, _, err := s.advanceDrydockTransition(ctx, workspace, beforeGeneration, receipt)
 	return advanced, receipt, apperror.Normalize(err)
 }
 
@@ -1900,6 +2031,9 @@ func (s *DrydockService) reconcileOne(ctx context.Context,
 ) (drydock.Workspace, bool, error) {
 	if workspace.State == drydock.StateCleaned || workspace.State == drydock.StateRecoveryRequired {
 		return workspace, false, nil
+	}
+	if skip, err := s.skipTransferredDrydockReconciliation(ctx, workspace); err != nil || skip {
+		return workspace, false, err
 	}
 	binding, err := s.loadRunBinding(ctx, workspace.RunID, true)
 	if err != nil {
@@ -1966,7 +2100,7 @@ func (s *DrydockService) reconcilePreserve(ctx context.Context,
 ) (drydock.Workspace, bool, error) {
 	digest := drydockOperationDigest(drydock.OperationRecover, workspace.RunID,
 		"startup-preserve-"+strconv.FormatInt(workspace.Generation, 10))
-	updated, _, err := s.markRecovery(ctx, workspace, drydock.OperationRecover,
+	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, drydock.OperationRecover,
 		digest, "drydock_reconciler", runmutation.Fingerprint("drydock-reconcile.v1",
 			workspace.ID, strconv.FormatInt(workspace.Generation, 10), reason), reason,
 		"startup recovery preserved a Drydock whose exact ownership could not be proved", nil)
@@ -1978,7 +2112,7 @@ func (s *DrydockService) reconcilePreserveObserved(ctx context.Context,
 ) (drydock.Workspace, bool, error) {
 	digest := drydockOperationDigest(drydock.OperationRecover, workspace.RunID,
 		"startup-preserve-"+strconv.FormatInt(workspace.Generation, 10))
-	updated, _, err := s.markRecovery(ctx, workspace, drydock.OperationRecover,
+	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, drydock.OperationRecover,
 		digest, "drydock_reconciler", runmutation.Fingerprint("drydock-reconcile.v1",
 			workspace.ID, strconv.FormatInt(workspace.Generation, 10), reason), reason,
 		"startup recovery preserved observed content instead of deleting it", &observed)

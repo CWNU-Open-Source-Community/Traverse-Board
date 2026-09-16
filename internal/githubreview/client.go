@@ -40,7 +40,12 @@ func NewClient(resolver tokenResolver, network NetworkScope) (*Client, error) {
 // NewClientForTest redirects both REST and GraphQL to one clean loopback
 // origin. Production constructors cannot be redirected.
 func NewClientForTest(resolver tokenResolver, base string, httpClient *http.Client) (*Client, error) {
-	network := DefaultNetworkScope()
+	return NewClientForTestWithNetwork(resolver, DefaultNetworkScope(), base, httpClient)
+}
+
+// NewClientForTestWithNetwork preserves the reviewed read/write scope while
+// routing a protocol fixture to loopback. It is not used by product wiring.
+func NewClientForTestWithNetwork(resolver tokenResolver, network NetworkScope, base string, httpClient *http.Client) (*Client, error) {
 	client, err := NewClient(resolver, network)
 	if err != nil {
 		return nil, err

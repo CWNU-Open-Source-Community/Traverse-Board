@@ -20,7 +20,6 @@ import (
 const (
 	LocalReadinessProtocolVersion = "local_sandbox_readiness.v1"
 	LocalExecutionProtocolVersion = "local_sandbox_execution.v1"
-	LocalBackendPolicyVersion     = "windows_appcontainer_policy.v1"
 	LocalBackendName              = "windows_appcontainer"
 	LocalReadinessTTL             = 30 * time.Second
 
@@ -54,6 +53,8 @@ const (
 	DefaultLocalDiskWriteLimit int64 = 2 * 1024 * 1024 * 1024
 	MaxLocalDiskWriteLimit     int64 = 8 * 1024 * 1024 * 1024
 	MaxLocalToolchainInputs          = 16
+	LocalAttachmentVirtualRoot       = "/attachments"
+	LocalAttachmentEnvironment       = "TRAVERSE_ATTACHMENTS_DIR"
 )
 
 var (
@@ -214,6 +215,9 @@ type LocalToolchainInput struct {
 	Root        string
 	VirtualRoot string
 	RootSHA256  string
+	// DataOnly reuses the pinned read-only input boundary for sent attachments.
+	// It cannot supply the launch executable or participate in PATH lookup.
+	DataOnly bool
 }
 
 func (i LocalToolchainInput) Validate() error {
@@ -224,7 +228,8 @@ func validateLocalToolchainInput(i LocalToolchainInput) error {
 	if !validLocalIdentity(i.ID) || !validLocalHostRoot(i.Root) ||
 		localHostPathDigest(i.Root) != i.RootSHA256 ||
 		validateLocalVirtualRoot(i.VirtualRoot) != nil || i.VirtualRoot == "/workspace" ||
-		strings.HasPrefix(i.VirtualRoot, "/workspace/") {
+		strings.HasPrefix(i.VirtualRoot, "/workspace/") ||
+		(i.DataOnly && i.VirtualRoot != LocalAttachmentVirtualRoot) {
 		return ErrLocalSandboxBoundary
 	}
 	return nil
@@ -236,6 +241,10 @@ type LocalRunRequest struct {
 	ToolchainInputs   []LocalToolchainInput
 	MaxDiskWriteBytes int64
 	StdinPipe         bool
+	// Instrumentation requests the system lpacInstrumentation capability for
+	// a trusted PowerShell execution profile. It is not a general capability
+	// list, a network grant, or a guarantee of access limited to ETW registration.
+	Instrumentation bool
 }
 
 func (r LocalRunRequest) Validate() error {
@@ -292,7 +301,7 @@ func (r LocalRunRequest) Validate() error {
 				return ErrLocalSandboxBoundary
 			}
 		}
-		if pathWithin(manifest.Command.Executable, input.VirtualRoot) {
+		if !input.DataOnly && pathWithin(manifest.Command.Executable, input.VirtualRoot) {
 			commandCovered = true
 		}
 	}
@@ -355,6 +364,7 @@ func (o LocalCapturedOutput) Validate(maximum int64) error {
 type LocalExecutionResult struct {
 	ProtocolVersion          string              `json:"protocol_version"`
 	PolicyVersion            string              `json:"policy_version"`
+	Instrumentation          bool                `json:"instrumentation"`
 	Backend                  string              `json:"backend"`
 	Status                   string              `json:"status"`
 	ExitCode                 int                 `json:"exit_code"`
@@ -407,6 +417,7 @@ func (r LocalExecutionResult) Validate(request LocalRunRequest) error {
 	manifestFingerprint, _ := normalized.Manifest.Fingerprint()
 	if r.ProtocolVersion != LocalExecutionProtocolVersion ||
 		r.PolicyVersion != LocalBackendPolicyVersion || r.Backend != LocalBackendName ||
+		r.Instrumentation != normalized.Instrumentation ||
 		!validDigest(r.RuntimeGeneration) || r.RuntimeGeneration != normalized.Binding.RuntimeGeneration ||
 		!validDigest(r.BindingFingerprint) ||
 		r.BindingFingerprint != localExecutionBindingFingerprint(normalized) ||
@@ -495,9 +506,13 @@ func localExecutionBindingFingerprint(request LocalRunRequest) string {
 		fmt.Sprint(b.PermissionRevision), b.ProfileSnapshotID, fmt.Sprint(b.ProfileRevision),
 		b.InteractionSnapshotID, fmt.Sprint(b.InteractionRevision), b.CapabilityGeneration,
 		b.LeaseID, fmt.Sprint(b.LeaseGeneration), b.OperationKeySHA256, b.RuntimeGeneration,
-		fmt.Sprint(request.MaxDiskWriteBytes), fmt.Sprint(request.StdinPipe)}
+		fmt.Sprint(request.MaxDiskWriteBytes), fmt.Sprint(request.StdinPipe),
+		LocalBackendPolicyVersion, fmt.Sprint(request.Instrumentation)}
 	for _, input := range request.ToolchainInputs {
 		parts = append(parts, input.ID, input.RootSHA256, input.VirtualRoot)
+		if input.DataOnly {
+			parts = append(parts, "data_only=true")
+		}
 	}
 	return localFingerprint(parts...)
 }
@@ -520,6 +535,7 @@ func localReadinessFingerprint(r LocalReadiness) string {
 
 func localExecutionFingerprint(r LocalExecutionResult) string {
 	return localFingerprint(LocalExecutionProtocolVersion, r.PolicyVersion, r.Backend,
+		fmt.Sprint(r.Instrumentation),
 		r.Status, fmt.Sprint(r.ExitCode), r.Stdout.SHA256,
 		fmt.Sprint(r.Stdout.ObservedBytes), fmt.Sprint(r.Stdout.CapturedBytes),
 		fmt.Sprint(r.Stdout.Truncated), r.Stderr.SHA256,
@@ -604,7 +620,7 @@ func localSensitiveEnvironmentName(value string) bool {
 		return true
 	}
 	switch upper {
-	case "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA",
+	case LocalAttachmentEnvironment, "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA",
 		"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE",
 		"TEMP", "TMP", "PROGRAMDATA", "USERNAME", "USERDOMAIN",
 		"SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_ASKPASS", "GCM_INTERACTIVE",

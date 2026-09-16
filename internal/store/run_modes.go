@@ -58,6 +58,18 @@ func (s *SQLiteStore) GetRunModeOperation(ctx context.Context,
 func (s *SQLiteStore) TransitionRunPhase(ctx context.Context, snapshot domain.RunModeSnapshot,
 	operation domain.RunModeOperation, event events.Event,
 ) (domain.RunModeSnapshot, bool, error) {
+	return s.transitionRunPhase(ctx, "", "", snapshot, operation, event)
+}
+
+func (s *SQLiteStore) TransitionThreadRunPhase(ctx context.Context, threadID, proposalID string,
+	snapshot domain.RunModeSnapshot, operation domain.RunModeOperation, event events.Event,
+) (domain.RunModeSnapshot, bool, error) {
+	return s.transitionRunPhase(ctx, threadID, proposalID, snapshot, operation, event)
+}
+
+func (s *SQLiteStore) transitionRunPhase(ctx context.Context, threadID, proposalID string,
+	snapshot domain.RunModeSnapshot, operation domain.RunModeOperation, event events.Event,
+) (domain.RunModeSnapshot, bool, error) {
 	snapshot.Scope = domain.CloneScope(snapshot.Scope)
 	if err := validateRunModeMutation(snapshot, operation, event); err != nil {
 		return domain.RunModeSnapshot{}, false, err
@@ -91,6 +103,26 @@ func (s *SQLiteStore) TransitionRunPhase(ctx context.Context, snapshot domain.Ru
 	current, err := getCurrentRunModeSnapshot(ctx, tx, snapshot.RunID)
 	if err != nil {
 		return domain.RunModeSnapshot{}, false, err
+	}
+	if threadID != "" {
+		if err := requireUnusedThreadPlanSuccessorKeyTx(ctx, tx, threadID, operation.KeyDigest); err != nil {
+			return domain.RunModeSnapshot{}, false, err
+		}
+		if selected, found, err := getPlanDeliverySelectionOperation(ctx, tx, operation.KeyDigest); err != nil {
+			return domain.RunModeSnapshot{}, false, err
+		} else if found && (proposalID == "" || selected.ProposalID != proposalID || selected.RunID != snapshot.RunID || selected.RequestedBy != operation.RequestedBy) {
+			return domain.RunModeSnapshot{}, false, apperror.New(apperror.CodeConflict, "Thread Plan key belongs to a different confirmation")
+		}
+		if proposalID == "" {
+			if _, selected, err := getPlanDeliverySelectionByRun(ctx, tx, snapshot.RunID); err != nil {
+				return domain.RunModeSnapshot{}, false, err
+			} else if selected {
+				return domain.RunModeSnapshot{}, false, apperror.New(apperror.CodeConflict, "A Plan was selected while changing mode; start the new mode in a Thread successor")
+			}
+		}
+		if err := requireThreadPlanPreparationTx(ctx, tx, threadID, snapshot.RunID, proposalID); err != nil {
+			return domain.RunModeSnapshot{}, false, err
+		}
 	}
 	run, mission, err := getCoordinatorRunTx(ctx, tx, snapshot.RunID)
 	if err != nil {

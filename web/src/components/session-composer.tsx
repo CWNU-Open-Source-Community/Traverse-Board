@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleX, LoaderCircle, Play, SendHorizontal, Square } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
@@ -144,8 +144,10 @@ export function SessionSteeringQueue({ client, sessionID, state, run = null,
   );
 }
 
+export interface SessionComposerStatus { pending: boolean; error: string | null }
+
 export function SessionComposer({ client, sessionID, run, workspaceID = "", contextTokens = 0,
-  contextPartial = false, diagnosticSession = false, phase, onOpenPlugins, publicModelStream }: {
+  contextPartial = false, diagnosticSession = false, phase, onOpenPlugins, publicModelStream, onStatusChange }: {
   client: CyberAgentClient;
   sessionID: string;
   run: RunView | null;
@@ -156,6 +158,7 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   phase?: "plan" | "deliver";
   onOpenPlugins?: () => void;
   publicModelStream?: PublicModelStreamState;
+  onStatusChange?: (status: SessionComposerStatus) => void;
 }) {
   const { t } = useLocale();
   const [content, setContent] = useState("");
@@ -267,6 +270,13 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
     },
   });
 
+  const busy = mutation.isPending || phaseMutation.isPending;
+  const displayedError = mutation.isError && !turnStopped ? errorMessage(mutation.error)
+    : phaseMutation.isError ? errorMessage(phaseMutation.error) : null;
+  useEffect(() => {
+    onStatusChange?.({ pending: busy, error: displayedError });
+  }, [busy, displayedError, onStatusChange]);
+
   if (!client.hasSessionMessages || !run) {
     return null;
   }
@@ -277,7 +287,6 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   const autoExecute = client.hasRunLifecycle && client.hasRunExecution;
   const mutable = run.status === "running" || run.status === "paused" ||
     (autoExecute && run.status === "created");
-  const busy = mutation.isPending || phaseMutation.isPending;
   const ready = mutable && contentBytes > 0 && !contentTooLarge && !busy;
 
   const changePlanMode = (selected: boolean) => {

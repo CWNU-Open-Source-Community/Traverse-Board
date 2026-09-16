@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MessagesSquare } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
@@ -8,8 +8,10 @@ import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { diagnosticVocabulary } from "../lib/vocabulary";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
-import { SessionComposer, SessionSteeringQueue } from "./session-composer";
+import { LifecycleStatusBadge } from "./lifecycle-status";
+import { SessionComposer, SessionSteeringQueue, type SessionComposerStatus } from "./session-composer";
 import { SafeMarkdown } from "./safe-markdown";
+import "./inspector-workspace-navigation.css";
 
 export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   client: CyberAgentClient;
@@ -17,6 +19,12 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   onOpenPlugins?: () => void;
 }) {
   const { t } = useLocale();
+  const [inputOpen, setInputOpen] = useState(false);
+  const [inputStatus, setInputStatus] = useState<SessionComposerStatus>({ pending: false, error: null });
+  const showInputStatus = useCallback((status: SessionComposerStatus) => {
+    setInputStatus(status);
+    if (status.error) setInputOpen(true);
+  }, []);
   const detailQuery = useQuery({
     queryKey: ["session", sessionID],
     queryFn: ({ signal }) => client.get<SessionDetailView>(`/sessions/${encodeURIComponent(sessionID)}`, {}, signal),
@@ -53,15 +61,15 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
         <div>
           <div className="workspace-kicker">{t(...diagnosticVocabulary.session)} {shortID(detail.session.id)}</div>
           <h1>{detail.session.title}</h1>
-          <div className="header-meta"><StatusBadge status={detail.session.status} /><span>{detail.session.route}</span></div>
+          <div className="header-meta"><span>{t("上下文记录状态：", "Context record state: ")}<LifecycleStatusBadge status={detail.session.status} kind="session" /></span><span>{detail.session.route}</span></div>
         </div>
       </header>
       <aside className="inline-warning" role="note">
         <strong>{t("高级诊断 / 兼容视图", "Advanced diagnostics / compatibility view")}</strong>
         {" · "}
         <span>{t(
-          "Session 是当前 Run 独占的上下文与 authority 边界；它不是 Thread，也不会跨 Run 合并。",
-          "A Session is the current Run's local context and authority boundary. It is not a Thread and is never merged across Runs.")}</span>
+          "此页仅展示当前执行的上下文记录；日常续聊请返回对话。",
+          "This view shows context records for this execution. Return to the conversation to continue chatting.")}</span>
       </aside>
       <div className="session-summary">
         <dl className="detail-grid">
@@ -90,10 +98,18 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
       <SessionSteeringQueue client={client} diagnosticSession sessionID={sessionID}
         run={boundRun}
         state={runQuery.data?.operator_steering ?? null} />
-      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)} diagnosticSession
+      {boundRun && <div className="inspector-session-run-state" role="status"><span>{t("绑定执行记录状态", "Bound execution record state")}</span>
+        {runQuery.isError ? <span>{t("状态暂不可用，无法刷新绑定运行", "State temporarily unavailable; could not refresh the bound Run")}</span>
+          : <LifecycleStatusBadge status={boundRun.status} />}</div>}
+      {boundRun && client.hasSessionMessages && <details className="inspector-workspace-input" open={inputOpen}
+        onToggle={(event) => setInputOpen(event.currentTarget.open)}><summary><span>{t("向此会话补充输入（高级）", "Add input to this Session (advanced)")}</span>
+          <span role="status">{inputStatus.pending ? t(" · 输入请求处理中", " · Input in progress") : inputStatus.error ? t(" · 输入未完成，请查看原因", " · Input needs attention") : ""}</span></summary>
+        <p>{t("这里的输入仅提交给此会话绑定的运行，不会自动承接整个任务。日常续聊请返回对话；发送仍受当前运行状态与权限限制。", "Input here belongs only to this Session's bound Run; it does not continue the whole task. Return to the conversation for ordinary follow-up. Existing Run state and permission checks still apply.")}</p>
+      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)} diagnosticSession onStatusChange={showInputStatus}
         contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
         phase={runQuery.data?.mode.phase} run={boundRun} sessionID={sessionID}
         workspaceID={detail.session.workspace_id ?? ""} />
+      </details>}
     </div>
   );
 }

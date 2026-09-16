@@ -38,10 +38,12 @@ type Summary struct {
 }
 
 type Result struct {
-	Compacted       bool
-	Summary         Summary
-	Preserved       []Message
-	RemovedMessages int
+	Compacted                bool
+	Summary                  Summary
+	Preserved                []Message
+	RemovedMessages          int
+	Generated                bool
+	GenerationFallbackReason string
 }
 
 type Config struct {
@@ -57,9 +59,12 @@ type SummaryStore interface {
 }
 
 type Manager struct {
-	store              SummaryStore
-	config             Config
-	beforeCompactGuard func(context.Context, string, string, int, int) error
+	store                  SummaryStore
+	config                 Config
+	beforeCompactGuard     func(context.Context, string, string, int, int) error
+	strategy               SummaryStrategy
+	generator              SummaryGenerator
+	generationSourceSHA256 string
 }
 
 func NewManager(store SummaryStore, config Config) *Manager {
@@ -83,7 +88,7 @@ func DefaultConfig() Config {
 		MaxMessagesBeforeCompact: 8,
 		PreserveRecentMessages:   4,
 		MaxSummaryChars:          MaxHandoffMemoryChars,
-		MaxLineChars:             220,
+		MaxLineChars:             MaxHandoffRecordChars,
 	}
 }
 
@@ -123,6 +128,38 @@ func (m *Manager) MaybeCompact(ctx context.Context, taskID string, workspaceID s
 }
 
 func (m *Manager) Compact(ctx context.Context, taskID string, workspaceID string, messages []Message) (Result, error) {
+	var previous Summary
+	var hasPrevious bool
+	var err error
+	if m.store != nil {
+		previous, hasPrevious, err = m.store.LatestContextSummary(ctx, taskID)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	result, err := m.PrepareCandidate(ctx, taskID, workspaceID, messages, previous, hasPrevious)
+	if err != nil {
+		return Result{}, err
+	}
+	// A repeated source high-water reuses its immutable summary.
+	if m.store != nil && result.Summary.ID == 0 {
+		result.Summary, err = m.store.SaveContextSummary(ctx, result.Summary)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	return result, nil
+}
+
+// PrepareCandidate computes a bounded summary without reading or writing the
+// store. Callers that publish it later must revalidate the source snapshot and
+// previous summary before atomically saving it and marking compacted messages.
+func (m *Manager) PrepareCandidate(ctx context.Context, taskID string, workspaceID string,
+	messages []Message, previous Summary, hasPrevious bool,
+) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	if strings.TrimSpace(taskID) == "" {
 		return Result{}, errors.New("task id is required")
 	}
@@ -148,25 +185,18 @@ func (m *Manager) Compact(ctx context.Context, taskID string, workspaceID string
 	preserved := redactMessages(messages[removeCount:])
 
 	workspaceID = strings.TrimSpace(workspaceID)
-	var previous Summary
-	var hasPrevious bool
-	var err error
-	if m.store != nil {
-		previous, hasPrevious, err = m.store.LatestContextSummary(ctx, taskID)
-		if err != nil {
-			return Result{}, err
+	if hasPrevious {
+		if err := ValidateStoredSummary(previous); err != nil {
+			return Result{}, fmt.Errorf("load previous handoff summary: %w", err)
 		}
-		if hasPrevious {
-			if err := ValidateStoredSummary(previous); err != nil {
-				return Result{}, fmt.Errorf("load previous handoff summary: %w", err)
-			}
-			if previous.WorkspaceID != workspaceID {
-				return Result{}, errors.New("previous handoff summary workspace does not match")
-			}
+		if previous.TaskID != taskID || previous.WorkspaceID != workspaceID {
+			return Result{}, errors.New("previous handoff summary task or workspace does not match")
 		}
+	} else {
+		previous = Summary{}
 	}
-	content, compactedCount, newlyCompacted, err := buildHandoffMemory(taskID, workspaceID, previous,
-		hasPrevious, older, len(preserved), m.config)
+	content, compactedCount, newlyCompacted, err := buildHandoffMemory(ctx, taskID, workspaceID, previous,
+		hasPrevious, older, len(preserved), m.config, m.strategy)
 	if err != nil {
 		return Result{}, err
 	}
@@ -189,13 +219,23 @@ func (m *Manager) Compact(ctx context.Context, taskID string, workspaceID string
 		TokenEstimate:         EstimateTokens(content),
 		CreatedAt:             time.Now().UTC(),
 	}
-
-	if m.store != nil {
-		saved, err := m.store.SaveContextSummary(ctx, summary)
-		if err != nil {
-			return Result{}, err
+	generated, generationFallback := false, ""
+	if m.generator != nil {
+		candidate, generationErr := m.generateHandoff(ctx, taskID, workspaceID, older, previous, hasPrevious)
+		if generationErr == nil {
+			summary, generationErr = applyGeneratedHandoff(summary, candidate, m.config.MaxSummaryChars, m.strategy)
+			generated = generationErr == nil
 		}
-		summary = saved
+		if generationErr != nil {
+			if summaryGenerationMustAbort(generationErr) {
+				return Result{}, generationErr
+			}
+			generationFallback = excerptHandoffContent(redact.String(generationErr.Error()), 256)
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
 	}
 
 	return Result{
@@ -203,6 +243,7 @@ func (m *Manager) Compact(ctx context.Context, taskID string, workspaceID string
 		Summary:         summary,
 		Preserved:       preserved,
 		RemovedMessages: removeCount,
+		Generated:       generated, GenerationFallbackReason: generationFallback,
 	}, nil
 }
 

@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 )
 
 const (
@@ -20,6 +23,8 @@ type PlanDeliveryController interface {
 		application.ControlPlanDirectionResult, error)
 	EnterDelivery(context.Context, application.ControlPlanDeliveryTransitionRequest) (
 		application.ControlPlanDeliveryTransitionResult, error)
+	TransitionWorkItem(context.Context, application.ControlPlanDeliveryWorkItemRequest) (application.ControlPlanDeliveryWorkItemResult, error)
+	RecordCheckpoint(context.Context, application.ControlPlanDeliveryCheckpointRequest) (application.ControlPlanDeliveryCheckpointResult, error)
 }
 
 type PlanModeTransitionControlRequestView struct {
@@ -39,9 +44,10 @@ type PlanModeTransitionControlView struct {
 }
 
 type PlanDirectionControlRequestView struct {
-	Version    string `json:"version"`
-	ProposalID string `json:"proposal_id"`
-	Direction  int    `json:"direction"`
+	Version          string `json:"version"`
+	ProposalID       string `json:"proposal_id"`
+	Direction        int    `json:"direction"`
+	ManualAcceptance string `json:"manual_acceptance,omitempty"`
 }
 
 type PlanDirectionControlView struct {
@@ -50,6 +56,7 @@ type PlanDirectionControlView struct {
 	ProposalID       string `json:"proposal_id"`
 	SelectionID      string `json:"selection_id"`
 	Direction        int    `json:"direction"`
+	ManualAcceptance string `json:"manual_acceptance"`
 	WorkItemCount    int    `json:"work_item_count"`
 	NoteID           string `json:"note_id"`
 	Replayed         bool   `json:"replayed"`
@@ -155,11 +162,21 @@ func (a *API) servePlanDirectionControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument, "Plan direction control is invalid"), 0)
+		return
+	}
+	if _, present := fields["manual_acceptance"]; present && view.ManualAcceptance == "" {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument, "manual_acceptance must be required or on_demand when supplied"), 0)
+		return
+	}
 	result, err := a.planDeliveryController.SelectDirection(request.Context(),
 		application.ControlPlanDirectionRequest{
 			Version: view.Version, RunID: runID, ProposalID: view.ProposalID,
 			Direction: view.Direction, OperationKey: operationKey,
-			RequestedBy: "http_plan_operator",
+			ManualAcceptance: domain.PlanDeliveryManualAcceptance(view.ManualAcceptance),
+			RequestedBy:      "http_plan_operator",
 		})
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
@@ -169,7 +186,8 @@ func (a *API) servePlanDirectionControl(writer http.ResponseWriter,
 		Version: application.PlanDeliveryControlProtocolVersion, RunID: result.Selection.RunID,
 		ProposalID: result.Selection.ProposalID, SelectionID: result.Selection.ID,
 		Direction: result.Selection.DirectionOrdinal, WorkItemCount: len(result.WorkItems),
-		NoteID: result.Selection.NoteID, Replayed: result.Replayed,
+		ManualAcceptance: string(result.Selection.EffectiveManualAcceptance()),
+		NoteID:           result.Selection.NoteID, Replayed: result.Replayed,
 	}, nil, http.StatusAccepted)
 }
 

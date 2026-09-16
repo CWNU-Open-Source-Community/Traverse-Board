@@ -628,6 +628,13 @@ func TestControlPlaneSeparatesRunCreationFromExistingRunControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer plane.Close()
+	// Native import remains Go-picker-owned even when Run creation and its
+	// control token are available. The Web path-input route is not composed.
+	webImport := desktopControlRequest(plane.Handler(), http.MethodPost,
+		httpapi.WorkspaceImportPath, "", `{"version":"workspace_import.v1","directory_path":"ignored","confirmed":true}`)
+	if webImport.Code != http.StatusNotFound {
+		t.Fatalf("native control plane exposed Web path input: %d %s", webImport.Code, webImport.Body.String())
+	}
 	workspace, err := plane.RegisterWorkspaceDirectory(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)

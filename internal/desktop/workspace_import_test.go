@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,39 @@ func TestDesktopWorkspaceImportCancellationCreatesNothing(t *testing.T) {
 	if result.Status != WorkspaceImportCancelled || result.Workspace != nil ||
 		registrar.selectedPath != "" {
 		t.Fatalf("unexpected cancelled import: %#v registrar=%#v", result, registrar)
+	}
+}
+
+func TestDesktopWorkspaceImportProjectsRegisteredLongNameWithoutChangingStoredIdentity(t *testing.T) {
+	home := t.TempDir()
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(home, "import.db"), HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plane.Close()
+	original, err := plane.workspaceManager.Init(t.Context(), strings.Repeat("a", 140))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := newWorkspaceImportBridge(t, testWorkspaceDirectoryPicker{path: original.RootPath}, plane)
+	for i := 0; i < 2; i++ {
+		result, err := bridge.ImportWorkspace()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Workspace == nil || result.Workspace.ID != original.ID ||
+			result.Workspace.Name != strings.Repeat("a", 125)+"..." ||
+			!result.Workspace.CreatedAt.Equal(original.CreatedAt) {
+			t.Fatalf("existing import did not pass the native projection boundary: %#v", result)
+		}
+		stored, err := plane.stateStore.GetWorkspaceByID(t.Context(), original.ID)
+		if err != nil || stored.ID != original.ID || stored.Name != original.Name ||
+			stored.RootPath != original.RootPath || !stored.CreatedAt.Equal(original.CreatedAt) {
+			t.Fatalf("native projection rewrote registration: %#v %v", stored, err)
+		}
 	}
 }
 

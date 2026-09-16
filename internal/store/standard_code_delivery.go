@@ -132,6 +132,17 @@ func (s *SQLiteStore) GetLatestStandardCodeDelivery(ctx context.Context,
 	return value, err == nil, err
 }
 
+func (s *SQLiteStore) GetStandardCodeDeliveryByOperation(ctx context.Context,
+	digest string,
+) (standardcodedelivery.Report, bool, error) {
+	digest = strings.TrimSpace(digest)
+	if !validStoreDigest(digest) {
+		return standardcodedelivery.Report{}, false, apperror.New(
+			apperror.CodeInvalidArgument, "Standard Code delivery operation digest is invalid")
+	}
+	return getStandardCodeDeliveryByOperation(ctx, s.db, digest)
+}
+
 func getStandardCodeDeliveryByOperation(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, digest string) (standardcodedelivery.Report, bool, error) {

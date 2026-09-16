@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -184,18 +186,26 @@ func (p *fakeSearchProvider) Search(_ context.Context, _ string, _ int,
 }
 
 func TestServiceSurfacesOnlyStableProviderNativeSearchFailureReason(t *testing.T) {
-	provider := &fakeSearchProvider{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
-	service := NewService(newMemoryWebStore(), provider, &fakeFetchBackend{})
-	scope := bindSearchProvider(t, service, ExecutionScope{RunID: "run-stable-search-error",
-		MissionID: "mission-stable-search-error", WorkspaceID: "workspace-stable-search-error",
-		ModelRoute: "provider/model", Authority: NetworkAuthority{Mode: "allowlist",
-			AllowedTargets: []string{"search.example.com"}}})
-	_, err := service.Search(t.Context(), scope, SearchRequest{Query: "test", Limit: 1},
-		"stable-search-error")
-	if apperror.CodeOf(err) != apperror.CodeUnavailable ||
-		!strings.Contains(err.Error(), "("+NativeSearchReasonResponseInvalid+")") ||
-		strings.Contains(err.Error(), "provider_native_search_unavailable") {
-		t.Fatalf("stable provider-native search reason was not surfaced safely: %v", err)
+	for _, reason := range []string{NativeSearchReasonResponseInvalid,
+		NativeSearchReasonSearchNotPerformed, NativeSearchReasonResponseIncomplete, "untrusted_reason_canary"} {
+		t.Run(reason, func(t *testing.T) {
+			provider := &fakeSearchProvider{err: nativeSearchError(reason)}
+			service := NewService(newMemoryWebStore(), provider, &fakeFetchBackend{})
+			scope := bindSearchProvider(t, service, ExecutionScope{RunID: "run-stable-search-error",
+				MissionID: "mission-stable-search-error", WorkspaceID: "workspace-stable-search-error",
+				ModelRoute: "provider/model", Authority: NetworkAuthority{Mode: "allowlist",
+					AllowedTargets: []string{"search.example.com"}}})
+			_, err := service.Search(t.Context(), scope, SearchRequest{Query: "test", Limit: 1},
+				"stable-search-error")
+			want := "web search provider request failed"
+			if reason != "untrusted_reason_canary" {
+				want += " (" + reason + ")"
+			}
+			want += "; no fallback provider was attempted"
+			if apperror.CodeOf(err) != apperror.CodeUnavailable || err.Error() != want {
+				t.Fatalf("stable provider-native search reason was not surfaced safely: %v", err)
+			}
+		})
 	}
 }
 
@@ -701,5 +711,86 @@ func TestStoredOperationReplayRejectsInvalidEmbeddedBinding(t *testing.T) {
 		FetchRequest{URL: "https://docs.example.com/report"}, "corrupt-replay")
 	if apperror.CodeOf(err) != apperror.CodeInternal {
 		t.Fatalf("invalid replay code=%s err=%v", apperror.CodeOf(err), err)
+	}
+}
+
+func TestServiceClassifiesPlainSearchProviderFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		providerErr error
+		wantMessage string
+	}{
+		{name: "proxy connect failure",
+			providerErr: errors.New(
+				"request public web target: connect configured web proxy failed"),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonUnreachable + "); no fallback provider was attempted"},
+		{name: "connection refused",
+			providerErr: errors.New(
+				"request public web target: dial tcp 93.184.216.34:443: connect: connection refused"),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonUnreachable + "); no fallback provider was attempted"},
+		{name: "dns timeout",
+			providerErr: fmt.Errorf("resolve web target: %w",
+				&net.DNSError{Err: "secret-canary-dns-detail", Name: "search.example.com",
+					IsTimeout: true}),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonUnreachable + "); no fallback provider was attempted"},
+		{name: "challenge page",
+			providerErr: errors.New("web search requires an access challenge"),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonNoUsableResults + "); no fallback provider was attempted"},
+		{name: "provider http status",
+			providerErr: errors.New("web search provider returned HTTP 503"),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonNoUsableResults + "); no fallback provider was attempted"},
+		{name: "empty result page",
+			providerErr: errors.New("web search page contains no usable public HTTPS results"),
+			wantMessage: "web search provider request failed (" +
+				SearchFailureReasonNoUsableResults + "); no fallback provider was attempted"},
+		{name: "run authority block keeps the generic message",
+			providerErr: errors.New(
+				"web request is outside Run authority: search.example.com secret-canary"),
+			wantMessage: "web search provider request failed; no fallback provider was attempted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(newMemoryWebStore(),
+				&fakeSearchProvider{err: tc.providerErr}, &fakeFetchBackend{})
+			scope := bindSearchProvider(t, service, ExecutionScope{
+				RunID:       "run-classified-search-error",
+				MissionID:   "mission-classified-search-error",
+				WorkspaceID: "workspace-classified-search-error",
+				ModelRoute:  "provider/model",
+				Authority: NetworkAuthority{Mode: "allowlist",
+					AllowedTargets: []string{"search.example.com"}}})
+			_, err := service.Search(t.Context(), scope,
+				SearchRequest{Query: "test", Limit: 1}, "classified-search-error")
+			if apperror.CodeOf(err) != apperror.CodeUnavailable || err.Error() != tc.wantMessage {
+				t.Fatalf("classified search failure message: %v want %s", err, tc.wantMessage)
+			}
+			if strings.Contains(err.Error(), "secret-canary") {
+				t.Fatalf("provider error detail leaked into the durable message: %v", err)
+			}
+		})
+	}
+}
+
+func TestClassifySearchProviderFailureLayersTransportFromNoResults(t *testing.T) {
+	if reason := ClassifySearchProviderFailure(
+		fmt.Errorf("request public web target: %w", context.DeadlineExceeded)); reason != SearchFailureReasonUnreachable {
+		t.Fatalf("deadline exceeded classified as %q", reason)
+	}
+	// A truncated or unparseable provider body is a response problem, never a
+	// transport outage, even when its decoder error mentions EOF.
+	if reason := ClassifySearchProviderFailure(errors.New(
+		"decode web search provider response: unexpected EOF")); reason != SearchFailureReasonNoUsableResults {
+		t.Fatalf("unparseable provider body classified as %q", reason)
+	}
+	if reason := ClassifySearchProviderFailure(errors.New(
+		"web target DNS resolved to a non-public address")); reason != "" {
+		t.Fatalf("policy guard classified as %q", reason)
+	}
+	if reason := ClassifySearchProviderFailure(nil); reason != "" {
+		t.Fatalf("nil error classified as %q", reason)
 	}
 }

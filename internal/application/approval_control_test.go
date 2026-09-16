@@ -127,6 +127,49 @@ func TestApprovalControlRechecksPolicyAndCannotOverridePermanentDenial(t *testin
 	}
 }
 
+type driftedApprovalToolStore struct {
+	application.ApprovalControlStore
+}
+
+func (s driftedApprovalToolStore) GetToolRun(ctx context.Context, id string) (toolrun.ToolRun, error) {
+	tool, err := s.ApprovalControlStore.GetToolRun(ctx, id)
+	tool.Command = "echo different proposal"
+	return tool, err
+}
+
+func TestApprovalControlRejectsChangedCommandBeforeApproval(t *testing.T) {
+	st, run, gateway := prepareApprovalControlFixture(t)
+	outcome, err := gateway.Invoke(t.Context(), toolgateway.ToolCall{
+		Name: toolgateway.ShellTool, Arguments: map[string]string{"command": "echo original proposal"},
+		RunID: run.ID, SessionID: run.SessionID, WorkspaceID: "workspace-approval-control",
+		RequestedBy: "approval_control_test",
+	})
+	if err != nil || outcome.Proposal == nil {
+		t.Fatalf("proposal=%#v err=%v", outcome, err)
+	}
+	record, err := st.GetApprovalByProposal(t.Context(), outcome.Proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewApprovalControlService(driftedApprovalToolStore{st}, gateway, policy.NewDefaultChecker())
+	_, err = service.Decide(t.Context(), application.DecideApprovalControlRequest{
+		Version: application.ApprovalControlProtocolVersion, RunID: run.ID,
+		ApprovalID: record.ID, Action: application.ApprovalControlApproveOnce,
+		OperationKey: "approval-command-drift-0001", ReviewedBy: "desktop_operator",
+	})
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("err=%v", err)
+	}
+	unchanged, err := st.GetApproval(t.Context(), record.ID)
+	if err != nil || unchanged.Status != approval.StatusPending {
+		t.Fatalf("approval=%#v err=%v", unchanged, err)
+	}
+	tool, err := st.GetToolRun(t.Context(), record.ProposalID)
+	if err != nil || tool.Status != toolrun.StatusProposed || tool.Stdout != "" {
+		t.Fatalf("tool=%#v err=%v", tool, err)
+	}
+}
+
 func prepareApprovalControlFixture(t *testing.T) (*store.SQLiteStore, domain.Run, *toolgateway.Gateway) {
 	t.Helper()
 	ctx := context.Background()

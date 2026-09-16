@@ -260,27 +260,35 @@ func writeDevToolsActivePort(t *testing.T, profilePath string, port int,
 }
 
 type scriptedCDPServer struct {
-	listener            net.Listener
-	server              *http.Server
-	port                int
-	path                string
-	url                 string
-	png                 []byte
-	mu                  sync.Mutex
-	methods             []string
-	selectorQueries     map[string]int
-	outerHTML           string
-	outerSequence       []string
-	outerCalls          int
-	loaderID            string
-	elementNodeName     string
-	elementAttrs        []string
-	backendNodeID       int64
-	mutateLoaderOnInput bool
-	blockMethod         string
-	blockEntered        chan struct{}
-	blockRelease        <-chan struct{}
-	blockEnteredOnce    sync.Once
+	listener               net.Listener
+	server                 *http.Server
+	port                   int
+	path                   string
+	url                    string
+	png                    []byte
+	mu                     sync.Mutex
+	methods                []string
+	navigationURLs         []string
+	selectorQueries        map[string]int
+	outerHTML              string
+	outerSequence          []string
+	outerCalls             int
+	loaderID               string
+	elementNodeName        string
+	elementAttrs           []string
+	elementAttrsBySelector map[string][]string
+	lastSelector           string
+	backendNodeID          int64
+	rootBackendNodeID      int64
+	rotateDOMNodeIDs       bool
+	documentCalls          int64
+	mutateLoaderOnInput    bool
+	mutateHTMLOnInput      string
+	mutateBackendOnInput   bool
+	blockMethod            string
+	blockEntered           chan struct{}
+	blockRelease           <-chan struct{}
+	blockEnteredOnce       sync.Once
 }
 
 func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
@@ -293,7 +301,7 @@ func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
 		url: allowedURL, png: restrictedTestPNG(), selectorQueries: make(map[string]int),
 		outerHTML: `<html><main>token=abcdefghijklmnopqrstuvwxyz1234567890</main></html>`,
 		loaderID:  "loader-test", elementNodeName: "INPUT",
-		elementAttrs: []string{"id", "search", "type", "text"}, backendNodeID: 70}
+		elementAttrs: []string{"id", "search", "type", "text"}, backendNodeID: 70, rootBackendNodeID: 100}
 	server.port = listener.Addr().(*net.TCPAddr).Port
 	mux := http.NewServeMux()
 	mux.HandleFunc(server.path, server.serveWebSocket)
@@ -369,6 +377,13 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 			writeCDPResult(connection, command.ID,
 				map[string]any{"sessionId": "session-test"})
 		case "Page.navigate":
+			var params struct {
+				URL string `json:"url"`
+			}
+			_ = json.Unmarshal(command.Params, &params)
+			server.mu.Lock()
+			server.navigationURLs = append(server.navigationURLs, params.URL)
+			server.mu.Unlock()
 			pendingNavigationID = command.ID
 			navigationStage = 1
 			writeCDPEvent(connection, "session-test", "Fetch.requestPaused", map[string]any{
@@ -405,8 +420,16 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 				pendingNavigationID = 0
 			}
 		case "DOM.getDocument":
+			server.mu.Lock()
+			server.documentCalls++
+			rootID := int64(1)
+			if server.rotateDOMNodeIDs {
+				rootID = server.documentCalls * 100
+			}
+			rootBackendID := server.rootBackendNodeID
+			server.mu.Unlock()
 			writeCDPResult(connection, command.ID, map[string]any{"root": map[string]any{
-				"nodeId": 1, "nodeName": "#document", "childNodeCount": 2,
+				"nodeId": rootID, "backendNodeId": rootBackendID, "nodeName": "#document", "childNodeCount": 2,
 				"documentURL": server.url,
 			}})
 		case "Page.getFrameTree":
@@ -443,12 +466,17 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 			_ = json.Unmarshal(command.Params, &params)
 			server.mu.Lock()
 			server.selectorQueries[params.Selector]++
+			server.lastSelector = params.Selector
 			queryCount := server.selectorQueries[params.Selector]
+			foundNodeID := int64(7)
+			if server.rotateDOMNodeIDs {
+				foundNodeID += server.documentCalls * 100
+			}
 			server.mu.Unlock()
-			nodeID := 0
+			nodeID := int64(0)
 			if params.Selector != "#absent" &&
 				(params.Selector != "#eventual" || queryCount >= 3) {
-				nodeID = 7
+				nodeID = foundNodeID
 			}
 			writeCDPResult(connection, command.ID, map[string]any{"nodeId": nodeID})
 		case "DOM.getBoxModel":
@@ -466,16 +494,47 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 				"outerHTML": outerHTML,
 			})
 		case "DOM.describeNode":
+			var params struct {
+				NodeID int64 `json:"nodeId"`
+			}
+			_ = json.Unmarshal(command.Params, &params)
 			server.mu.Lock()
+			stale := server.rotateDOMNodeIDs && params.NodeID != server.documentCalls*100+7
 			nodeName := server.elementNodeName
 			attributes := append([]string(nil), server.elementAttrs...)
+			if selected, ok := server.elementAttrsBySelector[server.lastSelector]; ok {
+				attributes = append([]string(nil), selected...)
+			}
 			backendNodeID := server.backendNodeID
 			server.mu.Unlock()
+			if stale {
+				_ = connection.WriteJSON(map[string]any{"id": command.ID, "error": map[string]any{"code": -32000, "message": "No node with given id found"}})
+				continue
+			}
 			writeCDPResult(connection, command.ID, map[string]any{"node": map[string]any{
 				"nodeId": 7, "backendNodeId": backendNodeID, "nodeName": nodeName,
 				"attributes": attributes}})
+		case "DOM.focus":
+			var params struct {
+				NodeID int64 `json:"nodeId"`
+			}
+			_ = json.Unmarshal(command.Params, &params)
+			server.mu.Lock()
+			stale := server.rotateDOMNodeIDs && params.NodeID != server.documentCalls*100+7
+			server.mu.Unlock()
+			if stale {
+				_ = connection.WriteJSON(map[string]any{"id": command.ID, "error": map[string]any{"code": -32000, "message": "No node with given id found"}})
+				continue
+			}
+			writeCDPResult(connection, command.ID, map[string]any{})
 		case "Input.insertText":
 			server.mu.Lock()
+			if server.mutateHTMLOnInput != "" {
+				server.outerHTML = server.mutateHTMLOnInput
+			}
+			if server.mutateBackendOnInput {
+				server.backendNodeID++
+			}
 			if server.mutateLoaderOnInput {
 				server.loaderID = "loader-after-input"
 			}

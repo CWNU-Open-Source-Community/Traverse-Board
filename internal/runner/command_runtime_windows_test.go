@@ -5,8 +5,10 @@ package runner
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +16,145 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+func TestCommandRuntimeWindowsExplicitPowerShellPinsHostSelection(t *testing.T) {
+	for _, name := range []string{"pwsh.exe", "powershell.exe"} {
+		t.Run(name, func(t *testing.T) {
+			executable := commandRuntimeTestPowerShellImage(t, t.TempDir(), name)
+			t.Setenv("CYBERAGENT_POWERSHELL_PATH", executable)
+			resolved, err := NormalizeCommandRuntimeSpec(commandRuntimeTestPowerShellSpec(), t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSHA, err := commandRuntimeFileSHA256(executable)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !commandRuntimePathEqual(resolved.ExecutablePath, executable) ||
+				resolved.ExecutableSHA256 != wantSHA || !resolved.ExecutablePinned ||
+				len(resolved.CanonicalArgv) != 8 ||
+				strings.Join(resolved.CanonicalArgv[:6], "|") != "-NoLogo|-NoProfile|-NonInteractive|-OutputFormat|Text|-Command" ||
+				resolved.CanonicalArgv[6] != hostPowerShellUTF8Bootstrap ||
+				resolved.CanonicalArgv[7] != "Write-Output runtime-selection" {
+				t.Fatalf("explicit host runtime was not pinned: path=%q sha=%q argv=%q",
+					resolved.ExecutablePath, resolved.ExecutableSHA256, resolved.CanonicalArgv)
+			}
+			for _, entry := range resolved.Environment {
+				if strings.HasPrefix(strings.ToUpper(entry), "CYBERAGENT_POWERSHELL_PATH=") {
+					t.Fatal("host runtime selection leaked into the child environment")
+				}
+			}
+			spec := commandRuntimeTestPowerShellSpec()
+			spec.Environment = []CommandRuntimeEnvironment{{Name: "CYBERAGENT_POWERSHELL_PATH", Value: executable}}
+			if _, err := NormalizeCommandRuntimeSpec(spec, t.TempDir()); !errors.Is(err, ErrCommandRuntimeBoundary) {
+				t.Fatalf("per-command host runtime configuration was accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestCommandRuntimeWindowsExplicitPowerShellInvalidDoesNotFallback(t *testing.T) {
+	root := t.TempDir()
+	textImage := filepath.Join(t.TempDir(), "pwsh.exe")
+	if err := os.WriteFile(textImage, []byte("not a native image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, path string
+		want       error
+	}{
+		{"relative", `pwsh.exe`, ErrCommandRuntimeBoundary},
+		{"blank", "  ", ErrCommandRuntimeBoundary},
+		{"quoted", `"C:\Tools\PowerShell\pwsh.exe"`, ErrCommandRuntimeBoundary},
+		{"wrong name", filepath.Join(t.TempDir(), "cmd.exe"), ErrCommandRuntimeBoundary},
+		{"network", `\\server\share\pwsh.exe`, ErrCommandRuntimeBoundary},
+		{"device", `\\?\C:\Tools\pwsh.exe`, ErrCommandRuntimeBoundary},
+		{"missing", filepath.Join(t.TempDir(), "pwsh.exe"), ErrCommandRuntimeUnavailable},
+		{"not native", textImage, ErrCommandRuntimeBoundary},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("CYBERAGENT_POWERSHELL_PATH", test.path)
+			if _, err := NormalizeCommandRuntimeSpec(commandRuntimeTestPowerShellSpec(), root); !errors.Is(err, test.want) {
+				t.Fatalf("invalid explicit runtime fell back or returned wrong error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCommandRuntimeWindowsExplicitPowerShellRejectsWorkspaceAndAlias(t *testing.T) {
+	root := t.TempDir()
+	executable := commandRuntimeTestPowerShellImage(t, root, "pwsh.exe")
+	t.Setenv("CYBERAGENT_POWERSHELL_PATH", executable)
+	if _, err := NormalizeCommandRuntimeSpec(commandRuntimeTestPowerShellSpec(), root); !errors.Is(err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("project executable selected as runtime: %v", err)
+	}
+	t.Run("ancestor alias", func(t *testing.T) {
+		link := filepath.Join(t.TempDir(), "runtime-link")
+		if err := os.Symlink(root, link); err != nil {
+			windowsRoot, rootErr := controlledWindowsDirectory()
+			if rootErr != nil {
+				t.Fatal(rootErr)
+			}
+			command := exec.Command(filepath.Join(windowsRoot, "System32", "cmd.exe"),
+				"/d", "/c", "mklink", "/J", link, root)
+			if output, junctionErr := command.CombinedOutput(); junctionErr != nil {
+				t.Skipf("host cannot create an ancestor alias: symlink=%v junction=%v output=%s", err, junctionErr, output)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(link, "pwsh.exe")); err != nil {
+			t.Fatalf("ancestor alias does not reach the test executable: %v", err)
+		}
+		t.Setenv("CYBERAGENT_POWERSHELL_PATH", filepath.Join(link, "pwsh.exe"))
+		if _, err := NormalizeCommandRuntimeSpec(commandRuntimeTestPowerShellSpec(), root); !errors.Is(err, ErrCommandRuntimeBoundary) && !errors.Is(err, ErrCommandRuntimeUnavailable) {
+			t.Fatalf("runtime alias bypassed the project boundary: %v", err)
+		}
+	})
+}
+
+func TestCommandRuntimeWindowsPowerShellDefaultDoesNotUsePath(t *testing.T) {
+	t.Setenv("CYBERAGENT_POWERSHELL_PATH", "")
+	before, beforeErr := resolveCommandRuntimeShell(CommandRuntimePowerShell)
+	pathRoot := t.TempDir()
+	commandRuntimeTestPowerShellImage(t, pathRoot, "pwsh.exe")
+	t.Setenv("PATH", pathRoot)
+	after, afterErr := resolveCommandRuntimeShell(CommandRuntimePowerShell)
+	if !commandRuntimePathEqual(before, after) || !errors.Is(afterErr, beforeErr) {
+		t.Fatalf("PATH changed default PowerShell: before=%q %v after=%q %v", before, beforeErr, after, afterErr)
+	}
+}
+
+func commandRuntimeTestPowerShellSpec() CommandRuntimeSpec {
+	return CommandRuntimeSpec{
+		Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimePowerShell,
+		Script: "Write-Output runtime-selection", WorkingDirectory: ".",
+		Environment: []CommandRuntimeEnvironment{},
+		StdinPolicy: CommandRuntimeStdinClosed, CloseInitialStdin: true,
+		TimeoutMilliseconds: 1000,
+		Output: CommandRuntimeOutputPolicy{InlineBytes: MinCommandRuntimeInlineBytes,
+			ArtifactBytes: MinCommandRuntimeInlineBytes},
+		Network: CommandRuntimeNetworkDisabled, Credentials: CommandRuntimeCredentialsNone,
+		Purpose: "validate trusted PowerShell selection without starting a process",
+	}
+}
+
+func commandRuntimeTestPowerShellImage(t *testing.T, root, name string) string {
+	t.Helper()
+	// This PE fixture exercises resolution and pinning only; it is never launched
+	// as PowerShell and is not evidence of shell or LPAC compatibility.
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, value, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestCommandRuntimeProcessExecutableOnAnotherVolumeIsOutsideWorkspace(t *testing.T) {
 	outside, err := commandRuntimeExecutableOutsideWorkspace(

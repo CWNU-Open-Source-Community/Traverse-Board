@@ -34,6 +34,7 @@ const (
 const (
 	ProviderSearchModeDisabled       = "disabled"
 	ProviderSearchModeAuto           = "auto"
+	ProviderSearchModeWeb            = "web"
 	ProviderSearchModeSearXNG        = "searxng"
 	ProviderSearchModeProviderNative = "provider_native"
 )
@@ -152,7 +153,7 @@ func (definition ProviderDefinition) Validate() error {
 		return errors.New("custom Provider transport is unsupported")
 	}
 	switch definition.SearchMode {
-	case ProviderSearchModeDisabled, ProviderSearchModeAuto,
+	case ProviderSearchModeDisabled, ProviderSearchModeAuto, ProviderSearchModeWeb,
 		ProviderSearchModeSearXNG, ProviderSearchModeProviderNative:
 	default:
 		return errors.New("custom Provider search mode is unsupported")
@@ -166,8 +167,11 @@ func (definition ProviderDefinition) Validate() error {
 		definition.NativeWebSearchCapability != NativeWebSearchDeclaredUnverified {
 		return errors.New("provider-native search mode requires an explicit unverified capability declaration")
 	}
-	if _, err := ValidateAndNormalizeProviderAdvancedConfig(definition.AdvancedConfig,
-		definition.ID); err != nil {
+	normalized, err := ValidateAndNormalizeProviderAdvancedConfig(definition.AdvancedConfig, definition.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateDefinedVisionModels(normalized, definition.Models); err != nil {
 		return err
 	}
 	if definition.Revision > maxProviderCollectionRevision {

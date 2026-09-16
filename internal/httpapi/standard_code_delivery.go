@@ -6,6 +6,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/standardcodedelivery"
 )
 
@@ -25,6 +26,74 @@ type StandardCodeDeliveryRecordView struct {
 	Declaration        standardcodedelivery.Declaration `json:"declaration,omitempty"`
 	VerificationJobIDs []string                         `json:"verification_job_ids"`
 	UncoveredItems     []string                         `json:"uncovered_items"`
+}
+
+// These read-time links are deliberately outside the immutable Report model.
+// The existing activity endpoint revalidates and scrubs a body when opened.
+type StandardCodeDeliveryOutputSourceView struct {
+	JobID       string `json:"job_id"`
+	ArtifactID  string `json:"artifact_id"`
+	Status      string `json:"status"`
+	ThreadID    string `json:"thread_id,omitempty"`
+	ActivityRef string `json:"activity_ref,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type StandardCodeDeliveryReportView struct {
+	standardcodedelivery.Report
+	OutputSources []StandardCodeDeliveryOutputSourceView `json:"output_sources,omitempty"`
+}
+
+type StandardCodeDeliveryRecordResultView struct {
+	Report   StandardCodeDeliveryReportView `json:"report"`
+	Replayed bool                           `json:"replayed"`
+}
+
+func (a *API) standardCodeDeliveryReportView(ctx context.Context, runID string,
+	report standardcodedelivery.Report,
+) (StandardCodeDeliveryReportView, error) {
+	if report.Binding.RunID != runID {
+		return StandardCodeDeliveryReportView{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Standard Code delivery report Run binding is inconsistent")
+	}
+	view := StandardCodeDeliveryReportView{Report: report}
+	reader, ok := a.store.(application.ThreadActivityDetailStore)
+	if !ok {
+		for _, verification := range report.Verifications {
+			for _, output := range verification.Artifacts {
+				view.OutputSources = append(view.OutputSources, StandardCodeDeliveryOutputSourceView{
+					JobID: verification.JobID, ArtifactID: output.ID, Status: "metadata_only",
+					Reason: "activity_source_unavailable"})
+			}
+		}
+		return view, nil
+	}
+	for _, source := range application.NewThreadActivityDetailService(reader).
+		StandardCodeDeliveryOutputSources(ctx, report) {
+		view.OutputSources = append(view.OutputSources, StandardCodeDeliveryOutputSourceView{
+			JobID: source.JobID, ArtifactID: source.ArtifactID, Status: source.Status,
+			ThreadID: source.ThreadID, ActivityRef: source.ActivityRef, Reason: source.Reason})
+	}
+	return view, nil
+}
+
+// Only detail projections query this fact. List and mutation responses may omit
+// it; a similar execution tuple is not evidence of a configured preset.
+func (a *API) projectStandardCodePreset(ctx context.Context, view *RunView) error {
+	reader, ok := a.store.(interface {
+		GetConfiguredStandardCodePresetOperation(context.Context, string) (domain.StandardCodePresetOperation, bool, error)
+	})
+	if !ok {
+		return nil
+	}
+	operation, found, err := reader.GetConfiguredStandardCodePresetOperation(ctx, view.ID)
+	if err != nil {
+		return err
+	}
+	configured := found && operation.Status == domain.StandardCodePresetConfigured &&
+		operation.RunID == view.ID && operation.MissionID == view.MissionID
+	view.StandardCodePresetConfigured = &configured
+	return nil
 }
 
 func matchStandardCodeDeliveryPath(value string) (string, bool) {
@@ -102,7 +171,8 @@ func (a *API) runStandardCodeDelivery(request *http.Request,
 			return nil, nil, apperror.New(apperror.CodeNotFound,
 				"Standard Code delivery report was not found")
 		}
-		return report, nil, nil
+		view, err := a.standardCodeDeliveryReportView(request.Context(), runID, report)
+		return view, nil, err
 	case http.MethodPost:
 		if !a.authorized(request, a.controlTokenHash) {
 			return nil, nil, apperror.New(apperror.CodePolicyDenied,
@@ -134,7 +204,11 @@ func (a *API) runStandardCodeDelivery(request *http.Request,
 				Declaration:        view.Declaration,
 				VerificationJobIDs: view.VerificationJobIDs,
 				UncoveredItems:     view.UncoveredItems})
-		return result, nil, err
+		if err != nil {
+			return nil, nil, err
+		}
+		projected, err := a.standardCodeDeliveryReportView(request.Context(), runID, result.Report)
+		return StandardCodeDeliveryRecordResultView{Report: projected, Replayed: result.Replayed}, nil, err
 	default:
 		return nil, nil, apperror.New(apperror.CodeInvalidArgument,
 			"Standard Code delivery only supports GET and POST")

@@ -127,15 +127,15 @@ func (s *SQLiteStore) GetGitMutationRecord(ctx context.Context, id string) (GitM
 func getGitMutationRecord(ctx context.Context, queryer skillPackageQueryer, id string) (GitMutationRecord, bool, error) {
 	row := queryer.QueryRowContext(ctx, `SELECT id, protocol_version, operation_key_digest,
 		request_fingerprint, run_id, workspace_id, operation, spec_json, pre_head, post_head,
-		branch, commit_id, conflicted, clean, stderr_prefix, completed_at, created_at
+		branch, commit_id, conflicted, clean, stderr_prefix, completed_at, created_at, started_at
 		FROM git_mutation_operations WHERE id = ?`, id)
 	var record GitMutationRecord
 	var conflicted, clean int
-	var completedAt, created sql.NullString
+	var completedAt, created, started sql.NullString
 	err := row.Scan(&record.ID, &record.ProtocolVersion, &record.OperationKeyDigest,
 		&record.RequestFingerprint, &record.RunID, &record.WorkspaceID, &record.Operation,
 		&record.SpecJSON, &record.PreHead, &record.PostHead, &record.Branch, &record.CommitID,
-		&conflicted, &clean, &record.StderrPrefix, &completedAt, &created)
+		&conflicted, &clean, &record.StderrPrefix, &completedAt, &created, &started)
 	if errors.Is(err, sql.ErrNoRows) {
 		return GitMutationRecord{}, false, nil
 	}
@@ -145,6 +145,10 @@ func getGitMutationRecord(ctx context.Context, queryer skillPackageQueryer, id s
 	record.Conflicted = conflicted == 1
 	record.Clean = clean == 1
 	record.CreatedAt = parseTS(created.String)
+	if started.Valid {
+		value := parseTS(started.String)
+		record.StartedAt = &value
+	}
 	if completedAt.Valid {
 		if parsed := parseTS(completedAt.String); !parsed.IsZero() {
 			record.CompletedAt = &parsed

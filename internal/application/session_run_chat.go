@@ -132,6 +132,8 @@ func (e *SessionRunChatExecutor) ExecuteSessionTurnWithOptions(ctx context.Conte
 	}
 	return session.RunChatResult{
 		RunID: run.ID, UserMessage: result.UserMessage, ReplyMessage: result.ReplyMessage,
+		ContextManaged:   true,
+		ContextCompacted: result.ContextCompacted, ContextSummaryID: result.ContextSummaryID,
 		Text: result.Text, Action: string(result.Action.Kind), RunStatus: string(result.RunStatus),
 	}, true, nil
 }

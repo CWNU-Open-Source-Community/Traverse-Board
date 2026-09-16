@@ -16,6 +16,13 @@ type CodeIntelToolExecutor struct {
 	authority *AgentCodeToolExecutor
 }
 
+func (e *CodeIntelToolExecutor) WithDrydock(drydocks *DrydockService) *CodeIntelToolExecutor {
+	if e != nil && e.authority != nil {
+		e.authority.WithDrydock(drydocks)
+	}
+	return e
+}
+
 func NewCodeIntelToolExecutor(store AgentCodeToolStore, checker policy.Checker,
 	manager *codeintel.Manager,
 ) *CodeIntelToolExecutor {

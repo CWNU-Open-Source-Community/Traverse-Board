@@ -289,6 +289,7 @@ const (
 	SupervisorToolResultEvent                     = "supervisor.tool_result_recorded"
 	SupervisorToolCompleteEvent                   = "supervisor.tool_batch_completed"
 	SupervisorActionEvent                         = "supervisor.action_committed"
+	ThreadTurnFailedEvent                         = "thread.turn_failed"
 	SupervisorRunWaitingEvent                     = "supervisor.run_waiting"
 	SupervisorRunCompletedEvent                   = "supervisor.run_completed"
 	SupervisorRunFailedEvent                      = "supervisor.run_failed"

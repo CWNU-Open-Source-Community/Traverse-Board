@@ -56,6 +56,7 @@ type CodeHandoffPlan struct {
 	SelectionID       string `json:"selection_id"`
 	DirectionCount    int    `json:"direction_count"`
 	SelectedDirection int    `json:"selected_direction"`
+	ManualAcceptance  string `json:"manual_acceptance,omitempty"`
 	ModuleCount       int    `json:"module_count"`
 	PendingCount      int    `json:"pending_count"`
 	InProgressCount   int    `json:"in_progress_count"`
@@ -220,6 +221,7 @@ type CodeHandoff struct {
 	ResumeAuthorized                   bool                              `json:"resume_authorized"`
 	ExecutionStarted                   bool                              `json:"execution_started"`
 	StandardCodeDelivery               *standardcodedelivery.Report      `json:"standard_code_delivery,omitempty"`
+	HostCommands                       *CodeHandoffHostCommands          `json:"host_commands,omitempty"`
 }
 
 func NewCodeHandoffService(store CodeHandoffStore) *CodeHandoffService {
@@ -338,6 +340,9 @@ func (s *CodeHandoffService) buildOnce(ctx context.Context, runID string) (CodeH
 		return CodeHandoff{}, err
 	}
 	if err := s.addReports(ctx, &result); err != nil {
+		return CodeHandoff{}, err
+	}
+	if err := s.addHostCommands(ctx, run, mission, &result); err != nil {
 		return CodeHandoff{}, err
 	}
 	if s.delivery != nil {
@@ -580,6 +585,7 @@ func (s *CodeHandoffService) addPlan(ctx context.Context, result *CodeHandoff) e
 	}
 	result.Plan = CodeHandoffPlan{State: "selected", ProposalID: proposal.ID,
 		SelectionID: selection.ID, DirectionCount: len(proposal.Spec.Directions),
+		ManualAcceptance:  string(selection.EffectiveManualAcceptance()),
 		SelectedDirection: selection.DirectionOrdinal, ModuleCount: len(selection.Items)}
 	for _, selectedItem := range selection.Items {
 		item, err := s.store.GetWorkItem(ctx, selectedItem.WorkItemID)

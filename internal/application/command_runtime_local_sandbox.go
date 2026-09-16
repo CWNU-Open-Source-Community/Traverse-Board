@@ -118,7 +118,11 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 			spec.Spec.StdinPolicy != runner.CommandRuntimeStdinPipe) {
 		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeBoundary
 	}
-	workspace, found, err := e.store.GetDrydockByRun(ctx, scope.RunID)
+	if spec.Spec.Profile == runner.CommandRuntimePowerShell &&
+		!strings.EqualFold(filepath.Base(spec.ExecutablePath), "pwsh.exe") {
+		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeLocalPowerShell
+	}
+	workspace, found, err := readRunFileDrydock(ctx, e.store, scope.RunID)
 	if err != nil || !found {
 		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
 			runner.ErrCommandRuntimeBoundary)
@@ -143,9 +147,11 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 	if err != nil {
 		return runner.CommandRuntimeSandboxResult{}, err
 	}
-	if !leaseFound || workspace.RunID != scope.RunID ||
-		workspace.MissionID != scope.MissionID || workspace.SessionID != scope.SessionID ||
-		workspace.SourceWorkspaceID != scope.WorkspaceID ||
+	bound, bindErr := commandRuntimeDrydockBound(ctx, e.store, workspace, scope.RunID, scope.MissionID, scope.SessionID, scope.WorkspaceID)
+	if bindErr != nil {
+		return runner.CommandRuntimeSandboxResult{}, bindErr
+	}
+	if !leaseFound || !bound ||
 		(workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered) ||
 		rootSHA256 != scope.WorkspaceRootSHA256 || rootSHA256 != spec.WorkspaceRootSHA256 ||
 		profile.ID != scope.ProfileSnapshotID || profile.Revision != scope.ProfileRevision ||
@@ -186,6 +192,9 @@ func (e *LocalSandboxCommandRuntimeExecutor) compile(scope runner.CommandRuntime
 	permission domain.RunExecutionPermissionSnapshot,
 	interaction domain.RunExecutionInteractionSnapshot, lease domain.RunExecutionLease,
 ) (sandbox.LocalRunRequest, error) {
+	if err := runner.ValidateCommandRuntimeLaunchSpec(spec); err != nil {
+		return sandbox.LocalRunRequest{}, err
+	}
 	toolchainRoot := filepath.Clean(filepath.Dir(spec.ExecutablePath))
 	toolchainSHA256, err := sandbox.LocalHostPathDigest(toolchainRoot)
 	if err != nil {
@@ -252,8 +261,23 @@ func (e *LocalSandboxCommandRuntimeExecutor) compile(scope runner.CommandRuntime
 			ID: "command-runtime-toolchain", Root: toolchainRoot,
 			VirtualRoot: commandRuntimeLocalToolchainRoot,
 			RootSHA256:  toolchainSHA256}},
-		MaxDiskWriteBytes: sandbox.DockerStandardCodeWorkspaceGrowthBytes,
+		// PowerShell registers its ETW provider before running the requested
+		// script. The pinned runtime selects this named capability, never the
+		// command text. Local PowerShell normalization accepts only PowerShell 7.
+		Instrumentation: spec.Spec.Profile == runner.CommandRuntimePowerShell,
+		// Local accounts for the entire Job's writes, including compiler cache
+		// and scratch. Docker's workspace-only growth limit is not this budget.
+		MaxDiskWriteBytes: sandbox.DefaultLocalDiskWriteLimit,
 		StdinPipe:         spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe}
+	if spec.AttachmentInput != nil {
+		inputSHA, err := sandbox.LocalHostPathDigest(spec.AttachmentInput.Root)
+		if err != nil {
+			return sandbox.LocalRunRequest{}, err
+		}
+		request.ToolchainInputs = append(request.ToolchainInputs, sandbox.LocalToolchainInput{
+			ID: "attachments-" + spec.AttachmentInput.ManifestSHA256, Root: spec.AttachmentInput.Root,
+			VirtualRoot: sandbox.LocalAttachmentVirtualRoot, RootSHA256: inputSHA, DataOnly: true})
+	}
 	return sandbox.NormalizeLocalRunRequest(request)
 }
 

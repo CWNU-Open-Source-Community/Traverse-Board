@@ -174,6 +174,25 @@ type fullCDPSessionEntry struct {
 	executionFence              uint64
 	runtimeID                   string
 	runSessionID                string
+	preview                     *FullCDPPreviewCapture
+	previewBusy                 bool
+}
+
+// NewHomeFullCDPProductionService shares the same private-profile setup between
+// the desktop host and the standalone HTTP host. It grants no Run authority.
+func NewHomeFullCDPProductionService(store FullCDPProductionStore,
+	controller *browserruntime.BrowserProcessController,
+	runtimeCapabilities browserruntime.FullCDPRuntimeCapabilities,
+	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities, home string,
+) (*FullCDPProductionService, error) {
+	profileRoot, err := browserruntime.PrepareFullCDPProfileRuntimeRoot(home)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"Full CDP private Profile runtime could not be prepared", err)
+	}
+	return NewFullCDPProductionService(store, controller, runtimeCapabilities,
+		permissionCapabilities, executionCapabilities, profileRoot)
 }
 
 type fullCDPOperationRecord struct {
@@ -528,7 +547,7 @@ func (s *FullCDPProductionService) openReservedEntry(ctx context.Context,
 	entry.runSessionID = run.SessionID
 	s.mu.Unlock()
 	managed, err := s.launch(ctx, browserruntime.FullCDPManagedLaunchRequest{
-		RuntimeID: runtimeID, Session: session, Identity: identity,
+		RuntimeID: runtimeID, InitialURL: request.Target, Session: session, Identity: identity,
 		Acceptance: acceptance, Ownership: ownership, Attempt: attempt,
 		LaunchLease: launchLease, Review: review, Permission: browserPermission,
 		ExecutionPermission:    executionPermission,
@@ -704,6 +723,7 @@ func (s *FullCDPProductionService) closeEntry(ctx context.Context,
 		}
 		entry.view.State = FullCDPSessionClosing
 		entry.view.CloseReason = reason
+		entry.preview = nil
 		if entry.closeDone == nil {
 			entry.closeDone = make(chan struct{})
 		}

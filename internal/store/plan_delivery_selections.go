@@ -14,15 +14,57 @@ import (
 	"cyberagent-workbench/internal/redact"
 )
 
-const planDeliverySelectionSelect = `SELECT id, proposal_id, run_id, root_agent_id,
-	direction_ordinal, note_id, module_count, requested_by, version, created_at
-	FROM plan_delivery_selections`
+func hasPlanDeliveryManualAcceptance(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (bool, error) {
+	var present bool
+	err := queryer.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('plan_delivery_selections') WHERE name='manual_acceptance')`).Scan(&present)
+	return present, err
+}
+
+// alias is a source-code SQL alias, never request input. Historical schemas
+// without an explicit selection policy retain required manual acceptance.
+func planDeliveryManualAcceptanceSQL(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, alias string) (string, error) {
+	present, err := hasPlanDeliveryManualAcceptance(ctx, queryer)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "'required'", nil
+	}
+	if alias != "" {
+		return alias + ".manual_acceptance", nil
+	}
+	return "manual_acceptance", nil
+}
+
+func planDeliverySelectionSelectSQL(ctx context.Context, queryer planDeliveryQueryer) (string, error) {
+	acceptance, err := planDeliveryManualAcceptanceSQL(ctx, queryer, "")
+	return `SELECT id, proposal_id, run_id, root_agent_id,
+	direction_ordinal, note_id, module_count, requested_by, version, created_at, ` + acceptance + ` FROM plan_delivery_selections`, err
+}
 
 func (s *SQLiteStore) SelectPlanDeliveryDirection(ctx context.Context,
 	operation domain.PlanDeliverySelectionOperation,
 	selection domain.PlanDeliverySelection, items []domain.WorkItem,
 	note domain.Note, selectionEvent events.Event,
 	itemEvents []events.Event, noteEvent events.Event,
+) (domain.PlanDeliverySelection, bool, error) {
+	return s.selectPlanDeliveryDirection(ctx, "", operation, selection, items, note, selectionEvent, itemEvents, noteEvent)
+}
+
+func (s *SQLiteStore) SelectThreadPlanDeliveryDirection(ctx context.Context, threadID string,
+	operation domain.PlanDeliverySelectionOperation, selection domain.PlanDeliverySelection, items []domain.WorkItem,
+	note domain.Note, selectionEvent events.Event, itemEvents []events.Event, noteEvent events.Event,
+) (domain.PlanDeliverySelection, bool, error) {
+	return s.selectPlanDeliveryDirection(ctx, threadID, operation, selection, items, note, selectionEvent, itemEvents, noteEvent)
+}
+
+func (s *SQLiteStore) selectPlanDeliveryDirection(ctx context.Context, threadID string,
+	operation domain.PlanDeliverySelectionOperation, selection domain.PlanDeliverySelection, items []domain.WorkItem,
+	note domain.Note, selectionEvent events.Event, itemEvents []events.Event, noteEvent events.Event,
 ) (domain.PlanDeliverySelection, bool, error) {
 	operation = normalizePlanDeliverySelectionOperation(operation)
 	selection = normalizePlanDeliverySelection(selection)
@@ -40,7 +82,7 @@ func (s *SQLiteStore) SelectPlanDeliveryDirection(ctx context.Context,
 		return domain.PlanDeliverySelection{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := acquireStructuredMutationWriteLockTx(ctx, tx, selection.RunID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE runs SET updated_at=updated_at WHERE id=?`, selection.RunID); err != nil {
 		return domain.PlanDeliverySelection{}, false, err
 	}
 	if existing, found, err := getPlanDeliverySelectionOperation(ctx, tx,
@@ -59,6 +101,9 @@ func (s *SQLiteStore) SelectPlanDeliveryDirection(ctx context.Context,
 		}
 		return stored, true, nil
 	}
+	if err := acquireStructuredMutationWriteLockTx(ctx, tx, selection.RunID); err != nil {
+		return domain.PlanDeliverySelection{}, false, err
+	}
 	if _, found, err := getPlanDeliverySelectionByRun(ctx, tx,
 		selection.RunID); err != nil {
 		return domain.PlanDeliverySelection{}, false, err
@@ -70,6 +115,19 @@ func (s *SQLiteStore) SelectPlanDeliveryDirection(ctx context.Context,
 	proposal, err := getPlanDeliveryProposal(ctx, tx, selection.ProposalID)
 	if err != nil {
 		return domain.PlanDeliverySelection{}, false, err
+	}
+	if threadID != "" {
+		if _, found, err := getRunModeOperation(ctx, tx, operation.KeyDigest); err != nil {
+			return domain.PlanDeliverySelection{}, false, err
+		} else if found {
+			return domain.PlanDeliverySelection{}, false, apperror.New(apperror.CodeConflict, "Thread Plan key already changed a mode")
+		}
+		if err := requireUnusedThreadPlanSuccessorKeyTx(ctx, tx, threadID, operation.KeyDigest); err != nil {
+			return domain.PlanDeliverySelection{}, false, err
+		}
+		if err := requireThreadPlanPreparationTx(ctx, tx, threadID, selection.RunID, proposal.ID); err != nil {
+			return domain.PlanDeliverySelection{}, false, err
+		}
 	}
 	run, mission, direction, err := requirePlanDeliverySelectionBindingTx(ctx,
 		tx, proposal, selection)
@@ -97,13 +155,26 @@ func (s *SQLiteStore) SelectPlanDeliveryDirection(ctx context.Context,
 	if err := insertNewNoteTx(ctx, tx, note); err != nil {
 		return domain.PlanDeliverySelection{}, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO plan_delivery_selections
+	insert := `INSERT INTO plan_delivery_selections
 		(id, proposal_id, run_id, root_agent_id, direction_ordinal, note_id,
 		module_count, requested_by, version, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, selection.ID,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	arguments := []any{selection.ID,
 		selection.ProposalID, selection.RunID, selection.RootAgentID,
 		selection.DirectionOrdinal, selection.NoteID, len(selection.Items),
-		selection.RequestedBy, selection.Version, ts(selection.CreatedAt)); err != nil {
+		selection.RequestedBy, selection.Version, ts(selection.CreatedAt)}
+	if present, err := hasPlanDeliveryManualAcceptance(ctx, tx); err != nil {
+		return domain.PlanDeliverySelection{}, false, err
+	} else if present {
+		insert = `INSERT INTO plan_delivery_selections
+		(id, proposal_id, run_id, root_agent_id, direction_ordinal, note_id,
+		module_count, requested_by, version, created_at, manual_acceptance)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		arguments = append(arguments, selection.EffectiveManualAcceptance())
+	} else if selection.EffectiveManualAcceptance() != domain.PlanDeliveryManualAcceptanceRequired {
+		return domain.PlanDeliverySelection{}, false, apperror.New(apperror.CodeFailedPrecondition, "manual acceptance selection requires the current database schema")
+	}
+	if _, err := tx.ExecContext(ctx, insert, arguments...); err != nil {
 		return domain.PlanDeliverySelection{}, false, err
 	}
 	for _, item := range selection.Items {
@@ -159,6 +230,10 @@ func (s *SQLiteStore) GetPlanDeliverySelectionByRun(ctx context.Context,
 	return getPlanDeliverySelectionByRun(ctx, s.db, runID)
 }
 
+func (s *SQLiteStore) GetPlanDeliverySelectionOperation(ctx context.Context, keyDigest string) (domain.PlanDeliverySelectionOperation, bool, error) {
+	return getPlanDeliverySelectionOperation(ctx, s.db, keyDigest)
+}
+
 func normalizePlanDeliverySelectionOperation(
 	operation domain.PlanDeliverySelectionOperation,
 ) domain.PlanDeliverySelectionOperation {
@@ -182,6 +257,7 @@ func normalizePlanDeliverySelection(
 	selection.RootAgentID = strings.TrimSpace(selection.RootAgentID)
 	selection.NoteID = strings.TrimSpace(selection.NoteID)
 	selection.RequestedBy = strings.TrimSpace(redact.String(selection.RequestedBy))
+	selection.ManualAcceptance = selection.EffectiveManualAcceptance()
 	for index := range selection.Items {
 		selection.Items[index].WorkItemID = strings.TrimSpace(
 			selection.Items[index].WorkItemID)
@@ -209,9 +285,9 @@ func validatePlanDeliverySelectionMutation(
 		operation.RunID != selection.RunID ||
 		operation.RequestedBy != selection.RequestedBy ||
 		!operation.CreatedAt.Equal(selection.CreatedAt) ||
-		operation.RequestFingerprint != domain.PlanDeliverySelectionRequestFingerprint(
+		operation.RequestFingerprint != domain.PlanDeliverySelectionRequestFingerprintForAcceptance(
 			selection.ProposalID, selection.RunID, selection.DirectionOrdinal,
-			selection.RequestedBy) {
+			selection.RequestedBy, selection.ManualAcceptance) {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"Plan/Delivery selection operation does not match its selection")
 	}
@@ -439,8 +515,12 @@ func getPlanDeliverySelectionOperation(ctx context.Context, queryer interface {
 func getPlanDeliverySelection(ctx context.Context,
 	queryer planDeliveryQueryer, id string,
 ) (domain.PlanDeliverySelection, error) {
+	query, err := planDeliverySelectionSelectSQL(ctx, queryer)
+	if err != nil {
+		return domain.PlanDeliverySelection{}, err
+	}
 	selection, expected, err := scanPlanDeliverySelection(
-		queryer.QueryRowContext(ctx, planDeliverySelectionSelect+` WHERE id = ?`, id))
+		queryer.QueryRowContext(ctx, query+` WHERE id = ?`, id))
 	if err != nil {
 		return domain.PlanDeliverySelection{}, err
 	}
@@ -455,8 +535,12 @@ func getPlanDeliverySelection(ctx context.Context,
 func getPlanDeliverySelectionByRun(ctx context.Context,
 	queryer planDeliveryQueryer, runID string,
 ) (domain.PlanDeliverySelection, bool, error) {
+	query, err := planDeliverySelectionSelectSQL(ctx, queryer)
+	if err != nil {
+		return domain.PlanDeliverySelection{}, false, err
+	}
 	selection, expected, err := scanPlanDeliverySelection(
-		queryer.QueryRowContext(ctx, planDeliverySelectionSelect+
+		queryer.QueryRowContext(ctx, query+
 			` WHERE run_id = ?`, runID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.PlanDeliverySelection{}, false, nil
@@ -479,7 +563,7 @@ func scanPlanDeliverySelection(row scanner) (domain.PlanDeliverySelection, int, 
 	if err := row.Scan(&selection.ID, &selection.ProposalID, &selection.RunID,
 		&selection.RootAgentID, &selection.DirectionOrdinal, &selection.NoteID,
 		&moduleCount, &selection.RequestedBy, &selection.Version,
-		&createdAt); err != nil {
+		&createdAt, &selection.ManualAcceptance); err != nil {
 		return domain.PlanDeliverySelection{}, 0, err
 	}
 	selection.CreatedAt = parseTS(createdAt)

@@ -94,77 +94,79 @@ type HostCommandExecutionReceiptView struct {
 }
 
 type HostCommandProposalView struct {
-	ID                         string                           `json:"id"`
-	ProtocolVersion            string                           `json:"protocol_version"`
-	PolicyVersion              string                           `json:"policy_version"`
-	RunID                      string                           `json:"run_id"`
-	MissionID                  string                           `json:"mission_id"`
-	SessionID                  string                           `json:"session_id"`
-	WorkspaceID                string                           `json:"workspace_id"`
-	ExecutablePath             string                           `json:"executable_path"`
-	ExecutableSHA256           string                           `json:"executable_sha256"`
-	Argv                       []string                         `json:"argv"`
-	WorkingDirectory           string                           `json:"working_directory"`
-	EnvironmentPolicy          string                           `json:"environment_policy"`
-	EnvironmentKeys            []string                         `json:"environment_keys"`
-	EnvironmentSHA256          string                           `json:"environment_sha256"`
-	NetworkIntent              string                           `json:"network_intent"`
-	TimeoutMilliseconds        int64                            `json:"timeout_milliseconds"`
-	Purpose                    string                           `json:"purpose"`
-	SpecFingerprint            string                           `json:"spec_fingerprint"`
-	PermissionMode             string                           `json:"permission_mode"`
-	PermissionRevision         int64                            `json:"permission_revision"`
-	OperatorReviewRequired     bool                             `json:"operator_review_required"`
-	NonSandboxed               bool                             `json:"non_sandboxed"`
-	AutomaticRetryAllowed      bool                             `json:"automatic_retry_allowed"`
-	InstructionAuthorized      bool                             `json:"instruction_authorized"`
-	ExecutionAuthorized        bool                             `json:"execution_authorized"`
-	CapabilityGrant            bool                             `json:"capability_grant"`
-	Fingerprint                string                           `json:"fingerprint"`
-	CreatedAt                  string                           `json:"created_at"`
-	Review                     *HostCommandProposalReviewView   `json:"review,omitempty"`
-	Result                     *HostCommandProposalResultView   `json:"result,omitempty"`
-	Receipt                    *HostCommandExecutionReceiptView `json:"receipt,omitempty"`
-	ReviewReplayed             bool                             `json:"review_replayed,omitempty"`
-	ExecutionReplayed          bool                             `json:"execution_replayed,omitempty"`
-	UntrustedEvidence          string                           `json:"untrusted_evidence,omitempty"`
-	EvidenceInstructionTrust   bool                             `json:"evidence_instruction_authorized"`
-	State                      string                           `json:"state,omitempty"`
-	SupervisorTurn             int                              `json:"supervisor_turn,omitempty"`
-	SupervisorToolCallID       string                           `json:"supervisor_tool_call_id,omitempty"`
-	ToolInvocationID           string                           `json:"tool_invocation_id,omitempty"`
-	ModeSnapshotID             string                           `json:"mode_snapshot_id,omitempty"`
-	ModeRevision               int64                            `json:"mode_revision,omitempty"`
-	InteractionSnapshotID      string                           `json:"interaction_snapshot_id,omitempty"`
-	InteractionRevision        int64                            `json:"interaction_revision,omitempty"`
-	ExecutionProfileSnapshotID string                           `json:"execution_profile_snapshot_id,omitempty"`
-	ExecutionProfileRevision   int64                            `json:"execution_profile_revision,omitempty"`
-	PermissionSnapshotID       string                           `json:"permission_snapshot_id,omitempty"`
-	WorkspaceRootFingerprint   string                           `json:"workspace_root_fingerprint,omitempty"`
-	CapabilityGeneration       string                           `json:"capability_generation,omitempty"`
-	ScopeFingerprint           string                           `json:"scope_fingerprint,omitempty"`
-	RiskKinds                  []string                         `json:"risk_kinds,omitempty"`
-	NetworkTargets             []string                         `json:"network_targets,omitempty"`
-	NetworkPurpose             string                           `json:"network_purpose,omitempty"`
-	CredentialKinds            []string                         `json:"credential_kinds,omitempty"`
-	HostPaths                  []string                         `json:"host_paths,omitempty"`
-	PolicyCode                 string                           `json:"policy_code,omitempty"`
-	PolicyReason               string                           `json:"policy_reason,omitempty"`
-	RequestedTool              string                           `json:"requested_tool,omitempty"`
-	OtherRiskReason            string                           `json:"other_risk_reason,omitempty"`
-	MaxOutputBytes             int64                            `json:"max_output_bytes,omitempty"`
-	ActiveProcessLimit         int                              `json:"active_process_limit,omitempty"`
-	ProcessMemoryBytes         int64                            `json:"process_memory_bytes,omitempty"`
-	ApprovalID                 string                           `json:"approval_id,omitempty"`
-	ApprovalStatus             string                           `json:"approval_status,omitempty"`
-	GrantID                    string                           `json:"grant_id,omitempty"`
-	GrantGeneration            int64                            `json:"grant_generation,omitempty"`
-	GrantMaxUses               int                              `json:"grant_max_uses,omitempty"`
-	GrantUsesRemaining         *int                             `json:"grant_uses_remaining,omitempty"`
-	GrantExpiresAt             string                           `json:"grant_expires_at,omitempty"`
-	GrantConsumptionID         string                           `json:"grant_consumption_id,omitempty"`
-	InvalidationReason         string                           `json:"invalidation_reason,omitempty"`
-	Uncertain                  bool                             `json:"uncertain,omitempty"`
+	Continuation               *application.ApprovalContinuationResult `json:"continuation,omitempty"`
+	ID                         string                                  `json:"id"`
+	ProtocolVersion            string                                  `json:"protocol_version"`
+	PolicyVersion              string                                  `json:"policy_version"`
+	RunID                      string                                  `json:"run_id"`
+	MissionID                  string                                  `json:"mission_id"`
+	SessionID                  string                                  `json:"session_id"`
+	WorkspaceID                string                                  `json:"workspace_id"`
+	ExecutablePath             string                                  `json:"executable_path"`
+	ExecutableSHA256           string                                  `json:"executable_sha256"`
+	Argv                       []string                                `json:"argv"`
+	WorkingDirectory           string                                  `json:"working_directory"`
+	EnvironmentPolicy          string                                  `json:"environment_policy"`
+	EnvironmentKeys            []string                                `json:"environment_keys"`
+	EnvironmentSHA256          string                                  `json:"environment_sha256"`
+	NetworkIntent              string                                  `json:"network_intent"`
+	TimeoutMilliseconds        int64                                   `json:"timeout_milliseconds"`
+	Purpose                    string                                  `json:"purpose"`
+	SpecFingerprint            string                                  `json:"spec_fingerprint"`
+	PermissionMode             string                                  `json:"permission_mode"`
+	PermissionRevision         int64                                   `json:"permission_revision"`
+	OperatorReviewRequired     bool                                    `json:"operator_review_required"`
+	NonSandboxed               bool                                    `json:"non_sandboxed"`
+	AutomaticRetryAllowed      bool                                    `json:"automatic_retry_allowed"`
+	InstructionAuthorized      bool                                    `json:"instruction_authorized"`
+	ExecutionAuthorized        bool                                    `json:"execution_authorized"`
+	CapabilityGrant            bool                                    `json:"capability_grant"`
+	Fingerprint                string                                  `json:"fingerprint"`
+	CreatedAt                  string                                  `json:"created_at"`
+	Review                     *HostCommandProposalReviewView          `json:"review,omitempty"`
+	Result                     *HostCommandProposalResultView          `json:"result,omitempty"`
+	Receipt                    *HostCommandExecutionReceiptView        `json:"receipt,omitempty"`
+	ReviewReplayed             bool                                    `json:"review_replayed,omitempty"`
+	ExecutionReplayed          bool                                    `json:"execution_replayed,omitempty"`
+	UntrustedEvidence          string                                  `json:"untrusted_evidence,omitempty"`
+	SavedOutput                *HostCommandSavedOutputView             `json:"saved_output,omitempty"`
+	EvidenceInstructionTrust   bool                                    `json:"evidence_instruction_authorized"`
+	State                      string                                  `json:"state,omitempty"`
+	SupervisorTurn             int                                     `json:"supervisor_turn,omitempty"`
+	SupervisorToolCallID       string                                  `json:"supervisor_tool_call_id,omitempty"`
+	ToolInvocationID           string                                  `json:"tool_invocation_id,omitempty"`
+	ModeSnapshotID             string                                  `json:"mode_snapshot_id,omitempty"`
+	ModeRevision               int64                                   `json:"mode_revision,omitempty"`
+	InteractionSnapshotID      string                                  `json:"interaction_snapshot_id,omitempty"`
+	InteractionRevision        int64                                   `json:"interaction_revision,omitempty"`
+	ExecutionProfileSnapshotID string                                  `json:"execution_profile_snapshot_id,omitempty"`
+	ExecutionProfileRevision   int64                                   `json:"execution_profile_revision,omitempty"`
+	PermissionSnapshotID       string                                  `json:"permission_snapshot_id,omitempty"`
+	WorkspaceRootFingerprint   string                                  `json:"workspace_root_fingerprint,omitempty"`
+	CapabilityGeneration       string                                  `json:"capability_generation,omitempty"`
+	ScopeFingerprint           string                                  `json:"scope_fingerprint,omitempty"`
+	RiskKinds                  []string                                `json:"risk_kinds,omitempty"`
+	NetworkTargets             []string                                `json:"network_targets,omitempty"`
+	NetworkPurpose             string                                  `json:"network_purpose,omitempty"`
+	CredentialKinds            []string                                `json:"credential_kinds,omitempty"`
+	HostPaths                  []string                                `json:"host_paths,omitempty"`
+	PolicyCode                 string                                  `json:"policy_code,omitempty"`
+	PolicyReason               string                                  `json:"policy_reason,omitempty"`
+	RequestedTool              string                                  `json:"requested_tool,omitempty"`
+	OtherRiskReason            string                                  `json:"other_risk_reason,omitempty"`
+	MaxOutputBytes             int64                                   `json:"max_output_bytes,omitempty"`
+	ActiveProcessLimit         int                                     `json:"active_process_limit,omitempty"`
+	ProcessMemoryBytes         int64                                   `json:"process_memory_bytes,omitempty"`
+	ApprovalID                 string                                  `json:"approval_id,omitempty"`
+	ApprovalStatus             string                                  `json:"approval_status,omitempty"`
+	GrantID                    string                                  `json:"grant_id,omitempty"`
+	GrantGeneration            int64                                   `json:"grant_generation,omitempty"`
+	GrantMaxUses               int                                     `json:"grant_max_uses,omitempty"`
+	GrantUsesRemaining         *int                                    `json:"grant_uses_remaining,omitempty"`
+	GrantExpiresAt             string                                  `json:"grant_expires_at,omitempty"`
+	GrantConsumptionID         string                                  `json:"grant_consumption_id,omitempty"`
+	InvalidationReason         string                                  `json:"invalidation_reason,omitempty"`
+	Uncertain                  bool                                    `json:"uncertain,omitempty"`
 }
 
 type hostCommandProposalRoute int
@@ -259,7 +261,7 @@ func (a *API) serveHostCommandProposal(writer http.ResponseWriter,
 		return
 	}
 	a.writeSuccess(writer, requestID,
-		hostCommandProposalView(view, false, false, ""), nil)
+		hostCommandProposalView(view, false, false, view.SavedEvidence), nil)
 }
 
 func (a *API) serveHostCommandProposalList(writer http.ResponseWriter,
@@ -370,9 +372,13 @@ func (a *API) serveHostCommandProposalReview(writer http.ResponseWriter,
 			}
 		}
 	}
-	a.writeSuccessStatus(writer, requestID, hostCommandProposalView(
+	response := hostCommandProposalView(
 		result.View, result.ReviewReplayed, result.ExecutionReplayed,
-		result.EvidenceContent), nil, http.StatusAccepted)
+		result.EvidenceContent)
+	if result.View.RiskEscalation == nil {
+		response.Continuation = a.resumeReviewedProposal(request.Context(), runID, "host_command", proposalID)
+	}
+	a.writeSuccessStatus(writer, requestID, response, nil, http.StatusAccepted)
 }
 
 func hostCommandProposalView(view application.HostCommandProposalView,
@@ -429,6 +435,11 @@ func hostCommandProposalView(view application.HostCommandProposalView,
 	}
 	if view.Receipt != nil {
 		result.Receipt = hostCommandExecutionReceiptView(view.Receipt)
+	}
+	// Collection/replay projections remain metadata-only. Detail reads and the
+	// actual execution response carry saved evidence and may expose sealed streams.
+	if evidence != "" {
+		result.SavedOutput = hostCommandSavedOutputView(view)
 	}
 	return result
 }

@@ -163,25 +163,77 @@ func TestCommandRuntimeLaunchRejectsWorkingDirectoryDrift(t *testing.T) {
 	}
 }
 
-func TestCommandRuntimeProcessProfileRejectsScriptAndPrivilegeInterpreters(t *testing.T) {
-	blocked := []string{"python", "node", "java", "dotnet", "busybox"}
-	allowed := "go"
+func TestCommandRuntimeProcessProfileSeparatesNativeRuntimesFromShellsAndBrokers(t *testing.T) {
+	blocked := []string{"powershell", "bash", "sh", "busybox"}
+	allowed := []string{"go", "node", "deno", "bun", "python", "python2", "python3", "python3.14", "pypy", "pypy3.11", "perl", "ruby", "php", "lua", "java", "dotnet", "mono"}
 	if runtime.GOOS == "windows" {
 		for index := range blocked {
 			blocked[index] += ".exe"
 		}
-		blocked = append(blocked, "wsl.exe", "runas.exe")
-		allowed += ".exe"
+		blocked = append(blocked, "cmd.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe", "rundll32.exe", "regsvr32.exe", "py.exe", "wsl.exe", "runas.exe", "test.js", "test.py", "test.cmd", "test.ps1")
+		for index := range allowed {
+			allowed[index] += ".exe"
+		}
 	} else {
-		blocked = append(blocked, "sudo", "pkexec", "python3.12")
+		blocked = append(blocked, "env", "xargs", "sudo", "su", "doas", "pkexec", "dash", "zsh", "fish", "ksh", "csh", "tcsh", "pwsh")
 	}
 	for _, executable := range blocked {
 		if commandRuntimeNativeExecutableAllowed(filepath.Join(string(filepath.Separator), executable)) {
-			t.Fatalf("process profile accepted interpreter or privilege launcher %q", executable)
+			t.Fatalf("process profile accepted a shell, script host or broker %q", executable)
 		}
 	}
-	if !commandRuntimeNativeExecutableAllowed(filepath.Join(string(filepath.Separator), allowed)) {
-		t.Fatalf("process profile rejected native executable %q", allowed)
+	for _, executable := range allowed {
+		if !commandRuntimeNativeExecutableAllowed(filepath.Join(string(filepath.Separator), executable)) {
+			t.Fatalf("process profile rejected native development runtime %q", executable)
+		}
+	}
+}
+
+func TestCommandRuntimeShellRejectionExplainsSupportedProfileForm(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"powershell", "bash"} {
+		t.Run(name, func(t *testing.T) {
+			executable := name
+			if runtime.GOOS == "windows" {
+				executable += ".exe"
+			}
+			spec := CommandRuntimeSpec{
+				Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimeProcess,
+				Executable: filepath.Join(root, executable), Arguments: []string{"--version"},
+				WorkingDirectory: ".", Environment: []CommandRuntimeEnvironment{},
+				StdinPolicy: CommandRuntimeStdinClosed, CloseInitialStdin: true,
+				TimeoutMilliseconds: 1000,
+				Output:              CommandRuntimeOutputPolicy{InlineBytes: MinCommandRuntimeInlineBytes, ArtifactBytes: MinCommandRuntimeInlineBytes},
+				Network:             CommandRuntimeNetworkDisabled, Credentials: CommandRuntimeCredentialsNone,
+				Purpose: "inspect a shell using its supported profile",
+			}
+			_, intentErr := NormalizeCommandRuntimeIntent(spec)
+			_, resolvedErr := NormalizeCommandRuntimeSpec(spec, root)
+			for _, err := range []error{intentErr, resolvedErr} {
+				if !errors.Is(err, ErrCommandRuntimeBoundary) {
+					t.Fatalf("shell process changed its denial boundary: %v", err)
+				}
+				for _, guidance := range []string{"process profile", "system script hosts", "Node/Python", "powershell", "bash", "supported by the current adapter", "omit executable and arguments"} {
+					if !strings.Contains(err.Error(), guidance) {
+						t.Fatalf("rejected shell lacks actionable %q guidance: %v", guidance, err)
+					}
+				}
+			}
+			// Intent validation accepts the existing shell form, without claiming
+			// that a resolver, adapter, permission or runtime is available here.
+			for _, profile := range []CommandRuntimeProfile{CommandRuntimePowerShell, CommandRuntimeBash} {
+				shell := spec
+				shell.Profile, shell.Executable, shell.Arguments = profile, "", nil
+				shell.Script = "echo profile-form"
+				if _, err := NormalizeCommandRuntimeIntent(shell); err != nil {
+					t.Fatalf("supported shell argument form was rejected: %v", err)
+				}
+				shell.Arguments = []string{}
+				if _, err := NormalizeCommandRuntimeIntent(shell); !errors.Is(err, ErrCommandRuntimeBoundary) {
+					t.Fatalf("shell form unexpectedly accepted process arguments: %v", err)
+				}
+			}
+		})
 	}
 }
 

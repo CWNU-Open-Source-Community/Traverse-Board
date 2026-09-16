@@ -15,6 +15,7 @@ const (
 	FileEditProposalSourcePathTemplate   = "/api/v1/runs/{run_id}/file-edit-proposal-source"
 	FileEditProposalRecoveryPathTemplate = "/api/v1/runs/{run_id}/file-edit-proposal-recovery/{edit_id}"
 	FileEditProposalPathTemplate         = "/api/v1/runs/{run_id}/file-edit-proposals"
+	FileEditRevertProposalPathTemplate   = "/api/v1/runs/{run_id}/file-edits/{source_edit_id}/revert-proposal"
 	ProviderCredentialsPath              = "/api/v1/models/credentials"
 	ProviderCredentialPathTemplate       = "/api/v1/models/credentials/{provider}"
 )
@@ -27,6 +28,8 @@ type FileEditProposalController interface {
 	Recover(context.Context, string, string) (
 		application.FileEditProposalRecovery, error)
 	Propose(context.Context, application.CreateFileEditProposalRequest) (
+		application.CreateFileEditProposalResult, error)
+	ProposeRevert(context.Context, application.CreateFileEditRevertProposalRequest) (
 		application.CreateFileEditProposalResult, error)
 }
 
@@ -62,6 +65,19 @@ type FileEditProposalView struct {
 	Replayed         bool                `json:"replayed"`
 	ApprovalRequired bool                `json:"approval_required"`
 	FileWritten      bool                `json:"file_written"`
+}
+
+type FileEditRevertProposalRequestView struct {
+	Version string `json:"version"`
+}
+
+type FileEditRevertProposalView struct {
+	ProtocolVersion string              `json:"protocol_version"`
+	RunID           string              `json:"run_id"`
+	SourceEditID    string              `json:"source_edit_id"`
+	Edit            FileEditPreviewView `json:"edit"`
+	Replayed        bool                `json:"replayed"`
+	FileWritten     bool                `json:"file_written"`
 }
 
 type FileEditProposalRecoveryView struct {
@@ -123,6 +139,62 @@ func matchProviderCredentialControlPath(requestPath string) (string, bool) {
 	}
 	provider := strings.TrimPrefix(requestPath, prefix)
 	return provider, provider != "" && !strings.Contains(provider, "/")
+}
+
+func matchFileEditRevertProposalControlPath(requestPath string) (string, string, bool) {
+	const prefix = "/api/v1/runs/"
+	if !strings.HasPrefix(requestPath, prefix) {
+		return "", "", false
+	}
+	segments := strings.Split(strings.TrimPrefix(requestPath, prefix), "/")
+	if len(segments) != 4 || segments[0] == "" || segments[1] != "file-edits" ||
+		segments[2] == "" || segments[3] != "revert-proposal" {
+		return "", "", false
+	}
+	return segments[0], segments[2], true
+}
+
+func (a *API) serveFileEditRevertProposalControl(writer http.ResponseWriter,
+	request *http.Request, requestID, runID, sourceEditID string,
+) {
+	const label = "File edit revert proposal"
+	// Reverting an existing exact receipt belongs to file review. The separate
+	// gate for arbitrary interactive source/text proposals remains unchanged.
+	if !a.authorizeRunOperation(writer, request, requestID,
+		a.fileEditReviewEnabled && a.fileEditProposalController != nil, label) {
+		return
+	}
+	for _, identity := range []string{runID, sourceEditID} {
+		if err := validatePathIdentity(identity); err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+	}
+	if err := validateJSONContentType(request.Header); err != nil {
+		a.writeError(writer, requestID, err, http.StatusUnsupportedMediaType)
+		return
+	}
+	key, body, err := a.readRunOperationRequest(request, label)
+	if err != nil {
+		a.writeError(writer, requestID, err, runOperationErrorStatus(err))
+		return
+	}
+	var view FileEditRevertProposalRequestView
+	if err := decodeStrictRunOperation(body, &view, label); err != nil {
+		a.writeError(writer, requestID, err, 0)
+		return
+	}
+	result, err := a.fileEditProposalController.ProposeRevert(request.Context(),
+		application.CreateFileEditRevertProposalRequest{Version: view.Version,
+			RunID: runID, SourceEditID: sourceEditID, OperationKey: key})
+	if err != nil {
+		a.writeError(writer, requestID, err, 0)
+		return
+	}
+	a.writeSuccessStatus(writer, requestID, FileEditRevertProposalView{
+		ProtocolVersion: application.FileEditProposalProtocolVersion, RunID: runID,
+		SourceEditID: sourceEditID, Edit: fileEditView(result.Edit, result.RunTerminal),
+		Replayed: result.Replayed, FileWritten: false}, nil, http.StatusAccepted)
 }
 
 func (a *API) serveFileEditProposalControl(writer http.ResponseWriter,

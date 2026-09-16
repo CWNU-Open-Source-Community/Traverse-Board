@@ -2,6 +2,8 @@
 
 状态 / Status: implemented in schema v114
 
+2026-09-11 更新：普通 Thread 的 Supervisor 主链已接入现有持久压缩器；本批没有新增 Schema。超过历史阈值或模型窗口压力时先保存摘要，再组织模型请求，不发送逐条静默删历史后的请求。摘要、原文提取和后继继承均有容量边界；完整原始历史继续保留，摘要不授予权限。实现、重启/重复压缩/工具证据及失败边界验收见 [普通 Thread 上下文连续性验收](UX_CONTEXT_CONTINUITY_VALIDATION.md)。下文 v114 说明仍描述各自原有接口，不代表这些入口自动等同普通 Thread 主链。
+
 协议 / Protocols: `project_instruction_snapshot.v1`, `context_memory.v1`,
 `continuity_snapshot.v1`, `session_continuity_node.v1`, `session_tree.v1`
 

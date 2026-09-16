@@ -4,21 +4,26 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/threadtranscript"
 )
 
 const (
 	ThreadCollectionPath                 = "/api/v1/threads"
 	ThreadTurnControlPathTemplate        = "/api/v1/threads/{thread_id}/turns"
+	ThreadExecutionPathTemplate          = "/api/v1/threads/{thread_id}/execution"
+	ThreadInterruptPathTemplate          = "/api/v1/threads/{thread_id}/interrupt"
 	ThreadRunRecoveryControlPathTemplate = "/api/v1/threads/{thread_id}/recovery"
 	ThreadActivityDetailPathTemplate     = "/api/v1/threads/{thread_id}/activities/{activity_ref}"
 	ThreadActivityArtifactPathTemplate   = "/api/v1/threads/{thread_id}/activities/{activity_ref}/artifacts/{artifact_id}"
@@ -54,6 +59,14 @@ type ThreadCreationControlView struct {
 type ThreadMessageControlRequestView struct {
 	Version string `json:"version"`
 	Content string `json:"content"`
+}
+
+type ThreadTurnControlRequestView struct {
+	Version     string                           `json:"version"`
+	Content     string                           `json:"content"`
+	Files       []domain.WorkspaceFileReference  `json:"files,omitempty"`
+	Images      []domain.ImageReference          `json:"images,omitempty"`
+	Attachments []domain.FileAttachmentReference `json:"attachments,omitempty"`
 }
 
 type ThreadMessageControlView struct {
@@ -101,9 +114,18 @@ func (a *API) routeThreads(request *http.Request, segments []string) (any, *Page
 	case 1:
 		return a.threads(request)
 	case 2:
+		if segments[1] == "creation-request" {
+			return a.threadRequestObservation(request, "")
+		}
 		return a.thread(request, segments[1])
 	case 3:
 		switch segments[2] {
+		case "plan":
+			return a.threadPlanObservation(request, segments[1])
+		case "review":
+			return a.threadReviewView(request, segments[1])
+		case "turn-request":
+			return a.threadRequestObservation(request, segments[1])
 		case "messages":
 			return a.threadMessages(request, segments[1])
 		case "runs":
@@ -112,6 +134,13 @@ func (a *API) routeThreads(request *http.Request, segments []string) (any, *Page
 			return a.threadTranscript(request, segments[1])
 		case "export":
 			return a.threadExport(request, segments[1])
+		case "execution":
+			controller, ok := a.threadTurnController.(ThreadExecutionController)
+			if !ok || !a.runExecutionEnabled {
+				return nil, nil, apperror.New(apperror.CodeNotFound, "Thread execution control is unavailable")
+			}
+			state, err := controller.ExecutionState(request.Context(), segments[1])
+			return state, nil, err
 		}
 	case 4:
 		if segments[2] == "activities" {
@@ -188,6 +217,24 @@ func (a *API) threadTranscript(request *http.Request, threadID string) (any, *Pa
 	summaries := make(map[string]*ThreadActivitySummaryView)
 	for index := range items {
 		views[index] = threadTranscriptItemView(items[index])
+		if items[index].Source == runactivity.SourceOperator && items[index].SourceRef != "" {
+			if imageStore, ok := a.store.(workspaceImageStore); ok {
+				images, imageErr := imageStore.ListOperatorMessageImages(request.Context(), items[index].RunID, items[index].SourceRef)
+				if imageErr != nil {
+					return nil, nil, imageErr
+				}
+				views[index].Images = images
+			}
+			if reader, ok := a.store.(interface {
+				ListOperatorMessageAttachments(context.Context, string, string) ([]domain.WorkspaceFileAttachment, error)
+			}); ok {
+				attachments, err := reader.ListOperatorMessageAttachments(request.Context(), items[index].RunID, items[index].SourceRef)
+				if err != nil {
+					return nil, nil, err
+				}
+				views[index].Attachments = attachments
+			}
+		}
 		activityRef := views[index].ActivityDetailRef
 		if activityRef == "" {
 			continue
@@ -284,6 +331,11 @@ func (a *API) thread(request *http.Request, threadID string) (any, *Page, error)
 			return nil, nil, err
 		}
 		view := runView(run)
+		if run.ID == threadRecord.ActiveRunID || run.ID == threadRecord.LastRunID {
+			if err := a.projectStandardCodePreset(request.Context(), &view); err != nil {
+				return nil, nil, err
+			}
+		}
 		runs[index] = ThreadRunView{Run: view, Ordinal: binding.Ordinal,
 			PredecessorRunID: binding.PredecessorRunID, CreatedAt: binding.CreatedAt}
 		if run.ID == threadRecord.ActiveRunID {
@@ -430,7 +482,7 @@ func matchThreadMutationPath(requestPath string) (string, string, bool) {
 		return "", "", false
 	}
 	switch parts[1] {
-	case "messages", "turns", "recovery", "archive", "restore", "delete":
+	case "messages", "turns", "interrupt", "recovery", "archive", "restore", "delete":
 		return parts[0], parts[1], true
 	default:
 		return "", "", false
@@ -574,7 +626,7 @@ func (a *API) serveThreadCreationControl(writer http.ResponseWriter, request *ht
 func (a *API) serveThreadMutationControl(writer http.ResponseWriter, request *http.Request,
 	requestID, threadID, action string,
 ) {
-	turnAction := action == "turns"
+	turnAction := action == "turns" || action == "interrupt"
 	recoveryAction := action == "recovery"
 	if (!turnAction && !recoveryAction && (!a.runCreationEnabled || !a.sessionMessageEnabled)) ||
 		(turnAction && (!a.runCreationEnabled || !a.sessionMessageEnabled ||
@@ -604,6 +656,30 @@ func (a *API) serveThreadMutationControl(writer http.ResponseWriter, request *ht
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
+	if action == "interrupt" {
+		controller, ok := a.threadTurnController.(ThreadExecutionController)
+		if !ok {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeNotFound,
+				"Thread execution control is unavailable"), 0)
+			return
+		}
+		var view ThreadInterruptRequestView
+		if !a.decodeThreadControlBody(writer, request, requestID, "Thread interrupt", &view) {
+			return
+		}
+		if view.Version != application.ThreadExecutionProtocolVersion {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
+				"Unsupported Thread execution version"), 0)
+			return
+		}
+		state, err := controller.Interrupt(request.Context(), threadID, view.ExecutionID)
+		if err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+		a.writeSuccessStatus(writer, requestID, state, nil, http.StatusAccepted)
+		return
+	}
 	if action == "messages" {
 		var view ThreadMessageControlRequestView
 		if !a.decodeThreadControlBody(writer, request, requestID, "Thread message", &view) {
@@ -630,14 +706,30 @@ func (a *API) serveThreadMutationControl(writer http.ResponseWriter, request *ht
 		return
 	}
 	if action == "turns" {
-		var view ThreadMessageControlRequestView
+		var view ThreadTurnControlRequestView
 		if !a.decodeThreadControlBody(writer, request, requestID, "Thread turn", &view) {
+			return
+		}
+		if len(view.Files) > 0 && !a.evidenceAttachmentEnabled {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition,
+				"Thread file references are not enabled on this server"), 0)
+			return
+		}
+		// A turn can outlive the ordinary 30-second HTTP write timeout. Its
+		// existing request context and Go execution budgets still own the work.
+		// Restore a bounded write deadline when the final response is ready.
+		responseControl := http.NewResponseController(writer)
+		if err := responseControl.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			a.writeError(writer, requestID, apperror.Wrap(apperror.CodeUnavailable,
+				"Thread response deadline could not be configured", err), 0)
 			return
 		}
 		result, err := a.threadTurnController.Execute(request.Context(),
 			application.ExecuteThreadTurnRequest{Version: view.Version, ThreadID: threadID,
 				Content: view.Content, OperationKey: operationKey,
+				Files: view.Files, Images: view.Images, Attachments: view.Attachments,
 				RequestedBy: "http_thread_operator"})
+		_ = responseControl.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		if err != nil {
 			a.writeError(writer, requestID, err, 0)
 			return

@@ -193,7 +193,7 @@ func (s *Service) resolveSearch(ctx context.Context, scope ExecutionScope) (
 		return SearchSelection{}, "", errors.New("web search backend is unavailable")
 	}
 	switch selection.Policy {
-	case SearchPolicyAuto, SearchPolicySearXNG, SearchPolicyProviderNative:
+	case SearchPolicyAuto, SearchPolicyWeb, SearchPolicySearXNG, SearchPolicyProviderNative:
 	default:
 		return SearchSelection{}, "", errors.New("web search policy is unavailable")
 	}
@@ -298,10 +298,19 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 				NativeSearchReasonTransportUnavailable,
 				NativeSearchReasonProviderRejected,
 				NativeSearchReasonToolUnsupported,
+				NativeSearchReasonSearchNotPerformed,
+				NativeSearchReasonResponseIncomplete,
 				NativeSearchReasonResponseInvalid:
 				message = "web search provider request failed (" + qualification.Reason +
 					"); no fallback provider was attempted"
 			}
+		} else if reason := ClassifySearchProviderFailure(err); reason != "" {
+			// Plain providers (SearXNG, the ordinary HTML backend) return bare
+			// errors. Layer transport unreachability apart from a reachable
+			// provider without usable results; the code stays UNAVAILABLE and
+			// only the stable reason enters the durable message.
+			message = "web search provider request failed (" + reason +
+				"); no fallback provider was attempted"
 		}
 		return SearchResult{}, apperror.Wrap(apperror.CodeUnavailable,
 			message, err)
@@ -764,7 +773,7 @@ func validateStoredSearchResult(runID, operationDigest string, result SearchResu
 	legacySelection := result.SearchPolicy == "" && result.SelectionReason == ""
 	validSelection := false
 	switch result.SearchPolicy {
-	case SearchPolicyAuto, SearchPolicySearXNG, SearchPolicyProviderNative:
+	case SearchPolicyAuto, SearchPolicyWeb, SearchPolicySearXNG, SearchPolicyProviderNative:
 		validSelection = validBoundedText(result.SelectionReason, 256, false) &&
 			redact.String(result.SelectionReason) == result.SelectionReason
 	}

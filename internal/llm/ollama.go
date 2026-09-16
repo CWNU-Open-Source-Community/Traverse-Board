@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -411,6 +412,9 @@ func (p *OllamaProvider) prepareRequest(request ChatRequest) (
 		return "", ollamaChatRequest{}, 0, errors.New("max tokens exceeds the provider request limit")
 	}
 	wire := ollamaChatRequest{Model: model, Messages: make([]ollamaMessage, 0, len(request.Messages)+1)}
+	if err := validateRequestImages(p, model, request.Messages); err != nil {
+		return "", ollamaChatRequest{}, 0, err
+	}
 	wire.Options = &ollamaOptions{NumPredict: maxTokens}
 	if request.Temperature > 0 {
 		wire.Options.Temperature = &request.Temperature
@@ -523,6 +527,7 @@ type ollamaMessage struct {
 	Role      string               "json:\"role\""
 	Content   string               "json:\"content\""
 	ToolCalls []ollamaWireToolCall "json:\"tool_calls,omitempty\""
+	Images    []string             `json:"images,omitempty"`
 }
 
 type ollamaTool struct {
@@ -562,9 +567,12 @@ type ollamaResponseMessage struct {
 }
 
 func ollamaMessages(message Message) ([]ollamaMessage, int, error) {
+	if err := ValidateMessageImages(message); err != nil {
+		return nil, 0, err
+	}
 	role := strings.ToLower(strings.TrimSpace(message.Role))
 	content := strings.TrimSpace(message.Content)
-	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 {
+	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 && len(message.Images) == 0 {
 		return nil, 0, nil
 	}
 	bytesTotal := 0
@@ -608,8 +616,13 @@ func ollamaMessages(message Message) ([]ollamaMessage, int, error) {
 			mapped = append(mapped, ollamaMessage{Role: "tool", Content: normalized.Content})
 			bytesTotal += len(normalized.Content)
 		}
-		if content != "" {
-			mapped = append(mapped, ollamaMessage{Role: "user", Content: content})
+		if content != "" || len(message.Images) > 0 {
+			entry := ollamaMessage{Role: "user", Content: content}
+			for _, image := range message.Images {
+				entry.Images = append(entry.Images, base64.StdEncoding.EncodeToString(image.Data))
+				bytesTotal += 4 * EstimateImageTokens(image)
+			}
+			mapped = append(mapped, entry)
 			bytesTotal += len(content)
 		}
 		if len(mapped) == 0 {

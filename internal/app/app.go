@@ -166,7 +166,8 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
 			return rec.RootPath, err
 		})
-	gateway.WithAgentCodeExecutor(application.NewAgentCodeToolExecutor(a.store, a.checker))
+	gateway.WithAgentCodeExecutor(application.NewAgentCodeToolExecutor(a.store, a.checker)).
+		WithAgentCodeWorkspaceResolver(application.NewAgentCodeWorkspaceResolver(a.store, nil))
 	if a.codeIntel != nil {
 		gateway.WithCodeIntelExecutor(application.NewCodeIntelToolExecutor(
 			a.store, a.checker, a.codeIntel))

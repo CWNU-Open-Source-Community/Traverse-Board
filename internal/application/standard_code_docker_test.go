@@ -101,7 +101,8 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		},
 	}
 	ioTransport := &fakeDockerContainerIOTransport{
-		attachBody: dockerLogFramePayload(1, "standard code output\n"),
+		attachBody: append(dockerLogFramePayload(1, "standard code output 中文\n"),
+			dockerLogFramePayload(2, "standard code stderr 中文\n")...),
 	}
 	dockerService, err := NewDockerSandboxService(fixture.state, readiness,
 		policy.NewDefaultChecker(), sandbox.DockerRuntimeCapabilities{Enabled: true},
@@ -422,12 +423,27 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 	}
 	if runtimeResult.Jobs[0].State != runner.CommandRuntimeJobCompleted ||
 		len(runtimeResult.Artifacts) != 1 ||
-		!strings.Contains(runtimeResult.Artifacts[0].Stdout,
-			standardcode.ResultProtocolVersion) || baseLifecycle.starts != 3 {
+		runtimeResult.Artifacts[0].Stdout != "standard code output 中文\n" ||
+		runtimeResult.Artifacts[0].Stderr != "standard code stderr 中文\n" || baseLifecycle.starts != 3 {
 		candidates, _ := fixture.state.ListSandboxExecutionCandidates(ctx,
 			runRecord.ID, 20)
 		t.Fatalf("Docker Command Runtime result=%+v err=%v lifecycle=%+v candidates=%+v",
 			runtimeResult, err, baseLifecycle, candidates)
+	}
+	storedJob, err := fixture.state.GetCommandRuntimeJob(ctx, jobID)
+	if err != nil || storedJob.Stdout != runtimeResult.Artifacts[0].Stdout ||
+		storedJob.Stderr != runtimeResult.Artifacts[0].Stderr ||
+		storedJob.StdoutSHA256 != serviceTestDigest(storedJob.Stdout) ||
+		storedJob.StderrSHA256 != serviceTestDigest(storedJob.Stderr) {
+		t.Fatalf("Command Runtime did not persist actual output and hashes: %+v err=%v", storedJob, err)
+	}
+	attachesBeforeReplay := ioTransport.ownedAttaches
+	replayedJob, err := commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
+		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{resolved.Spec}})
+	if err != nil || len(replayedJob.Jobs) != 1 || replayedJob.Jobs[0].ID != jobID ||
+		baseLifecycle.starts != 3 || ioTransport.ownedAttaches != attachesBeforeReplay {
+		t.Fatalf("completed Job replay re-executed or reattached: %+v err=%v", replayedJob, err)
 	}
 
 	pipeScope := runtimeScope

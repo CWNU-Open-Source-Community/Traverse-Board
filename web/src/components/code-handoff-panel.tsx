@@ -4,14 +4,16 @@ import type { CyberAgentClient } from "../api/client";
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { downloadTextFile } from "../lib/download";
 import { useLocale } from "../lib/locale";
-import { EmptyState, ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
+import { EmptyState, ErrorState, KeyValue, LoadingState, StatusBadge, StatusLabel } from "./common";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
+import { CodeHandoffHostCommands } from "./code-handoff-host-commands";
+import { LifecycleStatusBadge } from "./lifecycle-status";
 
 export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptReview }: {
   client: CyberAgentClient;
   runID: string;
   onOpenDelivery?: () => void;
-  onOpenReceiptReview: (target: ReceiptReviewNavigationTarget) => void;
+  onOpenReceiptReview?: (target: ReceiptReviewNavigationTarget) => void;
 }) {
   const { t } = useLocale();
   const query = useQuery({
@@ -26,7 +28,7 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
   return <section aria-label={t("代码交接", "Code handoff")} className="code-handoff-panel">
     <header className="projection-heading">
       <div><BookOpenCheck aria-hidden="true" size={17} /><h2>{t("代码交接", "Code handoff")}</h2></div>
-      <div>{query.data && <StatusBadge status={query.data.run_status} />}
+      <div>{query.data && <span>{t("记录时执行状态：", "Recorded execution state: ")}<LifecycleStatusBadge status={query.data.run_status} /></span>}
         <button aria-label={t("刷新代码交接", "Refresh Code handoff")} className="icon-button"
           disabled={query.isFetching} onClick={() => void query.refetch()}
           title={t("刷新", "Refresh")} type="button"><RefreshCw aria-hidden="true"
@@ -36,8 +38,8 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
     {query.isError && <ErrorState error={query.error} />}
     {query.data && <>
       <dl className="handoff-grid">
-        <KeyValue label={t("阶段", "Phase")} value={query.data.phase} />
-        <KeyValue label={t("计划", "Plan")} value={query.data.plan.state} />
+        <KeyValue label={t("阶段", "Phase")} value={<StatusLabel status={query.data.phase} />} />
+        <KeyValue label={t("计划", "Plan")} value={<StatusLabel status={query.data.plan.state} />} />
         <KeyValue label={t("模块", "Modules")} value={`${query.data.plan.completed_count} / ${query.data.plan.module_count}`} />
         <KeyValue label={t("队列", "Queue")} value={t(`${query.data.queue.pending} 项待处理`, `${query.data.queue.pending} pending`)} />
         <KeyValue label={t("变更", "Changes")} value={`${query.data.change_set.returned_count} / ${formatBytes(query.data.change_set.total_diff_bytes)}`} />
@@ -76,6 +78,7 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
           <Download aria-hidden="true" size={14} />JSON</button>
       </div>
       {exportHandoff.error && <ErrorState error={exportHandoff.error} />}
+      {query.data.host_commands && <CodeHandoffHostCommands client={client} commands={query.data.host_commands} />}
       <div className="handoff-reference-columns">
         <section><h3>{t("待办操作", "Pending actions")}</h3>
           {query.data.pending_actions.length === 0 ? <EmptyState>{t("没有待办操作", "No pending actions")}</EmptyState> :
@@ -110,12 +113,12 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
                 <div key={item.id}><span><strong>{shortID(item.receipt_id)}</strong>
                   <small>{t("事件", "event")} {item.review_event_sequence}</small></span>
                   <div className="handoff-reference-actions">
-                    <StatusBadge status={item.decision.replaceAll("_", " ")} />
-                    <button aria-label={t(`在验证页打开收据审阅 ${item.id}`, `Open receipt review ${item.id} in Verify`)}
+                    <StatusBadge status={item.decision} />
+                    {onOpenReceiptReview && <button aria-label={t(`在验证页打开收据审阅 ${item.id}`, `Open receipt review ${item.id} in Verify`)}
                       className="icon-button" onClick={() => onOpenReceiptReview(item)}
                       title={t("在验证页打开这条收据审阅", "Open exact receipt review in Verify")} type="button">
                       <ArrowRight aria-hidden="true" size={14} />
-                    </button>
+                    </button>}
                   </div></div>)}
             </div>}
         </section>

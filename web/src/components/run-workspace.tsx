@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -39,7 +39,7 @@ import {
   View,
   Wrench,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import { APIRequestError, type CyberAgentClient } from "../api/client";
 import type {
   ArtifactView,
   EventView,
@@ -51,6 +51,8 @@ import type {
   ModelCancellationView,
   OperatorSteeringQueueView,
   PlanDeliveryStateView,
+  PlanDirectionControlRequestView,
+  PlanDeliveryTransitionControlRequestView,
   RunActivityView,
   RunDetailView,
   RunExecutionProfileControlView,
@@ -72,7 +74,10 @@ import { useLocale } from "../lib/locale";
 import { canonicalVocabulary, diagnosticVocabulary } from "../lib/vocabulary";
 import { readRunNavigationMode, subscribeRunNavigationMode } from "../lib/run-navigation";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
+import { LifecycleStatusBadge } from "./lifecycle-status";
 import { ApprovalPanel } from "./approval-panel";
+import { ArtifactDetail } from "./artifact-detail";
+import { PlanDeliveryHandoff, PlanDeliveryWorkItems } from "./plan-delivery-work-items";
 import { CommandPalette, type CommandPaletteCommand } from "./command-palette";
 import { CodeJourney } from "./code-journey";
 import { CodeHandoffPanel } from "./code-handoff-panel";
@@ -90,7 +95,7 @@ import { VerificationEvidence } from "./verification-evidence";
 import { VerificationPlan } from "./verification-plan";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
 import { WorkspaceExplorer } from "./workspace-explorer";
-import { SessionComposer } from "./session-composer";
+import { SessionComposer, type SessionComposerStatus } from "./session-composer";
 import { AgentGraphPanel, BatchDeliveriesPanel, ChildTasksPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
 import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
@@ -100,6 +105,8 @@ import { WorkspaceCheckpointPanel } from "./workspace-checkpoint-panel";
 import { UIEvidencePanel } from "./ui-evidence-panel";
 import { ThreadActivityToolDetailPanel } from "../v2/components/activity-detail";
 import { StandardCodeDeliveryPanel } from "./standard-code-delivery-panel";
+import { v2QueryKeys } from "../v2/query-keys";
+import "./inspector-workspace-navigation.css";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "delivery" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
@@ -136,58 +143,84 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "sandbox", label: ["沙箱", "Sandbox"], icon: Server },
 ];
 
-const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files", "delivery", "checkpoints"]);
+const commonTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository"]);
+const diagnosticGroups: Array<{ label: [string, string]; tabs: RunTab[] }> = [
+  { label: ["运行与验证", "Run and verification"], tabs: ["overview", "journey", "actions", "verify", "delivery", "handoff", "receipts", "checkpoints", "ui-evidence", "work"] },
+  { label: ["上下文与记录", "Context and records"], tabs: ["files", "evidence", "events", "context", "notes", "artifacts", "tools"] },
+  { label: ["专业工具", "Specialist tools"], tabs: ["agents", "delegations", "fanout", "child-tasks", "findings", "analyzer", "sandbox"] },
+];
 
-export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSelect }: {
+export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSelect, grouped = false, expandDiagnostics = false }: {
   activeTab: RunTab;
   ariaLabel: string;
   children: React.ReactNode;
   items: Array<{ id: RunTab; label: string; icon: typeof Activity }>;
   onSelect: (tab: RunTab) => void;
+  grouped?: boolean;
+  expandDiagnostics?: boolean;
 }) {
+  const { t } = useLocale();
   const tabSetID = useId();
   const tabRefs = useRef(new Map<RunTab, HTMLButtonElement>());
+  const [expanded, setExpanded] = useState(expandDiagnostics);
+  useEffect(() => { setExpanded(expandDiagnostics); }, [expandDiagnostics]);
+  useEffect(() => { if (grouped && !commonTabs.has(activeTab)) setExpanded(true); }, [activeTab, grouped]);
+  const orderedItems = grouped ? [...items.filter(({ id }) => commonTabs.has(id)),
+    ...diagnosticGroups.flatMap((group) => group.tabs.flatMap((id) => items.filter((item) => item.id === id)))] : items;
+  const keyboardItems = grouped && !expanded ? orderedItems.filter(({ id }) => commonTabs.has(id)) : orderedItems;
+  const activeVisible = keyboardItems.some(({ id }) => id === activeTab);
   const tabID = (id: RunTab) => `${tabSetID}-tab-${id}`;
   const panelID = (id: RunTab) => `${tabSetID}-panel-${id}`;
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: RunTab) => {
-    const currentIndex = items.findIndex(({ id }) => id === current);
-    if (currentIndex < 0 || items.length === 0) return;
+    const currentIndex = keyboardItems.findIndex(({ id }) => id === current);
+    if (currentIndex < 0 || keyboardItems.length === 0) return;
     let nextIndex: number;
     switch (event.key) {
       case "ArrowRight":
-        nextIndex = (currentIndex + 1) % items.length;
+        nextIndex = (currentIndex + 1) % keyboardItems.length;
         break;
       case "ArrowLeft":
-        nextIndex = (currentIndex - 1 + items.length) % items.length;
+        nextIndex = (currentIndex - 1 + keyboardItems.length) % keyboardItems.length;
         break;
       case "Home":
         nextIndex = 0;
         break;
       case "End":
-        nextIndex = items.length - 1;
+        nextIndex = keyboardItems.length - 1;
         break;
       default:
         return;
     }
     event.preventDefault();
-    const next = items[nextIndex];
+    const next = keyboardItems[nextIndex];
     onSelect(next.id);
     tabRefs.current.get(next.id)?.focus();
   };
 
-  return <>
-    <nav aria-label={ariaLabel} aria-orientation="horizontal" className="workspace-tabs" role="tablist">
-      {items.map(({ id, label, icon: Icon }) => (
+  const renderTab = ({ id, label, icon: Icon }: (typeof items)[number]) => (
         <button aria-controls={panelID(id)} aria-selected={activeTab === id}
           className={activeTab === id ? "active" : ""} id={tabID(id)} key={id}
           onClick={() => onSelect(id)} onKeyDown={(event) => handleKeyDown(event, id)}
           ref={(node) => {
             if (node) tabRefs.current.set(id, node);
             else tabRefs.current.delete(id);
-          }} role="tab" tabIndex={activeTab === id ? 0 : -1} type="button">
+          }} role="tab" tabIndex={activeTab === id || (!activeVisible && keyboardItems[0]?.id === id) ? 0 : -1} type="button">
           <Icon aria-hidden="true" size={15} />{label}
         </button>
-      ))}
+      );
+  return <>
+    <nav aria-label={ariaLabel} aria-orientation="horizontal" className={`workspace-tabs${grouped ? " inspector-workspace-navigation" : ""}`} role="tablist">
+      {grouped ? <>
+        <div className="inspector-workspace-common">{items.filter(({ id }) => commonTabs.has(id)).map(renderTab)}</div>
+        <button type="button" className="inspector-workspace-expand" aria-expanded={expanded} aria-controls={`${tabSetID}-diagnostics`}
+          onClick={() => setExpanded((value) => !value)}>{t("高级诊断", "Advanced diagnostics")}{!commonTabs.has(activeTab) ? ` · ${items.find(({ id }) => id === activeTab)?.label ?? ""}` : ""}</button>
+        <div className="inspector-workspace-groups" id={`${tabSetID}-diagnostics`} hidden={!expanded}>
+          {diagnosticGroups.map((group) => <div key={group.label[1]} role="group" aria-label={t(...group.label)}>
+            <span>{t(...group.label)}</span>
+            {group.tabs.flatMap((id) => items.filter((item) => item.id === id)).map(renderTab)}
+          </div>)}
+        </div>
+      </> : items.map(renderTab)}
     </nav>
     {items.map(({ id }) => (
       <div aria-labelledby={tabID(id)} className="workspace-content" hidden={activeTab !== id}
@@ -205,8 +238,14 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<RunTab>("activity");
+  const [inputOpen, setInputOpen] = useState(false);
+  const [inputStatus, setInputStatus] = useState<SessionComposerStatus>({ pending: false, error: null });
+  const showInputStatus = useCallback((status: SessionComposerStatus) => {
+    setInputStatus(status);
+    if (status.error) setInputOpen(true);
+  }, []);
   const [navigationMode, setNavigationMode] = useState(readRunNavigationMode);
-  const [fileTarget, setFileTarget] = useState({ runID, path: "." });
+  const [fileTarget, setFileTarget] = useState<{ runID: string; path: string; workspaceID?: string }>({ runID, path: "." });
   const [receiptReviewTarget, setReceiptReviewTarget] =
     useState<ReceiptReviewNavigationTarget | null>(null);
   const [gitAdvancedReview, setGitAdvancedReview] =
@@ -308,11 +347,10 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
     .flatMap((page) => page.items) ?? []).filter((message) => !message.compacted)
     .reduce((total, message) => total + message.token_estimate, 0), [contextMessagesQuery.data]);
   const visibleTabs = useMemo(() => tabs.filter(({ id }) => {
-    if (navigationMode === "compact" && !compactTabs.has(id)) return false;
     if (id === "analyzer" && !client.hasEmbeddedAnalyzerExecution) return false;
     return detailQuery.data?.mode.surface !== "cyber" ||
       !["journey", "verify", "delivery", "handoff"].includes(id);
-  }), [client, detailQuery.data?.mode.surface, navigationMode]);
+  }), [client, detailQuery.data?.mode.surface]);
 
   useEffect(() => {
     if (!visibleTabs.some((item) => item.id === tab)) setTab("activity");
@@ -344,7 +382,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           <div className="workspace-kicker">Run {shortID(detail.run.id)}</div>
           <h1>{detail.mission.goal}</h1>
           <div className="header-meta">
-            <StatusBadge status={detail.run.status} />
+            <span>{t("执行记录状态：", "Execution record state: ")}<LifecycleStatusBadge status={detail.run.status} /></span>
             <span>{detail.mission.profile}</span>
             <span>{detail.run.config.model_route}</span>
           </div>
@@ -357,7 +395,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           </div>
         </div>
       </header>
-      <RunWorkspaceTabs activeTab={tab} ariaLabel={t("Run 视图", "Run views")}
+      <RunWorkspaceTabs activeTab={tab} ariaLabel={t("Run 视图", "Run views")} grouped expandDiagnostics={navigationMode === "diagnostic"}
         items={visibleTabs.map(({ id, label, icon }) => ({ id, label: t(...label), icon }))}
         onSelect={setTab}>
         {tab === "activity" && (
@@ -379,23 +417,33 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           onNavigate={(destination) => setTab(destination === "approvals" ? "approvals" :
             destination === "diffs" ? "diffs" : "overview")} />}
         {tab === "approvals" && <ApprovalPanel client={client} runID={runID} />}
-        {tab === "diffs" && <FileEditPanel client={client} runID={runID} />}
+        {tab === "diffs" && <FileEditPanel client={client} runID={runID} runStatus={detail.run.status} />}
         {tab === "repository" && <div className="projection-stack">
+          <div className="inspector-repository-heading"><h2>{t("当前运行的仓库工具", "Repository tools for this Run")}</h2>
+            <p>{t("这里的操作仅针对当前运行及其仓库绑定。日常任务提交与 PR 可从对话的审阅入口进入；下方保留独立运行所需的高级工具。", "These tools use this Run's repository binding. For task delivery, use the conversation review. Advanced tools remain available for standalone Runs.")}</p></div>
           <RepositoryStatePanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
+          <details className="inspector-workspace-section" open={Boolean(gitAdvancedReview)}><summary>{t("Git 操作（高级）", "Git operations (advanced)")}</summary>
           <GitAdvancedPanel client={client} onOpenApprovals={() => setTab("approvals")}
             onRetainedReviewChange={setGitAdvancedReview} retainedReview={gitAdvancedReview}
             runID={runID} />
+          </details>
+          <details className="inspector-workspace-section" open={Boolean(gitHubReview)}><summary>{t("GitHub 操作（高级）", "GitHub operations (advanced)")}</summary>
           <GitHubReviewPanel client={client} onOpenApprovals={() => setTab("approvals")}
             onOpenDelivery={() => setTab("delivery")}
             onRetainedReviewChange={setGitHubReview} retainedReview={gitHubReview}
             runID={runID} />
+          </details>
+          <details className="inspector-workspace-section"><summary>{t("仓库历史", "Repository history")}</summary>
           <RepositoryHistoryPanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
+          </details>
+          <details className="inspector-workspace-section"><summary>{t("当前目录差异", "Current directory diff")}</summary>
           <RepositoryDiffPanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
+          </details>
         </div>}
         {tab === "files" && <WorkspaceExplorer client={client}
           initialPath={fileTarget.runID === runID ? fileTarget.path : "."}
           key={`${detail.mission.workspace_id ?? "unbound"}:${fileTarget.runID === runID ? fileTarget.path : "."}`}
-          runID={runID} workspaceID={detail.mission.workspace_id ?? ""} />}
+          runID={runID} workspaceID={(fileTarget.runID === runID ? fileTarget.workspaceID : undefined) ?? detail.mission.workspace_id ?? ""} />}
         {tab === "evidence" && <EvidenceInventory client={client} runID={runID}
           onOpenSource={(sourceRef) => {
             setFileTarget({ runID, path: sourceRef });
@@ -407,10 +455,9 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
             <VerificationEvidence client={client} runID={runID} /></div>}
         {tab === "delivery" && detail.mode.surface === "code" &&
           <StandardCodeDeliveryPanel client={client} runID={runID}
-            onOpenArtifacts={() => setTab("artifacts")}
             onOpenCheckpoints={() => setTab("checkpoints")}
-            onOpenFile={(path) => {
-              setFileTarget({ runID, path });
+            onOpenFile={(path, workspaceID) => {
+              setFileTarget({ runID, path, workspaceID });
               setTab("files");
             }} />}
         {tab === "ui-evidence" && <UIEvidencePanel client={client} runID={runID} />}
@@ -466,11 +513,15 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         {tab === "analyzer" && client.hasEmbeddedAnalyzerExecution &&
           <EmbeddedAnalyzerPanel client={client} runID={runID} />}
       </RunWorkspaceTabs>
-      {detail.run.session_id && <SessionComposer client={client}
+      {detail.run.session_id && client.hasSessionMessages && <details className="inspector-workspace-input" open={inputOpen}
+        onToggle={(event) => setInputOpen(event.currentTarget.open)}><summary><span>{t("向此运行补充输入（高级）", "Add input to this Run (advanced)")}</span>
+          <span role="status">{inputStatus.pending ? t(" · 输入请求处理中", " · Input in progress") : inputStatus.error ? t(" · 输入未完成，请查看原因", " · Input needs attention") : ""}</span></summary>
+        <p>{t("这里的输入仅提交给此运行，不会自动承接整个任务。日常续聊请返回对话；发送仍受当前运行状态与权限限制。", "Input here belongs only to this Run; it does not continue the whole task. Return to the conversation for ordinary follow-up. Existing Run state and permission checks still apply.")}</p>
+        <SessionComposer client={client} onStatusChange={showInputStatus}
         contextPartial={Boolean(contextMessagesQuery.hasNextPage)} contextTokens={contextTokens}
         onOpenPlugins={onOpenPlugins} run={detail.run} sessionID={detail.run.session_id}
         phase={detail.mode.phase} publicModelStream={publicModelStream}
-        workspaceID={detail.mission.workspace_id ?? ""} />}
+        workspaceID={detail.mission.workspace_id ?? ""} /></details>}
     </div>
   );
 }
@@ -633,7 +684,7 @@ export function RunControlPanel({ client, detail, threadID = "" }: {
     <section className="detail-section run-control-section">
       <div className="section-heading">
         <h2><Play aria-hidden="true" size={15} />{t("Run 控制", "Run control")}</h2>
-        <StatusBadge status={activeLease ? "busy" : detail.run.status} />
+        {activeLease ? <StatusBadge status="busy" label={t("执行访问被占用", "Execution access in use")} /> : <LifecycleStatusBadge status={detail.run.status} />}
       </div>
       <div className="run-control-row">
         {client.hasRunLifecycle && lifecycleAction && (
@@ -710,9 +761,9 @@ function ActiveCallCancelPanel({ client, detail }: {
     <section className="detail-section run-control-section">
       <div className="section-heading">
         <h2><Ban aria-hidden="true" size={15} />{t("取消模型调用", "Cancel model call")}</h2>
-        <StatusBadge status={detail.execution_lease?.active ? "busy" : detail.run.status} />
+        {detail.execution_lease?.active ? <StatusBadge status="busy" label={t("执行访问被占用", "Execution access in use")} /> : <LifecycleStatusBadge status={detail.run.status} />}
       </div>
-      <p className="run-cancel-hint">{t(`中断 Supervisor 当前进行中的模型调用（尝试 ${shortID(attemptID)}）。`, `Interrupt the model call currently running under Supervisor (attempt ${shortID(attemptID)}).`)}</p>
+      <p className="run-cancel-hint">{t(`按尝试标识请求取消模型调用（尝试 ${shortID(attemptID)}）；是否仍在执行由服务端核验。`, `Request cancellation by attempt (${shortID(attemptID)}); the server verifies whether the call is still executing.`)}</p>
       <div className="run-control-row">
         <div className="run-execution-control">
           <label htmlFor={`run-cancel-attempt-${detail.run.id}`}>{t("模型尝试", "Model attempt")}</label>
@@ -793,67 +844,91 @@ export function OperatorSteeringPanel({ state }: { state: OperatorSteeringQueueV
   );
 }
 
-export function PlanDeliveryPanel({ state, client, detail }: {
+type PlanAttempt = { runID: string; threadID?: string; operationKey: string } & (
+  { kind: "adopt"; body: PlanDirectionControlRequestView; deliveryOperationKey: string; selectionID?: string } |
+  { kind: "direction"; body: PlanDirectionControlRequestView } |
+  { kind: "deliver"; selectionID: string; body: PlanDeliveryTransitionControlRequestView } |
+  { kind: "pause"; body: RunLifecycleControlRequestView });
+interface PlanInteraction { attempt: PlanAttempt; state: "pending" | "unknown" | "rejected"; error?: string; unconfirmed?: boolean }
+const planIntentKey = (runID: string) => ["run", runID, "plan-control-intent"] as const;
+
+export function PlanDeliveryPanel({ state, client, detail, threadID }: {
   state: PlanDeliveryStateView;
   client?: CyberAgentClient;
   detail?: RunDetailView;
+  threadID?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
-  const operationKeys = useRef(new Map<string, string>());
-  const operationKey = (intent: string) => {
-    const existing = operationKeys.current.get(intent);
-    if (existing) {
-      return existing;
-    }
-    const created = `web-plan-${globalThis.crypto.randomUUID()}`;
-    operationKeys.current.set(intent, created);
-    return created;
-  };
-  const refresh = () => {
-    if (!detail) return;
-    void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id] });
-    void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
-    void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "work"] });
-    void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "notes"] });
-  };
-  const directionMutation = useMutation({
-    mutationFn: (direction: number) => {
-      if (!client || !detail || !state.proposal) {
-        throw new Error(t("计划方向控制不可用", "Plan direction control is unavailable"));
+  const manualDescriptionID = useId();
+  const manualPreferenceKey = ["run", detail?.run.id ?? "", "plan-manual-preference"] as const;
+  const manualPreference = useQuery<boolean>({ queryKey: manualPreferenceKey, queryFn: () => false,
+    enabled: false, initialData: false, gcTime: Infinity });
+  const intent = useQuery<PlanInteraction | null>({ queryKey: planIntentKey(detail?.run.id ?? ""),
+    queryFn: () => null, enabled: false, initialData: null, gcTime: Infinity });
+  const mutation = useMutation({
+    mutationFn: async (attempt: PlanAttempt) => {
+      if (!client) throw new Error(t("计划控制不可用", "Plan controls are unavailable"));
+      if (attempt.kind === "adopt") {
+        let selectionID = attempt.selectionID;
+        if (!selectionID) {
+          const selected = await client.selectPlanDirection(attempt.runID, attempt.body, attempt.operationKey);
+          selectionID = selected.selection_id;
+          queryClient.setQueryData<PlanInteraction | null>(planIntentKey(attempt.runID), (current) =>
+            current?.attempt.operationKey === attempt.operationKey
+              ? { attempt: { ...attempt, selectionID }, state: "pending" } : current);
+        }
+        const result = await client.enterPlanDelivery(attempt.runID, { version: "plan_delivery_control.v1" }, attempt.deliveryOperationKey);
+        if (result.selection_id !== selectionID) throw new APIRequestError("Deliver result belongs to a different Plan selection", "INVALID_RESPONSE", 502);
+        return result;
       }
-      const intent = `${state.proposal.id}:direction:${direction}`;
-      return client.selectPlanDirection(detail.run.id, {
-        version: "plan_delivery_control.v1", proposal_id: state.proposal.id, direction,
-      }, operationKey(intent)).then((result) => ({ result, intent }));
+      if (attempt.kind === "direction") return client.selectPlanDirection(attempt.runID, attempt.body, attempt.operationKey);
+      if (attempt.kind === "deliver") {
+        const result = await client.enterPlanDelivery(attempt.runID, attempt.body, attempt.operationKey);
+        if (result.selection_id !== attempt.selectionID) throw new APIRequestError("Deliver result belongs to a different Plan selection", "INVALID_RESPONSE", 502);
+        return result;
+      }
+      return client.controlRunLifecycle(attempt.runID, attempt.body, attempt.operationKey);
     },
-    onSuccess: ({ intent }) => {
-      operationKeys.current.delete(intent);
-      refresh();
+    onSuccess: (_result, attempt) => {
+      queryClient.setQueryData<PlanInteraction | null>(planIntentKey(attempt.runID), (current) =>
+        current?.attempt.operationKey === attempt.operationKey ? null : current);
+    },
+    onError: (error, attempt) => {
+      const rejected = error instanceof APIRequestError && error.code !== "INVALID_RESPONSE" &&
+        [400, 401, 403, 404, 409, 412, 422].includes(error.status);
+      queryClient.setQueryData<PlanInteraction | null>(planIntentKey(attempt.runID), (current) =>
+        current?.attempt.operationKey === attempt.operationKey ? { ...current,
+          state: rejected && !current.unconfirmed ? "rejected" : "unknown",
+          unconfirmed: current.unconfirmed || !rejected, error: error.message } : current);
+    },
+    onSettled: (_result, _error, attempt) => {
+      void queryClient.invalidateQueries({ queryKey: ["run", attempt.runID] });
+      if (attempt.threadID) {
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(attempt.threadID) });
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.permission(attempt.threadID) });
+      }
     },
   });
-  const deliveryMutation = useMutation({
-    mutationFn: () => {
-      if (!client || !detail || !state.selection) {
-        throw new Error(t("计划交付控制不可用", "Plan delivery control is unavailable"));
-      }
-      const intent = `${state.selection.id}:deliver`;
-      return client.enterPlanDelivery(detail.run.id, {
-        version: "plan_delivery_control.v1",
-      }, operationKey(intent)).then((result) => ({ result, intent }));
-    },
-    onSuccess: ({ intent }) => {
-      operationKeys.current.delete(intent);
-      refresh();
-    },
-  });
+  const submit = (attempt: PlanAttempt) => {
+    const current = queryClient.getQueryData<PlanInteraction | null>(planIntentKey(attempt.runID));
+    if (!client || !(attempt.kind === "pause" ? client.hasRunLifecycle : client.hasPlanDelivery) ||
+      current?.state === "pending" || (current && current.attempt.operationKey !== attempt.operationKey)) return;
+    queryClient.setQueryData<PlanInteraction>(planIntentKey(attempt.runID), { attempt, state: "pending",
+      unconfirmed: current?.unconfirmed || current?.state === "unknown" });
+    mutation.mutate(attempt);
+  };
+  const attemptIdentity = () => ({ runID: detail!.run.id, threadID, operationKey: `web-plan-${globalThis.crypto.randomUUID()}` });
   const selected = state.selection?.direction_ordinal;
+  const validDirections = Boolean(state.proposal && state.proposal.directions.length >= 1 && state.proposal.directions.length <= 3 &&
+    state.proposal.directions.every((direction, index) => direction.ordinal === index + 1));
+  const adopted = intent.data?.attempt.kind === "adopt" && Boolean(intent.data.attempt.selectionID);
+  const manualRequired = state.selection?.manual_acceptance !== "on_demand";
   const mutable = Boolean(client?.hasPlanDelivery && detail &&
     (detail.run.status === "created" || detail.run.status === "paused") &&
     detail.mode.phase === "plan" && !detail.execution_lease?.active);
-  const selecting = directionMutation.isPending || deliveryMutation.isPending;
-  const controlError = directionMutation.error ?? deliveryMutation.error;
-  const status = state.operator_choice_needed
+  const selecting = Boolean(intent.data);
+  const status = !state.proposal ? t("尚无计划方案", "No plan proposal yet") : state.operator_choice_needed
     ? t("需要操作者选择", "Operator choice required")
     : state.phase_change_needed
       ? t("需要进入交付阶段", "Deliver phase required")
@@ -866,15 +941,32 @@ export function PlanDeliveryPanel({ state, client, detail }: {
       </div>
       <div className="plan-state-line">
         <span>{status}</span>
-        <span>{t("模式修订", "Mode revision")} {formatNumber(state.proposal?.mode_revision)}</span>
-        <span>{t("交付门", "Delivery gates")} {formatNumber(state.ready_checkpoints)} / {formatNumber(state.required_checkpoints)}</span>
-        <span>{t("门禁执行", "Gate enforcement")}: {state.delivery_gate_enforced ? t("开启", "on") : t("旧版豁免", "legacy exempt")}</span>
-        <span>{t("能力授权：无", "Capability grant: no")}</span>
+        {state.selection && state.delivery_gate_enforced && manualRequired && <span>{state.continued_completions?.length ? t("有效人工记录（含沿用）", "Valid manual records (including continued)") :
+          t("当前有效人工记录", "Current manual records")} {formatNumber(state.ready_checkpoints)} / {formatNumber(state.required_checkpoints)}</span>
+        }
+        {state.selection && state.delivery_gate_enforced && !manualRequired && <span>{t("人工说明按需记录；计划项仍须实际完成", "Manual notes on demand; Plan items still require actual completion")}</span>}
+        {state.selection && !state.delivery_gate_enforced && <span>{t("此旧版计划未启用逐项人工验收；执行与检查仍遵循原有要求。", "This legacy Plan does not require per-item manual acceptance; its execution and verification requirements still apply.")}</span>}
       </div>
+      {!state.proposal && <p>{t("回到对话描述目标并继续准备计划。方案形成后，在这里选择方向；配置环境不会替你生成或批准计划。",
+        "Continue the conversation to prepare a plan. Choose a direction here once a proposal exists; configuring the environment does not generate or approve a plan.")}</p>}
+      {detail?.mode.phase === "plan" && detail.run.status === "running" && state.proposal && <div className="plan-delivery-actions">
+        <p>{t("选择方向或进入交付前，需暂停当前执行。", "Pause the current execution before selecting a direction or entering Deliver.")}</p>
+        {client?.hasRunLifecycle && <button className="command-button" disabled={selecting || Boolean(detail.execution_lease?.active)}
+          onClick={() => submit({ ...attemptIdentity(), kind: "pause", body: { version: "run_lifecycle_control.v1", action: "pause" } })} type="button">
+          {t("暂停以确认计划", "Pause to review the plan")}</button>}
+        {detail.execution_lease?.active && <p>{t("当前执行尚未结束，请先等待或回到对话停止。", "Execution is still active. Wait or return to the conversation to stop it.")}</p>}
+      </div>}
+      {mutable && state.operator_choice_needed && state.proposal && <div className="plan-manual-option">
+        <label><input checked={manualPreference.data} disabled={selecting} type="checkbox" aria-describedby={manualDescriptionID}
+          onChange={(event) => queryClient.setQueryData(manualPreferenceKey, event.target.checked)} />
+          <span>{t("需要逐项人工验收", "Require manual acceptance for each item")}</span></label>
+        <p id={manualDescriptionID}>{t("默认按需记录人工说明；真实检查、文件审批与计划项完成要求保持。", "Manual notes are optional by default; actual checks, file approval, and Plan item completion remain required.")}</p>
+      </div>}
+      {state.proposal && !validDirections && <p role="alert">{t("方案数量或序号不一致，请刷新计划后再选择。", "The proposal count or ordinals are inconsistent. Refresh the Plan before choosing.")}</p>}
       <div className="plan-direction-list">
         {state.proposal?.directions.map((direction) => (
           <details className={selected === direction.ordinal ? "plan-direction selected" : "plan-direction"}
-            key={direction.ordinal} open={selected === direction.ordinal || undefined}>
+            key={direction.ordinal} open={selected === direction.ordinal || state.proposal?.directions.length === 1 || undefined}>
             <summary>
               <span className="plan-ordinal">{direction.ordinal}</span>
               <span><strong>{direction.title}</strong><small>{direction.summary}</small></span>
@@ -887,15 +979,21 @@ export function PlanDeliveryPanel({ state, client, detail }: {
                 <li key={module.ordinal}>
                   <strong>{module.title}</strong>
                   <p>{module.objective}</p>
+                  <ul>{module.acceptance_criteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul>
                   <small>{module.dependencies.length > 0 ? t(`依赖 ${module.dependencies.join(", ")}`, `Depends on ${module.dependencies.join(", ")}`) : t("无依赖", "No dependencies")}</small>
                 </li>
               ))}</ol></div>
               {mutable && state.operator_choice_needed && state.proposal && (
-                <button className="command-button plan-choice-button" disabled={selecting}
-                  onClick={() => directionMutation.mutate(direction.ordinal)} type="button">
-                  {directionMutation.isPending && directionMutation.variables === direction.ordinal
+                <button className="command-button plan-choice-button" disabled={selecting || !validDirections}
+                  onClick={() => submit({ ...attemptIdentity(), kind: "adopt",
+                    deliveryOperationKey: `web-plan-deliver-${globalThis.crypto.randomUUID()}`, body: {
+                    version: "plan_delivery_control.v1", proposal_id: state.proposal!.id, direction: direction.ordinal,
+                    manual_acceptance: manualPreference.data ? "required" : "on_demand" } })} type="button">
+                  {intent.data?.state === "pending" && intent.data.attempt.kind === "adopt" && intent.data.attempt.body.direction === direction.ordinal
                     ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-                    : <Check aria-hidden="true" size={15} />}{t(`选择方向 ${direction.ordinal}`, `Choose direction ${direction.ordinal}`)}
+                    : <Check aria-hidden="true" size={15} />}{state.proposal.directions.length === 1
+                      ? t("采用方案并开始交付", "Adopt plan and enter Deliver")
+                      : t(`采用方案 ${direction.ordinal} 并开始交付`, `Adopt plan ${direction.ordinal} and enter Deliver`)}
                 </button>
               )}
             </div>
@@ -905,34 +1003,49 @@ export function PlanDeliveryPanel({ state, client, detail }: {
       {mutable && state.selection && state.phase_change_needed && (
         <div className="plan-delivery-actions">
           <button className="command-button" disabled={selecting}
-            onClick={() => deliveryMutation.mutate()} type="button">
-            {deliveryMutation.isPending
+            onClick={() => submit({ ...attemptIdentity(), kind: "deliver", selectionID: state.selection!.id,
+              body: { version: "plan_delivery_control.v1" } })} type="button">
+            {intent.data?.state === "pending"
               ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
               : <ChevronsRight aria-hidden="true" size={15} />}{t("进入交付", "Enter Deliver")}
           </button>
         </div>
       )}
-      {(directionMutation.isError || deliveryMutation.isError) && (
+      {adopted && <p role="status">{t("方案已采用，正在确认进入交付的结果；不会重复选择方案。", "The plan is adopted. Confirming entry into Deliver; the selection will not be repeated.")}</p>}
+      {intent.data?.state === "pending" && <p role="status">{t("计划操作处理中，关闭后可回到此执行查看结果。", "The plan operation is pending; return to this execution after closing to see the result.")}</p>}
+      {intent.data?.state === "unknown" && (
         <div className="inline-warning" role="alert">
-          {controlError instanceof Error
-            ? controlError.message
-            : t("计划/交付控制失败", "Plan/Delivery control failed")}
+          <p>{t("计划操作结果尚未确认，请使用原请求确认。", "The plan operation result is unknown. Confirm the original request.")} {intent.data.error}</p>
+          <button className="command-button" disabled={!(intent.data.attempt.kind === "pause" ? client?.hasRunLifecycle : client?.hasPlanDelivery)}
+            onClick={() => submit(intent.data!.attempt)} type="button">{t("确认上次计划操作", "Confirm previous plan operation")}</button>
         </div>
       )}
       {state.selection && (
         <div className="delivery-checkpoint-list" aria-label={t("交付检查点历史", "Delivery checkpoint history")}>
           <h3>{t("检查点历史", "Checkpoint history")}</h3>
-          {state.checkpoints.length === 0 ? <p>{t("没有检查点记录", "No checkpoints recorded")}</p> : state.checkpoints.map((checkpoint) => (
+          {state.checkpoints.length === 0 ? <p>{state.continued_completions?.some((entry) => !entry.completion_event_id) ?
+            t("当前执行尚无新的人工验收记录；沿用的历史说明可从下方计划项查看。", "This execution has no new manual acceptance records. Read continued historical notes in the Plan items below.") :
+            t("没有检查点记录", "No checkpoints recorded")}</p> : state.checkpoints.map((checkpoint) => (
             <div className="delivery-checkpoint-row" key={checkpoint.id}>
               <span>{t("切片", "Slice")} {checkpoint.module_ordinal}/{checkpoint.module_count}</span>
               <code>{shortID(checkpoint.work_item_id)}</code>
               <span>{t("模式", "mode")} r{checkpoint.mode_revision} / {t(...canonicalVocabulary.planItem)} v{checkpoint.work_item_version}</span>
               {checkpoint.full_gate_required && <span>{t("完整门禁", "full gate")}</span>}
               <StatusBadge status={checkpoint.gate_ready ? "ready" : "stale"} />
+              {client && detail && <PlanDeliveryHandoff client={client} runID={detail.run.id} noteID={checkpoint.handoff_note_id} />}
             </div>
           ))}
         </div>
       )}
+      {intent.data?.state === "rejected" && <div className="inline-warning" role="alert">
+        <p>{t("服务拒绝了此步骤，请先核对最新任务状态与权限。", "The service rejected this step. Check the current task state and permissions first.")} {intent.data.error}</p>
+        {adopted ? <button disabled={!client?.hasPlanDelivery} className="command-button" type="button"
+          onClick={() => submit(intent.data!.attempt)}>{t("重试进入交付", "Retry entering Deliver")}</button>
+          : <button className="command-button" type="button" onClick={() => queryClient.setQueryData(planIntentKey(detail!.run.id), null)}>
+            {t("返回修改", "Return to editing")}</button>}
+      </div>}
+      {state.selection && client && detail && detail.mode.phase === "deliver" &&
+        <PlanDeliveryWorkItems client={client} detail={detail} state={state} threadID={threadID} />}
     </section>
   );
 }
@@ -1079,36 +1192,6 @@ function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; clien
         </Fragment>
       ))}
     </tbody></table></div>
-  );
-}
-
-function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }) {
-  const { t } = useLocale();
-  const query = useQuery({ queryKey: ["artifact", id], queryFn: ({ signal }) => client.getArtifact(id, signal) });
-  if (query.isLoading) {
-    return <LoadingState label={t("加载产物详情", "Loading Artifact details")} />;
-  }
-  if (query.isError || !query.data) {
-    return <ErrorState error={query.error} />;
-  }
-  const item = query.data;
-  return (
-    <dl className="detail-grid">
-      <KeyValue label="ID" value={item.id} />
-      <KeyValue label="Run" value={item.run_id} />
-      <KeyValue label={t("Run 内 Session", "Run-local Session")} value={item.session_id} />
-      <KeyValue label="Workspace" value={item.workspace_id} />
-      <KeyValue label={t("类型", "Kind")} value={item.kind} />
-      <KeyValue label={t("来源", "Source")} value={item.source_id} />
-      <KeyValue label={t("工具", "Tool")} value={item.tool_name} />
-      <KeyValue label={t("流", "Stream")} value={item.stream} />
-      <KeyValue label="MIME" value={item.mime} />
-      <KeyValue label={t("编码", "Encoding")} value={item.encoding} />
-      <KeyValue label={t("大小", "Size")} value={formatBytes(item.size_bytes)} />
-      <KeyValue label={t("已脱敏", "Redacted")} value={item.redacted ? t("是", "yes") : t("否", "no")} />
-      <KeyValue label="SHA-256" value={<code>{item.sha256}</code>} />
-      <KeyValue label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
-    </dl>
   );
 }
 
