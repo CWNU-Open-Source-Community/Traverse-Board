@@ -26,34 +26,47 @@ const (
 )
 
 type SupervisorCheckpoint struct {
-	RunID           string
-	LeaseID         string
-	LeaseGeneration int64
-	NextTurn        int
-	Phase           SupervisorPhase
-	AttemptID       string
-	PendingInput    string
-	RepairPhase     ProtocolRepairPhase
-	RepairReason    string
-	LastError       string
-	InputTokens     int64
-	OutputTokens    int64
-	TotalTokens     int64
-	ExecutionMillis int64
-	UpdatedAt       time.Time
+	RunID                  string
+	LeaseID                string
+	LeaseGeneration        int64
+	NextTurn               int
+	Phase                  SupervisorPhase
+	AttemptID              string
+	PendingInput           string
+	PendingImageCount      int
+	PendingAttachmentCount int
+	RepairPhase            ProtocolRepairPhase
+	RepairReason           string
+	LastError              string
+	InputTokens            int64
+	OutputTokens           int64
+	TotalTokens            int64
+	ExecutionMillis        int64
+	UpdatedAt              time.Time
+}
+
+func (c SupervisorCheckpoint) HasPendingInput() bool {
+	return c.PendingInput != "" || c.PendingImageCount > 0 || c.PendingAttachmentCount > 0
 }
 
 type SupervisorTurn struct {
-	Run              Run
-	Mission          Mission
-	Mode             RunModeSnapshot
-	Agent            AgentNode
-	Checkpoint       SupervisorCheckpoint
-	OperatorSteering bool
-	Recovered        bool
+	Run                  Run
+	Mission              Mission
+	Mode                 RunModeSnapshot
+	Agent                AgentNode
+	Checkpoint           SupervisorCheckpoint
+	OperatorSteering     bool
+	ApprovalContinuation bool
+	Recovered            bool
 }
 
 func (c SupervisorCheckpoint) Validate() error {
+	if c.PendingAttachmentCount < 0 || c.PendingAttachmentCount > MaxThreadMessageAttachments {
+		return errors.New("checkpoint attachment input count is invalid")
+	}
+	if c.PendingImageCount < 0 || c.PendingImageCount > MaxThreadMessageImages {
+		return errors.New("checkpoint image input count is invalid")
+	}
 	if strings.TrimSpace(c.RunID) == "" {
 		return errors.New("checkpoint run id is required")
 	}
@@ -69,7 +82,7 @@ func (c SupervisorCheckpoint) Validate() error {
 		if strings.TrimSpace(c.AttemptID) != "" {
 			return fmt.Errorf("checkpoint phase %s cannot have an active attempt", c.Phase)
 		}
-		if strings.TrimSpace(c.PendingInput) != "" {
+		if strings.TrimSpace(c.PendingInput) != "" || c.PendingImageCount > 0 || c.PendingAttachmentCount > 0 {
 			return fmt.Errorf("checkpoint phase %s cannot have pending input", c.Phase)
 		}
 		if c.RepairPhase != ProtocolRepairNone || strings.TrimSpace(c.RepairReason) != "" {

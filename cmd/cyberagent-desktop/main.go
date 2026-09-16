@@ -790,6 +790,9 @@ func runDesktop(config desktopOptions) error {
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
 		WorkspaceDirectoryPicker:          nativeWorkspaceDirectoryPicker{},
 		WorkspaceRegistrar:                controlPlane,
+		ClipboardReader:                   desktop.NewNativeClipboardFileReader(),
+		ClipboardFiles:                    controlPlane.ClipboardFileImporter(),
+		ClipboardImages:                   controlPlane.ClipboardImageImporter(),
 		UserTerminalController:            controlPlane.UserTerminalController(),
 		DebugTerminalAgentInputController: controlPlane.DebugTerminalAgentInputController(),
 		RiskProfileRestartEnabled:         config.riskProfileRestart,
@@ -823,8 +826,11 @@ func runDesktop(config desktopOptions) error {
 		OnShutdown: func(context.Context) {
 			lifecycle.Stop()
 		},
-		Bind:                     []interface{}{bridge},
-		EnableDefaultContextMenu: false,
+		Bind: []interface{}{bridge},
+		// Keep Wails' production context-menu filter: editable controls and
+		// selected text get native edit actions; ordinary page surfaces do not.
+		// Developer tools remain controlled by the separate production setting.
+		EnableDefaultContextMenu: true,
 		// Keep OS anti-phishing cloud submission disabled for a local-first app.
 		EnableFraudulentWebsiteDetection: false,
 		BindingsAllowedOrigins:           "",

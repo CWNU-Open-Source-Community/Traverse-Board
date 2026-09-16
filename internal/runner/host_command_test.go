@@ -217,6 +217,76 @@ func TestHostCommandProposalRequiresApprovalSnapshotAndExactReview(t *testing.T)
 	}
 }
 
+func TestHostPowerShellUTF8EnvelopeRetainsReviewedLegacyIdentity(t *testing.T) {
+	const command = "Write-Output '中文'; exit 7"
+	request := hostCommandSpecTestRequest(t)
+	request.ExecutablePath = hostCommandAbsolutePath(t, "bin", "pwsh.exe")
+	request.Argv = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
+	legacy, err := NewHostCommandSpec(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(legacy)
+	if err := ValidateHostCommandProposalTransport(legacy); err != nil {
+		t.Fatalf("stored exact legacy envelope was rejected: %v", err)
+	}
+	if err := ValidateHostCommandProcessProposalTransport(legacy); err == nil {
+		t.Fatal("legacy shell became available through process transport")
+	}
+	after, _ := json.Marshal(legacy)
+	if string(before) != string(after) {
+		t.Fatal("legacy argv/fingerprint changed during recognition")
+	}
+	request.Argv, err = CanonicalHostShellArguments("powershell", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := NewHostCommandSpec(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Argv[len(current.Argv)-1] != command || current.Fingerprint == legacy.Fingerprint {
+		t.Fatal("UTF-8 initialization was not independently sealed with the exact command")
+	}
+	request.Argv[len(request.Argv)-2] += " Write-Output unreviewed;"
+	tampered, err := NewHostCommandSpec(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateHostCommandProposalTransport(tampered); err == nil {
+		t.Fatal("noncanonical bootstrap was accepted as a reviewed shell envelope")
+	}
+}
+
+func TestHostPowerShellRejectsOpeningDeclarationsWithoutInspectingCodeValues(t *testing.T) {
+	for _, command := range []string{
+		"param([string]$Value='must-not-execute'); Write-Output $Value",
+		"[CmdletBinding()] param([string]$Value='must-not-execute'); Write-Output $Value",
+		" <# before <# nested #> declaration #> PARAM ([string]$Value); Write-Output $Value",
+		"using namespace System.Text; Write-Output must-not-execute",
+		"<# before #> using module ./example.psm1; Write-Output must-not-execute",
+		"using assembly 'example.dll'; Write-Output must-not-execute",
+	} {
+		if argv, err := CanonicalHostShellArguments("powershell", command); err == nil || argv != nil || !strings.Contains(err.Error(), ".ps1") {
+			t.Fatalf("inline declaration was not rejected with the file alternative: argv=%q error=%v", argv, err)
+		}
+		legacy := HostCommandSpec{ExecutablePath: hostCommandAbsolutePath(t, "bin", "pwsh.exe"),
+			Argv: []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}}
+		if dialect, ok := HostCommandShellDialect(legacy); !ok || dialect != "powershell" {
+			t.Fatal("new construction restriction was retroactively applied to the old envelope")
+		}
+	}
+	for _, command := range []string{
+		"Write-Output 'param($Value)'", "'using namespace System.Text'", "# param($Value)",
+		"function Example { param($Value) Write-Output $Value }; Example '中文'",
+		"& ./declared.ps1", "Write-Output 'using assembly example.dll'",
+	} {
+		if _, err := CanonicalHostShellArguments("powershell", command); err != nil {
+			t.Fatalf("ordinary command was mistaken for a declaration: %q: %v", command, err)
+		}
+	}
+}
+
 func TestHostCommandProposalRejectsNonApprovalPermission(t *testing.T) {
 	now := time.Now().UTC()
 	mission := domain.Mission{ID: "mission-host-command", CreatedAt: now}

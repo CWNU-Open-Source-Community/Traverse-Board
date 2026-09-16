@@ -1,0 +1,22 @@
+.v2-preview-overlay { position:fixed; inset:0; z-index:900; background:#0005; display:flex; justify-content:flex-end; }
+.v2-app-preview { box-sizing:border-box; width:min(920px, 94vw); height:100dvh; padding:20px; overflow:auto; background:#141519; color:var(--v2-ink); box-shadow:-4px 0 30px #0002; font-size:14px; }
+[data-prayu-theme="light"] .v2-app-preview { background:#fff; }
+.v2-app-preview > header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:18px; padding:8px 0; background:inherit; }
+.v2-app-preview h2 { font-size:19px; margin:0; }
+.v2-app-preview button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:8px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:var(--prayu-panel-strong, #fff); color:inherit; font:inherit; cursor:pointer; }
+.v2-app-preview button:disabled { opacity:.5; cursor:default; }
+.v2-preview-address { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.v2-preview-address label { display:flex; gap:6px; flex-direction:column; font-size:13px; }
+.v2-preview-address label:first-child { flex:1; min-width:220px; }
+.v2-app-preview input, .v2-app-preview select { box-sizing:border-box; min-height:36px; padding:7px 9px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:var(--prayu-panel-strong, #fff); color:inherit; font:inherit; min-width:0; }
+.v2-preview-help { display:flex; gap:10px; flex-wrap:wrap; align-items:center; line-height:1.6; color:var(--v2-muted, #666c73); }
+.v2-preview-status { display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:12px 0; overflow-wrap:anywhere; }
+.v2-preview-page > p { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.v2-preview-page small { color:var(--v2-muted, #666c73); }
+.v2-preview-capture { width:100%; height:auto; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:#fff; }
+.v2-preview-page details { margin-top:14px; padding:12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; }
+.v2-preview-page pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.6; }
+.v2-preview-element { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--v2-border, #d7dbe0); }
+.v2-preview-element > span { flex:1; min-width:70px; overflow-wrap:anywhere; }
+.v2-preview-element input { width:45%; }
+@media (max-width:600px) { .v2-app-preview { width:100vw; padding:14px; } .v2-preview-element { flex-wrap:wrap; } }

@@ -71,6 +71,42 @@ func TestOpenAICompatibleProviderChatJSONAndModelList(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderListModelsEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name, basePath, modelsPath string
+	}{
+		{"base URL", "", "/v1/models"},
+		{"version base URL", "/v1", "/v1/models"},
+		{"chat endpoint", "/v1/chat/completions", "/v1/models"},
+		{"prefixed chat endpoint", "/gateway/v1/chat/completions", "/gateway/v1/models"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != test.modelsPath {
+					t.Errorf("model-list request = %s %s, want GET %s", r.Method, r.URL.Path, test.modelsPath)
+					http.NotFound(w, r)
+					return
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer test-secret" {
+					t.Errorf("authorization = %q", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[{"id":"listed-model"}]}`))
+			}))
+			defer server.Close()
+
+			provider := newTestOpenAIProvider(t, server.URL+test.basePath)
+			models, err := provider.ListModels(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(models) != 1 || models[0].ID != "listed-model" {
+				t.Fatalf("unexpected model list: %#v", models)
+			}
+		})
+	}
+}
+
 func TestOpenAICompatibleProviderMapsToolsAndMultipleToolResults(t *testing.T) {
 	var captured openAIChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

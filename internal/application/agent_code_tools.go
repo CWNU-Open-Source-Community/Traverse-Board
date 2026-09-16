@@ -30,14 +30,25 @@ type AgentCodeToolStore interface {
 }
 
 type AgentCodeToolExecutor struct {
-	store   AgentCodeToolStore
-	manager *fileedit.Manager
-	apply   *FileEditApplyService
+	store    AgentCodeToolStore
+	manager  *fileedit.Manager
+	apply    *FileEditApplyService
+	revert   *FileEditProposalService
+	drydocks *DrydockService
 }
 
 type agentCodeGitHubEvidenceStore interface {
 	ListGitHubReviewEvidence(context.Context, string, int) ([]githubreview.EvidenceRecord, error)
 	GetGitHubReviewEvidence(context.Context, string) (githubreview.EvidenceRecord, bool, error)
+}
+
+func (e *AgentCodeToolExecutor) WithDrydock(drydocks *DrydockService) *AgentCodeToolExecutor {
+	if e != nil {
+		e.drydocks = drydocks
+		e.apply.WithDrydock(drydocks)
+		e.revert.WithDrydock(drydocks)
+	}
+	return e
 }
 
 func NewAgentCodeToolExecutor(store AgentCodeToolStore,
@@ -46,7 +57,8 @@ func NewAgentCodeToolExecutor(store AgentCodeToolStore,
 	checkpoints := embeddedWorkspaceCheckpointService(store,
 		domain.ExecutionPermissionRuntimeCapabilities{})
 	return &AgentCodeToolExecutor{store: store, manager: fileedit.NewManager(store),
-		apply: NewFileEditApplyService(store, checker, checkpoints)}
+		apply:  NewFileEditApplyService(store, checker, checkpoints),
+		revert: NewFileEditProposalService(store, checker)}
 }
 
 func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
@@ -118,6 +130,7 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		metadata["result_count"] = fmt.Sprint(len(result.Matches))
 		metadata["truncated"] = fmt.Sprint(result.Truncated)
 	case toolgateway.GitHubEvidenceListTool:
+		metadata["workspace_id"] = scope.ControlWorkspaceID()
 		var input toolgateway.GitHubEvidenceListPayload
 		if err := json.Unmarshal(payload, &input); err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
@@ -135,6 +148,7 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		metadata["result_count"] = fmt.Sprint(len(result))
 		metadata["trust"] = "untrusted_remote_data"
 	case toolgateway.GitHubEvidenceReadTool:
+		metadata["workspace_id"] = scope.ControlWorkspaceID()
 		var input toolgateway.GitHubEvidenceReadPayload
 		if err := json.Unmarshal(payload, &input); err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
@@ -148,7 +162,7 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		if err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, apperror.Normalize(err)
 		}
-		if !found || result.RunID != scope.RunID || result.WorkspaceID != scope.WorkspaceID {
+		if !found || result.RunID != scope.RunID || result.WorkspaceID != scope.ControlWorkspaceID() {
 			return toolgateway.AgentCodeExecutionResult{}, apperror.New(
 				apperror.CodeNotFound, "GitHub review evidence was not found for this Run")
 		}
@@ -164,7 +178,7 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		if err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
 		}
-		value = agentCodeEditResult(result, false)
+		value = agentCodeEditResult(result, result.Operation == fileedit.OperationDelete)
 		metadata["edit_id"] = result.ID
 		metadata["status"] = result.Status
 		metadata["operation"] = result.Operation
@@ -246,7 +260,7 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	if err != nil {
 		return apperror.Normalize(err)
 	}
-	registered, err := e.store.GetWorkspaceInfo(ctx, mission.WorkspaceID)
+	files, err := ResolveRunFileWorkspace(ctx, e.store, run, mission, e.drydocks)
 	if err != nil {
 		return apperror.Normalize(err)
 	}
@@ -266,14 +280,16 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	if err != nil {
 		return apperror.Normalize(err)
 	}
+	registered := files.Workspace
+	sourceWorkspaceID := scope.ControlWorkspaceID()
 	rootFingerprint, err := workspace.AgentCodeRootFingerprint(registered.RootPath)
 	if err != nil {
 		return apperror.Normalize(err)
 	}
 	if run.Status != domain.RunRunning || linkedSession.Status != session.StatusActive ||
 		run.MissionID != scope.MissionID || run.SessionID != scope.SessionID ||
-		mission.ID != scope.MissionID || mission.WorkspaceID != scope.WorkspaceID ||
-		linkedSession.WorkspaceID != scope.WorkspaceID || registered.ID != scope.WorkspaceID ||
+		mission.ID != scope.MissionID || mission.WorkspaceID != sourceWorkspaceID ||
+		linkedSession.WorkspaceID != sourceWorkspaceID || registered.ID != scope.WorkspaceID ||
 		registered.RootPath != scope.WorkspaceRoot || rootFingerprint != scope.RootFingerprint ||
 		mode.Revision != scope.ModeRevision || mode.Surface != scope.Surface ||
 		mode.Phase != scope.Phase || mode.Profile != scope.Profile ||
@@ -287,7 +303,7 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	}
 	capabilities := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: agent.ID,
-		WorkspaceID:     registered.ID,
+		WorkspaceID:     sourceWorkspaceID,
 		RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: agent.Role, Profile: agent.Profile, PermissionMode: permission.Mode,
 		ModeRevision: mode.Revision, PermissionRevision: permission.Revision})
@@ -301,7 +317,7 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	if toolgateway.IsCodeIntelTool(name) {
 		if available, reason := toolgateway.CodeIntelScopeEligibility(
 			toolgateway.AgentCodeCapabilityContext{RunID: run.ID, MissionID: mission.ID,
-				RootAgentID: agent.ID, WorkspaceID: registered.ID,
+				RootAgentID: agent.ID, WorkspaceID: sourceWorkspaceID,
 				RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 				Role: agent.Role, Profile: agent.Profile, PermissionMode: permission.Mode,
 				ModeRevision: mode.Revision, PermissionRevision: permission.Revision}); !available {
@@ -324,6 +340,14 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 	scope toolgateway.AgentCodeExecutionScope, input toolgateway.WorkspaceChangePayload,
 ) (fileedit.Edit, bool, error) {
+	if input.Action == "propose_revert" {
+		result, err := e.revert.ProposeRevert(ctx, CreateFileEditRevertProposalRequest{
+			Version: FileEditProposalProtocolVersion, RunID: scope.RunID,
+			SourceRunID: input.SourceRunID, SourceEditID: input.SourceEditID,
+			Path: input.Path, ExpectedSHA256: input.ExpectedSHA256,
+			OperationKey: scope.OperationKey})
+		return result.Edit, result.Replayed, err
+	}
 	operation := fileedit.OperationReplace
 	proposedText := ""
 	destination := ""
@@ -351,8 +375,8 @@ func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 		}
 	case "create":
 		operation = fileedit.OperationCreate
-		if _, _, err := workspace.AgentCodeResolveWritePath(scope.WorkspaceRoot,
-			input.Path, true); err != nil {
+		if _, _, err := workspace.AgentCodeResolveCreatePath(scope.WorkspaceRoot,
+			input.Path); err != nil {
 			return fileedit.Edit{}, false, err
 		}
 		proposedText = input.Content
@@ -445,9 +469,21 @@ func (e *AgentCodeToolExecutor) applyChange(ctx context.Context,
 		return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
 			"workspace apply expectations do not match the approved proposal")
 	}
+	operationKey := scope.OperationKey
+	if reader, ok := e.store.(interface {
+		GetFailedFileApplyOperationKey(context.Context, string, string, string) (string, bool, error)
+	}); ok {
+		key, found, lookupErr := reader.GetFailedFileApplyOperationKey(ctx, scope.RunID, edit.ID, scope.RootAgentID)
+		if lookupErr != nil {
+			return ApplyFileEditResult{}, apperror.Normalize(lookupErr)
+		}
+		if found {
+			operationKey = key
+		}
+	}
 	return e.apply.Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
-		RunID: scope.RunID, EditID: edit.ID, OperationKey: scope.OperationKey,
-		AppliedBy: scope.RootAgentID, InvocationID: scope.InvocationID,
+		RunID: scope.RunID, EditID: edit.ID, OperationKey: operationKey,
+		AppliedBy: scope.RootAgentID, InvocationID: scope.CheckpointInvocationID(),
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
 		LeaseGeneration: scope.LeaseGeneration})
 }
@@ -467,7 +503,7 @@ func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
 	}
 	return e.apply.Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
 		RunID: scope.RunID, EditID: edit.ID, OperationKey: scope.OperationKey,
-		AppliedBy: scope.RootAgentID, InvocationID: scope.InvocationID,
+		AppliedBy: scope.RootAgentID, InvocationID: scope.CheckpointInvocationID(),
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
 		LeaseGeneration: scope.LeaseGeneration})
 }

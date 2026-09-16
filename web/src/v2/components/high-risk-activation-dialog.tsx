@@ -106,6 +106,8 @@ export function V2HighRiskActivationDialog({ open, profile, phase = "idle", erro
   const copy = profileCopy[profile];
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Portal events still bubble through the React owner tree.
+    event.stopPropagation();
     if (!busy) onConfirm();
   };
   const dialog = <div className="v2-overlay v2-high-risk-overlay" role="presentation"

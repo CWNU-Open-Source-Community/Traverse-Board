@@ -65,7 +65,11 @@ func (a *App) editApply(ctx context.Context, args []string) error {
 	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
 		return errors.New("usage: cyberagent edit apply <run-id> <edit-id> --operation-key <key> [--operator <id>]")
 	}
-	result, err := application.NewFileEditApplyService(a.store, a.checker).Apply(ctx,
+	drydocks, err := a.newRunFileDrydockService(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	result, err := application.NewFileEditApplyService(a.store, a.checker).WithDrydock(drydocks).Apply(ctx,
 		application.ApplyFileEditRequest{
 			Version: fileedit.FileEditApplyProtocolVersion, RunID: fs.Arg(0),
 			EditID: fs.Arg(1), OperationKey: *operationKey, AppliedBy: *operator,
@@ -92,7 +96,11 @@ func (a *App) editReview(ctx context.Context, action application.FileEditReviewA
 	if fs.NArg() != 2 {
 		return fmt.Errorf("usage: cyberagent %s <run-id> <edit-id>", name)
 	}
-	result, err := application.NewFileEditReviewService(a.store).Review(ctx,
+	drydocks, err := a.newRunFileDrydockService(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	result, err := application.NewFileEditReviewService(a.store).WithDrydock(drydocks).Review(ctx,
 		application.ReviewFileEditRequest{
 			Version: application.FileEditReviewProtocolVersion, RunID: fs.Arg(0),
 			EditID: fs.Arg(1), Action: action,

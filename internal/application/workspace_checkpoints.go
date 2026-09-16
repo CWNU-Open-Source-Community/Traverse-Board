@@ -86,11 +86,13 @@ type WorkspaceCheckpointForkStore interface {
 }
 
 type WorkspaceCheckpointService struct {
-	store          WorkspaceCheckpointStore
-	capabilities   domain.ExecutionPermissionRuntimeCapabilities
-	now            func() time.Time
-	lifecycleHooks *hooks.Engine
-	runWorkspace   func(context.Context, string) (session.WorkspaceInfo, bool, error)
+	store                WorkspaceCheckpointStore
+	capabilities         domain.ExecutionPermissionRuntimeCapabilities
+	now                  func() time.Time
+	lifecycleHooks       *hooks.Engine
+	runWorkspace         func(context.Context, string) (session.WorkspaceInfo, bool, error)
+	strictMutationReplay bool
+	operatorGitThreadID  string
 }
 
 func (s *WorkspaceCheckpointService) WithLifecycleHooks(
@@ -447,6 +449,11 @@ func (s *WorkspaceCheckpointService) BeginBoundary(ctx context.Context,
 	if err != nil {
 		current, found, getErr := s.store.GetWorkspaceCheckpointRunState(ctx, binding.run.ID)
 		if getErr != nil || !found || current.CurrentCheckpointID != before.Checkpoint.ID {
+			if s.strictMutationReplay {
+				// Keep the prepared journal recoverable. No mutation was authorized
+				// before its owning cursor could be advanced.
+				return WorkspaceMutationBoundary{}, apperror.Normalize(err)
+			}
 			completedAt := s.now().UTC()
 			transaction.Status = workspacecheckpoint.TransactionFailed
 			transaction.AfterCheckpointID = before.Checkpoint.ID
@@ -899,15 +906,12 @@ func (s *WorkspaceCheckpointService) fork(ctx context.Context,
 	if err != nil {
 		return WorkspaceForkResult{}, err
 	}
-	if err := s.requireRestoreAuthority(ctx, binding, request.RequestedBy); err != nil {
-		return WorkspaceForkResult{}, err
-	}
 	target, err := s.store.GetWorkspaceCheckpointSnapshot(ctx,
 		request.TargetCheckpointID)
 	if err != nil {
 		return WorkspaceForkResult{}, apperror.Normalize(err)
 	}
-	if target.Checkpoint.RunID != binding.run.ID ||
+	if (ownedState == nil && target.Checkpoint.RunID != binding.run.ID) ||
 		target.Checkpoint.WorkspaceID != binding.workspace.ID ||
 		target.Checkpoint.RecoveryLevel == workspacecheckpoint.RecoveryUnavailable {
 		return WorkspaceForkResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -970,6 +974,9 @@ func (s *WorkspaceCheckpointService) fork(ctx context.Context,
 		if transaction.Status.Terminal() {
 			return s.replayFork(ctx, forkStore, transaction, target.Checkpoint)
 		}
+	}
+	if err := s.requireRestoreAuthority(ctx, binding, request.RequestedBy); err != nil {
+		return WorkspaceForkResult{}, err
 	}
 	openTransactions, err := s.store.ListOpenWorkspaceCheckpointTransactions(ctx,
 		workspaceCheckpointListLimit)
@@ -1124,6 +1131,14 @@ func (s *WorkspaceCheckpointService) replayRestoreOperation(ctx context.Context,
 }
 
 func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error) {
+	return s.reconcile(ctx, nil)
+}
+
+// Recovery selects a service from the transaction's durable workspace identity,
+// rather than reinterpreting historical transactions through today's Run target.
+func (s *WorkspaceCheckpointService) reconcile(ctx context.Context,
+	resolve func(context.Context, workspacecheckpoint.Transaction) (*WorkspaceCheckpointService, error),
+) (int, error) {
 	if s == nil || s.store == nil {
 		return 0, apperror.New(apperror.CodeFailedPrecondition,
 			"workspace checkpoint service is unavailable")
@@ -1138,28 +1153,45 @@ func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error)
 		if len(transactions) == 0 {
 			break
 		}
+		processed := 0
 		for _, transaction := range transactions {
-			if err := s.requireWorkspaceCheckpointReconciliationQuiescence(ctx,
+			scoped := s
+			if resolve != nil {
+				var err error
+				scoped, err = resolve(ctx, transaction)
+				if err != nil {
+					return reconciled, err
+				}
+			}
+			if scoped == nil {
+				continue // The exact lifecycle retains this unresolved operation.
+			}
+			processed++
+			if err := scoped.requireWorkspaceCheckpointReconciliationQuiescence(ctx,
 				transaction.RunID); err != nil {
 				return reconciled, err
 			}
 			if transaction.Kind == workspacecheckpoint.TransactionFork {
-				if err := s.reconcileForkTransaction(ctx, transaction); err != nil {
+				if err := scoped.reconcileForkTransaction(ctx, transaction); err != nil {
 					return reconciled, err
 				}
 				reconciled++
 				continue
 			}
-			binding, bindErr := s.loadBinding(ctx, transaction.RunID)
+			binding, bindErr := scoped.loadBinding(ctx, transaction.RunID)
 			if bindErr != nil {
 				return reconciled, bindErr
 			}
-			before, getErr := s.store.GetWorkspaceCheckpointSnapshot(ctx,
+			if binding.workspace.ID != transaction.WorkspaceID {
+				return reconciled, apperror.New(apperror.CodeConflict,
+					"checkpoint recovery cannot change the recorded workspace")
+			}
+			before, getErr := scoped.store.GetWorkspaceCheckpointSnapshot(ctx,
 				transaction.BeforeCheckpointID)
 			if getErr != nil {
 				return reconciled, apperror.Normalize(getErr)
 			}
-			state, stateFound, stateErr := s.store.GetWorkspaceCheckpointRunState(ctx,
+			state, stateFound, stateErr := scoped.store.GetWorkspaceCheckpointRunState(ctx,
 				binding.run.ID)
 			if stateErr != nil {
 				return reconciled, apperror.Normalize(stateErr)
@@ -1170,11 +1202,11 @@ func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error)
 			}
 			if state.CurrentCheckpointID == transaction.ExpectedCurrentCheckpointID &&
 				state.CurrentCheckpointID != transaction.BeforeCheckpointID {
-				state, _, stateErr = s.store.AdvanceWorkspaceCheckpointRunState(ctx,
+				state, _, stateErr = scoped.store.AdvanceWorkspaceCheckpointRunState(ctx,
 					workspacecheckpoint.RunState{RunID: binding.run.ID,
 						WorkspaceID:         binding.workspace.ID,
 						CurrentCheckpointID: transaction.BeforeCheckpointID,
-						LastTransactionID:   "", UpdatedAt: s.now().UTC()},
+						LastTransactionID:   "", UpdatedAt: scoped.now().UTC()},
 					state.CurrentCheckpointID)
 				if stateErr != nil {
 					return reconciled, apperror.Normalize(stateErr)
@@ -1187,7 +1219,7 @@ func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error)
 			incompleteReasons := append([]string{}, before.Checkpoint.IncompleteReasons...)
 			incompleteReasons = append(incompleteReasons,
 				"process restart interrupted the mutation boundary")
-			observed, _, captureErr := s.capture(ctx, binding, workspacecheckpoint.CaptureRequest{
+			observed, _, captureErr := scoped.capture(ctx, binding, workspacecheckpoint.CaptureRequest{
 				ID:                   workspaceCheckpointID(transaction.OperationKeyDigest, "reconciled"),
 				AttemptID:            before.Checkpoint.AttemptID,
 				CapabilityGeneration: before.Checkpoint.CapabilityGeneration,
@@ -1196,35 +1228,35 @@ func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error)
 				TriggerReceiptID:     transaction.ID,
 				ParentCheckpointID:   before.Checkpoint.ID,
 				IncompleteReasons:    incompleteReasons,
-				CreatedAt:            s.now().UTC()})
+				CreatedAt:            scoped.now().UTC()})
 			if captureErr != nil {
 				return reconciled, captureErr
 			}
-			completedAt := s.now().UTC()
+			completedAt := scoped.now().UTC()
 			transaction.Status = workspacecheckpoint.TransactionInterrupted
 			transaction.AfterCheckpointID = observed.Checkpoint.ID
 			transaction.RecoveryLevel = weakestWorkspaceRecovery(transaction.RecoveryLevel,
 				observed.Checkpoint.RecoveryLevel)
 			transaction.ErrorCode = "process_restart_reconciliation"
 			transaction.UpdatedAt, transaction.CompletedAt = completedAt, &completedAt
-			transaction, _, updateErr := s.store.UpdateWorkspaceCheckpointTransaction(ctx,
+			transaction, _, updateErr := scoped.store.UpdateWorkspaceCheckpointTransaction(ctx,
 				transaction)
 			if updateErr != nil {
 				return reconciled, apperror.Normalize(updateErr)
 			}
 			if state.CurrentCheckpointID != observed.Checkpoint.ID {
-				if _, _, stateErr = s.store.AdvanceWorkspaceCheckpointRunState(ctx,
+				if _, _, stateErr = scoped.store.AdvanceWorkspaceCheckpointRunState(ctx,
 					workspacecheckpoint.RunState{RunID: binding.run.ID,
 						WorkspaceID:         binding.workspace.ID,
 						CurrentCheckpointID: observed.Checkpoint.ID,
-						LastTransactionID:   transaction.ID, UpdatedAt: s.now().UTC()},
+						LastTransactionID:   transaction.ID, UpdatedAt: scoped.now().UTC()},
 					transaction.BeforeCheckpointID); stateErr != nil {
 					return reconciled, apperror.Normalize(stateErr)
 				}
 			}
 			reconciled++
 		}
-		if len(transactions) < workspaceCheckpointListLimit {
+		if processed == 0 || len(transactions) < workspaceCheckpointListLimit {
 			break
 		}
 	}
@@ -1237,22 +1269,35 @@ func (s *WorkspaceCheckpointService) Reconcile(ctx context.Context) (int, error)
 		if len(transactions) == 0 {
 			return reconciled, nil
 		}
+		processed := 0
 		for _, transaction := range transactions {
-			if err := s.requireWorkspaceCheckpointReconciliationQuiescence(ctx,
+			scoped := s
+			if resolve != nil {
+				var err error
+				scoped, err = resolve(ctx, transaction)
+				if err != nil {
+					return reconciled, err
+				}
+			}
+			if scoped == nil {
+				continue
+			}
+			processed++
+			if err := scoped.requireWorkspaceCheckpointReconciliationQuiescence(ctx,
 				transaction.RunID); err != nil {
 				return reconciled, err
 			}
-			if _, _, err := s.store.AdvanceWorkspaceCheckpointRunState(ctx,
+			if _, _, err := scoped.store.AdvanceWorkspaceCheckpointRunState(ctx,
 				workspacecheckpoint.RunState{RunID: transaction.RunID,
 					WorkspaceID:         transaction.WorkspaceID,
 					CurrentCheckpointID: transaction.AfterCheckpointID,
-					LastTransactionID:   transaction.ID, UpdatedAt: s.now().UTC()},
+					LastTransactionID:   transaction.ID, UpdatedAt: scoped.now().UTC()},
 				transaction.BeforeCheckpointID); err != nil {
 				return reconciled, apperror.Normalize(err)
 			}
 			reconciled++
 		}
-		if len(transactions) < workspaceCheckpointListLimit {
+		if processed == 0 || len(transactions) < workspaceCheckpointListLimit {
 			return reconciled, nil
 		}
 	}
@@ -1683,6 +1728,12 @@ func (s *WorkspaceCheckpointService) replayBoundary(ctx context.Context,
 		return WorkspaceMutationBoundary{}, apperror.Normalize(err)
 	}
 	result := WorkspaceMutationBoundary{Transaction: transaction, Before: before, Replayed: true}
+	if s.strictMutationReplay && transaction.Status.Terminal() &&
+		(transaction.Status != workspacecheckpoint.TransactionCompleted ||
+			transaction.AfterCheckpointID == transaction.BeforeCheckpointID) {
+		return WorkspaceMutationBoundary{}, apperror.New(apperror.CodeConflict,
+			"an unsuccessful mutation boundary cannot authorize another file write")
+	}
 	if !transaction.Status.Terminal() {
 		state, stateFound, stateErr := s.store.GetWorkspaceCheckpointRunState(ctx,
 			binding.run.ID)
@@ -1707,7 +1758,18 @@ func (s *WorkspaceCheckpointService) replayBoundary(ctx context.Context,
 		}
 		result.After = &after
 		if transaction.Status.Terminal() {
-			_ = s.advanceBoundaryReplayCursor(ctx, binding, transaction, after.ID)
+			if s.strictMutationReplay {
+				// The owning lifecycle can replay its immutable cursor receipt even
+				// after later edits. A failed attribution is never a successful apply.
+				if _, _, err := s.store.AdvanceWorkspaceCheckpointRunState(ctx,
+					workspacecheckpoint.RunState{RunID: binding.run.ID, WorkspaceID: binding.workspace.ID,
+						CurrentCheckpointID: after.ID, LastTransactionID: transaction.ID,
+						UpdatedAt: s.now().UTC()}, transaction.BeforeCheckpointID); err != nil {
+					return WorkspaceMutationBoundary{}, apperror.Normalize(err)
+				}
+			} else {
+				_ = s.advanceBoundaryReplayCursor(ctx, binding, transaction, after.ID)
+			}
 		}
 	}
 	return result, nil
@@ -2061,7 +2123,20 @@ func (s *WorkspaceCheckpointService) requireBoundaryLease(ctx context.Context,
 	if err != nil {
 		return apperror.Normalize(err)
 	}
-	if !found || binding.run.Status != domain.RunRunning ||
+	operatorIdle := false
+	if s.operatorGitThreadID != "" {
+		checker, ok := s.store.(interface {
+			CheckThreadGitIdle(context.Context, string, string, *domain.RunExecutionLease) error
+		})
+		if !ok || request.Kind != workspacecheckpoint.TransactionGitMutation || !strings.HasPrefix(lease.OwnerID, "thread-git:") {
+			return apperror.New(apperror.CodeConflict, "operator Git checkpoint authority is unavailable")
+		}
+		if err := checker.CheckThreadGitIdle(ctx, s.operatorGitThreadID, binding.run.ID, &lease); err != nil {
+			return err
+		}
+		operatorIdle = true
+	}
+	if !found || (!operatorIdle && binding.run.Status != domain.RunRunning) ||
 		binding.session.Status != session.StatusActive || lease.Status != domain.RunExecutionLeaseActive ||
 		lease.LeaseID != request.LeaseID || lease.Generation != request.LeaseGeneration ||
 		!lease.ExpiresAt.After(s.now().UTC()) {

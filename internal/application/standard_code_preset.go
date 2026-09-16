@@ -498,6 +498,7 @@ func (s *StandardCodePresetService) continuePrepared(ctx context.Context,
 	stored, _, commitReplayed, err := s.store.CommitStandardCodePreset(ctx, commit)
 	if err != nil {
 		if operation.Status == domain.StandardCodePresetWaitingForPause &&
+			!errors.Is(err, domain.ErrStandardCodePresetThreadPreferenceChanged) &&
 			(apperror.CodeOf(err) == apperror.CodeConflict ||
 				apperror.CodeOf(err) == apperror.CodeFailedPrecondition) {
 			base.Status = StandardCodeResultWaitingForPause

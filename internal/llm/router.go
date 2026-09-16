@@ -271,6 +271,9 @@ func chatWithProvider(ctx context.Context, ref ModelRef, provider Provider, regi
 	if req.Model == "" {
 		req.Model = ref.Model
 	}
+	if err := validateRequestImages(provider, req.Model, req.Messages); err != nil {
+		return nil, NewProviderError(OutcomePermanent, ref.Provider, "image input is invalid or unsupported", err)
+	}
 	req, err := redactRequest(req)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, ref.Provider, "invalid model request", err)
@@ -308,6 +311,9 @@ func streamWithProvider(ctx context.Context, ref ModelRef, provider Provider, re
 	}
 	if req.Model == "" {
 		req.Model = ref.Model
+	}
+	if err := validateRequestImages(provider, req.Model, req.Messages); err != nil {
+		return nil, NewProviderError(OutcomePermanent, ref.Provider, "image input is invalid or unsupported", err)
 	}
 	var err error
 	req, err = redactRequest(req)
@@ -358,7 +364,15 @@ func ParseModelRef(value string) (ModelRef, error) {
 func redactRequest(req ChatRequest) (ChatRequest, error) {
 	req.Messages = append([]Message(nil), req.Messages...)
 	for i := range req.Messages {
-		req.Messages[i].Content = redact.String(req.Messages[i].Content)
+		// Image bytes are inert operator evidence, not text for the redactor.
+		// Copy before handing them to a Provider; omit them from JSON logs.
+		req.Messages[i].Images = append([]ImagePart(nil), req.Messages[i].Images...)
+		for j := range req.Messages[i].Images {
+			req.Messages[i].Images[j].Data = append([]byte(nil), req.Messages[i].Images[j].Data...)
+		}
+		if req.Metadata["purpose"] != "context_compaction" || !req.Messages[i].preservesContextCompactionData() {
+			req.Messages[i].Content = redact.String(req.Messages[i].Content)
+		}
 		calls, err := NormalizeToolCalls(req.Messages[i].ToolCalls)
 		if err != nil {
 			return ChatRequest{}, err
@@ -376,7 +390,9 @@ func redactRequest(req ChatRequest) (ChatRequest, error) {
 			if err != nil {
 				return ChatRequest{}, err
 			}
-			normalized.Content = redact.String(normalized.Content)
+			if !normalized.preservesStoredHistory() {
+				normalized.Content = redact.String(normalized.Content)
+			}
 			results[index] = normalized
 		}
 		req.Messages[i].ToolResults = results
@@ -430,6 +446,10 @@ func ensureModelJSONEOF(decoder *json.Decoder) error {
 }
 
 func redactModelJSONValue(value any, depth int, nodes *int) (any, error) {
+	return redactModelJSONValueMode(value, depth, nodes, false)
+}
+
+func redactModelJSONValueMode(value any, depth int, nodes *int, nestedData bool) (any, error) {
 	if depth > 64 {
 		return nil, fmt.Errorf("model tool JSON exceeds depth limit")
 	}
@@ -439,11 +459,37 @@ func redactModelJSONValue(value any, depth int, nodes *int) (any, error) {
 	}
 	switch current := value.(type) {
 	case string:
+		if nestedData {
+			trimmed := strings.TrimSpace(current)
+			if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+				decoder := json.NewDecoder(strings.NewReader(current))
+				decoder.UseNumber()
+				var inner any
+				if decoder.Decode(&inner) == nil && ensureModelJSONEOF(decoder) == nil {
+					safe, err := redactModelJSONValueMode(inner, depth+1, nodes, true)
+					if err != nil {
+						return nil, err
+					}
+					before, err := json.Marshal(inner)
+					if err != nil {
+						return nil, err
+					}
+					after, err := json.Marshal(safe)
+					if err != nil {
+						return nil, err
+					}
+					if bytes.Equal(before, after) {
+						return current, nil
+					}
+					return string(after), nil
+				}
+			}
+		}
 		return redact.String(current), nil
 	case []any:
 		out := make([]any, len(current))
 		for index, item := range current {
-			redacted, err := redactModelJSONValue(item, depth+1, nodes)
+			redacted, err := redactModelJSONValueMode(item, depth+1, nodes, nestedData)
 			if err != nil {
 				return nil, err
 			}
@@ -453,9 +499,15 @@ func redactModelJSONValue(value any, depth int, nodes *int) (any, error) {
 	case map[string]any:
 		out := make(map[string]any, len(current))
 		for key, item := range current {
-			redacted, err := redactModelJSONValue(item, depth+1, nodes)
+			redacted, err := redactModelJSONValueMode(item, depth+1, nodes, nestedData)
 			if err != nil {
 				return nil, err
+			}
+			if nestedData {
+				key = redact.String(key)
+				if _, exists := out[key]; exists {
+					return nil, fmt.Errorf("model compaction JSON keys collide after redaction")
+				}
 			}
 			out[key] = redacted
 		}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -74,8 +75,46 @@ func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
 			code, projection)
 	}
 
+	if _, stderr, code = executeTestCommand(t, "run", "execution-permission", "set", runID,
+		"approval", "--operation-key", "drydock-cli-restore-permission-0001",
+		"--enable-permission-control", "--confirm-user-approval"); code != 0 {
+		t.Fatalf("restore permission failed: %s", stderr)
+	}
+	for _, action := range []string{"start", "pause"} {
+		if _, stderr, code = executeTestCommand(t, "run", action, runID); code != 0 {
+			t.Fatalf("run %s failed: %s", action, stderr)
+		}
+	}
+	currentGeneration := confirmed.Workspace.Generation
+	for _, action := range []string{"rewind", "undo"} {
+		args := []string{"drydock", action, "--run", runID, "--generation", strconv.FormatInt(currentGeneration, 10),
+			"--operation-key", "drydock-cli-" + action + "-0001", "--confirm", "--json"}
+		if action == "rewind" {
+			args = append(args, "--target-checkpoint", confirmed.Checkpoint.ID)
+		}
+		// The CLI wires the existing service, but must not enable its permission
+		// gate merely because a restore was requested.
+		if _, stderr, code = executeTestCommand(t, args...); code != 5 || !strings.Contains(stderr, "not authorized") {
+			t.Fatalf("%s without runtime permission gate: code=%d stderr=%q", action, code, stderr)
+		}
+		args = append(args, "--enable-permission-control")
+		resultJSON, stderr, code := executeTestCommand(t, args...)
+		var restored application.DrydockRewindResult
+		if code != 0 || json.Unmarshal([]byte(resultJSON), &restored) != nil || !restored.Confirmed ||
+			restored.Receipt == nil || string(restored.Receipt.Operation) != action || restored.After == nil {
+			t.Fatalf("%s result=%s stderr=%q code=%d", action, resultJSON, stderr, code)
+		}
+		currentGeneration = restored.Workspace.Generation
+		replayJSON, stderr, code := executeTestCommand(t, args...)
+		var replay application.DrydockRewindResult
+		if code != 0 || json.Unmarshal([]byte(replayJSON), &replay) != nil || !replay.Replayed ||
+			replay.Receipt == nil || replay.Receipt.ID != restored.Receipt.ID || replay.Workspace.Generation != currentGeneration {
+			t.Fatalf("%s replay=%s stderr=%q code=%d", action, replayJSON, stderr, code)
+		}
+	}
+
 	cleanupJSON, stderr, code := executeTestCommand(t, "drydock", "cleanup",
-		"--run", runID, "--generation", "2", "--operation-key",
+		"--run", runID, "--generation", strconv.FormatInt(currentGeneration, 10), "--operation-key",
 		"drydock-cli-cleanup-0001", "--confirm", "--json")
 	var cleaned application.DrydockCleanupResult
 	if code != 0 || stderr != "" || json.Unmarshal([]byte(cleanupJSON), &cleaned) != nil ||

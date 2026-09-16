@@ -307,6 +307,9 @@ func projectThreadActivityWebSearch(call domain.SupervisorToolCall,
 		SelectionReason: safeThreadActivityFactValue(envelope.Metadata["selection_reason"]),
 		SourceCount:     safeThreadActivityCount(envelope.Metadata["source_count"]),
 		Citeable:        safeThreadActivityBool(envelope.Metadata["citeable"])}
+	if call.Status == domain.SupervisorToolFailed && strings.EqualFold(boundary.ErrorCode, "unavailable") {
+		detail.Boundary.FailureReason = threadActivitySearchFailureReason(envelope.Message)
+	}
 	if sources, provider, ok := safeThreadActivitySearchSources(envelope.Stdout, input); ok {
 		detail.Sources = sources
 		if detail.Provider == "" {
@@ -320,6 +323,46 @@ func projectThreadActivityWebSearch(call domain.SupervisorToolCall,
 		detail.Sources = []ThreadActivitySearchSource{}
 	}
 	return detail, nil
+}
+
+// Only translate messages constructed by the search service from stable reason
+// codes. Raw provider bodies and arbitrary durable error text remain private.
+// This also improves existing saved failures without rewriting their records.
+func threadActivitySearchFailureReason(message string) string {
+	const prefix = "web search provider request failed ("
+	const suffix = "); no fallback provider was attempted"
+	if !strings.HasPrefix(message, prefix) || !strings.HasSuffix(message, suffix) {
+		return "搜索服务未能返回可用结果"
+	}
+	reason := strings.TrimSuffix(strings.TrimPrefix(message, prefix), suffix)
+	switch reason {
+	case webevidence.NativeSearchReasonSearchNotPerformed:
+		return "搜索服务未返回已完成的联网搜索，未取得有效检索结果"
+	case webevidence.NativeSearchReasonResponseIncomplete:
+		return "搜索服务未完成本次响应，未取得完整搜索结果"
+	case webevidence.NativeSearchReasonResponseInvalid:
+		return "搜索服务返回了无法使用的响应，软件未取得有效搜索结果"
+	case webevidence.NativeSearchReasonTransportUnavailable:
+		return "未能完成与搜索服务的连接或响应读取，请检查网络及服务状态"
+	case webevidence.SearchFailureReasonUnreachable:
+		return "未能连接到搜索服务，请检查网络与代理设置"
+	case webevidence.SearchFailureReasonNoUsableResults:
+		return "搜索服务已连接但未返回可用结果"
+	case webevidence.NativeSearchReasonProviderRejected:
+		return "搜索服务拒绝了请求，请检查模型配置、凭据和服务状态"
+	case webevidence.NativeSearchReasonToolUnsupported:
+		return "当前模型接口不支持所请求的搜索工具"
+	case webevidence.NativeSearchReasonCredentialUnavailable:
+		return "无法读取搜索服务凭据，请检查模型设置"
+	case webevidence.NativeSearchReasonEndpointUnauthorized:
+		return "当前网页访问范围未授权所配置的搜索服务地址"
+	case webevidence.NativeSearchReasonModelMappingInvalid:
+		return "搜索使用的模型映射无效，请检查模型设置"
+	case webevidence.NativeSearchReasonInvalidConfiguration, webevidence.NativeSearchReasonRuntimeInvalid:
+		return "搜索服务配置无效，请检查模型设置"
+	default:
+		return "搜索服务未能返回可用结果"
+	}
 }
 
 func safeThreadActivitySearchSources(raw string, input toolgateway.WebSearchPayload) (
@@ -459,6 +502,9 @@ func projectThreadActivityFileEdit(call domain.SupervisorToolCall,
 		detail.Action, detail.Path = safeThreadActivityFactIdentity(input.Action),
 			safeThreadActivityPath(input.Path)
 		detail.DestinationPath = safeThreadActivityPath(input.DestinationPath)
+		if input.Action == "propose_revert" && strings.EqualFold(boundary.ErrorCode, "CONFLICT") {
+			detail.Boundary.FailureReason = "撤销请求与当前编辑状态不一致。请先核对来源编辑和当前文件，保留后续修改。"
+		}
 	case toolgateway.WorkspaceApplyTool:
 		var input toolgateway.WorkspaceApplyPayload
 		_ = json.Unmarshal(canonical, &input)

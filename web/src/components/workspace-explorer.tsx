@@ -2,17 +2,18 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ArrowLeft, File, Folder, FolderOpen, Paperclip, Pencil, Search, ShieldCheck, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { WorkspaceSearchView } from "../api/types";
+import type { WorkspaceExplorerView, WorkspaceSearchView } from "../api/types";
 import { formatBytes } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { FileProposalEditor } from "./file-proposal-editor";
 
-export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath = "." }: {
+export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath = ".", onSelectReference }: {
   client: CyberAgentClient;
   workspaceID: string;
   runID?: string;
   initialPath?: string;
+  onSelectReference?: (file: WorkspaceExplorerView) => void;
 }) {
   const { t } = useLocale();
   const [path, setPath] = useState(initialPath);
@@ -65,7 +66,9 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
 
   if (!workspaceID) return <EmptyState>{t("此 Run 未绑定工作区", "No Workspace is bound to this Run")}</EmptyState>;
   if (query.isLoading) return <LoadingState label={t("正在加载工作区文件", "Loading Workspace files")} />;
-  if (query.isError || !query.data) return <ErrorState error={query.error} />;
+  if (query.isError || !query.data) return <div><ErrorState error={query.error} />
+    <button onClick={() => void query.refetch()} type="button">{t("重试文件读取", "Retry file read")}</button>
+    <button onClick={() => setPath(parent)} type="button">{t("返回上级目录", "Return to parent")}</button></div>;
   const snapshot = query.data;
 
   return <section className="workspace-explorer" aria-label={t("工作区文件", "Workspace files")}>
@@ -78,12 +81,15 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
       <FolderOpen aria-hidden="true" size={16} />
       <code>{snapshot.path}</code>
       {snapshot.truncated && <StatusBadge status="truncated" />}
-      {snapshot.kind === "file" && client.hasEvidenceAttachment && runID &&
+      {snapshot.kind === "file" && onSelectReference && <button className="compact-command"
+        disabled={query.isFetching} onClick={() => onSelectReference(snapshot)} type="button">
+        <Paperclip aria-hidden="true" size={14} />{t("引用此文件", "Reference this file")}</button>}
+      {snapshot.kind === "file" && !onSelectReference && client.hasEvidenceAttachment && runID &&
         <button className="compact-command" disabled={attachment.isPending}
           onClick={() => attach(snapshot.path, snapshot.provenance.content_sha256)} type="button">
           <Paperclip aria-hidden="true" size={14} />{t("附加证据", "Attach evidence")}
         </button>}
-      {snapshot.kind === "file" && client.hasFileEditProposals && runID &&
+      {snapshot.kind === "file" && !onSelectReference && client.hasFileEditProposals && runID &&
         !snapshot.truncated && snapshot.redaction_count === 0 &&
         <button className="compact-command" disabled={proposalSource.isPending}
           onClick={() => proposalSource.mutate(snapshot.path)} type="button">

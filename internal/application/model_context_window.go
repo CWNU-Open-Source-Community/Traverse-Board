@@ -45,6 +45,12 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	}
 	request.Messages = append([]llm.Message(nil), request.Messages...)
 	request.Tools = append([]llm.ToolSpec(nil), request.Tools...)
+	// Native tool arguments can contain whole files. An unspecified output
+	// allowance must not silently inherit the short plain-text reply default.
+	// Use only the existing conservative cap, reserving it from input below.
+	if request.MaxTokens <= 0 && len(request.Tools) > 0 {
+		request.MaxTokens = window.MaxOutputTokens
+	}
 	request.MaxTokens = window.OutputLimit(request.MaxTokens)
 	inputLimit, err := window.InputLimit(request.MaxTokens)
 	if err != nil {
@@ -92,6 +98,9 @@ func estimateModelRequestTokens(request llm.ChatRequest) int {
 		total = addModelTokens(total, modelMessageFramingTokens)
 		total = addModelTokens(total, contextmgr.EstimateTokens(message.Role))
 		total = addModelTokens(total, contextmgr.EstimateTokens(message.Content))
+		for _, image := range message.Images {
+			total = addModelTokens(total, llm.EstimateImageTokens(image))
+		}
 		for _, call := range message.ToolCalls {
 			total = addModelTokens(total, contextmgr.EstimateTokens(call.ID))
 			total = addModelTokens(total, contextmgr.EstimateTokens(call.Name))

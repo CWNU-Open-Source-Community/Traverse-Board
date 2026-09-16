@@ -1,39 +1,155 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowUp, LoaderCircle, Plus } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowUp, LoaderCircle, Paperclip, ClipboardPaste, FolderOpen } from "lucide-react";
+import { APIRequestError, type CyberAgentClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { V2ModelRouteControl, type V2PendingModelRoute } from "./model-route-control";
 import { V2PermissionControl } from "./permission-control";
-import { V2RunNetworkAuthorityControl } from "./run-network-authority-control";
+import { V2ComposerAddMenu, type ComposerAddAction } from "./composer-add-menu";
+import { V2FileContext, useV2FileReferences, type V2FileReference } from "./file-context";
+import { useV2ThreadSubmissions, V2SubmissionError, v2TurnOutcomeKnown, type V2TurnInput } from "../use-thread-turn";
+import { useV2PersistenceWarning, useV2RecoveryStore } from "../recovery-storage";
+import { acceptedImageTypes, imageIdentities, maximumImages, type WorkspaceImageAttachment } from "../../api/image-attachments";
+import { fileAttachmentIdentities, maximumFileAttachments, type WorkspaceFileAttachment } from "../../api/file-attachments";
+import { useV2FileInput, V2FileAttachments } from "./file-input";
+import { clipboardFiles, normalizeClipboardFile } from "../clipboard-files";
+import { desktopClipboardFilesAvailable } from "../../lib/desktop-bridge";
+import { useNativeClipboard } from "../use-native-clipboard";
+import { useV2ImageInput, V2ImagePreview } from "./image-input";
+import { useV2ImageCapability } from "../use-image-capability";
+import { requireV2DraftVersion, useV2DraftDocument } from "../draft-context";
+import type { V2DraftVersion } from "../draft-version";
 
 const maximumContentBytes = 16 * 1024;
 
-export function V2Composer({ client, threadID, runID = "", workspaceID, workspaces, disabled = false,
-  placeholder = "输入消息…", newThreadControls, runActive = false, onManageModels,
-  pendingModelRoute, onPendingModelRouteChange, onWorkspaceChange, onSubmit }: {
+export function V2Composer({ client, threadID, workspaceID, workspaces, disabled = false, submitDisabled = false,
+  placeholder = "输入消息…", newThreadControls, threadControls, runActive = false, onManageModels,
+  pendingModelRoute, onPendingModelRouteChange, onWorkspaceChange, onSubmit, draft, onDraftChange,
+  fileReferenceUnavailableReason, confirmedSubmission, presentedSubmissionErrors = [] }: {
   client: CyberAgentClient;
   threadID: string;
   runID?: string;
   workspaceID: string;
   workspaces: WorkspaceView[];
   disabled?: boolean;
+  submitDisabled?: boolean;
   placeholder?: string;
   newThreadControls?: ReactNode;
+  threadControls?: (hasUnsentDraft: boolean) => ReactNode;
   runActive?: boolean;
   onManageModels?: () => void;
   pendingModelRoute?: V2PendingModelRoute | null;
   onPendingModelRouteChange?: (route: V2PendingModelRoute | null) => void;
   onWorkspaceChange: (workspaceID: string) => void;
-  onSubmit: (content: string) => Promise<void>;
+  onSubmit: (content: string, files?: V2FileReference[], images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => Promise<void>;
+  draft?: string;
+  onDraftChange?: (content: string, expected?: string) => void;
+  fileReferenceUnavailableReason?: string;
+  confirmedSubmission?: V2TurnInput | null;
+  presentedSubmissionErrors?: ReadonlyArray<Pick<V2TurnInput, "threadID" | "workspaceID" | "operationKey">>;
 }) {
-  const [content, setContent] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [localContent, setLocalContent] = useState("");
+  const managedDraft = useV2DraftDocument(workspaceID, threadID);
+  const references = useV2FileReferences(workspaceID, threadID);
+  const images = useV2ImageInput({ client, workspaceID, threadID, disabled });
+  const attachments = useV2FileInput({ client, workspaceID, threadID, disabled });
+  const captureNativeImport = () => {
+    const captured = managedDraft?.document.capture(managedDraft.scope, managedDraft.state.ref);
+    return (incomingImages: WorkspaceImageAttachment[], incomingFiles: WorkspaceFileAttachment[]) => {
+      const merge = <T extends { id: string }>(current: T[], incoming: T[], maximum: number) => {
+        const next = [...current, ...incoming.filter((item) => !current.some(({ id }) => id === item.id))];
+        if (next.length > maximum) throw new Error("附件数量超过上限：每条消息最多 4 张图片和 4 个文件。已保存的附件会保留，请先移除多余附件再加入。");
+        return next;
+      };
+      if (captured && managedDraft) {
+        const next = managedDraft.document.updateCaptured(captured, (current) => ({ ...current,
+          images: merge(current.images, incomingImages, maximumImages),
+          attachments: merge(current.attachments ?? [], incomingFiles, maximumFileAttachments) }));
+        if (next.error || !next.persisted) throw new Error(next.error || "附件尚未可靠保存到草稿。");
+      } else {
+        const nextImages = merge(images.images, incomingImages, maximumImages);
+        const nextFiles = merge(attachments.attachments, incomingFiles, maximumFileAttachments);
+        images.update(() => nextImages); attachments.update(() => nextFiles);
+      }
+    };
+  };
+  const nativeClipboard = useNativeClipboard({ workspaceID, threadID, disabled,
+    captureImport: captureNativeImport, onImported: (incomingImages, incomingFiles) => captureNativeImport()(incomingImages, incomingFiles) });
+  const pasteGesture = useRef<{ handled: boolean; plain: boolean } | null>(null);
+  const attachmentPicker = useRef<HTMLInputElement>(null);
+  const addTriggerRef = useRef<HTMLButtonElement>(null);
+  const [referencePickerOpen, setReferencePickerOpen] = useState(false);
+  const importStatus = useMemo(() => ({ busy: false, error: "" }), [workspaceID, threadID]);
+  const [, refreshImport] = useState(0);
+  const addFiles = async (input: File[]) => {
+    if (disabled || !client.hasThreadControl || !input.length) return;
+    if (!workspaceID) {
+      importStatus.error = "先选择项目，再粘贴或拖入附件；本次文件尚未加入。";
+      refreshImport((value) => value + 1); return;
+    }
+    if (importStatus.busy || images.uploading || attachments.uploading || nativeClipboard.busy) {
+      importStatus.error = "上一批附件仍在保存，本次文件未加入；请完成后再次粘贴或拖入。";
+      refreshImport((value) => value + 1); return;
+    }
+    importStatus.busy = true; importStatus.error = ""; refreshImport((value) => value + 1);
+    try {
+      // Capture once before reading any bytes. Both halves of a mixed batch
+      // share the original draft branch while later typing continues on it.
+      const captured = managedDraft?.document.capture(managedDraft.scope, managedDraft.state.ref);
+      const selected = await Promise.all(input.map(normalizeClipboardFile));
+      await images.add(selected.filter((file) => acceptedImageTypes.includes(file.type)), captured);
+      await attachments.add(selected.filter((file) => !acceptedImageTypes.includes(file.type)), captured);
+    } catch (failure) { importStatus.error = failure instanceof Error ? failure.message : "附件未加入"; }
+    finally { importStatus.busy = false; refreshImport((value) => value + 1); }
+  };
+  const imageCapability = useV2ImageCapability(client, threadID, pendingModelRoute, images.images.length > 0, runActive);
+  const recovery = useV2RecoveryStore();
+  const persistenceWarning = useV2PersistenceWarning();
+  const submissions = useV2ThreadSubmissions(threadID);
+  const pendingSubmissions = submissions.filter(({ pending }) => pending);
+  const content = managedDraft?.state.snapshot.text ?? draft ?? localContent;
+  const setContent = (next: string, expected?: string) => {
+    if (managedDraft) managedDraft.changeText(next, expected);
+    else if (onDraftChange) onDraftChange(next, expected);
+    else setLocalContent((current) => expected === undefined || current === expected ? next : current);
+  };
+  const currentContentRef = useRef(content);
+  currentContentRef.current = content;
+  // Keep the textarea mounted while the initial project loads, but scope local
+  // submission bookkeeping so a late response cannot affect another draft.
+  const pendingContents = useMemo(() => ({ current: new Set<string>() }), [workspaceID, threadID]);
+  const pendingFiles = useMemo(() => ({ current: new Map<string, string[]>() }), [workspaceID, threadID]);
+  const pendingImages = useMemo(() => ({ current: new Map<string, string[]>() }), [workspaceID, threadID]);
+  const pendingAttachments = useMemo(() => ({ current: new Map<string, string[]>() }), [workspaceID, threadID]);
+  const [, refreshPending] = useState(0);
+  const submitting = pendingContents.current.size > 0;
+  const scope = JSON.stringify([workspaceID, threadID]);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const [error, setError] = useState<{
+    message: string; reason: unknown; inputFingerprint: string; operationKey?: string;
+  } | null>(null);
+  useEffect(() => setError(null), [scope]);
+  useEffect(() => {
+    setError((current) => {
+      if (!current) return current;
+      // Capture the original request identity before another confirmation can
+      // replace its transport error. A later draft can have its own failure.
+      const operationKey = current.operationKey ?? submissions.findLast(({ input, error: reason }) =>
+        reason === current.reason && input.workspaceID === workspaceID &&
+        JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === current.inputFingerprint)?.input.operationKey;
+      if (operationKey && confirmedSubmission?.threadID === threadID &&
+        confirmedSubmission.workspaceID === workspaceID && confirmedSubmission.operationKey === operationKey) return null;
+      return operationKey && operationKey !== current.operationKey ? { ...current, operationKey } : current;
+    });
+  }, [confirmedSubmission, threadID, workspaceID, submissions, error?.reason, error?.inputFingerprint]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const normalized = content.trim();
   const byteLength = new TextEncoder().encode(normalized).byteLength;
-  const ready = !disabled && !submitting && Boolean(workspaceID) && byteLength > 0 &&
-    byteLength <= maximumContentBytes;
+  const fingerprint = JSON.stringify([normalized, references.files, imageIdentities(images.images), fileAttachmentIdentities(attachments.attachments)]);
+  const sameMessagePending = pendingContents.current.has(fingerprint) ||
+    pendingSubmissions.some(({ input }) => JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint);
+  const ready = !disabled && !submitDisabled && !managedDraft?.state.conflict && !managedDraft?.state.error && !images.uploading && !attachments.uploading && !attachments.pending && !nativeClipboard.pending && !nativeClipboard.busy && !importStatus.busy && (!images.images.length || imageCapability.allowed) && !sameMessagePending && Boolean(workspaceID) && (byteLength > 0 || images.images.length > 0 || attachments.attachments.length > 0) &&
+    byteLength <= maximumContentBytes && !(fileReferenceUnavailableReason && (references.files.length > 0 || attachments.attachments.length > 0));
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -44,38 +160,133 @@ export function V2Composer({ client, threadID, runID = "", workspaceID, workspac
 
   const submit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    // A descendant portal can contain its own form (settings or file search).
+    if (event && event.target !== event.currentTarget) return;
     if (!ready) return;
-    setSubmitting(true);
-    setError("");
+    const submittedFiles = references.files;
+    const submittedImages = images.images;
+    const submittedAttachments = attachments.attachments;
+    pendingFiles.current.set(fingerprint, submittedFiles.map(({ id }) => id));
+    pendingImages.current.set(fingerprint, submittedImages.map(({ id }) => id));
+    pendingAttachments.current.set(fingerprint, submittedAttachments.map(({ id }) => id));
+    pendingContents.current.add(fingerprint);
+    refreshPending((value) => value + 1);
+    setError(null);
+    const submittedContent = content;
     try {
-      await onSubmit(normalized);
-      setContent("");
-      textareaRef.current?.focus();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "消息发送失败");
+      if (managedDraft) {
+        const version = requireV2DraftVersion(managedDraft, { text: content, files: submittedFiles, images: submittedImages, attachments: submittedAttachments });
+        await onSubmit(normalized, submittedFiles, submittedImages, version, submittedAttachments);
+      }
+      else if (submittedAttachments.length) await onSubmit(normalized, submittedFiles, submittedImages, undefined, submittedAttachments);
+      else if (submittedImages.length) await onSubmit(normalized, submittedFiles, submittedImages);
+      else if (submittedFiles.length) await onSubmit(normalized, submittedFiles);
+      else await onSubmit(normalized);
+      if (!managedDraft) {
+        references.update((current) => current.filter(({ id }) => !submittedFiles.some((file) => file.id === id)));
+        images.update((current) => current.filter(({ id }) => !submittedImages.some((image) => image.id === id)));
+        attachments.update((current) => current.filter(({ id }) => !submittedAttachments.some((file) => file.id === id)));
+        setContent("", submittedContent);
+      }
+      if (currentScope.current === scope && currentContentRef.current === submittedContent) textareaRef.current?.focus();
+    } catch (failure) {
+      const reason = failure instanceof V2SubmissionError ? failure.reason : failure;
+      const operationKey = failure instanceof V2SubmissionError &&
+        failure.submission.threadID === threadID && failure.submission.workspaceID === workspaceID
+        ? failure.submission.operationKey : undefined;
+      if (currentScope.current === scope) setError({ reason,
+        message: reason instanceof APIRequestError && reason.turnFailed === true
+          ? reason.code === "CANCELLED"
+            ? "本轮已停止，输入和已完成的工作已保留。可发送新消息继续。"
+            : "本轮执行失败，输入和已完成的工作已保留。可发送新消息继续。"
+          : reason instanceof Error ? reason.message : "消息发送失败",
+        inputFingerprint: JSON.stringify([normalized, submittedFiles, imageIdentities(submittedImages), fileAttachmentIdentities(submittedAttachments)]), operationKey });
     } finally {
-      setSubmitting(false);
+      pendingContents.current.delete(fingerprint);
+      pendingFiles.current.delete(fingerprint);
+      pendingImages.current.delete(fingerprint);
+      pendingAttachments.current.delete(fingerprint);
+      refreshPending((value) => value + 1);
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!event.nativeEvent.isComposing && !event.altKey &&
+        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" || event.shiftKey && event.key === "Insert")) {
+      const gesture = { handled: false, plain: event.shiftKey && event.key.toLowerCase() === "v" };
+      pasteGesture.current = gesture;
+      // Let WebView perform its normal edit/undo first. A DOM FileList wins;
+      // only a single explicit paste gesture may fall back to CF_HDROP.
+      setTimeout(() => {
+        if (pasteGesture.current === gesture) pasteGesture.current = null;
+        if (!gesture.handled && !gesture.plain && desktopClipboardFilesAvailable()) void nativeClipboard.onPasteFallback();
+      }, 0);
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
     }
   };
 
-  return <form className="v2-composer" onSubmit={(event) => void submit(event)}>
+  const addActions: ComposerAddAction[] = [];
+  if (client.hasThreadControl) addActions.push({ id: "upload", label: "添加图片或文件",
+    detail: !workspaceID ? "先选择项目，再添加附件" : "从电脑选择，也可直接粘贴或拖入",
+    icon: <Paperclip aria-hidden="true" size={18} />,
+    disabled: disabled || !workspaceID || importStatus.busy || images.uploading || attachments.uploading,
+    onSelect: () => attachmentPicker.current?.click() });
+  if (workspaceID && client.hasEvidenceAttachment) addActions.push({ id: "reference", label: "引用项目文件",
+    detail: fileReferenceUnavailableReason || "选择项目中已有的文件作为参考",
+    icon: <FolderOpen aria-hidden="true" size={18} />, disabled: disabled || Boolean(fileReferenceUnavailableReason),
+    onSelect: () => setReferencePickerOpen(true) });
+  if (client.hasThreadControl && desktopClipboardFilesAvailable()) addActions.push({ id: "paste", label: "粘贴文件",
+    detail: "添加从资源管理器复制的文件 · Ctrl+V",
+    icon: <ClipboardPaste aria-hidden="true" size={18} />,
+    disabled: disabled || !workspaceID || nativeClipboard.busy || nativeClipboard.pending,
+    onSelect: () => void nativeClipboard.onPasteFallback() });
+
+  return <form className="v2-composer" onSubmit={(event) => void submit(event)} onPaste={(event) => {
+    if (pasteGesture.current?.plain) return;
+    const files = clipboardFiles(event.clipboardData);
+    if (files.length) {
+      if (pasteGesture.current) pasteGesture.current.handled = true;
+      // Native textarea editing retains accompanying text and its undo entry.
+      if (!event.clipboardData.getData?.("text/plain")) event.preventDefault();
+      void addFiles(files);
+    } else if (Array.from(event.clipboardData.types ?? []).includes("Files") && desktopClipboardFilesAvailable()) {
+      if (pasteGesture.current) pasteGesture.current.handled = true;
+      void nativeClipboard.onPasteFallback();
+    }
+  }} onDrop={(event) => {
+    const files = clipboardFiles(event.dataTransfer);
+    if (files.length) { event.preventDefault(); void addFiles(files); }
+  }} onDragOver={images.onDragOver}>
     <div className="v2-composer-surface">
-      <textarea aria-label={threadID ? "继续对话" : "开始新对话"} disabled={disabled || submitting}
-        maxLength={maximumContentBytes} onChange={(event) => { setContent(event.target.value); setError(""); }}
+      <V2ImagePreview client={client} images={images.images}
+        pendingIDs={[...[...pendingImages.current.values()].flat(), ...submissions.filter(({ pending, error }) =>
+          pending || Boolean(error) && !v2TurnOutcomeKnown(error)).flatMap(({ input }) => input.images?.map(({ id }) => id) ?? [])]}
+        onRemove={(id) => images.update((current) => current.filter((image) => image.id !== id))} />
+      <V2FileAttachments client={client} attachments={attachments.attachments}
+        pendingIDs={[...[...pendingAttachments.current.values()].flat(), ...submissions.filter(({ pending, error }) =>
+          pending || Boolean(error) && !v2TurnOutcomeKnown(error)).flatMap(({ input }) => input.attachments?.map(({ id }) => id) ?? [])]}
+        onRemove={(id) => attachments.update((current) => current.filter((file) => file.id !== id))} />
+      {workspaceID && client.hasEvidenceAttachment && <V2FileContext client={client}
+        disabled={disabled} files={references.files} pendingIDs={[
+          ...[...pendingFiles.current.values()].flat(),
+          ...pendingSubmissions.flatMap(({ input }) => input.files?.map(({ id }) => id) ?? []),
+        ]} unavailableReason={fileReferenceUnavailableReason} open={referencePickerOpen}
+        onOpenChange={setReferencePickerOpen} returnFocusRef={addTriggerRef}
+        onChange={references.update} workspaceID={workspaceID} />}
+      <textarea aria-label={threadID ? "继续对话" : "开始新对话"} disabled={disabled}
+        maxLength={maximumContentBytes} onChange={(event) => { setContent(event.target.value); setError(null); }}
         onKeyDown={onKeyDown} placeholder={placeholder} ref={textareaRef} rows={1} value={content} />
       <div className="v2-composer-footer">
         <div className="v2-composer-tools">
-          <button aria-label="添加附件" className="v2-composer-icon" disabled
-            title="当前 Thread API 尚未接受消息附件" type="button">
-            <Plus aria-hidden="true" size={18} />
-          </button>
+          <V2ComposerAddMenu actions={addActions} disabled={disabled} key={scope} triggerRef={addTriggerRef} />
+          {client.hasThreadControl &&
+            <input ref={attachmentPicker} type="file" multiple hidden aria-label="选择图片或文件"
+              onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void addFiles(files); }} />}
           {!threadID && newThreadControls}
+          {threadID && threadControls?.(Boolean(content.trim() || references.files.length || images.images.length || images.uploading || attachments.attachments.length || attachments.uploading || attachments.pending || nativeClipboard.pending || nativeClipboard.busy || importStatus.busy ||
+            managedDraft?.state.conflict || managedDraft?.state.error))}
           {!threadID ? <label className="v2-workspace-picker">
             <span className="sr-only">工作区</span>
             <select aria-label="选择工作区" disabled={submitting || workspaces.length === 0}
@@ -84,9 +295,7 @@ export function V2Composer({ client, threadID, runID = "", workspaceID, workspac
                 {workspace.name}
               </option>)}
             </select>
-          </label> : <><V2PermissionControl client={client} threadID={threadID} />
-            <V2RunNetworkAuthorityControl client={client} runID={runID} threadID={threadID}
-              variant="menu" /></>}
+          </label> : <V2PermissionControl client={client} threadID={threadID} />}
         </div>
         <div className="v2-composer-actions">
           {onManageModels && (threadID || onPendingModelRouteChange) &&
@@ -94,13 +303,28 @@ export function V2Composer({ client, threadID, runID = "", workspaceID, workspac
               onPendingRouteChange={onPendingModelRouteChange} pendingRoute={pendingModelRoute}
               runActive={runActive} threadID={threadID} />}
           <button aria-label="发送消息" className="v2-send-button" disabled={!ready} type="submit">
-            {submitting ? <LoaderCircle aria-hidden="true" className="spin" size={18} />
+            {sameMessagePending ? <LoaderCircle aria-hidden="true" className="spin" size={18} />
               : <ArrowUp aria-hidden="true" size={19} />}
           </button>
         </div>
       </div>
     </div>
+    {workspaceID && (client.hasEvidenceAttachment || attachments.attachments.length > 0) && fileReferenceUnavailableReason &&
+      <p className="v2-composer-caption" role="status">{fileReferenceUnavailableReason}
+        {attachments.attachments.length > 0 ? " 附件与草稿会保留，当前也暂不能提交附件。"
+          : references.files.length > 0 && " 已选引用与草稿会保留；先移除这些引用，才能发送不带引用的消息。"}</p>}
     {byteLength > maximumContentBytes && <p className="v2-composer-error">消息不能超过 16 KiB</p>}
-    {error && <p className="v2-composer-error" role="alert">{error}</p>}
+    {images.uploading && <p className="v2-composer-caption" role="status">正在保存图片，完成后可发送…</p>}
+    {images.images.length > 0 && <p className="v2-image-capability" role="status">{imageCapability.hint}
+      {!imageCapability.allowed && onManageModels && <button className="v2-composer-chip" type="button" onClick={onManageModels}>模型设置</button>}</p>}
+    {images.error && <p className="v2-composer-error" role="alert">{images.error}</p>}
+    {attachments.notice}
+    {nativeClipboard.notice}
+    {(attachments.error || importStatus.error) && <p className="v2-composer-error" role="alert">{attachments.error || importStatus.error}</p>}
+    {recovery && !persistenceWarning && (!managedDraft || managedDraft.state.persisted && !managedDraft.state.error) && (content || references.files.length > 0 || images.images.length > 0 || attachments.attachments.length > 0) &&
+      <p className="v2-composer-caption" role="status">草稿与附件保存在此设备</p>}
+    {error && !presentedSubmissionErrors.some((input) => input.threadID === threadID &&
+      input.workspaceID === workspaceID && input.operationKey === error.operationKey) &&
+      <p className="v2-composer-error" role="alert">{error.message}</p>}
   </form>;
 }

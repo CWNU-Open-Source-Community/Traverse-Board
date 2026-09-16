@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-func TestPlanDeliverySpecRequiresThreeBoundedAcyclicDirections(t *testing.T) {
+func TestPlanDeliverySpecKeepsThreeBoundedAcyclicDirectionsCompatible(t *testing.T) {
 	raw := []byte(`{"version":"plan_delivery.v1","directions":[` +
 		`{"title":"Conservative","summary":"Minimize change risk.","tradeoffs":["Slower delivery"],"modules":[` +
 		`{"title":"Inspect","objective":"Read the current boundary.","acceptance_criteria":["Boundary documented"],"dependencies":[]},` +
@@ -35,6 +35,53 @@ func TestPlanDeliverySpecRequiresThreeBoundedAcyclicDirections(t *testing.T) {
 	redecoded, err := DecodePlanDeliverySpec(canonical)
 	if err != nil || redecodeFingerprint(spec) != redecodeFingerprint(redecoded) {
 		t.Fatalf("canonical Plan/Delivery payload drifted: %s err=%v", canonical, err)
+	}
+}
+
+func TestPlanDeliverySpecAcceptsOneToThreeDirectionsWithoutChangingCanonicalContent(t *testing.T) {
+	for count := 1; count <= 4; count++ {
+		spec := PlanDeliverySpec{Version: PlanDeliveryProtocolVersion}
+		for i := 0; i < count; i++ {
+			spec.Directions = append(spec.Directions, PlanDeliveryDirection{Title: fmt.Sprintf("Direction %d", i+1), Summary: "Make the requested bounded change",
+				Tradeoffs: []string{"Keep the existing API"}, Modules: []PlanDeliveryModule{{Title: "Implement", Objective: "Apply the exact change", AcceptanceCriteria: []string{"The changed behavior is checked"}, Dependencies: []int{}}}})
+		}
+		original, _ := json.Marshal(spec)
+		normalized, err := DecodePlanDeliverySpec(original)
+		if count == 4 {
+			if err == nil {
+				t.Fatal("four directions accepted")
+			}
+			continue
+		}
+		if err != nil || len(normalized.Directions) != count {
+			t.Fatalf("count %d: %+v %v", count, normalized, err)
+		}
+		canonical, _ := json.Marshal(normalized)
+		if string(canonical) != string(original) {
+			t.Fatalf("count %d changed canonical content: %s -> %s", count, original, canonical)
+		}
+		withMode := strings.TrimSuffix(string(original), "}") + `,"manual_acceptance":"on_demand"}`
+		if _, err := DecodePlanDeliverySpec([]byte(withMode)); err == nil {
+			t.Fatal("model proposal set the operator's manual acceptance policy")
+		}
+	}
+}
+
+func TestPlanDeliveryManualAcceptancePreservesRequiredFingerprint(t *testing.T) {
+	original := PlanDeliverySelectionRequestFingerprint("proposal", "run", 1, "operator")
+	for _, legacy := range []PlanDeliveryManualAcceptance{"", PlanDeliveryManualAcceptanceRequired} {
+		if got := PlanDeliverySelectionRequestFingerprintForAcceptance("proposal", "run", 1, "operator", legacy); got != original {
+			t.Fatalf("legacy fingerprint changed: %q", got)
+		}
+	}
+	optional := PlanDeliverySelectionRequestFingerprintForAcceptance("proposal", "run", 1, "operator", PlanDeliveryManualAcceptanceOnDemand)
+	if len(optional) != 64 || optional == original {
+		t.Fatal("on-demand policy is not bound to its own intent")
+	}
+	for _, bad := range []PlanDeliveryManualAcceptance{"never", " required", "REQUIRED"} {
+		if _, err := NormalizePlanDeliveryManualAcceptance(bad); err == nil {
+			t.Fatalf("invalid policy accepted: %q", bad)
+		}
 	}
 }
 

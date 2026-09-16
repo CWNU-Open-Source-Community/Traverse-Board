@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,9 +17,94 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+type failFirstThreadTurnCommitStore struct {
+	*store.SQLiteStore
+	failed bool
+}
+
+// Preserve the historical L fixture: that earlier server left failed turns
+// prepared. The independent handoff recovery remains readable after upgrade.
+func (s *failFirstThreadTurnCommitStore) EndFailedThreadTurn(context.Context, string, string, string) (domain.ThreadTurnFailure, bool, error) {
+	return domain.ThreadTurnFailure{}, false, nil
+}
+
+func (s *failFirstThreadTurnCommitStore) CompleteSupervisorTurn(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, response llm.ChatResponse,
+	action domain.RootAction, decision policy.Decision, elapsed time.Duration,
+) (domain.Run, domain.SupervisorCheckpoint, session.TurnMessages, error) {
+	if !s.failed {
+		s.failed = true
+		return domain.Run{}, domain.SupervisorCheckpoint{}, session.TurnMessages{},
+			apperror.New(apperror.CodeFailedPrecondition, "injected action projection rejection")
+	}
+	return s.SQLiteStore.CompleteSupervisorTurn(ctx, checkpoint, response, action, decision, elapsed)
+}
+
+func TestThreadTurnConfirmsCommittedMessageAfterIndependentHandoffRecovery(t *testing.T) {
+	base, err := store.Open(filepath.Join(t.TempDir(), "thread-recovered-commit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = base.Close() })
+	st := &failFirstThreadTurnCommitStore{SQLiteStore: base}
+	ctx := t.Context()
+	_, created, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+		Goal: "recover the original interactive delivery", Profile: "review", Interactive: true,
+		ModelRoute: "lifecycle-test/model", Budget: domain.Budget{MaxTurns: 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &lifecycleProvider{responses: []string{
+		rootActionResponse(domain.RootActionFinish, "Delivery is ready.", "done", ""),
+		rootActionResponse(domain.RootActionFinish, "Delivery is ready.", "done", ""),
+	}}
+	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+	router.RegisterProvider(provider)
+	execution := application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker())
+	turns := application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st), execution)
+	request := application.ExecuteThreadTurnRequest{Version: domain.ThreadMessageProtocolVersion,
+		ThreadID: domain.InitialThreadID(created.ID), Content: "Finish this delivered turn.",
+		OperationKey: "thread-recovery-original-key", RequestedBy: "thread_turn_test_operator"}
+	first, err := turns.Execute(ctx, request)
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || first.Execution == nil || first.Execution.Handoff.Result == nil {
+		t.Fatalf("expected durable initial failure: result=%+v err=%v", first, err)
+	}
+	original := first.Execution.Handoff
+	if original.Result.Status != domain.RunExecutionHandoffFailed {
+		t.Fatal("failure receipt was lost")
+	}
+	if _, err := turns.Execute(ctx, request); apperror.CodeOf(err) != apperror.CodeFailedPrecondition || provider.calls != 1 {
+		t.Fatalf("pending original failure was reported successful or reexecuted: calls=%d err=%v", provider.calls, err)
+	}
+	recovered, err := execution.Execute(ctx, application.ExecuteRunHandoffRequest{
+		Version: domain.RunExecutionHandoffProtocolVersion, RunID: created.ID,
+		OperationKey: "explicit-same-run-recovery", RequestedBy: "http_run_operator", MaxSteps: 1})
+	if err != nil || recovered.Handoff.Result == nil || recovered.Handoff.Result.Status != domain.RunExecutionHandoffCompleted || recovered.Handoff.Result.CommittedCount != 1 {
+		t.Fatalf("independent same-Run recovery failed: result=%+v err=%v", recovered, err)
+	}
+	confirmed, err := turns.Execute(ctx, request)
+	if err != nil || !confirmed.Replayed || confirmed.Submission.Message.ID != first.Submission.Message.ID || confirmed.Submission.Message.Status != domain.OperatorSteeringCommitted || confirmed.Submission.Run.ID != created.ID || confirmed.Submission.Run.Status != domain.RunRunning || confirmed.Submission.SuccessorCreated || provider.calls != 2 {
+		t.Fatalf("original request could not confirm its recovered message: result=%+v calls=%d err=%v", confirmed, provider.calls, err)
+	}
+	stored, found, err := st.GetRunExecutionHandoff(ctx, original.Operation.KeyDigest)
+	if err != nil || !found || !reflect.DeepEqual(stored, original) || confirmed.Execution == nil || confirmed.Execution.Handoff.Result.Status != domain.RunExecutionHandoffFailed {
+		t.Fatalf("confirmation rewrote or mislabeled the original failed execution: stored=%+v err=%v", stored, err)
+	}
+	messages, err := st.ListSessionMessages(ctx, created.SessionID, true)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("recovery duplicated messages: %+v err=%v", messages, err)
+	}
+	request.Content = "Different intent must not reuse the recovered key."
+	if _, err := turns.Execute(ctx, request); apperror.CodeOf(err) != apperror.CodeConflict || provider.calls != 2 {
+		t.Fatalf("recovery weakened exact intent replay: calls=%d err=%v", provider.calls, err)
+	}
+}
 
 func TestThreadTurnExecutesOneOperatorTurnAndContinuesSameRun(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "thread-turn.db"))
@@ -176,8 +262,13 @@ func TestThreadTurnRequestedFinishEndsProductTurnWithoutSyntheticContinuation(t 
 			provider.Requests())
 	}
 	messages, err := st.ListSessionMessages(ctx, created.SessionID, true)
-	if err != nil || len(messages) != 2 || messages[0].Content != request.Content ||
-		messages[1].Content != "Workspace inspected." {
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialogue := dialogueWithSingleToolEvidence(t, st, created.ID, created.SessionID, messages,
+		"workspace_list", domain.SupervisorToolCompleted)
+	if len(dialogue) != 2 || dialogue[0].Role != "user" || dialogue[1].Role != "assistant" ||
+		dialogue[0].Content != request.Content || dialogue[1].Content != "Workspace inspected." {
 		t.Fatalf("requested finish manufactured a duplicate turn: messages=%#v err=%v",
 			messages, err)
 	}
@@ -246,10 +337,17 @@ func TestThreadTurnRecoversRequestedFinishAfterHandoffCompletionCrash(t *testing
 		t.Fatalf("initial tool-backed turn calls=%d want=2", len(provider.Requests()))
 	}
 	messages, err := st.ListSessionMessages(ctx, created.SessionID, true)
-	if err != nil || len(messages) != 2 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialogue := dialogueWithSingleToolEvidence(t, st, created.ID, created.SessionID, messages,
+		"note_create", domain.SupervisorToolCompleted)
+	if len(dialogue) != 2 || dialogue[0].Role != "user" || dialogue[1].Role != "assistant" ||
+		dialogue[0].Content != request.Content || dialogue[1].Content != "The requested turn is complete." {
 		t.Fatalf("Supervisor turn was not durable before handoff crash: %#v err=%v",
 			messages, err)
 	}
+	beforeRecovery := append([]session.Message(nil), messages...)
 
 	recovered, err := turns.Execute(ctx, request)
 	if err != nil {
@@ -263,8 +361,7 @@ func TestThreadTurnRecoversRequestedFinishAfterHandoffCompletionCrash(t *testing
 			recovered, len(provider.Requests()))
 	}
 	messages, err = st.ListSessionMessages(ctx, created.SessionID, true)
-	if err != nil || len(messages) != 2 ||
-		messages[1].Content != "The requested turn is complete." {
+	if err != nil || !reflect.DeepEqual(messages, beforeRecovery) {
 		t.Fatalf("handoff recovery manufactured a duplicate turn: %#v err=%v",
 			messages, err)
 	}
@@ -394,7 +491,7 @@ func TestThreadTurnReplayAfterContinueDoesNotCreateSuccessor(t *testing.T) {
 	}
 }
 
-func TestThreadTurnNextExplicitMessageAutomaticallyAdvancesPastFailedTurn(t *testing.T) {
+func TestThreadTurnNextExplicitMessageKeepsContextAfterFailedTurn(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "thread-turn-auto-continuation.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -447,25 +544,41 @@ func TestThreadTurnNextExplicitMessageAutomaticallyAdvancesPastFailedTurn(t *tes
 		OperationKey: "thread-turn-auto-continuation-second-0001",
 		RequestedBy:  firstRequest.RequestedBy,
 	})
-	if err != nil || !continued.Submission.SuccessorCreated ||
-		continued.Submission.PredecessorRunID != created.ID ||
-		continued.Submission.Run.ID == created.ID ||
+	if err != nil || continued.Submission.SuccessorCreated ||
+		continued.Submission.PredecessorRunID != "" ||
+		continued.Submission.Run.ID != created.ID ||
 		continued.Submission.Run.Status != domain.RunPaused || provider.calls != 2 {
 		t.Fatalf("automatic continuation=%+v calls=%d err=%v", continued,
 			provider.calls, err)
 	}
 	failedRun, err := st.GetRun(ctx, created.ID)
-	if err != nil || failedRun.Status != domain.RunFailed {
+	if err != nil || failedRun.Status != domain.RunPaused {
 		t.Fatalf("predecessor Run=%+v err=%v", failedRun, err)
 	}
 	oldMessage, err := st.GetOperatorSteering(ctx, first.Submission.Message.ID)
-	if err != nil || oldMessage.Status != domain.OperatorSteeringCancelled {
+	if err != nil || oldMessage.Status != domain.OperatorSteeringCommitted {
 		t.Fatalf("failed input was replayed or retained=%+v err=%v", oldMessage, err)
 	}
 	bindings, err := st.ListThreadRuns(ctx, firstRequest.ThreadID)
-	if err != nil || len(bindings) != 2 || bindings[0].RunID != created.ID ||
-		bindings[1].RunID != continued.Submission.Run.ID {
+	if err != nil || len(bindings) != 1 || bindings[0].RunID != created.ID {
 		t.Fatalf("Thread successor bindings=%+v err=%v", bindings, err)
+	}
+	messages, err := st.ListSessionMessages(ctx, created.SessionID, true)
+	if err != nil || len(messages) != 4 || messages[0].Content != firstRequest.Content || messages[0].Provenance.SourceKind != session.SourceOperatorMessage || !messages[0].Provenance.InstructionAuthorized || messages[1].Role != "tool" || messages[1].Provenance.InstructionAuthorized || !strings.Contains(messages[1].Content, "System-recorded failed turn 1") {
+		t.Fatalf("failure lost original input/provenance or invented an assistant reply: %#v %v", messages, err)
+	}
+	failure, closed, err := st.GetThreadTurnFailure(ctx, created.ID, first.Submission.Message.ID)
+	if err != nil || !closed || failure.Turn != 1 || failure.UserMessageID != messages[0].ID || failure.OutcomeMessageID != messages[1].ID {
+		t.Fatalf("missing exact failed-turn receipt: %#v %v", failure, err)
+	}
+	checkpoint, found, err := st.GetSupervisorCheckpoint(ctx, created.ID)
+	if err != nil || !found || checkpoint.NextTurn != 3 {
+		t.Fatalf("failed turn did not consume its own turn number: %#v %v", checkpoint, err)
+	}
+	_, err = turns.Execute(ctx, firstRequest)
+	var failed *application.ThreadTurnFailedError
+	if !errors.As(err, &failed) || provider.calls != 2 {
+		t.Fatalf("later success masked or reexecuted the original failed turn: calls=%d err=%v", provider.calls, err)
 	}
 }
 

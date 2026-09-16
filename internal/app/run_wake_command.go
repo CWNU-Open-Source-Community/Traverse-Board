@@ -111,6 +111,20 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 		}
 		handoff := application.NewRunExecutionHandoffService(a.store, a.router,
 			a.checker).WithActiveCalls(a.calls)
+		drydocks, err := a.newRunFileDrydockService(ctx, fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		handoff.WithDrydock(drydocks)
+		if _, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx, fs.Arg(0)); err != nil {
+			return err
+		} else if configured {
+			delivery, err := application.NewStandardCodeDeliveryService(a.store, drydocks)
+			if err != nil {
+				return err
+			}
+			handoff.WithStandardCodeDelivery(delivery)
+		}
 		manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
 			*enablePermissionControl, *enableFullAccess, *enableDebug)
 		if err != nil {

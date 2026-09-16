@@ -110,6 +110,19 @@ func TestDeliveryCheckpointCLIRecordsReplaysListsAndShows(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("direction choice failed: output=%s stderr=%s code=%d", chosen, stderr, code)
 	}
+	if !strings.Contains(chosen, "manual_acceptance: required") {
+		t.Fatalf("legacy CLI choice did not retain strict acceptance: %s", chosen)
+	}
+	confirmed, stderr, code := executeTestCommand(t, "run", "plan", "choose",
+		proposalID, "2", "--operation-key", "delivery-cli-choice-0001", "--manual-acceptance", "required")
+	if code != 0 || stderr != "" || confirmed != strings.Replace(chosen, "replayed: false", "replayed: true", 1) {
+		t.Fatalf("explicit required CLI replay changed intent: %s %s %d", confirmed, stderr, code)
+	}
+	_, _, code = executeTestCommand(t, "run", "plan", "choose",
+		proposalID, "2", "--operation-key", "delivery-cli-choice-0001", "--manual-acceptance", "on_demand")
+	if code != apperror.ExitCode(apperror.New(apperror.CodeConflict, "intent")) {
+		t.Fatalf("CLI acceptance change reused the sealed operation: %d", code)
+	}
 	workIDs := deliveryWorkIDPattern.FindAllString(chosen, -1)
 	if len(workIDs) < 2 {
 		t.Fatalf("selected WorkItems missing: %s", chosen)

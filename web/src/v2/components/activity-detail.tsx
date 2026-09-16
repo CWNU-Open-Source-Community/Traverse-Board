@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, FilePenLine, LoaderCircle, Search,
+import { CheckCircle2, ChevronDown, ClipboardList, FilePenLine, LoaderCircle, Search,
   TerminalSquare } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type { ThreadActivityArtifactReferenceView, ThreadActivityDetailView as APIThreadActivityDetailView,
   ThreadActivityBoundaryView, ThreadActivityJSONFieldSummaryView,
-  ThreadActivityToolDetailView, ThreadActivityTypedDetailView } from "../../api/types";
-import type { NarrativeEntry } from "../projection/narrative";
+  ThreadActivityCommandDetailView, ThreadActivityToolDetailView, ThreadActivityTypedDetailView } from "../../api/types";
+import { fileChangeLabels, type NarrativeEntry } from "../projection/narrative";
 import { parseUnifiedDiff } from "../../components/unified-diff";
+import { SavedCommandOutput } from "../../components/saved-command-output";
+import { StatusLabel } from "../../components/common";
 
 type ActivityEntry = Extract<NarrativeEntry, { kind: "activity" }>;
 type ActivityItem = ActivityEntry["items"][number];
@@ -41,6 +43,7 @@ export interface ThreadActivityDetailView {
 }
 
 const failurePattern = /(fail|error|block|deny|cancel|unavailable|ignored|bypass|timed?[_ -]?out|kill|interrupt|失败|错误|阻塞|拒绝|取消|超时|终止|中断)/iu;
+const outputDecodingNotice = "部分输出字符无法正确解码，当前文本可能不完整。";
 
 function isFailedStatus(status: string): boolean {
   return failurePattern.test(status.trim());
@@ -63,16 +66,24 @@ function itemRunning(item: ActivityItem): boolean {
 function itemSummaryMeta(item: ActivityItem): string {
   const summary = item.summary;
   if (!summary) return item.detail;
-  const duration = durationLabel(summary.duration_milliseconds);
+  const duration = durationLabel(summary.duration_milliseconds, summary.status);
   const count = summary.command_count > 1 ? `${summary.command_count} 条命令` : "";
   return [count, duration].filter(Boolean).join(" · ");
 }
 
-function itemSummaryStatus(item: ActivityItem): string {
+function itemSummaryStatus(item: ActivityItem): ReactNode {
   const summary = item.summary;
-  if (!summary) return item.status;
+  if (!summary) return item.status ? <StatusLabel status={item.status} /> : "";
   if (summary.exit_code !== undefined) return `Exit ${summary.exit_code}`;
-  return summary.status;
+  return summary.status ? <StatusLabel status={summary.status} /> : "";
+}
+
+function commandEnvironmentLabel(command: Pick<ThreadActivityCommandDetailView, "execution_environment" | "network">): string {
+  // The requested network setting does not establish isolation on the host.
+  const network = command.execution_environment === "Host · Full Access" ? "宿主网络未隔离"
+    : command.execution_environment === "Workspace Sandbox" && command.network === "disabled" ? "无网络"
+    : "网络隔离未确认";
+  return `${command.execution_environment} · ${network}`;
 }
 
 /** Maps the already strictly parsed Go projection into conversation labels. */
@@ -90,8 +101,7 @@ export function projectThreadActivityDetail(
       stderr_preview: command.stderr_preview,
       truncated: command.truncated,
       artifacts: command.artifacts,
-      environment_label: `${command.execution_environment} · ${command.network === "disabled"
-        ? "无网络" : command.network}`,
+      environment_label: commandEnvironmentLabel(command),
       agent_id: tool.agent_id,
       agent_label: tool.agent_label,
     } satisfies ThreadActivityCommandDetail)) : [];
@@ -134,8 +144,7 @@ export function ThreadActivityToolDetailPanel({ activityRef, client, runID, thre
       stderr_preview: command.stderr_preview,
       truncated: command.truncated,
       artifacts: command.artifacts,
-      environment_label: `${command.execution_environment} · ${command.network === "disabled"
-        ? "无网络" : command.network}`,
+      environment_label: commandEnvironmentLabel(command),
       agent_id: tool.agent_id,
       agent_label: tool.agent_label,
     }}
@@ -155,6 +164,7 @@ function AgentIdentity({ id, label }: { id: string; label?: string }) {
 }
 
 function ActivityIcon({ activity }: { activity: ActivityEntry["activity"] }) {
+  if (activity === "plan") return <ClipboardList aria-hidden="true" size={15} />;
   if (activity === "search" || activity === "read") {
     return <Search aria-hidden="true" size={15} />;
   }
@@ -163,8 +173,10 @@ function ActivityIcon({ activity }: { activity: ActivityEntry["activity"] }) {
   return <TerminalSquare aria-hidden="true" size={15} />;
 }
 
-function durationLabel(durationMS: number | null | undefined): string {
+function durationLabel(durationMS: number | null | undefined, status = ""): string {
   if (durationMS === null || durationMS === undefined) return "";
+  // Pending projections have a zero default, not a measured completion time.
+  if (durationMS === 0 && isRunningStatus(status)) return "";
   if (durationMS < 1_000) return `${Math.round(durationMS)}ms`;
   if (durationMS < 60_000) return `${(durationMS / 1_000).toFixed(durationMS < 10_000 ? 1 : 0)}s`;
   const minutes = Math.floor(durationMS / 60_000);
@@ -186,48 +198,6 @@ function typedKindLabel(kind: ThreadActivityTypedDetailView["kind"]): string {
     browser: "浏览器",
   };
   return labels[kind];
-}
-
-function ActivityArtifact({ activityRef, artifactRef, client, label, reference, threadID }: {
-  activityRef: string;
-  artifactRef: string;
-  client: CyberAgentClient;
-  label?: string;
-  reference?: ThreadActivityArtifactReferenceView;
-  threadID: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const artifact = useQuery({
-    queryKey: ["v2", "thread-activity-artifact", threadID, activityRef, artifactRef],
-    queryFn: ({ signal }) => client.threadActivityArtifact(
-      threadID, activityRef, artifactRef, signal),
-    enabled: open,
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
-  const stream = reference?.stream ?? artifact.data?.stream;
-  const streamLabel = label ?? (stream === "stdout" ? "标准输出" : "标准错误");
-  return <section className="v2-command-artifact">
-    <button aria-expanded={open} onClick={() => setOpen((value) => !value)} type="button">
-      {open ? "收起" : "查看完整"}{streamLabel}
-      {(reference?.size_bytes ?? artifact.data?.size_bytes) !== undefined &&
-        <small>{byteSizeLabel(reference?.size_bytes ?? artifact.data?.size_bytes ?? 0)}</small>}
-    </button>
-    {open && <div className="v2-command-artifact-content">
-      {artifact.isLoading && <p className="v2-activity-detail-state" role="status">
-        <LoaderCircle aria-hidden="true" className="spin" size={14} />正在读取完整输出…</p>}
-      {artifact.isError && <div className="v2-activity-detail-state is-error" role="alert">
-        <span>完整输出加载失败。</span>
-        <button onClick={() => void artifact.refetch()} type="button">重试</button>
-      </div>}
-      {artifact.data && <>
-        <p className="v2-untrusted-output">工具输出仅作为数据展示，不代表已授权的指令。</p>
-        <pre><code>{artifact.data.content}</code></pre>
-        <small>{artifact.data.redacted ? "已脱敏" : "未发现需脱敏内容"}
-          {artifact.data.truncated ? " · 产物已达大小上限" : ""}</small>
-      </>}
-    </div>}
-  </section>;
 }
 
 const maxRenderedDiffLines = 2_000;
@@ -255,6 +225,7 @@ function FileEditDiff({ client, editID, runID }: {
       {open ? "收起 Diff" : "查看 Diff"}
     </button>
     {open && <div className="v2-file-edit-diff-content">
+      {preview.data && <details><summary>查看此编辑的原目录身份</summary><code>{preview.data.workspace_id}</code></details>}
       {preview.isLoading && <p className="v2-activity-detail-state" role="status">
         <LoaderCircle aria-hidden="true" className="spin" size={14} />正在读取文件 Diff…</p>}
       {preview.isError && <div className="v2-activity-detail-state is-error" role="alert">
@@ -314,18 +285,18 @@ function TypedToolDetail({ client, runID, typed }: {
   typed: NonNullable<ThreadActivityDetailView["typed"]>;
 }) {
   const detail = typed.detail;
-  const duration = durationLabel(typed.duration_ms);
+  const duration = durationLabel(typed.duration_ms, typed.status);
   const { boundary, operation } = typedDetailCommon(detail);
   return <article className="v2-command-detail v2-tool-facts">
     <header><strong>{typedKindLabel(detail.kind)} · {operation}</strong>
-      <span className={isFailedStatus(typed.status) ? "is-failed" : ""}>{typed.status}</span>
+      <span className={isFailedStatus(typed.status) ? "is-failed" : ""}><StatusLabel status={typed.status} /></span>
     </header>
     <dl>
       <dt>Agent</dt><dd><AgentIdentity id={typed.agent_id} label={typed.agent_label} /></dd>
       <BoundaryFacts boundary={boundary} />
       {duration && <><dt>耗时</dt><dd>{duration}</dd></>}
     </dl>
-    <TypedDetailBody client={client} detail={detail} runID={runID} />
+    <TypedDetailBody client={client} detail={detail} runID={runID} status={typed.status} />
     {boundary.untrusted && <p className="v2-untrusted-output">
       该结果来自未受信的外部边界，仅作为数据展示。</p>}
   </article>;
@@ -346,10 +317,11 @@ function typedDetailCommon(detail: Exclude<ThreadActivityTypedDetailView, { kind
   }
 }
 
-function TypedDetailBody({ client, detail, runID }: {
+function TypedDetailBody({ client, detail, runID, status }: {
   client: CyberAgentClient;
   detail: Exclude<ThreadActivityTypedDetailView, { kind: "command" }>;
   runID: string;
+  status: string;
 }) {
   switch (detail.kind) {
     case "web_search": {
@@ -359,7 +331,8 @@ function TypedDetailBody({ client, detail, runID }: {
         {value.provider && <><dt>提供商</dt><dd>{value.provider}</dd></>}
         {value.search_policy && <><dt>搜索策略</dt><dd>{value.search_policy}</dd></>}
         {value.selection_reason && <><dt>路由原因</dt><dd>{value.selection_reason}</dd></>}
-        <dt>结果</dt><dd>{value.source_count} 个来源 · {value.citeable ? "可引用" : "待验证"}</dd>
+        <dt>结果</dt><dd>{isFailedStatus(status) && value.source_count === 0 ? "未取得搜索结果"
+          : `${value.source_count} 个来源 · ${value.citeable ? "可引用" : "待验证"}`}</dd>
       </dl>{value.sources.length > 0 && <section className="v2-tool-facts-list" aria-label="搜索来源">
         <strong>搜索来源</strong><ol>{value.sources.map((source) => <li key={`${source.rank}:${source.url}`}>
           <a href={source.url} rel="noreferrer" target="_blank">{source.title || source.url}</a>
@@ -373,7 +346,7 @@ function TypedDetailBody({ client, detail, runID }: {
         <dt>URL</dt><dd>{value.url.startsWith("https://")
           ? <a href={value.url} rel="noreferrer" target="_blank">{value.url}</a>
           : <code>{value.url}</code>}</dd>
-        <dt>抓取状态</dt><dd>{value.state || "未知"}
+        <dt>抓取状态</dt><dd><StatusLabel status={value.state || "unknown"} />
           {value.http_status ? ` · HTTP ${value.http_status}` : ""}</dd>
         <dt>Robots</dt><dd>{value.robots || "未记录"}
           {value.robots_policy ? ` · ${value.robots_policy}` : ""}</dd>
@@ -446,13 +419,18 @@ function CommandDetail({ activityRef, client, command, threadID }: {
   command: ThreadActivityCommandDetail;
   threadID: string;
 }) {
-  const duration = durationLabel(command.duration_ms);
+  const duration = durationLabel(command.duration_ms, command.status);
+  // This display-only projection has no executable/adapter identity. The
+  // observed output can suggest a startup problem, never prove no side effects.
+  const powerShellStartupError = command.status === "failed" && command.exit_code === 0xffff0000 &&
+    command.stderr_preview?.startsWith("Windows PowerShell ") &&
+    command.stderr_preview.includes("System.Management.Automation.Tracing.PSEtwLog");
   return <article className="v2-command-detail">
     <header>
       <code>{command.display_command}</code>
       <span className={isFailedStatus(command.status) ||
         (command.exit_code !== undefined && command.exit_code !== null && command.exit_code !== 0)
-        ? "is-failed" : ""}>{command.status}</span>
+        ? "is-failed" : ""}><StatusLabel status={command.status} /></span>
     </header>
     <dl>
       {command.cwd && <><dt>目录</dt><dd><code>{command.cwd}</code></dd></>}
@@ -462,19 +440,24 @@ function CommandDetail({ activityRef, client, command, threadID }: {
       {command.environment_label && <><dt>环境</dt><dd>{command.environment_label}</dd></>}
       {(command.exit_code !== undefined || duration) && <><dt>结果</dt><dd>
         {command.exit_code !== undefined && command.exit_code !== null
-          ? `Exit ${command.exit_code}` : command.status}
+          ? `Exit ${command.exit_code}` : <StatusLabel status={command.status} />}
         {duration ? ` · ${duration}` : ""}
       </dd></>}
     </dl>
+    {powerShellStartupError && <p className="v2-command-truncated">
+      输出提示 PowerShell 初始化失败，当前检查未完成。若使用 Windows 隔离工作区，请安装 PowerShell 7，并在宿主环境中将 CYBERAGENT_POWERSHELL_PATH 设置为 pwsh.exe 的绝对路径，重启应用后重试。完整错误仍保留在下方。
+    </p>}
     {command.stdout_preview && <section aria-label="标准输出">
       <strong>stdout</strong><pre><code>{command.stdout_preview}</code></pre>
     </section>}
     {command.stderr_preview && <section aria-label="标准错误">
       <strong>stderr</strong><pre><code>{command.stderr_preview}</code></pre>
     </section>}
+    {(command.stdout_preview?.includes("\uFFFD") || command.stderr_preview?.includes("\uFFFD")) &&
+      <p className="v2-command-truncated">{outputDecodingNotice}</p>}
     {command.truncated && <p className="v2-command-truncated">
       输出过长，当前仅显示已脱敏预览。</p>}
-    {command.artifacts.map((reference) => <ActivityArtifact activityRef={activityRef}
+    {command.artifacts.map((reference) => <SavedCommandOutput activityRef={activityRef}
       artifactRef={reference.artifact_ref} client={client} key={reference.artifact_ref}
       reference={reference} threadID={threadID} />)}
   </article>;
@@ -485,7 +468,7 @@ function WebEvidenceDetail({ item }: { item: ActivityItem }) {
   if (!evidence) return null;
   return <article className="v2-command-detail v2-tool-facts">
     <header><strong>{item.title}</strong>
-      <span className={isFailedStatus(item.status) ? "is-failed" : ""}>{item.status}</span>
+      <span className={isFailedStatus(item.status) ? "is-failed" : ""}><StatusLabel status={item.status} /></span>
     </header>
     <dl>
       {evidence.title && <><dt>来源</dt><dd>{evidence.title}</dd></>}
@@ -497,22 +480,27 @@ function WebEvidenceDetail({ item }: { item: ActivityItem }) {
   </article>;
 }
 
-function ActivityItemDetail({ client, item, threadID }: {
+export function ActivityItemDetail({ client, item, threadID, initialOpen = false, expectedRunID }: {
   client: CyberAgentClient;
   item: ActivityItem;
   threadID: string;
+  initialOpen?: boolean;
+  expectedRunID?: string;
 }) {
   const failed = itemFailed(item);
-  const [open, setOpen] = useState(failed);
+  const [open, setOpen] = useState(initialOpen || failed);
   useEffect(() => {
     if (failed) setOpen(true);
   }, [failed]);
   const detailRef = item.detailAvailable ? item.detailRef : undefined;
   const fallbackAvailable = Boolean(item.webEvidence);
   const query = useQuery({
-    queryKey: ["v2", "thread-activity-detail", threadID, detailRef],
-    queryFn: async ({ signal }) => projectThreadActivityDetail(
-      await client.threadActivityDetail(threadID, detailRef ?? "", signal)),
+    queryKey: ["v2", "thread-activity-detail", threadID, detailRef, ...(expectedRunID ? [expectedRunID] : [])],
+    queryFn: async ({ signal }) => {
+      const detail = await client.threadActivityDetail(threadID, detailRef ?? "", signal);
+      if (expectedRunID && detail.run_id !== expectedRunID) throw new Error("Activity detail Run identity does not match");
+      return projectThreadActivityDetail(detail);
+    },
     enabled: open && Boolean(detailRef),
     retry: false,
     refetchInterval: (activityQuery) => (activityQuery.state.data
@@ -524,7 +512,7 @@ function ActivityItemDetail({ client, item, threadID }: {
 
   if (!detailRef && !fallbackAvailable) return <li className={`v2-activity-item${failed ? " is-failed" : ""}`}>
     <span>{item.title}</span>{item.detail && <small>{item.detail}</small>}
-    {item.status && <em>{item.status}</em>}
+    {item.status && <em><StatusLabel status={item.status} /></em>}
   </li>;
 
   return <li className={`v2-activity-item has-detail${failed ? " is-failed" : ""}`}>
@@ -560,10 +548,21 @@ export function V2ActivityGroup({ client, entry, threadID }: {
   entry: ActivityEntry;
   threadID: string;
 }) {
-  const labels = { search: "搜索", read: "读取", edit: "修改", execute: "运行", verify: "验证" };
+  const labels = { search: "搜索", read: "读取", edit: "修改", execute: "运行", verify: "验证", plan: "规划" };
   const latestItem = entry.items.at(-1);
-  const detail = latestItem?.summary ? [latestItem.summary.command,
-    itemSummaryStatus(latestItem), itemSummaryMeta(latestItem)].filter(Boolean).join(" · ") :
+  const fileChanges = entry.items.flatMap((item) => item.fileChange ? [item.fileChange] : []);
+  const distinctChanges = new Set(fileChanges);
+  // Tool completion confirms a request was handled, not that a file was written.
+  // The transcript exposes event IDs, not a shared edit ID: retain the audit
+  // leaves without presenting their count as a number of changed files.
+  const label = entry.activity === "plan" ? "规划" : entry.activity === "edit"
+    ? distinctChanges.size === 1 ? fileChangeLabels[fileChanges[0]] : "文件修改记录"
+    : `${labels[entry.activity]}${entry.count > 1 ? `了 ${entry.count} 项` : ""}`;
+  const detail = entry.activity === "edit"
+    ? fileChanges.length > 1 ? fileChangeLabels[fileChanges.at(-1)!] : "展开查看请求与审阅记录"
+    : latestItem?.summary ? [latestItem.summary.command,
+    itemSummaryStatus(latestItem), itemSummaryMeta(latestItem)].filter(Boolean).map((part, index) =>
+      <Fragment key={index}>{index > 0 && " · "}{part}</Fragment>) :
     entry.detail || entry.title;
   const failed = entry.items.some(itemFailed);
   const [open, setOpen] = useState(failed);
@@ -574,7 +573,7 @@ export function V2ActivityGroup({ client, entry, threadID }: {
     ? " is-provisional" : ""}${failed ? " is-failed" : ""}`}
     onToggle={(event) => setOpen(event.currentTarget.open)} open={open}>
     <summary><ActivityIcon activity={entry.activity} />
-      <span>{labels[entry.activity]}{entry.count > 1 ? `了 ${entry.count} 项` : ""}</span>
+      <span>{label}</span>
       <small>{detail}</small><ChevronDown aria-hidden="true" size={14} /></summary>
     <ul>{entry.items.map((item, index) => <ActivityItemDetail client={client} item={item}
       key={`${entry.id}:${item.detailRef ?? index}`} threadID={threadID} />)}</ul>

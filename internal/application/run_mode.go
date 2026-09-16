@@ -17,11 +17,15 @@ import (
 )
 
 type ChangeRunPhaseRequest struct {
-	RunID        string
-	Phase        string
-	OperationKey string
-	RequestedBy  string
-	Reason       string
+	// Set only by Thread Plan orchestration; the store checks current Thread,
+	// quiescence and the reviewed proposal in the phase-change transaction.
+	ThreadID       string
+	PlanProposalID string
+	RunID          string
+	Phase          string
+	OperationKey   string
+	RequestedBy    string
+	Reason         string
 }
 
 type ChangeRunPhaseResult struct {
@@ -57,6 +61,9 @@ func (s *RunService) ChangePhase(ctx context.Context,
 	}
 	keyDigest := runmutation.Fingerprint("run_mode_operation.v1", normalized.RunID,
 		normalized.OperationKey)
+	if normalized.ThreadID != "" {
+		keyDigest = threadPlanOperationDigest(normalized.ThreadID, normalized.OperationKey)
+	}
 	requestFingerprint := runmutation.Fingerprint("run_phase_change_request.v1",
 		normalized.RunID, string(target), normalized.RequestedBy, normalized.Reason)
 	if replay, found, err := s.loadRunPhaseReplay(ctx, keyDigest, requestFingerprint,
@@ -69,7 +76,7 @@ func (s *RunService) ChangePhase(ctx context.Context,
 	if err != nil {
 		return ChangeRunPhaseResult{}, apperror.Normalize(err)
 	}
-	if !domain.CanChangeRunPhase(run.Status) {
+	if !domain.CanChangeRunPhase(run.Status) && !(normalized.ThreadID != "" && run.Status == domain.RunRunning) {
 		return ChangeRunPhaseResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"run phase can only change while the Run is created or paused")
 	}
@@ -119,7 +126,19 @@ func (s *RunService) ChangePhase(ctx context.Context,
 		return ChangeRunPhaseResult{}, err
 	}
 	event.CreatedAt = next.CreatedAt
-	stored, replayed, err := s.store.TransitionRunPhase(ctx, next, operation, event)
+	var stored domain.RunModeSnapshot
+	var replayed bool
+	if normalized.ThreadID != "" {
+		threadStore, ok := s.store.(interface {
+			TransitionThreadRunPhase(context.Context, string, string, domain.RunModeSnapshot, domain.RunModeOperation, events.Event) (domain.RunModeSnapshot, bool, error)
+		})
+		if !ok {
+			return ChangeRunPhaseResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread Plan phase control is unavailable")
+		}
+		stored, replayed, err = threadStore.TransitionThreadRunPhase(ctx, normalized.ThreadID, normalized.PlanProposalID, next, operation, event)
+	} else {
+		stored, replayed, err = s.store.TransitionRunPhase(ctx, next, operation, event)
+	}
 	return ChangeRunPhaseResult{Mode: stored, Replayed: replayed}, apperror.Normalize(err)
 }
 

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -55,6 +56,22 @@ func NewRunExecutionHandoffService(store RunExecutionHandoffStore,
 	return &RunExecutionHandoffService{
 		store: store, supervisor: NewRunSupervisor(store, router, checker),
 	}
+}
+
+func (s *RunExecutionHandoffService) WithDrydock(drydocks *DrydockService) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithDrydock(drydocks)
+	}
+	return s
+}
+
+// WithGeneratedContextCompaction selects the existing extractive fallback for
+// embedders that explicitly disable auxiliary model calls. Threads default on.
+func (s *RunExecutionHandoffService) WithGeneratedContextCompaction(enabled bool) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithGeneratedContextCompaction(enabled)
+	}
+	return s
 }
 
 func (s *RunExecutionHandoffService) WithActiveCalls(
@@ -364,6 +381,9 @@ func (s *RunExecutionHandoffService) executeSelectionWithLease(ctx context.Conte
 	if executionErr != nil {
 		status = domain.RunExecutionHandoffFailed
 		errorCode = strings.ToLower(string(apperror.CodeOf(executionErr)))
+		if errors.Is(executionErr, errSupervisorContextWindow) {
+			execution.StopReason = domain.ThreadFailureContextWindowExceeded
+		}
 	}
 	if execution.StopReason == "" {
 		if executionErr != nil {

@@ -775,6 +775,9 @@ func requireSpecialistRepairTerminalReplayTx(ctx context.Context, tx *sql.Tx,
 }
 
 func validateSpecialistModelIdentity(attempt llm.ModelAttempt) error {
+	if attempt.Purpose != "" {
+		return apperror.New(apperror.CodeInvalidArgument, "Specialist calls cannot use Supervisor compaction purpose")
+	}
 	if err := attempt.ValidateStarted(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
 			"Specialist model call identity is invalid", err)

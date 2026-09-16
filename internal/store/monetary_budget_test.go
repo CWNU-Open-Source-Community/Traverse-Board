@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,6 +32,46 @@ func monetaryTestSnapshot(t *testing.T, now time.Time) pricing.Snapshot {
 	return snapshot
 }
 
+func TestMonetaryFreshRunProjectionDoesNotCreateLedger(t *testing.T) {
+	st, run := newMonetaryTestStore(t)
+	ctx := context.Background()
+	st.db.SetMaxOpenConns(1)
+	var beforeChanges, beforeEvents int64
+	if err := st.db.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&beforeChanges); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_events`).Scan(&beforeEvents); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if i == 1 {
+			if _, err := st.db.ExecContext(ctx, `PRAGMA query_only=ON`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		usage, err := st.GetMonetaryUsage(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("fresh tracked Run cannot read its budget: %v", err)
+		}
+		if err := usage.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if usage.RunID != run.ID || !usage.Tracked || usage.Currency != "USD" || usage.CapMicros != 2_000_000 || usage.RemainingMicros != usage.CapMicros || usage.ReservedMicros != 0 || usage.SettledMicros != 0 || usage.ReleasedMicros != 0 || usage.ExhaustedAt != nil || !usage.UpdatedAt.Equal(run.CreatedAt) {
+			t.Fatalf("fresh Run projection is not its unspent budget: %#v", usage)
+		}
+	}
+	if _, err := st.GetMonetaryUsage(ctx, "run-does-not-exist"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unknown Run was projected as an empty budget: %v", err)
+	}
+	var changes, rows, reservations, eventsAfter int64
+	if err := st.db.QueryRowContext(ctx, `SELECT total_changes(),(SELECT COUNT(*) FROM run_monetary_usage),(SELECT COUNT(*) FROM run_monetary_reservations),(SELECT COUNT(*) FROM run_events)`).Scan(&changes, &rows, &reservations, &eventsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if changes != beforeChanges || eventsAfter != beforeEvents || rows != 0 || reservations != 0 {
+		t.Fatalf("budget query wrote state: changes %d/%d events %d/%d ledger %d reservations %d", beforeChanges, changes, beforeEvents, eventsAfter, rows, reservations)
+	}
+}
+
 func newMonetaryTestStore(t *testing.T) (*SQLiteStore, domain.Run) {
 	t.Helper()
 	st, err := Open(filepath.Join(t.TempDir(), "monetary.db"))
@@ -53,7 +95,7 @@ func monetaryTestInsertModelEvent(t *testing.T, st *SQLiteStore, run domain.Run,
 ) {
 	t.Helper()
 	ctx := context.Background()
-	event, err := events.New(run.ID, run.MissionID, eventType, "monetary_budget", run.ID, payload)
+	event, err := events.New(run.ID, run.MissionID, eventType, "model_gateway", run.ID, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +163,7 @@ func TestMonetaryBudgetReserveSettleReleaseAndOversell(t *testing.T) {
 		t.Fatalf("settle failed: %#v %t %v", settled, replayed, err)
 	}
 	if settled.SettledMicros != 1_000_000 || settled.ReleasedMicros != 200_000 ||
-		settled.RemainingMicros != 2_000_000 {
+		settled.RemainingMicros != 1_000_000 {
 		t.Fatalf("unexpected settle usage: %#v", settled)
 	}
 	// Settle replay is idempotent.
@@ -134,6 +176,12 @@ func TestMonetaryBudgetReserveSettleReleaseAndOversell(t *testing.T) {
 	// After settling, the second attempt now fits.
 	if _, _, err := st.ReserveModelCost(ctx, over); err != nil {
 		t.Fatalf("post-settle reserve failed: %v", err)
+	}
+	third := over
+	third.AttemptNumber = 3
+	third.ReservedMicros = 100_001
+	if _, _, err := st.ReserveModelCost(ctx, third); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+		t.Fatalf("spent plus open reservations did not enforce the cumulative cap: %v", err)
 	}
 }
 
@@ -229,7 +277,7 @@ func TestMonetaryReconciliationClosesTerminalAttempts(t *testing.T) {
 	monetaryTestInsertModelEvent(t, st, run, events.ModelCompletedEvent, map[string]any{
 		"model_attempt": 1, "provider": "mock", "model": "mock-code",
 		"tool_call_count": 0,
-		"usage": map[string]any{"input_tokens": 100, "output_tokens": 50},
+		"usage":           map[string]any{"input_tokens": 100, "output_tokens": 50},
 	})
 	usage, err := st.GetMonetaryUsage(ctx, run.ID)
 	if err != nil {
@@ -240,4 +288,3 @@ func TestMonetaryReconciliationClosesTerminalAttempts(t *testing.T) {
 		t.Fatalf("reconciliation settled incorrectly: %#v", usage)
 	}
 }
-

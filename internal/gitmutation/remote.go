@@ -44,6 +44,7 @@ type RemoteRecord struct {
 	PullRequestURL     string
 	PullRequestNumber  int64
 	StderrPrefix       string
+	StartedAt          *time.Time
 	CompletedAt        *time.Time
 	CreatedAt          time.Time
 }

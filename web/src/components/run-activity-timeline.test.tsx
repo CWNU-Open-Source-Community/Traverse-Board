@@ -5,6 +5,22 @@ import { LocaleProvider, type PrayuLocale } from "../lib/locale";
 import { RunActivityTimeline } from "./run-activity-timeline";
 
 describe("RunActivityTimeline", () => {
+  it("marks a saved running tool fact as historical while live tool preparation remains distinct", () => {
+    const value = activity();
+    value.items = [toolItem(13, "工具操作开始", "running")];
+    const live = publicSnapshot();
+    live.text = "";
+    live.items = [{ response_id: "response-new", id: "new-tool", type: "tool_call",
+      status: "in_progress", call_id: "new-call", tool_name: "new_live_tool",
+      argument_bytes: 24, provisional: true, durable: false }];
+    renderTimeline(<RunActivityTimeline activity={value} liveCommentary={live} liveStatus="live" />);
+    expect(screen.getByText("记录时执行中")).toHaveAttribute("title", "已保存事件中的状态，不代表 Agent 当前仍在工作。");
+    expect(screen.getByText("正在准备调用 · 24 字节")).toBeInTheDocument();
+    expect(screen.getByText("临时")).toBeInTheDocument();
+    expect(screen.getByText("git diff --check")).toBeInTheDocument();
+    expect(screen.queryByText("进行中")).not.toBeInTheDocument();
+  });
+
   it("separates public model updates from verifiable Harness facts", () => {
     renderTimeline(<RunActivityTimeline activity={activity()} />);
 

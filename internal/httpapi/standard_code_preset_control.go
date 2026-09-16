@@ -166,8 +166,8 @@ func (a *API) standardCodePresetControlView(
 		SelectedBackend: result.SelectedBackend, SelectionReason: result.SelectionReason,
 		LocalReadiness:  standardCodeBackendReadinessView(result.LocalReadiness),
 		DockerReadiness: standardCodeBackendReadinessView(result.DockerReadiness),
-		BlockedBy:       append([]application.CapabilityReadinessBlocker(nil), result.BlockedBy...),
-		NextSteps:       append([]application.StandardCodeNextStep(nil), result.NextSteps...),
+		BlockedBy:       append([]application.CapabilityReadinessBlocker{}, result.BlockedBy...),
+		NextSteps:       append([]application.StandardCodeNextStep{}, result.NextSteps...),
 		TrustRequired:   result.TrustRequired, TrustDigest: result.TrustDigest,
 		DrydockReady: result.DrydockReady, Network: result.Network,
 		Credentials: result.Credentials, Replayed: result.Replayed,
@@ -206,7 +206,7 @@ func standardCodeBackendReadinessView(
 	value application.StandardCodeBackendReadiness) StandardCodeBackendReadinessView {
 	return StandardCodeBackendReadinessView{Backend: string(value.Backend),
 		Available: value.Available,
-		BlockedBy: append([]application.CapabilityReadinessBlocker(nil), value.BlockedBy...),
-		Remediation: append([]application.CapabilityReadinessRemediation(nil),
+		BlockedBy: append([]application.CapabilityReadinessBlocker{}, value.BlockedBy...),
+		Remediation: append([]application.CapabilityReadinessRemediation{},
 			value.Remediation...)}
 }

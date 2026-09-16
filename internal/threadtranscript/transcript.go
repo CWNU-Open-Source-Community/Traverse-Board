@@ -53,14 +53,18 @@ const (
 // Source is the immutable ordering record loaded by the store. Sequence zero
 // is reserved for the Run boundary; positive values are durable Run events.
 type Source struct {
-	RunID                string
-	SessionID            string
-	Ordinal              int64
-	PredecessorRunID     string
-	PredecessorRunStatus string
-	RunStatus            string
-	OperatorContent      string
-	OperatorStatus       string
+	RunID                   string
+	SessionID               string
+	Ordinal                 int64
+	PredecessorRunID        string
+	PredecessorRunStatus    string
+	RunStatus               string
+	OperatorContent         string
+	OperatorImageCount      int
+	OperatorAttachmentCount int
+	OperatorStatus          string
+	// Store-verified queue/Session identity, independent of the current page.
+	OperatorMessageBound bool
 	Sequence             int64
 	CreatedAt            time.Time
 	Event                *events.Event
@@ -228,9 +232,15 @@ func Build(threadID string, source []Source) ([]Item, error) {
 			continue
 		}
 		if record.Event.Type == events.OperatorSteeringQueuedEvent &&
-			(record.OperatorStatus == "pending" || record.OperatorStatus == "cancelled") &&
-			strings.TrimSpace(record.OperatorContent) != "" {
+			(record.OperatorStatus == "pending" || record.OperatorStatus == "cancelled" ||
+				(record.OperatorStatus == "committed" && record.OperatorMessageBound)) &&
+			(strings.TrimSpace(record.OperatorContent) != "" || record.OperatorImageCount > 0 || record.OperatorAttachmentCount > 0) {
 			items = append(items, projectOperatorMessage(record))
+			continue
+		}
+		if record.Event.Type == events.SessionMessageEvent && record.OperatorMessageBound {
+			// The same input is already represented at its original queue sequence.
+			// Never infer this from equal text or from another item on this page.
 			continue
 		}
 		if record.Event.Type == events.SupervisorToolBatchEvent {
@@ -261,6 +271,9 @@ func projectOperatorMessage(source Source) Item {
 		title = "用户消息已取消"
 		stage = StageBlocked
 		instructionAuthorized = false
+	} else if source.OperatorStatus == "committed" {
+		title = "用户消息"
+		stage = StageResult
 	}
 	return Item{
 		Version: ProtocolVersion, ID: source.Event.EventID,
@@ -375,6 +388,10 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 		InstructionAuthorized: projected.InstructionAuthorized,
 		AttemptID:             projected.AttemptID, ModelAttempt: projected.ModelAttempt,
 		ToolRound: projected.ToolRound, Durable: true, CreatedAt: projected.CreatedAt,
+	}
+	if (source.Event.Type == events.ThreadTurnFailedEvent && source.Event.Source == "thread_turn") ||
+		(source.Event.Type == events.RunExecutionHandoffCompletedEvent && source.Event.Source == "run_execution_handoff") {
+		item.SourceRef = safeIdentity(source.Event.SubjectID)
 	}
 	if source.Event.Type == events.SessionMessageEvent {
 		var payload struct {
@@ -528,6 +545,10 @@ func classifyActivity(eventType string, kind runactivity.Kind, toolName string) 
 func classifyTool(name string) ActivityType {
 	name = strings.ToLower(strings.TrimSpace(name))
 	switch name {
+	case "history_search":
+		return TypeSearch
+	case "history_read":
+		return TypeRead
 	case "list_workspace", "workspace_list", "workspace_glob", "workspace_grep",
 		"workspace_search", "code_search", "search", "find_files",
 		"github_review_evidence_list", "code_workspace_symbols", "code_document_symbols",

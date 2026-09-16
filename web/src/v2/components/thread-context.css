@@ -1,0 +1,31 @@
+.v2-context-overlay { position:fixed; inset:0; z-index:950; display:flex; justify-content:flex-end; background:#0005; }
+.v2-thread-context { box-sizing:border-box; width:min(760px, 94vw); height:100dvh; padding:20px 24px 36px; overflow:auto; background:rgb(from var(--prayu-panel-strong) r g b / 1); color:var(--v2-ink); box-shadow:-4px 0 30px #0002; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
+.v2-thread-context > header { position:sticky; top:-20px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 0; background:inherit; }
+.v2-thread-context h2 { margin:0; font-size:19px; font-weight:600; }
+.v2-thread-context h3 { margin:0 0 10px; font-size:16px; font-weight:600; }
+.v2-thread-context h4 { margin:0 0 8px; font-size:14px; font-weight:600; }
+.v2-thread-context strong { font-weight:600; }
+.v2-thread-context > section { padding:20px 0; border-top:1px solid var(--v2-border, #d7dbe0); }
+.v2-thread-context button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:7px 11px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; color:inherit; background:var(--prayu-panel-strong, #141519); font:inherit; cursor:pointer; }
+.v2-thread-context button:disabled { opacity:.5; cursor:default; }
+.v2-thread-context button:focus-visible, .v2-thread-context summary:focus-visible, .v2-thread-context textarea:focus-visible { outline:2px solid var(--v2-accent, #6b91df); outline-offset:3px; }
+.v2-context-help { color:var(--v2-muted); font-size:13px; }
+.v2-context-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0; }
+.v2-context-toolbar > span { min-width:0; }
+.v2-context-toolbar button { flex-shrink:0; }
+.v2-thread-context details { margin:10px 0; }
+.v2-thread-context summary { width:fit-content; cursor:pointer; color:var(--v2-muted); }
+.v2-thread-context dl { display:grid; grid-template-columns:116px minmax(0,1fr); gap:5px 12px; font-size:13px; }
+.v2-thread-context dt { color:var(--v2-muted); }
+.v2-thread-context dd { margin:0; white-space:pre-wrap; }
+.v2-context-sources { padding:0; margin:12px 0; list-style:none; }
+.v2-context-sources > li { padding:10px 0; border-bottom:1px solid var(--v2-border, #d7dbe0); }
+.v2-context-sources > li > strong, .v2-context-sources > li > span { display:block; }
+.v2-context-sources > li > span { color:var(--v2-muted); font-size:13px; }
+.v2-context-summary-text pre, .v2-context-summary-text > p, .v2-context-generated-text { white-space:pre-wrap; font:inherit; margin:10px 0; }
+.v2-context-summary-text { border-left:2px solid var(--v2-border, #d7dbe0); padding-left:14px; }
+.v2-context-notice, .v2-thread-context [role="alert"] { padding:10px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; }
+.v2-context-inherited { margin-top:20px; }
+.v2-context-correction label { display:block; margin-bottom:7px; }
+.v2-context-correction textarea { box-sizing:border-box; width:100%; resize:vertical; min-height:110px; padding:10px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:var(--prayu-panel-strong, #141519); color:inherit; font:inherit; }
+@media (max-width:600px) { .v2-thread-context { width:100vw; padding:14px 16px 28px; } .v2-thread-context > header { top:-14px; } .v2-thread-context dl { grid-template-columns:1fr; gap:2px; } .v2-thread-context dd { margin-bottom:8px; } }

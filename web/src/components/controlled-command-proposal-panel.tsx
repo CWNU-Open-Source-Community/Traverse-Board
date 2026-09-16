@@ -23,9 +23,10 @@ const chineseCommandLabels: Record<string, string> = {
   "go-version": "Go 版本", "powershell-workspace-list": "工作区列表",
 };
 
-export function ControlledCommandProposalPanel({ client, runID }: {
+export function ControlledCommandProposalPanel({ client, runID, threadID = "" }: {
   client: CyberAgentClient;
   runID: string;
+  threadID?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -36,6 +37,7 @@ export function ControlledCommandProposalPanel({ client, runID }: {
     queryKey: ["run", runID, "command-proposals"],
     queryFn: ({ signal }) => client.controlledCommandProposals(runID, signal),
     enabled: client.hasControlledCommandProposalControl && runID !== "",
+    refetchInterval: threadID ? 2_000 : false,
   });
   const mutation = useMutation({
     mutationFn: ({ proposal, decision, reason, intent }: {
@@ -70,6 +72,9 @@ export function ControlledCommandProposalPanel({ client, runID }: {
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "command-proposals"] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "events"] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID] });
+      if (threadID) {
+        void queryClient.invalidateQueries({ queryKey: ["v2", "thread", threadID] });
+      }
     },
   });
 
@@ -80,8 +85,12 @@ export function ControlledCommandProposalPanel({ client, runID }: {
     return <LoadingState label={t("正在加载固定命令提案", "Loading fixed command proposals")} />;
   }
   if (query.isError || !query.data) {
-    return <ErrorState error={query.error} />;
+    return <div><ErrorState error={query.error} /><button type="button"
+      onClick={() => void query.refetch()}>{t("重试固定命令审批", "Retry command approvals")}</button></div>;
   }
+
+  const items = threadID ? query.data.items.filter((proposal) => !proposal.review) : query.data.items;
+  if (threadID && items.length === 0) return null;
 
   const decide = (proposal: ControlledCommandProposalView, decision: ReviewDecision) => {
     if (decision === "approve" && !globalThis.confirm(
@@ -101,16 +110,16 @@ export function ControlledCommandProposalPanel({ client, runID }: {
       <header className="approval-queue-header">
         <div><TerminalSquare aria-hidden="true" size={16} />
           <strong>{t("固定命令提案", "Fixed command proposals")}</strong></div>
-        <span>{query.data.items.length}</span>
+        <span>{items.length}</span>
       </header>
       <div className="approval-boundary-line">
         <span>{t("仅限 Go 内置模板", "Go-owned templates only")}</span>
         <span>{t("一次审批，仅执行一次", "One approval, one execution")}</span>
         <span>{t("网络与持久化：关闭", "Network and persistence: off")}</span>
       </div>
-      {query.data.items.length === 0 ? <EmptyState>{t("没有固定命令提案", "No fixed command proposals")}</EmptyState> : (
+      {items.length === 0 ? <EmptyState>{t("没有固定命令提案", "No fixed command proposals")}</EmptyState> : (
         <div className="approval-list">
-          {query.data.items.map((proposal) => {
+          {items.map((proposal) => {
             const pending = !proposal.review;
             const busy = mutation.isPending &&
               mutation.variables?.proposal.id === proposal.id;

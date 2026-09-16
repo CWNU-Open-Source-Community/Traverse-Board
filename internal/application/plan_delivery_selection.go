@@ -27,6 +27,7 @@ type PlanDeliverySelectionStore interface {
 		id string) (domain.PlanDeliverySelection, error)
 	GetPlanDeliverySelectionByRun(ctx context.Context,
 		runID string) (domain.PlanDeliverySelection, bool, error)
+	GetPlanDeliverySelectionOperation(context.Context, string) (domain.PlanDeliverySelectionOperation, bool, error)
 	SelectPlanDeliveryDirection(ctx context.Context,
 		operation domain.PlanDeliverySelectionOperation,
 		selection domain.PlanDeliverySelection, items []domain.WorkItem,
@@ -42,10 +43,12 @@ type PlanDeliveryService struct {
 }
 
 type SelectPlanDeliveryDirectionRequest struct {
-	ProposalID   string
-	Direction    int
-	OperationKey string
-	RequestedBy  string
+	ThreadID         string
+	ProposalID       string
+	Direction        int
+	ManualAcceptance domain.PlanDeliveryManualAcceptance
+	OperationKey     string
+	RequestedBy      string
 }
 
 type SelectPlanDeliveryDirectionResult struct {
@@ -145,24 +148,47 @@ func (s *PlanDeliveryService) Select(ctx context.Context,
 			apperror.CodeInvalidArgument,
 			"Plan/Delivery direction must be 1, 2, or 3")
 	}
+	acceptance, err := domain.NormalizePlanDeliveryManualAcceptance(request.ManualAcceptance)
+	if err != nil {
+		return SelectPlanDeliveryDirectionResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "manual acceptance selection is invalid", err)
+	}
+	request.ManualAcceptance = acceptance
 	proposal, err := s.store.GetPlanDeliveryProposal(ctx, request.ProposalID)
 	if err != nil {
 		return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
+	}
+	if request.Direction > len(proposal.Spec.Directions) {
+		return SelectPlanDeliveryDirectionResult{}, apperror.New(apperror.CodeInvalidArgument, "selected Plan/Delivery direction is unavailable")
+	}
+	keyDigest := runmutation.OperationKeyDigest("plan_delivery_select", proposal.RunID, request.OperationKey)
+	if request.ThreadID != "" {
+		keyDigest = threadPlanOperationDigest(request.ThreadID, request.OperationKey)
+	}
+	fingerprint := domain.PlanDeliverySelectionRequestFingerprintForAcceptance(proposal.ID, proposal.RunID,
+		request.Direction, request.RequestedBy, acceptance)
+	if operation, found, err := s.store.GetPlanDeliverySelectionOperation(ctx, keyDigest); err != nil {
+		return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
+	} else if found {
+		if operation.KeyDigest != keyDigest || operation.RequestFingerprint != fingerprint ||
+			operation.ProposalID != proposal.ID || operation.RunID != proposal.RunID || operation.RequestedBy != request.RequestedBy {
+			return SelectPlanDeliveryDirectionResult{}, apperror.New(apperror.CodeConflict, "Plan/Delivery selection idempotency key was already used for different intent")
+		}
+		stored, err := s.store.GetPlanDeliverySelection(ctx, operation.SelectionID)
+		if err != nil {
+			return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
+		}
+		if stored.ProposalID != proposal.ID || stored.RunID != proposal.RunID || stored.DirectionOrdinal != request.Direction ||
+			stored.RequestedBy != request.RequestedBy || stored.EffectiveManualAcceptance() != acceptance {
+			return SelectPlanDeliveryDirectionResult{}, apperror.New(apperror.CodeConflict, "persisted Plan selection does not match its operation")
+		}
+		return s.selectionResult(ctx, stored, true)
 	}
 	run, err := s.store.GetRun(ctx, proposal.RunID)
 	if err != nil {
 		return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
 	}
-	mode, err := s.store.GetRunMode(ctx, proposal.RunID)
-	if err != nil {
-		return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
-	}
-	if run.Status != domain.RunPaused || mode.Phase != domain.ExecutionPhasePlan ||
-		mode.Revision != proposal.ModeRevision {
-		return SelectPlanDeliveryDirectionResult{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"direction choice requires the paused Run in the proposal's Plan revision")
-	}
+	// The store checks the fresh paused Plan revision after its fenced receipt
+	// lookup. A concurrent successful choice may already have entered Deliver.
 	direction := proposal.Spec.Directions[request.Direction-1]
 	now := time.Now().UTC()
 	if now.Before(proposal.CreatedAt) {
@@ -180,7 +206,8 @@ func (s *PlanDeliveryService) Select(ctx context.Context,
 		ID: idgen.New("plan-selection"), ProposalID: proposal.ID,
 		RunID: proposal.RunID, RootAgentID: proposal.RootAgentID,
 		DirectionOrdinal: direction.Ordinal, NoteID: note.ID,
-		RequestedBy: request.RequestedBy, Version: 1, CreatedAt: now,
+		ManualAcceptance: acceptance,
+		RequestedBy:      request.RequestedBy, Version: 1, CreatedAt: now,
 		Items: make([]domain.PlanDeliverySelectionItem, len(items)),
 	}
 	for index, item := range items {
@@ -189,11 +216,9 @@ func (s *PlanDeliveryService) Select(ctx context.Context,
 		}
 	}
 	operation := domain.PlanDeliverySelectionOperation{
-		KeyDigest: runmutation.OperationKeyDigest("plan_delivery_select",
-			proposal.RunID, request.OperationKey),
-		RequestFingerprint: domain.PlanDeliverySelectionRequestFingerprint(
-			proposal.ID, proposal.RunID, direction.Ordinal, request.RequestedBy),
-		SelectionID: selection.ID, ProposalID: proposal.ID,
+		KeyDigest:          keyDigest,
+		RequestFingerprint: fingerprint,
+		SelectionID:        selection.ID, ProposalID: proposal.ID,
 		RunID: proposal.RunID, RequestedBy: request.RequestedBy, CreatedAt: now,
 	}
 	selectionEvent, itemEvents, noteEvent, err := planDeliverySelectionEvents(
@@ -201,15 +226,34 @@ func (s *PlanDeliveryService) Select(ctx context.Context,
 	if err != nil {
 		return SelectPlanDeliveryDirectionResult{}, err
 	}
-	stored, replayed, err := s.store.SelectPlanDeliveryDirection(ctx, operation,
-		selection, items, note, selectionEvent, itemEvents, noteEvent)
+	var stored domain.PlanDeliverySelection
+	var replayed bool
+	if request.ThreadID != "" {
+		threadStore, ok := s.store.(interface {
+			SelectThreadPlanDeliveryDirection(context.Context, string, domain.PlanDeliverySelectionOperation,
+				domain.PlanDeliverySelection, []domain.WorkItem, domain.Note, events.Event, []events.Event, events.Event) (domain.PlanDeliverySelection, bool, error)
+		})
+		if !ok {
+			return SelectPlanDeliveryDirectionResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread Plan selection is unavailable")
+		}
+		stored, replayed, err = threadStore.SelectThreadPlanDeliveryDirection(ctx, request.ThreadID, operation,
+			selection, items, note, selectionEvent, itemEvents, noteEvent)
+	} else {
+		stored, replayed, err = s.store.SelectPlanDeliveryDirection(ctx, operation,
+			selection, items, note, selectionEvent, itemEvents, noteEvent)
+	}
 	if err != nil {
 		return SelectPlanDeliveryDirectionResult{}, apperror.Normalize(err)
 	}
+	return s.selectionResult(ctx, stored, replayed)
+}
+
+func (s *PlanDeliveryService) selectionResult(ctx context.Context, stored domain.PlanDeliverySelection, replayed bool) (SelectPlanDeliveryDirectionResult, error) {
 	result := SelectPlanDeliveryDirectionResult{
 		Selection: stored, Replayed: replayed,
 		WorkItems: make([]domain.WorkItem, len(stored.Items)),
 	}
+	var err error
 	for index, selected := range stored.Items {
 		result.WorkItems[index], err = s.store.GetWorkItem(ctx, selected.WorkItemID)
 		if err != nil {
@@ -306,7 +350,8 @@ func planDeliverySelectionEvents(run domain.Run,
 		map[string]any{
 			"selection_id": selection.ID, "proposal_id": proposal.ID,
 			"direction_ordinal": selection.DirectionOrdinal,
-			"module_count":         len(selection.Items), "note_id": selection.NoteID,
+			"manual_acceptance": selection.EffectiveManualAcceptance(),
+			"module_count":      len(selection.Items), "note_id": selection.NoteID,
 			"phase_changed": false, "capability_grant": false,
 		})
 	if err != nil {

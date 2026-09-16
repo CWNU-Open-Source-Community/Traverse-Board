@@ -171,6 +171,17 @@ func (fs WorkspaceFS) resolveExistingFile(requested string) (string, error) {
 // symlinks, junctions, reparse-point redirects, or case aliases. New files
 // require an existing real parent directory.
 func (fs WorkspaceFS) ResolveForWrite(requested string) (string, error) {
+	return fs.resolveForWrite(requested, false)
+}
+
+// ResolveForCreate is a read-only create-target check. Missing parent suffixes
+// are allowed; every existing component retains the ordinary write checks.
+// It never creates directories or authorizes a write.
+func (fs WorkspaceFS) ResolveForCreate(requested string) (string, error) {
+	return fs.resolveForWrite(requested, true)
+}
+
+func (fs WorkspaceFS) resolveForWrite(requested string, allowMissingParents bool) (string, error) {
 	fs = fs.withFallback("")
 	if strings.TrimSpace(fs.Root) == "" {
 		return "", errors.New("workspace root is required")
@@ -230,8 +241,8 @@ func (fs WorkspaceFS) ResolveForWrite(requested string) (string, error) {
 			if alias {
 				return "", errors.New("workspace path casing does not match the stored entry")
 			}
-			if last {
-				return filepath.Join(current, component), nil
+			if last || allowMissingParents {
+				return candidate, nil
 			}
 			return "", errors.New("parent directory must already exist")
 		}

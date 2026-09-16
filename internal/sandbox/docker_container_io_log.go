@@ -256,11 +256,28 @@ type dockerLogStreamAccumulator struct {
 func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 	src io.Reader,
 ) ([]DockerLogStreamRecord, string, error) {
+	records, status, _, err := DecodeDockerLogFramesWithOutput(ctx, plan, src)
+	return records, status, err
+}
+
+// DockerLogOutput contains only the bounded, redacted text whose digests are
+// recorded by the same capture. It is transient output, not a durable receipt.
+type DockerLogOutput struct {
+	Stdout string
+	Stderr string
+}
+
+// DecodeDockerLogFramesWithOutput also returns the sanitized text from the
+// existing capture pass. Callers must bind it to a successfully saved receipt
+// before delivery; the capture status still describes truncation or invalid input.
+func DecodeDockerLogFramesWithOutput(ctx context.Context, plan DockerLogCapturePlan,
+	src io.Reader,
+) ([]DockerLogStreamRecord, string, DockerLogOutput, error) {
 	if err := plan.Validate(); err != nil {
-		return nil, "", err
+		return nil, "", DockerLogOutput{}, err
 	}
 	if src == nil {
-		return nil, "", errors.New("docker log source is required")
+		return nil, "", DockerLogOutput{}, errors.New("docker log source is required")
 	}
 	streams := [2]*dockerLogStreamAccumulator{
 		{record: DockerLogStreamRecord{Stream: "stdout"}, budgetBytes: plan.MaxBytes, budgetLines: plan.MaxLines},
@@ -277,10 +294,14 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 		header := make([]byte, 8)
 		_, err := io.ReadFull(src, header)
 		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+			if err == io.EOF {
 				break
 			}
-			return nil, "", err
+			if err == io.ErrUnexpectedEOF {
+				status = DockerLogCaptureStatusInvalidStream
+				break
+			}
+			return nil, "", DockerLogOutput{}, err
 		}
 		if header[1] != 0 || header[2] != 0 || header[3] != 0 ||
 			(header[0] != 1 && header[0] != 2) {
@@ -298,7 +319,7 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 		accumulator := streams[header[0]-1]
 		if accumulator.record.TruncatedBytes || accumulator.record.TruncatedLines {
 			if _, err := io.CopyN(io.Discard, src, int64(size)); err != nil {
-				return nil, "", err
+				return nil, "", DockerLogOutput{}, err
 			}
 			continue
 		}
@@ -309,11 +330,11 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 		}
 		buffer := make([]byte, readBytes)
 		if _, err := io.ReadFull(src, buffer); err != nil {
-			return nil, "", err
+			return nil, "", DockerLogOutput{}, err
 		}
 		if int64(size) > readBytes {
 			if _, err := io.CopyN(io.Discard, src, int64(size)-readBytes); err != nil {
-				return nil, "", err
+				return nil, "", DockerLogOutput{}, err
 			}
 		}
 		accumulator.record.ByteCount += int64(len(buffer))
@@ -332,6 +353,7 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 		}
 	}
 	records := make([]DockerLogStreamRecord, 2)
+	var output DockerLogOutput
 	for index, accumulator := range streams {
 		record := accumulator.record
 		content := accumulator.content.String()
@@ -344,6 +366,11 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 		}
 		record.ContentDigest = hashDockerLogContent(redacted)
 		records[index] = record
+		if index == 0 {
+			output.Stdout = redacted
+		} else {
+			output.Stderr = redacted
+		}
 	}
 	if status == DockerLogCaptureStatusCompleted {
 		switch {
@@ -353,7 +380,7 @@ func DecodeDockerLogFrames(ctx context.Context, plan DockerLogCapturePlan,
 			status = DockerLogCaptureStatusTruncatedLines
 		}
 	}
-	return records, status, nil
+	return records, status, output, nil
 }
 
 // decodeDockerLogUTF8 decodes chunk on top of a pending incomplete-run tail,

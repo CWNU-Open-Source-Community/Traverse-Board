@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
 import { V2ModelRouteControl, type V2ModelRouteCatalog, type V2ThreadModelRoute } from "./model-route-control";
@@ -69,16 +69,165 @@ function renderControl(client: TestRouteClient = routeClient(), options: {
 }
 
 describe("V2ModelRouteControl", () => {
+  it("keeps only the model basename on the toolbar while retaining the full route and reasoning detail", async () => {
+    const user = userEvent.setup();
+    const client = routeClient({ threadModelRoute: vi.fn().mockResolvedValue({ ...current,
+      provider: "custom-provider", model: "organization/model-release-2026" }) });
+    renderControl(client);
+    const trigger = await screen.findByRole("button", {
+      name: "模型路由，当前 custom-provider · organization/model-release-2026；推理强度：随模型",
+    });
+    expect(trigger).toHaveTextContent(/^model-release-2026$/u);
+    expect(trigger.querySelector(".lucide-zap")).toBeNull();
+    expect(trigger).toHaveAttribute("title", "custom-provider · organization/model-release-2026；推理强度：随模型");
+    expect(client.availableModelRoutes).not.toHaveBeenCalled();
+    await user.click(trigger);
+    const identity = screen.getByLabelText("当前模型完整路由");
+    expect(within(identity).getByText("供应商")).toBeVisible();
+    expect(within(identity).getByText("custom-provider")).toBeVisible();
+    expect(within(identity).getByText("模型 ID")).toBeVisible();
+    expect(within(identity).getByText("organization/model-release-2026")).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /^模型/u })).toHaveTextContent("model-release-2026");
+    expect(screen.getByRole("menuitem", { name: /^推理强度/u })).toBeDisabled();
+    expect(client.selectThreadModelRoute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["deepseek-v4-flash", "DeepSeek V4 Flash"],
+    ["claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"],
+    ["gpt-5.6-terra", "GPT-5.6 Terra"],
+    ["claude-sonnet-4-5-20250929-thinking", "Claude Sonnet 4.5 Thinking"],
+    ["deepseek-v4-coder-thinking", "DeepSeek V4 Coder Thinking"],
+    ["claude-sonnet-4-5-20250230-thinking", "Claude Sonnet 4.5 20250230 Thinking"],
+  ])("shows a readable %s while keeping the exact full route visible and unchanged", async (model, friendly) => {
+    const rawModel = `team/${model}`;
+    const client = routeClient({ threadModelRoute: vi.fn().mockResolvedValue({ ...current,
+      provider: "custom-provider", model: rawModel }) });
+    renderControl(client); const user = userEvent.setup();
+    const description = `custom-provider · ${rawModel}；推理强度：随模型`;
+    const trigger = await screen.findByRole("button", { name: `模型路由，当前 ${description}` });
+    expect(trigger).toHaveTextContent(friendly);
+    expect(trigger).toHaveAttribute("title", description);
+    await user.click(trigger);
+    expect(within(screen.getByLabelText("当前模型完整路由")).getByText(rawModel)).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /^模型/u })).toHaveTextContent(friendly);
+    expect(client.selectThreadModelRoute).not.toHaveBeenCalled();
+  });
+
+  it("does not steal focus from typing after a pending model selection closes its menu", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+    const flushFrames = () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(performance.now());
+    };
+    const client = routeClient();
+    const onPendingRouteChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}>
+      <V2ModelRouteControl client={client} threadID="" onManageModels={vi.fn()}
+        onPendingRouteChange={onPendingRouteChange} />
+      <textarea aria-label="首条消息" />
+    </QueryClientProvider>);
+    await user.click(screen.getByRole("button", { name: /模型路由/ }));
+    act(flushFrames);
+    await user.click(screen.getByRole("menuitem", { name: /^模型/ }));
+    act(flushFrames);
+    await user.click(await screen.findByRole("menuitemradio", { name: /deepseek-v4-pro/ }));
+    expect(onPendingRouteChange).toHaveBeenCalledWith({ provider: "official-deepseek", model: "deepseek-v4-pro" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    const composer = screen.getByRole("textbox", { name: "首条消息" });
+    await user.click(composer);
+    act(flushFrames);
+    await user.keyboard("first message");
+    expect(composer).toHaveFocus();
+    expect(composer).toHaveValue("first message");
+    expect(client.selectThreadModelRoute).not.toHaveBeenCalled();
+  });
+
+  it("keeps a newer composer focus when an in-flight model change finishes", async () => {
+    let resolve!: (value: V2ThreadModelRoute) => void;
+    const pending = new Promise<V2ThreadModelRoute>((done) => { resolve = done; });
+    const client = routeClient({ selectThreadModelRoute: vi.fn(() => pending) });
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+    const flushFrames = () => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      for (const callback of callbacks) callback(performance.now());
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}>
+      <V2ModelRouteControl client={client} threadID="thread-1" onManageModels={vi.fn()} />
+      <textarea aria-label="下一条消息" />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: /模型路由/ }));
+    act(flushFrames);
+    await user.click(screen.getByRole("menuitem", { name: /^模型/ }));
+    act(flushFrames);
+    await user.click(await screen.findByRole("menuitemradio", { name: /deepseek-v4-pro/ }));
+    const composer = screen.getByRole("textbox", { name: "下一条消息" });
+    await user.click(composer);
+    await act(async () => { resolve({ ...current, model: "deepseek-v4-pro" }); await pending; });
+    await waitFor(() => expect(screen.getByRole("button", { name: /模型路由/ })).toHaveTextContent("DeepSeek V4 Pro"));
+    act(flushFrames);
+    await user.keyboard("keep this draft");
+    expect(composer).toHaveFocus();
+    expect(composer).toHaveValue("keep this draft");
+    expect(client.selectThreadModelRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns focus after the selected menu item loses focus while disabled by its pending request", async () => {
+    let resolve!: (value: V2ThreadModelRoute) => void;
+    const pending = new Promise<V2ThreadModelRoute>((done) => { resolve = done; });
+    const client = routeClient({ selectThreadModelRoute: vi.fn(() => pending) });
+    const user = userEvent.setup();
+    renderControl(client);
+    const trigger = await screen.findByRole("button", { name: /模型路由/ });
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: /^模型/ }));
+    const selected = await screen.findByRole("menuitemradio", { name: /deepseek-v4-pro/ });
+    await user.click(selected);
+    await waitFor(() => expect(selected).toBeDisabled());
+    // Browsers may blur a focused button when it becomes disabled. Keep the
+    // real pending mutation and emulate that focus event, without a timer.
+    // jsdom keeps disabled controls focused even after blur(), so explicitly
+    // reproduce the browser's body-focus state while the button stays disabled.
+    document.body.tabIndex = -1;
+    document.body.focus();
+    document.body.removeAttribute("tabindex");
+    expect(document.body).toHaveFocus();
+    await act(async () => { resolve({ ...current, model: "deepseek-v4-pro" }); await pending; });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveTextContent("DeepSeek V4 Pro");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(client.selectThreadModelRoute).toHaveBeenCalledTimes(1);
+  });
+
   it("opens an anchored two-level menu and groups selectable and unavailable routes", async () => {
     const user = userEvent.setup();
     const controls = renderControl();
     const trigger = await screen.findByRole("button", {
-      name: "模型路由，当前 deepseek-v4-flash",
+      name: "模型路由，当前 DeepSeek · deepseek-v4-flash；推理强度：随模型",
     });
 
     expect(controls.client.availableModelRoutes).not.toHaveBeenCalled();
     await user.click(trigger);
     const settings = screen.getByRole("menu", { name: "模型与响应设置" });
+    expect(within(screen.getByLabelText("当前模型完整路由")).getByText("DeepSeek（official-deepseek）")).toBeVisible();
     expect(within(settings).getByRole("menuitem", { name: /推理强度/ })).toBeDisabled();
     expect(within(settings).getByRole("menuitem", { name: /速度/ })).toBeDisabled();
 
@@ -113,7 +262,9 @@ describe("V2ModelRouteControl", () => {
       }),
     ));
     await waitFor(() => expect(trigger).toHaveFocus());
-    expect(trigger).toHaveTextContent("DeepSeek · deepseek-v4-pro下一轮");
+    expect(trigger).toHaveTextContent("DeepSeek V4 Pro下一轮");
+    expect(trigger).not.toHaveTextContent("DeepSeek ·");
+    expect(trigger).toHaveAttribute("title", "DeepSeek · deepseek-v4-pro；推理强度：随模型");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 

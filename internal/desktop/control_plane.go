@@ -462,6 +462,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			"desktop batch delivery startup reconciliation failed", err)
 	}
 	var standardCodeDelivery *application.StandardCodeDeliveryService
+	var standardCodeDeliveryController httpapi.StandardCodeDeliveryController
 	if commandRuntimeDrydocks != nil {
 		standardCodeDelivery, err = application.NewStandardCodeDeliveryService(
 			stateStore, commandRuntimeDrydocks)
@@ -489,13 +490,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	webFetchAuthorizationSchedulerEnabled :=
 		webFetchAuthorizationReconcilerEnabled(config)
 	executionControl := application.NewRunExecutionHandoffService(stateStore,
-		models.Router(), checker).WithActiveCalls(
+		models.Router(), checker).WithDrydock(commandRuntimeDrydocks).WithActiveCalls(
 		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
 		WithWebEvidence(webEvidence).
 		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled).
 		WithExecutionPermissionCapabilities(config.ExecutionPermissionCapabilities).
 		WithLifecycleHooks(hookEngine)
 	if standardCodeDelivery != nil {
+		standardCodeDeliveryController = standardCodeDelivery
 		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
 	}
 	if codeIntelManager != nil {
@@ -669,17 +671,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	fullCDPSessionControlEnabled := false
 	if config.FullCDPSessionControlEnabled && browserController != nil &&
 		browserController.FullCDPAvailable() {
-		profileRoot, profileRootErr := browserruntime.PrepareFullCDPProfileRuntimeRoot(home)
-		if profileRootErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, apperror.Wrap(apperror.CodeUnavailable,
-				"desktop Full CDP Profile runtime could not be prepared", profileRootErr)
-		}
-		fullCDPSessions, err = application.NewFullCDPProductionService(stateStore,
+		fullCDPSessions, err = application.NewHomeFullCDPProductionService(stateStore,
 			browserController, config.FullCDPRuntimeCapabilities,
 			config.BrowserCDPPermissionCapabilities,
-			config.ExecutionPermissionCapabilities, profileRoot)
+			config.ExecutionPermissionCapabilities, home)
 		if err != nil {
 			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
 			_ = stateStore.Close()
@@ -703,6 +698,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	planDeliveryControl := application.NewPlanDeliveryControlService(stateStore)
 	approvalGateway := toolgateway.New(stateStore, checker).
 		WithDockerSandboxProposalExecutor(dockerProposalExecutor).
+		WithAgentCodeWorkspaceResolver(application.NewAgentCodeWorkspaceResolver(stateStore, commandRuntimeDrydocks)).
 		WithLifecycleHooks(hookEngine)
 	mcpExecutor, err := application.NewMCPClientToolExecutor(mcpClient, stateStore,
 		config.ExecutionPermissionCapabilities)
@@ -724,10 +720,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
-	fileEditReview := application.NewFileEditReviewService(stateStore)
-	fileEditProposal := application.NewFileEditProposalService(stateStore, checker)
+	fileEditReview := application.NewFileEditReviewService(stateStore).WithDrydock(commandRuntimeDrydocks)
+	fileEditProposal := application.NewFileEditProposalService(stateStore, checker).WithDrydock(commandRuntimeDrydocks)
 	fileEditApply := application.NewFileEditApplyService(stateStore, checker,
-		workspaceCheckpoints)
+		workspaceCheckpoints).WithDrydock(commandRuntimeDrydocks)
 	runWakeControl := application.NewRunWakeControlService(stateStore)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(stateStore,
 		executionControl)
@@ -886,6 +882,21 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		stateStore, lifecycleControl, executionControl,
 		config.ExecutionPermissionCapabilities).WithModelRouteRegistry(models).
 		WithLifecycleHooks(hookEngine)
+	var threadGit *application.ThreadGitService
+	if config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled {
+		localGit, gitErr := repository.NewMutationExecutor()
+		if gitErr != nil {
+			_ = stateStore.Close()
+			return nil, gitErr
+		}
+		remoteGit, gitErr := repository.NewRemoteExecutor(credentialStore)
+		if gitErr != nil {
+			_ = stateStore.Close()
+			return nil, gitErr
+		}
+		threadGit = application.NewThreadGitService(stateStore, localGit, remoteGit,
+			workspaceCheckpoints, commandRuntimeDrydocks, config.ExecutionPermissionCapabilities).WithAdvanced(gitAdvanced)
+	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:                       config.RunControlEnabled,
@@ -934,7 +945,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunLifecycleController:                  lifecycleControl,
 		ThreadTurnController:                    threadTurnControl,
 		StandardCodePresetController:            standardCodePreset,
-		StandardCodeDeliveryController:          standardCodeDelivery,
+		StandardCodeDeliveryController:          standardCodeDeliveryController,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
@@ -948,9 +959,12 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		PriceSnapshotController:                 stateStore,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			stateStore, models.Router(), checker),
-		ChildTaskControlController:          application.NewChildTaskControlService(stateStore),
-		ProviderCredentialController:        providerCredentialControl,
-		FileEditReviewController:            fileEditReview,
+		ChildTaskControlController:   application.NewChildTaskControlService(stateStore),
+		ProviderCredentialController: providerCredentialControl,
+		FileEditReviewController:     fileEditReview,
+		FileWorkspaceDrydocks:        commandRuntimeDrydocks,
+		ThreadReviewReader: application.NewThreadReviewService(stateStore).WithDrydock(commandRuntimeDrydocks).
+			WithCodeHandoff(application.NewCodeHandoffService(stateStore).WithStandardCodeDelivery(standardCodeDelivery)),
 		FileEditProposalController:          fileEditProposal,
 		RunWakeController:                   runWakeControl,
 		FileEditApplyController:             fileEditApply,
@@ -962,6 +976,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		GitAdvancedController:               gitAdvanced,
+		ThreadGitController:                 threadGit,
+		ThreadPullRequestController:         application.NewThreadPullRequestService(stateStore, githubReview, threadGit),
 		GitHubReviewController:              githubReview,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
@@ -1060,7 +1076,7 @@ func (c *ControlPlane) RegisterWorkspaceDirectory(ctx context.Context,
 		return WorkspaceImportSummary{}, apperror.New(apperror.CodeUnavailable,
 			"workspace directory registration failed")
 	}
-	return WorkspaceImportSummary{ID: record.ID, Name: record.Name,
+	return WorkspaceImportSummary{ID: record.ID, Name: workspace.ImportDisplayName(record.Name),
 		CreatedAt: record.CreatedAt}, nil
 }
 

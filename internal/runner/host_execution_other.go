@@ -4,6 +4,12 @@ package runner
 
 import "context"
 
+// ResolveHostPowerShellExecutable does not enable the Windows-only host
+// execution surface on another platform.
+func ResolveHostPowerShellExecutable() (string, error) {
+	return "", ErrHostCommandPlatform
+}
+
 type unavailableHostStarter struct{}
 
 func newPlatformHostStarter() HostProcessStarter {

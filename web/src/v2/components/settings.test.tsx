@@ -69,6 +69,24 @@ function renderModels(configuredProviders: string[] = []) {
 }
 
 describe("V2 archived settings", () => {
+  it("pages older archives without losing the current title filter", async () => {
+    const user = userEvent.setup();
+    const getPage = vi.fn(async (_path: string, _query: unknown, cursor: string) => ({
+      items: cursor ? [archivedThread("older", "Older matching task", 2)] : Array.from({ length: 100 }, (_, index) =>
+        archivedThread(`newer-${index}`, `Recent ${index}`, 1)),
+      page: { limit: 100, next_cursor: cursor ? "" : "archive-cursor" }, requestID: "archive-page",
+    }));
+    render(<QueryClientProvider client={new QueryClient()}><V2Settings
+      client={{ getPage } as unknown as CyberAgentClient} onOpenInspector={vi.fn()} onSelectSection={vi.fn()}
+      section="archived" threadID="" workspaces={[]} /></QueryClientProvider>);
+    await screen.findByText("Recent 0");
+    await user.type(screen.getByRole("searchbox", { name: "搜索已归档的聊天" }), "matching");
+    expect(screen.getByText("已加载的标题中没有匹配项")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "加载更早归档" }));
+    expect(await screen.findByText("Older matching task")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "搜索已归档的聊天" })).toHaveValue("matching");
+    expect(screen.queryByRole("button", { name: "加载更早归档" })).not.toBeInTheDocument();
+  });
   it("loads only archived chats and filters locally without mutating lifecycle state", async () => {
     const controls = renderArchived([
       archivedThread("alpha", "Alpha investigation", 7),
@@ -134,10 +152,10 @@ describe("V2 general permission summary", () => {
         workspaces={[]} />
     </QueryClientProvider>);
 
-    const defaultPermissions = screen.getByRole("button", { name: "管理默认权限" });
-    const fullAccess = screen.getByRole("button", { name: "管理完整访问权限" });
+    const defaultPermissions = screen.getByRole("button", { name: "管理当前任务权限" });
     expect(defaultPermissions).not.toHaveAttribute("aria-pressed");
-    expect(fullAccess).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button", { name: "管理完整访问权限" })).not.toBeInTheDocument();
+    expect(screen.getByText(/完整双语界面尚未提供/)).toBeInTheDocument();
     const licenseButton = screen.getByRole("button", { name: "查看许可" });
     await user.click(licenseButton);
     const dialog = screen.getByRole("dialog", { name: "HarmonyOS Sans Fonts 许可" });
@@ -149,7 +167,7 @@ describe("V2 general permission summary", () => {
     await user.click(within(dialog).getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "HarmonyOS Sans Fonts 许可" })).not.toBeInTheDocument();
     expect(licenseButton).toHaveFocus();
-    await user.click(fullAccess);
+    await user.click(defaultPermissions);
     expect(onSelectSection).toHaveBeenCalledWith("permissions");
   });
 });

@@ -58,6 +58,12 @@ func (s *SQLiteStore) RecordDeliveryCheckpoint(ctx context.Context,
 		}
 		return stored, true, nil
 	}
+	if _, found, err := getRunEventByEventID(ctx, tx, checkpointEvent.EventID); err != nil {
+		return domain.DeliveryCheckpoint{}, false, err
+	} else if found {
+		return domain.DeliveryCheckpoint{}, false, apperror.New(apperror.CodeConflict,
+			"Plan Delivery operation key was already used for another action")
+	}
 	var existingID string
 	err = tx.QueryRowContext(ctx, `SELECT id FROM delivery_checkpoints
 		WHERE work_item_id = ? AND mode_revision = ? AND work_item_version = ?`,
@@ -145,7 +151,7 @@ func acquireDeliveryCheckpointWriteLockTx(ctx context.Context, tx *sql.Tx,
 	runID string,
 ) error {
 	result, err := tx.ExecContext(ctx, `UPDATE runs SET updated_at = updated_at
-		WHERE id = ? AND status = ?`, runID, domain.RunPaused)
+		WHERE id = ?`, runID)
 	if err != nil {
 		return err
 	}
@@ -155,7 +161,7 @@ func acquireDeliveryCheckpointWriteLockTx(ctx context.Context, tx *sql.Tx,
 	}
 	if rows != 1 {
 		return apperror.New(apperror.CodeFailedPrecondition,
-			"Delivery checkpoint requires a paused Run")
+			"Delivery checkpoint Run was not found")
 	}
 	return nil
 }
@@ -169,6 +175,22 @@ func (s *SQLiteStore) GetDeliveryCheckpoint(ctx context.Context,
 			apperror.CodeInvalidArgument, "Delivery checkpoint id is invalid")
 	}
 	return getDeliveryCheckpoint(ctx, s.db, id)
+}
+
+func (s *SQLiteStore) GetDeliveryCheckpointByOperation(ctx context.Context, runID, keyDigest string) (domain.DeliveryCheckpoint, bool, error) {
+	operation, found, err := getDeliveryCheckpointOperation(ctx, s.db, keyDigest)
+	if err != nil || !found {
+		return domain.DeliveryCheckpoint{}, false, err
+	}
+	checkpoint, err := s.GetDeliveryCheckpoint(ctx, operation.CheckpointID)
+	if err != nil {
+		return domain.DeliveryCheckpoint{}, false, err
+	}
+	if operation.RunID != runID || checkpoint.RunID != runID || operation.WorkItemID != checkpoint.WorkItemID ||
+		operation.RequestedBy != checkpoint.RequestedBy || operation.RequestFingerprint != domain.DeliveryCheckpointRequestFingerprint(checkpoint) {
+		return domain.DeliveryCheckpoint{}, false, apperror.New(apperror.CodeConflict, "Delivery checkpoint operation binding is inconsistent")
+	}
+	return checkpoint, true, nil
 }
 
 func (s *SQLiteStore) ListDeliveryCheckpoints(ctx context.Context,
@@ -401,14 +423,23 @@ func validateDeliveryCheckpointProjection(checkpoint domain.DeliveryCheckpoint,
 	module domain.PlanDeliveryModule, item domain.WorkItem,
 	mode domain.RunModeSnapshot,
 ) error {
-	if item.Title != module.Title || item.Description != module.Objective ||
-		!slices.Equal(item.AcceptanceCriteria, module.AcceptanceCriteria) ||
-		checkpoint.AcceptanceFingerprint != domain.DeliveryAcceptanceFingerprint(item.AcceptanceCriteria) ||
+	if err := validateSelectedDeliveryWorkItem(selection, module, item); err != nil {
+		return err
+	}
+	if checkpoint.AcceptanceFingerprint != domain.DeliveryAcceptanceFingerprint(item.AcceptanceCriteria) ||
 		checkpoint.SourceFingerprint != domain.DeliverySourceFingerprint(proposal,
 			selection, module, item) || checkpoint.ModeSnapshotID != mode.ID {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"Delivery checkpoint source or acceptance fingerprint is stale")
 	}
+	return nil
+}
+
+// Manual evidence is optional for an on-demand selection. Its accepted module
+// still defines the work; changing a mutable WorkItem cannot waive that scope.
+func validateSelectedDeliveryWorkItem(selection domain.PlanDeliverySelection,
+	module domain.PlanDeliveryModule, item domain.WorkItem,
+) error {
 	expectedDependencies := make([]string, len(module.Dependencies))
 	for index, ordinal := range module.Dependencies {
 		if ordinal < 1 || ordinal > len(selection.Items) {
@@ -417,7 +448,19 @@ func validateDeliveryCheckpointProjection(checkpoint domain.DeliveryCheckpoint,
 		}
 		expectedDependencies[index] = selection.Items[ordinal-1].WorkItemID
 	}
-	if !slices.Equal(item.Dependencies, expectedDependencies) {
+	expected, err := domain.NormalizeWorkItemDetails(item.ID, domain.WorkItemDetails{
+		Title: module.Title, Description: module.Objective,
+		AcceptanceCriteria: module.AcceptanceCriteria, Dependencies: expectedDependencies,
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition, "Delivery checkpoint WorkItem projection is invalid", err)
+	}
+	if item.Title != expected.Title || item.Description != expected.Description ||
+		!slices.Equal(item.AcceptanceCriteria, expected.AcceptanceCriteria) {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"selected Delivery WorkItem no longer matches its accepted criteria")
+	}
+	if !slices.Equal(item.Dependencies, expected.Dependencies) {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"Delivery checkpoint WorkItem dependencies are stale")
 	}
@@ -516,19 +559,23 @@ func (s *SQLiteStore) recoverDeliveryCheckpoint(ctx context.Context,
 }
 
 func requireSelectedWorkItemDeliveryCheckpointTx(ctx context.Context, tx *sql.Tx,
-	item domain.WorkItem,
+	item, replacement domain.WorkItem,
 ) error {
-	var enrolled int
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM plan_delivery_selection_items selected
+	policySQL, err := planDeliveryManualAcceptanceSQL(ctx, tx, "selection")
+	if err != nil {
+		return err
+	}
+	var manualAcceptance string
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((
+		SELECT `+policySQL+` FROM plan_delivery_selection_items selected
 		JOIN plan_delivery_selections selection ON selection.id = selected.selection_id
 		JOIN delivery_gate_enrollments enrollment
 			ON enrollment.run_id = selection.run_id AND enrollment.selection_id = selection.id
 		WHERE selected.work_item_id = ? AND selection.run_id = ?
-	)`, item.ID, item.RunID).Scan(&enrolled); err != nil {
+	), '')`, item.ID, item.RunID).Scan(&manualAcceptance); err != nil {
 		return err
 	}
-	if enrolled == 0 {
+	if manualAcceptance == "" {
 		return nil
 	}
 	mode, err := getCurrentRunModeSnapshot(ctx, tx, item.RunID)
@@ -539,6 +586,31 @@ func requireSelectedWorkItemDeliveryCheckpointTx(ctx context.Context, tx *sql.Tx
 	if mode.Phase != domain.ExecutionPhaseDeliver {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"selected WorkItem can only complete in Deliver phase")
+	}
+	selection, found, err := getPlanDeliverySelectionByRun(ctx, tx, item.RunID)
+	if err != nil {
+		return err
+	}
+	selected, selectedFound := selectedDeliveryItem(selection, item.ID)
+	if !found || !selectedFound {
+		return apperror.New(apperror.CodeFailedPrecondition, "accepted Delivery WorkItem source is missing")
+	}
+	proposal, err := getPlanDeliveryProposal(ctx, tx, selection.ProposalID)
+	if err != nil {
+		return err
+	}
+	if selection.DirectionOrdinal < 1 || selection.DirectionOrdinal > len(proposal.Spec.Directions) {
+		return apperror.New(apperror.CodeFailedPrecondition, "accepted Delivery direction is missing")
+	}
+	direction := proposal.Spec.Directions[selection.DirectionOrdinal-1]
+	if selected.ModuleOrdinal < 1 || selected.ModuleOrdinal > len(direction.Modules) {
+		return apperror.New(apperror.CodeFailedPrecondition, "accepted Delivery module is missing")
+	}
+	if err := validateSelectedDeliveryWorkItem(selection, direction.Modules[selected.ModuleOrdinal-1], replacement); err != nil {
+		return err
+	}
+	if manualAcceptance == string(domain.PlanDeliveryManualAcceptanceOnDemand) {
+		return nil
 	}
 	var checkpointCount int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM delivery_checkpoints checkpoint
@@ -566,13 +638,17 @@ func requireDeliverySelectionCompletionTx(ctx context.Context, tx *sql.Tx,
 	if enrolled == 0 {
 		return nil
 	}
+	policySQL, err := planDeliveryManualAcceptanceSQL(ctx, tx, "selection")
+	if err != nil {
+		return err
+	}
 	var incomplete int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*)
 		FROM plan_delivery_selection_items selected
 		JOIN plan_delivery_selections selection ON selection.id = selected.selection_id
 		JOIN work_items work ON work.id = selected.work_item_id
 		WHERE selection.run_id = ? AND (
-			work.status != 'completed' OR NOT EXISTS (
+			work.status != 'completed' OR (`+policySQL+` = 'required' AND NOT EXISTS (
 				SELECT 1 FROM delivery_checkpoints checkpoint
 				JOIN delivery_checkpoint_operations operation
 					ON operation.checkpoint_id = checkpoint.id
@@ -584,13 +660,17 @@ func requireDeliverySelectionCompletionTx(ctx context.Context, tx *sql.Tx,
 					AND mode.run_id = selection.run_id
 					AND mode.revision = checkpoint.mode_revision
 					AND mode.phase = 'deliver'
-			)
+			) AND NOT EXISTS (
+				SELECT 1 FROM thread_plan_completed_sources source
+				WHERE source.run_id = selection.run_id AND source.selection_id = selection.id
+					AND source.work_item_id = work.id
+			))
 		)`, runID).Scan(&incomplete); err != nil {
 		return err
 	}
 	if incomplete != 0 {
 		return apperror.New(apperror.CodeFailedPrecondition,
-			fmt.Sprintf("Run has %d incomplete Delivery checkpoint gate(s)", incomplete))
+			fmt.Sprintf("Run has %d incomplete Delivery acceptance gate(s)", incomplete))
 	}
 	return nil
 }

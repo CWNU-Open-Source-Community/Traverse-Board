@@ -2,14 +2,17 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
+	"cyberagent-workbench/internal/redact"
 )
 
 type ModelControlController interface {
@@ -282,6 +285,7 @@ func (a *API) serveFileEditReviewControl(writer http.ResponseWriter,
 		return
 	}
 	a.writeSuccessStatus(writer, requestID, FileEditReviewView{
+		Continuation:    a.resumeReviewedProposal(request.Context(), runID, "file_edit", editID),
 		ProtocolVersion: application.FileEditReviewProtocolVersion, RunID: runID,
 		Action: string(result.Action), Edit: fileEditView(result.Edit, false),
 		Replayed: result.Replayed, FileWritten: false,
@@ -540,6 +544,22 @@ func fileEditPreviewView(value fileedit.Preview, terminal bool) FileEditPreviewV
 }
 
 func fileEditView(value fileedit.Edit, terminal bool) FileEditPreviewView {
+	// Delete receipts historically persist only operation/hash/size metadata.
+	// A complete verified body can enrich the read-only view without changing
+	// the stored Diff or any proposal/apply identity. Never infer missing bytes.
+	if value.Operation == fileedit.OperationDelete && !value.SecretsRedacted &&
+		value.DestinationPath == "" && value.DestinationOriginalHash == "" &&
+		value.DestinationProposedHash == "" && value.ProposedHash == "missing" &&
+		value.ProposedText == "" && len(value.OriginalText) <= fileedit.MaxContentBytes &&
+		utf8.ValidString(value.OriginalText) && !strings.ContainsRune(value.OriginalText, 0) &&
+		redact.String(value.OriginalText) == value.OriginalText &&
+		fileedit.HashText(value.OriginalText) == value.OriginalHash {
+		value.Diff = fmt.Sprintf("delete %s\nexpected_sha256 %s\nsize_bytes %d\n",
+			value.Path, value.OriginalHash, len(value.OriginalText))
+		if value.OriginalText != "" {
+			value.Diff += fileedit.UnifiedDiff(value.Path, value.OriginalText, "")
+		}
+	}
 	return fileEditPreviewView(fileedit.Preview{ID: value.ID, SessionID: value.SessionID,
 		WorkspaceID: value.WorkspaceID, Path: value.Path, Operation: value.Operation,
 		DestinationPath: value.DestinationPath, Status: value.Status,
@@ -548,6 +568,10 @@ func fileEditView(value fileedit.Edit, terminal bool) FileEditPreviewView {
 		DestinationProposedHash: value.DestinationProposedHash,
 		Reason:                  value.Reason, SecretsRedacted: value.SecretsRedacted,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}, terminal)
+}
+
+type fileEditDetailReader interface {
+	GetFileEdit(context.Context, string) (fileedit.Edit, error)
 }
 
 func runWakeIntentView(value domain.RunWakeIntent, found bool) *RunWakeIntentView {

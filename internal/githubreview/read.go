@@ -248,6 +248,18 @@ func (c *Client) ReadSnapshot(ctx context.Context, request SnapshotRequest) (Sna
 	if successfulSections == 0 {
 		snapshot.State = EvidenceUnavailable
 	}
+	// Files and review discussions span several requests. Head-pinned checks do
+	// not make that whole collection atomic: re-read the PR identity at the end.
+	var current pullResponse
+	if _, readErr := c.doJSON(ctx, http.MethodGet, repoPath+"/pulls/"+strconv.FormatInt(request.Number, 10), nil, nil, request.Credential, &current); readErr != nil {
+		// This read is mandatory like the initial identity/compare requests. A
+		// partial CI section is useful, but an unverified current identity must
+		// not become a new successful refresh that replaces the prior snapshot.
+		return Snapshot{}, readErr
+	} else if current.Number != pull.Number || current.NodeID != pull.NodeID || current.Head.SHA != pull.Head.SHA || current.Base.SHA != pull.Base.SHA || current.Head.Ref != pull.Head.Ref || current.Base.Ref != pull.Base.Ref || current.State != pull.State || current.Merged != pull.Merged || current.Draft != pull.Draft || current.UpdatedAt != pull.UpdatedAt || current.Base.Repo.FullName != pull.Base.Repo.FullName || current.Base.Repo.NodeID != pull.Base.Repo.NodeID || current.Head.Repo.FullName != pull.Head.Repo.FullName {
+		snapshot.State = EvidenceStale
+		snapshot.Omissions = append(snapshot.Omissions, "pull request identity changed during collection; refresh before acting on this snapshot")
+	}
 	snapshot.Finalize()
 	if err := snapshot.Validate(); err != nil {
 		return Snapshot{}, &Error{Code: FailureMalformed,

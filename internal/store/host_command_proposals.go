@@ -735,7 +735,7 @@ func (s *SQLiteStore) RecordHostCommandProposalResult(ctx context.Context,
 	proposalResult, err := runner.NewHostCommandProposalResult(resultID, proposal,
 		review, execution.RequestID, status, savedEvidence.Provenance.SourceKind,
 		savedEvidence.Provenance.SourceRef, savedEvidence.Provenance.ContentSHA256,
-		createdAt.UTC())
+		createdAt.UTC(), runner.NewHostCommandSavedOutput(execution))
 	if err != nil {
 		return runner.HostExecutionReceipt{}, runner.HostCommandProposalResult{}, false, err
 	}
@@ -808,6 +808,11 @@ func getHostCommandProposalResult(ctx context.Context,
 	if err := receipt.Validate(); err != nil || result.RequestID != receipt.RequestID {
 		return runner.HostCommandProposalResult{}, runner.HostExecutionReceipt{}, false,
 			fmt.Errorf("stored host command receipt is invalid: %w", err)
+	}
+	if result.SavedOutput != nil {
+		if err := result.SavedOutput.ValidateReceipt(receipt); err != nil {
+			return runner.HostCommandProposalResult{}, runner.HostExecutionReceipt{}, false, err
+		}
 	}
 	return result, receipt, true, nil
 }

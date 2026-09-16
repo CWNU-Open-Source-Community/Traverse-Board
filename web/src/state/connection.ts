@@ -13,6 +13,7 @@ interface ConnectionState {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
+  workspaceImportEnabled: boolean;
   executionPermissionControlEnabled: boolean;
   workspaceSandboxEnabled: boolean;
   browserCDPPermissionControlEnabled: boolean;
@@ -32,6 +33,7 @@ interface ConnectionState {
   sessionSteeringControlEnabled: boolean;
   runLifecycleEnabled: boolean;
   runExecutionEnabled: boolean;
+  threadExecutionReadEnabled: boolean;
   planDeliveryControlEnabled: boolean;
   approvalControlEnabled: boolean;
   controlledCommandProposalControlEnabled: boolean;
@@ -80,6 +82,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   token: "",
   controlToken: "",
   runControlEnabled: false,
+  workspaceImportEnabled: false,
   executionPermissionControlEnabled: false,
   workspaceSandboxEnabled: false,
   browserCDPPermissionControlEnabled: false,
@@ -99,6 +102,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   sessionSteeringControlEnabled: false,
   runLifecycleEnabled: false,
   runExecutionEnabled: false,
+  threadExecutionReadEnabled: false,
   planDeliveryControlEnabled: false,
   approvalControlEnabled: false,
   controlledCommandProposalControlEnabled: false,
@@ -128,6 +132,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     const present = controlToken.trim() !== "";
     set({ token, health, controlToken,
       runControlEnabled: present && (capabilities.runControlEnabled ?? true),
+      workspaceImportEnabled: present && capabilities.workspaceImportEnabled === true,
       executionPermissionControlEnabled: present &&
         (capabilities.executionPermissionControlEnabled ?? false),
       workspaceSandboxEnabled: present &&
@@ -162,6 +167,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
         (capabilities.sessionSteeringControlEnabled ?? true),
       runLifecycleEnabled: present && (capabilities.runLifecycleEnabled ?? true),
       runExecutionEnabled: present && (capabilities.runExecutionEnabled ?? true),
+      threadExecutionReadEnabled: capabilities.threadExecutionReadEnabled === true,
       planDeliveryControlEnabled: present &&
         (capabilities.planDeliveryControlEnabled ?? true),
       approvalControlEnabled: present && (capabilities.approvalControlEnabled ?? true),
@@ -205,6 +211,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
     runControlEnabled: false, runCreationEnabled: false,
+    workspaceImportEnabled: false,
     standardCodePresetEnabled: false, sessionMessageEnabled: false,
     threadControlEnabled: false,
     executionPermissionControlEnabled: false, workspaceSandboxEnabled: false,
@@ -216,6 +223,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     commandRuntimeAdapterInstalled: false, commandRuntimeAdapterReady: false,
     sessionSteeringControlEnabled: false,
     runLifecycleEnabled: false, runExecutionEnabled: false,
+    threadExecutionReadEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,
 	controlledCommandProposalControlEnabled: false,
 	hostCommandProposalControlEnabled: false,

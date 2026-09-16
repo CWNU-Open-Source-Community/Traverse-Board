@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -68,7 +69,7 @@ func NewOpenAIResponsesProvider(config OpenAIResponsesConfig) (*OpenAIResponsesP
 func (p *OpenAIResponsesProvider) Name() string { return p.name }
 
 func (p *OpenAIResponsesProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
@@ -129,7 +130,7 @@ func (p *OpenAIResponsesProvider) Chat(ctx context.Context,
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare Responses request")
 	}
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
@@ -175,7 +176,7 @@ func (p *OpenAIResponsesProvider) StreamChat(ctx context.Context,
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not prepare streaming Responses request")
 	}
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, openAILocalError(p.name, "provider credential is unavailable")
 	}
@@ -214,7 +215,12 @@ func (p *OpenAIResponsesProvider) SupportsTools(model string) bool {
 	return err == nil
 }
 
-func (*OpenAIResponsesProvider) SupportsVision(string) bool { return false }
+func (p *OpenAIResponsesProvider) SupportsVision(model string) bool {
+	return p.DescribeVision(model).State == VisionSupported
+}
+func (p *OpenAIResponsesProvider) DescribeVision(model string) VisionCapability {
+	return runtimeVision(p.runtime, model)
+}
 
 func (p *OpenAIResponsesProvider) SupportsJSONMode(model string) bool {
 	return p.SupportsTools(model)
@@ -269,11 +275,11 @@ func (p *OpenAIResponsesProvider) prepareRequest(request ChatRequest,
 	}
 	wire := openAIResponsesRequest{Model: wireModel, MaxOutputTokens: maxTokens,
 		Store: false, Stream: stream}
+	if err := validateRequestImages(p, selectedModel, request.Messages); err != nil {
+		return "", openAIResponsesRequest{}, err
+	}
 	if request.Temperature > 0 {
 		wire.Temperature = &request.Temperature
-	}
-	if request.JSONMode {
-		wire.Text = &openAIResponsesText{Format: openAIResponsesTextFormat{Type: "json_object"}}
 	}
 	for index, message := range request.Messages {
 		items, err := openAIResponsesInput(message)
@@ -299,13 +305,31 @@ func (p *OpenAIResponsesProvider) prepareRequest(request ChatRequest,
 		wire.Tools = append(wire.Tools, openAIResponsesTool{Type: "function", Name: name,
 			Description: strings.TrimSpace(spec.Description), Parameters: parameters})
 	}
+	if request.JSONMode && !(len(wire.Tools) > 0 && p.usesDeepSeekNativeToolFormat()) {
+		wire.Text = &openAIResponsesText{Format: openAIResponsesTextFormat{Type: "json_object"}}
+	}
 	return selectedModel, wire, nil
 }
 
+func (p *OpenAIResponsesProvider) usesDeepSeekNativeToolFormat() bool {
+	endpoint, err := url.Parse(p.baseURL)
+	// Observed on the official Responses endpoint: forcing json_object while
+	// offering functions can turn native calls into ordinary DSML text. Keep
+	// native functions available without that text-format constraint. Tool-free
+	// JSON requests and the caller's strict root-response validation remain.
+	// Provider/model names and third-party proxy endpoints do not opt into this.
+	return err == nil && endpoint.Scheme == "https" &&
+		strings.EqualFold(strings.TrimSuffix(endpoint.Hostname(), "."), "api.deepseek.com") &&
+		(endpoint.Port() == "" || endpoint.Port() == "443")
+}
+
 func openAIResponsesInput(message Message) ([]any, error) {
+	if err := ValidateMessageImages(message); err != nil {
+		return nil, err
+	}
 	role := strings.ToLower(strings.TrimSpace(message.Role))
 	content := strings.TrimSpace(message.Content)
-	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 {
+	if content == "" && len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 && len(message.Images) == 0 {
 		return nil, nil
 	}
 	switch role {
@@ -344,7 +368,16 @@ func openAIResponsesInput(message Message) ([]any, error) {
 			items = append(items, map[string]any{"type": "function_call_output",
 				"call_id": normalized.ToolCallID, "output": normalized.Content})
 		}
-		if content != "" {
+		if len(message.Images) > 0 {
+			parts := make([]any, 0, len(message.Images)+1)
+			if content != "" {
+				parts = append(parts, map[string]any{"type": "input_text", "text": content})
+			}
+			for _, image := range message.Images {
+				parts = append(parts, map[string]any{"type": "input_image", "image_url": imageDataURL(image), "detail": "auto"})
+			}
+			items = append(items, map[string]any{"role": "user", "content": parts})
+		} else if content != "" {
 			items = append(items, map[string]any{"role": "user", "content": content})
 		}
 		if len(items) == 0 {
@@ -478,7 +511,9 @@ func (p *OpenAIResponsesProvider) addHeaders(request *http.Request, stream bool,
 	} else {
 		request.Header.Set("Accept", "application/json")
 	}
-	request.Header.Set("Authorization", "Bearer "+secret)
+	if secret != "" {
+		request.Header.Set("Authorization", "Bearer "+secret)
+	}
 	return applyProviderRequestHeaders(p.runtime, secret, request.Header)
 }
 
@@ -760,6 +795,13 @@ func (s *responsesStreamState) completeTool(id string, item *responsesStreamItem
 	call, err := NormalizeToolCall(ToolCall{ID: item.callID, Name: item.name,
 		Arguments: json.RawMessage(arguments)})
 	if err != nil {
+		var value any
+		var syntaxErr *json.SyntaxError
+		if parseErr := json.Unmarshal([]byte(arguments), &value); errors.As(parseErr, &syntaxErr) &&
+			syntaxErr.Error() == "unexpected end of JSON input" {
+			return nil, false, openAIProtocolError(s.provider,
+				"returned incomplete Responses function arguments; check the model output-token limit")
+		}
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid completed Responses function")
 	}
 	item.callCompleted = true

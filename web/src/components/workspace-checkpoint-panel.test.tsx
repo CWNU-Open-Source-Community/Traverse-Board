@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import type {
@@ -103,23 +103,52 @@ function preview(): WorkspaceCheckpointRestoreView {
   };
 }
 
-function renderPanel(client: CyberAgentClient, runStatus = "paused") {
-  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+function renderPanel(client: CyberAgentClient, runStatus = "paused", queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
-  } })}>
+  } })) {
+  return render(<QueryClientProvider client={queryClient}>
     <WorkspaceCheckpointPanel client={client} runID="run-1" runStatus={runStatus} />
   </QueryClientProvider>);
+}
+
+function restored(status: "completed" | "failed" = "completed", kind = "undo"): WorkspaceCheckpointRestoreView {
+  return { ...preview(), confirmed: true, replayed: true, transaction: {
+    ...timeline().transactions[0]!, id: "transaction-restore", status, kind,
+    target_checkpoint_id: "checkpoint-before", expected_current_checkpoint_id: "checkpoint-current",
+  } };
 }
 
 describe("WorkspaceCheckpointPanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("blocks an incomplete preview and preserves the restore identity after an uncertain response", async () => {
+    let incomplete = true;
+    const postControl = vi.fn().mockImplementation((path: string) => path.endsWith("/preview")
+      ? Promise.resolve({ ...preview(), preview: { ...preview().preview, truncated: incomplete } })
+      : Promise.reject(new Error("connection lost before confirmation")));
+    const client = { get: vi.fn().mockResolvedValue(timeline()), postControl,
+      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const user = userEvent.setup();
+    renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: "预览 Undo" }));
+    expect(await screen.findByRole("button", { name: "确认执行 撤销" })).toBeDisabled();
+    expect(globalThis.confirm).not.toHaveBeenCalled();
+    incomplete = false;
+    await user.click(screen.getByRole("button", { name: "预览 Undo" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认执行 撤销" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "确认执行 撤销" }));
+    await screen.findByText("connection lost before confirmation");
+    await user.click(screen.getByRole("button", { name: "确认上次恢复" }));
+    await waitFor(() => expect(postControl.mock.calls.filter(([path]) => path.endsWith("/undo"))).toHaveLength(2));
+    const attempts = postControl.mock.calls.filter(([path]) => path.endsWith("/undo"));
+    expect(attempts[1]).toEqual(attempts[0]);
+  });
+
   it("browses provenance, previews impact, and confirms an auditable Rewind", async () => {
     const get = vi.fn().mockResolvedValue(timeline());
     const postControl = vi.fn().mockImplementation((path: string) =>
-      Promise.resolve(path.endsWith("/preview") ? preview() : {
-        ...preview(), confirmed: true,
-      }));
+      Promise.resolve(path.endsWith("/preview") ? preview() : restored("completed", "rewind")));
     const client = { get, postControl, hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
@@ -155,6 +184,70 @@ describe("WorkspaceCheckpointPanel", () => {
     expect(screen.getByRole("button", { name: "立即检查点" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "预览 Undo" })).toBeDisabled();
     expect(client.postControl).not.toHaveBeenCalled();
+  });
+
+  it("ignores an older preview when the operator selects another checkpoint while it is loading", async () => {
+    let complete!: (result: WorkspaceCheckpointRestoreView) => void;
+    const data = timeline();
+    data.checkpoints.push(checkpoint("checkpoint-earlier", "Earlier work", "2026-08-17T00:00:00Z"));
+    const postControl = vi.fn(() => new Promise<WorkspaceCheckpointRestoreView>((resolve) => { complete = resolve; }));
+    const client = { get: vi.fn().mockResolvedValue(data), postControl,
+      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: /Before shell/ }));
+    await user.click(screen.getByRole("button", { name: "预览 Rewind" }));
+    await user.click(screen.getByRole("button", { name: /Earlier work/ }));
+    await act(async () => complete(preview()));
+    expect(screen.getByRole("button", { name: /Earlier work/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "确认执行 Rewind" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("恢复预览")).not.toBeInTheDocument();
+  });
+
+  it("preserves an unknown restore across unmount and cursor changes and confirms the exact original request", async () => {
+    let data = timeline();
+    let restoreCalls = 0;
+    const postControl = vi.fn(async (path: string) => {
+      if (path.endsWith("/preview")) return preview();
+      if (++restoreCalls === 1) {
+        data = { ...data, current: { ...data.current!, current_checkpoint_id: "checkpoint-new-cursor" } };
+        throw new Error("restore response lost");
+      }
+      return restored();
+    });
+    const client = { get: vi.fn(async () => data), postControl, hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const user = userEvent.setup();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const first = renderPanel(client, "paused", queryClient);
+    await user.click(await screen.findByRole("button", { name: "预览 Undo" }));
+    await user.click(await screen.findByRole("button", { name: "确认执行 撤销" }));
+    await screen.findByText("restore response lost");
+    first.unmount();
+    renderPanel(client, "running", queryClient);
+    expect(await screen.findByRole("button", { name: "预览 Undo" })).toBeDisabled();
+    await user.click(await screen.findByRole("button", { name: "确认上次恢复" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("项目恢复已完成");
+    const attempts = postControl.mock.calls.filter(([path]) => path.endsWith("/undo"));
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]).toEqual(attempts[0]);
+    expect(queryClient.getQueryData(["run", "run-1", "workspace-restore-intent"])).toBeNull();
+    expect(screen.queryByRole("button", { name: "确认上次恢复" })).not.toBeInTheDocument();
+  });
+
+  it("treats a replayed failed transaction as a confirmed failure and allows a fresh preview", async () => {
+    const postControl = vi.fn(async (path: string) => path.endsWith("/preview") ? preview() : restored("failed"));
+    const client = { get: vi.fn().mockResolvedValue(timeline()), postControl,
+      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: "预览 Undo" }));
+    await user.click(await screen.findByRole("button", { name: "确认执行 撤销" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("已确认本次恢复失败");
+    expect(screen.queryByText(/项目恢复已完成/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认上次恢复" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览 Undo" })).toBeEnabled();
   });
 
   it("forks through a Go-derived worktree path without renderer path input", async () => {

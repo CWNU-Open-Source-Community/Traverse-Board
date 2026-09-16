@@ -208,6 +208,13 @@ func (s *SQLiteStore) UpdateWorkItem(ctx context.Context, item domain.WorkItem, 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := updateWorkItemTx(ctx, tx, item, expectedVersion, event); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func updateWorkItemTx(ctx context.Context, tx *sql.Tx, item domain.WorkItem, expectedVersion int64, event events.Event) error {
 	current, err := getWorkItemTx(ctx, tx, item.ID)
 	if err != nil {
 		return err
@@ -244,7 +251,7 @@ func (s *SQLiteStore) UpdateWorkItem(ctx context.Context, item domain.WorkItem, 
 		}
 	}
 	if current.Status != item.Status && item.Status == domain.WorkItemCompleted {
-		if err := requireSelectedWorkItemDeliveryCheckpointTx(ctx, tx, current); err != nil {
+		if err := requireSelectedWorkItemDeliveryCheckpointTx(ctx, tx, current, item); err != nil {
 			return err
 		}
 	}
@@ -276,7 +283,7 @@ func (s *SQLiteStore) UpdateWorkItem(ctx context.Context, item domain.WorkItem, 
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 const workItemSelect = `SELECT id, run_id, title, description, status, priority, owner, owner_agent_id, acceptance_json,

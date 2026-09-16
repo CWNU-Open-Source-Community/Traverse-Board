@@ -1,10 +1,73 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
+import type { FileEditPreviewView } from "../api/types";
 import { FileEditPanel } from "./file-edit-panel";
 
 describe("FileEditPanel", () => {
+  it.each(["failed", "completed", "queued", "not_started"] as const)(
+    "separates saved approval from %s continuation and refreshes the actual file outcome", async (state) => {
+      const proposed = editFixture("edit-continuation", "proposed");
+      const applied = { ...proposed, status: "applied", allowed_actions: [], apply_enabled: false } as const;
+      const queue = vi.fn().mockResolvedValueOnce({ items: [proposed], truncated: false, apply_enabled: false })
+        .mockResolvedValue({ items: [applied], truncated: false, apply_enabled: false });
+      const review = vi.fn().mockResolvedValue({ protocol_version: "file_edit_review.v1", run_id: "run-1",
+        action: "approve_intent", edit: { ...proposed, status: "approved", allowed_actions: [] },
+        file_written: false, replayed: false, continuation: { state, replayed: false,
+          model_called: state === "completed" || state === "failed", tool_called: state === "completed" } });
+      const client = { hasFileEditReview: true, hasFileEditApply: true, fileEditQueue: queue,
+        fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(proposed)), reviewFileEdit: review,
+        applyFileEdit: vi.fn() } as unknown as CyberAgentClient;
+      renderPanel(client);
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: /README.md/ }));
+      await user.click(screen.getByRole("button", { name: "Approve intent README.md" }));
+      await waitFor(() => expect(queue.mock.calls.length).toBeGreaterThanOrEqual(2));
+      expect(await screen.findByText({
+        failed: "Review saved, but subsequent execution failed. Check the records and continue in this conversation.",
+        completed: "Review saved. The subsequent turn has a recorded outcome; see execution records for file changes and command results.",
+        queued: "Review saved and continuation queued. See the conversation records for current progress.",
+        not_started: "Review saved. This request did not start automatic continuation; you can send a message in this conversation.",
+      }[state])).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /README.md.*applied/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Approve intent README.md" })).not.toBeInTheDocument();
+      expect(client.applyFileEdit).not.toHaveBeenCalled();
+    });
+  it("keeps same-path source history read-only beside the current execution target", async () => {
+    const historical = { ...editFixture("source-history", "applied"), workspace_id: "workspace-source" };
+    const current = { ...editFixture("target-current", "approved"), workspace_id: "workspace-target", apply_enabled: true };
+    const summary = { ...changeSetFor(current), workspace_id: current.workspace_id };
+    const client = { hasFileEditReview: true, hasFileEditApply: true,
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [historical, current], truncated: false, apply_enabled: true }),
+      fileEditChangeSet: vi.fn().mockResolvedValue(summary), applyFileEdit: vi.fn(), createFileEditRevertProposal: vi.fn(),
+    } as unknown as CyberAgentClient;
+    renderPanel(client);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /README.md.*Historical directory/ }));
+    expect(screen.getByRole("button", { name: "Preview revert of this edit" })).toBeDisabled();
+    expect(screen.getByText("workspace-source")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apply README.md" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /README.md.*Current execution directory/ }));
+    expect(screen.getByRole("button", { name: "Apply README.md" })).toBeEnabled();
+    expect(client.applyFileEdit).not.toHaveBeenCalled();
+    expect(client.createFileEditRevertProposal).not.toHaveBeenCalled();
+  });
+
+  it("keeps historical diffs available when current-target summary fails", async () => {
+    const edit = { ...editFixture("history-without-target", "applied"), workspace_id: "workspace-original" };
+    const client = { hasFileEditReview: true,
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [edit], truncated: false, apply_enabled: false }),
+      fileEditChangeSet: vi.fn().mockRejectedValue(new Error("exact target unavailable")),
+    } as unknown as CyberAgentClient;
+    renderPanel(client);
+    expect(await screen.findByRole("button", { name: "Retry change summary" })).toBeEnabled();
+    await userEvent.setup().click(screen.getByRole("button", { name: /README.md/ }));
+    expect(screen.getByText("new")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview revert of this edit" })).toBeDisabled();
+    expect(screen.getByText("workspace-original")).toBeInTheDocument();
+  });
+
   it("renders the bounded Diff and approves intent without an apply operation", async () => {
     const user = userEvent.setup();
     const edit = {
@@ -148,7 +211,199 @@ describe("FileEditPanel", () => {
     await user.click(screen.getByRole("button", { name: "Close review" }));
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
+
+  it("opens the inverse diff without approving or applying and reuses the known proposal until it is denied", async () => {
+    const source = editFixture("source", "applied");
+    let inverse = { ...editFixture("inverse", "proposed"), diff: "--- README.md\n+++ README.md\n-new\n+old" };
+    let items = [source];
+    const createFileEditRevertProposal = vi.fn(async () => {
+      items = [source, inverse];
+      return { edit: inverse, file_written: false };
+    });
+    const reviewFileEdit = vi.fn(async () => {
+      inverse = { ...inverse, status: "denied", allowed_actions: [] };
+      items = [source, inverse];
+      return { edit: inverse };
+    });
+    const client = { hasFileEditReview: true, hasFileEditApply: true, createFileEditRevertProposal, reviewFileEdit,
+      applyFileEdit: vi.fn(), fileEdit: vi.fn(async () => inverse),
+      fileEditQueue: vi.fn(async () => ({ items, apply_enabled: true })),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    const onRequestRevert = vi.fn();
+    renderPanel(client, "running", undefined, { onRequestRevert });
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
+    expect(await screen.findByText(/This is the revert proposal diff/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve intent README.md" })).toBeInTheDocument();
+    expect(reviewFileEdit).not.toHaveBeenCalled();
+    expect(client.applyFileEdit).not.toHaveBeenCalled();
+    expect(onRequestRevert).not.toHaveBeenCalled();
+    expect(screen.queryByText(/File application is confirmed complete/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /README.md.*applied/ }));
+    await user.click(screen.getByRole("button", { name: "View revert proposal" }));
+    expect(createFileEditRevertProposal).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Deny README.md" }));
+    await waitFor(() => expect(reviewFileEdit).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: /README.md.*applied/ }));
+    await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
+    await waitFor(() => expect(createFileEditRevertProposal).toHaveBeenCalledTimes(2));
+    expect(createFileEditRevertProposal.mock.calls[1]).not.toEqual(createFileEditRevertProposal.mock.calls[0]);
+  });
+
+  it("retains an unknown inverse request across unmount and confirms it even after the task ends", async () => {
+    const source = editFixture("source", "applied");
+    const inverse = editFixture("inverse", "proposed");
+    const createFileEditRevertProposal = vi.fn().mockRejectedValueOnce(new Error("proposal response lost"))
+      .mockResolvedValueOnce({ edit: inverse, file_written: false, replayed: true });
+    const client = { hasFileEditReview: true, createFileEditRevertProposal,
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [source], apply_enabled: false }),
+      fileEdit: vi.fn().mockResolvedValue(inverse),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const user = userEvent.setup();
+    const first = renderPanel(client, "running", queryClient);
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
+    await screen.findByText("proposal response lost");
+    first.unmount();
+    const onRequestRevert = vi.fn();
+    renderPanel(client, "completed", queryClient, { onRequestRevert });
+    await user.click(await screen.findByRole("button", { name: /README.md.*applied/ }));
+    expect(screen.getByRole("button", { name: "Revert this edit in conversation" })).toBeDisabled();
+    await user.click(await screen.findByRole("button", { name: "Confirm previous revert proposal" }));
+    await waitFor(() => expect(createFileEditRevertProposal).toHaveBeenCalledTimes(2));
+    expect(createFileEditRevertProposal.mock.calls[1]).toEqual(createFileEditRevertProposal.mock.calls[0]);
+    expect(screen.queryByRole("button", { name: "Confirm previous revert proposal" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /README.md.*applied/ }));
+    expect(screen.getByRole("button", { name: "View revert proposal" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "View revert proposal" }));
+    expect(onRequestRevert).not.toHaveBeenCalled();
+    expect(createFileEditRevertProposal).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not open a late inverse response over another selected edit", async () => {
+    const source = editFixture("source", "applied");
+    const other = { ...editFixture("other", "applied"), path: "other.txt" };
+    const inverse = editFixture("inverse", "proposed");
+    let resolve!: (value: unknown) => void;
+    const client = { hasFileEditReview: true,
+      createFileEditRevertProposal: vi.fn(() => new Promise((done) => { resolve = done; })),
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [source, other], apply_enabled: false }),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
+    await user.click(screen.getByRole("button", { name: /other.txt/ }));
+    await act(async () => resolve({ edit: inverse, file_written: false }));
+    expect(screen.getByRole("complementary", { name: "Review other.txt" })).toBeInTheDocument();
+    expect(screen.queryByText(/This is the revert proposal diff/)).not.toBeInTheDocument();
+  });
+
+  it("reads the selected deletion's exact content without letting a late detail replace another selection", async () => {
+    const deletion = { ...editFixture("delete", "proposed"), operation: "delete" as const, proposed_hash: "missing",
+      diff: "Delete metadata: 64 bytes" };
+    const other = { ...editFixture("other", "applied"), path: "other.txt" };
+    let resolve!: (value: FileEditPreviewView) => void;
+    const exact = { ...deletion, diff: "--- a/README.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-first line being removed\n-second line being removed\n" };
+    const move = { ...editFixture("move", "applied"), operation: "move" as const, path: "source.txt", destination_path: "target.txt",
+      diff: "move source.txt -> target.txt" };
+    const fileEdit = vi.fn().mockImplementationOnce(() => new Promise((done) => { resolve = done; })).mockResolvedValue(exact);
+    const client = { hasFileEditReview: true, fileEdit,
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [deletion, other, move], apply_enabled: false }),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(deletion)) } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    const deletionRow = await screen.findByRole("button", { name: /README.md/ });
+    expect(deletionRow).toHaveTextContent("Metadata only");
+    expect(deletionRow.querySelector(".diff-deletions")).toBeNull();
+    expect(screen.getByRole("button", { name: /source.txt/ })).toHaveTextContent("Metadata only");
+    expect(screen.getByRole("heading", { name: "Diff review" }).closest("header")?.querySelector(".diff-deletions")).toBeNull();
+    await user.click(deletionRow);
+    expect(fileEdit).toHaveBeenCalledWith("run-1", "delete", expect.any(AbortSignal));
+    expect(screen.queryByRole("button", { name: "Approve intent README.md" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /other.txt/ }));
+    await act(async () => resolve(exact));
+    expect(screen.getByRole("complementary", { name: "Review other.txt" })).toBeInTheDocument();
+    expect(screen.queryByText("first line being removed")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /README.md/ }));
+    expect(await screen.findByText("first line being removed")).toBeInTheDocument();
+    expect(screen.getByText("second line being removed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve intent README.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^README\.md/ }).querySelector(".diff-deletions")).toHaveTextContent("-2");
+    expect(screen.getByRole("button", { name: /^README\.md/ })).not.toHaveTextContent("Metadata only");
+    expect(screen.getByRole("heading", { name: "Diff review" }).closest("header")?.querySelector(".diff-deletions")).toBeNull();
+  });
+
+  it("confirms the original file application after unmount even when the edit is already applied", async () => {
+    const approved = { ...editFixture("approved", "approved"), apply_enabled: true };
+    let current = approved;
+    const receipt = { protocol_version: "operation_receipt.v1", kind: "file_edit_apply", outcome: "applied",
+      durable: true, replayed: true, retry_safe: true, retry_strategy: "same_operation_key", recovery_action: "none", cleanup_state: "complete" };
+    let count = 0;
+    const applyFileEdit = vi.fn(async () => {
+      current = { ...approved, status: "applied", apply_enabled: false };
+      if (++count === 1) throw new Error("apply response lost");
+      return { edit: current, status: "applied", receipt };
+    });
+    const client = { hasFileEditApply: true, hasFileEditReview: true, applyFileEdit,
+      fileEditQueue: vi.fn(async () => ({ items: [current], apply_enabled: current.apply_enabled })),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(approved)) } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const user = userEvent.setup();
+    const first = renderPanel(client, "running", queryClient);
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    await user.click(screen.getByRole("button", { name: "Apply README.md" }));
+    await screen.findByText("apply response lost");
+    first.unmount();
+    renderPanel(client, "completed", queryClient);
+    await user.click(await screen.findByRole("button", { name: "Confirm previous file apply" }));
+    await waitFor(() => expect(applyFileEdit).toHaveBeenCalledTimes(2));
+    expect(applyFileEdit.mock.calls[1]).toEqual(applyFileEdit.mock.calls[0]);
+    expect(queryClient.getQueryData(["run", "run-1", "file-apply-attempts"])).toEqual({});
+    expect(screen.queryByRole("button", { name: "Confirm previous file apply" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/File application is confirmed complete/)).toBeInTheDocument();
+  });
+
+  it("clears a confirmed failed application without claiming that the file is unchanged", async () => {
+    let edit = { ...editFixture("approved", "approved"), apply_enabled: true };
+    const applyFileEdit = vi.fn(async () => {
+      edit = { ...edit, status: "failed", apply_enabled: false };
+      return { edit, status: "failed", receipt: { protocol_version: "operation_receipt.v1", kind: "file_edit_apply", outcome: "failed",
+        durable: true, replayed: true, retry_safe: true, retry_strategy: "same_operation_key", recovery_action: "inspect", cleanup_state: "complete" } };
+    });
+    const client = { hasFileEditApply: true, applyFileEdit,
+      fileEditQueue: vi.fn(async () => ({ items: [edit], apply_enabled: edit.apply_enabled })),
+      fileEditChangeSet: vi.fn(async () => changeSetFor(edit)) } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    await user.click(screen.getByRole("button", { name: "Apply README.md" }));
+    expect(await screen.findByText(/The apply attempt is confirmed failed/)).toHaveTextContent("failure does not mean the file is unchanged");
+    expect(screen.queryByRole("button", { name: "Confirm previous file apply" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/File application is confirmed complete/)).not.toBeInTheDocument();
+  });
+
+  it.each(["completed", "paused"])("keeps new inverse proposals closed for a %s execution", async (status) => {
+    const edit = editFixture("source", "applied");
+    const client = { hasFileEditReview: true, createFileEditRevertProposal: vi.fn(),
+      fileEditQueue: vi.fn().mockResolvedValue({ items: [edit], apply_enabled: false }),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)) } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderPanel(client, status);
+    await user.click(await screen.findByRole("button", { name: /README.md/ }));
+    expect(screen.getByRole("button", { name: "Preview revert of this edit" })).toBeDisabled();
+    expect(client.createFileEditRevertProposal).not.toHaveBeenCalled();
+  });
 });
+
+function editFixture(id: string, status: FileEditPreviewView["status"]): FileEditPreviewView {
+  return { id, session_id: "session-1", workspace_id: "workspace-1", path: "README.md", operation: "replace", status,
+    diff: "--- README.md\n+++ README.md\n-old\n+new", original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
+    secrets_redacted: false, allowed_actions: status === "proposed" ? ["approve_intent", "deny"] : [], apply_enabled: false,
+    created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" };
+}
 
 function changeSetFor(edit: {
   id: string; path: string; operation: string; status: string; diff: string;
@@ -179,11 +434,10 @@ function changeSetItem(edit: {
     apply_enabled: edit.apply_enabled, updated_at: edit.updated_at };
 }
 
-function renderPanel(client: CyberAgentClient) {
-  const queryClient = new QueryClient({ defaultOptions: {
+function renderPanel(client: CyberAgentClient, runStatus = "running", queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
-  } });
+  } }), props: { onRequestRevert?: (edit: FileEditPreviewView) => void } = {}) {
   return render(<QueryClientProvider client={queryClient}>
-    <FileEditPanel client={client} runID="run-1" />
+    <FileEditPanel client={client} runID="run-1" runStatus={runStatus} {...props} />
   </QueryClientProvider>);
 }

@@ -30,6 +30,7 @@ type DeliveryCheckpointStore interface {
 		checkpointEvent events.Event, noteEvent events.Event,
 	) (domain.DeliveryCheckpoint, bool, error)
 	GetDeliveryCheckpoint(ctx context.Context, id string) (domain.DeliveryCheckpoint, error)
+	GetDeliveryCheckpointByOperation(context.Context, string, string) (domain.DeliveryCheckpoint, bool, error)
 	ListDeliveryCheckpoints(ctx context.Context, runID string, limit int) ([]domain.DeliveryCheckpoint, error)
 }
 
@@ -38,15 +39,17 @@ type DeliveryCheckpointService struct {
 }
 
 type RecordDeliveryCheckpointRequest struct {
-	WorkItemID             string
-	OperationKey           string
-	RequestedBy            string
-	FocusedVerification    string
-	DiffAudit              string
-	SecurityAudit          string
-	FunctionalVerification string
-	RobustnessAudit        string
-	HandoffSummary         string
+	RunID                   string
+	WorkItemID              string
+	ExpectedWorkItemVersion int64
+	OperationKey            string
+	RequestedBy             string
+	FocusedVerification     string
+	DiffAudit               string
+	SecurityAudit           string
+	FunctionalVerification  string
+	RobustnessAudit         string
+	HandoffSummary          string
 }
 
 type RecordDeliveryCheckpointResult struct {
@@ -61,7 +64,7 @@ func NewDeliveryCheckpointService(store DeliveryCheckpointStore) *DeliveryCheckp
 
 func (s *DeliveryCheckpointService) Record(ctx context.Context,
 	request RecordDeliveryCheckpointRequest,
-) (RecordDeliveryCheckpointResult, error) {
+) (result RecordDeliveryCheckpointResult, recordErr error) {
 	if s == nil || s.store == nil {
 		return RecordDeliveryCheckpointResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "Delivery checkpoint store is required")
@@ -72,6 +75,33 @@ func (s *DeliveryCheckpointService) Record(ctx context.Context,
 	item, err := s.store.GetWorkItem(ctx, request.WorkItemID)
 	if err != nil {
 		return RecordDeliveryCheckpointResult{}, apperror.Normalize(err)
+	}
+	if request.RunID != "" && request.RunID != item.RunID {
+		return RecordDeliveryCheckpointResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Delivery WorkItem does not belong to the requested Run")
+	}
+	// A concurrent caller can commit after our initial lookup and then move
+	// the Run/item on. Recover that exact receipt before reporting a stale
+	// preparation error; an unresolved failure remains an unknown outcome.
+	defer func() {
+		if recordErr == nil {
+			return
+		}
+		stored, found, err := s.store.GetDeliveryCheckpointByOperation(ctx, item.RunID,
+			runmutation.OperationKeyDigest("delivery_checkpoint_record", item.RunID, request.OperationKey))
+		if err == nil && found {
+			result, recordErr = s.replay(ctx, request, stored, item)
+		}
+	}()
+	if stored, found, err := s.store.GetDeliveryCheckpointByOperation(ctx, item.RunID,
+		runmutation.OperationKeyDigest("delivery_checkpoint_record", item.RunID, request.OperationKey)); err != nil {
+		return RecordDeliveryCheckpointResult{}, apperror.Normalize(err)
+	} else if found {
+		return s.replay(ctx, request, stored, item)
+	}
+	if request.ExpectedWorkItemVersion > 0 && request.ExpectedWorkItemVersion != item.Version {
+		return RecordDeliveryCheckpointResult{}, apperror.New(apperror.CodeConflict,
+			"Delivery WorkItem version changed")
 	}
 	run, err := s.store.GetRun(ctx, item.RunID)
 	if err != nil {
@@ -172,6 +202,7 @@ func (s *DeliveryCheckpointService) Record(ctx context.Context,
 	if err != nil {
 		return RecordDeliveryCheckpointResult{}, err
 	}
+	checkpointEvent.EventID = domain.PlanDeliveryControlEventID(run.ID, request.OperationKey)
 	stored, replayed, err := s.store.RecordDeliveryCheckpoint(ctx, operation,
 		checkpoint, note, checkpointEvent, noteEvent)
 	if err != nil {
@@ -212,6 +243,9 @@ func normalizeDeliveryCheckpointRequest(request *RecordDeliveryCheckpointRequest
 	if request == nil {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"Delivery checkpoint request is required")
+	}
+	if request.ExpectedWorkItemVersion < 0 {
+		return apperror.New(apperror.CodeInvalidArgument, "Delivery WorkItem expected version cannot be negative")
 	}
 	originalKey := request.OperationKey
 	request.WorkItemID = strings.TrimSpace(request.WorkItemID)
@@ -269,6 +303,56 @@ func normalizeDeliveryCheckpointRequest(request *RecordDeliveryCheckpointRequest
 	return nil
 }
 
+// Replay compares the original operator input against immutable source and
+// receipt data. A later phase or WorkItem transition cannot rewrite that intent.
+func (s *DeliveryCheckpointService) replay(ctx context.Context, request RecordDeliveryCheckpointRequest,
+	stored domain.DeliveryCheckpoint, item domain.WorkItem,
+) (RecordDeliveryCheckpointResult, error) {
+	conflict := apperror.New(apperror.CodeConflict, "Delivery checkpoint idempotency key was already used for different intent")
+	if stored.WorkItemID != request.WorkItemID || stored.RunID != item.RunID ||
+		(request.ExpectedWorkItemVersion > 0 && request.ExpectedWorkItemVersion != stored.WorkItemVersion) {
+		return RecordDeliveryCheckpointResult{}, conflict
+	}
+	proposal, err := s.store.GetPlanDeliveryProposal(ctx, stored.ProposalID)
+	if err != nil {
+		return RecordDeliveryCheckpointResult{}, apperror.Normalize(err)
+	}
+	if proposal.RunID != stored.RunID || stored.DirectionOrdinal > len(proposal.Spec.Directions) ||
+		stored.ModuleOrdinal > len(proposal.Spec.Directions[stored.DirectionOrdinal-1].Modules) {
+		return RecordDeliveryCheckpointResult{}, apperror.New(apperror.CodeFailedPrecondition, "Delivery checkpoint source binding is inconsistent")
+	}
+	module := proposal.Spec.Directions[stored.DirectionOrdinal-1].Modules[stored.ModuleOrdinal-1]
+	details, err := domain.NormalizeWorkItemDetails(item.ID, domain.WorkItemDetails{
+		Title: module.Title, Description: module.Objective, AcceptanceCriteria: module.AcceptanceCriteria,
+	})
+	if err != nil {
+		return RecordDeliveryCheckpointResult{}, apperror.Wrap(apperror.CodeFailedPrecondition, "Delivery checkpoint source projection is invalid", err)
+	}
+	// Handoff notes use the canonical WorkItem projection, not the original
+	// presentation order retained in the immutable Plan module.
+	item.AcceptanceCriteria = details.AcceptanceCriteria
+	requested := stored
+	requested.FocusedVerification, requested.DiffAudit, requested.SecurityAudit = request.FocusedVerification, request.DiffAudit, request.SecurityAudit
+	requested.FunctionalVerification, requested.RobustnessAudit = request.FunctionalVerification, request.RobustnessAudit
+	requested.RequestedBy = request.RequestedBy
+	note, err := buildDeliveryHandoffNote(requested, item, request.HandoffSummary, stored.CreatedAt)
+	if err != nil {
+		return RecordDeliveryCheckpointResult{}, err
+	}
+	requested.HandoffDigest = domain.DeliveryHandoffDigest(note.Title, note.Content)
+	if domain.DeliveryCheckpointRequestFingerprint(requested) != domain.DeliveryCheckpointRequestFingerprint(stored) {
+		return RecordDeliveryCheckpointResult{}, conflict
+	}
+	storedNote, err := s.store.GetNote(ctx, stored.HandoffNoteID)
+	if err != nil {
+		return RecordDeliveryCheckpointResult{}, apperror.Normalize(err)
+	}
+	if domain.DeliveryHandoffDigest(storedNote.Title, storedNote.Content) != stored.HandoffDigest {
+		return RecordDeliveryCheckpointResult{}, apperror.New(apperror.CodeFailedPrecondition, "Delivery handoff Note binding is inconsistent")
+	}
+	return RecordDeliveryCheckpointResult{Checkpoint: stored, Note: storedNote, Replayed: true}, nil
+}
+
 func deliverySelectionItem(selection domain.PlanDeliverySelection,
 	workItemID string,
 ) (domain.PlanDeliverySelectionItem, bool) {
@@ -283,11 +367,6 @@ func deliverySelectionItem(selection domain.PlanDeliverySelection,
 func validateDeliveryWorkItemProjection(selection domain.PlanDeliverySelection,
 	module domain.PlanDeliveryModule, item domain.WorkItem,
 ) error {
-	if item.Title != module.Title || item.Description != module.Objective ||
-		!slices.Equal(item.AcceptanceCriteria, module.AcceptanceCriteria) {
-		return apperror.New(apperror.CodeFailedPrecondition,
-			"selected WorkItem no longer matches its immutable Delivery module")
-	}
 	expectedDependencies := make([]string, len(module.Dependencies))
 	for index, ordinal := range module.Dependencies {
 		if ordinal < 1 || ordinal > len(selection.Items) {
@@ -296,7 +375,21 @@ func validateDeliveryWorkItemProjection(selection domain.PlanDeliverySelection,
 		}
 		expectedDependencies[index] = selection.Items[ordinal-1].WorkItemID
 	}
-	if !slices.Equal(item.Dependencies, expectedDependencies) {
+	// Selection creates WorkItems through this same canonicalization. Compare
+	// exact projected values while leaving the immutable module untouched.
+	expected, err := domain.NormalizeWorkItemDetails(item.ID, domain.WorkItemDetails{
+		Title: module.Title, Description: module.Objective,
+		AcceptanceCriteria: module.AcceptanceCriteria, Dependencies: expectedDependencies,
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition, "Delivery module WorkItem projection is invalid", err)
+	}
+	if item.Title != expected.Title || item.Description != expected.Description ||
+		!slices.Equal(item.AcceptanceCriteria, expected.AcceptanceCriteria) {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"selected WorkItem no longer matches its immutable Delivery module")
+	}
+	if !slices.Equal(item.Dependencies, expected.Dependencies) {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"selected WorkItem dependencies no longer match the Delivery module")
 	}

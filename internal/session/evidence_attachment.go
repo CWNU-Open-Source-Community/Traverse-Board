@@ -31,6 +31,13 @@ type EvidenceAttachment struct {
 	CreatedAt          time.Time
 }
 
+// PreparedEvidenceAttachment is a validated snapshot awaiting the caller's
+// atomic persistence boundary. It is never itself a model-visible message.
+type PreparedEvidenceAttachment struct {
+	Attachment EvidenceAttachment
+	Message    Message
+}
+
 type EvidenceInventoryItem struct {
 	AttachmentID          string
 	RunID                 string

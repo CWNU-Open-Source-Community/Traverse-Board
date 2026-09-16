@@ -3,19 +3,24 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, LoaderCircle, ShieldAlert, TerminalSquare } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
+  ApprovalContinuationView,
   HostCommandProposalReviewRequestView,
   HostCommandProposalView,
 } from "../api/types";
 import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
+import { ApprovalContinuationNotice } from "./approval-continuation-notice";
+import { SavedHostCommandOutput } from "./saved-host-command-output";
 
 type ReviewDecision = "approve" | "deny";
 type ReviewAuthorization = "once" | "run_scope";
 
-export function HostCommandProposalPanel({ client, runID }: {
+export function HostCommandProposalPanel({ client, runID, threadID = "", compact = false }: {
   client: CyberAgentClient;
   runID: string;
+  threadID?: string;
+  compact?: boolean;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -23,12 +28,14 @@ export function HostCommandProposalPanel({ client, runID }: {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [verified, setVerified] = useState<Record<string, boolean>>({});
   const [evidence, setEvidence] = useState<Record<string, string>>({});
+  const [continuations, setContinuations] = useState<Record<string, ApprovalContinuationView>>({});
   const [grantTTLs, setGrantTTLs] = useState<Record<string, number>>({});
   const [grantUses, setGrantUses] = useState<Record<string, number>>({});
   const query = useQuery({
     queryKey: ["run", runID, "host-command-proposals"],
     queryFn: ({ signal }) => client.hostCommandProposals(runID, signal),
     enabled: client.hasHostCommandProposalControl && runID !== "",
+    refetchInterval: threadID ? 2_000 : false,
   });
   const mutation = useMutation({
     mutationFn: ({ proposal, decision, authorization, reason, grantTTL, maxUses, intent }: {
@@ -72,9 +79,20 @@ export function HostCommandProposalPanel({ client, runID }: {
         setEvidence((current) => ({ ...current,
           [variables.proposal.id]: result.untrusted_evidence! }));
       }
-      void queryClient.invalidateQueries({ queryKey: ["run", runID, "host-command-proposals"] });
-      void queryClient.invalidateQueries({ queryKey: ["run", runID, "events"] });
-      void queryClient.invalidateQueries({ queryKey: ["run", runID] });
+      if (result.continuation) setContinuations((current) => ({ ...current,
+        [`${result.run_id}:${result.id}`]: result.continuation! }));
+      queryClient.setQueryData<Awaited<ReturnType<typeof client.hostCommandProposals>>>(
+        ["run", result.run_id, "host-command-proposals"], (current) => current && ({ ...current,
+          items: current.items.map((item) => item.id === result.id ? result : item) }));
+    },
+    onSettled: (_result, _error, variables) => {
+      // A non-2xx response can follow a durable approval. Read its current
+      // record even on failure; never infer whether the command ran.
+      const requestedRunID = variables.proposal.run_id;
+      void queryClient.invalidateQueries({ queryKey: ["run", requestedRunID] });
+      if (threadID) {
+        void queryClient.invalidateQueries({ queryKey: ["v2", "thread", threadID] });
+      }
     },
   });
 
@@ -84,9 +102,23 @@ export function HostCommandProposalPanel({ client, runID }: {
   if (query.isLoading) {
     return <LoadingState label={t("正在加载宿主机命令提案", "Loading host command proposals")} />;
   }
-  if (query.isError || !query.data) {
-    return <ErrorState error={query.error} />;
+  if (!query.data) {
+    return <div className="host-command-proposal-queue"><ErrorState error={query.error} /><button className="command-button" type="button"
+      onClick={() => void query.refetch()}>{t("重试宿主命令审批", "Retry host approvals")}</button></div>;
   }
+
+  const threadItems = threadID ? query.data.items.filter((proposal) =>
+    proposal.protocol_version === "risk_escalation.v1"
+      ? proposal.state === "waiting_approval" && proposal.approval_status === "pending"
+      : true) : query.data.items;
+  // The Inspector already exposes saved results in its event details. Keep
+  // actionable approvals and uncertain/failed continuations outside filters.
+  const items = compact ? threadItems.filter((proposal) => {
+    const continuation = continuations[`${runID}:${proposal.id}`] ?? proposal.continuation;
+    return !proposal.review || (proposal.review.decision === "approve" && !proposal.result) ||
+      Boolean(continuation && continuation.state !== "completed");
+  }) : threadItems;
+  if (threadID && items.length === 0 && !mutation.isError) return null;
 
   const decide = (proposal: HostCommandProposalView, decision: ReviewDecision,
     authorization?: ReviewAuthorization) => {
@@ -112,35 +144,62 @@ export function HostCommandProposalPanel({ client, runID }: {
       intent: `${proposal.id}:${proposal.spec_fingerprint}:${decision}:${authorization ?? "legacy"}:${grantTTL}:${maxUses}:${reason}` });
   };
 
+  const hasPendingReview = items.some((proposal) => proposal.protocol_version === "risk_escalation.v1"
+    ? proposal.state === "waiting_approval" && proposal.approval_status === "pending"
+    : !proposal.review);
+  const scopeNotice = <>
+    <div className="host-command-risk" role="alert">
+      <ShieldAlert aria-hidden="true" size={17} />
+      <strong>{t("高风险：非沙箱宿主机调用，可能涉及网络、凭据类别、宿主路径或策略拒绝",
+        "High risk: non-sandboxed host calls may involve network, credential kinds, host paths, or policy refusal")}</strong>
+    </div>
+    <div className="approval-boundary-line">
+      <span>{t("命令按当前执行的权限设置审阅", "Commands follow the current execution permissions")}</span>
+      <span>{t("单次批准，或限时限次的精确授权", "One-time approval, or an exact time/use-bounded grant")}</span>
+      <span>{t("持久终端与自动重试：关闭", "Persistent terminal and automatic retry: off")}</span>
+    </div>
+  </>;
   return (
     <section className="approval-queue command-proposal-queue host-command-proposal-queue"
       aria-label={t("宿主机命令提案", "Host command proposals")}>
       <header className="approval-queue-header">
         <div><TerminalSquare aria-hidden="true" size={16} />
           <strong>{t("宿主机命令提案", "Host command proposals")}</strong></div>
-        <span>{query.data.items.length}</span>
+        <span>{items.length}</span>
       </header>
-      <div className="host-command-risk" role="alert">
-        <ShieldAlert aria-hidden="true" size={17} />
-        <strong>{t("高风险：非沙箱宿主机调用，可能涉及网络、凭据类别、宿主路径或策略拒绝",
-          "High risk: non-sandboxed host calls may involve network, credential kinds, host paths, or policy refusal")}</strong>
-      </div>
-      <div className="approval-boundary-line">
-        <span>{t("审批档或 Standard Code Workspace Access Run",
-          "Approval-mode or Standard Code Workspace Access Runs")}</span>
-        <span>{t("仅一次，或当前 Run 内精确限时/限次授权",
-          "Exact once, or time/use-bounded scope in the current Run")}</span>
-        <span>{t("持久终端与自动重试：关闭", "Persistent terminal and automatic retry: off")}</span>
-      </div>
-      {query.data.items.length === 0 ? <EmptyState>{t("没有宿主机命令提案", "No host command proposals")}</EmptyState> : (
+      {query.isError && <div role="alert"><ErrorState error={query.error} />
+        <button className="command-button" type="button" onClick={() => void query.refetch()}>
+          {t("刷新命令记录", "Refresh command records")}</button></div>}
+      {hasPendingReview ? scopeNotice : items.length > 0 && <details className="saved-host-output-evidence">
+        <summary>{t("执行环境与授权范围", "Execution environment and authorization scope")}</summary>
+        {scopeNotice}
+      </details>}
+      {items.length === 0 ? <EmptyState>{t("没有宿主机命令提案", "No host command proposals")}</EmptyState> : (
         <div className="approval-list">
-          {query.data.items.map((proposal) => {
+          {items.map((proposal) => {
             const risk = proposal.protocol_version === "risk_escalation.v1";
             const pending = risk
               ? proposal.state === "waiting_approval" && proposal.approval_status === "pending"
               : !proposal.review;
             const busy = mutation.isPending && mutation.variables?.proposal.id === proposal.id;
             const status = proposal.state ?? proposal.result?.status ?? proposal.review?.decision ?? "pending";
+            const continuation = continuations[`${runID}:${proposal.id}`] ?? proposal.continuation;
+            if (threadID && !risk && proposal.review) return (
+              <article className="approval-row command-proposal-row" key={proposal.id}>
+                <div className="host-command-review-summary"><strong>{proposal.purpose}</strong>
+                  <StatusBadge status={status} /></div>
+                {compact ? <details><summary>{t("查看命令结果", "View command outcome")}</summary>
+                  <HostCommandOutcome client={client} proposal={proposal} /></details>
+                  : <HostCommandOutcome client={client} proposal={proposal} />}
+                <ApprovalContinuationNotice continuation={continuation} />
+                <details><summary>{t("命令和审批详情", "Command and review details")}</summary>
+                  <p><code>{proposal.executable_path}</code></p>
+                  <ol>{proposal.argv.map((argument, index) => <li key={index}><code>{argument}</code></li>)}</ol>
+                  <p>{t("工作目录", "Working directory")}：<code>{proposal.working_directory}</code></p>
+                  <p>{proposal.review.reason}</p>
+                </details>
+              </article>
+            );
             const grantTTL = grantTTLs[proposal.id] ?? 300;
             const maxUses = grantUses[proposal.id] ?? 4;
             const validGrant = Number.isInteger(grantTTL) && grantTTL >= 1 && grantTTL <= 900 &&
@@ -322,6 +381,8 @@ export function HostCommandProposalPanel({ client, runID }: {
                     </>}
                   </div>
                 </>}
+                {proposal.review && <HostCommandOutcome client={client} proposal={proposal} />}
+                <ApprovalContinuationNotice continuation={continuation} />
                 {(evidence[proposal.id] || proposal.untrusted_evidence) && (
                   <div className="command-proposal-evidence">
                     <strong><ShieldAlert aria-hidden="true" size={14} />
@@ -336,10 +397,56 @@ export function HostCommandProposalPanel({ client, runID }: {
           })}
         </div>
       )}
-      {mutation.isError && <div className="inline-warning" role="alert">
+      {mutation.isError && mutation.variables?.proposal.run_id === runID && <div className="inline-warning" role="alert">
+        <p>{t("审批请求未能完整返回。请核对保存状态；执行结果未确认时不要重复执行命令。",
+          "The review request did not return a complete outcome. Check the saved state; do not rerun a command whose execution is unconfirmed.")}</p>
         {mutation.error instanceof Error ? mutation.error.message
           : t("宿主机命令审阅失败", "Host command review failed")}
+        <button className="command-button" type="button" onClick={() => void query.refetch()}>
+          {t("刷新命令记录", "Refresh command records")}</button>
       </div>}
     </section>
   );
+}
+
+function HostCommandOutcome({ client, proposal }: {
+  client: CyberAgentClient; proposal: HostCommandProposalView;
+}) {
+  const { t } = useLocale();
+  const [opened, setOpened] = useState(false);
+  const receipt = proposal.receipt;
+  const output = useQuery({
+    queryKey: ["run", proposal.run_id, "host-command-output", proposal.id, proposal.result?.id],
+    queryFn: async ({ signal }) => {
+      const saved = await client.hostCommandProposal(proposal.run_id, proposal.id, signal);
+      if (saved.run_id !== proposal.run_id || saved.id !== proposal.id || saved.session_id !== proposal.session_id ||
+        saved.workspace_id !== proposal.workspace_id || saved.spec_fingerprint !== proposal.spec_fingerprint ||
+        saved.review?.id !== proposal.review?.id || saved.result?.id !== proposal.result?.id ||
+        saved.receipt?.request_id !== receipt?.request_id ||
+        saved.result?.content_sha256 !== proposal.result?.content_sha256) {
+        throw new Error(t("保存输出与当前命令收据不匹配。", "Saved output does not match this command receipt."));
+      }
+      return saved;
+    },
+    enabled: opened && Boolean(receipt),
+  });
+  if (!receipt) return <p role={proposal.review?.decision === "approve" ? "status" : undefined}>
+    {proposal.review?.decision === "deny" ? t("提案已拒绝，没有执行结果。", "Proposal denied; no execution result.") :
+      t("已批准，执行结果未确认；不能据此判断命令是否执行或成功。",
+        "Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded.")}</p>;
+  return <div className="command-proposal-evidence host-command-outcome">
+    <p>{t("已记录执行结果，退出码", "Execution result recorded, exit code")} {receipt.exit_code}</p>
+    {receipt.cancelled && <p>{t("命令已取消。", "The command was cancelled.")}</p>}
+    {receipt.timed_out && <p>{t("命令已超时。", "The command timed out.")}</p>}
+    {(receipt.stdout_truncated || receipt.stderr_truncated || receipt.output_limit_exceeded) &&
+      <p>{t("输出已截断或达到上限，不能视为完整输出。", "Output was truncated or reached its limit; it is not complete.")}</p>}
+    <button className="command-button" type="button" onClick={() => setOpened((current) => !current)}>
+      {opened ? t("收起已保存输出", "Hide saved output") : t("查看已保存输出", "Read saved output")}</button>
+    {opened && <>
+      {output.isLoading && <LoadingState />}
+      {output.isError && <><ErrorState error={output.error} /><button className="command-button" type="button"
+        onClick={() => void output.refetch()}>{t("重试读取输出", "Retry reading output")}</button></>}
+      {output.isSuccess && <SavedHostCommandOutput detail={output.data} />}
+    </>}
+  </div>;
 }

@@ -60,6 +60,29 @@ func TestPublicReplyRootActionOnlyAcceptsPlainInteractiveText(t *testing.T) {
 	}
 }
 
+func TestThreadReplyFinishWithoutSummaryDoesNotCompleteMission(t *testing.T) {
+	raw := `{"version":"root_lifecycle.v1","action":"finish","message":"文件已读取，修改和测试仍未完成。"}`
+	if _, err := parseRootAction(raw); err == nil {
+		t.Fatal("non-Thread lifecycle accepted a missing completion summary")
+	}
+	action, err := parseRootActionForTurn(raw, true)
+	if err != nil || action.Kind != domain.RootActionFinish || action.Summary != action.Message || action.Message != "文件已读取，修改和测试仍未完成。" {
+		t.Fatalf("interactive reply projection=%#v err=%v", action, err)
+	}
+	for _, invalid := range []string{
+		`{"version":"root_lifecycle.v2","action":"finish","message":"done"}`,
+		`{"version":"root_lifecycle.v1","action":"finish","message":""}`,
+		`{"version":"root_lifecycle.v1","action":"finish","message":"done","reason":"not a wait"}`,
+		`{"version":"root_lifecycle.v1","action":"finish","action":"continue","message":"done"}`,
+		`{"version":"root_lifecycle.v1","action":"finish","message":"done","unexpected":true}`,
+		raw + ` {}`,
+	} {
+		if _, err := parseRootActionForTurn(invalid, true); err == nil {
+			t.Fatalf("invalid interactive response accepted: %s", invalid)
+		}
+	}
+}
+
 func TestRecoverRootActionWithTrailingCommentaryIsNarrow(t *testing.T) {
 	valid := `{"version":"root_lifecycle.v1","action":"finish","message":"SEARCH_UNAVAILABLE","summary":"search unavailable"}`
 	raw := valid + "\n\nThe requested search backend was unavailable."
@@ -84,6 +107,8 @@ func TestRecoverRootActionWithTrailingCommentaryIsNarrow(t *testing.T) {
 		valid + "\nNote: another root_lifecycle.v1 action follows.",
 		valid + "\nNote: a root_lifecycle.v2 marker follows.",
 		valid + "\nNote: [ambiguous structured suffix]",
+		valid + ` <｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="web_search">not execution</｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>`,
+		valid + ` <｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="web_search">incomplete`,
 		valid + "\n" + strings.Repeat("x", maxRootActionTrailingCommentaryBytes+1),
 		`{"version":"root_lifecycle.v1","version":"root_lifecycle.v1","action":"continue","message":"duplicate"} trailing commentary`,
 		`{"version":"root_lifecycle.v1","action":"continue","message":"unknown","extra":true} trailing commentary`,

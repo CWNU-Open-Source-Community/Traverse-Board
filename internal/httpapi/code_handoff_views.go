@@ -3,6 +3,7 @@ package httpapi
 import (
 	"time"
 
+	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/standardcodedelivery"
 )
@@ -496,6 +497,7 @@ type CodeHandoffPlanView struct {
 	SelectionID       string `json:"selection_id"`
 	DirectionCount    int    `json:"direction_count"`
 	SelectedDirection int    `json:"selected_direction"`
+	ManualAcceptance  string `json:"manual_acceptance,omitempty"`
 	ModuleCount       int    `json:"module_count"`
 	PendingCount      int    `json:"pending_count"`
 	InProgressCount   int    `json:"in_progress_count"`
@@ -660,6 +662,7 @@ type CodeHandoffView struct {
 	ResumeAuthorized                   bool                                  `json:"resume_authorized"`
 	ExecutionStarted                   bool                                  `json:"execution_started"`
 	StandardCodeDelivery               *standardcodedelivery.Report          `json:"standard_code_delivery,omitempty"`
+	HostCommands                       *application.CodeHandoffHostCommands  `json:"host_commands,omitempty"`
 }
 
 type CodeHandoffExportView struct {

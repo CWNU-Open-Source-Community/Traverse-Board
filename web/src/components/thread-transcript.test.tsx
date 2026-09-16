@@ -5,6 +5,16 @@ import { mergeThreadTranscriptItems, ThreadTranscript } from "./thread-transcrip
 
 const createdAt = "2026-08-24T00:00:00Z";
 
+it("distinguishes an open Run boundary and a saved executing stage from present activity", () => {
+  render(<ThreadTranscript durableItems={[
+    item({ id: "open-run", canonical_id: "open-run", sequence: 0, status: "running" }),
+    item({ id: "old-running-tool", canonical_id: "old-running-tool", sequence: 2, stage: "running", status: "running", title: "Old tool start" }),
+  ]} hasOlder={false} isFetchingOlder={false} onLoadOlder={() => undefined} />);
+  expect(screen.getByLabelText("Run 1 boundary")).toHaveTextContent("Not ended");
+  expect(screen.getByText("Executing when recorded")).toBeInTheDocument();
+  expect(screen.queryByText("Running")).not.toBeInTheDocument();
+});
+
 function item(overrides: Partial<ThreadTranscriptItemView> = {}): ThreadTranscriptItemView {
   return {
     version: "thread_transcript.v1", id: "event-1", canonical_id: "event-1",

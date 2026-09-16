@@ -29,6 +29,7 @@ type HealthView struct {
 	APIVersion    string `json:"api_version"`
 	AppVersion    string `json:"app_version"`
 	SchemaVersion int    `json:"schema_version"`
+	DataStoreID   string `json:"data_store_id,omitempty"`
 }
 
 type ProviderAvailabilityView struct {
@@ -456,12 +457,13 @@ type RepositoryHistoryView struct {
 }
 
 type FileEditReviewView struct {
-	ProtocolVersion string              `json:"protocol_version"`
-	RunID           string              `json:"run_id"`
-	Action          string              `json:"action"`
-	Edit            FileEditPreviewView `json:"edit"`
-	Replayed        bool                `json:"replayed"`
-	FileWritten     bool                `json:"file_written"`
+	Continuation    *application.ApprovalContinuationResult `json:"continuation,omitempty"`
+	ProtocolVersion string                                  `json:"protocol_version"`
+	RunID           string                                  `json:"run_id"`
+	Action          string                                  `json:"action"`
+	Edit            FileEditPreviewView                     `json:"edit"`
+	Replayed        bool                                    `json:"replayed"`
+	FileWritten     bool                                    `json:"file_written"`
 }
 
 type OperationReceiptView struct {
@@ -709,16 +711,17 @@ type BudgetView struct {
 }
 
 type RunView struct {
-	ID         string        `json:"id"`
-	MissionID  string        `json:"mission_id"`
-	SessionID  string        `json:"session_id,omitempty"`
-	Status     string        `json:"status"`
-	Config     RunConfigView `json:"config"`
-	Budget     BudgetView    `json:"budget"`
-	StartedAt  *time.Time    `json:"started_at,omitempty"`
-	FinishedAt *time.Time    `json:"finished_at,omitempty"`
-	CreatedAt  time.Time     `json:"created_at"`
-	UpdatedAt  time.Time     `json:"updated_at"`
+	StandardCodePresetConfigured *bool         `json:"standard_code_preset_configured,omitempty"`
+	ID                           string        `json:"id"`
+	MissionID                    string        `json:"mission_id"`
+	SessionID                    string        `json:"session_id,omitempty"`
+	Status                       string        `json:"status"`
+	Config                       RunConfigView `json:"config"`
+	Budget                       BudgetView    `json:"budget"`
+	StartedAt                    *time.Time    `json:"started_at,omitempty"`
+	FinishedAt                   *time.Time    `json:"finished_at,omitempty"`
+	CreatedAt                    time.Time     `json:"created_at"`
+	UpdatedAt                    time.Time     `json:"updated_at"`
 }
 
 type RunModeView struct {
@@ -937,6 +940,7 @@ type PlanDeliverySelectionView struct {
 	ID               string                          `json:"id"`
 	ProposalID       string                          `json:"proposal_id"`
 	DirectionOrdinal int                             `json:"direction_ordinal"`
+	ManualAcceptance string                          `json:"manual_acceptance"`
 	NoteID           string                          `json:"note_id"`
 	Items            []PlanDeliverySelectionItemView `json:"items"`
 	Version          int64                           `json:"version"`
@@ -966,6 +970,17 @@ type PlanDeliveryStateView struct {
 	RequiredCheckpoints  int                        `json:"required_checkpoints"`
 	ReadyCheckpoints     int                        `json:"ready_checkpoints"`
 	Checkpoints          []DeliveryCheckpointView   `json:"checkpoints"`
+	ContinuedCompletions []PlanCompletionSourceView `json:"continued_completions,omitempty"`
+}
+
+type PlanCompletionSourceView struct {
+	WorkItemID        string    `json:"work_item_id"`
+	SourceRunID       string    `json:"source_run_id"`
+	SourceWorkItemID  string    `json:"source_work_item_id"`
+	CheckpointID      string    `json:"checkpoint_id"`
+	HandoffNoteID     string    `json:"handoff_note_id"`
+	CompletionEventID string    `json:"completion_event_id,omitempty"`
+	CompletedAt       time.Time `json:"completed_at"`
 }
 
 type RunDetailView struct {
@@ -1154,39 +1169,41 @@ type ThreadMessageView struct {
 }
 
 type ThreadTranscriptItemView struct {
-	Version               string                     `json:"version"`
-	ID                    string                     `json:"id"`
-	CanonicalID           string                     `json:"canonical_id"`
-	RunID                 string                     `json:"run_id"`
-	RunOrdinal            int64                      `json:"run_ordinal"`
-	Sequence              int64                      `json:"sequence"`
-	Position              int                        `json:"position,omitempty"`
-	ActivityType          string                     `json:"activity_type"`
-	Stage                 string                     `json:"stage"`
-	Kind                  string                     `json:"kind"`
-	Source                string                     `json:"source"`
-	Title                 string                     `json:"title"`
-	Detail                string                     `json:"detail,omitempty"`
-	Status                string                     `json:"status,omitempty"`
-	Verifiable            bool                       `json:"verifiable"`
-	InstructionAuthorized bool                       `json:"instruction_authorized"`
-	AttemptID             string                     `json:"attempt_id,omitempty"`
-	ModelAttempt          int                        `json:"model_attempt,omitempty"`
-	ToolRound             int                        `json:"tool_round,omitempty"`
-	ToolName              string                     `json:"tool_name,omitempty"`
-	StreamResponseID      string                     `json:"stream_response_id,omitempty"`
-	StreamItemID          string                     `json:"stream_item_id,omitempty"`
-	StreamCallID          string                     `json:"stream_call_id,omitempty"`
-	DurableCallID         string                     `json:"durable_call_id,omitempty"`
-	SourceRef             string                     `json:"source_ref,omitempty"`
-	BoundaryReason        string                     `json:"boundary_reason,omitempty"`
-	ActivityDetailRef     string                     `json:"activity_detail_ref,omitempty"`
-	DetailAvailable       bool                       `json:"detail_available,omitempty"`
-	ActivitySummary       *ThreadActivitySummaryView `json:"activity_summary,omitempty"`
-	WebEvidence           *ThreadWebEvidenceView     `json:"web_evidence,omitempty"`
-	Provisional           bool                       `json:"provisional"`
-	Durable               bool                       `json:"durable"`
-	CreatedAt             time.Time                  `json:"created_at"`
+	Version               string                           `json:"version"`
+	ID                    string                           `json:"id"`
+	CanonicalID           string                           `json:"canonical_id"`
+	RunID                 string                           `json:"run_id"`
+	RunOrdinal            int64                            `json:"run_ordinal"`
+	Sequence              int64                            `json:"sequence"`
+	Position              int                              `json:"position,omitempty"`
+	ActivityType          string                           `json:"activity_type"`
+	Stage                 string                           `json:"stage"`
+	Kind                  string                           `json:"kind"`
+	Source                string                           `json:"source"`
+	Title                 string                           `json:"title"`
+	Detail                string                           `json:"detail,omitempty"`
+	Status                string                           `json:"status,omitempty"`
+	Verifiable            bool                             `json:"verifiable"`
+	InstructionAuthorized bool                             `json:"instruction_authorized"`
+	AttemptID             string                           `json:"attempt_id,omitempty"`
+	ModelAttempt          int                              `json:"model_attempt,omitempty"`
+	ToolRound             int                              `json:"tool_round,omitempty"`
+	ToolName              string                           `json:"tool_name,omitempty"`
+	StreamResponseID      string                           `json:"stream_response_id,omitempty"`
+	StreamItemID          string                           `json:"stream_item_id,omitempty"`
+	StreamCallID          string                           `json:"stream_call_id,omitempty"`
+	DurableCallID         string                           `json:"durable_call_id,omitempty"`
+	SourceRef             string                           `json:"source_ref,omitempty"`
+	BoundaryReason        string                           `json:"boundary_reason,omitempty"`
+	ActivityDetailRef     string                           `json:"activity_detail_ref,omitempty"`
+	DetailAvailable       bool                             `json:"detail_available,omitempty"`
+	ActivitySummary       *ThreadActivitySummaryView       `json:"activity_summary,omitempty"`
+	WebEvidence           *ThreadWebEvidenceView           `json:"web_evidence,omitempty"`
+	Images                []domain.WorkspaceImage          `json:"images,omitempty"`
+	Attachments           []domain.WorkspaceFileAttachment `json:"attachments,omitempty"`
+	Provisional           bool                             `json:"provisional"`
+	Durable               bool                             `json:"durable"`
+	CreatedAt             time.Time                        `json:"created_at"`
 }
 
 type ThreadActivitySummaryView struct {
@@ -1822,7 +1839,8 @@ func planDeliverySelectionView(value domain.PlanDeliverySelection) PlanDeliveryS
 	}
 	return PlanDeliverySelectionView{
 		ID: value.ID, ProposalID: value.ProposalID, DirectionOrdinal: value.DirectionOrdinal,
-		NoteID: value.NoteID, Items: items, Version: value.Version, CreatedAt: value.CreatedAt,
+		ManualAcceptance: string(value.EffectiveManualAcceptance()),
+		NoteID:           value.NoteID, Items: items, Version: value.Version, CreatedAt: value.CreatedAt,
 	}
 }
 
@@ -1867,10 +1885,18 @@ func threadRunRecoveryView(value domain.ThreadRunRecovery) ThreadRunRecoveryView
 	switch value.ErrorCode {
 	case "failed_precondition":
 		errorCode, stopReason = "failed_precondition", "failed_precondition"
-		detail = "上一次执行的固定权限、模型或运行配置已不再适用。直接发送下一条消息即可继续并应用待生效设置。"
+		detail = "上一次执行因执行条件未满足而停止，具体原因请查看错误或执行记录。确认问题已处理后，可发送下一条消息继续。"
+		switch value.FailureStage {
+		case domain.ThreadFailureEmptyModelResponse:
+			detail = "审批已保存，但模型没有返回有效答复，后续执行未完成。此前已完成的操作仍保留，请查看执行记录。"
+		case domain.ThreadFailureToolRequestRejected:
+			detail = "审批已保存，但模型的工具请求未通过校验，该批请求尚未执行。此前已完成的操作仍保留，请查看执行记录。"
+		case domain.ThreadFailureInvalidModelResponse:
+			detail = "审批已保存，但模型答复格式无效，后续执行未完成。此前已完成的操作仍保留，请查看执行记录。"
+		}
 	case "unavailable":
 		errorCode, stopReason = "unavailable", "unavailable"
-		detail = "上一次执行使用的模型服务不可用。确认新模型可用后，直接发送下一条消息即可继续。"
+		detail = "上一次执行依赖的服务或运行环境暂不可用。确认恢复可用后，可发送下一条消息继续。"
 	case "deadline_exceeded":
 		errorCode, stopReason = "deadline_exceeded", "deadline_exceeded"
 		detail = "上一次执行已经超时。直接发送下一条消息即可在新的执行上下文中继续。"

@@ -79,6 +79,16 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 		`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}` {
 		t.Fatalf("canonical fetch URL=%s err=%v", canonicalURL, err)
 	}
+	canonicalSource, err := NormalizeWebEvidencePayload(WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","source_id":"source-1"}`))
+	if err != nil || string(canonicalSource) != `{"version":"web_fetch.v1","source_id":"source-1"}` {
+		t.Fatalf("legacy source canonical changed: %s (%v)", canonicalSource, err)
+	}
+	page := `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":0,"limit":2048}`
+	canonicalPage, err := NormalizeWebEvidencePayload(WebFetchTool, json.RawMessage(page))
+	if err != nil || string(canonicalPage) != page {
+		t.Fatalf("saved snapshot page=%s err=%v", canonicalPage, err)
+	}
 	for _, test := range []struct {
 		name    ToolName
 		payload string
@@ -91,6 +101,16 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 		{WebFetchTool, `{"version":"web_fetch.v1","url":"https://127.0.0.1/private"}`},
 		{WebFetchTool, `{"version":"web_fetch.v1","url":"https://docs.example.com/report?access_token=secret"}`},
 		{WebFetchTool, "{\"version\":\"web_fetch.v1\",\"source_id\":\"source\\u0001bad\"}"},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1"}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":-1,"limit":1}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":0,"limit":2049}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":0,"limit":0}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":null,"limit":1}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":"snapshot-1","offset":0,"limit":null}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","snapshot_id":null,"offset":0,"limit":1}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","url":null,"snapshot_id":"snapshot-1","offset":0,"limit":1}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","url":"https://docs.example.com/","offset":null}`},
+		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","limit":1}`},
 		{WebCitationTool, `{"version":"web_citation.v1","source_id":"source-1","snapshot_id":"snapshot-1","claim":"x","span_start":4,"span_end":4}`},
 		{WebCitationTool, "{\"version\":\"web_citation.v1\",\"source_id\":\"source-1\",\"snapshot_id\":\"snapshot-1\",\"claim\":\"bad\\u0001claim\"}"},
 		{WebCitationTool, `{"version":"web_citation.v1","source_id":"source-1","snapshot_id":"snapshot-1","claim":"x","span_start":4}`},

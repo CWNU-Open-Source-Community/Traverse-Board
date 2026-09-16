@@ -42,6 +42,8 @@ type StandardCodeDeliveryStore interface {
 		workspacecheckpoint.Snapshot, error)
 	CreateStandardCodeDelivery(context.Context, standardcodedelivery.Report) (
 		standardcodedelivery.Report, bool, error)
+	GetStandardCodeDeliveryByOperation(context.Context, string) (
+		standardcodedelivery.Report, bool, error)
 	GetLatestStandardCodeDelivery(context.Context, string) (
 		standardcodedelivery.Report, bool, error)
 }
@@ -92,6 +94,18 @@ func (s *StandardCodeDeliveryService) Record(ctx context.Context,
 		return StandardCodeDeliveryRecordResult{}, apperror.New(
 			apperror.CodeInvalidArgument, "Standard Code delivery request is invalid")
 	}
+	operationDigest := runmutation.OperationKeyDigest(
+		"standard_code_delivery_record.v1", request.RunID, request.OperationKey)
+	if stored, found, err := s.store.GetStandardCodeDeliveryByOperation(ctx,
+		operationDigest); err != nil {
+		return StandardCodeDeliveryRecordResult{}, apperror.Normalize(err)
+	} else if found {
+		if err := matchStandardCodeDeliveryRequest(request, operationDigest, stored); err != nil {
+			return StandardCodeDeliveryRecordResult{}, err
+		}
+		current, err := s.observeReport(ctx, stored)
+		return StandardCodeDeliveryRecordResult{Report: current, Replayed: true}, err
+	}
 	preset, configured, err := s.store.GetConfiguredStandardCodePresetOperation(ctx,
 		request.RunID)
 	if err != nil {
@@ -114,25 +128,31 @@ func (s *StandardCodeDeliveryService) Record(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"Standard Code delivery requires an exact Supervisor binding")
 	}
-	workspace, found, err := s.store.GetDrydockByRun(ctx, request.RunID)
+	workspace, found, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil {
 		return StandardCodeDeliveryRecordResult{}, apperror.Normalize(err)
 	}
 	if !found || workspace.ID != preset.DrydockID ||
-		workspace.RunID != preset.RunID || workspace.MissionID != preset.MissionID ||
+		workspace.MissionID != preset.MissionID ||
 		workspace.SessionID == "" || workspace.SourceWorkspaceID != preset.WorkspaceID ||
 		(workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered) {
 		return StandardCodeDeliveryRecordResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "Standard Code Drydock binding is unavailable")
 	}
+
+	if err := requireCurrentRunFileDrydock(ctx, s.store, request.RunID, workspace); err != nil {
+		return StandardCodeDeliveryRecordResult{}, err
+	}
+	run, err := s.drydocks.store.GetRun(ctx, request.RunID)
+	if err != nil {
+		return StandardCodeDeliveryRecordResult{}, apperror.Normalize(err)
+	}
 	if len(request.VerificationJobIDs) == 0 && request.Declaration == standardcodedelivery.DeclarationNone {
 		request.VerificationJobIDs = append([]string(nil), supervisor.VerificationJobIDs...)
 	}
-	operationDigest := runmutation.OperationKeyDigest(
-		"standard_code_delivery_record.v1", request.RunID, request.OperationKey)
 	requestFingerprint := standardCodeDeliveryRequestFingerprint(request, preset,
 		supervisor, workspace, operationDigest)
-	checkpoint, evidence, err := s.captureAlignedDelivery(ctx, workspace,
+	checkpoint, evidence, err := s.captureAlignedDelivery(ctx, run, workspace,
 		operationDigest, request.RequestedBy)
 	if err != nil {
 		return StandardCodeDeliveryRecordResult{}, err
@@ -165,7 +185,7 @@ func (s *StandardCodeDeliveryService) Record(ctx context.Context,
 		Status: status, ReceiptStatus: status, Verified: status == standardcodedelivery.StatusPassed,
 		Declaration: request.Declaration,
 		Binding: standardcodedelivery.Binding{RunID: preset.RunID,
-			MissionID: preset.MissionID, SessionID: workspace.SessionID,
+			MissionID: preset.MissionID, SessionID: run.SessionID,
 			SourceWorkspaceID:  preset.WorkspaceID,
 			DrydockWorkspaceID: workspace.WorkspaceID, DrydockID: workspace.ID,
 			DrydockGeneration:     workspace.Generation,
@@ -198,7 +218,11 @@ func (s *StandardCodeDeliveryService) Current(ctx context.Context,
 	runID string,
 ) (standardcodedelivery.Report, bool, error) {
 	runID = strings.TrimSpace(runID)
-	if s == nil || s.store == nil || s.drydocks == nil || runID == "" {
+	if s == nil || s.store == nil || s.drydocks == nil || s.now == nil {
+		return standardcodedelivery.Report{}, false, apperror.New(
+			apperror.CodeFailedPrecondition, "Standard Code delivery service is unavailable")
+	}
+	if runID == "" {
 		return standardcodedelivery.Report{}, false, apperror.New(
 			apperror.CodeInvalidArgument, "Standard Code delivery Run id is invalid")
 	}
@@ -206,17 +230,23 @@ func (s *StandardCodeDeliveryService) Current(ctx context.Context,
 	if err != nil || !found {
 		return standardcodedelivery.Report{}, found, apperror.Normalize(err)
 	}
-	workspace, workspaceFound, err := s.store.GetDrydockByRun(ctx, runID)
+	current, err := s.observeReport(ctx, report)
+	return current, true, err
+}
+
+func (s *StandardCodeDeliveryService) observeReport(ctx context.Context,
+	report standardcodedelivery.Report,
+) (standardcodedelivery.Report, error) {
+	workspace, workspaceFound, err := readRunFileDrydock(ctx, s.store, report.Binding.RunID)
 	if err != nil {
-		return standardcodedelivery.Report{}, false, apperror.Normalize(err)
+		return standardcodedelivery.Report{}, apperror.Normalize(err)
 	}
 	if !workspaceFound || workspace.ID != report.Binding.DrydockID ||
 		workspace.WorkspaceID != report.Binding.DrydockWorkspaceID {
 		stale := report.WithObservation("", "drydock_binding_unavailable", s.now())
-		return stale, true, stale.Validate()
+		return stale, stale.Validate()
 	}
-	current, err := s.observeStored(ctx, workspace, report)
-	return current, true, err
+	return s.observeStored(ctx, workspace, report)
 }
 
 func (s *StandardCodeDeliveryService) observeStored(ctx context.Context,
@@ -228,7 +258,7 @@ func (s *StandardCodeDeliveryService) observeStored(ctx context.Context,
 		return standardcodedelivery.Report{}, apperror.Normalize(err)
 	}
 	if !configured || preset.KeyDigest != report.Binding.PresetOperationSHA256 ||
-		string(preset.SelectedBackend) != report.Binding.Backend {
+		!standardCodeDeliveryBackendMatches(preset.SelectedBackend, report.Binding.Backend) {
 		return s.staleStored(report, standardcodedelivery.ReasonBackendDrift)
 	}
 	supervisor, found, err := s.store.GetStandardCodeSupervisorSnapshot(ctx,
@@ -264,6 +294,22 @@ func (s *StandardCodeDeliveryService) observeStored(ctx context.Context,
 	return current, nil
 }
 
+func standardCodeDeliveryBackendMatches(selected domain.StandardCodeBackend, recorded string) bool {
+	// Reports without command evidence (and older reports) use the preset
+	// name. Command evidence retains the concrete adapter backend identity.
+	if selected.Valid() && recorded == string(selected) {
+		return true
+	}
+	switch selected {
+	case domain.StandardCodeSelectedLocal:
+		return recorded == CommandRuntimeLocalSandboxBackend
+	case domain.StandardCodeSelectedDocker:
+		return recorded == CommandRuntimeDockerSandboxBackend
+	default:
+		return false
+	}
+}
+
 func (s *StandardCodeDeliveryService) staleStored(report standardcodedelivery.Report,
 	reason string,
 ) (standardcodedelivery.Report, error) {
@@ -275,12 +321,12 @@ func (s *StandardCodeDeliveryService) staleStored(report standardcodedelivery.Re
 }
 
 func (s *StandardCodeDeliveryService) captureAlignedDelivery(ctx context.Context,
-	workspace drydock.Workspace, operationDigest, requestedBy string,
+	run domain.Run, workspace drydock.Workspace, operationDigest, requestedBy string,
 ) (workspacecheckpoint.Snapshot, repository.DrydockDeliveryEvidence, error) {
 	for attempt := 1; attempt <= standardCodeDeliveryCaptureAttempts; attempt++ {
 		key := "standard-code-delivery-" + operationDigest[:24] + "-" + strconv.Itoa(attempt)
 		checkpoint, _, err := s.drydocks.checkpoints.Capture(ctx,
-			WorkspaceCheckpointCaptureRequest{RunID: workspace.RunID,
+			WorkspaceCheckpointCaptureRequest{RunID: run.ID,
 				OperationKey: key, RequestedBy: requestedBy,
 				Title: "Standard Code final delivery checkpoint"})
 		if err != nil {
@@ -298,7 +344,7 @@ func (s *StandardCodeDeliveryService) captureAlignedDelivery(ctx context.Context
 				apperror.Normalize(err)
 		}
 		observed, err := s.captureWorkspaceObservation(ctx, workspace,
-			"standard-code-delivery-align-"+operationDigest[:16]+"-"+strconv.Itoa(attempt))
+			"standard-code-delivery-align-"+operationDigest[:16]+"-"+strconv.Itoa(attempt), run)
 		if err != nil {
 			return workspacecheckpoint.Snapshot{}, repository.DrydockDeliveryEvidence{},
 				apperror.Normalize(err)
@@ -323,7 +369,7 @@ func (s *StandardCodeDeliveryService) observeWorkspaceRevision(ctx context.Conte
 	}
 	snapshot, err := s.captureWorkspaceObservation(ctx, workspace,
 		"standard-code-delivery-current-"+standardcodedelivery.Hash(
-			workspace.ID + strconv.FormatInt(s.now().UnixNano(), 10))[:20])
+			workspace.ID + strconv.FormatInt(s.now().UnixNano(), 10))[:20], domain.Run{ID: binding.RunID, MissionID: binding.MissionID, SessionID: binding.SessionID})
 	if err != nil {
 		return "", err
 	}
@@ -331,11 +377,15 @@ func (s *StandardCodeDeliveryService) observeWorkspaceRevision(ctx context.Conte
 }
 
 func (s *StandardCodeDeliveryService) captureWorkspaceObservation(ctx context.Context,
-	workspace drydock.Workspace, id string,
+	workspace drydock.Workspace, id string, runs ...domain.Run,
 ) (workspacecheckpoint.Snapshot, error) {
+	run := domain.Run{ID: workspace.RunID, MissionID: workspace.MissionID, SessionID: workspace.SessionID}
+	if len(runs) > 0 {
+		run = runs[0]
+	}
 	return workspacecheckpoint.Capture(ctx, workspacecheckpoint.CaptureRequest{
-		ID: id, RunID: workspace.RunID, MissionID: workspace.MissionID,
-		SessionID: workspace.SessionID, WorkspaceID: workspace.WorkspaceID,
+		ID: id, RunID: run.ID, MissionID: run.MissionID,
+		SessionID: run.SessionID, WorkspaceID: workspace.WorkspaceID,
 		WorkspaceRoot: workspace.Path, Trigger: workspacecheckpoint.TriggerManual,
 		Phase:            workspacecheckpoint.PhaseStandalone,
 		TriggerReceiptID: id, RequestedBy: "run_supervisor",
@@ -356,7 +406,7 @@ func (s *StandardCodeDeliveryService) projectVerifications(ctx context.Context,
 			return nil, "", "", apperror.Normalize(err)
 		}
 		if job.RunID != preset.RunID || job.MissionID != preset.MissionID ||
-			job.SessionID != workspace.SessionID || job.WorkspaceID != preset.WorkspaceID {
+			job.SessionID != final.Checkpoint.SessionID || job.WorkspaceID != preset.WorkspaceID {
 			return nil, "", "", apperror.New(apperror.CodeConflict,
 				"verification Job escaped its Standard Code Run binding")
 		}
@@ -397,8 +447,9 @@ func (s *StandardCodeDeliveryService) projectVerifications(ctx context.Context,
 		projectedArtifacts, artifactsComplete := projectCommandArtifacts(job,
 			artifactBySource[job.ID])
 		current := found && revision == finalRevision
+		outputTruncated := commandSavedOutputTruncated(ctx, s.store, job)
 		conclusion, reason := commandVerificationConclusion(job, current,
-			artifactsComplete, supervisor, backend, backendGeneration)
+			artifactsComplete, outputTruncated, supervisor, backend, backendGeneration)
 		result = append(result, standardcodedelivery.Verification{
 			JobID: job.ID, Conclusion: conclusion, ReasonCode: reason,
 			State: string(job.State), ExitCode: cloneDeliveryExitCode(job.ExitCode),
@@ -411,7 +462,7 @@ func (s *StandardCodeDeliveryService) projectVerifications(ctx context.Context,
 			StdoutSHA256: job.StdoutSHA256, StderrSHA256: job.StderrSHA256,
 			StdoutObservedBytes: job.StdoutObservedBytes,
 			StderrObservedBytes: job.StderrObservedBytes,
-			OutputTruncated:     job.TruncationReason != "", TreeReaped: job.TreeReaped,
+			OutputTruncated:     outputTruncated, TreeReaped: job.TreeReaped,
 			Artifacts: projectedArtifacts,
 			StartedAt: cloneDeliveryTime(job.StartedAt), CompletedAt: cloneDeliveryTime(job.CompletedAt),
 		})
@@ -441,7 +492,7 @@ func (s *StandardCodeDeliveryService) verificationCheckpoint(ctx context.Context
 }
 
 func commandVerificationConclusion(job runner.CommandRuntimeJob, current,
-	artifactsComplete bool, supervisor domain.StandardCodeSupervisorSnapshot,
+	artifactsComplete, outputTruncated bool, supervisor domain.StandardCodeSupervisorSnapshot,
 	backend, backendGeneration string,
 ) (standardcodedelivery.Status, string) {
 	if !current {
@@ -455,7 +506,7 @@ func commandVerificationConclusion(job runner.CommandRuntimeJob, current,
 	if job.Adapter.Backend != backend || commandRuntimeBackendGeneration(job) != backendGeneration {
 		return standardcodedelivery.StatusStale, standardcodedelivery.ReasonBackendDrift
 	}
-	if job.TruncationReason != "" {
+	if outputTruncated {
 		return standardcodedelivery.StatusPartial, standardcodedelivery.ReasonOutputTruncated
 	}
 	if !artifactsComplete {
@@ -652,6 +703,36 @@ func standardCodeDeliveryRequestFingerprint(request StandardCodeDeliveryRecordRe
 		parts = append(parts, item.SummarySHA256)
 	}
 	return runmutation.Fingerprint(parts...)
+}
+
+// The durable fingerprint predates this replay path and binds the effective Job
+// list, not whether it was selected automatically. An empty automatic selection
+// and the same explicit list remain equivalent. Reconstruct that selection and
+// its authority tuple from the sealed receipt, never from mutable current state.
+func matchStandardCodeDeliveryRequest(request StandardCodeDeliveryRecordRequest,
+	operationDigest string, stored standardcodedelivery.Report,
+) error {
+	if err := stored.Validate(); err != nil {
+		return apperror.Normalize(err)
+	}
+	if len(request.VerificationJobIDs) == 0 && request.Declaration == standardcodedelivery.DeclarationNone {
+		for _, verification := range stored.Verifications {
+			request.VerificationJobIDs = append(request.VerificationJobIDs, verification.JobID)
+		}
+	}
+	binding := stored.Binding
+	preset := domain.StandardCodePresetOperation{KeyDigest: binding.PresetOperationSHA256}
+	supervisor := domain.StandardCodeSupervisorSnapshot{
+		PermissionSnapshotID: binding.PermissionSnapshotID, PermissionRevision: binding.PermissionRevision,
+		CapabilityGeneration: binding.CapabilityGenerationSHA256, MutationEpoch: binding.SupervisorMutationEpoch}
+	workspace := drydock.Workspace{ID: binding.DrydockID, Generation: binding.DrydockGeneration}
+	if stored.OperationKeySHA256 != operationDigest || binding.RunID != request.RunID ||
+		stored.RequestFingerprint != standardCodeDeliveryRequestFingerprint(request,
+			preset, supervisor, workspace, operationDigest) {
+		return apperror.New(apperror.CodeConflict,
+			"Standard Code delivery operation key was reused")
+	}
+	return nil
 }
 
 func normalizeStandardCodeDeliveryRequest(request StandardCodeDeliveryRecordRequest) StandardCodeDeliveryRecordRequest {

@@ -70,7 +70,7 @@ func (service *DockerContainerIOService) CaptureLogs(ctx context.Context,
 	}
 	return service.captureLogs(ctx, plan, func(captureCtx context.Context) (io.ReadCloser, error) {
 		return service.transport.AttachLogs(captureCtx, plan)
-	})
+	}, nil)
 }
 
 // CaptureOwnedLogs is the product-safe capture entry. The transport must bind
@@ -78,6 +78,13 @@ func (service *DockerContainerIOService) CaptureLogs(ctx context.Context,
 // before opening the attach stream.
 func (service *DockerContainerIOService) CaptureOwnedLogs(ctx context.Context,
 	request sandbox.DockerContainerLifecycleRequest, plan sandbox.DockerLogCapturePlan,
+) (sandbox.DockerLogCaptureReceipt, bool, error) {
+	return service.captureOwnedLogs(ctx, request, plan, nil)
+}
+
+func (service *DockerContainerIOService) captureOwnedLogs(ctx context.Context,
+	request sandbox.DockerContainerLifecycleRequest, plan sandbox.DockerLogCapturePlan,
+	deliver func(sandbox.DockerLogCaptureReceipt, sandbox.DockerLogOutput) error,
 ) (sandbox.DockerLogCaptureReceipt, bool, error) {
 	if service == nil || service.store == nil || service.transport == nil {
 		return sandbox.DockerLogCaptureReceipt{}, false, errors.New("docker container I/O service is unavailable")
@@ -92,12 +99,13 @@ func (service *DockerContainerIOService) CaptureOwnedLogs(ctx context.Context,
 	}
 	return service.captureLogs(ctx, plan, func(captureCtx context.Context) (io.ReadCloser, error) {
 		return transport.AttachOwnedLogs(captureCtx, request, plan)
-	})
+	}, deliver)
 }
 
 func (service *DockerContainerIOService) captureLogs(ctx context.Context,
 	plan sandbox.DockerLogCapturePlan,
 	open func(context.Context) (io.ReadCloser, error),
+	deliver func(sandbox.DockerLogCaptureReceipt, sandbox.DockerLogOutput) error,
 ) (sandbox.DockerLogCaptureReceipt, bool, error) {
 	if err := plan.Validate(); err != nil {
 		return sandbox.DockerLogCaptureReceipt{}, false, err
@@ -121,7 +129,7 @@ func (service *DockerContainerIOService) captureLogs(ctx context.Context,
 		return sandbox.DockerLogCaptureReceipt{}, false, err
 	}
 	defer stream.Close()
-	records, status, err := sandbox.DecodeDockerLogFrames(captureCtx, plan, stream)
+	records, status, output, err := sandbox.DecodeDockerLogFramesWithOutput(captureCtx, plan, stream)
 	if err != nil {
 		return sandbox.DockerLogCaptureReceipt{}, false, err
 	}
@@ -146,6 +154,11 @@ func (service *DockerContainerIOService) captureLogs(ctx context.Context,
 				errors.New("durable docker log capture replay does not match the plan")
 		}
 		return existing, false, nil
+	}
+	if deliver != nil {
+		if err := deliver(receipt, output); err != nil {
+			return receipt, inserted, err
+		}
 	}
 	return receipt, inserted, nil
 }

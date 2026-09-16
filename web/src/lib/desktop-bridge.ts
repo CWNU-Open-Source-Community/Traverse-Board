@@ -1,4 +1,23 @@
+import { validImageAttachments, type WorkspaceImageAttachment } from "../api/image-attachments";
+import { validFileAttachments, type WorkspaceFileAttachment } from "../api/file-attachments";
+
 export const desktopConnectionProtocol = "desktop_connection_bootstrap.v1";
+export const desktopClipboardFilesProtocol = "desktop_clipboard_files.v1";
+
+export interface DesktopClipboardFilesRequest {
+  version: typeof desktopClipboardFilesProtocol;
+  workspace_id: string;
+  operation_key: string;
+}
+export interface DesktopClipboardFilesResult {
+  version: typeof desktopClipboardFilesProtocol;
+  workspace_id: string;
+  status: "processed" | "empty" | "unsupported" | "partial" | "unknown";
+  batch_complete: boolean;
+  images: WorkspaceImageAttachment[];
+  attachments: WorkspaceFileAttachment[];
+  rejected: Array<{ name: string; code: string; message: string }>;
+}
 export const desktopSkillDialogProtocol = "desktop_skill_package_dialog.v1";
 export const desktopSkillSelectionProtocol = "desktop_file_selection.v1";
 export const desktopSkillPreviewProtocol = "desktop_skill_package_preview.v1";
@@ -277,6 +296,8 @@ export interface DesktopSkillInstallResult {
 
 interface NativeDesktopBridge {
   Bootstrap: () => Promise<unknown>;
+  PasteClipboardFiles?: (request: DesktopClipboardFilesRequest) => Promise<unknown>;
+  InspectClipboardFiles?: (request: DesktopClipboardFilesRequest) => Promise<unknown>;
   ImportWorkspace?: () => Promise<unknown>;
   InstallSkillPackage: (request: DesktopSkillInstallRequest) => Promise<unknown>;
   OpenWorkspace?: (request: DesktopWorkspaceOpenRequest) => Promise<unknown>;
@@ -361,6 +382,51 @@ let bootstrapPromise: Promise<DesktopConnectionBootstrap> | null = null;
 
 export function desktopBridgeAvailable(): boolean {
   return getBridge() !== null;
+}
+
+export function desktopClipboardFilesAvailable(): boolean {
+  const bridge = getBridge();
+  return typeof bridge?.PasteClipboardFiles === "function" && typeof bridge?.InspectClipboardFiles === "function";
+}
+
+const clipboardIdentity = (value: unknown): value is string => typeof value === "string" && /^[\w.-]{1,256}$/u.test(value);
+function clipboardRequest(workspaceID: string, key: string): DesktopClipboardFilesRequest {
+  if (!clipboardIdentity(workspaceID) || !clipboardIdentity(key) || key.length < 16) throw new Error("原生粘贴请求身份无效。");
+  return { version: desktopClipboardFilesProtocol, workspace_id: workspaceID, operation_key: key };
+}
+
+export function parseDesktopClipboardFilesResult(value: unknown, workspaceID: string, inspecting: boolean): DesktopClipboardFilesResult {
+  const invalid = () => new Error("原生粘贴结果无法可靠核对；请保留原请求，尚未加入附件。");
+  if (!isRecord(value) || Object.keys(value).some((key) => !["version", "workspace_id", "status", "batch_complete", "images", "attachments", "rejected"].includes(key)) ||
+    value.version !== desktopClipboardFilesProtocol || value.workspace_id !== workspaceID || typeof value.batch_complete !== "boolean" ||
+    !validImageAttachments(value.images, workspaceID) || !validFileAttachments(value.attachments, workspaceID) ||
+    !Array.isArray(value.rejected) || value.images.length + value.attachments.length + value.rejected.length > 4 ||
+    !value.rejected.every((item) => isRecord(item) && Object.keys(item).length === 3 && typeof item.name === "string" && item.name.length > 0 && [...item.name].length <= 160 &&
+      !/[\u0000-\u001f\u007f/\\]/u.test(item.name) && typeof item.code === "string" && /^[A-Z_]{1,64}$/u.test(item.code) &&
+      typeof item.message === "string" && item.message.length > 0 && item.message.length <= 2048)) throw invalid();
+  const count = value.images.length + value.attachments.length;
+  if (value.status === "unsupported") {
+    if (value.batch_complete || count || value.rejected.length) throw invalid();
+  } else if (inspecting) {
+    if (value.batch_complete || value.rejected.length || (value.status !== "partial" && value.status !== "unknown") ||
+      (value.status === "partial" ? count === 0 : count !== 0)) throw invalid();
+  } else if (!value.batch_complete || (value.status !== "processed" && value.status !== "empty") ||
+    (value.status === "empty" ? count + value.rejected.length !== 0 : count + value.rejected.length === 0)) throw invalid();
+  return value as unknown as DesktopClipboardFilesResult;
+}
+
+export async function pasteDesktopClipboardFiles(workspaceID: string, key: string): Promise<DesktopClipboardFilesResult> {
+  const request = clipboardRequest(workspaceID, key);
+  const bridge = getBridge();
+  if (!bridge?.PasteClipboardFiles || !bridge.InspectClipboardFiles) throw new Error("当前界面不支持原生文件粘贴，请使用选择文件。");
+  return parseDesktopClipboardFilesResult(await bridge.PasteClipboardFiles(request), workspaceID, false);
+}
+
+export async function inspectDesktopClipboardFiles(workspaceID: string, key: string): Promise<DesktopClipboardFilesResult> {
+  const request = clipboardRequest(workspaceID, key);
+  const bridge = getBridge();
+  if (!bridge?.InspectClipboardFiles) throw new Error("当前界面无法核对原生粘贴记录。");
+  return parseDesktopClipboardFilesResult(await bridge.InspectClipboardFiles(request), workspaceID, true);
 }
 
 // desktopIsMacPlatform reports whether the Desktop shell runs inside the

@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -69,7 +68,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) Ready(ctx context.Context,
 	if !e.Available() {
 		return false, nil
 	}
-	workspace, found, err := e.service.store.GetDrydockByRun(ctx, runID)
+	workspace, found, err := readRunFileDrydock(ctx, e.service.store, runID)
 	if err != nil || !found {
 		return false, err
 	}
@@ -117,7 +116,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 	if err != nil {
 		return runner.CommandRuntimeSandboxResult{}, err
 	}
-	workspace, found, err := e.service.store.GetDrydockByRun(ctx, scope.RunID)
+	workspace, found, err := readRunFileDrydock(ctx, e.service.store, scope.RunID)
 	if err != nil || !found {
 		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
 			runner.ErrCommandRuntimeBoundary)
@@ -155,27 +154,23 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 			fmt.Errorf("%w: Run execution lease changed during Docker admission",
 				runner.ErrCommandRuntimeBoundary))
 	}
-	executed, err := e.service.executeCommandRuntime(ctx,
+	executionCtx, output := withDockerCommandRuntimeOutput(ctx, scope.RunID,
+		spec.Spec.Output.ArtifactBytes)
+	executed, err := e.service.executeCommandRuntime(executionCtx,
 		StandardCodeDockerExecuteRequest{
 			RunID: scope.RunID, ExpectedGeneration: workspace.Generation,
 			ExpectedCheckpoint: workspace.LastCheckpointID,
 			PreparationID:      prepared.Preparation.Preparation.ID,
 			ApprovalID:         decision.Approval.ID, OperationKey: baseKey + "-execute",
 			RequestedBy: scope.RootAgentID, Command: command}, lease, stdinPolicy, stdin)
-	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
-	}
 	if !executed.Executed || executed.Result == nil ||
 		executed.Result.Validate() != nil || executed.Result.ExitCode == nil {
-		return runner.CommandRuntimeSandboxResult{}, errors.New(
-			"Docker Standard Code adapter did not return a terminal receipt")
+		return runner.CommandRuntimeSandboxResult{}, errors.Join(err, errors.New(
+			"Docker Standard Code adapter did not return a terminal receipt"))
 	}
-	encoded, err := json.Marshal(executed.Result)
-	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
-	}
-	return runner.CommandRuntimeSandboxResult{ExitCode: *executed.Result.ExitCode,
-		Stdout: append(encoded, '\n'), TreeReaped: true}, nil
+	// An actual terminal failure still carries its bounded captured diagnostics.
+	// No terminal/cleanup receipt above means no success-shaped output is exposed.
+	return output.terminalResult(*executed.Result, err)
 }
 
 func commandRuntimeDockerCommand(spec runner.CommandRuntimeResolvedSpec) (

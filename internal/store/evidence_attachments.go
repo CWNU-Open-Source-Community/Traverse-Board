@@ -75,6 +75,24 @@ func (s *SQLiteStore) GetEvidenceAttachment(ctx context.Context,
 func (s *SQLiteStore) AttachEvidence(ctx context.Context,
 	attachment session.EvidenceAttachment, message session.Message,
 ) (session.EvidenceAttachment, session.Message, bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return session.EvidenceAttachment{}, session.Message{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stored, storedMessage, replayed, err := attachEvidenceTx(ctx, tx, attachment, message)
+	if err != nil {
+		return session.EvidenceAttachment{}, session.Message{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return session.EvidenceAttachment{}, session.Message{}, false, err
+	}
+	return stored, storedMessage, replayed, nil
+}
+
+func attachEvidenceTx(ctx context.Context, tx *sql.Tx,
+	attachment session.EvidenceAttachment, message session.Message,
+) (session.EvidenceAttachment, session.Message, bool, error) {
 	if attachment.SessionMessageID != 0 || attachment.EventSequence != 0 ||
 		message.ID != 0 || message.SessionID != attachment.SessionID ||
 		message.Role != "tool" || message.Provenance.Version != session.ContextProvenanceVersion ||
@@ -108,11 +126,6 @@ func (s *SQLiteStore) AttachEvidence(ctx context.Context,
 	}
 	message = preparedMessage
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return session.EvidenceAttachment{}, session.Message{}, false, err
-	}
-	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(ctx, `UPDATE runs SET updated_at = updated_at WHERE id = ?`,
 		attachment.RunID)
 	if err != nil {
@@ -142,9 +155,6 @@ func (s *SQLiteStore) AttachEvidence(ctx context.Context,
 		}
 		if bindErr := validateEvidenceMessageBinding(existing, storedMessage); bindErr != nil {
 			return session.EvidenceAttachment{}, session.Message{}, false, bindErr
-		}
-		if err := tx.Commit(); err != nil {
-			return session.EvidenceAttachment{}, session.Message{}, false, err
 		}
 		return existing, storedMessage, true, nil
 	}
@@ -208,9 +218,6 @@ func (s *SQLiteStore) AttachEvidence(ctx context.Context,
 		attachment.WorkspaceID, attachment.SourceKind, attachment.SourceRef,
 		attachment.ContentSHA256, attachment.SessionMessageID, attachment.AttachedBy,
 		attachment.EventSequence, ts(attachment.CreatedAt)); err != nil {
-		return session.EvidenceAttachment{}, session.Message{}, false, err
-	}
-	if err := tx.Commit(); err != nil {
 		return session.EvidenceAttachment{}, session.Message{}, false, err
 	}
 	return attachment, storedMessage, false, nil

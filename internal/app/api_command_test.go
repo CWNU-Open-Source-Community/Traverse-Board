@@ -120,6 +120,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	go func() {
 		done <- ExecuteContext(ctx, []string{
 			"api", "serve", "--listen", "127.0.0.1:0",
+			"--enable-workspace-import",
 			"--enable-permission-control", "--enable-danger-full-access",
 			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
@@ -139,6 +140,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "api_token_source: "+apiTokenEnvironment) ||
 		!strings.Contains(output, "api_token_generated: false") ||
 		!strings.Contains(output, "api_control_enabled: true") ||
+		!strings.Contains(output, "workspace_import_enabled: true") ||
 		!strings.Contains(output, "api_control_token_source: "+apiControlTokenEnvironment) ||
 		!strings.Contains(output, "execution_permission_control_enabled: true") ||
 		!strings.Contains(output, "operator_approval_enabled: true") ||
@@ -180,6 +182,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	capabilityBody, readErr := io.ReadAll(capabilityResponse.Body)
 	_ = capabilityResponse.Body.Close()
 	if readErr != nil || capabilityResponse.StatusCode != http.StatusOK ||
+		!bytes.Contains(capabilityBody, []byte(`"workspace_import_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"execution_permission_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
@@ -193,6 +196,33 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			[]byte(`"batch_delivery_host_validation_enabled":true`)) {
 		t.Fatalf("execution permission capability is not wired by api serve: status=%d body=%s err=%v",
 			capabilityResponse.StatusCode, capabilityBody, readErr)
+	}
+
+	selected := t.TempDir()
+	importBody, err := json.Marshal(httpapi.WorkspaceImportRequestView{
+		Version: httpapi.WorkspaceImportProtocolVersion, DirectoryPath: selected, Confirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	importRequest, err := http.NewRequest(http.MethodPost, baseURL+"/workspaces/import", bytes.NewReader(importBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	importRequest.Header.Set("Authorization", "Bearer "+controlToken)
+	importRequest.Header.Set("Content-Type", "application/json")
+	importResponse, err := (&http.Client{Timeout: 2 * time.Second}).Do(importRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importResult, err := io.ReadAll(importResponse.Body)
+	_ = importResponse.Body.Close()
+	if err != nil || importResponse.StatusCode != http.StatusOK ||
+		!bytes.Contains(importResult, []byte(`"directory_content_modified":false`)) {
+		t.Fatalf("CLI import is not wired: status=%d body=%s err=%v", importResponse.StatusCode, importResult, err)
+	}
+	entries, err := os.ReadDir(selected)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("CLI import wrote selected directory: %#v %v", entries, err)
 	}
 
 	messageRequest, err := http.NewRequest(http.MethodPost,
@@ -254,6 +284,16 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 	if code != 2 || !strings.Contains(stderr.String(),
 		"require CYBERAGENT_API_CONTROL_TOKEN") {
 		t.Fatalf("missing control token stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-workspace-import",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"--enable-workspace-import requires CYBERAGENT_API_CONTROL_TOKEN") {
+		t.Fatalf("workspace import accepted missing control token: stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 	stdout.Reset()

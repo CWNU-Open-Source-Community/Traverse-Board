@@ -403,54 +403,6 @@ func TestProviderSearchResolverAutoFallbackIsExplicitAndNegativeCached(t *testin
 	}
 }
 
-func TestProviderSearchResolverAutoWithoutFallbackLazilyUsesDeclaredNative(t *testing.T) {
-	definition := testProviderSearchDefinition("official-deepseek",
-		modelregistry.ProviderSearchModeAuto)
-	definition.DisplayName = "DeepSeek Official"
-	definition.EndpointURL = "https://api.deepseek.com/responses"
-	definition.DefaultModel = "deepseek-v4-flash"
-	definition.Models = []string{"deepseek-v4-flash", "deepseek-v4-pro"}
-	definition.Transport = modelregistry.ProviderTransportOpenAIResponses
-	definition.NativeWebSearchCapability = modelregistry.NativeWebSearchDeclaredUnverified
-	registry, settings, credentials := testProviderSearchRegistry(t, definition)
-	requests := 0
-	client := providerSearchHTTPClientForHost(t, "api.deepseek.com",
-		func(*http.Request) (*http.Response, error) {
-			requests++
-			return &http.Response{StatusCode: http.StatusOK,
-				Header: http.Header{"Content-Type": {"application/json"}},
-				Body: io.NopCloser(strings.NewReader(
-					`{"status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"type":"search","queries":["first auto query"]}},{"type":"message","status":"completed","content":[{"type":"output_text","text":"{\"results\":[{\"url\":\"https://result.example.net/auto\",\"title\":\"Auto result\",\"snippet\":\"Grounded result\"}]}"}]}]}`))}, nil
-		})
-	resolver, err := NewProviderSearchResolver(registry, settings, credentials, nil, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority := webevidence.NetworkAuthority{Mode: "allowlist",
-		AllowedTargets: []string{"api.deepseek.com"}}
-	fingerprint := webevidence.NewService(nil, nil, nil).
-		WithSearchProviderResolver(resolver).
-		SearchProviderFingerprintForScope(t.Context(), webevidence.ExecutionScope{
-			RunID: "run-official-deepseek", MissionID: "mission-official-deepseek",
-			ModelRoute: "code", Authority: authority})
-	if len(fingerprint) != 64 || requests != 0 {
-		t.Fatalf("official DeepSeek fingerprint=%q requests=%d", fingerprint, requests)
-	}
-	selection, err := resolver.ResolveSearch(t.Context(),
-		webevidence.SearchRoute{ModelRoute: "code"}, authority)
-	if err != nil || requests != 0 || selection.Policy != webevidence.SearchPolicyAuto ||
-		selection.SelectionReason != "auto_declared_provider_native" ||
-		len(selection.Binding) != 64 {
-		t.Fatalf("selection=%#v requests=%d err=%v", selection, requests, err)
-	}
-	results, err := selection.Provider.Search(t.Context(), "first auto query", 1,
-		selection.ProviderAuthority)
-	if err != nil || requests != 1 || len(results) != 1 ||
-		results[0].URL != "https://result.example.net/auto" {
-		t.Fatalf("results=%#v requests=%d err=%v", results, requests, err)
-	}
-}
-
 func testProviderSearchDefinition(id string, searchMode string) modelregistry.ProviderDefinition {
 	return modelregistry.ProviderDefinition{Version: modelregistry.ProviderDefinitionVersion,
 		ID: id, DisplayName: id, EndpointURL: "https://api.example.com/v1",

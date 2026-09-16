@@ -14,9 +14,13 @@ import (
 // threadActivityFileEditPreviewStore is deliberately optional so legacy and
 // diagnostic stores can still project old activity rows. Production SQLite
 // implements it and therefore advertises a diff only after the durable edit is
-// found and rebound to the exact Run Session and Mission Workspace.
+// found and rebound to the exact Run Session and original workspace ownership.
 type threadActivityFileEditPreviewStore interface {
 	GetFileEditPreview(context.Context, string) (fileedit.Preview, error)
+}
+
+type threadActivityFileEditOwnershipStore interface {
+	FileEditWorkspaceBelongsToRun(context.Context, string, string, string) (bool, error)
 }
 
 func (s *ThreadActivityDetailService) enrichThreadActivityFileEdit(ctx context.Context,
@@ -41,8 +45,14 @@ func (s *ThreadActivityDetailService) enrichThreadActivityFileEdit(ctx context.C
 	if err != nil {
 		return apperror.Normalize(err)
 	}
-	if preview.ID != detail.EditID || preview.SessionID != run.SessionID ||
-		preview.WorkspaceID != mission.WorkspaceID {
+	belongs := preview.WorkspaceID == mission.WorkspaceID
+	if ownership, ok := s.store.(threadActivityFileEditOwnershipStore); ok {
+		belongs, err = ownership.FileEditWorkspaceBelongsToRun(ctx, run.ID, preview.SessionID, preview.WorkspaceID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+	}
+	if preview.ID != detail.EditID || preview.SessionID != run.SessionID || !belongs {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"durable Thread file-edit diff has an inconsistent Run binding")
 	}

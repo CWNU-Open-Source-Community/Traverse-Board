@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
@@ -24,6 +27,34 @@ func TestThreadRunRecoveryViewDoesNotExposeRawFailureText(t *testing.T) {
 	if view.ErrorCode != "durable_failure" || view.StopReason != "durable_failure" ||
 		view.Detail == "" || strings.Contains(view.Detail, "结束旧 Run") {
 		t.Fatalf("raw recovery failure escaped its allowlist: %#v", view)
+	}
+}
+
+func TestThreadRunRecoveryViewDoesNotGuessFailureCause(t *testing.T) {
+	for _, test := range []struct {
+		code, want string
+	}{
+		{"failed_precondition", "执行条件未满足"},
+		{"unavailable", "服务或运行环境暂不可用"},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			view := threadRunRecoveryView(domain.ThreadRunRecovery{
+				ProtocolVersion: domain.ThreadRunRecoveryProtocolVersion,
+				RunID:           "run-recovery-test", HandoffOperationID: "handoff-recovery-test",
+				ErrorCode: test.code, StopReason: "internal-provider-secret",
+				Detail: "internal raw cause must not be exposed", Quiescent: true,
+			})
+			if view.ErrorCode != test.code || view.StopReason != test.code ||
+				view.RunID != "run-recovery-test" || !view.Quiescent ||
+				!strings.Contains(view.Detail, test.want) {
+				t.Fatalf("recovery identity or actionable generic cause lost: %#v", view)
+			}
+			for _, unsupported := range []string{"固定权限", "模型或运行配置", "新模型", "模型服务", "internal"} {
+				if strings.Contains(view.Detail, unsupported) {
+					t.Fatalf("generic failure inferred or exposed a cause: %q", view.Detail)
+				}
+			}
+		})
 	}
 }
 
@@ -285,14 +316,114 @@ func TestThreadTurnHTTPFailsClosedWithoutEveryExistingExecutionCapability(t *tes
 }
 
 type threadTurnControllerStub struct {
-	request application.ExecuteThreadTurnRequest
-	result  application.ExecuteThreadTurnResult
-	err     error
+	request                application.ExecuteThreadTurnRequest
+	result                 application.ExecuteThreadTurnResult
+	err                    error
+	delay                  time.Duration
+	interruptedThreadID    string
+	interruptedExecutionID string
 }
 
-func (s *threadTurnControllerStub) Execute(_ context.Context,
+func (s *threadTurnControllerStub) ExecutionState(_ context.Context, threadID string) (application.ThreadExecutionState, error) {
+	return application.ThreadExecutionState{Version: application.ThreadExecutionProtocolVersion,
+		ThreadID: threadID, State: "idle"}, nil
+}
+
+func (s *threadTurnControllerStub) Interrupt(_ context.Context, threadID, executionID string) (application.ThreadExecutionState, error) {
+	s.interruptedThreadID, s.interruptedExecutionID = threadID, executionID
+	return application.ThreadExecutionState{Version: application.ThreadExecutionProtocolVersion,
+		ThreadID: threadID, ExecutionID: executionID, State: "stopping"}, nil
+}
+
+func TestThreadInterruptHTTPRequiresControlAndExactRequestShape(t *testing.T) {
+	fixture := newAPIFixture(t)
+	threadRecord, err := fixture.store.GetThreadByRun(t.Context(), fixture.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &threadTurnControllerStub{}
+	api, err := New(fixture.store, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
+		RunCreationEnabled: true, SessionMessageEnabled: true, RunLifecycleEnabled: true, RunExecutionEnabled: true,
+		RunLifecycleController: application.NewRunLifecycleControlService(fixture.store),
+		RunExecutionController: runExecutionControllerFake{}, ThreadTurnController: controller})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := ThreadCollectionPath + "/" + threadRecord.ID + "/interrupt"
+	body := `{"version":"thread_execution.v1","execution_id":"thread-execution-current"}`
+	response := performSessionMessageRequest(t, api, http.MethodPost, path, testAccessToken,
+		"thread-stop-http-operation-0001", "application/json", strings.NewReader(body))
+	if response.Code < 400 || controller.interruptedExecutionID != "" {
+		t.Fatal("read token stopped execution")
+	}
+	response = performSessionMessageRequest(t, api, http.MethodPost, path, testControlToken,
+		"thread-stop-http-operation-0002", "application/json",
+		strings.NewReader(`{"version":"thread_execution.v1","execution_id":"thread-execution-current","run_id":"another-run"}`))
+	if response.Code != http.StatusBadRequest || controller.interruptedExecutionID != "" {
+		t.Fatal("unknown control field was accepted")
+	}
+	response = performSessionMessageRequest(t, api, http.MethodPost, path, testControlToken,
+		"thread-stop-http-operation-0003", "application/json", strings.NewReader(body))
+	var state application.ThreadExecutionState
+	decodeDataStatus(t, response, http.StatusAccepted, &state)
+	if controller.interruptedThreadID != threadRecord.ID || controller.interruptedExecutionID != "thread-execution-current" ||
+		state.State != "stopping" || state.CapabilityGrant {
+		t.Fatalf("stop projection=%#v", state)
+	}
+	response = performSessionMessageRequest(t, api, http.MethodGet, ThreadCollectionPath+"/"+threadRecord.ID+"/execution",
+		testAccessToken, "", "", nil)
+	decodeDataStatus(t, response, http.StatusOK, &state)
+	if state.ThreadID != threadRecord.ID || state.State != "idle" {
+		t.Fatalf("read projection=%#v", state)
+	}
+}
+
+func (s *threadTurnControllerStub) Execute(ctx context.Context,
 	request application.ExecuteThreadTurnRequest,
 ) (application.ExecuteThreadTurnResult, error) {
 	s.request = request
+	if s.delay > 0 {
+		select {
+		case <-time.After(s.delay):
+		case <-ctx.Done():
+			return application.ExecuteThreadTurnResult{}, ctx.Err()
+		}
+	}
 	return s.result, s.err
+}
+
+func TestThreadTurnHTTPRespondsAfterOrdinaryWriteTimeout(t *testing.T) {
+	fixture := newAPIFixture(t)
+	controller := &threadTurnControllerStub{delay: 100 * time.Millisecond}
+	api, err := New(fixture.store, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
+		RunCreationEnabled: true, SessionMessageEnabled: true, RunLifecycleEnabled: true, RunExecutionEnabled: true,
+		RunLifecycleController: application.NewRunLifecycleControlService(fixture.store),
+		RunExecutionController: runExecutionControllerFake{}, ThreadTurnController: controller})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(api)
+	server.Config.WriteTimeout = 20 * time.Millisecond
+	server.Start()
+	defer server.Close()
+	request, err := http.NewRequest(http.MethodPost, server.URL+ThreadCollectionPath+"/thread-timeout/turns",
+		strings.NewReader(`{"version":"thread_message_submission.v1","content":"long turn"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+testControlToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "thread-long-response-operation-0001")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusAccepted {
+		t.Fatalf("lost long turn response: status=%d err=%v body=%s", response.StatusCode, err, body)
+	}
+	if server.Config.WriteTimeout != 20*time.Millisecond {
+		t.Fatal("Thread handler changed the global HTTP timeout")
+	}
 }

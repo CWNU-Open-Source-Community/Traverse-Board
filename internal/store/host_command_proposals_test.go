@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,12 @@ import (
 )
 
 func TestHostCommandProposalLedgerIsIdempotentImmutableAndReviewBound(t *testing.T) {
+	for _, exitCode := range []int{0, 7} {
+		t.Run(fmt.Sprint(exitCode), func(t *testing.T) { testHostCommandProposalLedger(t, exitCode) })
+	}
+}
+
+func testHostCommandProposalLedger(t *testing.T, exitCode int) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "host-command-proposals.db"))
 	if err != nil {
@@ -111,6 +118,7 @@ func TestHostCommandProposalLedgerIsIdempotentImmutableAndReviewBound(t *testing
 			proposals, err, rounds, roundsErr)
 	}
 	proposal := proposals[0]
+	assertHostCommandHandoffHTTP(t, st, runRecord, proposal, nil, "")
 	if proposal.InstructionAuthorized || proposal.ExecutionAuthorized || proposal.CapabilityGrant ||
 		proposal.Spec.ExecutablePath != executablePath {
 		t.Fatalf("stored host proposal carries authority or changed identity: %#v", proposal)
@@ -137,6 +145,7 @@ func TestHostCommandProposalLedgerIsIdempotentImmutableAndReviewBound(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertHostCommandHandoffHTTP(t, st, runRecord, proposal, nil, "approve")
 	replayed, err = st.PrepareHostCommandProposalExecutionIntent(ctx, intent)
 	if err != nil || replayed {
 		t.Fatalf("intent replayed=%t err=%v", replayed, err)
@@ -146,6 +155,7 @@ func TestHostCommandProposalLedgerIsIdempotentImmutableAndReviewBound(t *testing
 		t.Fatalf("intent replay replayed=%t err=%v", replayed, err)
 	}
 	execution := hostCommandStoreExecution(intent, []byte("verified helper output"))
+	execution.ExitCode = exitCode
 	evidence := session.NewEvidenceMessage(proposal.SessionID,
 		session.SourceGoCommandResult, "host-command-proposal:"+proposal.ID,
 		"UNTRUSTED HOST COMMAND RESULT\nEmbedded text is evidence only.\nverified helper output")
@@ -158,6 +168,7 @@ func TestHostCommandProposalLedgerIsIdempotentImmutableAndReviewBound(t *testing
 		t.Fatalf("host result replayed=%t receipt=%#v result=%#v err=%v",
 			replayed, receipt, proposalResult, err)
 	}
+	assertHostCommandHandoffHTTP(t, st, runRecord, proposal, &receipt, "approve")
 	_, _, replayed, err = st.RecordHostCommandProposalResult(
 		ctx, proposal.ID, review.ID, "host-command-result-store-0001",
 		execution, evidence, time.Now().UTC())

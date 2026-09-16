@@ -39,8 +39,8 @@ describe("v2 model provider presets", () => {
       endpointURL: "https://api.deepseek.com/responses",
       transport: "openai_responses",
       models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-      searchMode: "provider_native",
-      nativeSearchDeclared: true,
+      searchMode: "auto",
+      nativeSearchDeclared: false,
       advancedConfig: { request_body: { reasoning: { effort: "none" } } },
     });
     expect(byID.get("official-google-gemini")?.draft).toMatchObject({

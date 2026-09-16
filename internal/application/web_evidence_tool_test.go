@@ -283,6 +283,33 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 		replay.Metadata["replayed"] != "true" || result.Metadata["replayed"] != "false" {
 		t.Fatalf("replay=%#v original=%#v calls=%d err=%v", replay, result, backend.calls, err)
 	}
+	pageExecutor, err := application.NewWebEvidenceToolExecutor(state, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageExecutor.WithWebFetchAuthorizationScheduler(true)
+	pageCapability := capabilityContext
+	pageCapability.InlineWebFetchApprovalAvailable = true
+	pageScope := scope
+	pageScope.OperationKey = "application-saved-page-operation"
+	pageScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(pageCapability).Generation
+	pagePayload, _ := json.Marshal(map[string]any{"version": "web_fetch.v1",
+		"source_id": result.Metadata["source_id"], "snapshot_id": result.Metadata["snapshot_id"],
+		"offset": 8, "limit": 7})
+	page, err := pageExecutor.ExecuteWebEvidence(ctx, pageScope, toolgateway.WebFetchTool, pagePayload)
+	if err != nil || backend.calls != 1 || !strings.Contains(page.Content, `"body":"bounded"`) ||
+		page.Metadata["snapshot_read"] != "true" || page.Metadata["network_called"] != "false" ||
+		page.Metadata["digest"] != result.Metadata["digest"] || page.Metadata["stale"] != "true" {
+		t.Fatalf("saved page changed source or performed another fetch/approval: %+v calls=%d err=%v", page, backend.calls, err)
+	}
+	pageReplay, err := pageExecutor.ExecuteWebEvidence(ctx, pageScope, toolgateway.WebFetchTool, pagePayload)
+	if err != nil || backend.calls != 1 || pageReplay.Content != page.Content {
+		t.Fatalf("saved page replay changed content or fetched: %+v calls=%d err=%v", pageReplay, backend.calls, err)
+	}
+	pageScope.ModeRevision++
+	if _, err := pageExecutor.ExecuteWebEvidence(ctx, pageScope, toolgateway.WebFetchTool, pagePayload); apperror.CodeOf(err) != apperror.CodeFailedPrecondition || backend.calls != 1 {
+		t.Fatalf("saved page bypassed current authority: calls=%d err=%v", backend.calls, err)
+	}
 
 	stale := scope
 	stale.InvocationID = "web-invocation-2"

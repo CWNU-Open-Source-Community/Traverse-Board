@@ -20,9 +20,11 @@ const (
 )
 
 type modelStreamResult struct {
-	Response *llm.ChatResponse
-	Events   int
-	Bytes    int
+	Response      *llm.ChatResponse
+	Events        int
+	Bytes         int
+	Usage         *llm.Usage
+	ToolCallCount int
 }
 
 type modelStreamAggregator struct {
@@ -43,6 +45,8 @@ type modelStreamAggregator struct {
 	stream            *llm.ItemStreamAccumulator
 	streamSequence    int
 	pendingBoundaries []llm.StreamBoundary
+	observedUsage     *llm.Usage
+	observedToolCalls int
 }
 
 func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, ref llm.ModelRef, request llm.ChatRequest, live *activeCallLease) (modelStreamResult, error) {
@@ -65,7 +69,34 @@ func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.Super
 	return aggregator.consume(ctx, chunks)
 }
 
-func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.ChatChunk) (modelStreamResult, error) {
+func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.ChatChunk) (result modelStreamResult, failure error) {
+	defer func() {
+		if failure == nil {
+			return
+		}
+		// Stop must not wait for a provider that ignores cancellation. It may,
+		// however, have already delivered a terminal receipt behind a rejected
+		// text chunk. Drain only immediately available chunks, with a bound, and
+		// retain their accounting without publishing text or accepting tools.
+		for i := 0; i < 128; i++ {
+			select {
+			case chunk, open := <-chunks:
+				if !open {
+					result.Usage, result.ToolCallCount = a.observedUsage, a.observedToolCalls
+					return
+				}
+				a.observeUsage(chunk)
+				if chunk.Done {
+					result.Usage, result.ToolCallCount = a.observedUsage, a.observedToolCalls
+					return
+				}
+			default:
+				result.Usage, result.ToolCallCount = a.observedUsage, a.observedToolCalls
+				return
+			}
+		}
+		result.Usage, result.ToolCallCount = a.observedUsage, a.observedToolCalls
+	}()
 	if chunks == nil {
 		return a.result(nil), llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider, "returned a nil stream", nil)
 	}
@@ -108,6 +139,9 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			streamErr := llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider, "stream closed before a final chunk", nil)
 			return a.result(nil), modelStreamFailure(streamErr, flushErr)
 		}
+		// Preserve received accounting independently of public output. Stop or
+		// an invalid item/tool can reject that output after usage has arrived.
+		a.observeUsage(chunk)
 		normalized, itemEvents, itemErr := a.stream.Consume(chunk)
 		if itemErr != nil {
 			_ = a.acceptStreamEvents(a.stream.Abort(llm.OutcomeInvalidResponse))
@@ -117,6 +151,7 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			return a.result(nil), modelStreamFailure(streamErr, flushErr)
 		}
 		chunk = normalized
+		a.observeUsage(chunk)
 		if err := a.acceptStreamEvents(itemEvents); err != nil {
 			return a.result(nil), err
 		}
@@ -288,8 +323,17 @@ func (a *modelStreamAggregator) flush(done bool) error {
 	return nil
 }
 
+func (a *modelStreamAggregator) observeUsage(chunk llm.ChatChunk) {
+	if chunk.Done && chunk.Usage != nil && chunk.Usage.Validate() == nil {
+		usage := *chunk.Usage
+		a.observedUsage = &usage
+		a.observedToolCalls = len(chunk.ToolCalls)
+	}
+}
+
 func (a *modelStreamAggregator) result(response *llm.ChatResponse) modelStreamResult {
-	return modelStreamResult{Response: response, Events: a.events, Bytes: a.durableBytes}
+	return modelStreamResult{Response: response, Events: a.events, Bytes: a.durableBytes,
+		Usage: a.observedUsage, ToolCallCount: a.observedToolCalls}
 }
 
 func modelStreamFailure(primary error, persistence error) error {

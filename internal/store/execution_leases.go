@@ -46,7 +46,13 @@ func (s *SQLiteStore) AcquireRunExecutionLease(ctx context.Context,
 		return domain.RunExecutionLeaseAcquisition{}, apperror.New(apperror.CodeFailedPrecondition,
 			fmt.Sprintf("run %s is terminal as %s", run.ID, run.Status))
 	}
+	if err := requireNoOpenWorkspaceRestoreTx(ctx, tx, run.ID); err != nil {
+		return domain.RunExecutionLeaseAcquisition{}, err
+	}
 	now := time.Now().UTC()
+	if err := requireDrydockExecutionAdmissionTx(ctx, tx, run.ID, now); err != nil {
+		return domain.RunExecutionLeaseAcquisition{}, err
+	}
 	current, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
 	if err != nil {
 		return domain.RunExecutionLeaseAcquisition{}, err
@@ -154,6 +160,9 @@ func (s *SQLiteStore) RenewRunExecutionLease(ctx context.Context, expected domai
 	if !found || !sameRunExecutionLease(current, expected) || !current.ActiveAt(now) {
 		return domain.RunExecutionLease{}, apperror.New(apperror.CodeConflict,
 			"run execution lease was lost or expired before renewal")
+	}
+	if err := requireDrydockExecutionAdmissionTx(ctx, tx, expected.RunID, now); err != nil {
+		return domain.RunExecutionLease{}, err
 	}
 	current.RenewedAt = now
 	current.ExpiresAt = now.Add(ttl)

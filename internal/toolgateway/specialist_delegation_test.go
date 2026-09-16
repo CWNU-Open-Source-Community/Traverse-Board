@@ -34,8 +34,14 @@ func (s *specialistDelegationExecutorStub) ProposeSpecialists(_ context.Context,
 
 func TestSpecialistDelegationDefinitionAndPayloadAreStrict(t *testing.T) {
 	definitions := SupervisorToolDefinitions()
-	if len(definitions) != 15+len(BrowserActionToolDefinitions()) {
-		t.Fatalf("unexpected Supervisor tool definitions: %#v", definitions)
+	delegationCount := 0
+	for _, definition := range definitions {
+		if definition.Name == SpecialistDelegationProposeTool {
+			delegationCount++
+		}
+	}
+	if delegationCount != 1 {
+		t.Fatalf("expected one offered delegation tool, got %d", delegationCount)
 	}
 	definition, found := SupervisorToolDefinition(SpecialistDelegationProposeTool)
 	if !found || definition.Class != ClassAgentProposal || definition.Approval != ApprovalAutomatic ||

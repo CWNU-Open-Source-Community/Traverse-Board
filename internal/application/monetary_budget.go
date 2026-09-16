@@ -24,6 +24,10 @@ type MonetaryBudgetStore interface {
 	ReleaseOpenMonetaryReservations(context.Context, string) (int, error)
 }
 
+type monetaryReservationPriceStore interface {
+	ModelReservationPrice(context.Context, string, string, int64) (pricing.Entry, bool, error)
+}
+
 // MonetaryBudgetService composes the operator price snapshot with the
 // durable run aggregate. Reserve computes the upper-bound cost before a
 // model call; settle closes it with actual usage; release returns the
@@ -75,7 +79,7 @@ func (s *MonetaryBudgetService) ReserveModelCall(ctx context.Context, run domain
 	}
 	usage, _, err := s.store.ReserveModelCost(ctx, domain.MonetaryReserveRequest{
 		RunID: run.ID, Scope: scope, Provider: attempt.Provider, Model: attempt.Model,
-		AttemptNumber: int64(attempt.Number), ReservedMicros: reserve,
+		AttemptNumber: attempt.MonetaryAttemptNumber(), ReservedMicros: reserve,
 		PriceFingerprint: snapshot.Fingerprint,
 		EstimateSource:   pricing.ProtocolVersion + "/" + snapshot.ID,
 	})
@@ -85,26 +89,52 @@ func (s *MonetaryBudgetService) ReserveModelCall(ctx context.Context, run domain
 	return usage, nil
 }
 
-// SettleModelCall closes one reservation with the actual usage cost. When
-// the active snapshot no longer carries the model's entry, the settlement
-// conservatively charges the full reservation instead of under-counting.
+// SettleModelCall prices received usage against the immutable snapshot used
+// for this reservation. Older embedders can use their active price table; a
+// missing price conservatively retains the full reserved estimate.
 func (s *MonetaryBudgetService) SettleModelCall(ctx context.Context, runID, scope string,
 	attempt llm.ModelAttempt, usage llm.Usage, toolCallCount int,
 ) (domain.MonetaryUsage, error) {
 	if s == nil || s.store == nil {
 		return domain.MonetaryUsage{}, nil
 	}
+	if usage.Validate() != nil || (usage.InputTokens == 0 && usage.OutputTokens == 0) ||
+		(usage.TotalTokens > usage.InputTokens && usage.TotalTokens-usage.InputTokens > usage.OutputTokens) {
+		return s.SettleUnknownModelCall(ctx, runID, scope, attempt)
+	}
 	actual := int64(math.MaxInt64)
-	if snapshot, found, err := s.store.ActivePriceSnapshot(ctx); err == nil && found &&
-		snapshot.Active(s.now()) {
-		if entry, ok := snapshot.Lookup(attempt.Provider, attempt.Model); ok {
-			actual = entry.EstimateCost(int64(usage.InputTokens), int64(usage.OutputTokens), 0,
-				int64(toolCallCount))
+	var entry pricing.Entry
+	var priced bool
+	if pinned, ok := s.store.(monetaryReservationPriceStore); ok {
+		var err error
+		entry, priced, err = pinned.ModelReservationPrice(ctx, runID, scope, attempt.MonetaryAttemptNumber())
+		if err != nil {
+			return domain.MonetaryUsage{}, apperror.Normalize(err)
 		}
+	} else if snapshot, found, err := s.store.ActivePriceSnapshot(ctx); err == nil && found && snapshot.Active(s.now()) {
+		entry, priced = snapshot.Lookup(attempt.Provider, attempt.Model)
+	}
+	if priced && (entry.Provider != attempt.Provider || entry.Model != attempt.Model) {
+		return domain.MonetaryUsage{}, apperror.New(apperror.CodeConflict,
+			"model identity differs from its monetary reservation")
+	}
+	if priced && toolCallCount >= 0 {
+		actual = entry.EstimateCost(int64(usage.InputTokens), int64(usage.OutputTokens), 0,
+			int64(toolCallCount))
 	}
 	return s.settle(ctx, domain.MonetarySettleRequest{
-		RunID: runID, Scope: scope, AttemptNumber: int64(attempt.Number), ActualMicros: actual,
+		RunID: runID, Scope: scope, AttemptNumber: attempt.MonetaryAttemptNumber(), ActualMicros: actual,
 	})
+}
+
+// A sent request with unknown usage is not known to be free. Keep its durable
+// ceiling as a conservative local estimate, not a provider billing receipt.
+func (s *MonetaryBudgetService) SettleUnknownModelCall(ctx context.Context, runID, scope string, attempt llm.ModelAttempt) (domain.MonetaryUsage, error) {
+	if s == nil || s.store == nil {
+		return domain.MonetaryUsage{}, nil
+	}
+	return s.settle(ctx, domain.MonetarySettleRequest{RunID: runID, Scope: scope,
+		AttemptNumber: attempt.MonetaryAttemptNumber(), ActualMicros: math.MaxInt64})
 }
 
 func (s *MonetaryBudgetService) settle(ctx context.Context,
@@ -126,7 +156,7 @@ func (s *MonetaryBudgetService) ReleaseModelCall(ctx context.Context, runID, sco
 		return domain.MonetaryUsage{}, nil
 	}
 	usage, _, err := s.store.ReleaseModelCost(ctx, domain.MonetaryReleaseRequest{
-		RunID: runID, Scope: scope, AttemptNumber: int64(attempt.Number),
+		RunID: runID, Scope: scope, AttemptNumber: attempt.MonetaryAttemptNumber(),
 	})
 	if err != nil {
 		return domain.MonetaryUsage{}, apperror.Normalize(err)
@@ -157,24 +187,35 @@ func (s *MonetaryBudgetService) ReleaseOpenReservations(ctx context.Context, run
 	return apperror.Normalize(err)
 }
 
-// estimateModelRequestBytes is the conservative input upper bound: every
-// BPE token occupies at least one byte, so the serialized request size can
-// never under-count the input tokens.
+// estimateModelRequestBytes uses serialized text and complete tool schemas as
+// a conservative local token allowance. Images use the same explicit planning
+// estimate as the model window; this is not a provider billing calculator.
 func estimateModelRequestBytes(request llm.ChatRequest) int64 {
-	raw, err := json.Marshal(request.Messages)
-	if err == nil {
-		return int64(len(raw)) + int64(len(request.Tools))*128
-	}
 	total := int64(0)
-	for _, message := range request.Messages {
-		total += int64(len(message.Content))
-		for _, call := range message.ToolCalls {
-			total += int64(len(call.Name) + len(call.Arguments))
+	if raw, err := json.Marshal(request.Messages); err == nil {
+		total = int64(len(raw))
+	} else {
+		for _, message := range request.Messages {
+			total += int64(len(message.Content) + len(message.Role) + 64)
+			for _, call := range message.ToolCalls {
+				total += int64(len(call.Name) + len(call.Arguments) + len(call.ID) + 64)
+			}
+			for _, result := range message.ToolResults {
+				total += int64(len(result.Content) + 128)
+			}
 		}
-		for _, result := range message.ToolResults {
-			total += int64(len(result.Content))
+	}
+	for _, message := range request.Messages {
+		for _, part := range message.Images {
+			total += int64(llm.EstimateImageTokens(part))
+		}
+	}
+	if raw, err := json.Marshal(request.Tools); err == nil {
+		total += int64(len(raw))
+	} else {
+		for _, tool := range request.Tools {
+			total += int64(len(tool.Name) + len(tool.Description) + len(tool.Parameters) + 128)
 		}
 	}
 	return total + int64(len(request.Tools))*128
 }
-

@@ -20,11 +20,28 @@ import (
 )
 
 func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *testing.T) {
+	for _, targetPath := range []string{"note.txt", "test/nested/note.txt"} {
+		t.Run(targetPath, func(t *testing.T) { testAgentCodeReviewedCreate(t, targetPath) })
+	}
+}
+
+func testAgentCodeReviewedCreate(t *testing.T, targetPath string) {
 	ctx := context.Background()
 	home := t.TempDir()
 	workspaceRoot := filepath.Join(home, "workspace")
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if targetPath != "note.txt" {
+		// A normal npm command can leave this zero-byte file. It must remain
+		// representable in the pre-apply checkpoint without blocking the edit.
+		cache := filepath.Join(workspaceRoot, ".npm-cache")
+		if err := os.Mkdir(cache, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cache, "_update-notifier-last-checked"), []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	state, err := store.Open(filepath.Join(home, "agent-code.db"))
 	if err != nil {
@@ -99,7 +116,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	executor := application.NewAgentCodeToolExecutor(state, policy.NewDefaultChecker())
 
 	createPayload := mustAgentCodePayload(t, toolgateway.WorkspaceChangePayload{
-		Version: toolgateway.AgentCodeRegistryVersion, Action: "create", Path: "note.txt",
+		Version: toolgateway.AgentCodeRegistryVersion, Action: "create", Path: targetPath,
 		ExpectedSHA256: "missing", Content: "first\n"})
 	proposed, err := executor.ExecuteAgentCode(ctx, scope, toolgateway.WorkspaceChangeTool,
 		createPayload)
@@ -110,6 +127,11 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if createResult.EditID == "" || createResult.Status != fileedit.StatusProposed ||
 		createResult.OriginalSHA256 != "missing" {
 		t.Fatalf("create proposal=%#v", createResult)
+	}
+	if targetPath != "note.txt" {
+		if _, statErr := os.Stat(filepath.Join(workspaceRoot, "test")); !os.IsNotExist(statErr) {
+			t.Fatalf("proposal created its missing parents: %v", statErr)
+		}
 	}
 	if _, err := application.NewFileEditReviewService(state).Review(ctx,
 		application.ReviewFileEditRequest{Version: application.FileEditReviewProtocolVersion,
@@ -128,7 +150,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if err != nil || !strings.Contains(applied.JSON, `"file_written":true`) {
 		t.Fatalf("create apply=%s err=%v", applied.JSON, err)
 	}
-	written, err := os.ReadFile(filepath.Join(workspaceRoot, "note.txt"))
+	written, err := os.ReadFile(filepath.Join(workspaceRoot, targetPath))
 	if err != nil || string(written) != "first\n" {
 		t.Fatalf("created file=%q err=%v", written, err)
 	}
@@ -138,7 +160,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	readScope.OperationKey = "agent-code-read-operation-0001"
 	readResult, err := executor.ExecuteAgentCode(ctx, readScope, toolgateway.WorkspaceReadTool,
 		mustAgentCodePayload(t, toolgateway.WorkspaceReadPayload{
-			Version: toolgateway.AgentCodeRegistryVersion, Path: "note.txt",
+			Version: toolgateway.AgentCodeRegistryVersion, Path: targetPath,
 			StartLine: 1, EndLine: 20}))
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +175,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	patchResult, err := executor.ExecuteAgentCode(ctx, patchScope,
 		toolgateway.WorkspaceChangeTool, mustAgentCodePayload(t,
 			toolgateway.WorkspaceChangePayload{Version: toolgateway.AgentCodeRegistryVersion,
-				Action: "propose_patch", Path: "note.txt", ExpectedSHA256: read.ContentSHA256,
+				Action: "propose_patch", Path: targetPath, ExpectedSHA256: read.ContentSHA256,
 				Replacements: []toolgateway.WorkspaceReplacement{{OldText: "first",
 					NewText: "second", ExpectedOccurrences: 1}}}))
 	if err != nil {
@@ -166,7 +188,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 			Action: application.FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspaceRoot, "note.txt"), []byte("external\n"),
+	if err := os.WriteFile(filepath.Join(workspaceRoot, targetPath), []byte("external\n"),
 		0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +203,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeConflict {
 		t.Fatalf("CAS conflict code=%s err=%v", apperror.CodeOf(apperror.Normalize(err)), err)
 	}
-	written, _ = os.ReadFile(filepath.Join(workspaceRoot, "note.txt"))
+	written, _ = os.ReadFile(filepath.Join(workspaceRoot, targetPath))
 	if string(written) != "external\n" {
 		t.Fatalf("CAS conflict overwrote file: %q", written)
 	}
@@ -192,7 +214,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	moveProposal, err := executor.ExecuteAgentCode(ctx, moveScope,
 		toolgateway.WorkspaceChangeTool, mustAgentCodePayload(t,
 			toolgateway.WorkspaceChangePayload{Version: toolgateway.AgentCodeRegistryVersion,
-				Action: "move", Path: "note.txt", ExpectedSHA256: fileedit.HashText("external\n"),
+				Action: "move", Path: targetPath, ExpectedSHA256: fileedit.HashText("external\n"),
 				DestinationPath: "moved.txt", DestinationExpectedSHA256: "missing"}))
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +240,7 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 				ExpectedProposedSHA256: move.ProposedSHA256})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(workspaceRoot, "note.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, targetPath)); !os.IsNotExist(err) {
 		t.Fatalf("move source still exists: %v", err)
 	}
 	written, err = os.ReadFile(filepath.Join(workspaceRoot, "moved.txt"))

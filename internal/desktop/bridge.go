@@ -207,6 +207,9 @@ type DesktopBridgeConfig struct {
 	WorkspaceLauncher                       NativeWorkspaceLauncher
 	WorkspaceDirectoryPicker                WorkspaceDirectoryPicker
 	WorkspaceRegistrar                      WorkspaceDirectoryRegistrar
+	ClipboardReader                         ClipboardFileReader
+	ClipboardFiles                          ClipboardFileImporter
+	ClipboardImages                         ClipboardImageImporter
 	UserTerminalController                  UserTerminalController
 	DebugTerminalAgentInputController       application.DebugTerminalAgentInputController
 	RiskProfileRestartEnabled               bool
@@ -225,6 +228,10 @@ type DesktopBridge struct {
 	workspaceLauncher        NativeWorkspaceLauncher
 	workspaceDirectoryPicker WorkspaceDirectoryPicker
 	workspaceRegistrar       WorkspaceDirectoryRegistrar
+	clipboardReader          ClipboardFileReader
+	clipboardFiles           ClipboardFileImporter
+	clipboardImages          ClipboardImageImporter
+	clipboardActive          atomic.Bool
 	userTerminal             UserTerminalController
 	debugTerminalAgentInput  application.DebugTerminalAgentInputController
 	riskProfileRestarter     DesktopRiskProfileRestarter
@@ -401,6 +408,9 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		workspaceLauncher:        config.WorkspaceLauncher,
 		workspaceDirectoryPicker: config.WorkspaceDirectoryPicker,
 		workspaceRegistrar:       config.WorkspaceRegistrar,
+		clipboardReader:          config.ClipboardReader,
+		clipboardFiles:           config.ClipboardFiles,
+		clipboardImages:          config.ClipboardImages,
 		userTerminal:             config.UserTerminalController,
 		debugTerminalAgentInput:  config.DebugTerminalAgentInputController,
 		riskProfileRestarter:     config.RiskProfileRestarter,

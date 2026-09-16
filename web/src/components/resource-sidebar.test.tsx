@@ -116,6 +116,8 @@ describe("ResourceSidebar", () => {
 
     await waitFor(() => expect(container.querySelector(".history-status.status-running"))
       .toBeInTheDocument());
+    expect(container.querySelector(".history-status.status-running")).toHaveAttribute("aria-label", "未结束");
+    expect(container.querySelector(".history-status.status-running")?.closest("button")).toHaveTextContent("未结束");
     await waitFor(() => expect(getPage.mock.calls.some((call) =>
       call[0] === "/runs" && call[2] === "cursor-terminal-page")).toBe(true));
     expect(useConnectionStore.getState().resourceKind).toBe("thread");

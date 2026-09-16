@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Check, ChevronDown, Container, ShieldCheck, ShieldOff, UserCheck } from "lucide-react";
+import { Bug, Check, ChevronDown, CircleHelp, Container, ShieldCheck, ShieldOff, UserCheck } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type {
   ThreadExecutionPermissionControlRequestView,
@@ -79,6 +79,7 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
   const [pending, setPending] = useState<PermissionMode | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -96,6 +97,7 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
       queryClient.setQueryData(v2QueryKeys.permission(threadID), result);
       void queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(threadID) });
       if (result.current_run_id) {
+        void queryClient.invalidateQueries({ queryKey: ["run", result.current_run_id] });
         void queryClient.invalidateQueries({ queryKey: browserCDPQueryKey(result.current_run_id) });
       }
       setPending(null);
@@ -121,6 +123,7 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
   const permission = query.data?.execution_permission;
   const selected = useMemo(() => options.find(({ mode }) => mode === permission?.mode) ?? options[0],
     [permission?.mode]);
+  const SelectedIcon = permission ? selected.icon : CircleHelp;
   const choose = (mode: PermissionMode, available: boolean, trigger: HTMLButtonElement) => {
     mutation.reset();
     if (!available) return;
@@ -171,9 +174,9 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
 
   return <div className={`v2-permission-control is-${variant}`} ref={shellRef}>
     {variant === "menu" ? <>
-      <button aria-expanded={open} aria-haspopup="menu" className="v2-composer-chip"
+      <button aria-expanded={open} aria-haspopup="menu" className={`v2-composer-chip${permission?.mode === "full_access" || permission?.mode === "debug" ? " is-risk" : ""}`}
         disabled={!threadID} onClick={() => setOpen((value) => !value)} ref={triggerRef} type="button">
-        <ShieldCheck aria-hidden="true" size={14} />{query.isLoading ? "读取权限…" : selected.label}
+        <SelectedIcon aria-hidden="true" size={14} />{query.isLoading ? "读取权限…" : permission ? selected.label : "权限未知"}
         <ChevronDown aria-hidden="true" size={13} />
       </button>
       {open && <div className="v2-permission-popover" role="menu">
@@ -181,6 +184,12 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
         {query.isError ? <p role="alert">无法读取权限设置</p> : list}
         {mutation.isError && <p role="alert">{mutation.error instanceof Error
           ? mutation.error.message : "权限更新失败"}</p>}
+        <details className="v2-permission-network" open={networkOpen}
+          onToggle={(event) => setNetworkOpen(event.currentTarget.open)}>
+          <summary>网页访问与搜索</summary>
+          {networkOpen && <V2RunNetworkAuthorityControl key={`${threadID}:${query.data?.current_run_id ?? ""}`}
+            client={client} runID={query.data?.current_run_id ?? ""} threadID={threadID} />}
+        </details>
       </div>}
     </> : <section className="v2-settings-card v2-permission-settings-card">
       <header><div><h2>当前对话权限</h2><p>{query.data ? effectCopy(query.data) : "读取安全策略"}</p></div>

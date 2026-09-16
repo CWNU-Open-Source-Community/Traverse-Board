@@ -64,12 +64,14 @@ type supervisorBrowserActionTools struct {
 }
 
 type supervisorToolOptions struct {
-	CommandRuntime supervisorCommandRuntimeTools
-	AgentCode      supervisorAgentCodeTools
-	CodeIntel      supervisorCodeIntelTools
-	MCP            supervisorMCPTools
-	WebEvidence    supervisorWebEvidenceTools
-	BrowserActions supervisorBrowserActionTools
+	HistoryRecall      bool
+	OwnedFileWorkspace bool
+	CommandRuntime     supervisorCommandRuntimeTools
+	AgentCode          supervisorAgentCodeTools
+	CodeIntel          supervisorCodeIntelTools
+	MCP                supervisorMCPTools
+	WebEvidence        supervisorWebEvidenceTools
+	BrowserActions     supervisorBrowserActionTools
 }
 
 type supervisorToolResultEnvelope struct {
@@ -126,14 +128,17 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 	}
 	out := make([]llm.ToolSpec, 0, len(definitions))
 	for _, definition := range definitions {
+		if toolgateway.IsHistoryRecallTool(definition.Name) && !configured.HistoryRecall {
+			continue
+		}
 		if definition.Name == toolgateway.SkillCandidateProposeTool &&
 			!skillCandidateEnabled {
 			continue
 		}
 		if definition.Name == toolgateway.HostCommandProposeTool &&
-			(permissionMode != domain.RunExecutionPermissionApproval &&
+			(configured.OwnedFileWorkspace || permissionMode != domain.RunExecutionPermissionApproval &&
 				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-				surface != domain.ExecutionSurfaceCode) {
+				surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver) {
 			continue
 		}
 		if definition.Name == toolgateway.DebugTerminalTool &&
@@ -236,6 +241,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	for index, call := range normalized {
 		name := toolgateway.ToolName(call.Name)
 		if name != toolgateway.WorkItemCreateTool && name != toolgateway.NoteCreateTool &&
+			!toolgateway.IsHistoryRecallTool(name) &&
 			name != toolgateway.SpecialistDelegationProposeTool &&
 			name != toolgateway.ChildTaskProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
@@ -264,6 +270,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 				return nil, fmt.Errorf("provider requested unavailable agent code tool %q", call.Name)
 			}
 		}
+		if toolgateway.IsHistoryRecallTool(name) && !configured.HistoryRecall {
+			return nil, fmt.Errorf("provider requested unavailable history recall tool %q", call.Name)
+		}
 		if toolgateway.IsCodeIntelTool(name) && (len(codeIntelAuthority) == 0 ||
 			surface != domain.ExecutionSurfaceCode ||
 			(phase != domain.ExecutionPhasePlan && phase != domain.ExecutionPhaseDeliver)) {
@@ -273,7 +282,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			len(webEvidenceAuthority) == 0 ||
 			(name == toolgateway.WebSearchTool && !webEvidence.SearchAvailable) ||
 			(name != toolgateway.WebSearchTool && !webEvidence.FetchAvailable)) {
-			return nil, fmt.Errorf("provider requested unavailable web evidence tool %q", call.Name)
+			return nil, fmt.Errorf("provider requested unavailable web evidence tool %q: %s",
+				call.Name, supervisorWebEvidenceUnavailableReason(name, webEvidence))
 		}
 		if toolgateway.IsBrowserActionTool(name) && (!browserActions.Available ||
 			len(browserActionAuthority) == 0) {
@@ -290,11 +300,11 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 				"provider requested Skill candidate proposal without the explicit generator Skill")
 		}
 		if name == toolgateway.HostCommandProposeTool &&
-			(permissionMode != domain.RunExecutionPermissionApproval &&
+			(configured.OwnedFileWorkspace || permissionMode != domain.RunExecutionPermissionApproval &&
 				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-				surface != domain.ExecutionSurfaceCode) {
+				surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver) {
 			return nil, errors.New(
-				"provider requested host command proposal outside Code approval or Workspace Access mode")
+				"provider requested host command proposal outside the supported Code/Deliver source Workspace scope")
 		}
 		if name == toolgateway.DebugTerminalTool &&
 			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
@@ -407,6 +417,45 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 	}
 	return out, nil
+}
+
+// supervisorWebEvidenceNotOpenReason is the generic reason for a Run whose web
+// evidence tools are all closed. It names the operator path that opens them.
+const supervisorWebEvidenceNotOpenReason = "web evidence tools are not open for the current Run and agent. " +
+	"An operator can enable web access in the conversation permissions and add " +
+	"the search backend host to the Run network allowlist. " +
+	"Do not retry this tool until it is opened."
+
+// supervisorWebEvidenceUnavailableReason keeps the stable
+// "provider requested unavailable web evidence tool %q" rejection prefix and
+// appends why the requested tool is not open for this Run, the operator path
+// that opens it, and an explicit do-not-retry instruction. The tool-request
+// repair presents the composed diagnostic to the model; without the reason the
+// model retried the same unavailable web tool every round and burned one model
+// call plus one protocol repair per attempt.
+func supervisorWebEvidenceUnavailableReason(name toolgateway.ToolName,
+	capabilities toolgateway.WebEvidenceCapabilities,
+) string {
+	if !capabilities.Available {
+		return supervisorWebEvidenceNotOpenReason
+	}
+	if name == toolgateway.WebSearchTool && !capabilities.SearchAvailable {
+		// Available with search closed means per-call authorized web fetch is
+		// what the Run actually offers, so point the model at that path.
+		return "web search is not opened for the current Run: the current network " +
+			"permission does not open search, so only web fetch is offered. " +
+			"An operator can enable web access or search in the conversation " +
+			"permissions, or add the search backend host to the Run network " +
+			"allowlist. Do not retry web_search until it is opened. Use web_fetch " +
+			"for one specific approved URL, or continue without web search."
+	}
+	if name != toolgateway.WebSearchTool && !capabilities.FetchAvailable {
+		return "web fetch is not opened for the current Run: the current network " +
+			"permission does not authorize direct web fetch. An operator can enable " +
+			"web access in the conversation permissions or add the target host to " +
+			"the Run network allowlist. Do not retry this tool until it is opened."
+	}
+	return supervisorWebEvidenceNotOpenReason
 }
 
 func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
@@ -651,11 +700,11 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 		strings.TrimSpace(turn.Mission.WorkspaceID) == "" {
 		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, nil
 	}
-	registered, err := store.GetWorkspaceInfo(ctx, turn.Mission.WorkspaceID)
+	files, err := ResolveRunFileWorkspace(ctx, store, turn.Run, turn.Mission, s.drydocks)
 	if err != nil {
 		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
 	}
-	rootFingerprint, err := workspace.AgentCodeRootFingerprint(registered.RootPath)
+	rootFingerprint, err := workspace.AgentCodeRootFingerprint(files.Workspace.RootPath)
 	if err != nil {
 		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
 	}
@@ -692,11 +741,11 @@ func (s *RunSupervisor) supervisorCodeIntelCapabilities(ctx context.Context,
 	if !ok {
 		return result, nil
 	}
-	registered, err := store.GetWorkspaceInfo(ctx, turn.Mission.WorkspaceID)
+	files, err := ResolveRunFileWorkspace(ctx, store, turn.Run, turn.Mission, s.drydocks)
 	if err != nil {
 		return result, apperror.Normalize(err)
 	}
-	for _, snapshot := range s.codeIntel.Capabilities(ctx, registered.ID, registered.RootPath) {
+	for _, snapshot := range s.codeIntel.Capabilities(ctx, files.Workspace.ID, files.Workspace.RootPath) {
 		if snapshot.Health != codeintel.HealthHealthy {
 			reason := string(snapshot.Health)
 			if snapshot.LastError != "" {
@@ -808,6 +857,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}
 	name := toolgateway.ToolName(call.ToolName)
 	operationKey := supervisorToolOperationKey(call.RunID, call.Turn, name, json.RawMessage(call.PayloadJSON))
+	if name == toolgateway.BrowserScreenshotTool {
+		operationKey = supervisorBrowserScreenshotOperationKey(call)
+	}
 	toolCall := toolgateway.ToolCall{
 		Name: name, Payload: json.RawMessage(call.PayloadJSON), OperationKey: operationKey,
 		RunID: call.RunID, AgentID: call.AgentID,
@@ -999,6 +1051,13 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		}
 		code := apperror.CodeOf(apperror.Normalize(err))
 		if !recoverableSupervisorToolError(name, code) {
+			if name == toolgateway.WorkspaceApplyTool && code == apperror.CodeInternal {
+				// Retain the actual failure text without claiming uncertain file
+				// effects settled. M examines the apply/checkpoint journals later.
+				if _, recordErr := s.store.FailSupervisorTurn(ctx, turn.Checkpoint, boundedSupervisorToolMessage(err.Error()), 0); recordErr != nil {
+					return domain.SupervisorToolResult{}, errors.Join(apperror.Normalize(err), recordErr)
+				}
+			}
 			return domain.SupervisorToolResult{}, apperror.Normalize(err)
 		}
 		encoded, encodeErr := marshalSupervisorToolResultEnvelope(supervisorToolResultEnvelope{
@@ -1044,10 +1103,18 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		Metadata: metadata, Code: code, Message: message,
 	}
 	if name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
+		toolgateway.IsHistoryRecallTool(name) ||
 		name == toolgateway.MCPToolCallTool ||
 		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) ||
 		toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) {
-		envelope.Stdout = redact.String(outcome.Result.Stdout)
+		if toolgateway.IsHistoryRecallTool(name) {
+			// The store has already redacted and hashed the original source.
+			// Redacting serialized JSON or a partial byte page changes its text.
+			// Persistence rechecks the page against that source before publication.
+			envelope.Stdout = outcome.Result.Stdout
+		} else {
+			envelope.Stdout = redact.String(outcome.Result.Stdout)
+		}
 		envelope.Stderr = redact.String(outcome.Result.Stderr)
 		envelope.Truncated = outcome.Result.Truncated
 	}
@@ -1076,7 +1143,8 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 		apperror.CodeResourceExhausted, apperror.CodeDeadlineExceeded:
 		return true
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
-		return name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
+		return name == toolgateway.HostCommandProposeTool || name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
+			toolgateway.IsHistoryRecallTool(name) ||
 			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
 			toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) ||
 			toolgateway.IsCodeIntelTool(name)
@@ -1100,6 +1168,20 @@ func boundedSupervisorToolMessage(value string) string {
 	return value
 }
 
+// Both live native pairs and cross-segment evidence use the same model-bound
+// projection. Re-reading raw pages at a boundary can otherwise advance a saved
+// cursor past text the model never received.
+func supervisorToolContextResult(call domain.SupervisorToolCall) (string, error) {
+	switch toolgateway.ToolName(call.ToolName) {
+	case toolgateway.WebFetchTool:
+		return supervisorWebFetchContextResult(call)
+	case toolgateway.WebSearchTool:
+		return supervisorWebSearchContextResult(call)
+	default:
+		return call.ResultJSON, nil
+	}
+}
+
 func supervisorRequestWithToolRounds(request llm.ChatRequest,
 	rounds []domain.SupervisorToolRound,
 ) (llm.ChatRequest, error) {
@@ -1117,10 +1199,18 @@ func supervisorRequestWithToolRounds(request llm.ChatRequest,
 			calls = append(calls, llm.ToolCall{
 				ID: call.CallID, Name: call.ToolName, Arguments: json.RawMessage(call.PayloadJSON),
 			})
-			results = append(results, llm.ToolResult{
-				ToolCallID: call.CallID, Content: call.ResultJSON,
+			content, err := supervisorToolContextResult(call)
+			if err != nil {
+				return llm.ChatRequest{}, err
+			}
+			result := llm.ToolResult{
+				ToolCallID: call.CallID, Content: content,
 				IsError: call.Status == domain.SupervisorToolDenied || call.Status == domain.SupervisorToolFailed,
-			})
+			}
+			if toolgateway.IsHistoryRecallTool(toolgateway.ToolName(call.ToolName)) {
+				result = llm.StoredHistoryToolResult(result)
+			}
+			results = append(results, result)
 		}
 		messages = append(messages,
 			llm.Message{Role: "assistant", ToolCalls: calls},

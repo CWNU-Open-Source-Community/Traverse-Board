@@ -138,6 +138,11 @@ func TestOperatorSteeringQueueRetriesAndCommitsExactlyOnceAtTurnBoundaries(t *te
 	if err != nil || failed.Phase != domain.SupervisorTurnFailed {
 		t.Fatalf("prepared turn failure was not durable: checkpoint=%#v err=%v", failed, err)
 	}
+	// Product paths Resume a paused failed run before the next operator turn;
+	// same-lease steering retry follows that exact boundary.
+	if _, err := application.NewRunService(st).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	retried, err := st.BeginSupervisorTurn(ctx, lease, "")
 	if err != nil || retried.Checkpoint.PendingInput != first.Message.Content ||
 		retried.Checkpoint.AttemptID == started.Checkpoint.AttemptID {

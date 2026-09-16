@@ -48,7 +48,20 @@ declares one of:
 - `bash`: a bounded script under a trusted resolver and fixed
   `--noprofile --norc -c` argv;
 - `process`: an absolute, non-workspace, regular native executable plus literal
-  argv. Shells and script interpreters are rejected in this branch.
+  argv, including native development runtimes such as Node.js and Python.
+  Shells, system script hosts, and system/privilege brokers remain rejected in
+  this branch; a script file cannot itself be the native executable.
+
+The 2026-09-13 contract revision removes the language-runtime name blacklist.
+That list did not establish code isolation: already-supported native programs
+such as `go test` can execute project code. Native-image validation, absolute
+non-Workspace executable selection, exact SHA-256/canonical argv/cwd/env binding,
+Policy, permission, lease, and adapter boundaries remain required. Shell syntax
+still uses the separately resolved `powershell` or `bash` profile when the current
+adapter supports it. Windows `py.exe` remains a blocked runtime-selection launcher;
+call the installed native Python executable directly. This is a shared-normalizer
+change for both Local and authorized Full Access/Debug Host execution, not a new
+isolation claim or a fallback from Local to Host.
 
 Every command also declares a Workspace-relative cwd, an explicit restricted env
 array, `closed|pipe` stdin, initial/close policy, timeout, inline/artifact limits,

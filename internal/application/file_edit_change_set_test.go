@@ -46,3 +46,19 @@ func TestBuildFileEditChangeSetRejectsCrossRunRecords(t *testing.T) {
 		t.Fatal("expected cross-Run file edit to be rejected")
 	}
 }
+
+func TestBuildFileEditChangeSetKeepsTargetSeparateFromSourceHistory(t *testing.T) {
+	run := domain.Run{ID: "run-target-change-set", MissionID: "mission-target-change-set", SessionID: "session-target-change-set"}
+	mission := domain.Mission{ID: run.MissionID, WorkspaceID: "workspace-source"}
+	preview := fileedit.Preview{ID: "edit-drydock", SessionID: run.SessionID, WorkspaceID: "workspace-drydock",
+		Path: "same.txt", Status: fileedit.StatusApplied, Diff: "+target\n"}
+	result, err := BuildFileEditChangeSetForWorkspace(run, mission, preview.WorkspaceID, []fileedit.Preview{preview})
+	if err != nil || result.WorkspaceID != preview.WorkspaceID || result.Counts.Applied != 1 || mission.WorkspaceID != "workspace-source" {
+		t.Fatalf("target change set changed source identity: result=%+v mission=%+v err=%v", result, mission, err)
+	}
+	previous := preview
+	previous.ID, previous.WorkspaceID = "edit-source", mission.WorkspaceID
+	if _, err := BuildFileEditChangeSetForWorkspace(run, mission, preview.WorkspaceID, []fileedit.Preview{preview, previous}); err == nil {
+		t.Fatal("source history was merged into the target change set")
+	}
+}

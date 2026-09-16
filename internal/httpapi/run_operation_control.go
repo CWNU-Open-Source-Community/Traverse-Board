@@ -227,6 +227,10 @@ func (a *API) authorizeRunOperation(writer http.ResponseWriter,
 func (a *API) readRunOperationRequest(request *http.Request,
 	label string,
 ) (string, []byte, error) {
+	return a.readRunOperationRequestWithLimit(request, label, MaxRunOperationControlBodyBytes)
+}
+
+func (a *API) readRunOperationRequestWithLimit(request *http.Request, label string, limit int64) (string, []byte, error) {
 	if err := rejectQuery(request.URL.Query()); err != nil {
 		return "", nil, err
 	}
@@ -234,7 +238,7 @@ func (a *API) readRunOperationRequest(request *http.Request,
 	if err != nil {
 		return "", nil, err
 	}
-	body, err := readBoundedRequestBody(request, MaxRunOperationControlBodyBytes)
+	body, err := readBoundedRequestBody(request, limit)
 	if err != nil {
 		return "", nil, err
 	}

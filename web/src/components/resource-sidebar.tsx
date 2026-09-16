@@ -22,6 +22,7 @@ import { formatCompactDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { useConnectionStore } from "../state/connection";
 import { ErrorState, LoadMoreButton, LoadingState } from "./common";
+import { LifecycleStatusLabel } from "./lifecycle-status";
 import { PrayuBrand } from "./prayu-brand";
 import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
@@ -228,7 +229,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
                   <strong>{session.title}</strong>
                   <small>{session.route} · {formatCompactDate(session.created_at)}</small>
                 </span>
-                <i aria-label={session.status} className={`history-status status-${session.status}`} />
+                <i aria-label={session.status === "active" ? t("未关闭", "Not closed") : session.status} className={`history-status status-${session.status}`} />
               </button>
             </div>
           ))}
@@ -252,9 +253,9 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               <ListTree aria-hidden="true" size={15} />
               <span className="sidebar-history-copy">
                 <strong>Run {shortID(run.id)}</strong>
-                <small>{run.status} · {formatCompactDate(run.created_at)}</small>
+                <small><LifecycleStatusLabel status={run.status} /> · {formatCompactDate(run.created_at)}</small>
               </span>
-              <i aria-label={run.status} className={`history-status status-${run.status}`} />
+              <i aria-label={run.status === "running" ? t("未结束", "Not ended") : run.status} className={`history-status status-${run.status}`} />
             </button>
           ))}
           <LoadMoreButton hasNextPage={Boolean(runsQuery.hasNextPage)}

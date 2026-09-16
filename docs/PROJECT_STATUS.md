@@ -1,6 +1,163 @@
 # Project Status
 
-Last updated: 2026-08-28
+> 2026-09-16 public review: the dated records below are historical. See [current scope and verification limits](UX_PUBLIC_REVIEW_STATUS.md); this review branch is not a fully accepted release.
+
+Last updated: 2026-09-10 (Phase M/N/O/P local UX convergence)
+
+Phase P simplifies small-task plans to one to three meaningful directions and
+makes manual acceptance an explicit operator choice. New Web selections default
+to on-demand notes; old selections and omitted API fields retain required manual
+acceptance. One adopt action uses the existing select/Deliver APIs and preserves
+both request keys through partial success. Work-item content, dependencies,
+permissions, actual checks and current delivery-report gates remain enforced.
+
+The real local P2 journey completed a one-module plan without manual form fields,
+reviewed and applied one exact edit, ran the original PowerShell 7 check with exit
+0 and readable Chinese output, and verified its current delivery report. Ordinary
+continuation after an explicitly completed Run retained the same physical files
+and exact completed-item source, without inheriting an automatic pass. Final UI
+checks also corrected narrow-window overflow in the completion-source details.
+Schema is now v156. See [Phase P validation](UX_FIXES_PHASE_P_VALIDATION.md) for
+the exact versions, checks, historical-data audit and remaining limitations.
+The final scoped audit passed; two shared blob reference counters grew by eight
+new checkpoint references each, while their historical content stayed unchanged.
+The initial strict all-column comparison remains recorded as a failed observation.
+P2 services are closed, and these local changes are uncommitted.
+
+Phase O now lets paused or historical applied edits request an exact reviewed
+inverse through the ordinary conversation. A successor receives its own pending
+edit and approval in the retained physical workspace. Real browser acceptance
+also found and fixed a creator-only file-queue filter that hid successor edits;
+later user content is protected by the existing exact-hash refusal. Interactive
+Finish closes a Turn; the truly completed-Run case used existing CLI Finish and
+then ordinary Web continuation, without a required recovery entry point.
+
+The scoped O journey, targeted checks and 106-check persistence audit passed.
+Old approvals, Jobs, reports and user files remain unchanged; a cold original-key
+replay creates no new execution. Its final services are closed. See
+[Phase O validation](UX_FIXES_PHASE_O_VALIDATION.md). Its
+[follow-up Plan review](UX_PLAN_SIMPLIFICATION_REVIEW.md) is the implementation
+rationale for Phase P above; it no longer describes an unimplemented next step.
+
+The local branch now preserves one conversation and working directory across
+independent completed, failed and interrupted turns. Phase M validates natural
+continuation and necessary execution-epoch changes without losing applied work
+or treating old approvals and successful checks as new authority. Phase N moves
+new Local runtime HOME/TEMP/cache state outside the project and makes saved
+command output readable from the delivery report.
+
+The real Phase N Windows LPAC/PowerShell 7 journey now includes a second explicit
+user-requested check: the new Job finishes with exit 0, and its report is
+passed, verified and current. Long saved stdout/stderr load on demand and can be
+retried; a short inline preview no longer implies that the complete saved output
+was lost. Source files, same-name user files and historical Job/report records
+remain intact. Phase N retained v155; Phase P advances to v156. These are scoped local results,
+not a release or completion claim for every UX item or native platform. The phase
+history below retains the earlier failures that led to this result.
+
+Local branch `codex/ux-journey-convergence` now contains the first-turn/control
+repairs, approval/task review, project-file references, and paged history with
+stable task addresses, opt-in Web import of existing directories, local keyless
+model onboarding, and narrow-window navigation repairs. Phase E adds first-message
+and successor-turn project files with durable intent and atomic enqueue, conclusive
+file-rejection recovery, retained unknown-request identities, and full-endpoint
+model listing fixes. Phase F adds reviewed inverse file edits, retained restore/
+proposal/apply retry identities, exact delete-content review, and an existing-lease
+interlock between same-Run checkpoint restore and execution. It adds no database
+migration. Phase G separates recorded delivery evidence from current observation,
+retains exact report retries, preserves failed verification Job references, and
+uses real configuration facts and accurate output/recovery destinations. It fixes
+the Local adapter naming mismatch without changing sealed reports. Its real Web
+fixture validates not-run/stale report recovery. Phase H fixes the observed
+preset-to-Thread-turn conflict with atomic preference synchronization and exact
+intent CAS, rejects unavailable pending models before cancelling the current Run,
+and connects existing coding/Plan controls in V2 with exact request recovery.
+Real Web tests now retain the configured Run and select/enter Deliver; malformed
+empty arrays, legal paused adapter identity parsing, and misleading reconfiguration
+in Deliver are repaired. Phase I now resolves file reads, proposals, approvals,
+application and checkpoints to the exact Run-owned Drydock while preserving source
+control identities and historical edits. It fixes checkpoint cursor recovery,
+persisted Supervisor attempt attribution and premature edit timeline labels.
+The v153 Apply guard and existing lifecycle journals preserve source work without
+adding a second snapshot store. Real Web application modifies only the owned
+worktree; the actual LPAC command targets that same directory but Windows
+PowerShell 5 fails in PSEtwLog initialization before the check script executes.
+The real Phase I delivery report correctly remains failed/unverified. At the end
+of that phase, successful command delivery was still unvalidated on this host.
+The product E2E collector now checks source
+control identity plus the exact physical Drydock digest. Its fixture tests do not
+prove live command success. The separate manual DeliveryCheckpoint write path
+was CLI-only before Phase K. Phase J diagnoses the garbled PowerShell startup stderr
+as unmarked UTF-16LE and decodes it before existing output sanitization/redaction.
+Raw byte counts, output bounds, UTF-8 cursors/digests and failed Job state remain
+intact. A real LPAC process through the production Manager now yields readable
+Chinese; at that phase the PSEtwLog startup failure itself was still unresolved. Historical
+replacement characters receive an honest UI notice, and command/file checkpoint
+transactions no longer masquerade as restore operations. No old Job was rewritten.
+Phase K connects manual Plan item start, acceptance notes, handoff review and
+explicit completion through existing storage and gates. It fixes inconsistent
+acceptance/dependency ordering and exact replay after state changes, and validates
+real saved-response-loss recovery without duplicate records. A separate manual
+UI task completes; the copied failed Shell task remains unfinished and its sealed
+Job/report are unchanged. Read-only execution polling now follows actual endpoint
+availability; unavailable report endpoints no longer imply that no report exists.
+LPAC diagnostics identify ETW registration denial and the UI explains the known
+startup failure. At the end of K, PS5 still could not complete startup, and the
+isolated PS7/capability experiment was not yet a production runtime change.
+Successful coding delivery was still incomplete. No K schema was added.
+Phase L makes PowerShell 7 the supported Local PowerShell runtime, with an
+explicit trusted host path and narrowly bound instrumentation capability. A
+session PSDrive fixes workspace navigation without widening ancestor ACLs;
+top-level command execution preserves exits and UTF-8 output. Real product
+verification returns exit 0 and UX_L_CHECK_PASSED. Process-local Git long-path
+support fixes the resulting delivery snapshot error, without hiding the runtime
+cache. The completion projection now satisfies the Finish contract, and a
+recovered message can be confirmed with its original Thread key while retaining
+the historical failed handoff. Generic recovery errors no longer guess that
+permissions or model settings changed. The controlled API recovery and Web
+confirmation are separate evidence, not a claim of a new Web recovery button.
+No L database schema was added; system PS5 remains a host-path option, not a
+supported Local runtime. Runtime caches from those L executions remain historical
+project state; Phase N separates runtime state for new commands. Broader
+UI/platform coverage and the other outstanding UX work remain tracked in the
+mandatory brief.
+Phase M makes failed-turn outcomes durable, preserves accepted instructions and
+exact unknown-request identities, and keeps the Thread's physical working
+directory stable across necessary model, permission or budget transitions.
+Plan progress retains precise historical provenance; current permissions and
+automatic verification are checked again. Schema v154 adds the bounded directory
+binding and cleanup reservation, and v155 adds the precise continuation rules.
+Phase N adds no database migration. Its owner v3 journal retains v1/v2 recovery,
+binds disposable scratch cleanup to the actual directory identity, and measures
+scratch together with project writes. Reports reuse the existing scoped saved
+output reader without eagerly loading bodies or rewriting sealed receipts.
+Complete saved output is distinguished from its inline preview, and a new
+explicit user message can request a fresh verification while automatic retry
+limits remain enforced. The actual second Job completes in 998 ms; the final
+report is passed/verified/current, including the deliberately changed user file
+under `.traverse-board/home`. The original source and earlier reports remain
+unchanged. Historical resume checkpoints below do not describe the current
+schema or replace these scoped validation records.
+These are uncommitted local changes, not a mainline release or completion claim.
+See [公开审阅说明](UX_PUBLIC_REVIEW_STATUS.md),
+[Phase A validation](UX_FIXES_PHASE_A_VALIDATION.md),
+[Phase B validation](UX_FIXES_PHASE_B_VALIDATION.md),
+[Phase C validation](UX_FIXES_PHASE_C_VALIDATION.md),
+[Phase D validation](UX_FIXES_PHASE_D_VALIDATION.md),
+[Phase E validation](UX_FIXES_PHASE_E_VALIDATION.md),
+[Phase F validation](UX_FIXES_PHASE_F_VALIDATION.md),
+[Phase G validation](UX_FIXES_PHASE_G_VALIDATION.md),
+[Phase H validation](UX_FIXES_PHASE_H_VALIDATION.md),
+[Phase I validation](UX_FIXES_PHASE_I_VALIDATION.md),
+[Phase J validation](UX_FIXES_PHASE_J_VALIDATION.md),
+[Phase K validation](UX_FIXES_PHASE_K_VALIDATION.md),
+[Phase L validation](UX_FIXES_PHASE_L_VALIDATION.md),
+[Phase M validation](UX_FIXES_PHASE_M_VALIDATION.md),
+[Phase N validation](UX_FIXES_PHASE_N_VALIDATION.md),
+[ADR 0156](adr/0156-thread-continuity-and-independent-turn-outcomes.md),
+[ADR 0157](adr/0157-runtime-scratch-and-saved-delivery-output.md), and ADRs 0147–0155 for
+scope, actual checks and remaining UX/platform work. Historical checkpoints
+below retain their original context.
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 

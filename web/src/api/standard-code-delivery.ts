@@ -204,12 +204,33 @@ function observation(value: unknown): boolean {
     (!Object.prototype.hasOwnProperty.call(value, "revision_sha256") || sha256(value.revision_sha256));
 }
 
+function outputSources(value: unknown, verifications: unknown[]): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  const artifacts = verifications.filter(record).flatMap((verification) =>
+    (verification.artifacts as unknown[]).filter(record).map((artifact) =>
+      JSON.stringify([verification.job_id, artifact.id])));
+  if (value.length !== artifacts.length) return false;
+  const seen = new Set<string>();
+  return value.every((source) => {
+    if (!record(source) || !identity(source.job_id) || !identity(source.artifact_id)) return false;
+    const identityKey = JSON.stringify([source.job_id, source.artifact_id]);
+    if (seen.has(identityKey) || artifacts.filter((item) => item === identityKey).length !== 1) return false;
+    seen.add(identityKey);
+    if (source.status === "available") return exact(source,
+      ["job_id", "artifact_id", "status", "thread_id", "activity_ref"]) &&
+      identity(source.thread_id) && identity(source.activity_ref);
+    return source.status === "metadata_only" && exact(source,
+      ["job_id", "artifact_id", "status", "reason"]) &&
+      ["activity_source_unavailable", "output_not_public", "artifact_binding_mismatch"].includes(String(source.reason));
+  });
+}
+
 export function parseStandardCodeDelivery(value: unknown, runID?: string): StandardCodeDeliveryView {
   const required = ["base_commit", "binding", "created_at", "diff", "event_sequence",
     "final_checkpoint", "head_commit", "id", "links", "operation_key_sha256",
     "protocol_version", "reasons", "receipt_sha256", "receipt_status", "request_fingerprint",
     "safeguards", "status", "uncovered_items", "verifications", "verified"];
-  if (!exact(value, required, ["declaration", "observation"]) ||
+  if (!exact(value, required, ["declaration", "observation", "output_sources"]) ||
     value.protocol_version !== "standard_code_delivery.v1" || !identity(value.id) ||
     !sha256(value.operation_key_sha256) || !sha256(value.request_fingerprint) ||
     !statuses.has(String(value.status)) || !statuses.has(String(value.receipt_status)) ||
@@ -221,7 +242,9 @@ export function parseStandardCodeDelivery(value: unknown, runID?: string): Stand
     !diff(value.diff) || !checkpoint(value.final_checkpoint) ||
     !record(value.final_checkpoint) || value.final_checkpoint.head_commit !== value.head_commit ||
     !Array.isArray(value.verifications) || value.verifications.length > 64 ||
-    !value.verifications.every(verification) || !Array.isArray(value.reasons) ||
+    !value.verifications.every(verification) ||
+    (Object.prototype.hasOwnProperty.call(value, "output_sources") && !outputSources(value.output_sources, value.verifications)) ||
+    !Array.isArray(value.reasons) ||
     value.reasons.length < 1 || value.reasons.length > 64 ||
     !value.reasons.every((reason) => exact(reason, ["code", "provenance_sha256"]) &&
       text(reason.code, 128) && sha256(reason.provenance_sha256)) ||

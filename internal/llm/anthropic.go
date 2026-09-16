@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,12 +144,12 @@ func (p *AnthropicCompatibleProvider) Name() string {
 }
 
 func (p *AnthropicCompatibleProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name,
 			"provider credential is unavailable", nil)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.endpoint("/v1/models"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.modelsEndpoint(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +212,7 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not prepare request", err)
 	}
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name,
 			"provider credential is unavailable", nil)
@@ -252,13 +253,7 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	if strings.TrimSpace(text) == "" && len(toolCalls) == 0 {
 		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an empty text response", nil)
 	}
-	responseModel := parsed.ModelOrDefault(selectedModel)
-	if p.runtime != nil {
-		// A custom definition may map its stable local route identity to a
-		// different upstream model identifier. Do not let that wire detail escape
-		// back into the Router/Supervisor contract.
-		responseModel = selectedModel
-	}
+	responseModel := p.responseModel(selectedModel, parsed.ModelOrDefault(selectedModel))
 	return &ChatResponse{
 		Text:      text,
 		ToolCalls: toolCalls,
@@ -274,6 +269,28 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 			TotalTokens:  parsed.Usage.InputTokens + parsed.Usage.OutputTokens,
 		},
 	}, nil
+}
+
+func (p *AnthropicCompatibleProvider) responseModel(requested, returned string) string {
+	if p.runtime != nil {
+		// A custom definition may map its stable local route identity to a
+		// different upstream model identifier. Do not let that wire detail escape
+		// back into the Router/Supervisor contract.
+		return requested
+	}
+	// The official DeepSeek Messages endpoint returns this shorter identity for
+	// the documented v4-flash request (observed in both live probe responses).
+	// Keep this exact alias inside the adapter; do not hide arbitrary model drift
+	// or apply the exception to another provider, endpoint, or requested model.
+	if p.hasDeepSeekFlashResponseAlias(requested) && returned == "deepseek-flash" {
+		return requested
+	}
+	return returned
+}
+
+func (p *AnthropicCompatibleProvider) hasDeepSeekFlashResponseAlias(model string) bool {
+	return p.runtime == nil && p.name == "deepseek" &&
+		p.baseURL == "https://api.deepseek.com/anthropic" && model == "deepseek-v4-flash"
 }
 
 func anthropicHTTPError(provider string, statusCode int, retryAfterHeader string, raw []byte) *ProviderError {
@@ -346,7 +363,7 @@ func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRe
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not prepare streaming request", err)
 	}
 	body.Stream = true
-	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime, p.baseURL)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name,
 			"provider credential is unavailable", nil)
@@ -386,8 +403,8 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	state := anthropicStreamState{model: defaultModel,
-		preserveRequestedModel: p.runtime != nil,
-		events:                 newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
+		responseModel: func(returned string) string { return p.responseModel(defaultModel, returned) },
+		events:        newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
 	dataLines := make([]string, 0, 1)
 	stopped := false
 	sendError := func(err error) bool {
@@ -458,7 +475,10 @@ func (p *AnthropicCompatibleProvider) SupportsTools(model string) bool {
 }
 
 func (p *AnthropicCompatibleProvider) SupportsVision(model string) bool {
-	return false
+	return p.DescribeVision(model).State == VisionSupported
+}
+func (p *AnthropicCompatibleProvider) DescribeVision(model string) VisionCapability {
+	return runtimeVision(p.runtime, model)
 }
 
 func (p *AnthropicCompatibleProvider) SupportsJSONMode(model string) bool {
@@ -470,19 +490,36 @@ func (p *AnthropicCompatibleProvider) DescribeModelHarness(model string) ModelHa
 	if model == "" {
 		model = p.defaultModel
 	}
+	binding := []string{p.name, p.baseURL, model, HarnessTransportAnthropicMessages,
+		HarnessToolStrategyNative, HarnessJSONStrategyPrompt}
+	if p.hasDeepSeekFlashResponseAlias(model) {
+		binding = append(binding, "deepseek-flash-response-alias")
+	}
 	return ModelHarness{
 		ProtocolVersion:     ModelHarnessProtocolVersion,
 		TransportProtocol:   HarnessTransportAnthropicMessages,
 		ToolStrategy:        HarnessToolStrategyNative,
 		JSONStrategy:        HarnessJSONStrategyPrompt,
 		QualificationStatus: HarnessQualificationRequired,
-		BindingDigest: providerHarnessBinding(p.runtime, p.name, p.baseURL, model,
-			HarnessTransportAnthropicMessages, HarnessToolStrategyNative,
-			HarnessJSONStrategyPrompt),
+		BindingDigest:       providerHarnessBinding(p.runtime, binding...),
 	}
 }
 
 func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (anthropicMessageRequest, error) {
+	selectedModel := strings.TrimSpace(req.Model)
+	if selectedModel == "" {
+		selectedModel = p.defaultModel
+	}
+	if err := validateRequestImages(p, selectedModel, req.Messages); err != nil {
+		return anthropicMessageRequest{}, err
+	}
+	for _, message := range req.Messages {
+		for _, image := range message.Images {
+			if image.Width > 8000 || image.Height > 8000 {
+				return anthropicMessageRequest{}, errors.New("Anthropic image dimensions exceed 8000 pixels")
+			}
+		}
+	}
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 1024
@@ -503,7 +540,7 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 	for _, msg := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		content := strings.TrimSpace(msg.Content)
-		if content == "" && len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 {
+		if content == "" && len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 && len(msg.Images) == 0 {
 			continue
 		}
 		switch role {
@@ -547,6 +584,13 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 	return out, nil
 }
 
+func (p *AnthropicCompatibleProvider) modelsEndpoint() string {
+	if strings.HasSuffix(p.baseURL, "/v1/messages") {
+		return strings.TrimSuffix(p.baseURL, "/messages") + "/models"
+	}
+	return p.endpoint("/v1/models")
+}
+
 func (p *AnthropicCompatibleProvider) endpoint(path string) string {
 	if strings.HasSuffix(p.baseURL, path) {
 		return p.baseURL
@@ -563,8 +607,10 @@ func (p *AnthropicCompatibleProvider) addHeaders(req *http.Request, secret strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", accept)
 	req.Header.Set("anthropic-version", AnthropicVersion)
-	req.Header.Set("x-api-key", secret)
-	req.Header.Set("Authorization", "Bearer "+secret)
+	if secret != "" {
+		req.Header.Set("x-api-key", secret)
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
 	return applyProviderRequestHeaders(p.runtime, secret, req.Header)
 }
 
@@ -590,17 +636,26 @@ type anthropicTool struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
-	IsError   bool            `json:"is_error,omitempty"`
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     json.RawMessage       `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   string                `json:"content,omitempty"`
+	IsError   bool                  `json:"is_error,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
+}
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 func anthropicMessageContent(message Message, assistant bool) (any, error) {
+	if err := ValidateMessageImages(message); err != nil {
+		return nil, err
+	}
 	content := strings.TrimSpace(message.Content)
 	if assistant && len(message.ToolResults) > 0 {
 		return nil, errors.New("assistant messages cannot contain tool results")
@@ -608,7 +663,7 @@ func anthropicMessageContent(message Message, assistant bool) (any, error) {
 	if !assistant && len(message.ToolCalls) > 0 {
 		return nil, errors.New("user messages cannot contain tool calls")
 	}
-	if len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 {
+	if len(message.ToolCalls) == 0 && len(message.ToolResults) == 0 && len(message.Images) == 0 {
 		return content, nil
 	}
 	blocks := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls)+len(message.ToolResults))
@@ -639,6 +694,9 @@ func anthropicMessageContent(message Message, assistant bool) (any, error) {
 		}
 		// Anthropic Messages requires every tool_result block to precede any
 		// accompanying text in the same user message.
+		for _, image := range message.Images {
+			blocks = append(blocks, anthropicContentBlock{Type: "image", Source: &anthropicImageSource{Type: "base64", MediaType: image.MediaType, Data: base64.StdEncoding.EncodeToString(image.Data)}})
+		}
 		if content != "" {
 			blocks = append(blocks, anthropicContentBlock{Type: "text", Text: content})
 		}
@@ -682,18 +740,18 @@ type anthropicStreamEvent struct {
 }
 
 type anthropicStreamState struct {
-	model                  string
-	inputTokens            int
-	outputTokens           int
-	toolBlocks             map[int]*anthropicStreamToolBlock
-	textBlocks             map[int]bool
-	privateBlocks          map[int]bool
-	toolCalls              []ToolCall
-	messageStarted         bool
-	messageStopped         bool
-	itemCount              int
-	events                 providerStreamEvents
-	preserveRequestedModel bool
+	model          string
+	inputTokens    int
+	outputTokens   int
+	toolBlocks     map[int]*anthropicStreamToolBlock
+	textBlocks     map[int]bool
+	privateBlocks  map[int]bool
+	toolCalls      []ToolCall
+	messageStarted bool
+	messageStopped bool
+	itemCount      int
+	events         providerStreamEvents
+	responseModel  func(string) string
 }
 
 type anthropicStreamToolBlock struct {
@@ -721,10 +779,11 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned an invalid model identity during the stream", nil)
 		}
-		if !s.preserveRequestedModel {
-			s.model = model
-			s.events.model = model
+		if s.responseModel != nil {
+			model = s.responseModel(model)
 		}
+		s.model = model
+		s.events.model = model
 		s.messageStarted = true
 		s.inputTokens = event.Message.Usage.InputTokens
 		s.outputTokens = event.Message.Usage.OutputTokens

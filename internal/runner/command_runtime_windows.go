@@ -5,6 +5,7 @@ package runner
 import (
 	"debug/pe"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,11 @@ func resolveCommandRuntimeShell(profile CommandRuntimeProfile) (string, error) {
 	candidates := make([]string, 0, 12)
 	switch profile {
 	case CommandRuntimePowerShell:
+		// Runtime selection belongs to the trusted host process, never the
+		// per-command environment supplied by a model or project.
+		if configured := os.Getenv("CYBERAGENT_POWERSHELL_PATH"); configured != "" {
+			return resolveCommandRuntimeConfiguredPowerShell(configured)
+		}
 		for _, root := range controlledKnownFolders(windows.FOLDERID_ProgramFiles,
 			windows.FOLDERID_ProgramFilesX64, windows.FOLDERID_ProgramFilesX86) {
 			candidates = append(candidates, filepath.Join(root, "PowerShell", "7", "pwsh.exe"))
@@ -55,10 +61,33 @@ func resolveCommandRuntimeShell(profile CommandRuntimeProfile) (string, error) {
 		}
 		attributes, err := windows.GetFileAttributes(pointer)
 		if err == nil && attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT == 0 {
-			return filepath.Clean(path), nil
+			// Resolve directory aliases before applying the common Workspace
+			// exclusion and pinning the executable identity.
+			return resolveCommandRuntimeProcess(path)
 		}
 	}
 	return "", ErrCommandRuntimeUnavailable
+}
+
+func resolveCommandRuntimeConfiguredPowerShell(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	volume := filepath.VolumeName(value)
+	name := filepath.Base(value)
+	if !validCommandRuntimeText(value, false) || len(value) > MaxCommandRuntimePathBytes ||
+		!filepath.IsAbs(value) || len(volume) != 2 || volume[1] != ':' ||
+		(!strings.EqualFold(name, "pwsh.exe") && !strings.EqualFold(name, "powershell.exe")) {
+		return "", fmt.Errorf("%w: CYBERAGENT_POWERSHELL_PATH must name an absolute local pwsh.exe or powershell.exe", ErrCommandRuntimeBoundary)
+	}
+	path, err := resolveCommandRuntimeProcess(value)
+	if err != nil {
+		return "", fmt.Errorf("CYBERAGENT_POWERSHELL_PATH: %w", err)
+	}
+	if !commandRuntimePathEqual(value, path) {
+		return "", fmt.Errorf("%w: CYBERAGENT_POWERSHELL_PATH cannot use a filesystem alias", ErrCommandRuntimeBoundary)
+	}
+	// NormalizeCommandRuntimeSpec performs the shared native-image, bounded
+	// regular-file, Workspace exclusion, and SHA-256 checks on this exact path.
+	return path, nil
 }
 
 func commandRuntimeGitDistributionRoot(gitPath string) (string, bool) {
@@ -87,18 +116,13 @@ func commandRuntimeNativeExecutableAllowed(path string) bool {
 	if filepath.Ext(base) != ".exe" && filepath.Ext(base) != ".com" {
 		return false
 	}
-	stem := strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".com")
-	if strings.HasPrefix(stem, "python3.") || strings.HasPrefix(stem, "pypy3.") {
-		return false
-	}
+	// Native development runtimes use the same pinned process boundary as Go
+	// and other compiled programs. Shells and system/privilege brokers retain
+	// their dedicated profile or remain unavailable through this path.
 	blocked := map[string]struct{}{
 		"cmd.exe": {}, "powershell.exe": {}, "pwsh.exe": {}, "bash.exe": {},
 		"sh.exe": {}, "wscript.exe": {}, "cscript.exe": {}, "mshta.exe": {},
-		"rundll32.exe": {}, "regsvr32.exe": {}, "python.exe": {},
-		"python2.exe": {}, "python3.exe": {}, "py.exe": {}, "pypy.exe": {},
-		"pypy3.exe": {}, "node.exe": {}, "deno.exe": {}, "bun.exe": {},
-		"perl.exe": {}, "ruby.exe": {}, "php.exe": {}, "lua.exe": {},
-		"java.exe": {}, "javaw.exe": {}, "dotnet.exe": {}, "mono.exe": {},
+		"rundll32.exe": {}, "regsvr32.exe": {}, "py.exe": {},
 		"busybox.exe": {}, "wsl.exe": {}, "runas.exe": {},
 	}
 	_, found := blocked[base]

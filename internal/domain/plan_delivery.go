@@ -19,6 +19,7 @@ import (
 const (
 	PlanDeliveryProtocolVersion   = "plan_delivery.v1"
 	MaxPlanDeliveryJSONBytes      = 80 * 1024
+	MinPlanDeliveryDirections     = 1
 	PlanDeliveryDirectionCount    = 3
 	MaxPlanDeliveryModules        = 8
 	MaxPlanDeliveryTitleRunes     = 240
@@ -89,17 +90,45 @@ type PlanDeliverySelectionItem struct {
 	WorkItemID    string
 }
 
+// PlanDeliveryManualAcceptance is chosen by the operator, never by the model's
+// proposal. Empty legacy values retain the original required checkpoint gate.
+type PlanDeliveryManualAcceptance string
+
+const (
+	PlanDeliveryManualAcceptanceRequired PlanDeliveryManualAcceptance = "required"
+	PlanDeliveryManualAcceptanceOnDemand PlanDeliveryManualAcceptance = "on_demand"
+)
+
+func NormalizePlanDeliveryManualAcceptance(value PlanDeliveryManualAcceptance) (PlanDeliveryManualAcceptance, error) {
+	switch value {
+	case "", PlanDeliveryManualAcceptanceRequired:
+		return PlanDeliveryManualAcceptanceRequired, nil
+	case PlanDeliveryManualAcceptanceOnDemand:
+		return value, nil
+	default:
+		return "", errors.New("manual acceptance must be required or on_demand")
+	}
+}
+
 type PlanDeliverySelection struct {
 	ID               string
 	ProposalID       string
 	RunID            string
 	RootAgentID      string
 	DirectionOrdinal int
+	ManualAcceptance PlanDeliveryManualAcceptance
 	NoteID           string
 	Items            []PlanDeliverySelectionItem
 	RequestedBy      string
 	Version          int64
 	CreatedAt        time.Time
+}
+
+func (s PlanDeliverySelection) EffectiveManualAcceptance() PlanDeliveryManualAcceptance {
+	if s.ManualAcceptance == "" {
+		return PlanDeliveryManualAcceptanceRequired
+	}
+	return s.ManualAcceptance
 }
 
 type PlanDeliverySelectionOperation struct {
@@ -137,9 +166,9 @@ func NormalizePlanDeliverySpec(spec PlanDeliverySpec) (PlanDeliverySpec, error) 
 	if originalVersion != spec.Version || spec.Version != PlanDeliveryProtocolVersion {
 		return PlanDeliverySpec{}, fmt.Errorf("unsupported Plan/Delivery version %q", spec.Version)
 	}
-	if len(spec.Directions) != PlanDeliveryDirectionCount {
+	if len(spec.Directions) < MinPlanDeliveryDirections || len(spec.Directions) > PlanDeliveryDirectionCount {
 		return PlanDeliverySpec{}, fmt.Errorf(
-			"Plan/Delivery requires exactly %d directions", PlanDeliveryDirectionCount)
+			"Plan/Delivery requires between %d and %d directions", MinPlanDeliveryDirections, PlanDeliveryDirectionCount)
 	}
 	normalized := make([]PlanDeliveryDirection, len(spec.Directions))
 	seenDirections := make(map[string]struct{}, len(spec.Directions))
@@ -299,6 +328,9 @@ func (o PlanDeliveryProposalOperation) validatePersistableFields() error {
 }
 
 func (s PlanDeliverySelection) Validate() error {
+	if _, err := NormalizePlanDeliveryManualAcceptance(s.ManualAcceptance); err != nil {
+		return err
+	}
 	for _, value := range []string{s.ID, s.ProposalID, s.RunID, s.RootAgentID,
 		s.NoteID, s.RequestedBy} {
 		if !validAgentIdentity(value, false) {
@@ -359,6 +391,20 @@ func PlanDeliverySelectionRequestFingerprint(proposalID, runID string,
 ) string {
 	return runmutation.Fingerprint("plan_delivery_selection_request.v1", proposalID,
 		runID, fmt.Sprint(directionOrdinal), requestedBy)
+}
+
+func PlanDeliverySelectionRequestFingerprintForAcceptance(proposalID, runID string,
+	directionOrdinal int, requestedBy string, acceptance PlanDeliveryManualAcceptance,
+) string {
+	mode, err := NormalizePlanDeliveryManualAcceptance(acceptance)
+	if err != nil {
+		return ""
+	}
+	if mode == PlanDeliveryManualAcceptanceRequired {
+		return PlanDeliverySelectionRequestFingerprint(proposalID, runID, directionOrdinal, requestedBy)
+	}
+	return runmutation.Fingerprint("plan_delivery_selection_request.v1", proposalID,
+		runID, fmt.Sprint(directionOrdinal), requestedBy, string(mode))
 }
 
 func PlanDeliveryHandoffTitle(direction PlanDeliveryDirection) string {

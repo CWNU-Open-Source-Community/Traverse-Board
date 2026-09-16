@@ -34,13 +34,8 @@ func commandRuntimeNativeExecutableAllowed(path string) bool {
 	blocked := map[string]struct{}{
 		"sh": {}, "bash": {}, "dash": {}, "zsh": {}, "fish": {}, "ksh": {},
 		"csh": {}, "tcsh": {}, "pwsh": {}, "powershell": {}, "env": {},
-		"python": {}, "python2": {}, "python3": {}, "pypy": {}, "pypy3": {},
-		"node": {}, "deno": {}, "bun": {}, "perl": {}, "ruby": {}, "php": {},
-		"lua": {}, "java": {}, "dotnet": {}, "mono": {}, "busybox": {},
-		"xargs": {}, "sudo": {}, "su": {}, "doas": {}, "pkexec": {},
-	}
-	if strings.HasPrefix(base, "python3.") || strings.HasPrefix(base, "pypy3.") {
-		return false
+		"busybox": {},
+		"xargs":   {}, "sudo": {}, "su": {}, "doas": {}, "pkexec": {},
 	}
 	_, found := blocked[base]
 	return !found

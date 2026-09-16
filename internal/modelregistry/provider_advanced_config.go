@@ -353,6 +353,9 @@ func advancedRequestBodyContainer(key string) bool {
 func validateAdvancedSemanticContainer(key string, value any, providerID string) error {
 	normalized := strings.ToLower(strings.TrimSpace(key))
 	switch normalized {
+	case "model_capabilities":
+		_, err := parseVisionCapabilities(value)
+		return err
 	case "env", "model_mapping", "request_body", "request_headers":
 		object, ok := value.(map[string]any)
 		if !ok {
@@ -394,6 +397,8 @@ func canonicalAdvancedSemanticContainer(key string) (string, bool) {
 		return "env", true
 	case "model_mapping":
 		return "model_mapping", true
+	case "model_capabilities":
+		return "model_capabilities", true
 	case "request_body":
 		return "request_body", true
 	case "request_headers":

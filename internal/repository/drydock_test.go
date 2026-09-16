@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -10,6 +11,74 @@ import (
 
 	"cyberagent-workbench/internal/workspaceidentity"
 )
+
+func TestCaptureDrydockDeliveryPreservesLongRuntimeAndUserPaths(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := filepath.Join(t.TempDir(), "delivery")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runDrydockDeliveryGit(t, root, "init", "-q", "-b", "main")
+	runDrydockDeliveryGit(t, root, "config", "user.email", "delivery@example.invalid")
+	runDrydockDeliveryGit(t, root, "config", "user.name", "Delivery Test")
+	runDrydockDeliveryGit(t, root, "config", "core.longpaths", "false")
+	if err := os.WriteFile(filepath.Join(root, "review.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runDrydockDeliveryGit(t, root, "add", "review.txt")
+	runDrydockDeliveryGit(t, root, "commit", "-q", "-m", "baseline")
+	base := runDrydockDeliveryGit(t, root, "rev-parse", "HEAD")
+	paths := []string{
+		".traverse-board/home/AppData/Local/Packages/traverseboard.local." + strings.Repeat("a", 64) + "/AC/Microsoft/PowerShell/StartupProfileData-NonInteractive",
+		"user-files/" + strings.Repeat("b", 100) + "/" + strings.Repeat("c", 100) + "/result.txt",
+	}
+	content := []byte("preserve this content\n")
+	for _, path := range paths {
+		absolute := filepath.Join(root, filepath.FromSlash(path))
+		if len(absolute) <= 260 {
+			t.Fatalf("fixture must exercise a Windows long path: %s", absolute)
+		}
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "review.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(path string) []byte {
+		t.Helper()
+		value, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	indexBefore, configBefore := read(".git/index"), read(".git/config")
+	executor, err := NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := executor.CaptureDelivery(context.Background(), root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.ChangedPaths) != 3 || !strings.Contains(evidence.Patch, "+after") {
+		t.Fatalf("delivery lost project changes: %+v", evidence.ChangedPaths)
+	}
+	for _, path := range paths {
+		if !strings.Contains(evidence.Patch, path) || !bytes.Equal(read(filepath.FromSlash(path)), content) {
+			t.Fatalf("delivery omitted or rewrote long path %s", path)
+		}
+	}
+	if !bytes.Equal(read(".git/index"), indexBefore) || !bytes.Equal(read(".git/config"), configBefore) {
+		t.Fatal("delivery capture modified the live Git index or repository config")
+	}
+}
 
 func TestDrydockManagedRootMustBeDisjointFromSource(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

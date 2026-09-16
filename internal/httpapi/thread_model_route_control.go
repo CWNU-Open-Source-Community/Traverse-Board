@@ -10,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/llm"
 )
 
 const (
@@ -26,16 +27,17 @@ type ThreadModelRouteController interface {
 }
 
 type AvailableModelRouteView struct {
-	ProviderID          string   `json:"provider_id"`
-	ProviderName        string   `json:"provider_name"`
-	Model               string   `json:"model"`
-	Enabled             bool     `json:"enabled"`
-	CredentialStatus    string   `json:"credential_status"`
-	QualificationStatus string   `json:"qualification_status"`
-	HarnessReady        bool     `json:"harness_ready"`
-	Selectable          bool     `json:"selectable"`
-	UnavailableReason   string   `json:"unavailable_reason"`
-	DefaultForRoutes    []string `json:"default_for_routes"`
+	ProviderID          string               `json:"provider_id"`
+	ProviderName        string               `json:"provider_name"`
+	Model               string               `json:"model"`
+	Enabled             bool                 `json:"enabled"`
+	CredentialStatus    string               `json:"credential_status"`
+	QualificationStatus string               `json:"qualification_status"`
+	HarnessReady        bool                 `json:"harness_ready"`
+	Selectable          bool                 `json:"selectable"`
+	UnavailableReason   string               `json:"unavailable_reason"`
+	DefaultForRoutes    []string             `json:"default_for_routes"`
+	VisionCapability    llm.VisionCapability `json:"vision_capability,omitempty"`
 }
 
 type AvailableModelRouteCollectionView struct {
@@ -45,15 +47,16 @@ type AvailableModelRouteCollectionView struct {
 }
 
 type ThreadModelRouteView struct {
-	ProtocolVersion    string `json:"protocol_version"`
-	ThreadID           string `json:"thread_id"`
-	Provider           string `json:"provider"`
-	Model              string `json:"model"`
-	Source             string `json:"source"`
-	EffectiveRunID     string `json:"effective_run_id,omitempty"`
-	AppliesTo          string `json:"applies_to"`
-	ActiveRunUnchanged bool   `json:"active_run_unchanged"`
-	Replayed           bool   `json:"replayed"`
+	ProtocolVersion    string               `json:"protocol_version"`
+	ThreadID           string               `json:"thread_id"`
+	Provider           string               `json:"provider"`
+	Model              string               `json:"model"`
+	Source             string               `json:"source"`
+	EffectiveRunID     string               `json:"effective_run_id,omitempty"`
+	AppliesTo          string               `json:"applies_to"`
+	ActiveRunUnchanged bool                 `json:"active_run_unchanged"`
+	Replayed           bool                 `json:"replayed"`
+	VisionCapability   llm.VisionCapability `json:"vision_capability,omitempty"`
 }
 
 type ThreadModelRouteControlRequestView struct {
@@ -179,6 +182,7 @@ func availableModelRouteCollectionView(catalog application.ModelRouteCatalog) Av
 			QualificationStatus: route.QualificationStatus,
 			HarnessReady:        route.HarnessReady, Selectable: route.Selectable,
 			UnavailableReason: route.UnavailableReason,
+			VisionCapability:  route.VisionCapability,
 			DefaultForRoutes:  append([]string{}, route.DefaultForRoutes...)}
 	}
 	return AvailableModelRouteCollectionView{ProtocolVersion: catalog.ProtocolVersion,
@@ -190,5 +194,5 @@ func threadModelRouteView(value application.ThreadModelRouteView) ThreadModelRou
 		ThreadID: value.ThreadID, Provider: value.Provider, Model: value.Model,
 		Source: value.Source, EffectiveRunID: value.EffectiveRunID,
 		AppliesTo: value.AppliesTo, ActiveRunUnchanged: value.ActiveRunUnchanged,
-		Replayed: value.Replayed}
+		Replayed: value.Replayed, VisionCapability: value.VisionCapability}
 }

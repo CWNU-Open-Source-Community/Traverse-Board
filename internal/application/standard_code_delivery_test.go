@@ -10,6 +10,27 @@ import (
 	"cyberagent-workbench/internal/standardcodedelivery"
 )
 
+func TestStandardCodeDeliveryBackendMatchesConcreteAdapterWithoutCrossingProfiles(t *testing.T) {
+	for _, test := range []struct {
+		selected domain.StandardCodeBackend
+		recorded string
+		want     bool
+	}{
+		{domain.StandardCodeSelectedLocal, "local", true},
+		{domain.StandardCodeSelectedLocal, CommandRuntimeLocalSandboxBackend, true},
+		{domain.StandardCodeSelectedDocker, "docker", true},
+		{domain.StandardCodeSelectedDocker, CommandRuntimeDockerSandboxBackend, true},
+		{domain.StandardCodeSelectedLocal, CommandRuntimeDockerSandboxBackend, false},
+		{domain.StandardCodeSelectedDocker, CommandRuntimeLocalSandboxBackend, false},
+		{domain.StandardCodeSelectedLocal, "local-unknown", false},
+		{"", "", false},
+	} {
+		if got := standardCodeDeliveryBackendMatches(test.selected, test.recorded); got != test.want {
+			t.Errorf("selected=%s recorded=%s matches=%t want=%t", test.selected, test.recorded, got, test.want)
+		}
+	}
+}
+
 func TestCommandVerificationConclusionProjectsExplicitRuntimeOutcomes(t *testing.T) {
 	exitZero := 0
 	base := runner.CommandRuntimeJob{State: runner.CommandRuntimeJobCompleted,
@@ -80,7 +101,7 @@ func TestCommandVerificationConclusionProjectsExplicitRuntimeOutcomes(t *testing
 				test.mutate(&job)
 			}
 			status, reason := commandVerificationConclusion(job, test.current,
-				test.artifactsComplete, supervisor, test.backend, test.generation)
+				test.artifactsComplete, job.TruncationReason != "", supervisor, test.backend, test.generation)
 			if status != test.wantStatus || reason != test.wantReason {
 				t.Fatalf("got (%s, %s), want (%s, %s)", status, reason,
 					test.wantStatus, test.wantReason)

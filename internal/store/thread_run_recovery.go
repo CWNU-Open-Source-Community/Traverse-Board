@@ -54,6 +54,13 @@ func (s *SQLiteStore) GetThreadRunRecovery(ctx context.Context,
 		handoff.Result.Status != domain.RunExecutionHandoffFailed {
 		return domain.ThreadRunRecovery{}, false, nil
 	}
+	for _, item := range handoff.Items {
+		if failure, closed, err := s.GetThreadTurnFailure(ctx, run.ID, item.MessageID); err != nil {
+			return domain.ThreadRunRecovery{}, false, err
+		} else if closed && failure.HandoffOperationID == operationID {
+			return domain.ThreadRunRecovery{}, false, nil
+		}
+	}
 	checkpoint, checkpointFound, err := s.GetSupervisorCheckpoint(ctx, run.ID)
 	if err != nil {
 		return domain.ThreadRunRecovery{}, false, err
@@ -72,6 +79,10 @@ func (s *SQLiteStore) GetThreadRunRecovery(ctx context.Context,
 		Disposition: disposition,
 		ErrorCode:   handoff.Result.ErrorCode, StopReason: handoff.Result.StopReason,
 		Detail: "", Quiescent: quiescent, FailedAt: handoff.Result.CompletedAt,
+	}
+	recovery.FailureStage, err = recordedApprovalContinuationFailureStage(ctx, s.db, handoff)
+	if err != nil {
+		return domain.ThreadRunRecovery{}, false, err
 	}
 	if err := recovery.Validate(); err != nil {
 		return domain.ThreadRunRecovery{}, false, err

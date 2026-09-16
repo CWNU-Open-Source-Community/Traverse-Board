@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveRestore, BookOpen, ChevronDown, Folder, Monitor, Search, Trash2, X } from "lucide-react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArchiveRestore, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type { ThreadView, WorkspaceView } from "../../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../../lib/appearance";
@@ -16,6 +16,12 @@ import {
 import { V2PermissionControl } from "./permission-control";
 import { V2ProviderSettings } from "./provider-settings";
 import { V2RuntimeCapabilityControl } from "./runtime-capability-control";
+import { V2ExecutionSettings } from "./execution-settings";
+import { desktopBridgeAvailable } from "../../lib/desktop-bridge";
+import { useLocale } from "../../lib/locale";
+import { ShortcutSettings } from "../../components/shared-settings-panels";
+import { ModelAvailabilitySettings } from "../../components/model-availability-dialog";
+import { V2AboutSettings, V2ExtensionSettings, V2InspectorPreferences, V2SkillSettings } from "./advanced-settings";
 
 function SettingRow({ title, detail, children }: { title: string; detail: string; children: React.ReactNode }) {
   return <div className="v2-setting-row"><div><strong>{title}</strong><span>{detail}</span></div>
@@ -76,44 +82,30 @@ function FontLicenseControl() {
   </>;
 }
 
-function GeneralSettings({ client, threadID, workspaces, onPermissions }: {
-  client: CyberAgentClient;
+function GeneralSettings({ threadID, workspaces, onPermissions }: {
   threadID: string;
   workspaces: WorkspaceView[];
   onPermissions: () => void;
 }) {
-  const firstWorkspace = workspaces[0];
+  const { locale, setLocale } = useLocale();
   return <>
     <h1>常规</h1>
-    <section className="v2-settings-section"><h2>权限</h2>
-      <div className="v2-settings-card v2-settings-summary-card">
-        <SettingRow detail="默认情况下，Traverse 可以读取和编辑工作区中的文件；需要时，它会请求额外访问权限。" title="默认权限">
-          <button aria-label="管理默认权限" onClick={onPermissions} type="button">管理</button>
-        </SettingRow>
-        <SettingRow detail="启用完全访问后，Agent 无需逐次批准即可编辑此计算机上的文件，并运行可访问网络的命令。这会增加数据丢失、泄露或意外行为的风险。" title="完整访问权限">
-          <button aria-label="管理完整访问权限" onClick={onPermissions} type="button">管理</button>
-        </SettingRow>
-      </div>
-    </section>
+    <p className="v2-settings-lead">应用偏好由对话和 Inspector 共用。任务的执行环境、信任与访问范围在「当前任务权限」中管理。</p>
     <section className="v2-settings-section"><h2>常规</h2>
       <div className="v2-settings-card">
-        <SettingRow detail="在项目外启动的任务默认使用此位置" title="Projectless task folder">
-          <code>{firstWorkspace?.name ?? "未配置"}</code><button type="button">更改</button>
+        <SettingRow detail="新对话中选择项目；桌面应用可直接打开本机文件夹" title="项目">
+          <span>{workspaces.length} 个已加载项目</span>
         </SettingRow>
-        <SettingRow detail="默认打开文件和文件夹的位置" title="默认文件打开位置">
-          <button type="button"><Folder aria-hidden="true" size={16} />File Explorer<ChevronDown size={14} /></button>
+        <SettingRow detail="主界面使用简体中文；部分高级面板可使用 English，完整双语界面尚未提供。" title="语言">
+          <div className="v2-setting-segmented" role="group" aria-label="高级面板语言">
+            <button aria-pressed={locale === "zh-CN"} onClick={() => setLocale("zh-CN")} type="button">中文</button>
+            <button aria-pressed={locale === "en-US"} onClick={() => setLocale("en-US")} type="button">English（部分）</button>
+          </div>
         </SettingRow>
-        <SettingRow detail="Agent 在 Windows 上的运行位置" title="智能体环境">
-          <button type="button">Windows 原生<ChevronDown size={14} /></button>
+        <SettingRow detail={threadID ? "仅管理当前打开的任务，不作为其他项目的默认权限。" : "先打开一个对话，再查看它的任务权限。"} title="当前任务权限">
+          <button className="v2-setting-link" aria-label="管理当前任务权限" disabled={!threadID}
+            onClick={onPermissions} type="button">管理</button>
         </SettingRow>
-        <SettingRow detail="集成终端中打开的 Shell" title="集成终端 Shell">
-          <button type="button">PowerShell<ChevronDown size={14} /></button>
-        </SettingRow>
-        <SettingRow detail="应用 UI 语言" title="语言"><button type="button">简体中文<ChevronDown size={14} /></button></SettingRow>
-        <SettingRow detail="在应用标题栏中显示底部面板控件" title="底部面板">
-          <span className="v2-switch is-on" role="img" aria-label="底部面板已开启"><i /></span>
-        </SettingRow>
-        <SettingRow detail="终端标签页的默认位置" title="默认终端位置"><button type="button">底部</button></SettingRow>
         <SettingRow detail="中文界面使用 HarmonyOS Sans Fonts；完整许可文本随软件发布。" title="第三方字体">
           <FontLicenseControl />
         </SettingRow>
@@ -193,14 +185,15 @@ function ModelSettingsPage({ client }: { client: CyberAgentClient }) {
   </>;
 }
 
-function ArchivedSettings({ client }: { client: CyberAgentClient }) {
+function ArchivedSettings({ client, onOpenThread }: { client: CyberAgentClient; onOpenThread?: (id: string) => void }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<ThreadView | null>(null);
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: v2QueryKeys.threads("archived"),
-    queryFn: ({ signal }) => client.getPage<ThreadView>("/threads",
-      { limit: 100, status: "archived" }, "", signal),
+    queryFn: ({ signal, pageParam }) => client.getPage<ThreadView>("/threads",
+      { limit: 100, status: "archived" }, pageParam, signal),
+    initialPageParam: "", getNextPageParam: (last) => last.page.next_cursor || undefined,
   });
   const transition = useMutation({
     mutationFn: ({ thread, action }: { thread: ThreadView; action: "restore" | "delete" }) =>
@@ -214,17 +207,26 @@ function ArchivedSettings({ client }: { client: CyberAgentClient }) {
     },
   });
   const normalized = search.trim().toLocaleLowerCase();
-  const threads = useMemo(() => (query.data?.items ?? []).filter((thread) => !normalized ||
-    thread.title.toLocaleLowerCase().includes(normalized)), [normalized, query.data?.items]);
+  const loaded = useMemo(() => [...new Map(query.data?.pages.flatMap(({ items }) => items)
+    .map((thread) => [thread.id, thread])).values()], [query.data]);
+  const threads = useMemo(() => loaded.filter((thread) => !normalized ||
+    thread.title.toLocaleLowerCase().includes(normalized)), [normalized, loaded]);
   return <><h1>已归档的聊天</h1><p className="v2-settings-lead">归档会从侧栏隐藏对话，但保留消息、执行记录与审计证据。</p>
     <label className="v2-archive-search"><Search aria-hidden="true" size={15} />
       <input aria-label="搜索已归档的聊天" onChange={(event) => setSearch(event.target.value)}
         placeholder="搜索已归档的聊天" type="search" value={search} /></label>
+    <p className="v2-history-scope">搜索{loaded.length}条已加载的归档标题，不含消息正文。
+      {query.isLoading ? "正在读取列表。" : query.isError ? "本次加载未完成，请重试。"
+        : query.hasNextPage ? "可以继续加载更早记录。" : "当前列表已加载完毕。"}</p>
     <div className="v2-archive-list">
       {query.isLoading && <p>正在加载…</p>}
-      {query.isError && <p role="alert">无法读取归档列表</p>}
-      {!query.isLoading && threads.length === 0 && <div className="v2-archive-empty">暂无已归档的聊天</div>}
-      {threads.map((thread) => <article key={thread.id}><div><strong>{thread.title}</strong>
+      {query.isError && <p role="alert">无法读取归档列表。<button onClick={() => void (query.isFetchNextPageError
+        ? query.fetchNextPage() : query.refetch())} type="button">重试归档列表</button></p>}
+      {!query.isLoading && !query.isError && threads.length === 0 && <div className="v2-archive-empty">
+        {normalized ? "已加载的标题中没有匹配项" : "暂无已归档的聊天"}</div>}
+      {threads.map((thread) => <article key={thread.id}><div><strong>{onOpenThread
+        ? <button className="link-button" aria-label={`打开 ${thread.title}`} onClick={() => onOpenThread(thread.id)}
+          type="button">{thread.title}</button> : thread.title}</strong>
         <span>{thread.archived_at ? new Date(thread.archived_at).toLocaleString() : "已归档"}</span></div>
         <button disabled={!client.hasThreadControl || transition.isPending}
           onClick={() => transition.mutate({ thread, action: "restore" })} type="button">
@@ -233,6 +235,9 @@ function ArchivedSettings({ client }: { client: CyberAgentClient }) {
           disabled={!client.hasThreadControl || transition.isPending}
           onClick={() => setDeleteCandidate(thread)} type="button"><Trash2 aria-hidden="true" size={15} />删除</button>
       </article>)}</div>
+    {query.hasNextPage && <button className="v2-load-history" disabled={query.isFetchingNextPage}
+      onClick={() => void query.fetchNextPage()} type="button">
+      {query.isFetchingNextPage ? "正在加载…" : "加载更早归档"}</button>}
     {transition.isError && <p className="v2-inline-error" role="alert">{transition.error instanceof Error
       ? transition.error.message : "更新归档状态失败"}</p>}
     <V2ConfirmDialog busy={transition.isPending} confirmLabel="删除" danger
@@ -261,34 +266,43 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 }
 
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
-  onOpenInspector }: {
+  onOpenInspector, onOpenThread, desktop = desktopBridgeAvailable() }: {
   client: CyberAgentClient;
   section: V2SettingsSection;
   threadID: string;
   workspaces: WorkspaceView[];
   onSelectSection: (section: V2SettingsSection) => void;
+  onOpenThread?: (id: string) => void;
   onOpenInspector: (returnFocus?: HTMLElement | null) => void;
+  desktop?: boolean;
 }) {
   return <main className="v2-settings-main"><div className="v2-settings-toolbar" />
     <div className="v2-settings-scroll"><div className="v2-settings-content">
-      {section === "general" && <GeneralSettings client={client} onPermissions={() => onSelectSection("permissions")}
+      {section === "general" && <GeneralSettings onPermissions={() => onSelectSection("permissions")}
         threadID={threadID} workspaces={workspaces} />}
       {section === "permissions" && <><h1>权限</h1><p className="v2-settings-lead">
-        完全访问按当前任务授权且无需重启；运行中升档不会改变当前执行，将从下一次执行生效。降权仍会即时撤销高风险能力；调试模式额外初始化本次应用会话的持久运行时。
+        本页管理当前打开的对话。运行中提高权限不会改变当前执行，将从下一次执行生效；降低权限会撤销相应能力。
       </p>
         <section className="v2-settings-section"><h2>任务权限</h2>
           <V2PermissionControl client={client} threadID={threadID} variant="settings" />
         </section>
+        <V2ExecutionSettings client={client} threadID={threadID} workspaces={workspaces} />
         <section className="v2-settings-section"><V2RuntimeCapabilityControl /></section></>}
       {section === "appearance" && <AppearanceSettings />}
-      {section === "archived" && <ArchivedSettings client={client} />}
+      {section === "archived" && <ArchivedSettings client={client} onOpenThread={onOpenThread} />}
       {section === "models" && <ModelSettingsPage client={client} />}
-      {section === "inspector" && <><h1>Inspector</h1><section className="v2-settings-section">
-        <div className="v2-settings-card v2-settings-placeholder"><Monitor aria-hidden="true" size={22} />
-          <strong>Harness Inspector</strong><p>Run、Session、Event、Receipt、Checkpoint 与原始 Transcript 只在这里显示。</p>
-          <button onClick={(event) => onOpenInspector(event.currentTarget)}
-            type="button">打开 Inspector</button></div></section></>}
-      {!(["general", "permissions", "appearance", "archived", "models", "inspector"] as V2SettingsSection[])
+      {(section === "extensions" || section === "plugins") && <V2ExtensionSettings client={client} threadID={threadID} />}
+      {section === "skills" && <V2SkillSettings client={client} desktop={desktop} />}
+      {section === "advanced-models" && <><h1>全局模型路由与价格</h1><p className="v2-settings-lead">
+        管理服务的命名模型路由和价格快照。当前对话的模型仍从对话输入区选择；这里不会替换已经开始的执行。
+      </p><div className="v2-shared-settings"><ModelAvailabilitySettings client={client} /></div></>}
+      {section === "about" && <V2AboutSettings client={client} desktop={desktop} />}
+      {(section === "shortcuts" || section === "keyboard") && <div className="v2-shared-settings">
+        <ShortcutSettings /><p>这是已有快捷键的说明。方向键与 Enter 用于当前菜单或对话框；输入框中 Enter 发送、Shift+Enter 换行。</p>
+      </div>}
+      {section === "inspector" && <V2InspectorPreferences onOpenInspector={onOpenInspector} />}
+      {!(["general", "permissions", "appearance", "archived", "models", "inspector", "extensions", "plugins",
+        "skills", "advanced-models", "about", "shortcuts", "keyboard"] as V2SettingsSection[])
         .includes(section) && <PlaceholderSettings onOpenLegacy={onOpenInspector} section={section} />}
     </div></div>
   </main>;

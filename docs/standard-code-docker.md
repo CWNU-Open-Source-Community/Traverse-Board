@@ -82,6 +82,24 @@ Drydock Checkpoint and logs are bounded receipt metadata. Raw logs are not persi
 Use `docker-cancel` for an exact admission and `docker-recover` after restart; both
 reuse the existing ownership ledger and never start a new attempt during recovery.
 
+For an active `command-runtime.v2` request, the same owned log attachment also
+delivers bounded, redacted stdout and stderr to the existing Job manager. The
+content is delivered only after its capture receipt is saved and its stream
+digests match. This is terminal output delivery, not live streaming; the ordinary
+Standard Code response and its durable log receipt remain metadata-only. The Job
+manager continues to own its existing output artifacts, cursors, and hashes.
+
+The adapter preserves the actual terminal exit code, including a nonzero test
+exit. A saved failed, cancelled, or timed-out outcome remains a failure even if
+its process exit code was zero and replay has no new transport error. Capture
+limits, invalid/incomplete frames, and the combined Job artifact
+byte limit are reported explicitly in stderr. The combined limit includes these
+diagnostics and clipping preserves UTF-8 boundaries. A replay with only a Docker
+receipt reports that its output is unavailable; it does not attach again or rerun
+the command to reconstruct discarded text. A previously saved terminal Job keeps
+the output already persisted by the Job manager. Inspect the Job state and exit
+code to determine test success, rather than the successful status of a Job query.
+
 The ordinary operator `standard-code` commands keep stdin closed. When the same
 backend is selected by `command-runtime.v2`, `stdin_policy=pipe` enables Docker's
 non-TTY stdin flags and one input-only attachment to the exact owned running

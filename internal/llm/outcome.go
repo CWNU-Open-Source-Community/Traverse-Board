@@ -2,11 +2,15 @@ package llm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,21 +211,53 @@ func defaultProviderFailureReason(kind Outcome, statusCode int) ProviderFailureR
 }
 
 type ModelAttempt struct {
-	Number           int
-	TransportAttempt int
-	MaxAttempts      int
-	ProtocolRepair   int
-	ToolRound        int
-	Provider         string
-	Model            string
-	Outcome          Outcome
-	ErrorText        string
-	RetryAfter       time.Duration
-	Elapsed          time.Duration
-	RetryPlanned     bool
-	StreamEvents     int
-	StreamBytes      int
-	Context          *ModelContextAudit
+	SupervisorAttemptID    string
+	Purpose                string
+	CompactionSourceSHA256 string
+	Number                 int
+	TransportAttempt       int
+	MaxAttempts            int
+	ProtocolRepair         int
+	ToolRound              int
+	Provider               string
+	Model                  string
+	Outcome                Outcome
+	ErrorText              string
+	RetryAfter             time.Duration
+	Elapsed                time.Duration
+	RetryPlanned           bool
+	StreamEvents           int
+	StreamBytes            int
+	Context                *ModelContextAudit
+}
+
+const ModelPurposeContextCompaction = "context_compaction"
+
+// MonetaryAttemptNumber keeps auxiliary source-bound reservations outside the
+// legacy per-turn normal-attempt range. Invalid identities never yield a key.
+func (a ModelAttempt) MonetaryAttemptNumber() int64 {
+	if a.Purpose == "" {
+		if a.SupervisorAttemptID != "" {
+			if !validSupervisorMonetaryIdentity(a.SupervisorAttemptID) || a.Number <= 0 {
+				return 0
+			}
+			digest := sha256.Sum256([]byte("supervisor_model_cost.v1\x00" + a.SupervisorAttemptID + "\x00" + strconv.Itoa(a.Number)))
+			return int64(binary.BigEndian.Uint64(digest[:8])&((1<<61)-1) | (1 << 61))
+		}
+		return int64(a.Number)
+	}
+	if a.Purpose != ModelPurposeContextCompaction {
+		return 0
+	}
+	digest, err := hex.DecodeString(a.CompactionSourceSHA256)
+	if err != nil || len(digest) != 32 || strings.ToLower(a.CompactionSourceSHA256) != a.CompactionSourceSHA256 {
+		return 0
+	}
+	return int64(binary.BigEndian.Uint64(digest[:8])&((1<<62)-1) | (1 << 62))
+}
+
+func validSupervisorMonetaryIdentity(value string) bool {
+	return value != "" && len(value) <= 256 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
 }
 
 const MaxModelContextSources = 256
@@ -279,6 +315,21 @@ func (a ModelContextAudit) Validate() error {
 }
 
 func (a ModelAttempt) ValidateStarted() error {
+	if a.SupervisorAttemptID != "" && (a.Purpose != "" || !validSupervisorMonetaryIdentity(a.SupervisorAttemptID)) {
+		return errors.New("invalid Supervisor monetary attempt identity")
+	}
+	switch a.Purpose {
+	case "":
+		if a.CompactionSourceSHA256 != "" {
+			return errors.New("normal model attempt cannot carry a compaction source")
+		}
+	case ModelPurposeContextCompaction:
+		if a.MonetaryAttemptNumber() == 0 || a.ProtocolRepair != 0 || a.ToolRound != 0 || a.TransportNumber() != 1 || a.MaxAttempts != 1 || a.RetryPlanned || a.RetryAfter != 0 || a.StreamEvents != 0 || a.StreamBytes != 0 {
+			return errors.New("context compaction requires one source-bound non-streaming attempt without tools or repair")
+		}
+	default:
+		return errors.New("unknown model attempt purpose")
+	}
 	if a.Number <= 0 || a.MaxAttempts <= 0 {
 		return errors.New("model attempt number and transport limit must be positive")
 	}

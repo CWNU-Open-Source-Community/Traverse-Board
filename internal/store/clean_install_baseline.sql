@@ -1945,6 +1945,20 @@ CREATE TABLE delivery_gate_enrollments (
 		FOREIGN KEY(selection_id) REFERENCES plan_delivery_selections(id) ON DELETE RESTRICT
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE drydock_cleanup_operations (
+ operation_key_sha256 TEXT PRIMARY KEY CHECK(length(operation_key_sha256)=64),
+ request_fingerprint TEXT NOT NULL CHECK(length(request_fingerprint)=64),
+ drydock_id TEXT NOT NULL REFERENCES drydock_workspaces(id) ON DELETE RESTRICT,
+ run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+ expected_generation INTEGER NOT NULL CHECK(expected_generation>0),
+ status TEXT NOT NULL CHECK(status IN ('prepared','completed')),
+ receipt_id TEXT REFERENCES drydock_lifecycle_receipts(id) ON DELETE RESTRICT,
+ created_at TEXT NOT NULL CHECK(julianday(created_at) IS NOT NULL),
+ completed_at TEXT,
+ CHECK((status='prepared' AND receipt_id IS NULL AND completed_at IS NULL) OR
+ (status='completed' AND receipt_id IS NOT NULL AND julianday(completed_at) IS NOT NULL))
+);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE drydock_delivery_proposals (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
@@ -2840,7 +2854,7 @@ CREATE TABLE git_mutation_operations (
 		clean INTEGER NOT NULL DEFAULT 0 CHECK(clean IN (0, 1)),
 		stderr_prefix TEXT NOT NULL DEFAULT '',
 		completed_at TEXT,
-		created_at TEXT NOT NULL,
+		created_at TEXT NOT NULL, started_at TEXT CHECK(started_at IS NULL OR julianday(started_at) IS NOT NULL),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'repository_mutation.v1'),
 		CHECK(operation IN ('stage', 'unstage', 'commit', 'create_branch', 'switch_branch')),
@@ -2870,7 +2884,7 @@ CREATE TABLE git_remote_operations (
 		pull_request_number INTEGER NOT NULL DEFAULT 0,
 		stderr_prefix TEXT NOT NULL DEFAULT '',
 		completed_at TEXT,
-		created_at TEXT NOT NULL,
+		created_at TEXT NOT NULL, started_at TEXT CHECK(started_at IS NULL OR julianday(started_at) IS NOT NULL),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'repository_remote.v1'),
 		CHECK(operation IN ('fetch', 'pull_ff', 'push_branch', 'create_pr', 'update_pr')),
@@ -3601,7 +3615,7 @@ CREATE TABLE operator_steering_messages (
 		session_id TEXT NOT NULL,
 		sequence INTEGER NOT NULL,
 		status TEXT NOT NULL,
-		content TEXT NOT NULL,
+		content TEXT NOT NULL, attachment_count INTEGER NOT NULL DEFAULT 0 CHECK(attachment_count BETWEEN 0 AND 4), image_count INTEGER NOT NULL DEFAULT 0 CHECK(image_count BETWEEN 0 AND 4),
 		content_sha256 TEXT NOT NULL,
 		requested_by TEXT NOT NULL,
 		session_message_id INTEGER UNIQUE,
@@ -3614,7 +3628,7 @@ CREATE TABLE operator_steering_messages (
 		UNIQUE(run_id, sequence),
 		CHECK(sequence > 0),
 		CHECK(status IN ('pending', 'committed', 'cancelled')),
-		CHECK(length(CAST(content AS BLOB)) BETWEEN 1 AND 16384
+		CHECK(length(CAST(content AS BLOB)) BETWEEN 0 AND 16384 AND (length(CAST(content AS BLOB)) > 0 OR image_count > 0 OR attachment_count > 0)
 			AND content = trim(content) AND instr(content, char(0)) = 0),
 		CHECK(length(content_sha256) = 64 AND content_sha256 = lower(content_sha256)
 			AND content_sha256 NOT GLOB '*[^0-9a-f]*'),
@@ -3935,7 +3949,7 @@ CREATE TABLE plan_delivery_proposal_operations (
 		CHECK(requested_by = 'run_supervisor')
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE plan_delivery_proposals (
+CREATE TABLE "plan_delivery_proposals" (
 		id TEXT PRIMARY KEY,
 		run_id TEXT NOT NULL,
 		root_agent_id TEXT NOT NULL,
@@ -3955,7 +3969,7 @@ CREATE TABLE plan_delivery_proposals (
 		FOREIGN KEY(run_id, mode_revision) REFERENCES run_mode_snapshots(run_id, revision) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'plan_delivery.v1'),
 		CHECK(status = 'proposed'),
-		CHECK(direction_count = 3),
+		CHECK(direction_count BETWEEN 1 AND 3),
 		CHECK(mode_revision > 0),
 		CHECK(length(proposal_fingerprint) = 64
 			AND proposal_fingerprint = lower(proposal_fingerprint)
@@ -4007,7 +4021,8 @@ CREATE TABLE plan_delivery_selections (
 		module_count INTEGER NOT NULL,
 		requested_by TEXT NOT NULL,
 		version INTEGER NOT NULL,
-		created_at TEXT NOT NULL,
+		created_at TEXT NOT NULL, manual_acceptance TEXT NOT NULL DEFAULT 'required'
+			CHECK(manual_acceptance IN ('required', 'on_demand')),
 		FOREIGN KEY(proposal_id, direction_ordinal)
 			REFERENCES plan_delivery_directions(proposal_id, ordinal) ON DELETE RESTRICT,
 		FOREIGN KEY(run_id, root_agent_id) REFERENCES agent_nodes(run_id, id) ON DELETE RESTRICT,
@@ -5816,7 +5831,7 @@ CREATE TABLE run_supervisor_checkpoints (
 		last_error TEXT,
 		updated_at TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, execution_millis INTEGER NOT NULL DEFAULT 0, pending_input TEXT NOT NULL DEFAULT '', repair_phase TEXT NOT NULL DEFAULT '', repair_reason TEXT NOT NULL DEFAULT '', lease_id TEXT NOT NULL DEFAULT '', lease_generation INTEGER NOT NULL DEFAULT 0
 		CHECK(lease_generation >= 0 AND ((lease_id = '' AND lease_generation = 0)
-			OR (lease_id <> '' AND lease_generation > 0))),
+			OR (lease_id <> '' AND lease_generation > 0))), pending_image_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_image_count BETWEEN 0 AND 4), pending_attachment_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_attachment_count BETWEEN 0 AND 4),
 		FOREIGN KEY(run_id) REFERENCES runs(id),
 		CHECK(next_turn > 0)
 	);
@@ -5869,7 +5884,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			REFERENCES run_supervisor_tool_rounds(run_id, turn, attempt_id, round) ON DELETE CASCADE,
 		CHECK(position BETWEEN 1 AND 4),
 		CHECK(model_attempt > 0),
-		CHECK(tool_name IN ('work_item_create', 'note_create',
+		CHECK(tool_name IN ('history_search', 'history_read', 'work_item_create', 'note_create',
 			'specialist_delegation_propose', 'child_task_propose',
 			'plan_delivery_propose', 'controlled_command_propose',
 			'one_shot_command_propose', 'host_command_propose',
@@ -12018,6 +12033,14 @@ CREATE TABLE terminal_sessions (
 		CHECK(julianday(created_at) IS NOT NULL AND julianday(last_activity_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE thread_drydock_bindings (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE RESTRICT,
+  thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE RESTRICT,
+  drydock_id TEXT NOT NULL REFERENCES drydock_workspaces(id) ON DELETE RESTRICT,
+  predecessor_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL CHECK(julianday(created_at) IS NOT NULL)
+ );
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE thread_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		thread_id TEXT NOT NULL,
@@ -12152,6 +12175,33 @@ CREATE TABLE thread_lifecycle_operations (
 		CHECK(action IN ('archive','restore','delete')),
 		CHECK(json_valid(result_json)),
 		CHECK(julianday(created_at) IS NOT NULL)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE thread_message_attachments (
+		message_id TEXT NOT NULL REFERENCES operator_steering_messages(id),
+		ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+		attachment_id TEXT NOT NULL REFERENCES workspace_file_attachments(id),
+		PRIMARY KEY(message_id,ordinal),UNIQUE(message_id,attachment_id)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE thread_message_images (
+		message_id TEXT NOT NULL REFERENCES operator_steering_messages(id),
+		ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+		image_id TEXT NOT NULL REFERENCES workspace_image_attachments(id),
+		PRIMARY KEY(message_id,ordinal), UNIQUE(message_id,image_id)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE thread_message_intents (
+		operation_key_digest TEXT PRIMARY KEY,
+		thread_id TEXT NOT NULL REFERENCES threads(id),
+		request_fingerprint TEXT NOT NULL,
+		files_json TEXT NOT NULL CHECK(json_valid(files_json) AND json_type(files_json) = 'array' AND json_array_length(files_json) <= 4),
+		run_id TEXT REFERENCES runs(id),
+		message_id TEXT UNIQUE REFERENCES operator_steering_messages(id),
+		rejected INTEGER NOT NULL DEFAULT 0 CHECK(rejected IN (0, 1)),
+		created_at TEXT NOT NULL, images_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(images_json) AND json_type(images_json)='array' AND json_array_length(images_json)<=4), attachments_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(attachments_json) AND json_type(attachments_json)='array' AND json_array_length(attachments_json)<=4),
+		CHECK(length(operation_key_digest) = 64 AND length(request_fingerprint) = 64),
+		CHECK(message_id IS NULL OR (run_id IS NOT NULL AND rejected = 0))
 	);
 -- traverse-board-clean-install-object-boundary --
 CREATE TABLE thread_runs (
@@ -12821,12 +12871,74 @@ CREATE TABLE workspace_checkpoints (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE workspace_file_attachments (
+		id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+		operation_digest TEXT NOT NULL UNIQUE, request_fingerprint TEXT NOT NULL,
+		sha256 TEXT NOT NULL CHECK(length(sha256)=64), mime_type TEXT NOT NULL, name TEXT NOT NULL,
+		byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 0 AND 5242880), content BLOB NOT NULL,
+		readability TEXT NOT NULL CHECK(readability IN ('text','partial_text','stored_only')),
+		text_content TEXT NOT NULL, text_sha256 TEXT NOT NULL, text_bytes INTEGER NOT NULL CHECK(text_bytes BETWEEN 0 AND 65536),
+		redacted INTEGER NOT NULL CHECK(redacted IN (0,1)), reason TEXT NOT NULL, created_at TEXT NOT NULL,
+		CHECK(length(content)=byte_size AND length(CAST(text_content AS BLOB))=text_bytes),
+		CHECK((readability='stored_only' AND text_bytes=0 AND text_sha256='') OR (readability<>'stored_only' AND length(text_sha256)=64))
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE workspace_image_attachments (
+		id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+		operation_digest TEXT NOT NULL UNIQUE, request_fingerprint TEXT NOT NULL,
+		sha256 TEXT NOT NULL CHECK(length(sha256)=64), mime_type TEXT NOT NULL CHECK(mime_type IN ('image/png','image/jpeg','image/webp')),
+		byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 1 AND 5242880),
+		width INTEGER NOT NULL CHECK(width BETWEEN 1 AND 8192), height INTEGER NOT NULL CHECK(height BETWEEN 1 AND 8192),
+		name TEXT NOT NULL, content BLOB NOT NULL, created_at TEXT NOT NULL,
+		CHECK(length(content)=byte_size AND width*height<=16777216)
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE workspaces (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			root_path TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		);
+-- traverse-board-clean-install-object-boundary --
+CREATE VIEW plan_on_demand_completion_events AS
+ SELECT work.run_id, selection.id AS selection_id, work.id AS work_item_id,
+   event.event_id AS completion_event_id, work.completed_at AS origin_completed_at,
+   selection.proposal_id, selection.direction_ordinal, selected.module_ordinal
+ FROM work_items work
+ JOIN runs run ON run.id=work.run_id
+ JOIN plan_delivery_selection_items selected ON selected.work_item_id=work.id
+ JOIN plan_delivery_selections selection ON selection.id=selected.selection_id
+   AND selection.run_id=work.run_id AND selection.manual_acceptance='on_demand'
+ JOIN run_events event ON event.run_id=work.run_id AND event.mission_id=run.mission_id
+   AND event.subject_id=work.id AND event.type='work_item.changed'
+   AND event.source IN ('work_item_service','plan_delivery_control')
+   AND json_type(event.payload_json,'$.version')='integer'
+   AND json_extract(event.payload_json,'$.version')=work.version
+   AND json_extract(event.payload_json,'$.from') IN ('pending','in_progress')
+   AND json_extract(event.payload_json,'$.to')='completed'
+ JOIN run_mode_snapshots mode ON mode.run_id=work.run_id AND mode.phase='deliver'
+   AND mode.created_at<=event.created_at
+   AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later WHERE later.run_id=work.run_id
+     AND later.revision>mode.revision AND later.created_at<=event.created_at)
+ JOIN plan_delivery_modules module ON module.proposal_id=selection.proposal_id
+   AND module.direction_ordinal=selection.direction_ordinal AND module.ordinal=selected.module_ordinal
+ WHERE work.status='completed' AND work.version>1 AND work.completed_at IS NOT NULL
+   AND work.title=module.title AND work.description=module.objective
+   AND NOT EXISTS (SELECT value FROM json_each(work.acceptance_json)
+     EXCEPT SELECT value FROM json_each(module.acceptance_json))
+   AND NOT EXISTS (SELECT value FROM json_each(module.acceptance_json)
+     EXCEPT SELECT value FROM json_each(work.acceptance_json))
+   AND NOT EXISTS (
+     SELECT 1 FROM json_each(module.dependencies_json) expected
+     WHERE NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+       JOIN work_item_dependencies edge ON edge.depends_on_id=dependency.work_item_id
+         AND edge.work_item_id=work.id AND edge.run_id=work.run_id
+       WHERE dependency.selection_id=selection.id AND dependency.module_ordinal=expected.value))
+   AND NOT EXISTS (
+     SELECT 1 FROM work_item_dependencies edge WHERE edge.work_item_id=work.id
+       AND NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+         JOIN json_each(module.dependencies_json) expected ON expected.value=dependency.module_ordinal
+         WHERE dependency.selection_id=selection.id AND dependency.work_item_id=edge.depends_on_id));
 -- traverse-board-clean-install-object-boundary --
 CREATE VIEW run_external_skill_projection_items AS
 		SELECT selection.run_id AS run_id,
@@ -12870,6 +12982,160 @@ CREATE VIEW run_external_skill_projections AS
 					AND preparation.parent_selection_id = selection.id) AS specialist_committed_count,
 			selection.created_at AS created_at
 		FROM run_external_skill_selections selection;
+-- traverse-board-clean-install-object-boundary --
+CREATE VIEW run_file_drydock_bindings AS
+  SELECT d.run_id,r.mission_id,r.session_id,d.source_workspace_id,d.workspace_id,d.id AS drydock_id,
+   COALESCE(tr.thread_id,'') AS thread_id
+  FROM drydock_workspaces d JOIN runs r ON r.id=d.run_id
+  LEFT JOIN thread_runs tr ON tr.run_id=r.id
+  UNION ALL
+  SELECT b.run_id,r.mission_id,r.session_id,d.source_workspace_id,d.workspace_id,d.id AS drydock_id,b.thread_id
+  FROM thread_drydock_bindings b JOIN runs r ON r.id=b.run_id JOIN drydock_workspaces d ON d.id=b.drydock_id;
+-- traverse-board-clean-install-object-boundary --
+CREATE VIEW thread_plan_completed_sources AS
+ SELECT source.*, checkpoint.run_id AS origin_run_id,
+   checkpoint.work_item_id AS origin_work_item_id, checkpoint.handoff_note_id,
+   origin.completed_at AS origin_completed_at
+ FROM thread_plan_continuation_sources source
+ JOIN thread_runs current ON current.run_id=source.run_id
+ JOIN thread_runs previous ON previous.run_id=source.predecessor_run_id
+   AND previous.thread_id=current.thread_id AND previous.ordinal+1=current.ordinal
+   AND current.predecessor_run_id=previous.run_id
+ JOIN plan_delivery_selections selection ON selection.id=source.selection_id
+   AND selection.run_id=source.run_id AND selection.proposal_id=source.proposal_id
+ JOIN plan_delivery_selection_items selected ON selected.selection_id=selection.id
+   AND selected.work_item_id=source.work_item_id
+ JOIN work_items work ON work.id=source.work_item_id AND work.run_id=source.run_id
+   AND work.status='completed' AND work.version=1
+ JOIN plan_delivery_selections prior_selection ON prior_selection.id=source.source_selection_id
+   AND prior_selection.run_id=previous.run_id AND prior_selection.proposal_id=source.source_proposal_id
+   AND prior_selection.direction_ordinal=selection.direction_ordinal
+ JOIN plan_delivery_selection_items prior_selected ON prior_selected.selection_id=prior_selection.id
+   AND prior_selected.work_item_id=source.source_work_item_id
+   AND prior_selected.module_ordinal=selected.module_ordinal
+ JOIN work_items prior_work ON prior_work.id=source.source_work_item_id
+   AND prior_work.run_id=previous.run_id AND prior_work.status='completed'
+   AND prior_work.version=source.source_version
+ JOIN delivery_checkpoints checkpoint ON checkpoint.id=source.checkpoint_id
+ JOIN delivery_checkpoint_operations operation ON operation.checkpoint_id=checkpoint.id
+   AND operation.run_id=checkpoint.run_id AND operation.work_item_id=checkpoint.work_item_id
+ JOIN work_items origin ON origin.id=checkpoint.work_item_id AND origin.run_id=checkpoint.run_id
+   AND origin.status='completed' AND origin.version=checkpoint.work_item_version+1
+ JOIN run_mode_snapshots mode ON mode.id=checkpoint.mode_snapshot_id
+   AND mode.run_id=checkpoint.run_id AND mode.revision=checkpoint.mode_revision AND mode.phase='deliver'
+ JOIN thread_runs origin_binding ON origin_binding.run_id=checkpoint.run_id
+   AND origin_binding.thread_id=current.thread_id AND origin_binding.ordinal<=previous.ordinal
+ JOIN plan_delivery_modules module ON module.proposal_id=selection.proposal_id
+   AND module.direction_ordinal=selection.direction_ordinal AND module.ordinal=selected.module_ordinal
+ JOIN plan_delivery_modules original_module ON original_module.proposal_id=checkpoint.proposal_id
+   AND original_module.direction_ordinal=checkpoint.direction_ordinal
+   AND original_module.ordinal=checkpoint.module_ordinal
+ WHERE selection.manual_acceptance='required' AND prior_selection.manual_acceptance='required'
+   AND module.title=original_module.title AND module.objective=original_module.objective
+   AND module.acceptance_json=original_module.acceptance_json
+   AND module.dependencies_json=original_module.dependencies_json
+   AND work.title=module.title AND work.description=module.objective
+   AND prior_work.title=module.title AND prior_work.description=module.objective
+   AND origin.title=module.title AND origin.description=module.objective
+   AND work.acceptance_json=prior_work.acceptance_json AND work.acceptance_json=origin.acceptance_json
+   AND NOT EXISTS (SELECT value FROM json_each(work.acceptance_json)
+     EXCEPT SELECT value FROM json_each(module.acceptance_json))
+   AND NOT EXISTS (SELECT value FROM json_each(module.acceptance_json)
+     EXCEPT SELECT value FROM json_each(work.acceptance_json))
+   AND NOT EXISTS (
+     SELECT 1 FROM json_each(module.dependencies_json) expected
+     WHERE NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+       JOIN work_item_dependencies edge ON edge.depends_on_id=dependency.work_item_id
+         AND edge.work_item_id=work.id AND edge.run_id=work.run_id
+       WHERE dependency.selection_id=selection.id AND dependency.module_ordinal=expected.value))
+   AND NOT EXISTS (
+     SELECT 1 FROM work_item_dependencies edge WHERE edge.work_item_id=work.id
+       AND NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+         JOIN json_each(module.dependencies_json) expected ON expected.value=dependency.module_ordinal
+         WHERE dependency.selection_id=selection.id AND dependency.work_item_id=edge.depends_on_id))
+   AND (checkpoint.work_item_id=prior_work.id OR EXISTS (
+     SELECT 1 FROM thread_plan_continuation_sources previous_source
+     WHERE previous_source.run_id=previous.run_id
+       AND previous_source.selection_id=prior_selection.id
+       AND previous_source.work_item_id=prior_work.id
+       AND previous_source.checkpoint_id=checkpoint.id));
+-- traverse-board-clean-install-object-boundary --
+CREATE VIEW thread_plan_continuation_sources AS
+ SELECT event.run_id, event.subject_id AS proposal_id,
+   json_extract(event.payload_json,'$.selection_id') AS selection_id,
+   json_extract(event.payload_json,'$.source_proposal_id') AS source_proposal_id,
+   json_extract(event.payload_json,'$.source_selection_id') AS source_selection_id,
+   json_extract(event.payload_json,'$.predecessor_run_id') AS predecessor_run_id,
+   json_extract(item.value,'$.work_item_id') AS work_item_id,
+   json_extract(item.value,'$.source_work_item_id') AS source_work_item_id,
+   json_extract(item.value,'$.source_version') AS source_version,
+   json_extract(item.value,'$.checkpoint_id') AS checkpoint_id,
+   COALESCE(json_extract(item.value,'$.completion_event_id'),'') AS completion_event_id,
+   event.created_at
+ FROM run_events event, json_each(event.payload_json,'$.items') item
+ WHERE event.type = 'thread.plan_continued' AND event.source = 'thread_plan_continuation';
+-- traverse-board-clean-install-object-boundary --
+CREATE VIEW thread_plan_on_demand_completed_sources AS
+ SELECT source.*, completion.run_id AS origin_run_id,
+   completion.work_item_id AS origin_work_item_id, completion.origin_completed_at
+ FROM thread_plan_continuation_sources source
+ JOIN thread_runs current ON current.run_id=source.run_id
+ JOIN thread_runs previous ON previous.run_id=source.predecessor_run_id
+   AND previous.thread_id=current.thread_id AND previous.ordinal+1=current.ordinal
+   AND current.predecessor_run_id=previous.run_id
+ JOIN plan_delivery_selections selection ON selection.id=source.selection_id
+   AND selection.run_id=source.run_id AND selection.proposal_id=source.proposal_id
+ JOIN plan_delivery_selection_items selected ON selected.selection_id=selection.id
+   AND selected.work_item_id=source.work_item_id
+ JOIN work_items work ON work.id=source.work_item_id AND work.run_id=source.run_id
+   AND work.status='completed' AND work.version=1
+ JOIN plan_delivery_selections prior_selection ON prior_selection.id=source.source_selection_id
+   AND prior_selection.run_id=previous.run_id AND prior_selection.proposal_id=source.source_proposal_id
+   AND prior_selection.direction_ordinal=selection.direction_ordinal
+ JOIN plan_delivery_selection_items prior_selected ON prior_selected.selection_id=prior_selection.id
+   AND prior_selected.work_item_id=source.source_work_item_id
+   AND prior_selected.module_ordinal=selected.module_ordinal
+ JOIN work_items prior_work ON prior_work.id=source.source_work_item_id
+   AND prior_work.run_id=previous.run_id AND prior_work.status='completed'
+   AND prior_work.version=source.source_version
+ JOIN plan_on_demand_completion_events completion ON completion.completion_event_id=source.completion_event_id
+ JOIN work_items origin ON origin.id=completion.work_item_id AND origin.run_id=completion.run_id
+ JOIN thread_runs origin_binding ON origin_binding.run_id=completion.run_id
+   AND origin_binding.thread_id=current.thread_id AND origin_binding.ordinal<=previous.ordinal
+ JOIN plan_delivery_modules module ON module.proposal_id=selection.proposal_id
+   AND module.direction_ordinal=selection.direction_ordinal AND module.ordinal=selected.module_ordinal
+ JOIN plan_delivery_modules original_module ON original_module.proposal_id=completion.proposal_id
+   AND original_module.direction_ordinal=completion.direction_ordinal
+   AND original_module.ordinal=completion.module_ordinal
+ WHERE selection.manual_acceptance='on_demand' AND prior_selection.manual_acceptance='on_demand'
+   AND source.checkpoint_id='' AND module.title=original_module.title AND module.objective=original_module.objective
+   AND module.acceptance_json=original_module.acceptance_json
+   AND module.dependencies_json=original_module.dependencies_json
+   AND work.title=module.title AND work.description=module.objective
+   AND prior_work.title=module.title AND prior_work.description=module.objective
+   AND origin.title=module.title AND origin.description=module.objective
+   AND work.acceptance_json=prior_work.acceptance_json AND work.acceptance_json=origin.acceptance_json
+   AND NOT EXISTS (SELECT value FROM json_each(work.acceptance_json)
+     EXCEPT SELECT value FROM json_each(module.acceptance_json))
+   AND NOT EXISTS (SELECT value FROM json_each(module.acceptance_json)
+     EXCEPT SELECT value FROM json_each(work.acceptance_json))
+   AND NOT EXISTS (
+     SELECT 1 FROM json_each(module.dependencies_json) expected
+     WHERE NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+       JOIN work_item_dependencies edge ON edge.depends_on_id=dependency.work_item_id
+         AND edge.work_item_id=work.id AND edge.run_id=work.run_id
+       WHERE dependency.selection_id=selection.id AND dependency.module_ordinal=expected.value))
+   AND NOT EXISTS (
+     SELECT 1 FROM work_item_dependencies edge WHERE edge.work_item_id=work.id
+       AND NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+         JOIN json_each(module.dependencies_json) expected ON expected.value=dependency.module_ordinal
+         WHERE dependency.selection_id=selection.id AND dependency.work_item_id=edge.depends_on_id))
+   AND (completion.work_item_id=prior_work.id OR EXISTS (
+     SELECT 1 FROM thread_plan_continuation_sources previous_source
+     WHERE previous_source.run_id=previous.run_id
+       AND previous_source.selection_id=prior_selection.id
+       AND previous_source.work_item_id=prior_work.id
+       AND previous_source.completion_event_id=completion.completion_event_id AND previous_source.checkpoint_id=''));
 -- traverse-board-clean-install-object-boundary --
 CREATE UNIQUE INDEX idx_agent_attempts_one_running
 		ON agent_attempts(agent_id) WHERE status = 'running';
@@ -12999,6 +13265,8 @@ CREATE INDEX idx_controlled_execution_intents_run_created
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_delivery_checkpoints_run_module
 		ON delivery_checkpoints(run_id, module_ordinal, created_at);
+-- traverse-board-clean-install-object-boundary --
+CREATE UNIQUE INDEX idx_drydock_cleanup_pending ON drydock_cleanup_operations(drydock_id) WHERE status='prepared';
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_drydock_delivery_run
 		ON drydock_delivery_proposals(run_id, created_at DESC, id DESC);
@@ -13548,10 +13816,14 @@ CREATE UNIQUE INDEX idx_supervisor_tool_stream_item_identity
 		ON run_supervisor_tool_calls(stream_response_id, stream_item_id)
 		WHERE stream_response_id <> '' AND stream_item_id <> '';
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_thread_drydock_bindings_physical ON thread_drydock_bindings(drydock_id,created_at,run_id);
+-- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_thread_events_thread_id ON thread_events(thread_id, id);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_thread_execution_permission_snapshots_thread_revision
 		ON thread_execution_permission_snapshots(thread_id, revision DESC);
+-- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_thread_message_intents_thread ON thread_message_intents(thread_id);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_thread_runs_thread_run ON thread_runs(thread_id, ordinal);
 -- traverse-board-clean-install-object-boundary --
@@ -15103,31 +15375,26 @@ CREATE TRIGGER trg_delivery_handoff_note_update_immutable
 CREATE TRIGGER trg_delivery_run_completion_guard
 		BEFORE UPDATE OF status ON runs
 		WHEN NEW.status = 'completed' AND OLD.status != 'completed'
-			AND EXISTS (SELECT 1 FROM delivery_gate_enrollments enrollment
-				WHERE enrollment.run_id = NEW.id)
+			AND EXISTS (SELECT 1 FROM delivery_gate_enrollments enrollment WHERE enrollment.run_id = NEW.id)
 			AND EXISTS (
 				SELECT 1 FROM plan_delivery_selection_items selected
 				JOIN plan_delivery_selections selection ON selection.id = selected.selection_id
 				JOIN work_items work ON work.id = selected.work_item_id
-				WHERE selection.run_id = NEW.id AND (
-					work.status != 'completed' OR NOT EXISTS (
+				WHERE selection.run_id = NEW.id AND (work.status != 'completed' OR (
+					selection.manual_acceptance = 'required' AND NOT EXISTS (
 						SELECT 1 FROM delivery_checkpoints checkpoint
-						JOIN delivery_checkpoint_operations operation
-							ON operation.checkpoint_id = checkpoint.id
+						JOIN delivery_checkpoint_operations operation ON operation.checkpoint_id = checkpoint.id
 						JOIN run_mode_snapshots mode ON mode.id = checkpoint.mode_snapshot_id
-						WHERE checkpoint.run_id = NEW.id
-							AND checkpoint.selection_id = selection.id
-							AND checkpoint.work_item_id = work.id
-							AND checkpoint.work_item_version = work.version - 1
-							AND mode.run_id = NEW.id
-							AND mode.revision = checkpoint.mode_revision
-							AND mode.phase = 'deliver'
+						WHERE checkpoint.run_id = NEW.id AND checkpoint.selection_id = selection.id
+							AND checkpoint.work_item_id = work.id AND checkpoint.work_item_version = work.version - 1
+							AND mode.run_id = NEW.id AND mode.revision = checkpoint.mode_revision AND mode.phase = 'deliver'
+					) AND NOT EXISTS (
+						SELECT 1 FROM thread_plan_completed_sources source WHERE source.run_id = NEW.id
+							AND source.selection_id = selection.id AND source.work_item_id = work.id
 					)
-				)
-		)
-		BEGIN
-			SELECT RAISE(ABORT, 'Run has incomplete Delivery checkpoint gates');
-		END;
+				))
+			)
+		BEGIN SELECT RAISE(ABORT, 'Run has incomplete Delivery acceptance gates'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_delivery_work_item_completion_guard
 		BEFORE UPDATE OF status ON work_items
@@ -15137,21 +15404,62 @@ CREATE TRIGGER trg_delivery_work_item_completion_guard
 				JOIN delivery_gate_enrollments enrollment
 					ON enrollment.run_id = selection.run_id AND enrollment.selection_id = selection.id
 				WHERE selected.work_item_id = OLD.id)
-			AND NOT EXISTS (
+			AND (NOT EXISTS (
+				SELECT 1 FROM run_mode_snapshots mode WHERE mode.run_id = OLD.run_id AND mode.phase = 'deliver'
+					AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later
+						WHERE later.run_id = OLD.run_id AND later.revision > mode.revision)
+			) OR NOT EXISTS (
+				SELECT 1 FROM plan_delivery_selection_items selected
+				JOIN plan_delivery_selections selection ON selection.id = selected.selection_id
+				JOIN plan_delivery_modules module ON module.proposal_id = selection.proposal_id
+					AND module.direction_ordinal = selection.direction_ordinal AND module.ordinal = selected.module_ordinal
+				WHERE selected.work_item_id = NEW.id AND selection.run_id = NEW.run_id
+					AND NEW.title = module.title AND NEW.description = module.objective
+					AND NOT EXISTS (SELECT value FROM json_each(NEW.acceptance_json)
+						EXCEPT SELECT value FROM json_each(module.acceptance_json))
+					AND NOT EXISTS (SELECT value FROM json_each(module.acceptance_json)
+						EXCEPT SELECT value FROM json_each(NEW.acceptance_json))
+					AND NOT EXISTS (
+						SELECT 1 FROM json_each(module.dependencies_json) expected
+						WHERE NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+							JOIN work_item_dependencies edge ON edge.depends_on_id = dependency.work_item_id
+								AND edge.work_item_id = NEW.id AND edge.run_id = NEW.run_id
+							JOIN work_items dependency_work ON dependency_work.id = dependency.work_item_id
+								AND dependency_work.run_id = NEW.run_id AND dependency_work.status = 'completed'
+							WHERE dependency.selection_id = selection.id AND dependency.module_ordinal = expected.value))
+					AND NOT EXISTS (
+						SELECT 1 FROM work_item_dependencies edge WHERE edge.work_item_id = NEW.id
+							AND NOT EXISTS (SELECT 1 FROM plan_delivery_selection_items dependency
+								JOIN json_each(module.dependencies_json) expected ON expected.value = dependency.module_ordinal
+								WHERE dependency.selection_id = selection.id AND dependency.work_item_id = edge.depends_on_id))
+			) OR (EXISTS (
+				SELECT 1 FROM plan_delivery_selection_items selected
+				JOIN plan_delivery_selections selection ON selection.id = selected.selection_id
+				WHERE selected.work_item_id = OLD.id AND selection.manual_acceptance = 'required'
+			) AND NOT EXISTS (
 				SELECT 1 FROM delivery_checkpoints checkpoint
-				JOIN delivery_checkpoint_operations operation
-					ON operation.checkpoint_id = checkpoint.id
+				JOIN delivery_checkpoint_operations operation ON operation.checkpoint_id = checkpoint.id
 				JOIN run_mode_snapshots mode ON mode.id = checkpoint.mode_snapshot_id
 				WHERE checkpoint.run_id = OLD.run_id AND checkpoint.work_item_id = OLD.id
 					AND checkpoint.work_item_version = OLD.version
-					AND mode.run_id = OLD.run_id AND mode.revision = checkpoint.mode_revision
-					AND mode.phase = 'deliver'
+					AND mode.run_id = OLD.run_id AND mode.revision = checkpoint.mode_revision AND mode.phase = 'deliver'
 					AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later
 						WHERE later.run_id = OLD.run_id AND later.revision > mode.revision)
-			)
-		BEGIN
-			SELECT RAISE(ABORT, 'selected WorkItem requires a current Delivery checkpoint');
-		END;
+			)))
+		BEGIN SELECT RAISE(ABORT, 'selected WorkItem requires Deliver phase and its manual acceptance policy'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_drydock_cleanup_delete BEFORE DELETE ON drydock_cleanup_operations
+ BEGIN SELECT RAISE(ABORT,'Drydock cleanup history is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_drydock_cleanup_update BEFORE UPDATE ON drydock_cleanup_operations
+ WHEN OLD.status!='prepared' OR NEW.status!='completed' OR
+ NEW.operation_key_sha256!=OLD.operation_key_sha256 OR NEW.request_fingerprint!=OLD.request_fingerprint OR
+ NEW.drydock_id!=OLD.drydock_id OR NEW.run_id!=OLD.run_id OR
+ NEW.expected_generation!=OLD.expected_generation OR NEW.created_at!=OLD.created_at OR
+ NOT EXISTS(SELECT 1 FROM drydock_lifecycle_receipts r WHERE r.id=NEW.receipt_id AND r.operation='cleanup'
+ AND r.operation_key_sha256=NEW.operation_key_sha256 AND r.request_fingerprint=NEW.request_fingerprint
+ AND r.drydock_id=NEW.drydock_id AND r.run_id=NEW.run_id AND r.generation_before=NEW.expected_generation)
+ BEGIN SELECT RAISE(ABORT,'Drydock cleanup requires its exact final receipt'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_drydock_delivery_delete_immutable
 		BEFORE DELETE ON drydock_delivery_proposals BEGIN
@@ -15163,7 +15471,11 @@ CREATE TRIGGER trg_drydock_delivery_insert_scope
 		WHEN NOT EXISTS (
 			SELECT 1 FROM drydock_workspaces drydock
 			JOIN workspace_checkpoints checkpoint ON checkpoint.id = NEW.checkpoint_id
-			WHERE drydock.id = NEW.drydock_id AND drydock.run_id = NEW.run_id
+			WHERE drydock.id = NEW.drydock_id AND (EXISTS (SELECT 1 FROM run_file_drydock_bindings owner
+ JOIN threads thread ON thread.id=owner.thread_id
+ WHERE owner.run_id=NEW.run_id AND owner.drydock_id=drydock.id AND thread.last_run_id=owner.run_id)
+ OR EXISTS (SELECT 1 FROM run_file_drydock_bindings owner
+ WHERE owner.run_id=NEW.run_id AND owner.drydock_id=drydock.id AND owner.thread_id=''))
 				AND drydock.state IN ('ready','delivered')
 				AND drydock.generation + 1 = NEW.generation
 				AND drydock.source_identity_sha256 = NEW.source_identity_sha256
@@ -15203,7 +15515,11 @@ CREATE TRIGGER trg_drydock_receipt_insert_scope
 		BEFORE INSERT ON drydock_lifecycle_receipts
 		WHEN NOT EXISTS (
 			SELECT 1 FROM drydock_workspaces drydock
-			WHERE drydock.id = NEW.drydock_id AND drydock.run_id = NEW.run_id
+			WHERE drydock.id = NEW.drydock_id AND (EXISTS (SELECT 1 FROM run_file_drydock_bindings owner
+ JOIN threads thread ON thread.id=owner.thread_id
+ WHERE owner.run_id=NEW.run_id AND owner.drydock_id=drydock.id AND thread.last_run_id=owner.run_id)
+ OR EXISTS (SELECT 1 FROM run_file_drydock_bindings owner
+ WHERE owner.run_id=NEW.run_id AND owner.drydock_id=drydock.id AND owner.thread_id=''))
 				AND drydock.generation = NEW.generation_after
 				AND drydock.source_identity_sha256 = NEW.source_identity_sha256
 				AND drydock.root_fingerprint = NEW.root_fingerprint
@@ -15211,7 +15527,11 @@ CREATE TRIGGER trg_drydock_receipt_insert_scope
 			SELECT 1 FROM workspace_checkpoints checkpoint
 			JOIN drydock_workspaces drydock ON drydock.id = NEW.drydock_id
 			WHERE checkpoint.id = NEW.checkpoint_id
-				AND checkpoint.run_id = NEW.run_id
+				AND (checkpoint.run_id = NEW.run_id OR ((NEW.operation='fork' OR
+ (NEW.operation IN ('use','recover') AND drydock.last_checkpoint_id=checkpoint.id)) AND EXISTS (
+ SELECT 1 FROM run_file_drydock_bindings historical
+ WHERE historical.run_id=checkpoint.run_id AND historical.drydock_id=drydock.id
+ AND historical.workspace_id=checkpoint.workspace_id)))
 				AND checkpoint.workspace_id = drydock.workspace_id
 		)) OR (NEW.delivery_id <> '' AND NOT EXISTS (
 			SELECT 1 FROM drydock_delivery_proposals proposal
@@ -15362,7 +15682,16 @@ CREATE TRIGGER trg_file_edit_apply_operation_insert
 			JOIN run_events event ON event.run_id = run.id AND event.sequence = NEW.event_sequence
 			WHERE run.id = NEW.run_id AND run.session_id = NEW.session_id
 				AND run.status = 'running' AND session_record.status = 'active'
-				AND mission.workspace_id = NEW.workspace_id
+				AND session_record.workspace_id = mission.workspace_id
+				AND ((mission.workspace_id = NEW.workspace_id
+					AND NOT EXISTS (SELECT 1 FROM run_file_drydock_bindings d WHERE d.run_id = run.id)
+					AND NOT EXISTS (SELECT 1 FROM standard_code_preset_operations p
+						WHERE p.run_id = run.id AND p.status = 'configured'))
+					OR EXISTS (SELECT 1 FROM run_file_drydock_bindings owner JOIN drydock_workspaces d ON d.id=owner.drydock_id
+ LEFT JOIN threads thread ON thread.id=owner.thread_id
+ WHERE owner.run_id=run.id AND owner.mission_id=mission.id AND owner.session_id=run.session_id
+ AND owner.source_workspace_id=mission.workspace_id AND owner.workspace_id=NEW.workspace_id
+ AND d.state IN ('ready','delivered') AND (owner.thread_id='' OR thread.last_run_id=owner.run_id)))
 				AND edit.session_id = NEW.session_id AND edit.workspace_id = NEW.workspace_id
 				AND edit.status = 'approved' AND edit.operation_kind = NEW.operation_kind
 				AND edit.path = NEW.path AND edit.destination_path = NEW.destination_path
@@ -15384,15 +15713,12 @@ CREATE TRIGGER trg_file_edit_apply_operation_insert
 				AND event.type = 'file_edit.apply_requested'
 				AND event.source = 'file_edit_apply' AND event.subject_id = edit.id
 				AND event.created_at = NEW.created_at
-				AND json_extract(event.payload_json, '$.operation_key_digest') =
-					NEW.operation_key_digest
+				AND json_extract(event.payload_json, '$.operation_key_digest') = NEW.operation_key_digest
 				AND json_extract(event.payload_json, '$.operation') = NEW.operation_kind
 				AND json_extract(event.payload_json, '$.observed_hash') = NEW.observed_hash
 				AND json_extract(event.payload_json, '$.proposed_hash') = NEW.proposed_hash
-				AND COALESCE(json_extract(event.payload_json, '$.destination_observed_hash'), '') =
-					NEW.destination_observed_hash
-				AND COALESCE(json_extract(event.payload_json, '$.destination_proposed_hash'), '') =
-					NEW.destination_proposed_hash
+				AND COALESCE(json_extract(event.payload_json, '$.destination_observed_hash'), '') = NEW.destination_observed_hash
+				AND COALESCE(json_extract(event.payload_json, '$.destination_proposed_hash'), '') = NEW.destination_proposed_hash
 				AND json_extract(event.payload_json, '$.policy_rechecked') = 1
 		)
 		BEGIN SELECT RAISE(ABORT, 'FileEdit apply operation binding is invalid'); END;
@@ -15954,6 +16280,10 @@ CREATE TRIGGER trg_git_managed_worktree_removed_immutable
 		BEFORE UPDATE ON git_managed_worktrees WHEN OLD.present = 0
 		BEGIN SELECT RAISE(ABORT, 'removed managed Git worktree is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_git_mutation_started_once BEFORE UPDATE OF started_at ON git_mutation_operations WHEN OLD.started_at IS NOT NULL AND (NEW.started_at IS NULL OR NEW.started_at <> OLD.started_at) BEGIN SELECT RAISE(ABORT, 'Git execution start is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_git_remote_started_once BEFORE UPDATE OF started_at ON git_remote_operations WHEN OLD.started_at IS NOT NULL AND (NEW.started_at IS NULL OR NEW.started_at <> OLD.started_at) BEGIN SELECT RAISE(ABORT, 'Remote Git execution start is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_github_review_connection_generation
 		BEFORE UPDATE ON github_review_connections
 		WHEN NEW.generation <> OLD.generation + 1 OR julianday(NEW.updated_at) < julianday(OLD.updated_at)
@@ -16422,7 +16752,7 @@ CREATE TRIGGER trg_operator_steering_run_completion_guard
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_steering_update_monotonic
 		BEFORE UPDATE ON operator_steering_messages
-		WHEN NEW.id IS NOT OLD.id OR NEW.run_id IS NOT OLD.run_id
+		WHEN NEW.attachment_count IS NOT OLD.attachment_count OR NEW.image_count IS NOT OLD.image_count OR NEW.id IS NOT OLD.id OR NEW.run_id IS NOT OLD.run_id
 			OR NEW.session_id IS NOT OLD.session_id OR NEW.sequence IS NOT OLD.sequence
 			OR NEW.content IS NOT OLD.content OR NEW.content_sha256 IS NOT OLD.content_sha256
 			OR NEW.requested_by IS NOT OLD.requested_by OR NEW.created_at IS NOT OLD.created_at
@@ -16817,7 +17147,22 @@ CREATE TRIGGER trg_plan_delivery_proposal_insert
 				AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later
 					WHERE later.run_id = run.id AND later.revision > mode.revision)
 				AND julianday(NEW.created_at) >= julianday(mode.created_at)
-		)
+		) AND NOT EXISTS (
+ SELECT 1 FROM run_events event
+ JOIN runs run ON run.id=event.run_id
+ JOIN sessions session ON session.id=run.session_id AND session.status='active'
+ JOIN missions mission ON mission.id=run.mission_id
+ JOIN agent_nodes root ON root.id=NEW.root_agent_id AND root.run_id=run.id
+   AND root.session_id=run.session_id AND root.role='root' AND root.parent_id IS NULL
+   AND root.status='ready' AND root.active_attempt_id=''
+ JOIN run_mode_snapshots mode ON mode.run_id=run.id AND mode.revision=NEW.mode_revision
+ JOIN plan_delivery_proposals original ON original.id=json_extract(event.payload_json,'$.source_proposal_id')
+ WHERE event.type='thread.plan_continued' AND event.source='thread_plan_continuation'
+   AND event.subject_id=NEW.id AND event.run_id=NEW.run_id AND run.status='created'
+   AND NEW.session_id=run.session_id AND NEW.workspace_id=mission.workspace_id
+   AND NEW.created_at=event.created_at AND NEW.requested_by=original.requested_by
+   AND mode.surface='code' AND mode.phase IN ('plan','deliver')
+   AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later WHERE later.run_id=run.id AND later.revision>mode.revision))
 		BEGIN
 			SELECT RAISE(ABORT, 'Plan/Delivery proposal binding is invalid');
 		END;
@@ -16916,7 +17261,28 @@ CREATE TRIGGER trg_plan_delivery_selection_insert
 					WHERE source.run_id = run.id AND source.note_id = note.id) = 1
 				AND NOT EXISTS (SELECT 1 FROM note_evidence evidence
 					WHERE evidence.run_id = run.id AND evidence.note_id = note.id)
-		)
+		) AND NOT EXISTS (
+ SELECT 1 FROM run_events event
+ JOIN runs run ON run.id=event.run_id
+ JOIN plan_delivery_proposals proposal ON proposal.id=event.subject_id AND proposal.run_id=run.id
+ JOIN plan_delivery_selections original ON original.id=json_extract(event.payload_json,'$.source_selection_id')
+ JOIN agent_nodes root ON root.id=NEW.root_agent_id AND root.run_id=run.id
+   AND root.session_id=run.session_id AND root.role='root' AND root.parent_id IS NULL
+   AND root.status='ready' AND root.active_attempt_id=''
+ JOIN notes note ON note.id=NEW.note_id AND note.run_id=run.id AND note.owner_agent_id=root.id
+   AND note.status='active' AND note.category='decision' AND note.visibility='run'
+ WHERE event.type='thread.plan_continued' AND event.source='thread_plan_continuation'
+   AND event.run_id=NEW.run_id AND run.status='created' AND NEW.proposal_id=proposal.id
+   AND NEW.id=json_extract(event.payload_json,'$.selection_id') AND NEW.created_at=event.created_at
+   AND NEW.direction_ordinal=original.direction_ordinal AND NEW.module_count=original.module_count
+   AND NEW.requested_by=original.requested_by AND NEW.manual_acceptance=original.manual_acceptance
+   AND root.id=proposal.root_agent_id AND note.pinned=1 AND note.owner=''
+   AND note.version=1 AND note.created_at=NEW.created_at
+   AND (SELECT COUNT(*) FROM note_tags WHERE note_id=note.id)=2
+   AND (SELECT COUNT(*) FROM note_tags WHERE note_id=note.id AND tag IN ('plan-delivery','selected-direction'))=2
+   AND (SELECT COUNT(*) FROM note_sources WHERE note_id=note.id)=1
+   AND EXISTS (SELECT 1 FROM note_sources WHERE note_id=note.id AND source_ref='plan_delivery:'||proposal.id)
+   AND NOT EXISTS (SELECT 1 FROM note_evidence WHERE note_id=note.id))
 		BEGIN
 			SELECT RAISE(ABORT, 'Plan/Delivery selection binding is invalid');
 		END;
@@ -16935,7 +17301,12 @@ CREATE TRIGGER trg_plan_delivery_selection_item_insert
 				AND module.ordinal = NEW.module_ordinal
 			JOIN work_items item ON item.id = NEW.work_item_id
 			WHERE selection.id = NEW.selection_id AND NEW.ordinal <= selection.module_count
-				AND item.run_id = selection.run_id AND item.status = 'pending'
+				AND item.run_id = selection.run_id AND (item.status = 'pending' OR (item.status = 'completed' AND EXISTS (
+   SELECT 1 FROM thread_plan_continuation_sources source
+   WHERE source.selection_id=selection.id AND source.work_item_id=item.id AND (
+     selection.manual_acceptance='required' AND EXISTS (SELECT 1 FROM delivery_checkpoints checkpoint WHERE checkpoint.id=source.checkpoint_id)
+     OR selection.manual_acceptance='on_demand' AND source.checkpoint_id='' AND EXISTS (
+       SELECT 1 FROM plan_on_demand_completion_events completion WHERE completion.completion_event_id=source.completion_event_id)))))
 				AND item.priority = 'normal' AND item.owner = ''
 				AND item.owner_agent_id = selection.root_agent_id
 				AND item.title = module.title AND item.description = module.objective
@@ -17938,17 +18309,34 @@ CREATE TRIGGER trg_run_execution_handoff_item_delete_immutable
 		END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_execution_handoff_item_insert
-		BEFORE INSERT ON run_execution_handoff_items
-		WHEN NOT EXISTS (
-			SELECT 1 FROM run_execution_handoff_operations operation
-			JOIN operator_steering_messages message ON message.id = NEW.message_id
-			WHERE operation.id = NEW.operation_id AND NEW.ordinal <= operation.selected_count
-				AND message.run_id = operation.run_id AND message.session_id = operation.session_id
-				AND message.sequence = NEW.message_sequence AND message.status = 'pending'
-				AND NEW.prepared = EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
-					WHERE delivery.message_id = message.id AND delivery.status = 'prepared')
-		)
-		BEGIN SELECT RAISE(ABORT, 'Run execution handoff item binding is invalid'); END;
+	BEFORE INSERT ON run_execution_handoff_items
+	WHEN NOT EXISTS (
+	 SELECT 1 FROM run_execution_handoff_operations operation
+	 JOIN operator_steering_messages message ON message.id=NEW.message_id
+	 WHERE operation.id=NEW.operation_id AND NEW.ordinal<=operation.selected_count
+	 AND message.run_id=operation.run_id AND message.session_id=operation.session_id
+	 AND message.sequence=NEW.message_sequence
+	 AND ((message.status='pending' AND NEW.prepared=EXISTS (
+	   SELECT 1 FROM operator_steering_deliveries delivery WHERE delivery.message_id=message.id AND delivery.status='prepared'))
+	 OR (message.status='committed' AND NEW.prepared=0 AND NEW.ordinal=1 AND operation.selected_count=1
+	   AND operation.requested_by='approval_continuation' AND operation.max_steps=1
+	   AND EXISTS (SELECT 1 FROM run_events prepared
+	     JOIN run_events origin ON origin.run_id=prepared.run_id
+	       AND origin.subject_id=json_extract(prepared.payload_json,'$.approval_continuation.origin_attempt_id')
+	       AND origin.type='agent.turn_completed' AND origin.source='run_supervisor'
+	     JOIN threads thread ON thread.id=json_extract(prepared.payload_json,'$.approval_continuation.thread_id')
+	     JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id=operation.run_id
+	     WHERE prepared.run_id=operation.run_id AND prepared.sequence=operation.event_sequence AND prepared.subject_id=operation.id
+	     AND prepared.type='run.execution_handoff_requested' AND prepared.source='run_execution_handoff'
+	     AND json_extract(prepared.payload_json,'$.approval_continuation.user_message_id')=message.session_message_id
+	     AND json_extract(origin.payload_json,'$.user_message_id')=message.session_message_id
+	     AND json_extract(origin.payload_json,'$.turn')=json_extract(prepared.payload_json,'$.approval_continuation.origin_turn')
+	     AND json_extract(origin.payload_json,'$.lifecycle_action')='wait' AND json_extract(origin.payload_json,'$.requested_lifecycle_action')='wait'
+	     AND origin.sequence<prepared.sequence AND thread.status='active' AND thread.active_run_id=operation.run_id AND thread.last_run_id=operation.run_id
+	     AND checkpoint.phase='waiting' AND checkpoint.next_turn=json_extract(origin.payload_json,'$.turn')+1
+	     AND NOT EXISTS (SELECT 1 FROM operator_steering_messages newer WHERE newer.run_id=message.run_id AND newer.sequence>message.sequence))))
+	)
+	BEGIN SELECT RAISE(ABORT, 'Run execution handoff item binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_execution_handoff_item_update_immutable
 		BEFORE UPDATE ON run_execution_handoff_items BEGIN
@@ -22949,7 +23337,7 @@ CREATE TRIGGER trg_session_message_provenance_insert
 					AND NEW.instruction_authorized = 0 AND NEW.source_ref = '')
 				OR (NEW.source_kind = 'go_control' AND NEW.role = 'system'
 					AND NEW.instruction_authorized = 1 AND NEW.source_ref = '')
-				OR (NEW.source_kind IN ('workspace_file', 'workspace_listing', 'workspace_diff',
+				OR (NEW.source_kind IN ('uploaded_file', 'workspace_image', 'workspace_file', 'workspace_listing', 'workspace_diff',
 					'tool_result', 'go_command_result') AND NEW.role = 'tool'
 					AND NEW.instruction_authorized = 0 AND length(NEW.source_ref) BETWEEN 1 AND 512)
 			)
@@ -24187,9 +24575,14 @@ CREATE TRIGGER trg_standard_code_delivery_insert
 					AND run.session_id = NEW.session_id
 					AND mission.workspace_id = NEW.source_workspace_id
 					AND session_record.workspace_id = NEW.source_workspace_id
-					AND drydock.run_id = NEW.run_id
+					AND EXISTS(SELECT 1 FROM run_file_drydock_bindings holder
+   LEFT JOIN threads thread ON thread.id=holder.thread_id
+   WHERE holder.run_id=NEW.run_id AND holder.session_id=NEW.session_id
+    AND holder.mission_id=NEW.mission_id AND holder.drydock_id=drydock.id
+    AND holder.workspace_id=NEW.drydock_workspace_id
+    AND holder.source_workspace_id=NEW.source_workspace_id
+    AND (holder.thread_id='' OR thread.last_run_id=holder.run_id))
 					AND drydock.mission_id = NEW.mission_id
-					AND drydock.session_id = NEW.session_id
 					AND drydock.source_workspace_id = NEW.source_workspace_id
 					AND drydock.workspace_id = NEW.drydock_workspace_id
 					AND checkpoint.run_id = NEW.run_id
@@ -24258,18 +24651,89 @@ CREATE TRIGGER trg_standard_code_preset_operation_update
 						AND event.subject_id = NEW.run_id)
 				AND EXISTS (SELECT 1 FROM drydock_workspaces drydock
 					JOIN drydock_workspace_trust trust_record ON trust_record.id = drydock.trust_id
-					WHERE drydock.id = NEW.drydock_id AND drydock.run_id = NEW.run_id
+					WHERE drydock.id = NEW.drydock_id AND (drydock.run_id = NEW.run_id OR (EXISTS (
+		SELECT 1 FROM runs next_run
+		JOIN thread_runs next_link ON next_link.run_id=next_run.id
+		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
+			AND previous_link.thread_id=next_link.thread_id AND previous_link.ordinal+1=next_link.ordinal
+		JOIN runs previous_run ON previous_run.id=previous_link.run_id
+		JOIN standard_code_preset_operations previous_preset ON previous_preset.run_id=previous_run.id
+		JOIN run_events continuation ON continuation.run_id=next_run.id
+		JOIN thread_execution_permission_snapshots preference ON preference.thread_id=next_link.thread_id
+		JOIN run_execution_permission_snapshots selected_permission ON selected_permission.id=NEW.permission_snapshot_id
+		JOIN run_mode_snapshots previous_mode ON previous_mode.run_id=previous_run.id
+		JOIN run_mode_snapshots next_mode ON next_mode.id=NEW.mode_snapshot_id
+		WHERE next_run.id=NEW.run_id AND next_run.status='created'
+		AND previous_run.status IN ('completed','failed','cancelled')
+		AND previous_preset.status='configured'
+		AND previous_preset.selected_backend=NEW.selected_backend
+		AND previous_preset.backend_intent=NEW.backend_intent
+		AND previous_preset.selection_reason=NEW.selection_reason
+		AND previous_preset.workspace_id=NEW.workspace_id
+		AND previous_preset.drydock_id=NEW.drydock_id
+		AND NEW.requested_by='thread_continuation'
+		AND continuation.sequence=NEW.event_sequence_end
+		AND continuation.type='standard_code.preset_configured'
+		AND continuation.source='standard_code_preset' AND continuation.subject_id=NEW.run_id
+		AND json_extract(continuation.payload_json,'$.source')='thread_continuation'
+		AND json_extract(continuation.payload_json,'$.predecessor_run_id')=previous_run.id
+		AND json_extract(continuation.payload_json,'$.predecessor_preset_digest')=previous_preset.operation_key_digest
+		AND json_extract(continuation.payload_json,'$.drydock_id')=NEW.drydock_id
+		AND json_extract(continuation.payload_json,'$.permission_snapshot_id')=NEW.permission_snapshot_id
+		AND json_extract(continuation.payload_json,'$.browser_cdp_snapshot_id')=NEW.browser_cdp_snapshot_id
+		AND preference.mode=selected_permission.mode
+		AND NOT EXISTS (SELECT 1 FROM thread_execution_permission_snapshots newer WHERE newer.thread_id=preference.thread_id AND newer.revision>preference.revision)
+		AND next_mode.phase=previous_mode.phase AND next_mode.surface=previous_mode.surface
+		AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots newer WHERE newer.run_id=previous_mode.run_id AND newer.revision>previous_mode.revision)
+	) AND EXISTS (
+		SELECT 1 FROM run_file_drydock_bindings binding WHERE binding.run_id=NEW.run_id
+		AND binding.drydock_id=drydock.id AND binding.mission_id=NEW.mission_id
+		AND binding.source_workspace_id=NEW.workspace_id)))
 						AND drydock.mission_id = NEW.mission_id
 						AND drydock.source_workspace_id = NEW.workspace_id
 						AND drydock.generation = NEW.drydock_generation
 						AND drydock.last_checkpoint_id = NEW.drydock_checkpoint_id
 						AND drydock.state IN ('ready', 'delivered')
-						AND trust_record.run_id = NEW.run_id
+						AND trust_record.run_id = drydock.run_id
 						AND trust_record.workspace_id = NEW.workspace_id
 						AND trust_record.grants_process_authority = 0)
 				AND EXISTS (SELECT 1 FROM run_mode_snapshots mode
 					WHERE mode.id = NEW.mode_snapshot_id AND mode.run_id = NEW.run_id
-						AND mode.surface = 'code' AND mode.phase = 'plan'
+						AND mode.surface = 'code' AND (mode.phase = 'plan' OR EXISTS (
+		SELECT 1 FROM runs next_run
+		JOIN thread_runs next_link ON next_link.run_id=next_run.id
+		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
+			AND previous_link.thread_id=next_link.thread_id AND previous_link.ordinal+1=next_link.ordinal
+		JOIN runs previous_run ON previous_run.id=previous_link.run_id
+		JOIN standard_code_preset_operations previous_preset ON previous_preset.run_id=previous_run.id
+		JOIN run_events continuation ON continuation.run_id=next_run.id
+		JOIN thread_execution_permission_snapshots preference ON preference.thread_id=next_link.thread_id
+		JOIN run_execution_permission_snapshots selected_permission ON selected_permission.id=NEW.permission_snapshot_id
+		JOIN run_mode_snapshots previous_mode ON previous_mode.run_id=previous_run.id
+		JOIN run_mode_snapshots next_mode ON next_mode.id=NEW.mode_snapshot_id
+		WHERE next_run.id=NEW.run_id AND next_run.status='created'
+		AND previous_run.status IN ('completed','failed','cancelled')
+		AND previous_preset.status='configured'
+		AND previous_preset.selected_backend=NEW.selected_backend
+		AND previous_preset.backend_intent=NEW.backend_intent
+		AND previous_preset.selection_reason=NEW.selection_reason
+		AND previous_preset.workspace_id=NEW.workspace_id
+		AND previous_preset.drydock_id=NEW.drydock_id
+		AND NEW.requested_by='thread_continuation'
+		AND continuation.sequence=NEW.event_sequence_end
+		AND continuation.type='standard_code.preset_configured'
+		AND continuation.source='standard_code_preset' AND continuation.subject_id=NEW.run_id
+		AND json_extract(continuation.payload_json,'$.source')='thread_continuation'
+		AND json_extract(continuation.payload_json,'$.predecessor_run_id')=previous_run.id
+		AND json_extract(continuation.payload_json,'$.predecessor_preset_digest')=previous_preset.operation_key_digest
+		AND json_extract(continuation.payload_json,'$.drydock_id')=NEW.drydock_id
+		AND json_extract(continuation.payload_json,'$.permission_snapshot_id')=NEW.permission_snapshot_id
+		AND json_extract(continuation.payload_json,'$.browser_cdp_snapshot_id')=NEW.browser_cdp_snapshot_id
+		AND preference.mode=selected_permission.mode
+		AND NOT EXISTS (SELECT 1 FROM thread_execution_permission_snapshots newer WHERE newer.thread_id=preference.thread_id AND newer.revision>preference.revision)
+		AND next_mode.phase=previous_mode.phase AND next_mode.surface=previous_mode.surface
+		AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots newer WHERE newer.run_id=previous_mode.run_id AND newer.revision>previous_mode.revision)
+	))
 						AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots newer
 							WHERE newer.run_id = mode.run_id AND newer.revision > mode.revision))
 				AND EXISTS (SELECT 1 FROM run_execution_profile_snapshots profile
@@ -24291,14 +24755,82 @@ CREATE TRIGGER trg_standard_code_preset_operation_update
 							WHERE newer.run_id = interaction.run_id AND newer.revision > interaction.revision))
 				AND EXISTS (SELECT 1 FROM run_execution_permission_snapshots permission
 					WHERE permission.id = NEW.permission_snapshot_id AND permission.run_id = NEW.run_id
-						AND permission.mode = 'workspace_access' AND permission.network_scope = 'disabled'
+						AND (permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR EXISTS (
+		SELECT 1 FROM runs next_run
+		JOIN thread_runs next_link ON next_link.run_id=next_run.id
+		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
+			AND previous_link.thread_id=next_link.thread_id AND previous_link.ordinal+1=next_link.ordinal
+		JOIN runs previous_run ON previous_run.id=previous_link.run_id
+		JOIN standard_code_preset_operations previous_preset ON previous_preset.run_id=previous_run.id
+		JOIN run_events continuation ON continuation.run_id=next_run.id
+		JOIN thread_execution_permission_snapshots preference ON preference.thread_id=next_link.thread_id
+		JOIN run_execution_permission_snapshots selected_permission ON selected_permission.id=NEW.permission_snapshot_id
+		JOIN run_mode_snapshots previous_mode ON previous_mode.run_id=previous_run.id
+		JOIN run_mode_snapshots next_mode ON next_mode.id=NEW.mode_snapshot_id
+		WHERE next_run.id=NEW.run_id AND next_run.status='created'
+		AND previous_run.status IN ('completed','failed','cancelled')
+		AND previous_preset.status='configured'
+		AND previous_preset.selected_backend=NEW.selected_backend
+		AND previous_preset.backend_intent=NEW.backend_intent
+		AND previous_preset.selection_reason=NEW.selection_reason
+		AND previous_preset.workspace_id=NEW.workspace_id
+		AND previous_preset.drydock_id=NEW.drydock_id
+		AND NEW.requested_by='thread_continuation'
+		AND continuation.sequence=NEW.event_sequence_end
+		AND continuation.type='standard_code.preset_configured'
+		AND continuation.source='standard_code_preset' AND continuation.subject_id=NEW.run_id
+		AND json_extract(continuation.payload_json,'$.source')='thread_continuation'
+		AND json_extract(continuation.payload_json,'$.predecessor_run_id')=previous_run.id
+		AND json_extract(continuation.payload_json,'$.predecessor_preset_digest')=previous_preset.operation_key_digest
+		AND json_extract(continuation.payload_json,'$.drydock_id')=NEW.drydock_id
+		AND json_extract(continuation.payload_json,'$.permission_snapshot_id')=NEW.permission_snapshot_id
+		AND json_extract(continuation.payload_json,'$.browser_cdp_snapshot_id')=NEW.browser_cdp_snapshot_id
+		AND preference.mode=selected_permission.mode
+		AND NOT EXISTS (SELECT 1 FROM thread_execution_permission_snapshots newer WHERE newer.thread_id=preference.thread_id AND newer.revision>preference.revision)
+		AND next_mode.phase=previous_mode.phase AND next_mode.surface=previous_mode.surface
+		AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots newer WHERE newer.run_id=previous_mode.run_id AND newer.revision>previous_mode.revision)
+	))
 						AND permission.capability_grant = 0 AND permission.process_enabled = 0
 						AND permission.execution_authorized = 0
 						AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots newer
 							WHERE newer.run_id = permission.run_id AND newer.revision > permission.revision))
 				AND EXISTS (SELECT 1 FROM run_browser_cdp_permission_snapshots cdp
 					WHERE cdp.id = NEW.browser_cdp_snapshot_id AND cdp.run_id = NEW.run_id
-						AND cdp.mode = 'restricted' AND cdp.capability_grant = 0
+						AND (cdp.mode = 'restricted' OR EXISTS (
+		SELECT 1 FROM runs next_run
+		JOIN thread_runs next_link ON next_link.run_id=next_run.id
+		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
+			AND previous_link.thread_id=next_link.thread_id AND previous_link.ordinal+1=next_link.ordinal
+		JOIN runs previous_run ON previous_run.id=previous_link.run_id
+		JOIN standard_code_preset_operations previous_preset ON previous_preset.run_id=previous_run.id
+		JOIN run_events continuation ON continuation.run_id=next_run.id
+		JOIN thread_execution_permission_snapshots preference ON preference.thread_id=next_link.thread_id
+		JOIN run_execution_permission_snapshots selected_permission ON selected_permission.id=NEW.permission_snapshot_id
+		JOIN run_mode_snapshots previous_mode ON previous_mode.run_id=previous_run.id
+		JOIN run_mode_snapshots next_mode ON next_mode.id=NEW.mode_snapshot_id
+		WHERE next_run.id=NEW.run_id AND next_run.status='created'
+		AND previous_run.status IN ('completed','failed','cancelled')
+		AND previous_preset.status='configured'
+		AND previous_preset.selected_backend=NEW.selected_backend
+		AND previous_preset.backend_intent=NEW.backend_intent
+		AND previous_preset.selection_reason=NEW.selection_reason
+		AND previous_preset.workspace_id=NEW.workspace_id
+		AND previous_preset.drydock_id=NEW.drydock_id
+		AND NEW.requested_by='thread_continuation'
+		AND continuation.sequence=NEW.event_sequence_end
+		AND continuation.type='standard_code.preset_configured'
+		AND continuation.source='standard_code_preset' AND continuation.subject_id=NEW.run_id
+		AND json_extract(continuation.payload_json,'$.source')='thread_continuation'
+		AND json_extract(continuation.payload_json,'$.predecessor_run_id')=previous_run.id
+		AND json_extract(continuation.payload_json,'$.predecessor_preset_digest')=previous_preset.operation_key_digest
+		AND json_extract(continuation.payload_json,'$.drydock_id')=NEW.drydock_id
+		AND json_extract(continuation.payload_json,'$.permission_snapshot_id')=NEW.permission_snapshot_id
+		AND json_extract(continuation.payload_json,'$.browser_cdp_snapshot_id')=NEW.browser_cdp_snapshot_id
+		AND preference.mode=selected_permission.mode
+		AND NOT EXISTS (SELECT 1 FROM thread_execution_permission_snapshots newer WHERE newer.thread_id=preference.thread_id AND newer.revision>preference.revision)
+		AND next_mode.phase=previous_mode.phase AND next_mode.surface=previous_mode.surface
+		AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots newer WHERE newer.run_id=previous_mode.run_id AND newer.revision>previous_mode.revision)
+	)) AND cdp.capability_grant = 0
 						AND cdp.transport_enabled = 0 AND cdp.browser_start_authorized = 0
 						AND cdp.runtime_authorized = 0
 						AND NOT EXISTS (SELECT 1 FROM run_browser_cdp_permission_snapshots newer
@@ -24467,6 +24999,16 @@ CREATE TRIGGER trg_supervisor_tool_stream_identity_insert
 			SELECT RAISE(ABORT, 'supervisor tool stream identity is incomplete');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_attachment_binding BEFORE INSERT ON thread_message_attachments WHEN NOT EXISTS (
+		SELECT 1 FROM operator_steering_messages m JOIN thread_runs tr ON tr.run_id=m.run_id
+		JOIN threads t ON t.id=tr.thread_id JOIN workspace_file_attachments f ON f.workspace_id=t.workspace_id
+		WHERE m.id=NEW.message_id AND f.id=NEW.attachment_id AND m.status='pending' AND NEW.ordinal<m.attachment_count
+	) BEGIN SELECT RAISE(ABORT,'Thread uploaded file workspace binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_attachment_immutable BEFORE UPDATE ON thread_message_attachments BEGIN SELECT RAISE(ABORT,'Thread uploaded file binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_attachment_nodelete BEFORE DELETE ON thread_message_attachments BEGIN SELECT RAISE(ABORT,'Thread uploaded file binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_thread_bound_session_status_guard
 		BEFORE UPDATE OF status ON sessions
 		WHEN
@@ -24490,6 +25032,31 @@ CREATE TRIGGER trg_thread_bound_session_status_guard
 			SELECT RAISE(ABORT,
 				'Thread-bound Session status must be changed through Thread lifecycle');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_drydock_binding_delete BEFORE DELETE ON thread_drydock_bindings BEGIN SELECT RAISE(ABORT,'Thread working directory history is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_drydock_binding_insert BEFORE INSERT ON thread_drydock_bindings
+  WHEN NOT EXISTS (
+   SELECT 1 FROM threads thread JOIN thread_runs next ON next.thread_id=thread.id AND next.run_id=NEW.run_id
+   JOIN thread_runs previous ON previous.thread_id=thread.id AND previous.run_id=NEW.predecessor_run_id AND previous.ordinal+1=next.ordinal
+   JOIN runs candidate ON candidate.id=next.run_id JOIN runs predecessor ON predecessor.id=previous.run_id
+   JOIN sessions linked ON linked.id=candidate.session_id
+   JOIN run_file_drydock_bindings source ON source.run_id=previous.run_id AND source.thread_id=thread.id
+   JOIN drydock_workspaces d ON d.id=source.drydock_id
+   WHERE thread.id=NEW.thread_id AND thread.status='active' AND thread.active_run_id=candidate.id AND thread.last_run_id=candidate.id
+    AND next.predecessor_run_id=previous.run_id AND candidate.status='created' AND predecessor.status IN ('completed','failed','cancelled')
+    AND candidate.mission_id=thread.mission_id AND predecessor.mission_id=thread.mission_id
+    AND candidate.session_id=next.session_id AND linked.workspace_id=thread.workspace_id AND linked.status='active'
+    AND source.drydock_id=NEW.drydock_id AND source.source_workspace_id=thread.workspace_id AND d.state IN ('ready','delivered')
+    AND NOT EXISTS(SELECT 1 FROM drydock_workspaces owned WHERE owned.run_id=candidate.id)
+    AND NOT EXISTS(SELECT 1 FROM run_execution_leases lease JOIN run_file_drydock_bindings owner ON owner.run_id=lease.run_id
+      WHERE owner.drydock_id=d.id AND lease.status='active' AND julianday(lease.expires_at)>julianday(NEW.created_at))
+    AND NOT EXISTS(SELECT 1 FROM drydock_cleanup_operations cleanup WHERE cleanup.drydock_id=d.id AND cleanup.status='prepared')
+    AND NOT EXISTS(SELECT 1 FROM workspace_checkpoint_transactions pending JOIN run_file_drydock_bindings owner ON owner.run_id=pending.run_id
+      WHERE owner.drydock_id=d.id AND pending.status IN ('prepared','applying'))
+  ) BEGIN SELECT RAISE(ABORT,'Thread working directory binding is not an exact quiescent successor'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_drydock_binding_update BEFORE UPDATE ON thread_drydock_bindings BEGIN SELECT RAISE(ABORT,'Thread working directory history is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_thread_events_delete_immutable
 		BEFORE DELETE ON thread_events
@@ -24606,6 +25173,123 @@ CREATE TRIGGER trg_thread_execution_permission_snapshot_update_immutable
 		BEFORE UPDATE ON thread_execution_permission_snapshots BEGIN
 			SELECT RAISE(ABORT, 'Thread execution permission snapshot cannot be updated');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_image_binding BEFORE INSERT ON thread_message_images WHEN NOT EXISTS (
+		SELECT 1 FROM operator_steering_messages m JOIN thread_runs tr ON tr.run_id=m.run_id
+		JOIN threads t ON t.id=tr.thread_id JOIN workspace_image_attachments i ON i.workspace_id=t.workspace_id
+		WHERE m.id=NEW.message_id AND i.id=NEW.image_id AND m.status='pending' AND NEW.ordinal<m.image_count
+	) BEGIN SELECT RAISE(ABORT, 'Thread image workspace binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_image_immutable BEFORE UPDATE ON thread_message_images BEGIN SELECT RAISE(ABORT, 'Thread image binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_image_nodelete BEFORE DELETE ON thread_message_images BEGIN SELECT RAISE(ABORT, 'Thread image binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_message_attachments_immutable BEFORE UPDATE OF attachments_json ON thread_message_intents WHEN NEW.attachments_json<>OLD.attachments_json BEGIN SELECT RAISE(ABORT,'Thread uploaded files are immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_message_images_immutable BEFORE UPDATE OF images_json ON thread_message_intents WHEN NEW.images_json <> OLD.images_json BEGIN SELECT RAISE(ABORT, 'Thread images are immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_message_intent_binding BEFORE UPDATE ON thread_message_intents
+		WHEN (NEW.run_id IS NOT NULL AND NOT EXISTS
+			(SELECT 1 FROM thread_runs WHERE thread_id = NEW.thread_id AND run_id = NEW.run_id))
+		OR (NEW.message_id IS NOT NULL AND NOT EXISTS
+			(SELECT 1 FROM operator_steering_messages WHERE id = NEW.message_id AND run_id = NEW.run_id))
+		BEGIN SELECT RAISE(ABORT, 'Thread message intent Run or message binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_message_intent_immutable BEFORE UPDATE ON thread_message_intents
+		WHEN NEW.operation_key_digest <> OLD.operation_key_digest OR NEW.thread_id <> OLD.thread_id
+		OR NEW.request_fingerprint <> OLD.request_fingerprint OR NEW.files_json <> OLD.files_json
+		OR NEW.created_at <> OLD.created_at
+		OR (OLD.run_id IS NOT NULL AND NEW.run_id IS NOT OLD.run_id)
+		OR (OLD.message_id IS NOT NULL AND NEW.message_id IS NOT OLD.message_id)
+		OR NEW.rejected < OLD.rejected
+		BEGIN SELECT RAISE(ABORT, 'Thread message intent binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_plan_continuation_event_insert
+ BEFORE INSERT ON run_events WHEN NEW.type='thread.plan_continued' AND (
+ NEW.source!='thread_plan_continuation' OR NOT EXISTS (
+   SELECT 1 FROM thread_runs current
+   JOIN thread_runs previous ON previous.thread_id=current.thread_id AND previous.ordinal+1=current.ordinal
+     AND current.predecessor_run_id=previous.run_id
+   JOIN runs run ON run.id=current.run_id AND run.status='created'
+   JOIN runs prior ON prior.id=previous.run_id AND prior.status IN ('completed','failed','cancelled')
+     AND prior.mission_id=run.mission_id
+   JOIN plan_delivery_proposals proposal ON proposal.id=json_extract(NEW.payload_json,'$.source_proposal_id')
+     AND proposal.run_id=prior.id AND proposal.session_id=prior.session_id
+   WHERE current.run_id=NEW.run_id AND run.mission_id=NEW.mission_id
+     AND previous.run_id=json_extract(NEW.payload_json,'$.predecessor_run_id')
+     AND json_extract(NEW.payload_json,'$.source_fingerprint')=proposal.proposal_fingerprint
+     AND json_type(NEW.payload_json,'$.items')='array'
+     AND json_array_length(NEW.payload_json,'$.items')=(SELECT COUNT(DISTINCT json_extract(value,'$.work_item_id')) FROM json_each(NEW.payload_json,'$.items'))
+     AND json_array_length(NEW.payload_json,'$.items')=(SELECT COUNT(DISTINCT json_extract(value,'$.source_work_item_id')) FROM json_each(NEW.payload_json,'$.items'))
+     AND NOT EXISTS (SELECT 1 FROM run_events existing WHERE existing.run_id=run.id
+       AND existing.type='thread.plan_continued')
+     AND NOT EXISTS (SELECT 1 FROM run_execution_leases lease WHERE lease.run_id=run.id AND lease.status='active')
+     AND (json_extract(NEW.payload_json,'$.source_selection_id')='' OR EXISTS (
+       SELECT 1 FROM plan_delivery_selections selection
+       WHERE selection.id=json_extract(NEW.payload_json,'$.source_selection_id')
+         AND selection.run_id=prior.id AND selection.proposal_id=proposal.id
+         AND selection.module_count=json_array_length(NEW.payload_json,'$.items')))
+ ) OR EXISTS (
+   SELECT 1 FROM json_each(NEW.payload_json,'$.items') entry
+   WHERE NOT EXISTS (
+     SELECT 1 FROM work_items work
+     JOIN plan_delivery_selection_items item ON item.work_item_id=work.id
+       AND item.selection_id=json_extract(NEW.payload_json,'$.source_selection_id')
+     JOIN plan_delivery_selections selection ON selection.id=item.selection_id
+     WHERE work.id=json_extract(entry.value,'$.source_work_item_id')
+       AND work.run_id=json_extract(NEW.payload_json,'$.predecessor_run_id')
+       AND work.version=json_extract(entry.value,'$.source_version')
+       AND item.module_ordinal=json_extract(entry.value,'$.module_ordinal')
+       AND (work.status!='completed' AND json_extract(entry.value,'$.checkpoint_id')='' AND COALESCE(json_extract(entry.value,'$.completion_event_id'),'')='' OR
+         work.status='completed' AND selection.manual_acceptance='required' AND COALESCE(json_extract(entry.value,'$.completion_event_id'),'')='' AND (EXISTS (
+           SELECT 1 FROM delivery_checkpoints checkpoint
+           JOIN delivery_checkpoint_operations operation ON operation.checkpoint_id=checkpoint.id
+           JOIN run_mode_snapshots mode ON mode.id=checkpoint.mode_snapshot_id
+             AND mode.run_id=work.run_id AND mode.phase='deliver' AND mode.revision=checkpoint.mode_revision
+           WHERE checkpoint.id=json_extract(entry.value,'$.checkpoint_id')
+             AND checkpoint.run_id=work.run_id AND checkpoint.work_item_id=work.id
+             AND checkpoint.selection_id=item.selection_id AND checkpoint.work_item_version=work.version-1
+         ) OR EXISTS (SELECT 1 FROM thread_plan_completed_sources source
+           WHERE source.run_id=work.run_id AND source.work_item_id=work.id
+             AND source.checkpoint_id=json_extract(entry.value,'$.checkpoint_id')))
+         OR work.status='completed' AND selection.manual_acceptance='on_demand'
+           AND json_extract(entry.value,'$.checkpoint_id')='' AND (
+             EXISTS (SELECT 1 FROM plan_on_demand_completion_events completion
+               WHERE completion.run_id=work.run_id AND completion.selection_id=selection.id
+                 AND completion.work_item_id=work.id
+                 AND completion.completion_event_id=json_extract(entry.value,'$.completion_event_id'))
+             OR EXISTS (SELECT 1 FROM thread_plan_on_demand_completed_sources source
+               WHERE source.run_id=work.run_id AND source.selection_id=selection.id
+                 AND source.work_item_id=work.id
+                 AND source.completion_event_id=json_extract(entry.value,'$.completion_event_id'))))
+   )
+ )) BEGIN SELECT RAISE(ABORT,'Thread Plan continuation source is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_plan_direction_source_insert
+ BEFORE INSERT ON plan_delivery_directions
+ WHEN EXISTS (SELECT 1 FROM run_events event WHERE event.subject_id=NEW.proposal_id
+   AND event.type='thread.plan_continued' AND event.source='thread_plan_continuation')
+ AND NOT EXISTS (
+   SELECT 1 FROM run_events event JOIN plan_delivery_directions original
+     ON original.proposal_id=json_extract(event.payload_json,'$.source_proposal_id')
+   WHERE event.subject_id=NEW.proposal_id AND event.type='thread.plan_continued'
+     AND event.source='thread_plan_continuation' AND original.ordinal=NEW.ordinal
+     AND original.title=NEW.title AND original.summary=NEW.summary
+     AND original.tradeoffs_json=NEW.tradeoffs_json AND original.module_count=NEW.module_count
+ ) BEGIN SELECT RAISE(ABORT,'Thread Plan direction differs from its source'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_thread_plan_module_source_insert
+ BEFORE INSERT ON plan_delivery_modules
+ WHEN EXISTS (SELECT 1 FROM run_events event WHERE event.subject_id=NEW.proposal_id
+   AND event.type='thread.plan_continued' AND event.source='thread_plan_continuation')
+ AND NOT EXISTS (
+   SELECT 1 FROM run_events event JOIN plan_delivery_modules original
+     ON original.proposal_id=json_extract(event.payload_json,'$.source_proposal_id')
+   WHERE event.subject_id=NEW.proposal_id AND event.type='thread.plan_continued'
+     AND event.source='thread_plan_continuation' AND original.direction_ordinal=NEW.direction_ordinal
+     AND original.ordinal=NEW.ordinal AND original.title=NEW.title AND original.objective=NEW.objective
+     AND original.acceptance_json=NEW.acceptance_json AND original.dependencies_json=NEW.dependencies_json
+ ) BEGIN SELECT RAISE(ABORT,'Thread Plan module differs from its source'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_thread_run_insert_session_lifecycle
 		BEFORE INSERT ON thread_runs
@@ -24979,12 +25663,12 @@ CREATE TRIGGER trg_workspace_checkpoint_insert_scope
 				AND mission.workspace_id = NEW.workspace_id
 				AND session_record.workspace_id = NEW.workspace_id
 		) AND NOT EXISTS (
-			SELECT 1 FROM drydock_workspaces drydock
-			WHERE drydock.run_id = NEW.run_id
-				AND drydock.mission_id = NEW.mission_id
-				AND drydock.session_id = NEW.session_id
-				AND drydock.workspace_id = NEW.workspace_id
-				AND drydock.state <> 'cleaned'
+			SELECT 1 FROM run_file_drydock_bindings owner
+ JOIN drydock_workspaces drydock ON drydock.id=owner.drydock_id
+ LEFT JOIN threads thread ON thread.id=owner.thread_id
+ WHERE owner.run_id=NEW.run_id AND owner.mission_id=NEW.mission_id
+ AND owner.session_id=NEW.session_id AND owner.workspace_id=NEW.workspace_id
+ AND drydock.state<>'cleaned' AND (owner.thread_id='' OR thread.last_run_id=owner.run_id)
 		)
 		BEGIN SELECT RAISE(ABORT, 'workspace checkpoint Run binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
@@ -25003,7 +25687,13 @@ CREATE TRIGGER trg_workspace_checkpoint_parent_binding
 		BEFORE INSERT ON workspace_checkpoints WHEN NEW.parent_checkpoint_id != ''
 			AND NOT EXISTS (SELECT 1 FROM workspace_checkpoints parent
 				WHERE parent.id = NEW.parent_checkpoint_id AND parent.sealed = 1
-					AND parent.run_id = NEW.run_id AND parent.workspace_id = NEW.workspace_id)
+					AND (parent.run_id = NEW.run_id OR EXISTS (
+ SELECT 1 FROM run_file_drydock_bindings previous JOIN run_file_drydock_bindings current
+ ON current.drydock_id=previous.drydock_id
+ JOIN drydock_workspaces d ON d.id=current.drydock_id
+ WHERE previous.run_id=parent.run_id AND current.run_id=NEW.run_id
+ AND previous.workspace_id=parent.workspace_id AND current.workspace_id=NEW.workspace_id
+ AND d.last_checkpoint_id=parent.id)) AND parent.workspace_id = NEW.workspace_id)
 		BEGIN SELECT RAISE(ABORT, 'workspace checkpoint parent binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_workspace_checkpoint_run_state_insert_binding
@@ -25078,17 +25768,45 @@ CREATE TRIGGER trg_workspace_checkpoint_transaction_insert_binding
 		BEFORE INSERT ON workspace_checkpoint_transactions
 		WHEN NOT EXISTS (SELECT 1 FROM workspace_checkpoints checkpoint
 				WHERE checkpoint.id = NEW.before_checkpoint_id AND checkpoint.sealed = 1
-					AND checkpoint.run_id = NEW.run_id
+					AND (checkpoint.run_id = NEW.run_id OR (NEW.kind='fork' AND EXISTS (
+ SELECT 1 FROM run_file_drydock_bindings previous JOIN run_file_drydock_bindings current
+ ON current.drydock_id=previous.drydock_id JOIN drydock_workspaces d ON d.id=current.drydock_id
+ LEFT JOIN threads thread ON thread.id=current.thread_id
+ WHERE previous.run_id=checkpoint.run_id AND previous.workspace_id=checkpoint.workspace_id
+ AND current.run_id=NEW.run_id AND current.workspace_id=NEW.workspace_id
+ AND NEW.expected_current_checkpoint_id=checkpoint.id AND d.last_checkpoint_id=checkpoint.id
+ AND (current.thread_id='' OR thread.last_run_id=current.run_id))))
 					AND checkpoint.workspace_id = NEW.workspace_id)
 			OR (NEW.expected_current_checkpoint_id != '' AND NOT EXISTS
 				(SELECT 1 FROM workspace_checkpoints checkpoint
 				 WHERE checkpoint.id = NEW.expected_current_checkpoint_id
-					AND checkpoint.sealed = 1 AND checkpoint.run_id = NEW.run_id
+					AND checkpoint.sealed = 1 AND (checkpoint.run_id = NEW.run_id OR (NEW.kind IN ('file_tool','rewind','undo','redo') AND EXISTS (
+ SELECT 1 FROM workspace_checkpoints before_snapshot
+ JOIN run_file_drydock_bindings previous ON previous.run_id=checkpoint.run_id
+ JOIN run_file_drydock_bindings current ON current.drydock_id=previous.drydock_id
+ JOIN drydock_workspaces d ON d.id=current.drydock_id JOIN threads thread ON thread.id=current.thread_id
+ WHERE before_snapshot.id=NEW.before_checkpoint_id AND before_snapshot.run_id=NEW.run_id
+ AND before_snapshot.workspace_id=NEW.workspace_id AND before_snapshot.parent_checkpoint_id=NEW.expected_current_checkpoint_id
+ AND current.run_id=NEW.run_id AND current.workspace_id=NEW.workspace_id
+ AND d.last_checkpoint_id=checkpoint.id AND thread.last_run_id=current.run_id)) OR (NEW.kind='fork' AND EXISTS (
+ SELECT 1 FROM run_file_drydock_bindings previous JOIN run_file_drydock_bindings current
+ ON current.drydock_id=previous.drydock_id JOIN drydock_workspaces d ON d.id=current.drydock_id
+ LEFT JOIN threads thread ON thread.id=current.thread_id
+ WHERE previous.run_id=checkpoint.run_id AND previous.workspace_id=checkpoint.workspace_id
+ AND current.run_id=NEW.run_id AND current.workspace_id=NEW.workspace_id
+ AND NEW.before_checkpoint_id=checkpoint.id AND d.last_checkpoint_id=checkpoint.id
+ AND (current.thread_id='' OR thread.last_run_id=current.run_id))))
 					AND checkpoint.workspace_id = NEW.workspace_id))
 			OR (NEW.target_checkpoint_id != '' AND NOT EXISTS
 				(SELECT 1 FROM workspace_checkpoints checkpoint
 				 WHERE checkpoint.id = NEW.target_checkpoint_id
-					AND checkpoint.sealed = 1 AND checkpoint.run_id = NEW.run_id
+					AND checkpoint.sealed = 1 AND (checkpoint.run_id = NEW.run_id OR (NEW.kind IN ('rewind','undo','redo','fork') AND EXISTS (
+ SELECT 1 FROM run_file_drydock_bindings historical JOIN run_file_drydock_bindings current
+ ON current.drydock_id=historical.drydock_id
+ LEFT JOIN threads thread ON thread.id=current.thread_id
+ WHERE historical.run_id=checkpoint.run_id AND historical.workspace_id=checkpoint.workspace_id
+ AND current.run_id=NEW.run_id AND current.workspace_id=NEW.workspace_id
+ AND (current.thread_id='' OR thread.last_run_id=current.run_id))))
 					AND checkpoint.workspace_id = NEW.workspace_id))
 		BEGIN SELECT RAISE(ABORT, 'workspace checkpoint transaction binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
@@ -25113,7 +25831,14 @@ CREATE TRIGGER trg_workspace_checkpoint_transaction_update
 			OR (NEW.after_checkpoint_id != '' AND NOT EXISTS
 				(SELECT 1 FROM workspace_checkpoints checkpoint
 				 WHERE checkpoint.id = NEW.after_checkpoint_id AND checkpoint.sealed = 1
-					AND checkpoint.run_id = NEW.run_id
+					AND (checkpoint.run_id = NEW.run_id OR (NEW.kind='fork'
+ AND ((NEW.status='completed' AND checkpoint.id=NEW.target_checkpoint_id)
+ OR (NEW.status IN ('failed','interrupted') AND checkpoint.id=NEW.before_checkpoint_id))
+ AND EXISTS (SELECT 1 FROM run_file_drydock_bindings historical JOIN run_file_drydock_bindings current
+ ON current.drydock_id=historical.drydock_id LEFT JOIN threads thread ON thread.id=current.thread_id
+ WHERE historical.run_id=checkpoint.run_id AND historical.workspace_id=checkpoint.workspace_id
+ AND current.run_id=NEW.run_id AND current.workspace_id=NEW.workspace_id
+ AND (current.thread_id='' OR thread.last_run_id=current.run_id))))
 					AND checkpoint.workspace_id = NEW.workspace_id))
 			OR OLD.status IN ('completed', 'failed', 'interrupted')
 			OR (OLD.status = 'prepared' AND NEW.status NOT IN
@@ -25121,3 +25846,11 @@ CREATE TRIGGER trg_workspace_checkpoint_transaction_update
 			OR (OLD.status = 'applying' AND NEW.status NOT IN
 				('applying', 'completed', 'failed', 'interrupted'))
 		BEGIN SELECT RAISE(ABORT, 'workspace checkpoint transaction transition is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_workspace_file_attachment_immutable BEFORE UPDATE ON workspace_file_attachments BEGIN SELECT RAISE(ABORT,'Uploaded file is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_workspace_file_attachment_nodelete BEFORE DELETE ON workspace_file_attachments BEGIN SELECT RAISE(ABORT,'Uploaded file is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_workspace_image_immutable BEFORE UPDATE ON workspace_image_attachments BEGIN SELECT RAISE(ABORT, 'Workspace image is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_workspace_image_nodelete BEFORE DELETE ON workspace_image_attachments BEGIN SELECT RAISE(ABORT, 'Workspace image is immutable'); END;

@@ -373,6 +373,14 @@ func (s *SQLiteStore) TransitionRun(ctx context.Context, run domain.Run, expecte
 func transitionRunTx(ctx context.Context, tx *sql.Tx, run domain.Run,
 	expected domain.RunStatus, event events.Event, source string,
 ) error {
+	if run.Status == domain.RunRunning {
+		if err := requireDrydockExecutionAdmissionTx(ctx, tx, run.ID, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := requireNoOpenWorkspaceRestoreTx(ctx, tx, run.ID); err != nil {
+			return err
+		}
+	}
 	before := run
 	before.Status = expected
 	configJSON, err := marshalRedactedJSON(run.Config)

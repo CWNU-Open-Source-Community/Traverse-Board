@@ -21,6 +21,7 @@ const (
 
 type FileEditReviewStore interface {
 	fileedit.Store
+	RunFileWorkspaceStore
 	GetRun(context.Context, string) (domain.Run, error)
 	GetMission(context.Context, string) (domain.Mission, error)
 	GetApprovalByProposal(context.Context, string) (approval.Record, error)
@@ -28,8 +29,34 @@ type FileEditReviewStore interface {
 }
 
 type FileEditReviewService struct {
-	store   FileEditReviewStore
-	manager *fileedit.Manager
+	store    FileEditReviewStore
+	manager  *fileedit.Manager
+	drydocks *DrydockService
+}
+
+type fileEditWorkspaceHistoryStore interface {
+	FileEditWorkspaceBelongsToRun(context.Context, string, string, string) (bool, error)
+}
+
+// Historical ownership permits inspection and exact replay only. It must never
+// select the filesystem target of a new mutation.
+func fileEditWorkspaceBelongsToRun(ctx context.Context, store any, run domain.Run,
+	mission domain.Mission, sessionID, workspaceID string,
+) (bool, error) {
+	if run.SessionID != sessionID || run.MissionID != mission.ID || workspaceID == "" {
+		return false, nil
+	}
+	if history, ok := store.(fileEditWorkspaceHistoryStore); ok {
+		return history.FileEditWorkspaceBelongsToRun(ctx, run.ID, sessionID, workspaceID)
+	}
+	return workspaceID == mission.WorkspaceID, nil
+}
+
+func (s *FileEditReviewService) WithDrydock(drydocks *DrydockService) *FileEditReviewService {
+	if s != nil {
+		s.drydocks = drydocks
+	}
+	return s
 }
 
 type ReviewFileEditRequest struct {
@@ -74,10 +101,26 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 	if err != nil {
 		return ReviewFileEditResult{}, apperror.Normalize(err)
 	}
-	if run.SessionID == "" || edit.SessionID != run.SessionID ||
-		mission.WorkspaceID == "" || edit.WorkspaceID != mission.WorkspaceID {
+	belongs, err := fileEditWorkspaceBelongsToRun(ctx, s.store, run, mission,
+		edit.SessionID, edit.WorkspaceID)
+	if err != nil {
+		return ReviewFileEditResult{}, apperror.Normalize(err)
+	}
+	if !belongs {
 		return ReviewFileEditResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"file edit does not belong to the requested Run")
+	}
+	if reader, ok := s.store.(interface {
+		GetFileEditReviewSnapshot(context.Context, string, string) (fileedit.Edit, bool, error)
+	}); ok {
+		if snapshot, found, err := reader.GetFileEditReviewSnapshot(ctx, run.ID, edit.ID); err != nil {
+			return ReviewFileEditResult{}, apperror.Normalize(err)
+		} else if found {
+			if (request.Action == FileEditApproveIntent) != (snapshot.Status == fileedit.StatusApproved) {
+				return ReviewFileEditResult{}, apperror.New(apperror.CodeConflict, "File edit review already has a different recorded decision")
+			}
+			return ReviewFileEditResult{Edit: snapshot, Action: request.Action, Replayed: true}, nil
+		}
 	}
 	expected := fileedit.StatusDenied
 	if request.Action == FileEditApproveIntent {
@@ -87,6 +130,16 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 		return ReviewFileEditResult{}, apperror.New(apperror.CodeConflict,
 			"file edit was already decided with a different outcome")
 	}
+	if edit.Status == fileedit.StatusProposed && request.Action == FileEditApproveIntent {
+		target, targetErr := ResolveRunFileWorkspace(ctx, s.store, run, mission, s.drydocks)
+		if targetErr != nil {
+			return ReviewFileEditResult{}, targetErr
+		}
+		if edit.WorkspaceID != target.Workspace.ID {
+			return ReviewFileEditResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"file edit targets an earlier Workspace; create a proposal for the current Run workspace")
+		}
+	}
 	replayed := edit.Status == expected
 	var reviewed fileedit.Edit
 	if edit.Status == fileedit.StatusProposed {
@@ -95,7 +148,7 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 			return ReviewFileEditResult{}, apperror.Normalize(approvalErr)
 		}
 		if record.RunID != run.ID || record.SessionID != run.SessionID ||
-			record.WorkspaceID != mission.WorkspaceID || record.ProposalID != edit.ID ||
+			record.WorkspaceID != edit.WorkspaceID || record.ProposalID != edit.ID ||
 			record.ToolName != fileedit.ApprovalToolName(edit) ||
 			record.ActionClass != "workspace_write" {
 			return ReviewFileEditResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -149,7 +202,7 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 		return ReviewFileEditResult{}, apperror.Normalize(err)
 	}
 	if reviewed.ID != edit.ID || reviewed.SessionID != run.SessionID ||
-		reviewed.WorkspaceID != mission.WorkspaceID || reviewed.Status != expected ||
+		reviewed.WorkspaceID != edit.WorkspaceID || reviewed.Status != expected ||
 		strings.TrimSpace(reviewed.Path) == "" {
 		return ReviewFileEditResult{}, apperror.New(apperror.CodeInternal,
 			"file edit review result violated its exact binding")

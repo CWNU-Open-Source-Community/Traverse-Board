@@ -17,6 +17,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const LocalBackendPolicyVersion = "windows_appcontainer_policy.v3"
+
 type localPreparedRun struct {
 	request       LocalRunRequest
 	drydock       localPinnedRoot
@@ -170,6 +172,7 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 	}
 	bindingFingerprint := localFingerprint("local-readiness-binding.v1", b.generation)
 	owner := localOwnerRecord{ProtocolVersion: localOwnerProtocolVersion,
+		PolicyVersion:      LocalBackendPolicyVersion,
 		OwnerID:            localFingerprint("local-readiness-owner.v1", profile.name),
 		BindingFingerprint: bindingFingerprint, ProfileName: profile.name,
 		ProfileSID: profile.sid.String(), Snapshots: []localSecuritySnapshot{snapshot},
@@ -190,7 +193,7 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 		return err
 	}
 	cmdPath := filepath.Clean(filepath.Join(systemDirectory, "cmd.exe"))
-	environment, err := buildLocalEnvironment(rootPath, []localPinnedRoot{{path: systemDirectory}}, nil)
+	environment, err := buildLocalEnvironment(filepath.Join(rootPath, ".traverse-board", "home"), filepath.Join(rootPath, ".traverse-board", "tmp"), []localPinnedRoot{{path: systemDirectory}}, nil)
 	if err != nil {
 		return err
 	}
@@ -276,11 +279,22 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 		return result, err
 	}
 	defer prepared.close()
-	profile, err := prepareLocalProfile(localExecutionBindingFingerprint(normalized))
-	if err != nil {
-		return result, err
+	// Fail before this request creates an owner or changes any ACL. Installed
+	// runtimes may be readable by the user but not grantable to an LPAC token.
+	for index, toolchain := range prepared.toolchains {
+		if localImplicitReadOnlyRoot(toolchain.path) {
+			continue
+		}
+		if err := preflightLocalRootDACLAccess(toolchain); err != nil {
+			role := "toolchain"
+			if normalized.ToolchainInputs[index].DataOnly {
+				role = "attachment input"
+			}
+			return result, fmt.Errorf("local sandbox preflight: %s root %q requires WRITE_DAC to grant temporary LPAC read access; use a user-owned runtime/input directory or an explicitly configured accessible installation; no command was started: %w", role, toolchain.path, err)
+		}
 	}
-	if err := createLocalAppContainerDirectories(prepared.drydock.path, profile.name); err != nil {
+	profile, err := prepareLocalProfileWithInstrumentation(localExecutionBindingFingerprint(normalized), normalized.Instrumentation)
+	if err != nil {
 		return result, err
 	}
 	snapshots := make([]localSecuritySnapshot, 0, len(prepared.toolchains)+1)
@@ -302,32 +316,64 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 		modifiedToolchains[strings.ToLower(toolchain.path)] = snapshot
 	}
 	owner := localOwnerRecord{ProtocolVersion: localOwnerProtocolVersion,
+		PolicyVersion: LocalBackendPolicyVersion, Instrumentation: normalized.Instrumentation,
 		OwnerID: localFingerprint("local-run-owner.v1", profile.name,
 			localExecutionBindingFingerprint(normalized)),
 		BindingFingerprint: localExecutionBindingFingerprint(normalized),
 		ProfileName:        profile.name, ProfileSID: profile.sid.String(),
 		Snapshots: snapshots, CreatedAt: time.Now().UTC()}
+	scratch, err := b.prepareScratch(owner.OwnerID, prepared)
+	if err != nil {
+		return result, err
+	}
+	defer scratch.close()
+	owner.Scratch = &localScratchIdentity{PathSHA256: localHostPathDigest(scratch.path), RootIdentity: scratch.identity}
 	owner.seal()
 	if err := b.writeOwnerLocked(owner); err != nil {
-		return result, err
+		scratch.close()
+		return result, errors.Join(err, os.Remove(scratch.path))
 	}
 	cleanupRequired := true
 	defer func() {
 		if cleanupRequired {
+			scratch.close()
 			returnErr = errors.Join(returnErr, b.cleanupOwnerLocked(owner))
 		}
 	}()
+	if err := prepareLocalScratchDirectories(scratch.path, profile.name); err != nil {
+		return result, err
+	}
+	pathRoots := make([]localPinnedRoot, 0, len(prepared.toolchains))
+	attachmentRoot := ""
+	for index, input := range normalized.ToolchainInputs {
+		if input.DataOnly {
+			attachmentRoot = prepared.toolchains[index].path
+		} else {
+			pathRoots = append(pathRoots, prepared.toolchains[index])
+		}
+	}
+	prepared.environment, err = buildLocalEnvironment(filepath.Join(scratch.path, "home"), filepath.Join(scratch.path, "tmp"), pathRoots, normalized.Manifest.Environment, attachmentRoot)
+	if err != nil {
+		return result, err
+	}
+	scratchSnapshot, err := captureLocalSecurity(scratch)
+	if err != nil {
+		return result, err
+	}
 	if err := materializeLocalProfile(profile); err != nil {
 		return result, err
 	}
+	if err := grantLocalRoot(scratchSnapshot, profile.filesystemCapabilitySID, true, true); err != nil {
+		return result, fmt.Errorf("local sandbox grant: scratch root %q: %w", scratch.path, err)
+	}
 	if err := grantLocalRoot(drydockSnapshot, profile.filesystemCapabilitySID, true, true); err != nil {
-		return result, err
+		return result, fmt.Errorf("local sandbox grant: workspace root %q: %w", prepared.drydock.path, err)
 	}
 	for _, toolchain := range prepared.toolchains {
 		snapshot, modified := modifiedToolchains[strings.ToLower(toolchain.path)]
 		if modified {
 			if err := grantLocalRoot(snapshot, profile.filesystemCapabilitySID, false, false); err != nil {
-				return result, err
+				return result, fmt.Errorf("local sandbox grant: read-only input root %q: %w", toolchain.path, err)
 			}
 		}
 	}
@@ -341,7 +387,7 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 		captureErr:   normalized.Manifest.Output.CaptureStderr,
 		stdin:        stdin,
 		writeMaximum: normalized.MaxDiskWriteBytes})
-	treeErr := validateLocalTree(prepared.drydock.path)
+	treeErr := errors.Join(validateLocalTree(prepared.drydock.path), validateLocalTree(scratch.path))
 	if treeErr != nil {
 		processErr = errors.Join(processErr, treeErr)
 	}
@@ -349,7 +395,19 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 	var postErr error
 	if treeErr == nil {
 		postBytes, postErr = localDirectorySize(prepared.drydock.path, math.MaxInt64)
+		if postErr == nil {
+			var scratchBytes int64
+			scratchBytes, postErr = localDirectorySize(scratch.path, normalized.MaxDiskWriteBytes)
+			// Deleting project files cannot offset writes into runtime state.
+			postBytes = max(postBytes, prepared.baselineBytes)
+			if postErr == nil && scratchBytes <= math.MaxInt64-postBytes {
+				postBytes += scratchBytes
+			} else if postErr == nil {
+				postErr = ErrLocalSandboxWriteLimit
+			}
+		}
 		if postErr != nil {
+			process.writeLimitExceeded = process.writeLimitExceeded || errors.Is(postErr, ErrLocalSandboxWriteLimit)
 			processErr = errors.Join(processErr, postErr)
 		} else if postBytes > prepared.baselineBytes &&
 			postBytes-prepared.baselineBytes > normalized.MaxDiskWriteBytes {
@@ -359,13 +417,15 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 	} else {
 		postErr = treeErr
 	}
+	scratch.close()
 	cleanupErr := b.cleanupOwnerLocked(owner)
 	cleanupRequired = false
 
 	manifestFingerprint, _ := normalized.Manifest.Fingerprint()
 	result = LocalExecutionResult{ProtocolVersion: LocalExecutionProtocolVersion,
 		PolicyVersion: LocalBackendPolicyVersion, Backend: LocalBackendName,
-		ExitCode: process.exitCode, Stdout: process.stdout, Stderr: process.stderr,
+		Instrumentation: normalized.Instrumentation,
+		ExitCode:        process.exitCode, Stdout: process.stdout, Stderr: process.stderr,
 		StartedAt: process.startedAt, CompletedAt: process.completedAt,
 		RuntimeGeneration:   b.generation,
 		BindingFingerprint:  localExecutionBindingFingerprint(normalized),
@@ -375,7 +435,7 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 		OutputLimitExceeded: process.outputLimitExceeded,
 		WriteLimitExceeded:  process.writeLimitExceeded,
 		TreeReaped:          process.treeReaped, DrydockReadWrite: true,
-		ToolchainsReadOnly: true, ReparseBoundary: postErr == nil && treeErr == nil,
+		ToolchainsReadOnly: true, ReparseBoundary: treeErr == nil && (postErr == nil || errors.Is(postErr, ErrLocalSandboxWriteLimit)),
 		DiskWritesBound: true, OwnerRecoveryBound: cleanupErr == nil,
 		StdinClosed: true, CPUQuotaBound: true, MemoryBound: true,
 		ProcessCountBound: true, RuntimeBound: true, OutputBound: true,
@@ -448,13 +508,6 @@ func prepareLocalRun(request LocalRunRequest) (prepared localPreparedRun, return
 			}
 		}
 	}
-	home := filepath.Join(drydock.path, ".traverse-board", "home")
-	temporary := filepath.Join(drydock.path, ".traverse-board", "tmp")
-	for _, directory := range []string{home, temporary} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return prepared, err
-		}
-	}
 	prepared.executable, err = localVirtualToHost(request.Manifest.Command.Executable,
 		request, prepared.toolchains)
 	if err != nil {
@@ -476,11 +529,6 @@ func prepareLocalRun(request LocalRunRequest) (prepared localPreparedRun, return
 		if err != nil {
 			return prepared, err
 		}
-	}
-	prepared.environment, err = buildLocalEnvironment(drydock.path,
-		prepared.toolchains, request.Manifest.Environment)
-	if err != nil {
-		return prepared, err
 	}
 	prepared.baselineBytes, err = localDirectorySize(drydock.path, math.MaxInt64)
 	if err != nil {
@@ -554,9 +602,12 @@ func localTranslateArgument(argument string, request LocalRunRequest,
 	return argument, nil
 }
 
-func buildLocalEnvironment(drydock string, toolchains []localPinnedRoot,
-	bindings []EnvironmentBinding,
+func buildLocalEnvironment(home, temporary string, toolchains []localPinnedRoot,
+	bindings []EnvironmentBinding, attachmentRoots ...string,
 ) ([]uint16, error) {
+	if len(attachmentRoots) > 1 || (len(attachmentRoots) == 1 && attachmentRoots[0] != "" && !validLocalHostRoot(attachmentRoots[0])) {
+		return nil, ErrLocalSandboxBoundary
+	}
 	windowsDirectory, err := windows.GetWindowsDirectory()
 	if err != nil {
 		return nil, err
@@ -565,8 +616,6 @@ func buildLocalEnvironment(drydock string, toolchains []localPinnedRoot,
 	if err != nil {
 		return nil, err
 	}
-	home := filepath.Join(drydock, ".traverse-board", "home")
-	temporary := filepath.Join(drydock, ".traverse-board", "tmp")
 	drive := filepath.VolumeName(home)
 	tail := strings.TrimPrefix(home, drive)
 	pathValues := make([]string, 0, len(toolchains)+1)
@@ -610,6 +659,9 @@ func buildLocalEnvironment(drydock string, toolchains []localPinnedRoot,
 			}
 		}
 		values[binding.Name] = binding.Value
+	}
+	if len(attachmentRoots) == 1 && attachmentRoots[0] != "" {
+		values[LocalAttachmentEnvironment] = attachmentRoots[0]
 	}
 	return localEnvironment(values)
 }
@@ -737,10 +789,16 @@ func (b *windowsLocalBackend) cleanupOwnerLocked(record localOwnerRecord) error 
 	}
 	var cleanupErr error
 	for index := len(record.Snapshots) - 1; index >= 0; index-- {
-		cleanupErr = errors.Join(cleanupErr, restoreLocalSecurity(record.Snapshots[index]))
+		if err := restoreLocalSecurity(record.Snapshots[index]); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("local sandbox restore: root %q: %w", record.Snapshots[index].Path, err))
+		}
 	}
-	cleanupErr = errors.Join(cleanupErr, removeLocalAppContainerDirectory(
-		record.Snapshots[0].Path, record.ProfileName))
+	if record.Scratch != nil {
+		cleanupErr = errors.Join(cleanupErr, b.removeScratch(record))
+	} else {
+		cleanupErr = errors.Join(cleanupErr, removeLocalAppContainerDirectory(
+			record.Snapshots[0].Path, record.ProfileName))
+	}
 	cleanupErr = errors.Join(cleanupErr, deleteLocalProfile(record.ProfileName))
 	if cleanupErr == nil {
 		cleanupErr = b.removeOwnerLocked(record.OwnerID)

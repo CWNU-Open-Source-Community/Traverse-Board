@@ -19,7 +19,10 @@ const (
 // browser discovery, launch review, permission snapshots, and process-local
 // execution fence prepared by the Application layer.
 type FullCDPManagedLaunchRequest struct {
-	RuntimeID              string
+	RuntimeID string
+	// InitialURL is supplied by the operator-facing open flow. An empty value
+	// preserves the low-level transport-only contract for existing callers.
+	InitialURL             string
 	Session                SessionPlan
 	Identity               BrowserExecutableIdentity
 	Acceptance             BrowserAcceptanceCandidate
@@ -170,6 +173,12 @@ func LaunchManagedFullCDP(ctx context.Context,
 		return retainRecoverableFullCDPLaunch(runtime, err)
 	}
 	runtime.session = session
+	if request.InitialURL != "" {
+		runtime.terminalFailureCode = "navigation_failed"
+		if _, err := session.NavigateFullCDP(ctx, request.InitialURL); err != nil {
+			return retainRecoverableFullCDPLaunch(runtime, err)
+		}
+	}
 	runtime.terminalFailureCode = ""
 	return runtime, nil
 }

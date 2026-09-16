@@ -93,6 +93,12 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 	if err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
 	}
+	if owned, err := runHasOwnedFileWorkspace(ctx, e.store, run.ID); err != nil {
+		return toolgateway.HostCommandProposalResult{}, err
+	} else if owned {
+		return toolgateway.HostCommandProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"host command proposals do not support the Run's owned Drydock; use its configured Command Runtime")
+	}
 	mission, err := e.store.GetMission(ctx, run.MissionID)
 	if err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
@@ -121,6 +127,10 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 	mode, err := e.store.GetRunMode(ctx, run.ID)
 	if err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
+	}
+	if mode.Phase != domain.ExecutionPhaseDeliver {
+		return toolgateway.HostCommandProposalResult{}, apperror.New(
+			apperror.CodePolicyDenied, "host command proposals require the Deliver phase")
 	}
 	isRiskEscalation := payload.Version == runner.RiskEscalationProtocolVersion
 	requiredPermission := domain.RunExecutionPermissionApproval
@@ -433,6 +443,12 @@ func proposalExecutableRootAllowed(path string, workspaceRoot string) bool {
 	}
 	trustedGitBash := ""
 	if runtime.GOOS == "windows" {
+		if powerShell, err := runner.ResolveHostPowerShellExecutable(); err == nil &&
+			strings.EqualFold(filepath.Clean(path), powerShell) {
+			// An explicit host runtime path trusts only that executable, never
+			// its installation directory. The proposal still pins its SHA-256.
+			return true
+		}
 		if gitPath, err := exec.LookPath("git.exe"); err == nil {
 			if gitRoot, ok := gitForWindowsDistributionRoot(gitPath); ok {
 				// Git for Windows is commonly installed outside Program Files. Trust
@@ -466,12 +482,7 @@ func resolveProposalShellExecutable(shell string) (string, error) {
 	}
 	switch shell {
 	case toolgateway.HostCommandShellPowerShell:
-		if root := os.Getenv("ProgramFiles"); root != "" {
-			candidates = append(candidates, filepath.Join(root, "PowerShell", "7", "pwsh.exe"))
-		}
-		if root := os.Getenv("SystemRoot"); root != "" {
-			candidates = append(candidates, filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
-		}
+		return runner.ResolveHostPowerShellExecutable()
 	case toolgateway.HostCommandShellBash:
 		// Prefer Bash from the exact Git for Windows distribution already
 		// selected by PATH. Fixed trusted installs remain fallback candidates.

@@ -1216,7 +1216,8 @@ func codeHandoffView(value application.CodeHandoff) CodeHandoffView {
 			State: value.Plan.State, ProposalID: value.Plan.ProposalID,
 			SelectionID: value.Plan.SelectionID, DirectionCount: value.Plan.DirectionCount,
 			SelectedDirection: value.Plan.SelectedDirection, ModuleCount: value.Plan.ModuleCount,
-			PendingCount: value.Plan.PendingCount, InProgressCount: value.Plan.InProgressCount,
+			ManualAcceptance: value.Plan.ManualAcceptance,
+			PendingCount:     value.Plan.PendingCount, InProgressCount: value.Plan.InProgressCount,
 			BlockedCount: value.Plan.BlockedCount, CompletedCount: value.Plan.CompletedCount,
 			CancelledCount: value.Plan.CancelledCount,
 		},
@@ -1284,5 +1285,6 @@ func codeHandoffView(value application.CodeHandoff) CodeHandoffView {
 		CompositeMutation:     value.CompositeMutation, ResumeAuthorized: value.ResumeAuthorized,
 		ExecutionStarted:     value.ExecutionStarted,
 		StandardCodeDelivery: value.StandardCodeDelivery,
+		HostCommands:         value.HostCommands,
 	}
 }

@@ -45,5 +45,6 @@ type Record struct {
 	Clean              bool
 	StderrPrefix       string
 	CompletedAt        *time.Time
+	StartedAt          *time.Time
 	CreatedAt          time.Time
 }

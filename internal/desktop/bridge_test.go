@@ -122,15 +122,15 @@ func (p *testSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, 
 	return path, err
 }
 
-func TestDesktopBridgeBindsOnlySeventeenBoundedMethods(t *testing.T) {
+func TestDesktopBridgeBindsOnlyNineteenBoundedMethods(t *testing.T) {
 	typ := reflect.TypeFor[*DesktopBridge]()
-	if typ.NumMethod() != 17 {
-		t.Fatalf("exported method count = %d, want 17", typ.NumMethod())
+	if typ.NumMethod() != 19 {
+		t.Fatalf("exported method count = %d, want 19", typ.NumMethod())
 	}
 	want := []string{
 		"Bootstrap", "CloseUserTerminal", "GetDebugTerminalAgentInput",
 		"GetUserTerminal", "GrantDebugTerminalAgentInput",
-		"ImportWorkspace", "InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
+		"ImportWorkspace", "InspectClipboardFiles", "InstallSkillPackage", "OpenWorkspace", "PasteClipboardFiles", "PreviewSkillPackage",
 		"ReadUserTerminal", "ResizeUserTerminal", "RestartWithRiskProfile",
 		"RevokeDebugTerminalAgentInput",
 		"SelectSkillPackage",

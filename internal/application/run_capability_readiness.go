@@ -308,11 +308,11 @@ func (s *RunCapabilityReadinessService) Project(ctx context.Context,
 		return RunCapabilityReadiness{}, apperror.Wrap(apperror.CodeInternal,
 			"Run capability readiness source facts are invalid", err)
 	}
-	drydockWorkspace, drydockFound, err := s.store.GetDrydockByRun(ctx, run.ID)
+	drydockWorkspace, drydockFound, err := readRunFileDrydock(ctx, s.store, run.ID)
 	if err != nil {
 		return RunCapabilityReadiness{}, apperror.Normalize(err)
 	}
-	drydockReady := drydockFound && drydockWorkspace.RunID == run.ID &&
+	drydockReady := drydockFound && requireCurrentRunFileDrydock(ctx, s.store, run.ID, drydockWorkspace) == nil &&
 		(drydockWorkspace.State == drydock.StateReady ||
 			drydockWorkspace.State == drydock.StateDelivered)
 	advertisedAdapter := commandruntimeadapter.Identity{}

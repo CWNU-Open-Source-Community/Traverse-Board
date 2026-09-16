@@ -24,14 +24,17 @@ import (
 )
 
 const (
-	localOwnerProtocolVersion = "local_sandbox_owner.v1"
-	localOwnerDirectoryName   = "local-sandbox-owners-v1"
-	localOwnerLockName        = "owner.lock"
-	localOwnerMaximumBytes    = 4 * 1024 * 1024
-	localMaximumTreeEntries   = 250_000
-	localProfilePrefix        = "TraverseBoard.Local."
-	localCapabilityPrefix     = "TraverseBoard.Local.Filesystem."
-	localFileDeleteChild      = 0x00000040
+	localOwnerProtocolVersion         = "local_sandbox_owner.v3"
+	localPreviousOwnerProtocolVersion = "local_sandbox_owner.v2"
+	localPreviousPolicyVersion        = "windows_appcontainer_policy.v2"
+	localLegacyOwnerProtocolVersion   = "local_sandbox_owner.v1"
+	localOwnerDirectoryName           = "local-sandbox-owners-v1"
+	localOwnerLockName                = "owner.lock"
+	localOwnerMaximumBytes            = 4 * 1024 * 1024
+	localMaximumTreeEntries           = 250_000
+	localProfilePrefix                = "TraverseBoard.Local."
+	localCapabilityPrefix             = "TraverseBoard.Local.Filesystem."
+	localFileDeleteChild              = 0x00000040
 )
 
 var (
@@ -58,10 +61,11 @@ type windowsLocalBackend struct {
 }
 
 type localAppContainerProfile struct {
-	name                      string
-	sid                       *windows.SID
-	filesystemCapabilitySID   *windows.SID
-	registryReadCapabilitySID *windows.SID
+	name                         string
+	sid                          *windows.SID
+	filesystemCapabilitySID      *windows.SID
+	registryReadCapabilitySID    *windows.SID
+	instrumentationCapabilitySID *windows.SID
 }
 
 type localPinnedRoot struct {
@@ -83,11 +87,14 @@ type localSecuritySnapshot struct {
 
 type localOwnerRecord struct {
 	ProtocolVersion    string                  `json:"protocol_version"`
+	PolicyVersion      string                  `json:"policy_version,omitempty"`
+	Instrumentation    bool                    `json:"instrumentation,omitempty"`
 	OwnerID            string                  `json:"owner_id"`
 	BindingFingerprint string                  `json:"binding_fingerprint"`
 	ProfileName        string                  `json:"profile_name"`
 	ProfileSID         string                  `json:"profile_sid"`
 	Snapshots          []localSecuritySnapshot `json:"snapshots"`
+	Scratch            *localScratchIdentity   `json:"scratch,omitempty"`
 	CreatedAt          time.Time               `json:"created_at"`
 	Fingerprint        string                  `json:"fingerprint"`
 }
@@ -222,6 +229,10 @@ func windowsVersionFingerprint() string {
 }
 
 func prepareLocalProfile(seed string) (localAppContainerProfile, error) {
+	return prepareLocalProfileWithInstrumentation(seed, false)
+}
+
+func prepareLocalProfileWithInstrumentation(seed string, instrumentation bool) (localAppContainerProfile, error) {
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return localAppContainerProfile{}, err
@@ -240,9 +251,17 @@ func prepareLocalProfile(seed string) (localAppContainerProfile, error) {
 	if err != nil {
 		return localAppContainerProfile{}, err
 	}
+	var instrumentationCapabilitySID *windows.SID
+	if instrumentation {
+		instrumentationCapabilitySID, err = deriveLocalCapabilitySID("lpacInstrumentation")
+		if err != nil {
+			return localAppContainerProfile{}, err
+		}
+	}
 	return localAppContainerProfile{name: name, sid: sid,
-		filesystemCapabilitySID:   filesystemCapabilitySID,
-		registryReadCapabilitySID: registryReadCapabilitySID}, nil
+		filesystemCapabilitySID:      filesystemCapabilitySID,
+		registryReadCapabilitySID:    registryReadCapabilitySID,
+		instrumentationCapabilitySID: instrumentationCapabilitySID}, nil
 }
 
 func materializeLocalProfile(profile localAppContainerProfile) error {
@@ -250,7 +269,8 @@ func materializeLocalProfile(profile localAppContainerProfile) error {
 		!profile.sid.IsValid() || profile.filesystemCapabilitySID == nil ||
 		!profile.filesystemCapabilitySID.IsValid() ||
 		profile.registryReadCapabilitySID == nil ||
-		!profile.registryReadCapabilitySID.IsValid() {
+		!profile.registryReadCapabilitySID.IsValid() ||
+		(profile.instrumentationCapabilitySID != nil && !profile.instrumentationCapabilitySID.IsValid()) {
 		return ErrLocalSandboxBoundary
 	}
 	name := profile.name
@@ -282,6 +302,7 @@ func materializeLocalProfile(profile localAppContainerProfile) error {
 	runtime.KeepAlive(capabilities)
 	runtime.KeepAlive(profile.filesystemCapabilitySID)
 	runtime.KeepAlive(profile.registryReadCapabilitySID)
+	runtime.KeepAlive(profile.instrumentationCapabilitySID)
 	return nil
 }
 
@@ -352,10 +373,14 @@ func removeLocalProfileFilesystem(profile localAppContainerProfile) error {
 }
 
 func localProfileCapabilities(profile localAppContainerProfile) []windows.SIDAndAttributes {
-	return []windows.SIDAndAttributes{
+	capabilities := []windows.SIDAndAttributes{
 		{Sid: profile.filesystemCapabilitySID, Attributes: windows.SE_GROUP_ENABLED},
 		{Sid: profile.registryReadCapabilitySID, Attributes: windows.SE_GROUP_ENABLED},
 	}
+	if profile.instrumentationCapabilitySID != nil {
+		capabilities = append(capabilities, windows.SIDAndAttributes{Sid: profile.instrumentationCapabilitySID, Attributes: windows.SE_GROUP_ENABLED})
+	}
+	return capabilities
 }
 
 func localCapabilityName(profileName string) string {
@@ -366,7 +391,7 @@ func localCapabilityName(profileName string) string {
 }
 
 func deriveLocalCapabilitySID(name string) (*windows.SID, error) {
-	if name != "registryRead" && (!strings.HasPrefix(name, localCapabilityPrefix) ||
+	if name != "registryRead" && name != "lpacInstrumentation" && (!strings.HasPrefix(name, localCapabilityPrefix) ||
 		len(name) != len(localCapabilityPrefix)+32) {
 		return nil, ErrLocalSandboxBoundary
 	}
@@ -463,6 +488,10 @@ func validLocalProfileName(value string) bool {
 }
 
 func pinLocalRoot(pathValue string) (localPinnedRoot, error) {
+	return pinLocalRootWithAccess(pathValue, 0)
+}
+
+func pinLocalRootWithAccess(pathValue string, additionalAccess uint32) (localPinnedRoot, error) {
 	if !validLocalHostRoot(pathValue) {
 		return localPinnedRoot{}, ErrLocalSandboxBoundary
 	}
@@ -472,7 +501,7 @@ func pinLocalRoot(pathValue string) (localPinnedRoot, error) {
 	}
 	pointer, _ := windows.UTF16PtrFromString(pathValue)
 	handle, err := windows.CreateFile(pointer,
-		windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL,
+		windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL|additionalAccess,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
@@ -641,6 +670,20 @@ func captureLocalSecurity(root localPinnedRoot) (localSecuritySnapshot, error) {
 	return value, nil
 }
 
+// Opening a WRITE_DAC handle tests this process's actual access without changing
+// the ACL. Pin the same filesystem object rather than trusting the path alone.
+func preflightLocalRootDACLAccess(root localPinnedRoot) error {
+	writable, err := pinLocalRootWithAccess(root.path, windows.WRITE_DAC)
+	if err != nil {
+		return err
+	}
+	defer writable.close()
+	if writable.identity != root.identity {
+		return ErrLocalSandboxBoundary
+	}
+	return nil
+}
+
 func grantLocalRoot(snapshot localSecuritySnapshot, sid *windows.SID,
 	writable, lowIntegrity bool,
 ) error {
@@ -711,6 +754,16 @@ func restoreLocalSecurity(snapshot localSecuritySnapshot) error {
 	if pinned.identity != snapshot.RootIdentity {
 		return ErrLocalSandboxBoundary
 	}
+	current, err := captureLocalSecurity(pinned)
+	if err != nil {
+		return err
+	}
+	// SDDL comes from the same Windows security descriptor conversion used by
+	// capture. Compare it exactly: ACE order, integrity labels and protection
+	// flags must not be treated as unordered or inferred from a failed grant.
+	if current == snapshot {
+		return nil
+	}
 	sd, err := windows.SecurityDescriptorFromString(snapshot.DACLSDDL)
 	if err != nil {
 		return err
@@ -778,10 +831,19 @@ func (r *localOwnerRecord) seal() {
 }
 
 func (r localOwnerRecord) validate() error {
-	if r.ProtocolVersion != localOwnerProtocolVersion || !validDigest(r.OwnerID) ||
+	if (r.ProtocolVersion != localOwnerProtocolVersion && r.ProtocolVersion != localPreviousOwnerProtocolVersion && r.ProtocolVersion != localLegacyOwnerProtocolVersion) || !validDigest(r.OwnerID) ||
 		!validDigest(r.BindingFingerprint) || !validLocalProfileName(r.ProfileName) ||
 		r.ProfileSID == "" || r.CreatedAt.IsZero() || len(r.Snapshots) == 0 ||
 		len(r.Snapshots) > MaxLocalToolchainInputs+1 || r.Fingerprint != localOwnerFingerprint(r) {
+		return ErrLocalSandboxBoundary
+	}
+	if (r.ProtocolVersion == localOwnerProtocolVersion && r.PolicyVersion != LocalBackendPolicyVersion) ||
+		(r.ProtocolVersion == localPreviousOwnerProtocolVersion && r.PolicyVersion != localPreviousPolicyVersion) ||
+		(r.ProtocolVersion == localLegacyOwnerProtocolVersion && (r.PolicyVersion != "" || r.Instrumentation)) ||
+		(r.ProtocolVersion != localOwnerProtocolVersion && r.Scratch != nil) {
+		return ErrLocalSandboxBoundary
+	}
+	if r.Scratch != nil && (!validDigest(r.Scratch.PathSHA256) || !validDigest(r.Scratch.RootIdentity)) {
 		return ErrLocalSandboxBoundary
 	}
 	sid, err := windows.StringToSid(r.ProfileSID)
@@ -808,19 +870,25 @@ func (r localOwnerRecord) validate() error {
 }
 
 func localOwnerFingerprint(record localOwnerRecord) string {
-	parts := []string{localOwnerProtocolVersion, record.OwnerID,
+	parts := []string{record.ProtocolVersion, record.OwnerID,
 		record.BindingFingerprint, record.ProfileName, record.ProfileSID,
 		record.CreatedAt.UTC().Format(time.RFC3339Nano)}
+	if record.ProtocolVersion == localOwnerProtocolVersion || record.ProtocolVersion == localPreviousOwnerProtocolVersion {
+		parts = append(parts, record.PolicyVersion, fmt.Sprint(record.Instrumentation))
+	}
 	for _, snapshot := range record.Snapshots {
 		parts = append(parts, snapshot.PathSHA256, snapshot.RootIdentity,
 			snapshot.DACLSDDL, fmt.Sprint(snapshot.DACLProtected),
 			snapshot.LabelSDDL, fmt.Sprint(snapshot.SACLProtected))
 	}
+	if record.ProtocolVersion == localOwnerProtocolVersion && record.Scratch != nil {
+		parts = append(parts, record.Scratch.PathSHA256, record.Scratch.RootIdentity)
+	}
 	return localFingerprint(parts...)
 }
 
 func (b *windowsLocalBackend) writeOwnerLocked(record localOwnerRecord) error {
-	if b.lock == 0 || b.ownerRoot == "" || record.validate() != nil {
+	if b.lock == 0 || b.ownerRoot == "" || record.ProtocolVersion != localOwnerProtocolVersion || record.validate() != nil {
 		return ErrLocalSandboxBoundary
 	}
 	payload, err := json.Marshal(record)
@@ -868,6 +936,10 @@ func (b *windowsLocalBackend) recoverOwnersLocked() error {
 		if name == localOwnerLockName {
 			continue
 		}
+		if entry.Type()&os.ModeSymlink == 0 && entry.IsDir() && strings.HasPrefix(name, localScratchPrefix) {
+			recoveryErr = errors.Join(recoveryErr, b.recoverEmptyScratch(name))
+			continue
+		}
 		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
 			recoveryErr = errors.Join(recoveryErr, ErrLocalSandboxBoundary)
 			continue
@@ -896,17 +968,7 @@ func (b *windowsLocalBackend) recoverOwnersLocked() error {
 			recoveryErr = errors.Join(recoveryErr, decodeErr, ErrLocalSandboxBoundary)
 			continue
 		}
-		var ownerErr error
-		for index := len(record.Snapshots) - 1; index >= 0; index-- {
-			ownerErr = errors.Join(ownerErr, restoreLocalSecurity(record.Snapshots[index]))
-		}
-		ownerErr = errors.Join(ownerErr, removeLocalAppContainerDirectory(
-			record.Snapshots[0].Path, record.ProfileName))
-		ownerErr = errors.Join(ownerErr, deleteLocalProfile(record.ProfileName))
-		if ownerErr == nil {
-			ownerErr = os.Remove(pathValue)
-		}
-		recoveryErr = errors.Join(recoveryErr, ownerErr)
+		recoveryErr = errors.Join(recoveryErr, b.cleanupOwnerLocked(record))
 	}
 	return recoveryErr
 }

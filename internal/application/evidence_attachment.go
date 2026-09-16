@@ -55,6 +55,27 @@ func NewEvidenceAttachmentService(store EvidenceAttachmentStore) *EvidenceAttach
 func (s *EvidenceAttachmentService) Attach(ctx context.Context,
 	request AttachEvidenceRequest,
 ) (AttachEvidenceResult, error) {
+	prepared, err := s.prepare(ctx, request, false)
+	if err != nil || prepared.Replayed {
+		return prepared, err
+	}
+	stored, message, replayed, err := s.store.AttachEvidence(ctx, prepared.Attachment, prepared.Message)
+	return AttachEvidenceResult{Attachment: stored, Message: message, Replayed: replayed}, apperror.Normalize(err)
+}
+
+// PrepareForThread reads and validates evidence without exposing it to the
+// Session. A created Run is allowed here; the owning turn starts it only after
+// every reference has passed validation and commits evidence with its message.
+func (s *EvidenceAttachmentService) PrepareForThread(ctx context.Context,
+	request AttachEvidenceRequest,
+) (session.PreparedEvidenceAttachment, error) {
+	prepared, err := s.prepare(ctx, request, true)
+	return session.PreparedEvidenceAttachment{Attachment: prepared.Attachment, Message: prepared.Message}, err
+}
+
+func (s *EvidenceAttachmentService) prepare(ctx context.Context,
+	request AttachEvidenceRequest, allowCreated bool,
+) (AttachEvidenceResult, error) {
 	if s == nil || s.store == nil || s.now == nil {
 		return AttachEvidenceResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"evidence attachment store is required")
@@ -94,7 +115,7 @@ func (s *EvidenceAttachmentService) Attach(ctx context.Context,
 			Replayed: true}, nil
 	}
 
-	run, mission, linkedSession, registered, err := s.loadEvidenceBinding(ctx, request.RunID)
+	run, mission, linkedSession, registered, err := s.loadEvidenceBinding(ctx, request.RunID, allowCreated)
 	if err != nil {
 		return AttachEvidenceResult{}, err
 	}
@@ -129,17 +150,11 @@ func (s *EvidenceAttachmentService) Attach(ctx context.Context,
 		ContentSHA256: request.ContentSHA256, AttachedBy: request.AttachedBy,
 		CreatedAt: now,
 	}
-	stored, storedMessage, replayed, err := s.store.AttachEvidence(ctx, attachment,
-		evidenceMessage)
-	if err != nil {
-		return AttachEvidenceResult{}, apperror.Normalize(err)
-	}
-	return AttachEvidenceResult{Attachment: stored, Message: storedMessage,
-		Replayed: replayed}, nil
+	return AttachEvidenceResult{Attachment: attachment, Message: evidenceMessage}, nil
 }
 
 func (s *EvidenceAttachmentService) loadEvidenceBinding(ctx context.Context,
-	runID string,
+	runID string, allowCreated bool,
 ) (domain.Run, domain.Mission, session.Session, session.WorkspaceInfo, error) {
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
@@ -147,7 +162,8 @@ func (s *EvidenceAttachmentService) loadEvidenceBinding(ctx context.Context,
 			apperror.Normalize(err)
 	}
 	if run.ID != runID || run.SessionID == "" ||
-		(run.Status != domain.RunRunning && run.Status != domain.RunPaused) {
+		(run.Status != domain.RunRunning && run.Status != domain.RunPaused &&
+			!(allowCreated && run.Status == domain.RunCreated)) {
 		return domain.Run{}, domain.Mission{}, session.Session{}, session.WorkspaceInfo{},
 			apperror.New(apperror.CodeFailedPrecondition,
 				"evidence attachment requires a running or paused Run")

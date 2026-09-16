@@ -1028,6 +1028,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/approvals/{approval_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the exact approval-bound proposal
+         * @description Returns a bounded, redacted read-only projection of the exact proposal bound to this Run and approval. Dry-run, Git authorization, file review and public HTTPS effects are distinguished; no decision or execution is performed. Stale bindings are refused and truncated previews cannot be approved in the UI.
+         */
+        get: operations["getApprovalPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/artifacts": {
         parameters: {
             query?: never;
@@ -1386,6 +1406,26 @@ export interface paths {
          * @description Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.
          */
         post: operations["reviewControlledCommandProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/context-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read saved context summaries for one execution
+         * @description Returns the exact Run, Thread and Session binding, latest persisted compaction and inherited context. Saved content is not a claim about the current model window. Redaction and truncation are explicit; this read never changes summaries or starts execution.
+         */
+        get: operations["getRunContextSummary"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1836,6 +1876,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/file-edits/{source_edit_id}/revert-proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose reverting one applied file edit
+         * @description Derives a new pending FileEdit from one exact applied replacement, creation, or deletion. Requires the file-review capability, a running Run and active Session for a new proposal, complete unredacted source content, and an unchanged target file. The source approval must belong to this Run. No path or content is accepted from the client. The key is scoped to Run and source Edit; retries preserve the existing proposal and its decision even after the Run ends. No Workspace file is written, approval granted, or execution permission expanded. Move operations are unsupported.
+         */
+        post: operations["createFileEditRevertProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/full-cdp-session": {
         parameters: {
             query?: never;
@@ -1874,6 +1934,66 @@ export interface paths {
          * @description Closes the CDP transport, terminates and reaps the complete browser process tree, releases and deletes only the exact owned disposable Profile, then records a redacted terminal audit event. Closing is a cleanup operation and does not require a high-risk confirmation or still-live Full CDP permission.
          */
         post: operations["closeRunFullCDPSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/full-cdp-session/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh the current browser preview
+         * @description Observes the exact operator-opened session through the existing live CDP permission and runtime fence. Keeps only its latest bounded PNG in memory; this is not a durable test receipt. Page text and screenshot are sequential observations of the same URL.
+         */
+        post: operations["captureRunFullCDPPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/full-cdp-session/preview-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Interact with an observed preview element
+         * @description Consumes one exact latest preview snapshot and invokes the existing browser click/type action for an observed enabled selector. Requires live session authority and runtime selector provenance. No JavaScript or coordinate action. On unknown response, refresh the observation instead of retrying the action.
+         */
+        post: operations["actRunFullCDPPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/full-cdp-session/preview-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the exact current preview PNG
+         * @description Returns authenticated image/png with exact SHA256 ETag and X-Cyberagent-Content-SHA256. Never captures again. Revalidates the current session and live permission; closed, revoked, or replaced references fail instead of returning another image.
+         */
+        get: operations["readRunFullCDPPreviewImage"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2211,7 +2331,7 @@ export interface paths {
         put?: never;
         /**
          * Select one Plan direction
-         * @description Selects exactly one of a persisted proposal's three directions and atomically creates its bounded WorkItems and handoff Note. It does not change phase, start execution, call a model, or grant capability.
+         * @description Selects one actual direction from a persisted proposal of one to three directions and atomically records the operator's manual_acceptance choice with its bounded WorkItems and handoff Note. Omitted manual_acceptance retains required checkpoints; on_demand makes manual records optional without changing execution or real verification gates. Exact original-key replay remains available after phase changes. It does not change phase, start execution, call a model, or grant capability.
          */
         post: operations["selectPlanDirection"];
         delete?: never;
@@ -2234,6 +2354,66 @@ export interface paths {
          * @description Explicitly transitions a created or paused Run from Deliver to a new Plan revision. It does not resume the Run, start execution, call a model, reuse a prior Plan selection, or grant capability.
          */
         post: operations["enterPlanMode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/plan/work-items/{work_item_id}/checkpoint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a manual Delivery checkpoint
+         * @description Records bounded operator evidence for the exact selected in-progress WorkItem/version in a paused Deliver Run. Final modules require functional verification and robustness audit; non-final modules cannot submit those fields. Evidence remains operator attestation, not verified test success. Exact retries return the immutable checkpoint and current WorkItem without requiring the Run to remain writable.
+         */
+        post: operations["recordPlanDeliveryCheckpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/plan/work-items/{work_item_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a checked Plan work item
+         * @description Completes an in-progress selected WorkItem only when an exact current Delivery checkpoint satisfies the existing completion gate in a paused Deliver Run. Does not complete the Run, mark a Standard Code report passed, run a model, or grant capability. Exact retries identify the original applied transition separately from current WorkItem state.
+         */
+        post: operations["completePlanDeliveryWorkItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/plan/work-items/{work_item_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a selected Plan work item
+         * @description Moves a pending selected WorkItem to in-progress only while its Run is paused in Deliver with completed dependencies and no active execution lease. The shared Run retry key binds the exact item, action and expected version. No execution or capability is started.
+         */
+        post: operations["startPlanDeliveryWorkItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3204,6 +3384,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/creation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe an original Thread creation request
+         * @description Pure read using the original Idempotency-Key and workspace identity. Does not create, replay, admit models, or execute. not_received means absent at this read; an in-flight original request may still arrive. completed confirms only the creation transaction, including after its Run has changed state.
+         */
+        get: operations["inspectThreadCreationRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}": {
         parameters: {
             query?: never;
@@ -3304,6 +3504,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read current Thread execution ownership
+         * @description Reports the active request owned by this service, its stopping state and durable queued input count. Idle does not assert that a different process is idle. This identity is not an execution lease or a capability and is never restored after restart.
+         */
+        get: operations["getThreadExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/execution-permission": {
         parameters: {
             query?: never;
@@ -3342,6 +3562,94 @@ export interface paths {
         get: operations["exportThread"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect current task Git target */
+        get: operations["getThreadGit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/git/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute the explicitly confirmed Git preview once */
+        post: operations["executeThreadGit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/git/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview an exact selected-file Git operation */
+        post: operations["previewThreadGit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/git/requests/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Observe the original Git intent without retrying a write */
+        get: operations["observeThreadGit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/interrupt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop the exact current Thread execution
+         * @description Cancels only the matching live execution context. Stopping remains visible until owned work and pending-message cleanup return. A stale identity cannot stop a later execution. Repeated requests are harmless; no running process authority is restored from persisted history.
+         */
+        post: operations["interruptThreadExecution"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3396,6 +3704,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe the original Thread Plan operation
+         * @description Pure read of the original selection, mode transition and Thread turn ledgers. Requires the original key and run/action binding. Does not replay, enqueue or execute; prepared means saved planning steps with no confirmed execution message.
+         */
+        get: operations["inspectThreadPlanRequest"];
+        put?: never;
+        /**
+         * Plan or confirm and execute in the same Thread
+         * @description Reuses Plan selection, mode transition and Thread turn services. Confirmation binds the current proposal, direction, acceptance and visible operator message. A stale plan is rejected; retry preserves the original key. Plan confirmation never grants tool or filesystem authority.
+         */
+        post: operations["controlThreadPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Discover remote PRs for the actual task branch */
+        get: operations["discoverThreadPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the approved draft PR at most once */
+        post: operations["createThreadPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save a connection credential in the system store */
+        post: operations["setThreadPullRequestCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare an exact draft PR and one-time approval */
+        post: operations["previewThreadPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fetch remote CI and comments and recheck PR head */
+        post: operations["refreshThreadPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/pull-request/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Observe original draft PR intent without repeating creation */
+        get: operations["observeThreadPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/recovery": {
         parameters: {
             query?: never;
@@ -3430,6 +3864,26 @@ export interface paths {
          * @description Restores the same Thread identity and its Sessions; it does not create a new Run unless later composer input requires a successor.
          */
         post: operations["restoreThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Review recorded task changes and current workspace revision
+         * @description Aggregates bounded existing records across successor Runs and observes the actual current target without granting authority or attributing arbitrary workspace changes to the task. Revision freshness, missing bindings and omissions remain explicit.
+         */
+        get: operations["getThreadReview"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3496,6 +3950,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/turn-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe an original Thread turn request
+         * @description Pure read of the original Thread-scoped intent, message and exact durable completion or failure. Never reserves, enqueues, seals failures, grants authority or resumes execution. received includes reserved or unsettled work; committed input alone is not success. A not_received snapshot is not a guarantee against later arrival.
+         */
+        get: operations["inspectThreadTurnRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/turns": {
         parameters: {
             query?: never;
@@ -3507,7 +3981,7 @@ export interface paths {
         put?: never;
         /**
          * Execute a Thread turn
-         * @description Submits one operator message and owns the associated Run start or resume plus bounded Supervisor execution until finish, wait, approval, concurrent steering, or an internal safety boundary. The client does not select a Run or provide a step limit. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.
+         * @description Submits operator text and/or up to four immutable workspace image references, plus up to four optional workspace_file references. Text may be empty when images or uploaded file attachments are present. Up to four immutable uploaded file references are accepted; binary attachments are stored_only, bounded text remains nonauthorizing evidence. The Thread idempotency key permanently binds content and ordered file/image/attachment identities. Image bytes are validated within the Thread workspace and sent natively only to a declared vision-capable route; images confer no authority. File snapshots require an idle task without queued messages or approval. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.
          */
         post: operations["executeThreadTurn"];
         delete?: never;
@@ -3616,6 +4090,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register an existing server-side directory
+         * @description Requires an explicit startup capability and the distinct control token. Accepts a confirmed absolute directory on the server computer, resolves its canonical root and returns bounded workspace metadata. Repeating the same canonical directory returns the same durable workspace. Registration never overwrites another workspace root, modifies directory contents or grants Agent authority. No directory enumeration or browser-file upload is performed; the native Desktop picker remains a separate pathless entry point.
+         */
+        post: operations["importWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/explore": {
         parameters: {
             query?: never;
@@ -3628,6 +4122,140 @@ export interface paths {
          * @description Lists one directory level or returns a bounded redacted UTF-8 file preview. Go resolves the registered Workspace root, rejects traversal and symbolic links, omits internal staging files, and marks all content as non-authorizing evidence. Local root paths are never returned.
          */
         get: operations["exploreWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/file-attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save an immutable file attachment
+         * @description Save up to 5 MiB of original bytes without writing into the repository. The original upload key binds bytes and metadata. Bounded UTF-8 text is redacted; binary files are explicitly stored_only, not parsed. Import grants no execution authority.
+         */
+        post: operations["uploadWorkspaceFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/file-attachments/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe an original file upload without retrying
+         * @description GET with the original Idempotency-Key only reads stored receipts. not_received does not rule out a request still arriving. No reservation, clipboard read, upload or model call.
+         */
+        get: operations["inspectWorkspaceFileUpload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/file-attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an exact file attachment receipt */
+        get: operations["readWorkspaceFileAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/file-attachments/{attachment_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download original authenticated file bytes
+         * @description Exact original bytes with application/octet-stream attachment disposition, Content-Length, SHA256 ETag, X-Cyberagent-Content-SHA256, nosniff and no-store. Workspace identity and read bearer are required.
+         */
+        get: operations["readWorkspaceFileAttachmentContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/image-attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save an immutable workspace image
+         * @description Validates original PNG/JPEG/WebP bytes and binds the upload key to exact bytes and display metadata. At most 5 MiB, 8192 pixels per side and 16 Mi pixels. No filesystem path, URL retrieval or execution authority.
+         */
+        post: operations["uploadWorkspaceImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/image-attachments/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an exact workspace image receipt */
+        get: operations["readWorkspaceImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/image-attachments/{image_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read original authenticated image bytes
+         * @description Returns exact original bytes with stored MIME type, Content-Length, SHA256 ETag and X-Cyberagent-Content-SHA256. Read bearer required; no-store and nosniff. The image must belong to the exact workspace.
+         */
+        get: operations["readWorkspaceImageContent"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3803,6 +4431,23 @@ export interface components {
         APIError: {
             code: string;
             message: string;
+            /**
+             * @description Only present as false after the identical Thread message intent is durably rejected before enqueue. A corrected submission must use a new turn idempotency key. Omission does not establish whether a message was accepted.
+             * @constant
+             */
+            message_queued?: false;
+            /**
+             * @description Only present as true when a pending Standard Code preset's immutable Thread preference binding is obsolete and the original operation key cannot apply. Explicitly review a new configuration attempt with a new key and fresh workspace trust preflight. Omission does not establish whether the operation succeeded.
+             * @constant
+             */
+            operation_key_invalidated?: true;
+            /**
+             * @description Only present as true after the exact product Thread turn is durably closed as failed. The original input and completed tool evidence remain in the conversation. A new request must use a new operation key; absence does not establish the previous outcome.
+             * @constant
+             */
+            turn_failed?: true;
+            /** @description Exact identity of an already sealed failure; present only with turn_failed=true. This reference grants no retry or execution authority. */
+            turn_failure?: components["schemas"]["ThreadTurnFailureReferenceView"];
         };
         ActiveCallInfo: {
             attempt_id: string;
@@ -3907,6 +4552,16 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        ApprovalContinuationResult: {
+            error_code?: string;
+            handoff_id?: string;
+            message?: string;
+            model_called: boolean;
+            replayed: boolean;
+            /** @enum {string} */
+            state: "not_started" | "queued" | "completed" | "failed";
+            tool_called: boolean;
+        };
         ApprovalDecisionControlRequestView: {
             /** @enum {string} */
             action: "approve_once" | "approve_for_thread" | "deny";
@@ -3935,6 +4590,26 @@ export interface components {
             /** @enum {string} */
             version: "approval_control.v1";
             workspace_write_applied: boolean;
+        };
+        ApprovalPreviewFieldView: {
+            name: string;
+            value: string;
+        };
+        ApprovalPreviewView: {
+            approval_id: string;
+            /** @enum {string} */
+            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "unavailable";
+            fields: components["schemas"]["ApprovalPreviewFieldView"][];
+            proposal_id: string;
+            /** @enum {string} */
+            protocol_version: "approval_queue.v1";
+            redacted: boolean;
+            run_id: string;
+            source_current: boolean;
+            tool_name: string;
+            truncated: boolean;
+            working_directory: string;
+            workspace_id: string;
         };
         ApprovalQueueItemView: {
             action_class: string;
@@ -4010,6 +4685,7 @@ export interface components {
             selectable: boolean;
             /** @enum {string} */
             unavailable_reason: "" | "provider_disabled" | "credential_not_configured" | "invalid_configuration" | "provider_unavailable" | "harness_qualification_required" | "not_configured" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
+            vision_capability?: components["schemas"]["VisionCapability"];
         };
         BatchDeliveriesListView: {
             items: components["schemas"]["BatchDeliveryPlanView"][];
@@ -4549,6 +5225,44 @@ export interface components {
             /** Format: int64 */
             source_event_sequence: number;
         };
+        CodeHandoffHostCommand: {
+            content_sha256?: string;
+            /** Format: date-time */
+            created_at: string;
+            proposal_id: string;
+            purpose: string;
+            receipt?: components["schemas"]["CodeHandoffHostCommandReceipt"];
+            result_id?: string;
+            result_status?: string;
+            review_decision?: string;
+            review_id?: string;
+            run_id: string;
+            session_id: string;
+            source_ref?: string;
+            spec_fingerprint: string;
+            working_directory: string;
+            workspace_id: string;
+        };
+        CodeHandoffHostCommandReceipt: {
+            cancelled: boolean;
+            /** Format: date-time */
+            completed_at: string;
+            /** Format: int32 */
+            exit_code: number;
+            non_sandboxed: boolean;
+            output_limit_exceeded: boolean;
+            request_id: string;
+            /** Format: date-time */
+            started_at: string;
+            stderr_truncated: boolean;
+            stdout_truncated: boolean;
+            timed_out: boolean;
+            tree_reaped: boolean;
+        };
+        CodeHandoffHostCommands: {
+            items: components["schemas"]["CodeHandoffHostCommand"][];
+            truncated: boolean;
+        };
         CodeHandoffPlanView: {
             /** Format: int32 */
             blocked_count: number;
@@ -4560,6 +5274,8 @@ export interface components {
             direction_count: number;
             /** Format: int32 */
             in_progress_count: number;
+            /** @enum {string} */
+            manual_acceptance?: "required" | "on_demand";
             /** Format: int32 */
             module_count: number;
             /** Format: int32 */
@@ -4711,6 +5427,7 @@ export interface components {
             execution_started: boolean;
             /** Format: date-time */
             generated_at: string;
+            host_commands?: components["schemas"]["CodeHandoffHostCommands"];
             mission_id: string;
             /** Format: int64 */
             mode_revision: number;
@@ -5678,6 +6395,18 @@ export interface components {
             total_bytes: number;
             workspace_id: string;
         };
+        FileAttachmentObservation: {
+            attachment?: components["schemas"]["WorkspaceFileAttachment"];
+            /** @enum {string} */
+            state: "not_received" | "stored";
+        };
+        FileAttachmentReference: {
+            /** Format: int32 */
+            byte_size: number;
+            id: string;
+            sha256: string;
+            workspace_id: string;
+        };
         FileEditApplyRequestView: {
             /** @enum {string} */
             version: "file_edit_apply.v1";
@@ -5819,6 +6548,19 @@ export interface components {
             run_id: string;
             truncated: boolean;
         };
+        FileEditRevertProposalRequestView: {
+            /** @enum {string} */
+            version: "file_edit_proposal.v1";
+        };
+        FileEditRevertProposalView: {
+            edit: components["schemas"]["FileEditPreviewView"];
+            file_written: boolean;
+            /** @enum {string} */
+            protocol_version: "file_edit_proposal.v1";
+            replayed: boolean;
+            run_id: string;
+            source_edit_id: string;
+        };
         FileEditReviewRequestView: {
             /** @enum {string} */
             action: "approve_intent" | "deny";
@@ -5828,6 +6570,7 @@ export interface components {
         FileEditReviewView: {
             /** @enum {string} */
             action: "approve_intent" | "deny";
+            continuation?: components["schemas"]["ApprovalContinuationResult"];
             edit: components["schemas"]["FileEditPreviewView"];
             file_written: boolean;
             /** @enum {string} */
@@ -5934,6 +6677,61 @@ export interface components {
             channel: "stable" | "beta" | "dev" | "canary";
             /** @enum {string} */
             product: "chrome" | "edge";
+        };
+        FullCDPPageElement: {
+            disabled: boolean;
+            name?: string;
+            role?: string;
+            selector: string;
+            tag: string;
+            type?: string;
+        };
+        FullCDPPreviewActionRequestView: {
+            /** @enum {string} */
+            action: "click" | "type";
+            expected_session_id: string;
+            expected_snapshot_id: string;
+            selector: string;
+            value?: string;
+            /** @enum {string} */
+            version: "full_cdp_preview_action.v1";
+        };
+        FullCDPPreviewImage: {
+            /** Format: int32 */
+            bytes: number;
+            /** Format: int32 */
+            height: number;
+            /** @enum {string} */
+            media_type: "image/png";
+            sha256: string;
+            /** Format: int32 */
+            width: number;
+        };
+        FullCDPPreviewPage: {
+            /** Format: int32 */
+            accessibility_nodes: number;
+            elements: components["schemas"]["FullCDPPageElement"][];
+            snapshot_id: string;
+            text: string;
+            title: string;
+            truncated: boolean;
+            untrusted_evidence: boolean;
+        };
+        FullCDPPreviewRequestView: {
+            expected_session_id: string;
+            /** @enum {string} */
+            version: "full_cdp_preview.v1";
+        };
+        FullCDPPreviewView: {
+            canonical_url: string;
+            /** Format: date-time */
+            captured_at: string;
+            image: components["schemas"]["FullCDPPreviewImage"];
+            page: components["schemas"]["FullCDPPreviewPage"];
+            run_id: string;
+            session_id: string;
+            /** @enum {string} */
+            version: "full_cdp_preview.v1";
         };
         FullCDPSessionCloseRequestView: {
             expected_session_id: string;
@@ -6297,6 +7095,10 @@ export interface components {
             subject: string;
             untracked_commit?: string;
         };
+        GitCommitAuthor: {
+            email: string;
+            name: string;
+        };
         GitHubReviewArtifactMetadata: {
             /** Format: date-time */
             created_at?: string;
@@ -6585,6 +7387,35 @@ export interface components {
             standard_code_delivery?: components["schemas"]["StandardCodeDeliveryReport"];
             writes: components["schemas"]["GitHubReviewWriteRecord"][];
         };
+        GitHubReviewPullRequest: {
+            base_branch: string;
+            base_sha: string;
+            draft: boolean;
+            head_branch: string;
+            head_repository: string;
+            head_sha: string;
+            merged: boolean;
+            node_id: string;
+            /** Format: int64 */
+            number: number;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            state: string;
+            title: components["schemas"]["GitHubReviewTextEvidence"];
+            /** Format: date-time */
+            updated_at: string;
+            url: string;
+        };
+        GitHubReviewPullRequestDraft: {
+            base_branch: string;
+            base_sha: string;
+            body: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            head_branch: string;
+            head_sha: string;
+            marker: string;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            title: string;
+        };
         GitHubReviewPullRequestIdentity: {
             base_ref: string;
             base_sha: string;
@@ -6844,6 +7675,8 @@ export interface components {
             /** @enum {string} */
             api_version: "api.v1";
             app_version: string;
+            /** @description Optional non-secret namespace for recovering local UI drafts and original request identities. Stable across restarts at the same data store path; different data stores or copied paths are isolated. Absence means durable recovery is unavailable. Never an authorization grant. */
+            data_store_id?: string;
             /** Format: int32 */
             schema_version: number;
             /** @enum {string} */
@@ -6933,6 +7766,7 @@ export interface components {
             automatic_retry_allowed: boolean;
             capability_generation?: string;
             capability_grant: boolean;
+            continuation?: components["schemas"]["ApprovalContinuationResult"];
             created_at: string;
             credential_kinds?: string[];
             environment_keys: string[];
@@ -6997,6 +7831,8 @@ export interface components {
             review_replayed?: boolean;
             risk_kinds?: ("network" | "credential" | "host_path" | "policy_denial" | "non_whitelisted_tool" | "other_high_risk")[];
             run_id: string;
+            /** @description Bound, saved and redacted stdout/stderr from newer Host results. Omitted for legacy results and metadata-only responses. Never reconstruct missing streams by parsing the untrusted evidence wrapper. */
+            saved_output?: components["schemas"]["HostCommandSavedOutputView"];
             scope_fingerprint?: string;
             session_id: string;
             spec_fingerprint: string;
@@ -7014,9 +7850,28 @@ export interface components {
             workspace_id: string;
             workspace_root_fingerprint?: string;
         };
+        HostCommandSavedOutputView: {
+            request_id: string;
+            result_id: string;
+            stderr: components["schemas"]["HostCommandSavedStreamView"];
+            stdout: components["schemas"]["HostCommandSavedStreamView"];
+        };
+        HostCommandSavedStreamView: {
+            /** @constant */
+            redacted: true;
+            /** @description Saved redacted UTF-8 text. Both streams share a 16 KiB byte budget; utf8_bytes describes saved text, not the raw captured receipt byte count. */
+            text: string;
+            truncated: boolean;
+            /** Format: int32 */
+            utf8_bytes: number;
+        };
         IgnoredInstruction: {
             path: string;
             reason: string;
+        };
+        ImageReference: {
+            id: string;
+            sha256: string;
         };
         IndexView: {
             /** @enum {string} */
@@ -7155,7 +8010,7 @@ export interface components {
             role: "user" | "assistant" | "system" | "tool";
             session_id: string;
             /** @enum {string} */
-            source_kind: "operator_message" | "model_response" | "go_control" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
+            source_kind: "operator_message" | "model_response" | "go_control" | "workspace_image" | "uploaded_file" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
             source_ref?: string;
             /** Format: int32 */
             token_estimate: number;
@@ -7406,6 +8261,41 @@ export interface components {
             next_cursor?: string;
             truncated?: boolean;
         };
+        PlanCompletionSourceView: {
+            checkpoint_id: string;
+            /** Format: date-time */
+            completed_at: string;
+            completion_event_id?: string;
+            handoff_note_id: string;
+            source_run_id: string;
+            source_work_item_id: string;
+            work_item_id: string;
+        };
+        PlanDeliveryCheckpointControlRequestView: {
+            diff_audit: string;
+            /** Format: int64 */
+            expected_work_item_version: number;
+            focused_verification: string;
+            functional_verification?: string;
+            handoff_summary: string;
+            robustness_audit?: string;
+            security_audit: string;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
+        PlanDeliveryCheckpointControlView: {
+            capability_grant: boolean;
+            checkpoint: components["schemas"]["DeliveryCheckpointView"];
+            current_work_item: components["schemas"]["WorkItemView"];
+            execution_started: boolean;
+            model_called: boolean;
+            note: components["schemas"]["NoteView"];
+            replayed: boolean;
+            run_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
         PlanDeliveryDirectionView: {
             modules: components["schemas"]["PlanDeliveryModuleView"][];
             /** Format: int32 */
@@ -7450,6 +8340,8 @@ export interface components {
             direction_ordinal: number;
             id: string;
             items: components["schemas"]["PlanDeliverySelectionItemView"][];
+            /** @enum {string} */
+            manual_acceptance: "required" | "on_demand";
             note_id: string;
             proposal_id: string;
             /** Format: int64 */
@@ -7458,6 +8350,7 @@ export interface components {
         PlanDeliveryStateView: {
             capability_grant: boolean;
             checkpoints: components["schemas"]["DeliveryCheckpointView"][];
+            continued_completions?: components["schemas"]["PlanCompletionSourceView"][];
             delivery_gate_enforced: boolean;
             operator_choice_needed: boolean;
             phase_change_needed: boolean;
@@ -7485,9 +8378,33 @@ export interface components {
             /** @enum {string} */
             version: "plan_delivery_control.v1";
         };
+        PlanDeliveryWorkItemControlRequestView: {
+            /** Format: int64 */
+            expected_work_item_version: number;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
+        PlanDeliveryWorkItemControlView: {
+            /** @enum {string} */
+            applied_status: "in_progress" | "completed";
+            /** Format: int64 */
+            applied_version: number;
+            capability_grant: boolean;
+            current_work_item: components["schemas"]["WorkItemView"];
+            execution_started: boolean;
+            model_called: boolean;
+            replayed: boolean;
+            run_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+            work_item_id: string;
+        };
         PlanDirectionControlRequestView: {
             /** Format: int32 */
             direction: number;
+            /** @enum {string} */
+            manual_acceptance?: "required" | "on_demand";
             proposal_id: string;
             /** @enum {string} */
             version: "plan_delivery_control.v1";
@@ -7497,6 +8414,8 @@ export interface components {
             /** Format: int32 */
             direction: number;
             execution_started: boolean;
+            /** @enum {string} */
+            manual_acceptance: "required" | "on_demand";
             model_called: boolean;
             note_id: string;
             phase_changed: boolean;
@@ -7633,7 +8552,7 @@ export interface components {
             native_web_search_runtime_enabled: boolean;
             network_required: boolean;
             /** @enum {string} */
-            search_mode: "disabled" | "auto" | "searxng" | "provider_native";
+            search_mode: "disabled" | "auto" | "web" | "searxng" | "provider_native";
             /** @enum {string} */
             status: "available" | "not_configured" | "invalid_configuration";
             /** @enum {string} */
@@ -7679,7 +8598,7 @@ export interface components {
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
-            search_mode: "disabled" | "auto" | "searxng" | "provider_native";
+            search_mode: "disabled" | "auto" | "web" | "searxng" | "provider_native";
             /** @enum {string} */
             transport: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
             /** @enum {string} */
@@ -7764,7 +8683,7 @@ export interface components {
             run_id?: string;
             runtime_ready: boolean;
             /** @enum {string} */
-            search_policy?: "disabled" | "auto" | "searxng" | "provider_native";
+            search_policy?: "disabled" | "auto" | "web" | "searxng" | "provider_native";
             /** @enum {string} */
             state: "network_disabled" | "missing_allowlist" | "provider_unqualified" | "provider_unavailable" | "ready";
             thread_id?: string;
@@ -7834,6 +8753,11 @@ export interface components {
             target_arch: string;
             target_os: string;
             trimpath: boolean;
+        };
+        RepositoryChange: {
+            path: string;
+            staging: string;
+            worktree: string;
         };
         RepositoryChangeView: {
             path: string;
@@ -8261,6 +9185,15 @@ export interface components {
             project_config_fingerprint?: string;
             project_instructions_fingerprint?: string;
         };
+        RunContextSummaryView: {
+            capability_grant: boolean;
+            current_summary?: components["schemas"]["RunStoredContextSummaryView"];
+            inherited_context?: components["schemas"]["RunInheritedContextView"];
+            run_id: string;
+            session_id: string;
+            thread_id: string;
+            workspace_id: string;
+        };
         RunCreationControlRequestView: {
             allowed_targets?: string[];
             goal: string;
@@ -8503,6 +9436,20 @@ export interface components {
             /** @enum {string} */
             risk_tier: "minimal" | "elevated" | "high";
         };
+        RunInheritedContextView: {
+            content_redacted: boolean;
+            content_truncated: boolean;
+            fingerprint: string;
+            memories: components["schemas"]["ContinuityMemoryReference"][];
+            /** Format: int32 */
+            recent_message_count: number;
+            source_run_id: string;
+            source_session_id: string;
+            summary_content: string;
+            summary_content_sha256: string;
+            /** Format: int64 */
+            summary_id: number;
+        };
         RunInstructionSnapshot: {
             confirmed_by: string;
             /** Format: date-time */
@@ -8586,6 +9533,25 @@ export interface components {
             updated_at: string;
             workspace_id: string;
         };
+        RunStoredContextSummaryView: {
+            /** Format: int32 */
+            compacted_message_count: number;
+            content: string;
+            content_redacted: boolean;
+            content_sha256: string;
+            content_truncated: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: int32 */
+            preserved_message_count: number;
+            /** Format: int64 */
+            previous_summary_id: number;
+            protocol_version: string;
+            /** Format: int32 */
+            source_message_count: number;
+        };
         RunView: {
             budget: components["schemas"]["BudgetView"];
             config: components["schemas"]["RunConfigView"];
@@ -8596,6 +9562,7 @@ export interface components {
             id: string;
             mission_id: string;
             session_id?: string;
+            standard_code_preset_configured?: boolean;
             /** Format: date-time */
             started_at?: string;
             /** @enum {string} */
@@ -8759,10 +9726,12 @@ export interface components {
             skill_installation_enabled: boolean;
             standard_code_preset_enabled: boolean;
             thread_control_enabled: boolean;
+            thread_execution_read_enabled?: boolean;
             ui_evidence_control_enabled: boolean;
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
             workspace_checkpoint_control_enabled: boolean;
+            workspace_import_enabled: boolean;
             workspace_sandbox_enabled: boolean;
         };
         ScheduledJob: {
@@ -9262,13 +10231,23 @@ export interface components {
             reason_code?: string;
             revision_sha256?: string;
         };
+        StandardCodeDeliveryOutputSourceView: {
+            activity_ref?: string;
+            artifact_id: string;
+            job_id: string;
+            /** @enum {string} */
+            reason?: "activity_source_unavailable" | "output_not_public" | "artifact_binding_mismatch";
+            /** @enum {string} */
+            status: "available" | "metadata_only";
+            thread_id?: string;
+        };
         StandardCodeDeliveryReason: {
             code: string;
             provenance_sha256: string;
         };
-        StandardCodeDeliveryRecordResult: {
+        StandardCodeDeliveryRecordResultView: {
             replayed: boolean;
-            report: components["schemas"]["StandardCodeDeliveryReport"];
+            report: components["schemas"]["StandardCodeDeliveryReportView"];
         };
         StandardCodeDeliveryRecordView: {
             /** @enum {string} */
@@ -9293,6 +10272,37 @@ export interface components {
             links: components["schemas"]["StandardCodeDeliveryLinks"];
             observation?: components["schemas"]["StandardCodeDeliveryObservation"];
             operation_key_sha256: string;
+            /** @enum {string} */
+            protocol_version: "standard_code_delivery.v1";
+            reasons: components["schemas"]["StandardCodeDeliveryReason"][];
+            receipt_sha256: string;
+            /** @enum {string} */
+            receipt_status: "passed" | "failed" | "partial" | "not_run" | "blocked" | "stale";
+            request_fingerprint: string;
+            safeguards: components["schemas"]["StandardCodeDeliverySafeguards"];
+            /** @enum {string} */
+            status: "passed" | "failed" | "partial" | "not_run" | "blocked" | "stale";
+            uncovered_items: components["schemas"]["StandardCodeDeliveryUncoveredItem"][];
+            verifications: components["schemas"]["StandardCodeDeliveryVerification"][];
+            verified: boolean;
+        };
+        StandardCodeDeliveryReportView: {
+            base_commit: string;
+            binding: components["schemas"]["StandardCodeDeliveryBinding"];
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            declaration?: "no_applicable_tests" | "user_skipped" | "budget_exhausted" | "missing_dependency" | "approval_denied";
+            diff: components["schemas"]["StandardCodeDeliveryDiff"];
+            /** Format: int64 */
+            event_sequence: number;
+            final_checkpoint: components["schemas"]["StandardCodeDeliveryCheckpoint"];
+            head_commit: string;
+            id: string;
+            links: components["schemas"]["StandardCodeDeliveryLinks"];
+            observation?: components["schemas"]["StandardCodeDeliveryObservation"];
+            operation_key_sha256: string;
+            output_sources?: components["schemas"]["StandardCodeDeliveryOutputSourceView"][];
             /** @enum {string} */
             protocol_version: "standard_code_delivery.v1";
             reasons: components["schemas"]["StandardCodeDeliveryReason"][];
@@ -9822,6 +10832,18 @@ export interface components {
             runtime_gate_available: boolean;
             thread_id: string;
         };
+        ThreadExecutionState: {
+            capability_grant: boolean;
+            execution_id?: string;
+            last_turn_interrupted?: boolean;
+            /** Format: int32 */
+            queued_messages: number;
+            /** @enum {string} */
+            state: "idle" | "running" | "stopping" | "stop_failed";
+            thread_id: string;
+            /** @enum {string} */
+            version: "thread_execution.v1";
+        };
         ThreadExportView: {
             audit_events: components["schemas"]["ThreadRunAuditEventView"][];
             events: components["schemas"]["ThreadEventView"][];
@@ -9834,6 +10856,108 @@ export interface components {
             runs: components["schemas"]["ThreadRunView"][];
             sessions: components["schemas"]["SessionView"][];
             thread: components["schemas"]["ThreadView"];
+        };
+        ThreadGitContext: {
+            binding_fingerprint: string;
+            branch: string;
+            head_oid: string;
+            remotes: components["schemas"]["ThreadGitRemote"][];
+            repository_root: string;
+            run_id: string;
+            session_id: string;
+            source_workspace_id: string;
+            thread_id: string;
+            workspace_id: string;
+        };
+        ThreadGitExecuteRequest: {
+            expected_preview_fingerprint: string;
+            operation_key: string;
+            requested_by: string;
+            run_id: string;
+            spec: components["schemas"]["ThreadGitSpec"];
+            version: string;
+        };
+        ThreadGitPreview: {
+            binding_fingerprint: string;
+            blocked_reason?: string;
+            branch: string;
+            can_execute: boolean;
+            commit_author?: components["schemas"]["GitCommitAuthor"];
+            diff: string;
+            expected_remote_oid?: string;
+            head_oid: string;
+            preview_fingerprint: string;
+            remotes: components["schemas"]["ThreadGitRemote"][];
+            repository_root: string;
+            run_id: string;
+            session_id: string;
+            source_workspace_id: string;
+            spec: components["schemas"]["ThreadGitSpec"];
+            target_commit_oid?: string;
+            thread_id: string;
+            version: string;
+            workspace_id: string;
+        };
+        ThreadGitPreviewRequest: {
+            run_id: string;
+            spec: components["schemas"]["ThreadGitSpec"];
+            version: string;
+        };
+        ThreadGitRemote: {
+            blocked_reason?: string;
+            name: string;
+            url: string;
+        };
+        ThreadGitResult: {
+            branch?: string;
+            commit_oid?: string;
+            /** Format: date-time */
+            completed_at?: string;
+            observed: boolean;
+            operation_id?: string;
+            reason?: string;
+            receipt_saved: boolean;
+            remote_oid?: string;
+            replayed: boolean;
+            run_id: string;
+            spec?: components["schemas"]["ThreadGitSpec"];
+            state: string;
+            thread_id: string;
+            version: string;
+            workspace_id?: string;
+            worktree_path?: string;
+        };
+        ThreadGitSpec: {
+            branch?: string;
+            credential_name?: string;
+            message?: string;
+            operation: string;
+            paths?: string[];
+            remote_url?: string;
+            worktree_name?: string;
+        };
+        ThreadGitState: {
+            binding_fingerprint: string;
+            blocked_reason?: string;
+            branch: string;
+            branches: string[];
+            can_execute: boolean;
+            changes: components["schemas"]["RepositoryChange"][];
+            head_oid: string;
+            remotes: components["schemas"]["ThreadGitRemote"][];
+            repository_root: string;
+            run_id: string;
+            session_id: string;
+            source_workspace_id: string;
+            thread_id: string;
+            truncated: boolean;
+            version: string;
+            workspace_id: string;
+        };
+        ThreadInterruptRequestView: {
+            execution_id: string;
+            /** @enum {string} */
+            version: "thread_execution.v1";
         };
         ThreadLifecycleControlRequestView: {
             /** Format: int64 */
@@ -9882,7 +11006,7 @@ export interface components {
             run_id: string;
             session_id: string;
             /** @enum {string} */
-            source_kind: "operator_message" | "model_response" | "go_control" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
+            source_kind: "operator_message" | "model_response" | "go_control" | "workspace_image" | "uploaded_file" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
             source_ref?: string;
             /** @enum {string} */
             status: "pending" | "committed" | "cancelled";
@@ -9913,6 +11037,238 @@ export interface components {
             /** @enum {string} */
             source: "thread_preference" | "default" | "active_run";
             thread_id: string;
+            vision_capability?: components["schemas"]["VisionCapability"];
+        };
+        ThreadPlanControlRequestView: {
+            /** @enum {string} */
+            action: "enter_plan" | "enter_deliver" | "confirm";
+            content?: string;
+            /** Format: int32 */
+            direction?: number;
+            /** @enum {string} */
+            manual_acceptance?: "required" | "on_demand";
+            proposal_id?: string;
+            run_id: string;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
+        ThreadPlanControlView: {
+            /** @enum {string} */
+            action: "enter_plan" | "enter_deliver" | "confirm";
+            applied_mode?: components["schemas"]["RunModeView"];
+            capability_grant: boolean;
+            current_mode?: components["schemas"]["RunModeView"];
+            /** Format: int32 */
+            direction?: number;
+            execution_started: boolean;
+            /** @enum {string} */
+            manual_acceptance?: "required" | "on_demand";
+            model_called: boolean;
+            proposal_id?: string;
+            run_id: string;
+            selection_id?: string;
+            /** @enum {string} */
+            state: "not_received" | "prepared" | "received" | "completed" | "failed" | "rejected";
+            thread_id: string;
+            tool_called: boolean;
+            turn_request?: components["schemas"]["ThreadRequestObservationView"];
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
+        ThreadPullRequestCreateRequest: {
+            approval_id: string;
+            operation_id: string;
+            version: string;
+        };
+        ThreadPullRequestCredentialRequest: {
+            connection_id: string;
+            token: string;
+            version: string;
+        };
+        ThreadPullRequestDiscovery: {
+            base_branch: string;
+            base_sha: string;
+            /** Format: date-time */
+            checked_at: string;
+            connection_id: string;
+            context: components["schemas"]["ThreadGitContext"];
+            diagnostics: components["schemas"]["GitHubReviewDiagnostic"][];
+            head_published: boolean;
+            pull_requests: components["schemas"]["GitHubReviewPullRequest"][];
+            remote_head_sha?: string;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            version: string;
+            write_enabled: boolean;
+            write_permission_verified: boolean;
+        };
+        ThreadPullRequestPreview: {
+            approval_fingerprint: string;
+            binding_fingerprint: string;
+            /** Format: int64 */
+            connection_generation: number;
+            connection_id: string;
+            /** Format: date-time */
+            created_at: string;
+            draft: components["schemas"]["GitHubReviewPullRequestDraft"];
+            draft_only: boolean;
+            operation_id: string;
+            run_id: string;
+            session_id: string;
+            source_workspace_id: string;
+            thread_id: string;
+            version: string;
+            workspace_id: string;
+        };
+        ThreadPullRequestPreviewRequest: {
+            base_branch: string;
+            body: string;
+            connection_id: string;
+            expected_head_sha: string;
+            expected_run_id: string;
+            operation_key: string;
+            title: string;
+            version: string;
+        };
+        ThreadPullRequestPreviewResult: {
+            approval?: components["schemas"]["Record"];
+            existing_pull_requests: components["schemas"]["GitHubReviewPullRequest"][];
+            preview?: components["schemas"]["ThreadPullRequestPreview"];
+            replayed: boolean;
+            version: string;
+        };
+        ThreadPullRequestRefreshRequest: {
+            connection_id: string;
+            /** Format: int64 */
+            pull_request: number;
+            version: string;
+        };
+        ThreadPullRequestRefreshResult: {
+            evidence?: components["schemas"]["GitHubReviewEvidenceRecord"];
+            head_matches_local: boolean;
+            local_head_sha: string;
+            omissions: string[];
+            run_id: string;
+            snapshot: components["schemas"]["GitHubReviewSnapshot"];
+            stale: boolean;
+            thread_id: string;
+            version: string;
+        };
+        ThreadPullRequestResult: {
+            approval?: components["schemas"]["Record"];
+            /** Format: date-time */
+            checked_at: string;
+            error_code?: string;
+            error_message?: string;
+            head_matches_reviewed: boolean;
+            operation_id?: string;
+            preview?: components["schemas"]["ThreadPullRequestPreview"];
+            pull_request?: components["schemas"]["GitHubReviewPullRequest"];
+            receipt_saved: boolean;
+            replayed: boolean;
+            run_id?: string;
+            state: string;
+            thread_id: string;
+            version: string;
+        };
+        ThreadRequestObservationView: {
+            error_code?: string;
+            failure_stage?: string;
+            kind: string;
+            message_id?: string;
+            message_status?: string;
+            request_fingerprint?: string;
+            run_id?: string;
+            session_id?: string;
+            settled: boolean;
+            state: string;
+            thread_id?: string;
+            turn_failure?: components["schemas"]["ThreadTurnFailureReferenceView"];
+            workspace_id: string;
+        };
+        ThreadReview: {
+            applied_changes: components["schemas"]["ThreadReviewChange"][];
+            change_scope: string;
+            checks: components["schemas"]["ThreadReviewCheck"][];
+            current_run_id: string;
+            /** Format: date-time */
+            observed_at: string;
+            partial: boolean;
+            reasons: string[];
+            revision: components["schemas"]["ThreadReviewRevision"];
+            runs: components["schemas"]["ThreadReviewRun"][];
+            target: components["schemas"]["ThreadReviewTarget"];
+            thread_id: string;
+            /** Format: int64 */
+            thread_version: number;
+            /** Format: int32 */
+            total_runs: number;
+            unapplied_changes: components["schemas"]["ThreadReviewChange"][];
+        };
+        ThreadReviewChange: {
+            current_match: string;
+            current_sha256?: string;
+            destination_original_sha256?: string;
+            destination_path?: string;
+            destination_proposed_sha256?: string;
+            diff: string;
+            diff_truncated: boolean;
+            edit_id: string;
+            operation: string;
+            original_sha256: string;
+            path: string;
+            proposed_sha256: string;
+            redacted: boolean;
+            run_id: string;
+            session_id: string;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        ThreadReviewCheck: {
+            /** Format: int32 */
+            exit_code?: number;
+            handoff_url: string;
+            id: string;
+            outcome: string;
+            reason: string;
+            /** Format: date-time */
+            recorded_at: string;
+            recorded_revision_sha256?: string;
+            revision_state: string;
+            run_id: string;
+            source_kind: string;
+            title: string;
+        };
+        ThreadReviewRevision: {
+            branch?: string;
+            dirty?: boolean;
+            head?: string;
+            index_sha256?: string;
+            manifest_sha256?: string;
+            reasons: string[];
+            repository_kind: string;
+            revision_sha256?: string;
+            state: string;
+        };
+        ThreadReviewRun: {
+            handoff_url: string;
+            /** Format: int64 */
+            ordinal: number;
+            run_id: string;
+            session_id: string;
+            /** Format: int64 */
+            source_event_sequence: number;
+            workspace_id?: string;
+        };
+        ThreadReviewTarget: {
+            drydock_id?: string;
+            kind: string;
+            root_fingerprint?: string;
+            root_path?: string;
+            source_workspace_id: string;
+            state: string;
+            workspace_id?: string;
         };
         ThreadRunAuditEventView: {
             /** Format: date-time */
@@ -9967,6 +11323,7 @@ export interface components {
             activity_summary?: components["schemas"]["ThreadActivitySummaryView"];
             /** @enum {string} */
             activity_type: "message" | "search" | "read" | "edit" | "execute" | "verify" | "approval" | "checkpoint" | "delivery";
+            attachments?: components["schemas"]["WorkspaceFileAttachment"][];
             attempt_id?: string;
             boundary_reason?: string;
             canonical_id: string;
@@ -9977,6 +11334,7 @@ export interface components {
             durable: boolean;
             durable_call_id?: string;
             id: string;
+            images?: components["schemas"]["WorkspaceImage"][];
             instruction_authorized: boolean;
             /** @enum {string} */
             kind: "harness_status" | "model_update" | "operator_input" | "model_call" | "tool_call" | "approval" | "file_change" | "plan" | "dependency" | "browser";
@@ -10007,6 +11365,28 @@ export interface components {
             /** @enum {string} */
             version: "thread_transcript.v1";
             web_evidence?: components["schemas"]["ThreadWebEvidenceView"];
+        };
+        ThreadTurnControlRequestView: {
+            attachments?: components["schemas"]["FileAttachmentReference"][];
+            /** @description Trimmed UTF-8 operator text, at most 16 KiB. Empty only with one or more images or uploaded file attachments; no synthetic user text is inserted. */
+            content: string;
+            files?: components["schemas"]["WorkspaceFileReference"][];
+            images?: components["schemas"]["ImageReference"][];
+            /** @enum {string} */
+            version: "thread_message_submission.v1";
+        } & ({
+            content: string;
+        } | {
+            images: unknown[];
+        } | {
+            attachments: unknown[];
+        });
+        ThreadTurnFailureReferenceView: {
+            /** Format: int64 */
+            event_sequence: number;
+            message_id: string;
+            run_id: string;
+            thread_id: string;
         };
         ThreadView: {
             active_run_id?: string;
@@ -10888,6 +12268,12 @@ export interface components {
             unknown_count: number;
             workspace_id: string;
         };
+        VisionCapability: {
+            /** @enum {string} */
+            source: "operator_declared" | "provider_metadata" | "unknown" | "adapter_unsupported";
+            /** @enum {string} */
+            state: "supported" | "unsupported" | "unknown";
+        };
         WorkItemView: {
             acceptance_criteria: string[];
             blocked_reason?: string;
@@ -10956,6 +12342,80 @@ export interface components {
             total_bytes: number;
             truncated: boolean;
             workspace_id: string;
+        };
+        WorkspaceFileAttachment: {
+            /** Format: int32 */
+            byte_size: number;
+            id: string;
+            mime_type: string;
+            name: string;
+            /** @enum {string} */
+            readability: "text" | "partial_text" | "stored_only";
+            reason?: string;
+            redacted: boolean;
+            sha256: string;
+            /** Format: int32 */
+            text_bytes: number;
+            text_sha256?: string;
+            workspace_id: string;
+        };
+        WorkspaceFileAttachmentView: {
+            attachment: components["schemas"]["WorkspaceFileAttachment"];
+        };
+        WorkspaceFileReference: {
+            expected_sha256: string;
+            path: string;
+            /** @enum {string} */
+            source_kind: "workspace_file";
+        };
+        WorkspaceFileUploadRequestView: {
+            data_base64: string;
+            mime_type: string;
+            name: string;
+            /** @enum {string} */
+            version: "workspace_file_upload.v1";
+        };
+        WorkspaceImage: {
+            /** Format: int32 */
+            byte_size: number;
+            /** Format: int32 */
+            height: number;
+            id: string;
+            /** @enum {string} */
+            mime_type: "image/png" | "image/jpeg" | "image/webp";
+            name?: string;
+            sha256: string;
+            /** Format: int32 */
+            width: number;
+            workspace_id: string;
+        };
+        WorkspaceImageUploadRequestView: {
+            data_base64: string;
+            /** @enum {string} */
+            mime_type: "image/png" | "image/jpeg" | "image/webp";
+            name?: string;
+            /** @enum {string} */
+            version: "workspace_image_upload.v1";
+        };
+        WorkspaceImageView: {
+            image: components["schemas"]["WorkspaceImage"];
+        };
+        WorkspaceImportRequestView: {
+            /** @constant */
+            confirmed: true;
+            /** @description Operator-entered absolute existing directory on the server computer; at most 4096 UTF-8 bytes. Never a browser upload or directory enumeration request. */
+            directory_path: string;
+            /** @enum {string} */
+            version: "workspace_import.v1";
+        };
+        WorkspaceImportView: {
+            /** @constant */
+            agent_authority_granted: false;
+            /** @constant */
+            directory_content_modified: false;
+            /** @enum {string} */
+            protocol_version: "workspace_import.v1";
+            workspace: components["schemas"]["WorkspaceView"];
         };
         WorkspaceMutationBoundary: {
             after?: components["schemas"]["Checkpoint"];
@@ -13587,6 +15047,45 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    getApprovalPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Approval identity */
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApprovalPreviewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     listRunArtifacts: {
         parameters: {
             query?: {
@@ -14425,6 +15924,43 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getRunContextSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunContextSummaryView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -15422,6 +16958,55 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    createFileEditRevertProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key scoped to Run and source Edit; preserve it after an uncertain response */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                source_edit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileEditRevertProposalRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FileEditRevertProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getRunFullCDPSession: {
         parameters: {
             query?: never;
@@ -15549,6 +17134,131 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    captureRunFullCDPPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullCDPPreviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FullCDPPreviewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    actRunFullCDPPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullCDPPreviewActionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FullCDPPreviewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readRunFullCDPPreviewImage: {
+        parameters: {
+            query: {
+                session_id: string;
+                sha256: string;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated hash-verified image bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -16368,6 +18078,156 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    recordPlanDeliveryCheckpoint: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key shared across this Run's start/checkpoint/complete actions; reuse only with the original action, item, expected version and evidence */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description WorkItem identity */
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanDeliveryCheckpointControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlanDeliveryCheckpointControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    completePlanDeliveryWorkItem: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key shared across this Run's start/checkpoint/complete actions; reuse only with the original action, item, expected version and evidence */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description WorkItem identity */
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanDeliveryWorkItemControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlanDeliveryWorkItemControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    startPlanDeliveryWorkItem: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key shared across this Run's start/checkpoint/complete actions; reuse only with the original action, item, expected version and evidence */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description WorkItem identity */
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanDeliveryWorkItemControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlanDeliveryWorkItemControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getRunProjectInstructions: {
         parameters: {
             query?: {
@@ -16693,7 +18553,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["StandardCodeDeliveryReport"];
+                        data: components["schemas"]["StandardCodeDeliveryReportView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
@@ -16734,7 +18594,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["StandardCodeDeliveryRecordResult"];
+                        data: components["schemas"]["StandardCodeDeliveryRecordResultView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
@@ -18839,6 +20699,45 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    inspectThreadCreationRequest: {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadRequestObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getThread: {
         parameters: {
             query?: never;
@@ -19052,6 +20951,43 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    getThreadExecution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadExecutionState"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getThreadExecutionPermission: {
         parameters: {
             query?: never;
@@ -19168,6 +21104,220 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadGitState"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    executeThreadGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadGitExecuteRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadGitResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    previewThreadGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadGitPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadGitPreview"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    observeThreadGit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+                /** @description Original operation key */
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadGitResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    interruptThreadExecution: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadInterruptRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadExecutionState"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -19349,6 +21499,356 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    inspectThreadPlanRequest: {
+        parameters: {
+            query: {
+                run_id: string;
+                action: "enter_plan" | "enter_deliver" | "confirm";
+            };
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPlanControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    controlThreadPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadPlanControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPlanControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    discoverThreadPullRequest: {
+        parameters: {
+            query?: {
+                connection_id?: string;
+                base_branch?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPullRequestDiscovery"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    createThreadPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadPullRequestCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPullRequestResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    setThreadPullRequestCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadPullRequestCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewCredentialView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    previewThreadPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadPullRequestPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPullRequestPreviewResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    refreshThreadPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadPullRequestRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPullRequestRefreshResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    observeThreadPullRequest: {
+        parameters: {
+            query: {
+                operation_key: string;
+            };
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadPullRequestResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     recoverThreadRun: {
         parameters: {
             query?: never;
@@ -19439,6 +21939,43 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadReview"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -19562,6 +22099,46 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    inspectThreadTurnRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadRequestObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     executeThreadTurn: {
         parameters: {
             query?: never;
@@ -19577,7 +22154,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ThreadMessageControlRequestView"];
+                "application/json": components["schemas"]["ThreadTurnControlRequestView"];
             };
         };
         responses: {
@@ -19804,6 +22381,47 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    importWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceImportRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceImportView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     exploreWorkspace: {
         parameters: {
             query?: {
@@ -19831,6 +22449,290 @@ export interface operations {
                         /** @constant */
                         version: "api.v1";
                     };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    uploadWorkspaceFile: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceFileUploadRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceFileAttachmentView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    inspectWorkspaceFileUpload: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FileAttachmentObservation"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readWorkspaceFileAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+                /** @description Immutable attachment identity */
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceFileAttachmentView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readWorkspaceFileAttachmentContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+                /** @description Immutable attachment identity */
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated hash-verified original file bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    uploadWorkspaceImage: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceImageUploadRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceImageView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readWorkspaceImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+                /** @description Immutable image identity */
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceImageView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readWorkspaceImageContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace identity */
+                workspace_id: string;
+                /** @description Immutable image identity */
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated hash-verified image bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
                 };
             };
             400: components["responses"]["BadRequest"];

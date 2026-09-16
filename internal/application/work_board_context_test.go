@@ -24,7 +24,7 @@ func TestSupervisorWorkBoardContextIsBoundedStructuredAndExcludesTerminalItems(t
 		ID: "work-terminal", Status: domain.WorkItemCompleted, Priority: domain.WorkItemPriorityCritical,
 		Title: "must not appear", Version: 2,
 	})
-	contextText := supervisorWorkBoardContext(items)
+	contextText := supervisorWorkBoardContext(items, false)
 	if contextText == "" {
 		t.Fatal("expected work board context")
 	}

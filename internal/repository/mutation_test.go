@@ -261,8 +261,17 @@ func TestMutationRunGitPreservesCallerCancellation(t *testing.T) {
 func TestMutationExecuteReportsDurationDeadline(t *testing.T) {
 	root := newMutationRepo(t)
 	executor := newExecutor(t)
-	executor.maxDuration = 50 * time.Millisecond
-	executor.commandContext = blockingMutationCommand
+	executor.maxDuration = 2 * time.Second
+	// Repository binding now also uses the real Git executable. Only the
+	// mutation is stalled; its exact preflight reads must remain real.
+	executor.commandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
+		for _, arg := range args {
+			if arg == "add" {
+				return blockingMutationCommand(ctx, path, args...)
+			}
+		}
+		return repositoryCommandContext(ctx, path, args...)
+	}
 	if err := os.WriteFile(filepath.Join(root, "slow.txt"), []byte("slow\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

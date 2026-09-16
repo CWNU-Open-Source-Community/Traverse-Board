@@ -128,6 +128,18 @@ func (e *ConflictError) ConflictJSON() string {
 // state the caller believes is live, target is the requested historical state,
 // and observed is a fresh read-only capture. Any fourth state fails closed.
 func PreviewRestore(expected, target, observed Snapshot) (Preview, error) {
+	return previewRestore(expected, target, observed, false)
+}
+
+// PreviewWorkspaceRestore retains each snapshot's original execution identity.
+// The caller must first authorize all three Runs against the same immutable
+// physical workspace binding. Root, workspace, branch, index and content checks
+// remain identical to an ordinary restore.
+func PreviewWorkspaceRestore(expected, target, observed Snapshot) (Preview, error) {
+	return previewRestore(expected, target, observed, true)
+}
+
+func previewRestore(expected, target, observed Snapshot, sameWorkspace bool) (Preview, error) {
 	for _, snapshot := range []Snapshot{expected, target, observed} {
 		if err := snapshot.Validate(); err != nil {
 			return Preview{}, err
@@ -142,9 +154,9 @@ func PreviewRestore(expected, target, observed Snapshot) (Preview, error) {
 		IndexChanged: expected.Checkpoint.IndexSHA256 != target.Checkpoint.IndexSHA256,
 		Changes:      []Change{}, Conflicts: []Conflict{}}
 
-	if expected.Checkpoint.RunID != target.Checkpoint.RunID ||
+	if (!sameWorkspace && (expected.Checkpoint.RunID != target.Checkpoint.RunID ||
+		observed.Checkpoint.RunID != expected.Checkpoint.RunID)) ||
 		expected.Checkpoint.WorkspaceID != target.Checkpoint.WorkspaceID ||
-		observed.Checkpoint.RunID != expected.Checkpoint.RunID ||
 		observed.Checkpoint.WorkspaceID != expected.Checkpoint.WorkspaceID {
 		appendConflict(&preview, Conflict{Kind: ConflictCheckpointBinding,
 			Reason: "checkpoint Run or Workspace binding does not match"})
@@ -227,7 +239,21 @@ func PreviewRestore(expected, target, observed Snapshot) (Preview, error) {
 func ApplyRestore(ctx context.Context, workspaceRoot string, expected, target,
 	observed Snapshot,
 ) (RestoreResult, error) {
-	preview, err := PreviewRestore(expected, target, observed)
+	return applyRestore(ctx, workspaceRoot, expected, target, observed, false)
+}
+
+// ApplyWorkspaceRestore is the mutation counterpart of PreviewWorkspaceRestore;
+// its caller must hold the durable physical workspace mutation reservation.
+func ApplyWorkspaceRestore(ctx context.Context, workspaceRoot string, expected, target,
+	observed Snapshot,
+) (RestoreResult, error) {
+	return applyRestore(ctx, workspaceRoot, expected, target, observed, true)
+}
+
+func applyRestore(ctx context.Context, workspaceRoot string, expected, target,
+	observed Snapshot, sameWorkspace bool,
+) (RestoreResult, error) {
+	preview, err := previewRestore(expected, target, observed, sameWorkspace)
 	result := RestoreResult{Preview: preview, AppliedPaths: []string{}, DeletedPaths: []string{}}
 	if err != nil {
 		return result, err

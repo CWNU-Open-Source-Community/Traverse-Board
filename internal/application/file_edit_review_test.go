@@ -9,6 +9,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/session"
 )
 
 type fileEditReviewMemoryStore struct {
@@ -76,6 +77,15 @@ func (s *fileEditReviewMemoryStore) GetRun(context.Context, string) (domain.Run,
 
 func (s *fileEditReviewMemoryStore) GetMission(context.Context, string) (domain.Mission, error) {
 	return s.mission, nil
+}
+
+func (s *fileEditReviewMemoryStore) GetSession(context.Context, string) (session.Session, error) {
+	return session.Session{ID: s.run.SessionID, WorkspaceID: s.mission.WorkspaceID,
+		Status: session.StatusActive}, nil
+}
+
+func (s *fileEditReviewMemoryStore) GetWorkspaceInfo(context.Context, string) (session.WorkspaceInfo, error) {
+	return session.WorkspaceInfo{ID: s.mission.WorkspaceID, RootPath: "review-memory-workspace"}, nil
 }
 
 func (s *fileEditReviewMemoryStore) SaveFileEdit(_ context.Context,

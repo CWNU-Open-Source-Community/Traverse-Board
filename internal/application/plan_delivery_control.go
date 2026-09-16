@@ -13,6 +13,8 @@ const PlanDeliveryControlProtocolVersion = "plan_delivery_control.v1"
 type PlanDeliveryControlStore interface {
 	PlanDeliverySelectionStore
 	RunStore
+	DeliveryCheckpointStore
+	TransitionPlanDeliveryWorkItem(context.Context, domain.PlanDeliveryWorkItemTransition) (domain.WorkItem, bool, error)
 }
 
 type PlanDeliveryControlService struct {
@@ -22,12 +24,14 @@ type PlanDeliveryControlService struct {
 }
 
 type ControlPlanDirectionRequest struct {
-	Version      string
-	RunID        string
-	ProposalID   string
-	Direction    int
-	OperationKey string
-	RequestedBy  string
+	ThreadID         string
+	Version          string
+	RunID            string
+	ProposalID       string
+	Direction        int
+	ManualAcceptance domain.PlanDeliveryManualAcceptance
+	OperationKey     string
+	RequestedBy      string
 }
 
 type ControlPlanDirectionResult struct {
@@ -37,6 +41,7 @@ type ControlPlanDirectionResult struct {
 }
 
 type ControlPlanDeliveryTransitionRequest struct {
+	ThreadID     string
 	Version      string
 	RunID        string
 	OperationKey string
@@ -51,6 +56,7 @@ type ControlPlanDeliveryTransitionResult struct {
 }
 
 type ControlPlanModeTransitionRequest struct {
+	ThreadID     string
 	Version      string
 	RunID        string
 	OperationKey string
@@ -79,7 +85,8 @@ func (s *PlanDeliveryControlService) EnterPlan(ctx context.Context,
 		return ControlPlanModeTransitionResult{}, err
 	}
 	changed, err := s.runs.ChangePhase(ctx, ChangeRunPhaseRequest{
-		RunID: request.RunID, Phase: string(domain.ExecutionPhasePlan),
+		ThreadID: request.ThreadID,
+		RunID:    request.RunID, Phase: string(domain.ExecutionPhasePlan),
 		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
 		Reason: "operator enabled Plan mode from the composer",
 	})
@@ -113,8 +120,10 @@ func (s *PlanDeliveryControlService) SelectDirection(ctx context.Context,
 			"Plan proposal does not belong to the requested Run")
 	}
 	result, err := s.selection.Select(ctx, SelectPlanDeliveryDirectionRequest{
+		ThreadID:   request.ThreadID,
 		ProposalID: proposal.ID, Direction: request.Direction,
-		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
+		ManualAcceptance: request.ManualAcceptance,
+		OperationKey:     request.OperationKey, RequestedBy: request.RequestedBy,
 	})
 	if err != nil {
 		return ControlPlanDirectionResult{}, err
@@ -158,6 +167,7 @@ func (s *PlanDeliveryControlService) EnterDelivery(ctx context.Context,
 		}
 	}
 	changed, err := s.runs.ChangePhase(ctx, ChangeRunPhaseRequest{
+		ThreadID: request.ThreadID, PlanProposalID: selection.ProposalID,
 		RunID: request.RunID, Phase: string(domain.ExecutionPhaseDeliver),
 		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
 		Reason: "operator accepted selected Plan direction",

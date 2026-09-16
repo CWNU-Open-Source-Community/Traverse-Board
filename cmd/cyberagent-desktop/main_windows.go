@@ -286,7 +286,8 @@ func desktopWindowsOptions() *windows.Options {
 		WebviewIsTransparent: true, WindowIsTranslucent: true,
 		DisablePinchZoom: true, IsZoomControlEnabled: true, EnableSwipeGestures: false,
 		WebviewDisableRendererCodeIntegrity: false, WindowClassName: "CyberAgentWorkbench",
-		Messages: desktopWebView2Messages(),
+		WebviewUserDataPath: filepath.Join(app.DefaultHome(), "webview2"),
+		Messages:            desktopWebView2Messages(),
 	}
 }
 

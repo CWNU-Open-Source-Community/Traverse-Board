@@ -58,8 +58,9 @@ type CreateFileEditProposalRequest struct {
 }
 
 type CreateFileEditProposalResult struct {
-	Edit     fileedit.Edit
-	Replayed bool
+	Edit        fileedit.Edit
+	Replayed    bool
+	RunTerminal bool
 }
 
 // FileEditProposalRecovery is a read-only projection of one durable pending
@@ -86,6 +87,8 @@ type fileEditSourceGrant struct {
 	runID        string
 	sessionID    string
 	workspaceID  string
+	drydockID    string
+	generation   int64
 	path         string
 	originalHash string
 	expiresAt    time.Time
@@ -99,13 +102,21 @@ type fileEditSourceGrant struct {
 // read/issuance operation. Propose accepts an opaque, short-lived Go handle
 // and can create only a pending FileEdit; it cannot approve or apply one.
 type FileEditProposalService struct {
-	store   FileEditProposalStore
-	manager *fileedit.Manager
-	checker policy.Checker
-	now     func() time.Time
-	random  func([]byte) error
-	mu      sync.Mutex
-	sources map[string]fileEditSourceGrant
+	store    FileEditProposalStore
+	manager  *fileedit.Manager
+	checker  policy.Checker
+	drydocks *DrydockService
+	now      func() time.Time
+	random   func([]byte) error
+	mu       sync.Mutex
+	sources  map[string]fileEditSourceGrant
+}
+
+func (s *FileEditProposalService) WithDrydock(drydocks *DrydockService) *FileEditProposalService {
+	if s != nil {
+		s.drydocks = drydocks
+	}
+	return s
 }
 
 func NewFileEditProposalService(store FileEditProposalStore,
@@ -193,9 +204,13 @@ func (s *FileEditProposalService) issueSource(ctx context.Context, runID string,
 		return FileEditProposalSource{}, apperror.New(apperror.CodeInternal,
 			"file edit proposal source collision")
 	}
-	s.sources[digest] = fileEditSourceGrant{runID: binding.run.ID,
+	grant := fileEditSourceGrant{runID: binding.run.ID,
 		sessionID: binding.session.ID, workspaceID: binding.workspace.ID,
 		path: snapshot.Path, originalHash: currentHash, expiresAt: expiresAt}
+	if binding.target.Drydock != nil {
+		grant.drydockID, grant.generation = binding.target.Drydock.ID, binding.target.Drydock.Generation
+	}
+	s.sources[digest] = grant
 	return FileEditProposalSource{ProtocolVersion: FileEditProposalProtocolVersion,
 		RunID: binding.run.ID, WorkspaceID: binding.workspace.ID, Path: snapshot.Path,
 		Content: snapshot.Content, ContentSHA256: currentHash, Handle: handle,
@@ -324,6 +339,11 @@ func (s *FileEditProposalService) Propose(ctx context.Context,
 		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"file edit proposal source no longer matches the Run binding")
 	}
+	if grant.drydockID != "" && (binding.target.Drydock == nil ||
+		binding.target.Drydock.ID != grant.drydockID || binding.target.Drydock.Generation != grant.generation) {
+		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeConflict,
+			"file edit proposal source belongs to an earlier Drydock generation")
+	}
 	decision := s.checker.CheckToolCall(tools.Call{Name: "replace_file",
 		Args:       map[string]string{"path": grant.path, "content": request.ProposedText},
 		WorkingDir: binding.workspace.RootPath})
@@ -367,6 +387,7 @@ type fileEditProposalBinding struct {
 	mission   domain.Mission
 	session   session.Session
 	workspace session.WorkspaceInfo
+	target    RunFileWorkspace
 }
 
 func (s *FileEditProposalService) loadBinding(ctx context.Context,
@@ -393,16 +414,12 @@ func (s *FileEditProposalService) loadBinding(ctx context.Context,
 		return fileEditProposalBinding{}, apperror.New(apperror.CodeFailedPrecondition,
 			"file edit proposal Session binding is inactive or inconsistent")
 	}
-	workspaceInfo, err := s.store.GetWorkspaceInfo(ctx, mission.WorkspaceID)
+	target, err := ResolveRunFileWorkspace(ctx, s.store, run, mission, s.drydocks)
 	if err != nil {
 		return fileEditProposalBinding{}, apperror.Normalize(err)
 	}
-	if workspaceInfo.ID != mission.WorkspaceID || strings.TrimSpace(workspaceInfo.RootPath) == "" {
-		return fileEditProposalBinding{}, apperror.New(apperror.CodeFailedPrecondition,
-			"file edit proposal Workspace binding is invalid")
-	}
 	return fileEditProposalBinding{run: run, mission: mission,
-		session: linkedSession, workspace: workspaceInfo}, nil
+		session: linkedSession, workspace: target.Workspace, target: target}, nil
 }
 
 func (s *FileEditProposalService) pruneLocked(now time.Time) {

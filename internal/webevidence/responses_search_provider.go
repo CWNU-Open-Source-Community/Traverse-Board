@@ -63,6 +63,13 @@ const (
 	NativeSearchReasonProviderRejected      = "provider_rejected"
 	NativeSearchReasonToolUnsupported       = "tool_unsupported"
 	NativeSearchReasonResponseInvalid       = "response_invalid"
+	NativeSearchReasonSearchNotPerformed    = "search_not_performed"
+	NativeSearchReasonResponseIncomplete    = "response_incomplete"
+)
+
+var (
+	errResponsesSearchNotPerformed = errors.New("Responses payload contains no completed hosted search call")
+	errResponsesSearchIncomplete   = errors.New("Responses payload is incomplete")
 )
 
 // ResponsesSearchRuntime is the credential-safe request policy shared by the
@@ -496,6 +503,12 @@ func (p *OpenAIResponsesSearchProvider) execute(ctx context.Context,
 	}
 	results, observed, parseErr := parseResponsesSearchResults(document.Body, limit,
 		p.deepSeek)
+	if errors.Is(parseErr, errResponsesSearchIncomplete) {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseIncomplete)}
+	}
+	if errors.Is(parseErr, errResponsesSearchNotPerformed) {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonSearchNotPerformed)}
+	}
 	if parseErr != nil || !observed {
 		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
 	}
@@ -746,7 +759,8 @@ func nativeSearchNegativeTTL(reason string) time.Duration {
 		return nativeSearchTransportNegativeTTL
 	case NativeSearchReasonProviderRejected:
 		return nativeSearchRejectedNegativeTTL
-	case NativeSearchReasonResponseInvalid, NativeSearchReasonRuntimeInvalid:
+	case NativeSearchReasonResponseInvalid, NativeSearchReasonRuntimeInvalid,
+		NativeSearchReasonSearchNotPerformed, NativeSearchReasonResponseIncomplete:
 		return nativeSearchInvalidNegativeTTL
 	case NativeSearchReasonToolUnsupported:
 		return nativeSearchUnsupportedTTL
@@ -901,6 +915,9 @@ func parseResponsesSearchResults(body []byte, limit int,
 	if len(envelope.Error) != 0 && string(envelope.Error) != "null" {
 		return nil, false, errors.New("Responses payload contains an error")
 	}
+	if envelope.Status == "incomplete" {
+		return nil, false, errResponsesSearchIncomplete
+	}
 	if envelope.Status != "completed" {
 		return nil, false, errors.New("Responses payload is not completed")
 	}
@@ -999,8 +1016,11 @@ func parseResponsesSearchResults(body []byte, limit int,
 			}
 		}
 	}
+	if !observed {
+		return nil, false, errResponsesSearchNotPerformed
+	}
 	if deepSeek {
-		if !observed || len(structured) == 0 {
+		if len(structured) == 0 {
 			return nil, observed, errors.New(
 				"DeepSeek Responses search returned no grounded structured results")
 		}

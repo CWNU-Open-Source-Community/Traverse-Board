@@ -76,6 +76,24 @@ func TestApplyDesktopPlatformOptionsPinsOnlyWindowsOptions(t *testing.T) {
 	}
 }
 
+func TestDesktopWebviewDataPathFollowsHomeInsteadOfExecutableName(t *testing.T) {
+	firstHome := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", firstHome)
+	first := desktopWindowsOptions().WebviewUserDataPath
+	if first != filepath.Join(firstHome, "webview2") || !filepath.IsAbs(first) {
+		t.Fatalf("WebView recovery storage does not use the selected Home: %q", first)
+	}
+	if desktopWindowsOptions().WebviewUserDataPath != first {
+		t.Fatal("rebuilding Windows options changed the recovery storage path")
+	}
+	secondHome := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", secondHome)
+	second := desktopWindowsOptions().WebviewUserDataPath
+	if second == first || second != filepath.Join(secondHome, "webview2") {
+		t.Fatal("different application Homes share WebView recovery storage")
+	}
+}
+
 func TestWebView2PrerequisiteFailsClosedWithoutStartingAnInstaller(t *testing.T) {
 	tests := []struct {
 		name      string

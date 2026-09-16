@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -407,12 +408,12 @@ func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 	ctx := context.Background()
 	service := application.NewRunService(st)
 	_, run, err := service.Create(ctx, application.CreateRunRequest{
-		Goal: "long interactive session", Profile: "learn", ModelRoute: "lifecycle-test/model", Budget: domain.Budget{MaxTurns: 8},
+		Goal: "long interactive session", Profile: "learn", ModelRoute: "lifecycle-test/model", Budget: domain.Budget{MaxTurns: 16},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	responses := make([]string, 6)
+	responses := make([]string, 12)
 	for i := range responses {
 		responses[i] = rootActionResponse(domain.RootActionContinue, "continue", "", "")
 	}
@@ -426,24 +427,24 @@ func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 	manager := session.NewManager(st, router, policy.NewDefaultChecker()).WithRunChatExecutor(
 		application.NewSessionRunChatExecutor(st, router, policy.NewDefaultChecker()),
 	)
-	var fifth session.SendResult
-	for i := 1; i <= 6; i++ {
-		result, err := manager.Send(ctx, sess.ID, "message "+string(rune('0'+i)))
+	var compacted session.SendResult
+	for i := 1; i <= 12; i++ {
+		result, err := manager.Send(ctx, sess.ID, fmt.Sprintf("message %d", i))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if i == 5 {
-			fifth = result
+		if i == 12 {
+			compacted = result
 		}
 	}
-	if !fifth.Compacted || fifth.SummaryID == 0 {
-		t.Fatalf("fifth turn did not compact context: %#v", fifth)
+	if !compacted.Compacted || compacted.SummaryID == 0 {
+		t.Fatalf("executor-owned compaction was not reported: %#v", compacted)
 	}
-	if len(provider.requests) != 6 {
-		t.Fatalf("provider request count = %d, want 6", len(provider.requests))
+	if len(provider.requests) != 12 {
+		t.Fatalf("provider request count = %d, want 12", len(provider.requests))
 	}
 	foundSummary := false
-	for _, message := range provider.requests[5].Messages {
+	for _, message := range provider.requests[11].Messages {
 		if message.Role == "system" && strings.Contains(message.Content, "Compacted session context") {
 			t.Fatalf("compacted transcript was elevated to system context: %s", message.Content)
 		}
@@ -453,6 +454,6 @@ func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 		}
 	}
 	if !foundSummary {
-		t.Fatalf("compacted summary was not sent to Supervisor: %#v", provider.requests[5].Messages)
+		t.Fatalf("compacted summary was not sent to Supervisor: %#v", provider.requests[11].Messages)
 	}
 }

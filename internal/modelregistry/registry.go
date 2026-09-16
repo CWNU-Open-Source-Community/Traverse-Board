@@ -681,6 +681,9 @@ func (r *Registry) registerCustomProvider(ctx context.Context,
 		// the user-writable declaration.
 		NativeWebSearchRuntimeEnabled: false,
 	}
+	if ProviderNativeWebSearchKnownUnsupported(definition) {
+		availability.NativeWebSearchCapability = NativeWebSearchUnsupported
+	}
 	if !definition.Enabled {
 		r.providers = append(r.providers, availability)
 		return nil
@@ -701,18 +704,20 @@ func (r *Registry) registerCustomProvider(ctx context.Context,
 			return nil
 		}
 	}
-	if !present {
-		r.providers = append(r.providers, availability)
-		return nil
-	}
-	if key == "" || key != strings.TrimSpace(key) {
+	runtime, runtimeErr := newProviderRequestRuntime(definition, r.credentials)
+	if runtimeErr != nil {
 		availability.Status = ProviderInvalidConfiguration
 		availability.ConfigurationError = true
 		r.providers = append(r.providers, availability)
 		return nil
 	}
-	runtime, runtimeErr := newProviderRequestRuntime(definition, r.credentials)
-	if runtimeErr != nil {
+	if !present {
+		if !runtime.AllowsKeylessEndpoint(definition.EndpointURL) {
+			r.providers = append(r.providers, availability)
+			return nil
+		}
+		availability.CredentialSource = "none"
+	} else if key == "" || key != strings.TrimSpace(key) {
 		availability.Status = ProviderInvalidConfiguration
 		availability.ConfigurationError = true
 		r.providers = append(r.providers, availability)

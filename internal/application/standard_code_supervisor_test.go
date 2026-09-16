@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,9 +13,11 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/standardcodedelivery"
+	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -161,7 +164,7 @@ func newStandardCodeSupervisorTestMachine(state domain.StandardCodeSupervisorSta
 		}).Generation
 	store.snapshot = snapshot
 	return &standardCodeSupervisorTurn{store: store, turn: turn,
-		permission: permission, snapshot: snapshot}, store
+		permission: permission, snapshot: snapshot, fileWorkspaceID: snapshot.WorkspaceID}, store
 }
 
 func standardCodePendingCall(id, toolName, payload string) domain.SupervisorToolCall {
@@ -520,6 +523,36 @@ func TestStandardCodeSupervisorAcceptsOnlyCheckpointProjectedCapabilityRefresh(t
 	}
 }
 
+func TestStandardCodeSupervisorMutationUsesOwnedFileWorkspace(t *testing.T) {
+	for _, target := range []string{"drydock-ws-1", "workspace-1"} {
+		t.Run(target, func(t *testing.T) {
+			machine, state := newStandardCodeSupervisorTestMachine(
+				domain.StandardCodeSupervisorCheckpoint, domain.ExecutionPhaseDeliver)
+			machine.fileWorkspaceID = "drydock-ws-1"
+			standardCodeObserveCompleted(t, machine, standardCodeWorkspaceProposal(t, "owned-proposal"), nil, "reviewed")
+			standardCodeAddCheckpoint(machine, state, "owned-edit")
+			state.transactions[0].WorkspaceID = target
+			checkpoint := state.checkpoints["after-owned-edit"]
+			checkpoint.WorkspaceID = target
+			state.checkpoints[checkpoint.ID] = checkpoint
+			standardCodeObserveCompleted(t, machine,
+				standardCodeWorkspaceApply(t, "owned-apply", "owned-edit"),
+				map[string]string{"status": "applied"}, "applied")
+			if machine.snapshot.WorkspaceID != "workspace-1" {
+				t.Fatal("mutation reinterpreted the supervisor source control identity")
+			}
+			if target == machine.fileWorkspaceID {
+				if machine.snapshot.MutationEpoch != 1 || machine.snapshot.State != domain.StandardCodeSupervisorExecute ||
+					machine.snapshot.WorkspaceRootFingerprint != checkpoint.RootFingerprint {
+					t.Fatalf("owned mutation was not observed: %+v", machine.snapshot)
+				}
+			} else if machine.snapshot.MutationEpoch != 0 || machine.snapshot.StopReason != "workspace_mutation_checkpoint_missing" {
+				t.Fatalf("historical source mutation was reinterpreted as owned: %+v", machine.snapshot)
+			}
+		})
+	}
+}
+
 func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 	machine, store := newStandardCodeSupervisorTestMachine(
 		domain.StandardCodeSupervisorCheckpoint, domain.ExecutionPhaseDeliver)
@@ -541,7 +574,8 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 			[]runner.CommandRuntimeJobSnapshot{{ID: "job-failed", State: runner.CommandRuntimeJobFailed,
 				ExitCode: &failedExit, TreeReaped: true}}, nil))
 	if machine.snapshot.State != domain.StandardCodeSupervisorDiagnose ||
-		machine.snapshot.VerifiedMutationEpoch != 0 {
+		machine.snapshot.VerifiedMutationEpoch != 0 ||
+		len(machine.snapshot.VerificationJobIDs) != 1 || machine.snapshot.VerificationJobIDs[0] != "job-failed" {
 		t.Fatalf("failure was not diagnosed: state=%s verified=%d",
 			machine.snapshot.State, machine.snapshot.VerifiedMutationEpoch)
 	}
@@ -551,7 +585,8 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 	standardCodeObserveCompleted(t, machine,
 		standardCodeWorkspaceApply(t, "apply-fix", "edit-fix"),
 		map[string]string{"status": "applied"}, "fixed")
-	if machine.snapshot.MutationEpoch != 2 || machine.snapshot.FixRounds != 1 {
+	if machine.snapshot.MutationEpoch != 2 || machine.snapshot.FixRounds != 1 ||
+		len(machine.snapshot.VerificationJobIDs) != 0 {
 		t.Fatalf("fix was not recorded: epoch=%d fixes=%d",
 			machine.snapshot.MutationEpoch, machine.snapshot.FixRounds)
 	}
@@ -564,7 +599,8 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 			[]runner.CommandRuntimeJobSnapshot{{ID: "job-success",
 				State: runner.CommandRuntimeJobCompleted, ExitCode: &successExit,
 				TreeReaped: true, StdoutSHA256: strings.Repeat("d", 64)}}, nil))
-	if !machine.snapshot.CanDeliver() || machine.snapshot.VerifiedMutationEpoch != 2 {
+	if !machine.snapshot.CanDeliver() || machine.snapshot.VerifiedMutationEpoch != 2 ||
+		len(machine.snapshot.VerificationJobIDs) != 1 || machine.snapshot.VerificationJobIDs[0] != "job-success" {
 		t.Fatalf("current mutation was not verified: %+v", machine.snapshot)
 	}
 	if err := machine.ValidateAction(context.Background(), domain.RootAction{
@@ -575,12 +611,79 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 	}
 
 	restarted := &standardCodeSupervisorTurn{store: store, turn: machine.turn,
-		permission: machine.permission, snapshot: store.snapshot,
+		permission: machine.permission, snapshot: store.snapshot, fileWorkspaceID: machine.fileWorkspaceID,
 		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
 	duplicate := standardCodeWorkspaceApply(t, "apply-duplicate", "edit-1")
 	decision, err := restarted.Authorize(context.Background(), duplicate)
 	if err != nil || !decision.Replayed || decision.Result == nil || decision.Allowed {
 		t.Fatalf("restart did not suppress duplicate apply: %+v err=%v", decision, err)
+	}
+}
+
+func TestStandardCodeSupervisorPreservesOnlyExplicitNonPassingVerificationJobs(t *testing.T) {
+	exitZero, exitFailure := 0, 2
+	for _, test := range []struct {
+		name       string
+		job        runner.CommandRuntimeJobSnapshot
+		incomplete bool
+		invalid    bool
+		missing    bool
+		wantJob    bool
+	}{
+		{name: "failed", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobFailed}, wantJob: true},
+		{name: "timeout", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobTimedOut}, wantJob: true},
+		{name: "cancelled", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobCancelled}, wantJob: true},
+		{name: "interrupted", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobInterrupted}, wantJob: true},
+		{name: "nonzero_exit", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobCompleted, ExitCode: &exitFailure, TreeReaped: true}, wantJob: true},
+		{name: "truncated", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobCompleted, ExitCode: &exitZero, TreeReaped: true, TruncationReason: "inline_limit"}, wantJob: true},
+		{name: "incomplete_all_success", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobCompleted, ExitCode: &exitZero, TreeReaped: true}, incomplete: true},
+		{name: "invalid_projection", job: runner.CommandRuntimeJobSnapshot{State: runner.CommandRuntimeJobFailed}, invalid: true},
+		{name: "missing_jobs", missing: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machine, state := newStandardCodeSupervisorTestMachine(
+				domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+			machine.snapshot.MutationEpoch = 1
+			state.snapshot = machine.snapshot
+			test.job.ID = "observed-verification-job"
+			projection := standardCodeCommandProjection{Version: runner.CommandRuntimeResultVersion,
+				Action: toolgateway.CommandRuntimeActionRun, Jobs: []runner.CommandRuntimeJobSnapshot{test.job}}
+			if test.incomplete {
+				projection.IncompleteReasons = []string{"adapter verification evidence is incomplete"}
+			}
+			if test.invalid {
+				projection.Version = "invalid"
+			}
+			if test.missing {
+				projection.Jobs = nil
+			}
+			encoded, err := json.Marshal(projection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := standardCodeCommandCall(t, "verification-observation", toolgateway.CommandRuntimeActionRun,
+				"go test ./...", "", 0)
+			standardCodeObserveCompleted(t, machine, call, nil, string(encoded))
+			if machine.snapshot.State != domain.StandardCodeSupervisorDiagnose ||
+				machine.snapshot.CanDeliver() || state.snapshot.CanDeliver() ||
+				machine.snapshot.VerifiedMutationEpoch != 0 {
+				t.Fatalf("nonpassing evidence authorized completion: %+v", machine.snapshot)
+			}
+			ids := state.snapshot.VerificationJobIDs
+			if test.wantJob {
+				if len(ids) != 1 || ids[0] != test.job.ID {
+					t.Fatalf("actual nonpassing verification was lost: ids=%v", ids)
+				}
+			} else if len(ids) != 0 {
+				t.Fatalf("unproven projection became verification evidence: ids=%v", ids)
+			}
+			if err := machine.ValidateAction(t.Context(), domain.RootAction{
+				Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish,
+				Message: "done", Summary: "verification attempted",
+			}); err == nil || err.Error() != "finish_requires_current_structural_verification" {
+				t.Fatalf("nonpassing evidence bypassed the completion gate: %v", err)
+			}
+		})
 	}
 }
 
@@ -600,8 +703,60 @@ func TestStandardCodeSupervisorFinalResponseUsesDeliveryProjection(t *testing.T)
 		!strings.Contains(projected.Message, "1 verification command(s)") ||
 		!strings.Contains(projected.Message, machine.report.Links.Self) ||
 		strings.Contains(projected.Message, "Agent says") ||
-		projected.Reason != "current_passed_delivery_receipt" {
+		projected.Reason != "" {
 		t.Fatalf("final response did not use delivery projection: %+v", projected)
+	}
+	if err := projected.Validate(); err != nil {
+		t.Fatalf("projected delivery must remain a valid root action: %v", err)
+	}
+}
+
+// The report below is a projection fixture, not proof of command execution.
+// The real SQLite boundary must accept its structurally valid finish action.
+func TestStandardCodeSupervisorDeliveryProjectionCompletesSQLiteTurn(t *testing.T) {
+	ctx := t.Context()
+	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	service := NewRunService(st)
+	_, run, err := service.Create(ctx, CreateRunRequest{Goal: "review delivery projection", Profile: "review", Budget: domain.Budget{MaxTurns: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{RunID: run.ID, OwnerID: "delivery-projection-test", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := st.BeginSupervisorTurn(ctx, claim.Lease, "Review the current delivery and finish this noninteractive Run.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1, Provider: "test", Model: "model"}
+	if _, err := st.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil {
+		t.Fatal(err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	response := llm.ChatResponse{Provider: "test", Model: "model", Text: "done", Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2}}
+	checkpoint, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine, _ := newStandardCodeSupervisorTestMachine(domain.StandardCodeSupervisorDeliver, domain.ExecutionPhaseDeliver)
+	machine.report = &standardcodedelivery.Report{Status: standardcodedelivery.StatusPassed, Verified: true,
+		ReceiptSHA256: strings.Repeat("a", 64), FinalCheckpoint: standardcodedelivery.Checkpoint{ID: "checkpoint-final"},
+		Links: standardcodedelivery.Links{Self: "/api/v1/runs/" + run.ID + "/standard-code-delivery"}}
+	action := machine.ProjectDeliveryAction(domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish, Message: "done", Summary: "done"})
+	completed, _, messages, err := st.CompleteSupervisorTurn(ctx, checkpoint, response, action, policy.Decision{Allowed: true, Reason: "allowed"}, 0)
+	if err != nil {
+		t.Fatalf("delivery projection was rejected at the real persistence boundary: %v", err)
+	}
+	if completed.Status != domain.RunCompleted || completed.FinishedAt == nil || messages.Assistant.Content != action.Message {
+		t.Fatalf("finish or its receipt-backed message did not persist: run=%+v messages=%+v", completed, messages)
 	}
 }
 
@@ -750,7 +905,7 @@ func TestStandardCodeSupervisorBackgroundJobOwnershipAcrossRestart(t *testing.T)
 	}
 
 	restarted := &standardCodeSupervisorTurn{store: store, turn: machine.turn,
-		permission: machine.permission, snapshot: store.snapshot,
+		permission: machine.permission, snapshot: store.snapshot, fileWorkspaceID: machine.fileWorkspaceID,
 		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
 	read := standardCodeCommandCall(t, "read-1", toolgateway.CommandRuntimeActionRead,
 		"", "job-1", 0)
@@ -802,7 +957,7 @@ func TestStandardCodeSupervisorBackgroundJobOwnershipAcrossRestart(t *testing.T)
 	}
 
 	drifted := &standardCodeSupervisorTurn{store: store, turn: restarted.turn,
-		permission: restarted.permission, snapshot: store.snapshot,
+		permission: restarted.permission, snapshot: store.snapshot, fileWorkspaceID: restarted.fileWorkspaceID,
 		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
 	drifted.permission.Revision++
 	if decision, err := drifted.Authorize(context.Background(),
@@ -822,7 +977,7 @@ func TestStandardCodeSupervisorBackgroundJobOwnershipAcrossRestart(t *testing.T)
 			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobCancelled,
 				ExitCode: &exitCode, OutputCursor: 5, TreeReaped: true}}, nil))
 	replayed := &standardCodeSupervisorTurn{store: store, turn: restarted.turn,
-		permission: restarted.permission, snapshot: store.snapshot,
+		permission: restarted.permission, snapshot: store.snapshot, fileWorkspaceID: restarted.fileWorkspaceID,
 		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
 	decision, err := replayed.Authorize(context.Background(),
 		standardCodeCommandCall(t, "cancel-duplicate", toolgateway.CommandRuntimeActionCancel,
@@ -909,7 +1064,7 @@ func TestStandardCodeSupervisorPersistsInitialStateWithExactPresetBinding(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	supervisor := &RunSupervisor{store: fixture.state}
+	supervisor := &RunSupervisor{store: fixture.state, drydocks: fixture.service}
 	capabilities, authority, err := supervisor.supervisorAgentCodeCapabilities(
 		t.Context(), turn, permission)
 	if err != nil || capabilities.Generation == "" {

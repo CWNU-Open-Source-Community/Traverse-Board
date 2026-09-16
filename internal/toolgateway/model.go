@@ -74,6 +74,8 @@ func TypedActionIDs() map[string]struct{} {
 		string(ScriptProcessTool):               {},
 		string(WorkItemCreateTool):              {},
 		string(NoteCreateTool):                  {},
+		string(HistorySearchTool):               {},
+		string(HistoryReadTool):                 {},
 		string(PlanDeliveryProposeTool):         {},
 		string(SpecialistDelegationProposeTool): {},
 		string(ChildTaskProposeTool):            {},
@@ -98,7 +100,7 @@ func TypedActionIDs() map[string]struct{} {
 }
 
 func (n ToolName) Valid() bool {
-	if isAgentCodeTool(n) || IsCodeIntelTool(n) || IsBrowserActionTool(n) {
+	if isAgentCodeTool(n) || IsCodeIntelTool(n) || IsBrowserActionTool(n) || IsHistoryRecallTool(n) {
 		return true
 	}
 	switch n {
@@ -168,7 +170,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
 		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
 		return ClassProcess, true
-	case WorkItemCreateTool, NoteCreateTool:
+	case WorkItemCreateTool, NoteCreateTool, HistorySearchTool, HistoryReadTool:
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
 		ControlledCommandProposeTool, HostCommandProposeTool,

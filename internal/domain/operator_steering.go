@@ -56,6 +56,8 @@ type EnqueueOperatorSteeringRequest struct {
 	Content      string
 	OperationKey string
 	RequestedBy  string
+	Images       []ImageReference
+	Attachments  []FileAttachmentReference
 }
 
 type OperatorSteeringCancellationKind string
@@ -106,7 +108,7 @@ func (r EnqueueOperatorSteeringRequest) Normalize() (EnqueueOperatorSteeringRequ
 	r.RunID = strings.TrimSpace(r.RunID)
 	r.SessionID = strings.TrimSpace(r.SessionID)
 	r.RequestedBy = strings.TrimSpace(r.RequestedBy)
-	content, err := NormalizeOperatorSteeringContent(r.Content)
+	content, err := NormalizeThreadMessageContent(r.Content, r.Images, r.Attachments)
 	if err != nil {
 		return EnqueueOperatorSteeringRequest{}, err
 	}
@@ -134,6 +136,8 @@ type OperatorSteeringMessage struct {
 	Status           OperatorSteeringStatus
 	Prepared         bool
 	Content          string
+	ImageCount       int
+	AttachmentCount  int
 	ContentSHA256    string
 	RequestedBy      string
 	SessionMessageID int64
@@ -151,8 +155,14 @@ func (m OperatorSteeringMessage) Validate() error {
 		}
 	}
 	content, err := NormalizeOperatorSteeringContent(m.Content)
-	if err != nil || content != m.Content {
+	if (err != nil || content != m.Content) && !(m.Content == "" && ((m.ImageCount > 0 && m.ImageCount <= MaxThreadMessageImages) || (m.AttachmentCount > 0 && m.AttachmentCount <= MaxThreadMessageAttachments))) {
 		return errors.New("operator steering content is not normalized")
+	}
+	if m.AttachmentCount < 0 || m.AttachmentCount > MaxThreadMessageAttachments {
+		return errors.New("operator steering attachment count is invalid")
+	}
+	if m.ImageCount < 0 || m.ImageCount > MaxThreadMessageImages {
+		return errors.New("operator steering image count is invalid")
 	}
 	if m.ContentSHA256 != OperatorSteeringContentSHA256(m.Content) {
 		return errors.New("operator steering content digest does not match")

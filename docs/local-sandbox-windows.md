@@ -46,10 +46,71 @@ explicitly choose the existing per-operation Approval path; the product does
 not silently enable `full_access`, Debug, a host terminal, or the unsandboxed
 Command Runtime.
 
+## PowerShell runtime selection
+
+**Windows Local Sandbox supports PowerShell 7 (`pwsh.exe`) for the PowerShell
+profile. Windows PowerShell 5.1 (`powershell.exe`) remains supported by the
+existing host execution path, but cannot execute this profile in Local
+Sandbox.** Configure PS7 for workspace execution; the product does not bypass
+execution policy, widen shared ancestor ACLs, or switch to host execution to
+make PS5 work inside LPAC.
+
+On Windows, Command Runtime first checks the host environment variable
+`CYBERAGENT_POWERSHELL_PATH`. Set it before starting the CLI, API, or Desktop to
+select an existing, trusted `pwsh.exe` or `powershell.exe` by its absolute local
+path. For example, after extracting an official PowerShell ZIP distribution:
+
+```powershell
+$env:CYBERAGENT_POWERSHELL_PATH = 'C:\Tools\PowerShell\7\pwsh.exe'
+cyberagent api serve --enable-permission-control --enable-workspace-sandbox
+```
+
+Keep the complete distribution and its runtime dependencies together, outside
+the project. The selected executable must pass native-image, regular-file,
+filesystem-alias, Workspace exclusion, and SHA-256 checks. A nonempty invalid
+setting fails closed; it never falls back to a different Shell. An unset or
+empty setting preserves the default: PowerShell 7 in Windows' known Program
+Files directories, then system Windows PowerShell 5.1 for the host path. If
+that default resolves to PS5, Local Sandbox rejects it and requires PS7.
+`PATH`, project
+configuration, and model-supplied command environment entries cannot select
+this runtime. Restart the hosting application after changing the setting.
+
+Microsoft supports standalone ZIP extraction and documented installer options;
+PowerShell 7 installs alongside Windows PowerShell 5.1. Use the current
+[Windows installation instructions](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows?view=powershell-7.6)
+and a release within its
+[support lifecycle](https://learn.microsoft.com/en-us/powershell/scripting/install/powershell-support-lifecycle?view=powershell-7.6).
+Do not assume an executable alias from a Store/MSIX installation is a complete
+toolchain directory. Readiness proves the isolation backend; a successful
+command through that backend is still required to verify the chosen runtime.
+
+The Local Sandbox startup script creates a temporary `TraverseWorkspace:`
+PowerShell drive rooted at the owned Workspace and selects the requested
+working directory within it. This avoids inspecting shared host ancestors.
+It is a PowerShell session mapping, not a new Windows drive or an ACL grant;
+native programs and .NET APIs need a physical path, such as
+`$PWD.ProviderPath`, rather than the `TraverseWorkspace:` display path. See
+[New-PSDrive](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-psdrive?view=powershell-7.6).
+
+Inline PowerShell is a **command body**, for example `& ./check.ps1`. Put full
+scripts with top-level `param`, `using`, or named blocks (`begin`/`process`/
+`end`) in a project `.ps1` file and invoke that file; inline declarations are
+rejected. The original command body runs directly after initialization so
+its error, early `return`, and explicit `exit` behavior is preserved.
+
+The existing sandbox manifest limit remains **4096 bytes per argument**.
+The UTF-16LE/Base64 `-EncodedCommand` argument includes the startup script and
+inline command, so this is not a 4096-character allowance for user code.
+Long commands can exceed it even when the input script fits Command Runtime's
+separate limit. Put longer scripts in the project and send a short file
+invocation; the manifest limit is not increased or bypassed.
+
 ## Enforced boundary
 
 - **Filesystem:** each process has one random, run-scoped filesystem capability
-  SID. The product-owned Drydock temporarily grants that capability read/write;
+  SID. The product-owned Drydock and that command's disposable scratch
+  temporarily grant that capability read/write;
   explicit toolchain roots grant it read/execute only. Opting out of `ALL
   APPLICATION PACKAGES` prevents globally AppContainer-readable host files from
   becoming implicit inputs. Roots must be canonical NTFS/ReFS directories;
@@ -64,27 +125,73 @@ Command Runtime.
   stderr inheritance list in its creation attributes. The effective token is
   inspected before resume. Job close kills descendants, and completion always
   terminates/reaps the full tree; background authority is never retained.
-- **Network:** the token contains exactly the run-scoped filesystem capability
-  plus Windows' non-network `registryRead` capability, which LPAC Win32/Go
-  runtimes require for provider initialization. It contains no internet,
+- **Runtime capabilities:** `windows_appcontainer_policy.v3` keeps the base
+  token at the run-scoped filesystem capability plus Windows' `registryRead`.
+  Only the pinned PowerShell 7 profile adds `lpacInstrumentation`. Local
+  Sandbox does not grant `lpacCom` or accept Windows PowerShell 5.1. The exact
+  expected set and enabled attributes are checked before resume and the
+  runtime choices are included in request, result, and owner fingerprints.
+  These named capabilities allow access to OS resources whose DACLs grant
+  them; they are not a claim of access restricted to one ETW provider or COM
+  class. See Microsoft's [LPAC capability model](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer).
+- **Network:** none of these profiles contains an internet,
   private-network, or server capability. Windows
   Filtering Platform therefore applies the AppContainer default-deny boundary.
   Conformance tests exercise DNS, TCP, UDP, host loopback, and proxy-variable
   bypass rather than relying on command text inspection.
 - **Credentials:** the environment is constructed from an allowlist rather
   than inherited. HOME/AppData/temp and common cloud, Git, SSH, Docker, npm,
-  NuGet, Kubernetes, and Go state point inside Drydock or are disabled.
+  NuGet, Kubernetes, and Go state point inside private disposable scratch or
+  are disabled. Explicit project-local outputs remain in the project.
   Credential Manager access is tested from the real child token.
 - **Resources:** Job Object CPU rate, job memory, active-process count,
   kill-on-close, closed-by-default or explicitly piped bounded stdin, wall
   timeout/cancellation, combined output
-  budget, write-I/O budget, final Drydock size, artifact paths, and tree entry
-  counts are bounded.
+  budget, write-I/O budget, combined project and scratch growth, artifact paths,
+  and tree entry counts are bounded. Deleting project files cannot offset
+  scratch growth.
 - **Recovery:** a private, exclusive owner journal is committed before profile
   creation or ACL grant. Cleanup restores the exact captured DACL/integrity
   label and deletes the profile. Startup recovery verifies canonical path,
   volume/file identity, sealed record, and profile SID; persisted PIDs are never
   accepted as authority.
+
+Owner records written by this policy use `local_sandbox_owner.v3`. Recovery
+continues to read sealed v1/v2 records with their original fingerprint formats
+to restore their ACLs and remove their profiles. Only v3 records carry the
+identity required to remove their own scratch directory; old records cannot
+authorize a new launch or scratch deletion. The existing readiness probe still tests the base isolation
+mechanism with two capabilities. It is not a PowerShell startup attestation or
+proof that a project's check script passes.
+
+New commands place HOME, AppData, TEMP and runtime caches in one disposable
+`scratch-<first-32-owner-hex-digits>` child of the private owner journal directory.
+The journal keeps the full 64-hex owner digest and the directory's path hash and
+filesystem identity. Creating an already existing directory fails; a shortened
+name collision never reuses another command's directory. The child
+receives that command's existing filesystem capability, never access to the journal
+or a shared ancestor. The path is derived internally and pinned by filesystem
+identity before launch. Completion, cancellation and startup recovery remove
+only that command's scratch after its process tree is reaped; incomplete
+cleanup remains a recovery failure. The working directory remains the project.
+
+The shorter name avoids an observed Windows nested-process startup sensitivity
+to effective profile path length. The verified scope includes the normal
+application-data layout, bounded private test roots, and PS7 commands in project
+paths containing spaces, Chinese characters and single quotes. Controlled
+non-race fixtures also started descendants with derived known-folder AC paths
+of 259 and 260 characters; longer failing cases do not establish a universal
+Win32 cutoff. Arbitrarily long portable owner roots are not a compatibility
+guarantee. No inferred path threshold, ancestor ACL expansion or automatic
+fallback is added; the exact comparisons and limits are recorded in
+[Phase N validation](UX_FIXES_PHASE_N_VALIDATION.md).
+
+Project files named `.traverse-board/home/...` remain ordinary project files.
+Existing runtime files and sealed reports are preserved; diff/checkpoint capture
+does not hide these paths or rewrite historical receipts. New cache state is
+disposable between commands, so cache reuse across commands is not promised and
+some builds may cost more. Persistent cache sharing needs separate ownership,
+quota and invalidation evidence before being added.
 
 Each execution request and receipt binds the Run, Mission, Session, Workspace,
 Drydock identity/path fingerprints and generation, permission/profile/

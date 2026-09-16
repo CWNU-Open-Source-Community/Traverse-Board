@@ -5,9 +5,10 @@ import { formatBytes } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
-export function RepositoryDiffPanel({ client, workspaceID }: {
+export function RepositoryDiffPanel({ client, workspaceID, onRequestChange }: {
   client: CyberAgentClient;
   workspaceID: string;
+  onRequestChange?: (path: string, baseHead: string) => void;
 }) {
   const { t } = useLocale();
   const query = useQuery({
@@ -47,6 +48,9 @@ export function RepositoryDiffPanel({ client, workspaceID }: {
               <span>{t(`${item.added_lines} 行新增 / ${item.deleted_lines} 行删除`, `${item.added_lines} added / ${item.deleted_lines} deleted`)}</span>
               {item.redacted && <StatusBadge status="redacted" />}
               <StatusBadge status={item.content_state} />
+              {onRequestChange && <button className="compact-command" type="button"
+                onClick={() => onRequestChange(item.path, query.data!.base_head)}>
+                {t("引用此差异请求修改", "Request changes to this diff")}</button>}
             </header>
             {item.patch ? <pre>{item.patch}</pre> :
               <div className="repository-diff-omitted">{item.content_state}</div>}

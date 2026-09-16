@@ -7,6 +7,20 @@ import { V2HighRiskActivationDialog } from "./high-risk-activation-dialog";
 afterEach(cleanup);
 
 describe("V2HighRiskActivationDialog", () => {
+  it.each(["full_access", "debug"] as const)("keeps %s keyboard confirmation inside its portal form", async (profile) => {
+    const user = userEvent.setup(); const onConfirm = vi.fn(); const parentSubmit = vi.fn();
+    render(<form onSubmit={(event) => { event.preventDefault(); parentSubmit(); }}>
+      <textarea defaultValue="独立的未发送草稿" aria-label="父表单草稿" />
+      <V2HighRiskActivationDialog open profile={profile} onCancel={vi.fn()} onConfirm={onConfirm} />
+    </form>);
+    const dialog = screen.getByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: profile === "full_access" ? "启用完全访问" : "启用并重启" });
+    confirm.focus(); await user.keyboard("{Enter}");
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(parentSubmit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("父表单草稿")).toHaveValue("独立的未发送草稿");
+  });
+
   it("describes full access, focuses the safe action, and confirms only on demand", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

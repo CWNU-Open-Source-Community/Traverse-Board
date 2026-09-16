@@ -342,6 +342,7 @@
         "once_command_spec.v1",
         "operator_steering_cancellation_operation.v1",
         "operator_steering_cancellation_request.v1",
+        "operator_steering_image_request.v1",
         "operator_steering_operation.v1",
         "operator_steering_request.v1",
         "run_browser_cdp_permission_change_request.v1",
@@ -350,7 +351,7 @@
         "run_execution_handoff_request.v1",
         "run_execution_interaction_change_request.v1",
         "run_execution_interaction_operation.v1",
-		"run_execution_permission_browser_cdp_operation.v1",
+        "run_execution_permission_browser_cdp_operation.v1",
         "run_execution_permission_change_request.v1",
         "run_execution_permission_operation.v1",
         "run_execution_profile_change_request.v1",
@@ -360,12 +361,15 @@
         "run_network_authority_request.v1",
         "run_phase_change_request.v1",
         "thread_execution_permission.v1",
-		"thread_execution_permission_browser_cdp_materialization_operation.v1",
-		"thread_execution_permission_browser_cdp_operation.v1",
+        "thread_execution_permission_browser_cdp_materialization_operation.v1",
+        "thread_execution_permission_browser_cdp_operation.v1",
         "thread_execution_permission_change_request.v1",
         "thread_execution_permission_current_run_operation.v1",
         "thread_execution_permission_materialization_operation.v1",
         "thread_execution_permission_operation.v1",
+        "thread_message_image_intent_request.v1",
+        "thread_message_intent_operation.v1",
+        "thread_message_intent_request.v1",
         "thread_model_route_operation.v1",
         "thread_model_route_request.v1"
       ],
@@ -691,6 +695,7 @@
       },
       "active_identifiers": [
         "byte_identical.v1",
+        "data_store_scope.v1",
         "direct_exe_signing.v1",
         "direct_exe_signing_handoff.v1",
         "direct_exe_signing_request.v1",
@@ -700,6 +705,7 @@
         "drydock-create-request.v1",
         "drydock-delivery-proposal.v1",
         "drydock-delivery-request.v1",
+        "drydock-file-boundary-cursor.v1",
         "drydock-fork-request.v1",
         "drydock-lifecycle-receipt.v1",
         "drydock-reconcile.v1",
@@ -717,6 +723,7 @@
         "msix_manifest.v2",
         "pe_authenticode_normalized.v1",
         "provider_grounded_citation.v1",
+        "recovery.data_store_seed.v1",
         "sanitized_host_environment.v1",
         "scheduled-job-worker.v1",
         "scheduled_job_create_request.v1",
@@ -770,6 +777,7 @@
         "web_evidence_presentation.v1",
         "web_fetch.v1",
         "web_fetch_authorization.v1",
+        "web_fetch_continuation.v1",
         "web_search.v1",
         "windows-two-deliverable-contract.v1",
         "windows_artifact_attestations.v1",
@@ -847,7 +855,8 @@
         "provider_native_search_negative.v1",
         "provider_native_search_tool.v1",
         "provider_registry_reload.v1",
-        "provider_request_runtime.v1"
+        "provider_request_runtime.v1",
+        "supervisor_model_cost.v1"
       ],
       "retired_identifiers": []
     },
@@ -936,6 +945,7 @@
       },
       "rebuild_source": "Go Application DTOs plus explicitly user-owned local presentation settings.",
       "active_identifiers": [
+        "desktop_clipboard_files.v1",
         "desktop_connection_bootstrap.v1",
         "desktop_debug_terminal_agent_input.v1",
         "desktop_file_selection.v1",
@@ -949,9 +959,16 @@
         "desktop_workspace_open.v1",
         "prayu.run-navigation.v1",
         "prayu.settings.sidebar.width.v1",
-        "prayu.sidebar.width.v1"
+        "v2_file_upload.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "prayu.sidebar.width.v1",
+          "decision": "The authorized unified-shell replacement removed the legacy App sidebar reader/writer. This is presentation retirement only; existing localStorage values are neither deleted nor migrated.",
+          "rebuild_evidence": "docs/UX_SHARED_SHELL_SETTINGS_PROPOSAL.md and web/src/App.tsx select the shared V2 shell; web/src/v2/styles.css supplies --v2-sidebar-width: 299px. The old custom width is not inherited. Current layout rebuilds from this explicit default, not from the retired preference.",
+          "rollback": "Restore the legacy App.tsx sidebar reader/writer to read the unchanged localStorage value. No old preference data or protocol history is removed."
+        }
+      ]
     },
     {
       "id": "docker-attach-process-session",
@@ -1231,6 +1248,8 @@
         "file_edit_proposal.v1",
         "file_edit_proposal_recovery.v1",
         "file_edit_review.v1",
+        "full_cdp_preview.v1",
+        "full_cdp_preview_action.v1",
         "full_cdp_session.v1",
         "full_cdp_session_close.v1",
         "mode_policy.v1",
@@ -1291,6 +1310,7 @@
         "thread_activity_detail.v2",
         "thread_activity_summary.v1",
         "thread_creation.v1",
+        "thread_execution.v1",
         "thread_export.v1",
         "thread_lifecycle.v1",
         "thread_message_submission.v1",
@@ -1303,6 +1323,9 @@
         "ui-evidence.v1",
         "windows_wfp_dynamic.v1",
         "workspace_explorer.v1",
+        "workspace_file_upload.v1",
+        "workspace_image_upload.v1",
+        "workspace_import.v1",
         "workspace_search.v1"
       ],
       "retired_identifiers": [
@@ -1573,6 +1596,7 @@
         "debug_terminal_agent_input_audit_record.v1",
         "debug_terminal_agent_input_operation.v1",
         "debug_terminal_agent_input_policy.v1",
+        "file_attachment_inputs.v1",
         "host-process.v1",
         "host_command.v1",
         "host_command_execution.v1",
@@ -1869,7 +1893,8 @@
           "source": "internal/sandbox",
           "versions": [
             1,
-            2
+            2,
+            3
           ],
           "mode": "write-new"
         }
@@ -1881,6 +1906,16 @@
           "versions": [
             1,
             2
+          ],
+          "status": "active"
+        },
+        {
+          "id": "local-sandbox-owner-recovery-reader",
+          "source": "internal/sandbox",
+          "versions": [
+            1,
+            2,
+            3
           ],
           "status": "active"
         }
@@ -1924,6 +1959,8 @@
         "local-runtime-generation.v1",
         "local_sandbox_execution.v1",
         "local_sandbox_owner.v1",
+        "local_sandbox_owner.v2",
+        "local_sandbox_owner.v3",
         "local_sandbox_readiness.v1",
         "sandbox_authorization.v1",
         "sandbox_backend_evidence_item.v1",
@@ -2092,7 +2129,9 @@
         "sandbox_scope_binding.v1",
         "sandbox_validation.v1",
         "sandbox_workspace_binding.v1",
-        "windows_appcontainer_policy.v1"
+        "windows_appcontainer_policy.v1",
+        "windows_appcontainer_policy.v2",
+        "windows_appcontainer_policy.v3"
       ],
       "retired_identifiers": []
     },
@@ -2170,7 +2209,8 @@
       "owner": "Thread, Run, Session, context, and message maintainers",
       "source_of_truth": [
         "internal/session",
-        "internal/store"
+        "internal/store",
+        "web/src/v2"
       ],
       "writers": [
         {
@@ -2181,6 +2221,14 @@
             1,
             2,
             3
+          ],
+          "mode": "write-new"
+        },
+        {
+          "id": "thread-local-recovery-writer",
+          "source": "web/src/v2",
+          "versions": [
+            1
           ],
           "mode": "write-new"
         }
@@ -2196,10 +2244,18 @@
             3
           ],
           "status": "active"
+        },
+        {
+          "id": "thread-local-recovery-reader",
+          "source": "web/src/v2",
+          "versions": [
+            1
+          ],
+          "status": "active"
         }
       ],
       "persisted_or_exported": true,
-      "persistence_boundary": "SQLite preserves user history, ordering, Run succession, provenance, notes, and messages.",
+      "persistence_boundary": "SQLite preserves user history, ordering, Run succession, provenance, notes, and messages. Scoped browser recovery storage retains unsent drafts and exact unknown-request identities; these cannot be reconstructed from server history.",
       "compatibility_rule": "Add versions without rewriting identity/history; retain every reader needed by supported databases and exports.",
       "retirement_gate": {
         "mode": "migration-or-retention",
@@ -2214,8 +2270,10 @@
         "continuity_context.v1",
         "continuity_snapshot.v1",
         "deterministic_id.v1",
+        "generated_handoff.v1",
         "handoff_memory.v0",
         "handoff_memory.v1",
+		"history_recall.v1",
         "llm.item_stream.identity.v1",
         "long_term_memory.v1",
         "note_context.v1",
@@ -2237,18 +2295,30 @@
         "session_grant.v1",
         "session_grant_revoke.v1",
         "session_tree.v1",
+        "task_goal.v1",
         "thread_epoch_transition_operation.v1",
         "thread_epoch_transition_request.v1",
         "thread_lifecycle_operation.v1",
         "thread_lifecycle_request.v1",
         "thread_run_recovery_operation.v1",
         "thread_run_recovery_request.v1",
-        "thread_turn_auto_recovery_operation.v1",
+		"thread_summary_window.v1",
         "thread_turn_epoch_transition_operation.v1",
         "thread_turn_handoff_operation.v1",
-        "thread_turn_lifecycle_operation.v1"
+        "thread_turn_lifecycle_operation.v1",
+        "v2_creation_recovery.v1",
+        "v2_draft_document.v1",
+        "v2_native_clipboard_recovery.v1",
+        "v2_recovery.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "thread_turn_auto_recovery_operation.v1",
+          "decision": "Explicit new Thread messages close the prior failed product turn while retaining usable Run context. They no longer automatically terminate every failed Run and cancel accepted inputs.",
+          "migration_evidence": "The old fingerprint namespace was used only to derive an automatic recovery operation key. Historical recovery events and failed handoffs remain immutable and readable through the existing thread_run_recovery and exact message replay readers; no persisted rows are rewritten.",
+          "rollback": "Restore the former automatic recovery caller only with an explicit product decision to restore its input-cancellation behavior; preserve all thread.turn_failed events and Session message provenance. Historical independent-handoff recovery replay remains covered by its SQLite regression."
+        }
+      ]
     },
     {
       "id": "thread-transcript-projection",
@@ -2339,6 +2409,7 @@
       "active_identifiers": [
         "file_edit_apply_operation.v1",
         "file_edit_apply_request.v1",
+        "file_edit_revert_proposal.v1",
         "file_mutation.v1",
         "git-advanced-api.v1",
         "git-advanced-authority.v1",
@@ -2367,7 +2438,11 @@
         "repository_mutation.v1",
         "repository_mutation_binding.v1",
         "repository_remote.v1",
-        "repository_remote_binding.v1"
+        "repository_remote_binding.v1",
+        "thread_git.v1",
+        "thread_git_operation.v1",
+        "thread_git_request.v1",
+        "thread_pull_request.v1"
       ],
       "retired_identifiers": []
     },
@@ -2465,6 +2540,8 @@
         "workspace_checkpoint_manual.v1",
         "workspace_fork_operation.v1",
         "workspace_fork_request.v1",
+        "workspace_image_operation.v1",
+        "workspace_image_request.v1",
         "workspace_mutation_boundary.v1",
         "workspace_mutation_boundary_request.v1",
         "workspace_restore_operation.v1",
@@ -2751,6 +2828,14 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "asm.v3",
+      "kind": "conformance-test",
+      "sources": [
+        "cmd/cyberagent-desktop/windows_resources_test.go"
+      ],
+      "reason": "Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol."
+    },
+    {
       "identifier": "batch-mailbox.v1",
       "kind": "test-fixture",
       "sources": [
@@ -2805,6 +2890,14 @@
         "internal/store/batch_delivery_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "compatibility.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "cmd/cyberagent-desktop/windows_resources_test.go"
+      ],
+      "reason": "Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol."
     },
     {
       "identifier": "controlled_command_proposal.v2",
@@ -2919,6 +3012,22 @@
       "reason": "Unknown-version HTTP fixture retained to prove fail-closed Full CDP close decoding."
     },
     {
+      "identifier": "generated_handoff.v2",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/contextmgr/generated_summary_test.go"
+      ],
+      "reason": "Unsupported generated summary version used only to verify rejection; not a production protocol."
+    },
+    {
+      "identifier": "handoff_memory.v999",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/contextmgr/continuity_summary_window_test.go"
+      ],
+      "reason": "Negative fixture verifies unknown summary versions fail closed."
+    },
+    {
       "identifier": "linux_ephemeral_user_namespace.v1",
       "kind": "test-fixture",
       "sources": [
@@ -2951,6 +3060,14 @@
         "internal/commandruntimeadapter/adapter_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "my-document.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/contextmgr/continuity_summary_window_test.go"
+      ],
+      "reason": "Opaque historical document fixture; its version is not a product protocol."
     },
     {
       "identifier": "next.good.v4",
@@ -3255,6 +3372,14 @@
         "internal/store/batch_delivery_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "thread_summary_window.v99",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/contextmgr/continuity_summary_window_test.go"
+      ],
+      "reason": "Negative fixture verifies unknown rolling window versions fail closed."
     },
     {
       "identifier": "ui-evidence-ci-launch.v1",

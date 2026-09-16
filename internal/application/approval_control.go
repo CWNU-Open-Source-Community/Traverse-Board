@@ -152,6 +152,16 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 		}
 		_, _, err = webStore.DecideWebFetchAuthorization(ctx, value.ID, scope, approve,
 			request.OperationKey, request.ReviewedBy, request.Reason)
+	} else if record.ToolName == ThreadPullRequestApprovalTool {
+		prStore, ok := s.store.(threadPullRequestApprovalStore)
+		if !ok {
+			return DecideApprovalControlResult{}, apperror.New(apperror.CodeFailedPrecondition, "task pull request approval store is unavailable")
+		}
+		action := approval.ActionDeny
+		if request.Action == ApprovalControlApproveOnce {
+			action = approval.ActionApprove
+		}
+		_, err = prStore.DecideApproval(ctx, approval.DecisionRequest{ProposalID: record.ProposalID, IdempotencyKey: request.OperationKey, Action: action, Reason: request.Reason, ReviewedBy: request.ReviewedBy})
 	} else if record.ToolName == gitadvanced.ApprovalToolName {
 		advancedStore, ok := s.store.(gitAdvancedApprovalControlStore)
 		if !ok {
@@ -195,13 +205,16 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 ) error {
 	var decision policy.Decision
 	switch record.ToolName {
+	case ThreadPullRequestApprovalTool:
+		return recheckThreadPullRequestApproval(ctx, s.store, record)
 	case string(toolgateway.ShellTool):
 		proposal, err := s.store.GetToolRun(ctx, record.ProposalID)
 		if err != nil {
 			return apperror.Normalize(err)
 		}
 		if proposal.ID != record.ProposalID || proposal.SessionID != record.SessionID ||
-			proposal.WorkspaceID != record.WorkspaceID || proposal.Status != toolrun.StatusProposed {
+			proposal.WorkspaceID != record.WorkspaceID || proposal.Status != toolrun.StatusProposed ||
+			record.RequestFingerprint != approval.ShellFingerprint(proposal.SessionID, proposal.WorkspaceID, proposal.Command) {
 			return apperror.New(apperror.CodeFailedPrecondition,
 				"Shell approval source changed or is no longer pending")
 		}
@@ -215,7 +228,8 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 		if proposal.ID != record.ProposalID || proposal.RunID != record.RunID ||
 			proposal.SessionID != record.SessionID || proposal.WorkspaceID != record.WorkspaceID ||
 			proposal.Status != scriptprocess.StatusProposed ||
-			proposal.ExecutionMode != scriptprocess.ExecutionDisabled {
+			proposal.ExecutionMode != scriptprocess.ExecutionDisabled ||
+			proposal.ApprovalFingerprint != record.RequestFingerprint {
 			return apperror.New(apperror.CodeFailedPrecondition,
 				"ScriptProcess approval source changed or is not process-disabled")
 		}
@@ -281,7 +295,7 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 	}
 	switch record.ToolName {
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-		gitadvanced.ApprovalToolName:
+		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.WebFetchTool):
 		return []ApprovalControlAction{ApprovalControlApproveOnce,
@@ -303,7 +317,7 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 	if record.Status != approval.StatusPending {
 		switch record.ToolName {
 		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-			gitadvanced.ApprovalToolName:
+			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool:
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny

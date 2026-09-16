@@ -328,7 +328,7 @@ func (g *Gateway) invokeCodeIntel(ctx context.Context, call ToolCall) (Outcome, 
 		return Outcome{}, err
 	}
 	call.Payload = canonical
-	root, err := g.bindWorkspaceRoot(ctx, call.WorkspaceID, call.WorkspaceRoot)
+	workspaceID, root, err := g.bindAgentCodeWorkspace(ctx, call)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -362,8 +362,9 @@ func (g *Gateway) invokeCodeIntel(ctx context.Context, call ToolCall) (Outcome, 
 	}
 	scope := AgentCodeExecutionScope{InvocationID: call.InvocationID,
 		OperationKey: call.OperationKey, RunID: call.RunID, MissionID: call.MissionID,
-		RootAgentID: call.AgentID, SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
-		WorkspaceRoot: root, RootFingerprint: call.RootFingerprint,
+		RootAgentID: call.AgentID, SessionID: call.SessionID, WorkspaceID: workspaceID,
+		SourceWorkspaceID: call.WorkspaceID,
+		WorkspaceRoot:     root, RootFingerprint: call.RootFingerprint,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role, Profile: call.Profile,
 		PermissionMode: call.PermissionMode, ModeRevision: call.ModeRevision,
 		PermissionRevision:   call.PermissionRevision,

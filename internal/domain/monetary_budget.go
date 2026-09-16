@@ -46,17 +46,16 @@ func (u MonetaryUsage) Validate() error {
 			return errors.New("monetary usage counters cannot be negative")
 		}
 	}
-	if u.ReservedMicros < u.SettledMicros+u.ReleasedMicros {
+	if u.ReservedMicros < u.SettledMicros || u.ReservedMicros-u.SettledMicros < u.ReleasedMicros {
 		return errors.New("monetary usage settled and released exceed the reservation")
 	}
 	if u.Tracked != (u.CapMicros > 0) {
 		return errors.New("monetary usage tracked flag is inconsistent with the cap")
 	}
-	if u.Tracked && u.SettledMicros > u.CapMicros {
-		return errors.New("monetary usage settled amount exceeds the cap")
-	}
-	openMicros := u.ReservedMicros - u.SettledMicros - u.ReleasedMicros
-	if u.Tracked && u.RemainingMicros != u.CapMicros-openMicros {
+	// Historical ledgers may already exceed a cap. Preserve those facts and
+	// expose no remaining allowance instead of making usage unreadable.
+	consumedMicros := u.ReservedMicros - u.ReleasedMicros
+	if u.Tracked && u.RemainingMicros != max(0, u.CapMicros-consumedMicros) {
 		return errors.New("monetary usage remaining amount is inconsistent")
 	}
 	if strings.TrimSpace(u.EstimateSource) != u.EstimateSource {
@@ -153,4 +152,3 @@ func (r MonetaryReleaseRequest) Normalize() (MonetaryReleaseRequest, error) {
 	}
 	return r, nil
 }
-

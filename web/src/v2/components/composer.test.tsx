@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import { APIRequestError, type CyberAgentClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { V2Composer } from "./composer";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const client = {} as CyberAgentClient;
 const workspaces: WorkspaceView[] = [
@@ -11,13 +12,34 @@ const workspaces: WorkspaceView[] = [
 
 function renderComposer(onSubmit = vi.fn(async () => undefined), workspaceID = "workspace-1") {
   const onWorkspaceChange = vi.fn();
-  render(<V2Composer client={client} onSubmit={onSubmit}
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <V2Composer client={client} onSubmit={onSubmit}
     onWorkspaceChange={onWorkspaceChange} threadID="" workspaceID={workspaceID}
-    workspaces={workspaces} />);
+    workspaces={workspaces} /></QueryClientProvider>);
   return { onSubmit, onWorkspaceChange };
 }
 
 describe("V2Composer", () => {
+  it("accepts a different follow-up while pending and never clears a newer draft on completion", async () => {
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    const onSubmit = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finishSecond = resolve; }));
+    renderComposer(onSubmit);
+    const user = userEvent.setup();
+    const input = screen.getByRole("textbox", { name: "开始新对话" });
+    await user.type(input, "第一条");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(input).toBeEnabled();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+    fireEvent.change(input, { target: { value: "第二条" } });
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    fireEvent.change(input, { target: { value: "尚未提交的第三条草稿" } });
+    await act(async () => { finishSecond(); finishFirst(); });
+    expect(onSubmit.mock.calls).toEqual([["第一条"], ["第二条"]]);
+    expect(input).toHaveValue("尚未提交的第三条草稿");
+  });
+
   it("trims and submits a ready message with Enter, then clears and refocuses", async () => {
     const user = userEvent.setup();
     const controls = renderComposer();
@@ -45,6 +67,22 @@ describe("V2Composer", () => {
     expect(textarea).toHaveValue("保留这条消息");
     await user.type(textarea, "。");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["CANCELLED", true, "本轮已停止，输入和已完成的工作已保留。可发送新消息继续。"],
+    ["FAILED_PRECONDITION", true, "本轮执行失败，输入和已完成的工作已保留。可发送新消息继续。"],
+    ["CANCELLED", undefined, "Unconfirmed cancellation: retain this exact request"],
+  ] as const)("uses concise text only for a confirmed failed turn (%s, %s)", async (code, turnFailed, expected) => {
+    const reason = new APIRequestError("Unconfirmed cancellation: retain this exact request", code,
+      499, "request-original", undefined, undefined, turnFailed);
+    renderComposer(vi.fn().mockRejectedValue(reason));
+    const input = screen.getByRole("textbox", { name: "开始新对话" });
+    fireEvent.change(input, { target: { value: "保留原要求" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+    expect(input).toHaveValue("保留原要求");
+    expect(reason.message).toBe("Unconfirmed cancellation: retain this exact request");
   });
 
   it("requires a workspace before enabling submission", () => {

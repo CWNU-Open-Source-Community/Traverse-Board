@@ -52,12 +52,12 @@ describe("V2RunNetworkAuthorityControl", () => {
     renderControl("paused", "menu");
 
     const trigger = screen.getByRole("button", { name: "网页访问状态" });
-    await waitFor(() => expect(trigger).toHaveTextContent("搜索就绪"));
+    await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
     await user.click(trigger);
 
     const popover = screen.getByRole("dialog", { name: "当前执行网页访问" });
     expect(within(popover).getByText("直接 URL 抓取")).toBeInTheDocument();
-    expect(within(popover).getByText(/供应商搜索 · 搜索就绪/u)).toBeInTheDocument();
+    expect(within(popover).getByText(/供应商搜索 · 搜索配置就绪/u)).toBeInTheDocument();
     expect(within(popover).getByText("search.example.org")).toBeInTheDocument();
     expect(within(popover).getByText(/只访问供应商 API/u)).toBeInTheDocument();
     expect(within(popover).getByText(/只追加明确的公网 HTTPS 主机/u)).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("V2RunNetworkAuthorityControl", () => {
     renderControl("running", "menu", {}, "full_access");
 
     const trigger = screen.getByRole("button", { name: "网页访问状态" });
-    await waitFor(() => expect(trigger).toHaveTextContent("搜索就绪"));
+    await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
     await user.click(trigger);
 
     const popover = screen.getByRole("dialog", { name: "当前执行网页访问" });
@@ -92,6 +92,21 @@ describe("V2RunNetworkAuthorityControl", () => {
     await user.click(screen.getByRole("button", { name: /使用所需主机/u }));
     expect(screen.getByRole("textbox", { name: "追加允许的 HTTPS 主机" }))
       .toHaveValue("api.provider.com");
+  });
+
+  it("identifies DuckDuckGo configuration readiness without claiming a completed search or changing authority", async () => {
+    const user = userEvent.setup();
+    const controls = renderControl("running", "menu", {
+      search_policy: "web", required_target: "html.duckduckgo.com",
+    }, "full_access");
+    const trigger = screen.getByRole("button", { name: "网页访问状态" });
+    await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
+    await user.click(trigger);
+    expect(screen.getByText(/普通网页搜索（DuckDuckGo）的配置与网络授权已就绪/u))
+      .toHaveTextContent("实际搜索结果以本次工具返回为准");
+    expect(screen.getByText("网页搜索 · 搜索配置就绪")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /使用所需主机/u })).not.toBeInTheDocument();
+    expect(controls.expandRunNetworkAuthority).not.toHaveBeenCalled();
   });
 
   it("distinguishes a native-search transport timeout from model chat readiness", async () => {
@@ -157,7 +172,7 @@ describe("V2RunNetworkAuthorityControl", () => {
     const user = userEvent.setup();
     renderControl("paused", "menu");
     const trigger = screen.getByRole("button", { name: "网页访问状态" });
-    await waitFor(() => expect(trigger).toHaveTextContent("搜索就绪"));
+    await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
     await user.click(trigger);
     expect(screen.getByRole("dialog", { name: "当前执行网页访问" })).toBeInTheDocument();
 

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,8 +41,12 @@ type errorEnvelope struct {
 }
 
 type apiErrorView struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code                    string                          `json:"code"`
+	Message                 string                          `json:"message"`
+	MessageQueued           *bool                           `json:"message_queued,omitempty"`
+	OperationKeyInvalidated *bool                           `json:"operation_key_invalidated,omitempty"`
+	TurnFailed              *bool                           `json:"turn_failed,omitempty"`
+	TurnFailure             *ThreadTurnFailureReferenceView `json:"turn_failure,omitempty"`
 }
 
 func (a *API) route(request *http.Request) (any, *Page, error) {
@@ -570,6 +575,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runStandardCodeDelivery(request, segments[1])
 		case "project-instructions":
 			return a.runProjectInstructions(request, segments[1])
+		case "context-summary":
+			return a.runContextSummary(request, segments[1])
 		}
 	case 4:
 		if segments[2] == "batch-deliveries" {
@@ -586,6 +593,10 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 		}
 		if segments[2] == "file-edit-proposal-recovery" {
 			return a.runFileEditProposalRecovery(request, segments[1], segments[3])
+		}
+	case 5:
+		if segments[2] == "approvals" && segments[4] == "preview" {
+			return a.runApprovalPreview(request, segments[1], segments[3])
 		}
 	case 6:
 		if segments[2] == "verification-plan-coverage" && segments[4] == "items" {
@@ -637,8 +648,12 @@ func (a *API) runFileEditChangeSet(request *http.Request,
 	if err != nil {
 		return nil, nil, err
 	}
+	target, err := application.ResolveRunFileWorkspace(request.Context(), a.store, run, mission, a.fileWorkspaceDrydocks)
+	if err != nil {
+		return nil, nil, err
+	}
 	values, err := a.store.ListFileEditPreviewsPage(request.Context(), fileedit.ListFilter{
-		SessionID: run.SessionID, WorkspaceID: mission.WorkspaceID,
+		SessionID: run.SessionID, WorkspaceID: target.Workspace.ID,
 	}, 0, application.MaxFileEditChangeSetItems+1)
 	if err != nil {
 		return nil, nil, err
@@ -647,7 +662,7 @@ func (a *API) runFileEditChangeSet(request *http.Request,
 	if truncated {
 		values = values[:application.MaxFileEditChangeSetItems]
 	}
-	changeSet, err := application.BuildFileEditChangeSet(run, mission, values)
+	changeSet, err := application.BuildFileEditChangeSetForWorkspace(run, mission, target.Workspace.ID, values)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -687,9 +702,7 @@ func (a *API) runFileEdits(request *http.Request, runID string) (any, *Page, err
 		return nil, nil, err
 	}
 	const limit = 100
-	values, err := a.store.ListFileEditPreviewsPage(request.Context(), fileedit.ListFilter{
-		SessionID: run.SessionID, WorkspaceID: mission.WorkspaceID,
-	}, 0, limit+1)
+	values, err := a.store.ListRunFileEditPreviewsPage(request.Context(), run.ID, 0, limit+1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -698,14 +711,22 @@ func (a *API) runFileEdits(request *http.Request, runID string) (any, *Page, err
 		values = values[:limit]
 	}
 	items := make([]FileEditPreviewView, len(values))
+	// History remains reviewable if today's target is unavailable. A successful
+	// current resolution is required only for advertising new edit controls.
+	target, targetErr := application.ResolveRunFileWorkspace(request.Context(), a.store, run, mission, a.fileWorkspaceDrydocks)
 	for index, value := range values {
-		if value.SessionID != run.SessionID || value.WorkspaceID != mission.WorkspaceID {
+		belongs, err := a.store.FileEditWorkspaceBelongsToRun(request.Context(), run.ID, value.SessionID, value.WorkspaceID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if value.SessionID != run.SessionID || !belongs {
 			return nil, nil, apperror.New(apperror.CodeInternal,
 				"file edit queue contains a mismatched record")
 		}
-		items[index] = fileEditPreviewView(value, run.Terminal())
+		readOnly := run.Terminal() || targetErr != nil || value.WorkspaceID != target.Workspace.ID
+		items[index] = fileEditPreviewView(value, readOnly)
 		items[index].ApplyEnabled = a.fileEditApplyEnabled &&
-			value.Status == fileedit.StatusApproved && !run.Terminal()
+			value.Status == fileedit.StatusApproved && !readOnly
 	}
 	return FileEditQueueView{ProtocolVersion: application.FileEditReviewProtocolVersion,
 		RunID: run.ID, Items: items, Truncated: truncated,
@@ -726,13 +747,31 @@ func (a *API) runFileEdit(request *http.Request, runID string,
 	if err != nil {
 		return nil, nil, err
 	}
-	if value.SessionID != run.SessionID || value.WorkspaceID != mission.WorkspaceID {
+	belongs, err := a.store.FileEditWorkspaceBelongsToRun(request.Context(), run.ID, value.SessionID, value.WorkspaceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if value.SessionID != run.SessionID || !belongs {
 		return nil, nil, apperror.New(apperror.CodeNotFound,
 			"file edit does not belong to the requested Run")
 	}
-	view := fileEditPreviewView(value, run.Terminal())
-	view.ApplyEnabled = a.fileEditApplyEnabled && value.Status == fileedit.StatusApproved &&
-		!run.Terminal()
+	target, targetErr := application.ResolveRunFileWorkspace(request.Context(), a.store, run, mission, a.fileWorkspaceDrydocks)
+	readOnly := run.Terminal() || targetErr != nil || value.WorkspaceID != target.Workspace.ID
+	view := fileEditPreviewView(value, readOnly)
+	if reader, ok := a.store.(fileEditDetailReader); ok && value.Operation == fileedit.OperationDelete {
+		full, readErr := reader.GetFileEdit(request.Context(), editID)
+		if readErr != nil {
+			return nil, nil, readErr
+		}
+		if full.ID != value.ID || full.SessionID != run.SessionID ||
+			full.WorkspaceID != value.WorkspaceID {
+			return nil, nil, apperror.New(apperror.CodeNotFound,
+				"file edit does not belong to the requested Run")
+		}
+		view = fileEditView(full, readOnly)
+	}
+	view.ApplyEnabled = a.fileEditApplyEnabled && view.Status == fileedit.StatusApproved &&
+		!readOnly
 	return view, nil, nil
 }
 
@@ -915,8 +954,12 @@ func (a *API) health(request *http.Request) (any, *Page, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return HealthView{Status: "ok", APIVersion: Version, AppVersion: a.appVersion,
-		SchemaVersion: version}, nil, nil
+	view := HealthView{Status: "ok", APIVersion: Version, AppVersion: a.appVersion,
+		SchemaVersion: version}
+	if identity, ok := a.store.(interface{ DataStoreID() string }); ok {
+		view.DataStoreID = identity.DataStoreID()
+	}
+	return view, nil, nil
 }
 
 func (a *API) runs(request *http.Request) (any, *Page, error) {
@@ -1006,6 +1049,9 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 			a.executionPermissionCapabilities),
 		ExecutionInteraction: runExecutionInteractionView(executionInteraction),
 		ToolUsage:            toolUsageView(usage), AgentCodeTools: agentCodeTools}
+	if err := a.projectStandardCodePreset(request.Context(), &detail.Run); err != nil {
+		return nil, nil, err
+	}
 	checkpoint, found, err := a.store.GetSupervisorCheckpoint(request.Context(), run.ID)
 	if err != nil {
 		return nil, nil, err
@@ -1093,6 +1139,25 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 				state.Checkpoints[index] = deliveryCheckpointView(checkpoint, ready)
 				if ready {
 					readyItems[checkpoint.WorkItemID] = struct{}{}
+				}
+			}
+			if reader, ok := a.store.(interface {
+				ListThreadPlanCompletionSources(context.Context, string) ([]domain.ThreadPlanCompletionSource, error)
+			}); ok {
+				sources, err := reader.ListThreadPlanCompletionSources(request.Context(), run.ID)
+				if err != nil {
+					return nil, nil, err
+				}
+				for _, source := range sources {
+					state.ContinuedCompletions = append(state.ContinuedCompletions, PlanCompletionSourceView{
+						WorkItemID: source.WorkItemID, SourceRunID: source.SourceRunID,
+						SourceWorkItemID: source.SourceWorkItemID, CheckpointID: source.CheckpointID,
+						HandoffNoteID: source.HandoffNoteID, CompletedAt: source.CompletedAt,
+						CompletionEventID: source.CompletionEventID,
+					})
+					if source.CheckpointID != "" {
+						readyItems[source.WorkItemID] = struct{}{}
+					}
 				}
 			}
 			state.ReadyCheckpoints = len(readyItems)
@@ -1573,8 +1638,24 @@ func (a *API) writeError(writer http.ResponseWriter, requestID string, err error
 	if status == 0 {
 		status = apperror.HTTPStatus(classified)
 	}
+	view := apiErrorView{Code: string(code), Message: message}
+	var notQueued *application.ThreadMessageNotQueuedError
+	if errors.As(err, &notQueued) {
+		value := false
+		view.MessageQueued = &value
+	}
+	var turnFailed *application.ThreadTurnFailedError
+	if errors.As(err, &turnFailed) {
+		value := true
+		view.TurnFailed = &value
+		view.TurnFailure = threadTurnFailureReference(turnFailed.Failure)
+	}
+	if code == apperror.CodeConflict && errors.Is(err, domain.ErrStandardCodePresetThreadPreferenceChanged) {
+		value := true
+		view.OperationKeyInvalidated = &value
+	}
 	encoded, marshalErr := json.Marshal(errorEnvelope{Version: Version, RequestID: requestID,
-		Error: apiErrorView{Code: string(code), Message: message}})
+		Error: view})
 	if marshalErr != nil {
 		encoded = []byte(`{"version":"api.v1","error":{"code":"INTERNAL","message":"internal server error"}}`)
 		status = http.StatusInternalServerError

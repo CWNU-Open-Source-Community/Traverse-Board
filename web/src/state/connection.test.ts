@@ -1,4 +1,5 @@
 import { useConnectionStore } from "./connection";
+import { createV2Client } from "../v2/client-session";
 
 const health = {
   status: "ok" as const,
@@ -64,5 +65,36 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().commandRuntimeAdapterReady).toBe(false);
     expect(useConnectionStore.getState().selectedRunID).toBe("");
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
+  });
+
+  it("carries explicit Web import authority into V2 and clears it on reconnect or disconnect", () => {
+    const connect = useConnectionStore.getState().connect;
+    connect("read", health, "control", { workspaceImportEnabled: true, runControlEnabled: false });
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(true);
+    expect(createV2Client(useConnectionStore.getState()).hasWorkspaceImport).toBe(true);
+    connect("read", health, "control");
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
+    expect(createV2Client(useConnectionStore.getState()).hasWorkspaceImport).toBe(false);
+    connect("read", health, "", { workspaceImportEnabled: true });
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
+    connect("read", health, "control", { workspaceImportEnabled: true });
+    useConnectionStore.getState().disconnect();
+    expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
+  });
+
+  it("preserves the execution read route independently of control credentials and clears it on reconnect", () => {
+    const connect = useConnectionStore.getState().connect;
+    connect("read", health, "", { runExecutionEnabled: true, threadExecutionReadEnabled: true });
+    const readOnlyClient = createV2Client(useConnectionStore.getState());
+    expect(readOnlyClient.hasThreadExecutionRead).toBe(true);
+    expect(readOnlyClient.hasRunExecution).toBe(false);
+    expect(readOnlyClient.hasThreadControl).toBe(false);
+    connect("read", health, "control", { runExecutionEnabled: true, threadExecutionReadEnabled: false });
+    expect(createV2Client(useConnectionStore.getState()).hasThreadExecutionRead).toBe(false);
+    connect("read", health, "control", { threadExecutionReadEnabled: true });
+    useConnectionStore.getState().disconnect();
+    expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(false);
+    connect("read", health, "control", { runExecutionEnabled: true });
+    expect(createV2Client(useConnectionStore.getState()).hasThreadExecutionRead).toBe(false);
   });
 });

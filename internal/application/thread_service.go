@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,14 @@ type ThreadService struct {
 	store        ThreadStore
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 	modelRoutes  ThreadModelRouteRegistry
+	drydocks     *DrydockService
+}
+
+func (s *ThreadService) WithDrydock(service *DrydockService) *ThreadService {
+	if s != nil {
+		s.drydocks = service
+	}
+	return s
 }
 
 // WithModelRouteRegistry enables fail-closed validation when a durable Thread
@@ -77,12 +86,55 @@ type threadRunExecutionPermissionReader interface {
 }
 
 type SubmitThreadMessageRequest struct {
+	plan         *threadPlanCommitBinding
 	Version      string
 	ThreadID     string
 	Content      string
 	OperationKey string
 	RequestedBy  string
+	Files        []domain.WorkspaceFileReference
+	Images       []domain.ImageReference
+	Attachments  []domain.FileAttachmentReference
 }
+
+type threadMessageIntentStore interface {
+	ReserveThreadMessageIntent(context.Context, domain.ThreadMessageIntentRequest) (domain.ThreadMessageIntent, error)
+	RejectThreadMessageIntent(context.Context, domain.ThreadMessageIntentRequest) (bool, error)
+	CommitThreadMessage(context.Context, domain.ThreadMessageIntentRequest, string, []session.PreparedEvidenceAttachment) (domain.OperatorSteeringEnqueueResult, error)
+	GetOperatorSteering(context.Context, string) (domain.OperatorSteeringMessage, error)
+}
+
+type threadMessageSuccessorStore interface {
+	EnsureThreadSuccessorForMessage(context.Context, domain.ThreadMessageIntentRequest,
+		string, domain.Mission, domain.Run, domain.RunModeSnapshot, session.Session, []events.Event) (domain.Thread, domain.Run, bool, error)
+}
+
+func threadMessageIntentRequest(request SubmitThreadMessageRequest) domain.ThreadMessageIntentRequest {
+	return domain.ThreadMessageIntentRequest{ThreadID: request.ThreadID, Content: request.Content,
+		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy, Files: request.Files, Images: request.Images, Attachments: request.Attachments}
+}
+
+func (s *ThreadService) reserveMessage(ctx context.Context, request SubmitThreadMessageRequest) (domain.ThreadMessageIntent, error) {
+	store, ok := s.store.(threadMessageIntentStore)
+	if !ok {
+		if len(request.Files) != 0 || len(request.Images) != 0 || len(request.Attachments) != 0 {
+			return domain.ThreadMessageIntent{}, apperror.New(apperror.CodeFailedPrecondition, "Thread file reference persistence is unavailable")
+		}
+		return domain.ThreadMessageIntent{}, nil
+	}
+	intent, err := store.ReserveThreadMessageIntent(ctx, threadMessageIntentRequest(request))
+	if err == nil && intent.Rejected {
+		return intent, &ThreadMessageNotQueuedError{Cause: apperror.New(apperror.CodeFailedPrecondition, "This message was rejected before enqueue; retry the draft with a new operation key")}
+	}
+	return intent, apperror.Normalize(err)
+}
+
+// ThreadMessageNotQueuedError is emitted only after a durable rejection fences
+// every concurrent submission of this same intent. Other errors remain unknown.
+type ThreadMessageNotQueuedError struct{ Cause error }
+
+func (e *ThreadMessageNotQueuedError) Error() string { return e.Cause.Error() }
+func (e *ThreadMessageNotQueuedError) Unwrap() error { return e.Cause }
 
 type SubmitThreadMessageResult struct {
 	Thread           domain.Thread
@@ -139,21 +191,75 @@ func (s *ThreadService) Submit(ctx context.Context,
 	if err != nil {
 		return SubmitThreadMessageResult{}, err
 	}
-	content, operationKey, requestedBy := request.Content, request.OperationKey,
-		request.RequestedBy
+	if len(request.Files) != 0 || len(request.Images) != 0 || len(request.Attachments) != 0 {
+		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeInvalidArgument, "File references require the Thread turn endpoint")
+	}
+	intent, err := s.reserveMessage(ctx, request)
+	if err != nil {
+		return SubmitThreadMessageResult{}, err
+	}
+	result, _, err := s.prepareMessage(ctx, request, intent)
+	if err != nil || result.Message.ID != "" {
+		return result, err
+	}
+	return s.commitMessage(ctx, request, result, nil)
+}
+
+func (s *ThreadService) prepareMessage(ctx context.Context, request SubmitThreadMessageRequest,
+	intent domain.ThreadMessageIntent,
+) (SubmitThreadMessageResult, domain.ThreadMessageIntent, error) {
+	result, err := s.prepareRun(ctx, request, intent)
+	if err != nil {
+		return result, intent, err
+	}
+	if store, ok := s.store.(threadMessageIntentStore); ok {
+		intent, err = s.reserveMessage(ctx, request)
+		if err != nil {
+			return result, intent, err
+		}
+		if intent.MessageID != "" && intent.RunID != result.Run.ID {
+			result, err = s.prepareRun(ctx, request, intent)
+			if err != nil {
+				return result, intent, err
+			}
+		}
+		if intent.MessageID != "" {
+			result.Message, err = store.GetOperatorSteering(ctx, intent.MessageID)
+			result.Replayed = true
+			if err == nil {
+				err = s.projectMessageContinuation(ctx, request, &result)
+			}
+		}
+	}
+	return result, intent, apperror.Normalize(err)
+}
+
+func (s *ThreadService) prepareRun(ctx context.Context, request SubmitThreadMessageRequest,
+	intent domain.ThreadMessageIntent,
+) (SubmitThreadMessageResult, error) {
+	requestedBy := request.RequestedBy
 
 	threadRecord, err := s.store.GetThread(ctx, request.ThreadID)
 	if err != nil {
 		return SubmitThreadMessageResult{}, apperror.Normalize(err)
 	}
-	if !threadRecord.CanAcceptMessages() {
+	if !threadRecord.CanAcceptMessages() && intent.MessageID == "" {
 		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Thread is not active")
 	}
 	var run domain.Run
 	var predecessorID string
 	var successorCreated bool
-	if threadRecord.ActiveRunID != "" {
+	if intent.RunID != "" {
+		run, err = s.store.GetRun(ctx, intent.RunID)
+		if err != nil {
+			return SubmitThreadMessageResult{}, apperror.Normalize(err)
+		}
+		if intent.MessageID == "" && (run.Terminal() || threadRecord.ActiveRunID != run.ID) {
+			return SubmitThreadMessageResult{}, apperror.New(apperror.CodeConflict,
+				"The prepared Thread Run has ended. Send this draft with a new operation key")
+		}
+	} else if threadRecord.ActiveRunID != "" {
 		run, err = s.store.GetRun(ctx, threadRecord.ActiveRunID)
 		if err != nil {
 			return SubmitThreadMessageResult{}, apperror.Normalize(err)
@@ -188,36 +294,95 @@ func (s *ThreadService) Submit(ctx context.Context,
 		if err != nil {
 			return SubmitThreadMessageResult{}, err
 		}
-		threadRecord, run, successorCreated, err = s.store.EnsureThreadSuccessor(ctx,
-			threadRecord.ID, predecessor.ID, successorMission, candidate, mode, linkedSession,
-			initialEvents)
+		files, fileErr := s.prepareFileContinuation(ctx, request, threadRecord, predecessor, candidate, mode)
+		if fileErr != nil {
+			return SubmitThreadMessageResult{}, apperror.Normalize(fileErr)
+		}
+		if files != nil {
+			threadRecord, run, successorCreated, err = s.store.(threadFileContinuationStore).EnsureThreadSuccessorWithFiles(ctx,
+				threadMessageIntentRequest(request), predecessor.ID, successorMission, candidate, mode, linkedSession, initialEvents, *files)
+		} else if store, ok := s.store.(threadMessageSuccessorStore); ok {
+			threadRecord, run, successorCreated, err = store.EnsureThreadSuccessorForMessage(ctx,
+				threadMessageIntentRequest(request), predecessor.ID, successorMission, candidate, mode, linkedSession, initialEvents)
+		} else {
+			threadRecord, run, successorCreated, err = s.store.EnsureThreadSuccessor(ctx,
+				threadRecord.ID, predecessor.ID, successorMission, candidate, mode, linkedSession, initialEvents)
+		}
 		if err != nil {
 			return SubmitThreadMessageResult{}, apperror.Normalize(err)
 		}
 		if successorCreated {
 			predecessorID = predecessor.ID
 		}
-		if err := s.bindSuccessorFullAccess(ctx, threadRecord.ID, run); err != nil {
-			return SubmitThreadMessageResult{}, err
+		if !run.Terminal() {
+			if err := s.bindSuccessorFullAccess(ctx, threadRecord.ID, run); err != nil {
+				return SubmitThreadMessageResult{}, err
+			}
 		}
 	}
 	linkedSession, err := s.store.GetSession(ctx, run.SessionID)
 	if err != nil {
 		return SubmitThreadMessageResult{}, apperror.Normalize(err)
 	}
-	if linkedSession.Status != session.StatusActive {
+	if linkedSession.Status != session.StatusActive && intent.MessageID == "" {
+		if store, ok := s.store.(threadMessageIntentStore); ok {
+			current, intentErr := store.ReserveThreadMessageIntent(ctx, threadMessageIntentRequest(request))
+			if intentErr == nil && current.MessageID != "" && current.RunID == run.ID {
+				return SubmitThreadMessageResult{Thread: threadRecord, Run: run, Session: linkedSession}, nil
+			}
+		}
 		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Thread Run Session is not active")
 	}
-	queued, err := s.store.EnqueueOperatorSteering(ctx,
-		domain.EnqueueOperatorSteeringRequest{RunID: run.ID, SessionID: run.SessionID,
-			Content: content, OperationKey: operationKey, RequestedBy: requestedBy})
+	return SubmitThreadMessageResult{Thread: threadRecord, Run: run,
+		Session: linkedSession, PredecessorRunID: predecessorID, SuccessorCreated: successorCreated}, nil
+}
+
+func (s *ThreadService) commitMessage(ctx context.Context, request SubmitThreadMessageRequest,
+	result SubmitThreadMessageResult, prepared []session.PreparedEvidenceAttachment,
+) (SubmitThreadMessageResult, error) {
+	var queued domain.OperatorSteeringEnqueueResult
+	var err error
+	if request.plan != nil {
+		store, ok := s.store.(interface {
+			CommitThreadPlanMessage(context.Context, domain.ThreadMessageIntentRequest, string, string, string) (domain.OperatorSteeringEnqueueResult, error)
+		})
+		if !ok || len(prepared) != 0 {
+			return SubmitThreadMessageResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread Plan message persistence is unavailable")
+		}
+		queued, err = store.CommitThreadPlanMessage(ctx, threadMessageIntentRequest(request), result.Run.ID, request.plan.proposalID, request.plan.selectionKey)
+	} else if store, ok := s.store.(threadMessageIntentStore); ok {
+		queued, err = store.CommitThreadMessage(ctx, threadMessageIntentRequest(request), result.Run.ID, prepared)
+	} else {
+		queued, err = s.store.EnqueueOperatorSteering(ctx,
+			domain.EnqueueOperatorSteeringRequest{RunID: result.Run.ID, SessionID: result.Run.SessionID,
+				Content: request.Content, OperationKey: request.OperationKey, RequestedBy: request.RequestedBy, Images: request.Images, Attachments: request.Attachments})
+	}
 	if err != nil {
 		return SubmitThreadMessageResult{}, apperror.Normalize(err)
 	}
-	return SubmitThreadMessageResult{Thread: threadRecord, Run: run,
-		Session: linkedSession, Message: queued.Message, PredecessorRunID: predecessorID,
-		SuccessorCreated: successorCreated, Replayed: queued.Replayed}, nil
+	result.Message, result.Replayed = queued.Message, queued.Replayed
+	if queued.Message.RunID != result.Run.ID {
+		// Another process completed this exact intent while this caller was
+		// preparing. Return its durable Run, never the losing candidate.
+		result.Run, err = s.store.GetRun(ctx, queued.Message.RunID)
+		if err != nil {
+			return SubmitThreadMessageResult{}, apperror.Normalize(err)
+		}
+		result.Session, err = s.store.GetSession(ctx, result.Run.SessionID)
+		if err != nil {
+			return SubmitThreadMessageResult{}, apperror.Normalize(err)
+		}
+		result.Thread, err = s.store.GetThread(ctx, request.ThreadID)
+		if err != nil {
+			return SubmitThreadMessageResult{}, apperror.Normalize(err)
+		}
+		result.SuccessorCreated, result.PredecessorRunID = false, ""
+	}
+	if err := s.projectMessageContinuation(ctx, request, &result); err != nil {
+		return SubmitThreadMessageResult{}, apperror.Normalize(err)
+	}
+	return result, nil
 }
 
 func (s *ThreadService) bindSuccessorFullAccess(ctx context.Context, threadID string,
@@ -258,7 +423,7 @@ func normalizeSubmitThreadMessageRequest(request SubmitThreadMessageRequest) (
 		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument,
 			"Thread message submission Thread id is invalid")
 	}
-	content, err := domain.NormalizeOperatorSteeringContent(request.Content)
+	content, err := domain.NormalizeThreadMessageContent(request.Content, request.Images, request.Attachments)
 	if err != nil {
 		return SubmitThreadMessageRequest{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			err.Error(), err)
@@ -274,6 +439,12 @@ func normalizeSubmitThreadMessageRequest(request SubmitThreadMessageRequest) (
 			"Thread message requester is invalid")
 	}
 	request.Content = content
+	if err := domain.ValidateThreadMessageFiles(request.Files); err != nil {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument, err.Error())
+	}
+	if err := domain.ValidateThreadMessageImages(request.Images); err != nil {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument, err.Error())
+	}
 	request.OperationKey = operationKey
 	request.RequestedBy = requestedBy
 	return request, nil
@@ -407,6 +578,7 @@ func (s *ThreadService) captureThreadContinuity(ctx context.Context, run domain.
 		ProjectInstructionsFingerprint: run.Config.ProjectInstructionsFingerprint,
 		InheritedContext:               []string{}, CreatedAt: at}
 	inherited := make(map[string]struct{})
+	var previousSummarySource contextmgr.ContinuitySummarySource
 	if len(run.Config.ContinuityContext) > 0 {
 		var previous contextmgr.ContinuitySnapshot
 		if err := json.Unmarshal(run.Config.ContinuityContext, &previous); err != nil {
@@ -426,20 +598,58 @@ func (s *ThreadService) captureThreadContinuity(ctx context.Context, run domain.
 		snapshot.RecentMessages = append(snapshot.RecentMessages, previous.RecentMessages...)
 		snapshot.Memories = append(snapshot.Memories, previous.Memories...)
 		snapshot.GitBranch, snapshot.GitHead = previous.GitBranch, previous.GitHead
+		if previous.SummaryContent != "" {
+			// The previous summary (including legacy opaque content without a
+			// summary row ID) remains intact in this holder Run's pinned config.
+			// Link that exact original instead of growing a bundle of all runs.
+			reference, err := json.Marshal(struct {
+				Run         string `json:"r"`
+				Fingerprint string `json:"f"`
+			}{run.ID, previous.Fingerprint})
+			if err != nil {
+				return contextmgr.ContinuitySnapshot{}, err
+			}
+			previousSummarySource = contextmgr.ContinuitySummarySource{
+				SourceID: "continuity:" + base64.RawURLEncoding.EncodeToString(reference),
+				Part:     "summary", ContentSHA256: previous.SummaryContentSHA256,
+			}
+		}
 		inherited[fmt.Sprintf("continuity:%s:%s", previous.SourceRunID,
 			previous.Fingerprint)] = struct{}{}
 	}
 	if summary, found, err := reader.LatestContextSummary(ctx, run.SessionID); err != nil {
 		return contextmgr.ContinuitySnapshot{}, err
 	} else if found {
-		snapshot.SummaryID = summary.ID
-		snapshot.SummaryContent = boundedContinuityText(summary.Content,
-			contextmgr.MaxContinuitySummaryBytes)
-		snapshot.SummaryContentSHA256 = session.ContentSHA256(snapshot.SummaryContent)
+		if previousSummarySource.SourceID != "" {
+			recall, ok := s.store.(interface {
+				ReadThreadHistory(context.Context, string, domain.HistoryReadRequest) (domain.HistoryReadResult, error)
+			})
+			if !ok {
+				return contextmgr.ContinuitySnapshot{}, apperror.New(apperror.CodeFailedPrecondition,
+					"Thread rolling summary requires an available original history reader")
+			}
+			// Verify the precise retrieval path before replacing full inherited
+			// text with a bounded projection. A foreign fork snapshot must not
+			// become an unreadable receipt or expand this Thread's read scope.
+			original, err := recall.ReadThreadHistory(ctx, run.ID, domain.HistoryReadRequest{
+				SourceID: previousSummarySource.SourceID, Part: previousSummarySource.Part,
+				ExpectedSHA256: previousSummarySource.ContentSHA256, Limit: 4,
+			})
+			if err != nil {
+				return contextmgr.ContinuitySnapshot{}, err
+			}
+			if original.InstructionAuthorized || original.ContentSHA256 != previousSummarySource.ContentSHA256 ||
+				original.TotalBytes != len(snapshot.SummaryContent) {
+				return contextmgr.ContinuitySnapshot{}, invalidThreadSummaryBinding()
+			}
+		}
+		if err := mergeThreadContinuitySummary(&snapshot, summary, previousSummarySource); err != nil {
+			return contextmgr.ContinuitySnapshot{}, err
+		}
 		inherited[fmt.Sprintf("compaction:%d:%s", summary.ID,
-			snapshot.SummaryContentSHA256)] = struct{}{}
+			session.ContentSHA256(summary.Content))] = struct{}{}
 	}
-	messages, err := reader.ListRecentSessionMessages(ctx, run.SessionID, true,
+	messages, err := reader.ListRecentSessionMessages(ctx, run.SessionID, false,
 		contextmgr.MaxContinuityRecentMessages)
 	if err != nil {
 		return contextmgr.ContinuitySnapshot{}, err
