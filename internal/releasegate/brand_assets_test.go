@@ -16,7 +16,10 @@ import (
 )
 
 const approvedBrandMasterSHA256 = "c63b452ca86ccb9a2003ab9711329491185a42825df6d9ca03aaebc078d250b3"
-const approvedBrandDerivativeSetSHA256 = "7d7cc0ec9eabdf35ae88a2c802c8a942d966bdaddd14716b444ba5c82aba91a2"
+
+// Both COFF resources now embed the reviewed PerMonitorV2/asInvoker manifest
+// alongside the unchanged approved icons, so their bytes change the set digest.
+const approvedBrandDerivativeSetSHA256 = "f8706a26dc124037c5f0249b462c4ec44d0794c6c48a5b6fb52c0267ec731766"
 
 func TestApprovedBrandMasterAndPlatformAssetsStaySynchronized(t *testing.T) {
 	t.Parallel()
