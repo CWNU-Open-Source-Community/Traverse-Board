@@ -90,7 +90,13 @@ it("isolates pending uploads and late failures when the same composer changes wo
   const file = new File(["pending image bytes"], "原项目截图.png", { type: "image/png" });
   fireEvent.paste(input, { clipboardData: { files: [file] } });
   await waitFor(() => expect(client.uploadWorkspaceImage).toHaveBeenCalledWith(image.workspace_id, file, expect.stringMatching(/^v2-image-upload-/)));
-  expect(screen.getByRole("button", { name: "添加附件" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+  // The shared menu stays available; only its upload action is busy.
+  fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+  const upload = screen.getByRole("menuitem", { name: "添加图片或文件" });
+  expect(upload).toBeDisabled();
+  fireEvent.click(upload);
+  expect(client.uploadWorkspaceImage).toHaveBeenCalledTimes(1);
   expect(screen.getByText("正在保存图片，完成后可发送…")).toBeInTheDocument();
   expect(client.uploadWorkspaceImage).toHaveBeenCalledWith(image.workspace_id, file, expect.stringMatching(/^v2-image-upload-/));
 
@@ -99,6 +105,7 @@ it("isolates pending uploads and late failures when the same composer changes wo
   expect(screen.getByRole("textbox", { name: "开始新对话" })).toBe(input);
   expect(input).toHaveValue("切换项目时仍在输入的草稿");
   expect(screen.getByRole("button", { name: "添加附件" })).toBeEnabled();
+  expect(screen.queryByRole("menu", { name: "添加内容" })).not.toBeInTheDocument();
   expect(screen.queryByText("正在保存图片，完成后可发送…")).not.toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled());
 

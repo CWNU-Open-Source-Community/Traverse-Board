@@ -244,16 +244,24 @@ func TestThreadTurnNewMessageClosesHistoricalFailedAttemptWithoutRestart(t *test
 	router.RegisterProvider(provider)
 	legacy := application.NewThreadTurnService(&historicalFailedTurnStore{st}, application.NewRunLifecycleControlService(st), application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()))
 	first, err := legacy.Execute(t.Context(), request)
-	if err == nil {
-		t.Fatal("expected old failure")
+	if err == nil || first.Execution == nil {
+		t.Fatalf("expected durable old failure: %#v %v", first, err)
+	}
+	if paused, err := st.GetRun(t.Context(), first.Submission.Run.ID); err != nil || paused.Status != domain.RunPaused {
+		t.Fatalf("old failed attempt must await new operator input: %#v %v", paused, err)
 	}
 	upgraded := application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st), application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()))
 	next := request
 	next.Content = "Use my new requirement instead of retrying old actions"
 	next.OperationKey = "upgraded-new-turn"
 	continued, err := upgraded.Execute(t.Context(), next)
-	if err != nil || continued.Submission.Run.ID != first.Submission.Run.ID || provider.calls != 2 {
+	if err != nil || continued.Submission.Run.ID != first.Submission.Run.ID ||
+		continued.Submission.Message.Status != domain.OperatorSteeringCommitted || provider.calls != 2 {
 		t.Fatalf("upgrade did not close old failed product turn: %#v calls=%d %v", continued, provider.calls, err)
+	}
+	oldFailure, found, err := st.GetThreadTurnFailure(t.Context(), first.Submission.Run.ID, first.Submission.Message.ID)
+	if err != nil || !found || oldFailure.HandoffOperationID != first.Execution.Handoff.Operation.ID {
+		t.Fatalf("new message did not preserve the exact old failed input: %#v found=%v %v", oldFailure, found, err)
 	}
 	_, err = upgraded.Execute(t.Context(), request)
 	var failed *application.ThreadTurnFailedError

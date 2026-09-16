@@ -323,6 +323,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Local command manifests bind Windows drive roots and LPAC policy.
+          # Run their launch freshness/capability tests on the actual platform.
+          go test -v -count=1 -timeout 10m ./internal/application -run '^TestLocalCommand'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test Desktop boundaries
         run: >-
           go test -tags "desktop,wv2runtime.error" -count=1
@@ -331,7 +335,7 @@ jobs:
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify Windows command runtime transports
-        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell5PowerShell7AndGitBashSmoke)$'
+        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell(5PowerShell7AndGitBashSmoke|5BindsWorkspaceProfileBeforeLaunch|7KeepsExistingProfileEnvironment))$'
       - name: Verify Windows analyzer conformance boundaries
         shell: pwsh
         run: |

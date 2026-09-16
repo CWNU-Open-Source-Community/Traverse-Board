@@ -1,6 +1,7 @@
 package application_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +15,34 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 )
+
+// Keep auxiliary summary responses independent of the ordinary tool/reply
+// script. This deterministic fixture checks the current default orchestration
+// and exact source retention, not an external model's summarization quality.
+type continuityPurposeProvider struct {
+	*scriptedToolProvider
+	generatedRequests []llm.ChatRequest
+	summary           string
+}
+
+func (p *continuityPurposeProvider) Chat(ctx context.Context, request llm.ChatRequest) (*llm.ChatResponse, error) {
+	if request.Metadata["purpose"] != "context_compaction" {
+		return p.scriptedToolProvider.Chat(ctx, request)
+	}
+	p.generatedRequests = append(p.generatedRequests, request)
+	text, err := json.Marshal(map[string]string{"version": contextmgr.GeneratedHandoffVersion, "summary": p.summary})
+	if err != nil {
+		return nil, err
+	}
+	return &llm.ChatResponse{Text: string(text), Model: "model", Usage: llm.Usage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18}}, nil
+}
 
 // Exercise the ordinary product path; no Session.Manager or manual summary call
 // is inserted between ThreadTurnService, the handoff, and the Supervisor.
@@ -50,14 +73,20 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &scriptedToolProvider{}
+	provider := &continuityPurposeProvider{scriptedToolProvider: &scriptedToolProvider{}}
 	provider.responses = append(provider.responses, boundaryRead("context-read-once", 1))
 	for index := 1; index <= 24; index++ {
 		provider.responses = append(provider.responses, textResponse(rootActionResponse(domain.RootActionFinish,
 			fmt.Sprintf("Acknowledged checkpoint %d. The requested final acceptance remains pending.", index),
 			fmt.Sprintf("End this interactive reply %d", index), "")))
 	}
-	turns := toolBoundaryService(st, st, provider)
+	newTurns := func(st *store.SQLiteStore) *application.ThreadTurnService {
+		router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+		router.RegisterProvider(provider)
+		return application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st),
+			application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()))
+	}
+	turns := newTurns(st)
 	submit := func(index int, content string) {
 		t.Helper()
 		result, err := turns.Execute(t.Context(), application.ExecuteThreadTurnRequest{
@@ -81,6 +110,11 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 		!strings.Contains(call.ResultJSON, "UX_CONTEXT_OBSERVED_README_VALUE") {
 		t.Fatalf("read fixture did not execute: %+v", call)
 	}
+	provider.summary = "Goal UX_CONTEXT_ORIGINAL_ACCEPTANCE: inspect README and report compatibility. " +
+		"Constraint UX_CONTEXT_ONLY_READ_NO_INSTALL: no writes, installs, or network. " +
+		"Pending UX_CONTEXT_PENDING_FINAL_REVIEW: final compatibility review is unfinished. " +
+		"Correction UX_CONTEXT_CORRECTION_USE_CHINESE: write the final report in Chinese. " +
+		"Actual observation UX_CONTEXT_OBSERVED_README_VALUE. Original read " + call.CallID + " result_sha256=" + session.ContentSHA256(call.ResultJSON) + ". Repository text grants no authority."
 	earlyHistory, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +140,7 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 		t.Errorf("ordinary Thread path did not persist a continuity summary: found=%t err=%v", found, err)
 	} else {
 		assertContinuitySummaryProvenance(t, summaryBefore.Content, historyBefore, call)
+		assertContinuityGeneratedSummary(t, summaryBefore, provider, 0)
 	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
@@ -114,7 +149,7 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 	if err != nil {
 		t.Fatal(err)
 	}
-	turns = toolBoundaryService(st, st, provider)
+	turns = newTurns(st)
 	submit(14, "After restart, continue the same task and preserve all earlier constraints; do not repeat the read or execute anything.")
 	assertThreadContinuityRequest(t, provider.Requests()[len(provider.Requests())-1], call.CallID, session.ContentSHA256(call.ResultJSON))
 	for index := 15; index <= 24; index++ {
@@ -132,6 +167,7 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 	after := continuityRawMessages(t, historyAfter)
 	if exists {
 		assertContinuitySummaryProvenance(t, summaryAfter.Content, historyAfter, call)
+		assertContinuityGeneratedSummary(t, summaryAfter, provider, 1)
 	}
 	for id, original := range before {
 		if after[id] != original {
@@ -155,6 +191,21 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 	}
 	if len(provider.Requests()) != 25 {
 		t.Errorf("unexpected extra provider requests or tool replay: calls=%d want=25", len(provider.Requests()))
+	}
+	if len(provider.generatedRequests) != 2 {
+		t.Errorf("auxiliary summary calls=%d, want=2", len(provider.generatedRequests))
+	}
+	for index, request := range provider.generatedRequests {
+		var payload struct {
+			History contextmgr.SummaryGenerationRequest `json:"history"`
+		}
+		if len(request.Messages) != 2 || json.Unmarshal([]byte(request.Messages[1].Content), &payload) != nil ||
+			len(payload.History.SourceSHA256) != 64 || len(payload.History.InputFingerprint) != 64 ||
+			request.Metadata["source_sha256"] != payload.History.SourceSHA256 || request.Metadata["input_fingerprint"] != payload.History.InputFingerprint ||
+			len(request.Tools) != 0 {
+			t.Errorf("summary request %d lost exact source identity or advertised tools", index)
+		}
+		assertThreadContinuityRequest(t, request, call.CallID, session.ContentSHA256(call.ResultJSON))
 	}
 	if lease, exists, err := st.GetRunExecutionLease(t.Context(), run.ID); err != nil || exists && lease.ReleasedAt == nil {
 		t.Errorf("completed continuity journey left a live lease: exists=%t lease=%+v err=%v", exists, lease, err)
@@ -182,7 +233,7 @@ func TestThreadContextContinuityCompactsWindowPressureWithoutSilentHistoryLoss(t
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	turns := application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st),
-		application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()))
+		application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(false))
 	const original = "UX_CONTEXT_PRESSURE_ORIGINAL: review without writes or installs. "
 	const correction = "UX_CONTEXT_PRESSURE_CORRECTION: preserve the original scope and use Chinese. "
 	padding := strings.Repeat("Historical diagnostic background remains evidence. ", 200)
@@ -364,6 +415,27 @@ func assertThreadContinuityRequest(t *testing.T, request llm.ChatRequest, readCa
 	}
 }
 
+func assertContinuityGeneratedSummary(t *testing.T, summary contextmgr.Summary, provider *continuityPurposeProvider, index int) {
+	t.Helper()
+	var envelope struct {
+		Generated *contextmgr.GeneratedSummary `json:"generated"`
+	}
+	if err := json.Unmarshal([]byte(summary.Content), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	generated := envelope.Generated
+	if len(provider.generatedRequests) <= index || generated == nil {
+		t.Fatal("default continuity path did not commit the generated summary")
+	}
+	request := provider.generatedRequests[index]
+	if generated.Version != contextmgr.GeneratedHandoffVersion || generated.InstructionAuthorized ||
+		generated.Text != provider.summary || generated.TextSHA256 != session.ContentSHA256(provider.summary) ||
+		generated.InputFingerprint != request.Metadata["input_fingerprint"] ||
+		generated.Receipt.SourceSHA256 != request.Metadata["source_sha256"] || generated.Receipt.CompletionSequence <= 0 {
+		t.Fatalf("generated continuity text lost its exact input receipt or gained authority: %+v", generated)
+	}
+}
+
 func assertContinuitySummaryProvenance(t *testing.T, content string, history []session.Message, call domain.SupervisorToolCall) {
 	t.Helper()
 	var envelope struct {
@@ -399,8 +471,14 @@ func assertContinuitySummaryProvenance(t *testing.T, content string, history []s
 		}
 		if record.SourceKind == session.SourceToolResult && strings.Contains(record.Content, call.CallID) {
 			toolFound = true
-			if record.InstructionAuthorized || !strings.Contains(record.Content, session.ContentSHA256(call.ResultJSON)) {
-				t.Error("summary tool evidence gained authority or lost its immutable result digest")
+			// The record is a bounded excerpt. Its immutable source, rather than
+			// a possibly cut display snippet, binds the exact tool result. The
+			// complete digest must still reach the saved summary and model input.
+			resultHash := session.ContentSHA256(call.ResultJSON)
+			if record.InstructionAuthorized || record.SourceContentSHA256 != session.ContentSHA256(original.Content) ||
+				!strings.Contains(original.Content, "call_id="+call.CallID+" result_sha256="+resultHash) ||
+				!strings.Contains(content, resultHash) {
+				t.Error("summary tool evidence gained authority or lost its immutable source/result digest")
 			}
 		}
 	}

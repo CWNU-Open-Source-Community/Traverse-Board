@@ -14,12 +14,14 @@ func TestSchemaV152PreservesLegacySteeringAndInstallsImmutableIntent(t *testing.
 	if err := applyMigrationPrefixForTest(t.Context(), state, plan, 151); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	_, run := createWorkItemTestRun(t, t.Context(), state, "legacy Thread intent upgrade")
 	request := domain.ThreadMessageIntentRequest{ThreadID: domain.InitialThreadID(run.ID), Content: "existing queued input", OperationKey: "thread-intent-migration-operation-0001", RequestedBy: "test_operator"}
 	legacy, err := state.EnqueueOperatorSteering(t.Context(), domain.EnqueueOperatorSteeringRequest{RunID: run.ID, SessionID: run.SessionID, Content: request.Content, OperationKey: request.OperationKey, RequestedBy: request.RequestedBy})
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.applyMigrations(t.Context(), plan); err != nil {
 		t.Fatal(err)
 	}

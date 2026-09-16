@@ -89,7 +89,8 @@ function stored<T>(key: string, scope = scopeA): T | undefined {
 }
 
 async function chooseFile(user: ReturnType<typeof userEvent.setup>, name: keyof typeof digests) {
-  await user.click(screen.getByRole("button", { name: "引用项目文件" }));
+  await user.click(screen.getByRole("button", { name: "添加附件" }));
+  await user.click(screen.getByRole("menuitem", { name: "引用项目文件" }));
   await user.click(await screen.findByRole("button", { name: new RegExp(name.replaceAll(".", "\\.")) }));
   await user.click(await screen.findByRole("button", { name: /^(引用此文件|Reference this file)$/u }));
   expect(screen.getByRole("button", { name: `移除引用 ${name}` })).toBeInTheDocument();

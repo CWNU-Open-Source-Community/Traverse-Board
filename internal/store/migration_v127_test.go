@@ -48,6 +48,18 @@ func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *tes
 		Name: "v127-source", RootPath: filepath.Join(t.TempDir(), "source")}); err != nil {
 		t.Fatal(err)
 	}
+	if err := legacy.applyMigration(ctx, migrationPlan()[126]); err != nil {
+		t.Fatal(err)
+	}
+	var v127Trigger string
+	if err := legacy.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master
+		WHERE type = 'trigger' AND name = 'trg_workspace_checkpoint_insert_scope'`).Scan(&v127Trigger); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(v127Trigger, "drydock_workspaces") ||
+		!strings.Contains(v127Trigger, "drydock.workspace_id = NEW.workspace_id") {
+		t.Fatalf("v127 checkpoint scope lacks exact Drydock ownership: %s", v127Trigger)
+	}
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -76,9 +88,14 @@ func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *tes
 		Scan(&triggerSQL); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(triggerSQL, "drydock_workspaces") ||
-		!strings.Contains(triggerSQL, "drydock.workspace_id = NEW.workspace_id") {
-		t.Fatalf("checkpoint scope was not extended with exact Drydock ownership: %s", triggerSQL)
+	for _, binding := range []string{"FROM run_file_drydock_bindings owner",
+		"JOIN drydock_workspaces drydock ON drydock.id=owner.drydock_id",
+		"owner.run_id=NEW.run_id", "owner.mission_id=NEW.mission_id",
+		"owner.session_id=NEW.session_id", "owner.workspace_id=NEW.workspace_id",
+		"drydock.state<>'cleaned'", "thread.last_run_id=owner.run_id"} {
+		if !strings.Contains(triggerSQL, binding) {
+			t.Fatalf("latest checkpoint scope lost exact Drydock ownership %q: %s", binding, triggerSQL)
+		}
 	}
 	assertNoForeignKeyViolations(t, upgraded.db)
 }

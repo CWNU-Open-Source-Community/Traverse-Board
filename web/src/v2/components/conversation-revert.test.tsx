@@ -51,12 +51,19 @@ function renderRevertConversation(history: boolean, unavailable?: "archived" | "
   return client;
 }
 
+async function openEditHistory(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "审阅改动" }));
+  await user.click(screen.getByRole("button", { name: "记录与恢复" }));
+  await user.click(screen.getByRole("button", { name: "编辑明细" }));
+}
+
 it.each([false, true])("drafts an exact revert from %s historical selection without sending or resuming", async (history) => {
   const client = renderRevertConversation(history);
   const user = userEvent.setup();
   const input = await screen.findByRole("textbox", { name: "继续对话" });
-  await user.click(screen.getByRole("button", { name: "审阅改动" }));
+  await openEditHistory(user);
   if (history) await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-history");
+  await waitFor(() => expect(client.fileEditQueue).toHaveBeenCalledWith(history ? "run-history" : "run-current", expect.any(AbortSignal)));
   await user.click(await screen.findByRole("button", { name: /review.txt.*applied/ }));
   await user.click(screen.getByRole("button", { name: "Close review" }));
   expect(input).toHaveValue("Preserve my existing request.");
@@ -87,7 +94,7 @@ it.each([false, true])("drafts an exact revert from %s historical selection with
 it.each(["archived", "readonly"] as const)("explains why %s cannot initiate a revert conversation", async (unavailable) => {
   const client = renderRevertConversation(false, unavailable);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "审阅改动" }));
+  await openEditHistory(user);
   await user.click(await screen.findByRole("button", { name: /review.txt.*applied/ }));
   expect(screen.getByRole("button", { name: "Revert this edit in conversation" })).toBeDisabled();
   expect(screen.getByText(unavailable === "archived" ? "此对话已归档，取消归档后才能发送撤销要求。"

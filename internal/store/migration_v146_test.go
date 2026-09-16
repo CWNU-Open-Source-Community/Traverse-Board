@@ -18,6 +18,7 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 145); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	runs := application.NewRunService(state)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal:    "defer a permission preference until the successor Run",
@@ -33,6 +34,7 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[145]); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +63,14 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 	if err != nil || currentRun.Status != domain.RunRunning {
 		t.Fatalf("current Run lifecycle changed: %+v err=%v", currentRun, err)
 	}
+	if version, err := state.SchemaVersion(ctx); err != nil || version != 146 {
+		t.Fatalf("schema version=%d want=146 err=%v", version, err)
+	}
+	// Verify v146's deferred preference before upgrading the later schema used
+	// by current lifecycle and Thread message writers.
+	if err := state.applyMigrations(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := runs.Cancel(ctx, run.ID); err != nil {
 		t.Fatal(err)
@@ -81,9 +91,6 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 		successorPermission.ExecutionAuthorized || successorPermission.CapabilityGrant {
 		t.Fatalf("successor did not materialize deferred preference: %+v err=%v",
 			successorPermission, err)
-	}
-	if version, err := state.SchemaVersion(ctx); err != nil || version != 146 {
-		t.Fatalf("schema version=%d want=146 err=%v", version, err)
 	}
 	assertNoForeignKeyViolations(t, state.db)
 }

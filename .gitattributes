@@ -11,6 +11,9 @@
 *.toml text eol=lf
 *.lock text eol=lf
 
+# The manifest is embedded verbatim in the Windows resource objects.
+packaging/windows/TraverseBoard.exe.manifest text eol=lf
+
 # Vendor font binaries are hash-bound and must never receive text conversion.
 web/src/assets/fonts/*.ttf -text
 web/public/THIRD-PARTY-NOTICES.txt text eol=lf

@@ -10,7 +10,7 @@ import (
 // Cumulative legacy fixtures must restore the pre-Thread triggers before
 // removing the tables they reference. Production migration history is intact.
 func removeSchemaV154ForTestStatements() []string {
-	var out []string
+	out := removeSchemaV157ForTestStatements()
 	seen := map[string]bool{}
 	for _, statements := range [][]string{threadPlanOnDemandContinuationStatements, planDeliveryOptionalCheckpointStatements, threadStandardCodeContinuationStatements, threadPlanContinuationStatements, threadDrydockDeliveryScopeStatements, threadDrydockRuntimeScopeStatements, threadDrydockBindingStatements, threadDrydockCleanupStatements} {
 		for _, statement := range statements {
@@ -52,11 +52,13 @@ func TestSchemaV154KeepsExistingHistoryAndAddsOnlyExplicitThreadBindings(t *test
 	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 153); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, _ := newV153SourceRun(t, state, "binding-upgrade")
 	before, err := state.loadAppliedMigrations(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

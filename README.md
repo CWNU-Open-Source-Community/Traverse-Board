@@ -603,6 +603,16 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 | v149 | 增加绑定精确 Thread/Run/Turn/Supervisor call 与公网 HTTPS 主机的 Web Fetch 审批账本，支持允许一次、当前对话允许、拒绝及崩溃后原调用恢复 | add a Web Fetch approval ledger bound to the exact Thread/Run/Turn/Supervisor call and public HTTPS host, supporting allow-once, allow-for-thread, deny, and crash recovery of the original call |
 | v150 | 将六个浏览器动作与 MCP 调用纳入 authority-bound Supervisor 工具账本，规范化精确 Run authority，并将历史无 authority 的 MCP 调用标记为不可恢复执行 | admit six browser actions and MCP calls to the authority-bound Supervisor tool ledger, canonicalize exact-Run authority, and mark historical authority-less MCP calls as non-resumable |
 | v151 | 为 Supervisor 工具调用与 Command Runtime Job 增加不可变执行 Agent 归属账本；新记录保留精确 Agent/attempt，历史记录仅在可证明时标记 legacy root，否则明确标记 unknown | add immutable execution-Agent attribution ledgers for Supervisor tool calls and Command Runtime Jobs; retain exact Agent/attempt for new records and mark history as legacy root only when provable, otherwise explicitly unknown |
+| v152 | 持久化 Thread 消息的文件准备意图，固定请求指纹和消息绑定，支持重启与后继 Run | persist Thread message file-preparation intent with fixed request fingerprints and message bindings across restarts and successor Runs |
+| v153 | 将文件修改应用范围扩展至精确的 Run-owned Drydock，同时保留历史应用与审批身份 | extend file-edit application scope to the exact Run-owned Drydock while preserving historical application and approval identities |
+| v154 | 增加相邻 Thread Run 共享工作目录的不可变绑定，并同步命令、检查点、交付与清理范围 | add immutable working-directory bindings between adjacent Thread Runs and align command, checkpoint, delivery, and cleanup scope |
+| v155 | 增加同一 Thread 编程与计划续接的来源校验，复用既有事件和原始验收收据 | add provenance checks for coding and plan continuation within a Thread using existing events and original acceptance receipts |
+| v156 | 允许一至三个有意义的计划选项及按需人工验收，保留原提案和请求收据 | allow one to three meaningful plan alternatives and on-demand manual acceptance while preserving original proposals and request receipts |
+| v157 | 将审批后的续跑绑定到已提交的原用户输入，避免重复投递或新增消息 | bind post-approval continuation to the original committed user input without redelivery or an extra message |
+| v158 | 增加不可变工作区图片、精确 Thread 消息绑定与待处理图片计数 | add immutable workspace images, exact Thread message bindings, and pending-image counts |
+| v159 | 为 Git 和拉取请求操作增加一次性执行认领，固定首次开始时间 | add one-time execution claims for Git and pull-request operations with an immutable first-start timestamp |
+| v160 | 增加不可变上传文件、可读性记录和精确 Thread 附件绑定，文件与图片分别计数 | add immutable uploaded files, readability records, and exact Thread attachment bindings with separate file and image counts |
+| v161 | 将受限历史检索工具纳入 Supervisor 账本，保留旧调用、权限约束和历史游标的行身份 | admit fenced history-recall tools to the Supervisor ledger while preserving existing calls, authority constraints, and row identities used by history cursors |
 
 </details>
 

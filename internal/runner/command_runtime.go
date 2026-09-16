@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -269,6 +270,16 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 		normalizeCommandRuntimeEnvironment(spec.Environment)
 	if err != nil {
 		return CommandRuntimeResolvedSpec{}, err
+	}
+	if runtime.GOOS == "windows" && spec.Profile == CommandRuntimePowerShell &&
+		strings.EqualFold(filepath.Base(executablePath), "powershell.exe") {
+		// Windows PowerShell 5 fails before executing -NoProfile commands when
+		// USERPROFILE is empty. Use the already canonical Workspace path, never
+		// the host user's profile, and bind this actual value into the receipt.
+		// This startup requirement does not add an isolation guarantee.
+		environment = replaceCommandRuntimeEnvironment(environment, "USERPROFILE", root)
+		encoded, _ := json.Marshal(environment)
+		environmentSHA = sha256.Sum256(encoded)
 	}
 	spec.Environment = environmentSpec
 	rootDigest := sha256.Sum256([]byte(root))

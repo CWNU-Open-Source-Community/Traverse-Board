@@ -399,6 +399,22 @@ func TestSessionRunChatTreatsPlainRepliesAndFinishAsNonTerminal(t *testing.T) {
 	}
 }
 
+// Keep the ordinary reply queue separate from the auxiliary model purpose.
+// This fixture exercises a declared generation failure and the real extractive
+// fallback; generated-summary success has a dedicated protocol fixture.
+type extractiveSessionProvider struct {
+	lifecycleProvider
+	summaryCalls int
+}
+
+func (p *extractiveSessionProvider) Chat(ctx context.Context, request llm.ChatRequest) (*llm.ChatResponse, error) {
+	if request.Metadata["purpose"] == "context_compaction" {
+		p.summaryCalls++
+		return nil, llm.NewProviderError(llm.OutcomePermanent, p.Name(), "fixture summary generation unavailable", nil)
+	}
+	return p.lifecycleProvider.Chat(ctx, request)
+}
+
 func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
@@ -417,7 +433,7 @@ func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 	for i := range responses {
 		responses[i] = rootActionResponse(domain.RootActionContinue, "continue", "", "")
 	}
-	provider := &lifecycleProvider{responses: responses}
+	provider := &extractiveSessionProvider{lifecycleProvider: lifecycleProvider{responses: responses}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	sess, err := st.GetSession(ctx, run.SessionID)
@@ -442,6 +458,9 @@ func TestSessionRunChatFeedsCompactedSummaryBackToSupervisor(t *testing.T) {
 	}
 	if len(provider.requests) != 12 {
 		t.Fatalf("provider request count = %d, want 12", len(provider.requests))
+	}
+	if provider.summaryCalls != 1 {
+		t.Fatalf("expected one explicit auxiliary failure before extractive fallback, got %d", provider.summaryCalls)
 	}
 	foundSummary := false
 	for _, message := range provider.requests[11].Messages {

@@ -29,6 +29,7 @@ func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 152); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, source := newV153SourceRun(t, state, "upgrade")
 	edit := v153Propose(t, state, run, source.ID, source.RootPath, "historical", time.Now().UTC())
 	reviewed, err := application.NewFileEditReviewService(state).Review(ctx, application.ReviewFileEditRequest{
@@ -46,6 +47,7 @@ func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

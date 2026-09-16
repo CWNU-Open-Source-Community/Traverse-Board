@@ -203,7 +203,7 @@ func TestThreadTurnImageSurvivesNativeToolPressureWithoutReplay(t *testing.T) {
 		}
 		return nil
 	}
-	turns := application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st), application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()))
+	turns := application.NewThreadTurnService(st, application.NewRunLifecycleControlService(st), application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(false))
 	_, err = turns.Execute(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -460,7 +460,9 @@ func TestThreadImageHistoryBeyond64PreservesBindingsAndExplicitCoverage(t *testi
 		}
 		request.Images = append(request.Images, domain.ImageReference{ID: image.ID, SHA256: image.SHA256})
 	}
-	turns := newThreadFilesService(st, provider)
+	// Keep this image-history fixture on the extractive path: its finite script
+	// supplies ordinary replies, not generated-summary responses.
+	turns := toolBoundaryService(st, st, provider)
 	var messageIDs []string
 	for index := range 17 {
 		request.OperationKey = fmt.Sprintf("long-image-turn-%d", index)

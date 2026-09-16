@@ -20,6 +20,7 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 142); err != nil {
 		t.Fatal(err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 
 	runs := application.NewRunService(state)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
@@ -54,6 +55,7 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 		t.Fatal(err)
 	}
 
+	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, migrationPlan()[142]); err != nil {
 		t.Fatal(err)
 	}

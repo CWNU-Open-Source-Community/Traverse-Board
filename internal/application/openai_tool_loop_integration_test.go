@@ -258,6 +258,8 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	messages = dialogueWithSingleToolEvidence(t, st, run.ID, run.SessionID, messages,
+		"work_item_create", domain.SupervisorToolCompleted)
 	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" ||
 		messages[1].Content != finalMessage {
 		t.Fatalf("Session did not commit exactly one user/assistant pair: %#v", messages)

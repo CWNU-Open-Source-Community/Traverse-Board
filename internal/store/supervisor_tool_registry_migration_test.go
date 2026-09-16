@@ -50,6 +50,32 @@ func addCurrentSupervisorToolStreamColumns(t *testing.T, ctx context.Context, db
 	}
 }
 
+// These fixtures predate v117's workspace-restore admission ledger. Persist
+// their running Run and lease using the historical columns, then use the real
+// fenced Supervisor writer to produce the tool records under test.
+func seedPreV117SupervisorLease(t *testing.T, ctx context.Context, st *SQLiteStore, runID string) domain.RunExecutionLease {
+	t.Helper()
+	now := time.Now().UTC()
+	result, err := st.db.ExecContext(ctx, `UPDATE runs SET status='running', started_at=?, updated_at=? WHERE id=? AND status='created'`, ts(now), ts(now), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		t.Fatalf("historical running fixture rows=%d err=%v", rows, err)
+	}
+	lease := domain.RunExecutionLease{RunID: runID, LeaseID: "legacy-" + runID, OwnerID: "legacy-supervisor-fixture", Generation: 1,
+		Status: domain.RunExecutionLeaseActive, AcquiredAt: now, RenewedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := lease.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `INSERT INTO run_execution_leases
+		(run_id,lease_id,owner_id,generation,status,acquired_at,renewed_at,expires_at)
+		VALUES(?,?,?,?,?,?,?,?)`, lease.RunID, lease.LeaseID, lease.OwnerID, lease.Generation, lease.Status, ts(now), ts(now), ts(lease.ExpiresAt)); err != nil {
+		t.Fatal(err)
+	}
+	return lease
+}
+
 func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v112-supervisor-tools.db")
@@ -88,6 +114,7 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	addCurrentSupervisorToolStreamColumns(t, ctx, db)
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 
 	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v112 Supervisor tools", Profile: "code",
@@ -97,12 +124,8 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunService(legacy).Start(ctx, run.ID); err != nil {
-		_ = legacy.Close()
-		t.Fatal(err)
-	}
 	turn, err := legacy.BeginSupervisorTurn(ctx,
-		acquireTestRunExecutionLease(t, ctx, legacy, run.ID), "persist a v112 call")
+		seedPreV117SupervisorLease(t, ctx, legacy, run.ID), "persist a v112 call")
 	if err != nil {
 		_ = legacy.Close()
 		t.Fatal(err)
@@ -139,6 +162,7 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		_ = legacy.Close()
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +229,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 		}
 	}
 	addCurrentSupervisorToolStreamColumns(t, ctx, db)
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v115 workspace authority", Profile: "code",
 		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
@@ -213,12 +238,8 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 		_ = legacy.Close()
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunService(legacy).Start(ctx, run.ID); err != nil {
-		_ = legacy.Close()
-		t.Fatal(err)
-	}
 	turn, err := legacy.BeginSupervisorTurn(ctx,
-		acquireTestRunExecutionLease(t, ctx, legacy, run.ID), "persist workspace authority")
+		seedPreV117SupervisorLease(t, ctx, legacy, run.ID), "persist workspace authority")
 	if err != nil {
 		_ = legacy.Close()
 		t.Fatal(err)
@@ -278,6 +299,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 		_ = legacy.Close()
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}

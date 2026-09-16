@@ -106,6 +106,7 @@ func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {
 		state.Close()
 		t.Fatalf("restored schema version=%d want=139 err=%v", version, err)
 	}
+	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 
 	threadRecord, err = state.GetThread(ctx, threadRecord.ID)
 	if err != nil {
@@ -154,6 +155,7 @@ func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {
 		state.Close()
 		t.Fatal(err)
 	}
+	restoreLegacyInputs()
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

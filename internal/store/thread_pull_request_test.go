@@ -15,23 +15,18 @@ import (
 func TestRemoteOperationStartedClaimAndV159MigrationPreserveHistory(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v159.db")
-	st, err := Open(path)
-	if err != nil {
+	st := openUnmigratedSQLiteStore(t, path)
+	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 158); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
 	workspace := WorkspaceRecord{ID: "ws-pr-started", Name: "fixture", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}
-	if err = st.SaveWorkspace(ctx, workspace); err != nil {
+	if err := st.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
 	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{Goal: "started migration fixture", Profile: "code", WorkspaceID: workspace.ID})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, q := range []string{`DROP TRIGGER trg_git_remote_started_once`, `DROP TRIGGER trg_git_mutation_started_once`, `ALTER TABLE git_remote_operations DROP COLUMN started_at`, `ALTER TABLE git_mutation_operations DROP COLUMN started_at`, `DELETE FROM schema_migrations WHERE version=159`} {
-		if _, err = st.db.ExecContext(ctx, q); err != nil {
-			t.Fatal(err)
-		}
 	}
 	created := time.Now().UTC().Add(-time.Minute)
 	completed := created.Add(time.Second)

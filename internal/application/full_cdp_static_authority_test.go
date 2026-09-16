@@ -16,8 +16,10 @@ func TestFullCDPBrowserToolsHonorStaticAuthorityAndRejectRevokedDynamicGrant(t *
 		t.Run(mode, func(t *testing.T) {
 			service, baseStore, _, latest := newFullCDPProductionServiceFixture(t)
 			if mode == "static_debug" {
+				// The fixture rounds its initial clock and advances the full-access
+				// snapshot. Derive the next time from that snapshot, not wall time.
 				permission, err := baseStore.executionPermission.Next("execution-static-debug",
-					domain.RunExecutionPermissionDebug, true, "runtime-operator", "confirmed Debug", time.Now().UTC().Add(time.Millisecond))
+					domain.RunExecutionPermissionDebug, true, "runtime-operator", "confirmed Debug", baseStore.executionPermission.CreatedAt.Add(time.Millisecond))
 				if err != nil {
 					t.Fatal(err)
 				}

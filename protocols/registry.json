@@ -3015,6 +3015,7 @@
       "identifier": "generated_handoff.v2",
       "kind": "negative-version-fixture",
       "sources": [
+        "internal/application/thread_generated_compaction_integration_test.go",
         "internal/contextmgr/generated_summary_test.go"
       ],
       "reason": "Unsupported generated summary version used only to verify rejection; not a production protocol."
