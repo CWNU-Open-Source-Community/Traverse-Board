@@ -9,6 +9,9 @@ afterEach(() => {
 
 it("restores task/settings identity and rejects malformed links without guessing another task", () => {
   expect(readV2Route("#/threads/thread-42/settings/models")).toEqual({ kind: "thread", threadID: "thread-42", section: "models" });
+  expect(readV2Route("#/threads/thread-42/settings/advanced-models")).toEqual({
+    kind: "thread", threadID: "thread-42", section: "advanced-models",
+  });
   expect(readV2Route("#/new")).toEqual({ kind: "new" });
   for (const hash of ["#/threads/%ZZ", "#/threads/../../another", "#/threads/%2fother", "#/threads/task/settings/unknown"]) {
     expect(readV2Route(hash)).toEqual({ kind: "invalid" });

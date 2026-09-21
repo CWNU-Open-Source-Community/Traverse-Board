@@ -124,6 +124,20 @@ func TestAgentCodePayloadsAreStrictAndBounded(t *testing.T) {
 	}
 }
 
+func TestAgentCodeDefinitionsDescribeAutomaticOrdinaryChanges(t *testing.T) {
+	change, found := AgentCodeToolDefinition(WorkspaceChangeTool)
+	if !found || !strings.Contains(change.Description,
+		"create, replace, non-overwriting move, or reversal that resolves to create/replace") ||
+		!strings.Contains(change.Description,
+			"Direct deletes and reversals that resolve to delete require operator review") {
+		t.Fatalf("workspace_change Full Access description=%q", change.Description)
+	}
+	apply, found := AgentCodeToolDefinition(WorkspaceApplyTool)
+	if !found || !strings.Contains(apply.Description, "create/replace/move") {
+		t.Fatalf("workspace_apply Full Access description=%q", apply.Description)
+	}
+}
+
 func availableAgentCodeCount(snapshot AgentCodeCapabilitySnapshot) int {
 	count := 0
 	for _, tool := range snapshot.Tools {

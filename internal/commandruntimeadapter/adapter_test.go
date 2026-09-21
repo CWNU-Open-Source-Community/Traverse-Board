@@ -55,3 +55,24 @@ func TestAdapterGenerationIsPartOfAuthorityIdentity(t *testing.T) {
 		t.Fatalf("authority validation failed: %v", authority.Validate())
 	}
 }
+
+func TestCommandRuntimeAuthorityBindsOptionalLiveFullAccessGrant(t *testing.T) {
+	authority := NewAuthority("run-adapter-test",
+		HostUnsandboxed("host-generation-1"))
+	authority.PermissionSnapshotID = "permission-full-test"
+	authority.PermissionGeneration = 7
+	authority.PermissionRuntimeEpoch = "process-epoch-test"
+	encoded, err := EncodeAuthority(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeAuthority(encoded)
+	if err != nil || decoded != authority {
+		t.Fatalf("live Full Access authority=%+v err=%v", decoded, err)
+	}
+	partial := authority
+	partial.PermissionRuntimeEpoch = ""
+	if partial.Validate() == nil {
+		t.Fatal("partial live Full Access grant authority was accepted")
+	}
+}

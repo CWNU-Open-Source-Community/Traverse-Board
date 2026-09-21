@@ -142,6 +142,8 @@ import type {
   ProviderDefinitionUpsertRequestView,
   ProviderDefinitionView,
   ProviderSearchReadinessView,
+  SearchDiagnosticsRequestView,
+  SearchDiagnosticsView,
   RepositoryStateView,
   RepositoryDiffView,
   RepositoryHistoryView,
@@ -2014,14 +2016,15 @@ function validVisionCapability(value: unknown): boolean {
 }
 
 function parseAvailableModelRoute(value: unknown): AvailableModelRouteCollectionView["routes"][number] {
-  const required = ["credential_status", "default_for_routes", "enabled",
-    "harness_ready", "model", "provider_id", "provider_name", "qualification_status",
+	const required = ["credential_status", "default_for_routes", "enabled",
+		"definition_revision", "harness_ready", "model", "provider_id", "provider_name", "qualification_status",
     "selectable", "unavailable_reason"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, "vision_capability"]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     (value.vision_capability !== undefined && !validVisionCapability(value.vision_capability)) ||
     !boundedIdentity(value.provider_id) || !boundedText(value.provider_name, 256) ||
-    !boundedIdentity(value.model) || typeof value.enabled !== "boolean" ||
+		!boundedIdentity(value.model) || !safeBoundedCount(value.definition_revision, Number.MAX_SAFE_INTEGER) ||
+		typeof value.enabled !== "boolean" ||
     typeof value.harness_ready !== "boolean" || typeof value.selectable !== "boolean" ||
     !availableRouteCredentialStatuses.includes(value.credential_status as never) ||
     !availableRouteQualificationStatuses.includes(value.qualification_status as never) ||
@@ -2151,6 +2154,49 @@ function parseProviderSearchReadiness(value: unknown,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as ProviderSearchReadinessView;
+}
+
+const searchDiagnosticCodes = ["none", "network", "rate_limited", "access_challenge",
+  "authentication", "provider_rejected", "tool_unsupported", "no_usable_results",
+  "invalid_response", "not_configured", "not_authorized", "timeout",
+  "configuration_changed"] as const;
+
+function parseSearchDiagnostics(value: unknown, threadID: string): SearchDiagnosticsView {
+  const required = ["backend", "checked_at", "code", "mode_revision", "model", "model_route",
+    "network_request_attempted", "protocol_version", "provider", "result_count", "run_id",
+    "search_policy", "state", "thread_id"];
+  const optional = ["http_status", "rate_limit_reset", "required_target", "retry_after"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "search_diagnostics.v1" || value.thread_id !== threadID ||
+    !boundedIdentity(value.thread_id) || !boundedIdentity(value.run_id) ||
+    !safePositiveInteger(value.mode_revision) || !boundedText(value.model_route, 512) ||
+    !boundedIdentity(value.provider) || !boundedIdentity(value.model) ||
+    !["", "disabled", "auto", "web", "searxng", "provider_native"]
+      .includes(String(value.search_policy)) || (value.backend !== "" && !boundedText(value.backend, 256)) ||
+    !validDate(value.checked_at) || !["succeeded", "failed"].includes(String(value.state)) ||
+    !searchDiagnosticCodes.includes(value.code as never) ||
+    !safeBoundedCount(value.result_count, 10) || typeof value.network_request_attempted !== "boolean" ||
+    (value.retry_after !== undefined && !boundedText(value.retry_after, 128)) ||
+    (value.rate_limit_reset !== undefined && !boundedText(value.rate_limit_reset, 128)) ||
+    (value.required_target !== undefined && !validSearchTarget(value.required_target)) ||
+    (value.http_status !== undefined && (!Number.isSafeInteger(value.http_status) ||
+      Number(value.http_status) < 100 || Number(value.http_status) > 599))) {
+    throw new APIRequestError("Search diagnostics response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const succeeded = value.state === "succeeded";
+  if (succeeded !== (value.code === "none") ||
+    (succeeded && (value.result_count === 0 || value.network_request_attempted !== true ||
+      value.backend === "" || value.search_policy === "")) ||
+    (!succeeded && value.result_count !== 0) ||
+    ((value.code === "rate_limited" || value.code === "access_challenge") &&
+      value.network_request_attempted !== true) ||
+    (value.code !== "rate_limited" &&
+      (value.retry_after !== undefined || value.rate_limit_reset !== undefined))) {
+    throw new APIRequestError("Search diagnostics response violated its outcome binding",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as SearchDiagnosticsView;
 }
 
 function parseModelRouteControl(value: unknown, route: string,
@@ -7272,6 +7318,16 @@ export class CyberAgentClient {
     }
     return parseProviderSearchReadiness(await this.get<unknown>(
       `/threads/${encodeURIComponent(threadID)}/search-readiness`, {}, signal), threadID);
+  }
+
+  async diagnoseThreadSearch(threadID: string, body: SearchDiagnosticsRequestView,
+    signal?: AbortSignal): Promise<SearchDiagnosticsView> {
+    if (!this.hasControl || !boundedIdentity(threadID) || threadID.trim() !== threadID ||
+      body.version !== "search_diagnostics.v1" || body.confirm !== true) {
+      throw new Error("Explicit confirmation and a normalized Thread are required for search diagnostics");
+    }
+    return parseSearchDiagnostics(await this.sendControlRequest<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/search-diagnostics`, body, signal), threadID);
   }
 
   async selectThreadModelRoute(threadID: string, body: ThreadModelRouteControlRequestView,

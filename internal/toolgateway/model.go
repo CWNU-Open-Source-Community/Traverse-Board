@@ -51,6 +51,7 @@ const (
 	CommandRuntimeTool              ToolName = "command_runtime"
 	MCPToolCallTool                 ToolName = "mcp_tool_call"
 	WebSearchTool                   ToolName = "web_search"
+	SourceSearchTool                ToolName = "source_search"
 	WebFetchTool                    ToolName = "web_fetch"
 	WebCitationTool                 ToolName = "web_citation"
 	BrowserStatusTool               ToolName = "browser_status"
@@ -110,7 +111,7 @@ func (n ToolName) Valid() bool {
 		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
 		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
 		return true
-	case MCPToolCallTool, WebSearchTool, WebFetchTool, WebCitationTool:
+	case MCPToolCallTool, WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 		return true
 	case HostCommandProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
@@ -165,7 +166,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassProcess, true
 	case MCPToolCallTool:
 		return ClassProcess, true
-	case WebSearchTool, WebFetchTool, WebCitationTool:
+	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 		return ClassNetworkRead, true
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
 		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
@@ -241,9 +242,11 @@ type ToolCall struct {
 	ModeRevision                int64                             `json:"mode_revision,omitempty"`
 	PermissionRevision          int64                             `json:"permission_revision,omitempty"`
 	PermissionGeneration        uint64                            `json:"permission_generation,omitempty"`
+	PermissionRuntimeEpoch      string                            `json:"-"`
 	RunAuthorizationFence       uint64                            `json:"run_authorization_fence,omitempty"`
 	CapabilityGeneration        string                            `json:"capability_generation,omitempty"`
 	ProviderFingerprint         string                            `json:"-"`
+	ConnectorFingerprint        string                            `json:"-"`
 	SupervisorTurn              int                               `json:"-"`
 	SupervisorToolCallID        string                            `json:"-"`
 	LeaseID                     string                            `json:"-"`
@@ -274,8 +277,10 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.Profile = domain.Profile(strings.TrimSpace(string(call.Profile)))
 	call.PermissionMode = domain.RunExecutionPermissionMode(strings.TrimSpace(string(call.PermissionMode)))
 	call.PermissionSnapshotID = strings.TrimSpace(call.PermissionSnapshotID)
+	call.PermissionRuntimeEpoch = strings.TrimSpace(call.PermissionRuntimeEpoch)
 	call.CapabilityGeneration = strings.TrimSpace(call.CapabilityGeneration)
 	call.ProviderFingerprint = strings.TrimSpace(call.ProviderFingerprint)
+	call.ConnectorFingerprint = strings.TrimSpace(call.ConnectorFingerprint)
 	call.SupervisorToolCallID = strings.TrimSpace(call.SupervisorToolCallID)
 	call.LeaseID = strings.TrimSpace(call.LeaseID)
 	call.WorkspaceRoot = strings.TrimSpace(call.WorkspaceRoot)
@@ -292,8 +297,10 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		"workspace id": call.WorkspaceID, "lease id": call.LeaseID, "requester": call.RequestedBy,
 		"mission id": call.MissionID, "root fingerprint": call.RootFingerprint,
 		"permission snapshot id":         call.PermissionSnapshotID,
+		"permission runtime epoch":       call.PermissionRuntimeEpoch,
 		"capability generation":          call.CapabilityGeneration,
 		"Provider fingerprint":           call.ProviderFingerprint,
+		"source connector fingerprint":   call.ConnectorFingerprint,
 		"supervisor tool call id":        call.SupervisorToolCallID,
 		"browser action session id":      call.BrowserActionSessionID,
 		"browser permission snapshot id": call.BrowserPermissionSnapshotID,
@@ -336,10 +343,19 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		(!IsWebEvidenceTool(call.Name) || !validAgentCodeDigest(call.ProviderFingerprint, false)) {
 		return ToolCall{}, errors.New("tool Web search Provider fingerprint is invalid")
 	}
+	if call.ConnectorFingerprint != "" &&
+		(!IsWebEvidenceTool(call.Name) || !validAgentCodeDigest(call.ConnectorFingerprint, false)) {
+		return ToolCall{}, errors.New("tool source connector fingerprint is invalid")
+	}
 	if call.Name == WebSearchTool && call.OperationKey != "" &&
 		!validAgentCodeDigest(call.ProviderFingerprint, false) {
 		return ToolCall{}, errors.New(
 			"Web search requires the exact advertised Provider fingerprint")
+	}
+	if call.Name == SourceSearchTool && call.OperationKey != "" &&
+		!validAgentCodeDigest(call.ConnectorFingerprint, false) {
+		return ToolCall{}, errors.New(
+			"source search requires the exact advertised connector fingerprint")
 	}
 	if strings.ContainsRune(call.OperationKey, 0) {
 		return ToolCall{}, errors.New("tool operation key cannot contain NUL")
@@ -396,8 +412,10 @@ func (c ToolCall) Validate() error {
 		normalized.ModeRevision != c.ModeRevision || normalized.PermissionRevision != c.PermissionRevision ||
 		normalized.CapabilityGeneration != c.CapabilityGeneration ||
 		normalized.ProviderFingerprint != c.ProviderFingerprint ||
+		normalized.ConnectorFingerprint != c.ConnectorFingerprint ||
 		normalized.SupervisorTurn != c.SupervisorTurn ||
 		normalized.SupervisorToolCallID != c.SupervisorToolCallID ||
+		normalized.PermissionRuntimeEpoch != c.PermissionRuntimeEpoch ||
 		normalized.LeaseGeneration != c.LeaseGeneration || normalized.WorkspaceRoot != c.WorkspaceRoot ||
 		normalized.RequestedBy != c.RequestedBy ||
 		normalized.BrowserActionSessionID != c.BrowserActionSessionID ||

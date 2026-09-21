@@ -463,4 +463,89 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 		json.RawMessage(`{"version":"web_fetch.v1","url":"https://127.0.0.1/private"}`)); err == nil || backend.calls != 1 {
 		t.Fatalf("unsafe target err=%v calls=%d", err, backend.calls)
 	}
+
+	// The normal desktop requires a process-local activation in addition to the
+	// durable Full Access snapshot. An old call must not acquire that authority
+	// after a cold start or after a revoke/re-activation cycle.
+	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	liveCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+	executor.WithExecutionPermissionCapabilities(liveCapabilities)
+	oldScope := scope
+	oldScope.InvocationID = "web-full-access-invocation-cold"
+	oldScope.OperationKey = "web-full-access-fetch-cold-0001"
+	if _, err := executor.ExecuteWebEvidence(ctx, oldScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/cold"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 1 {
+		t.Fatalf("cold Full Access was not fenced: calls=%d err=%v", backend.calls, err)
+	}
+	grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveContext := capabilityContext
+	liveContext.PermissionSnapshotID = permission.ID
+	liveContext.PermissionGeneration = grant.Generation
+	liveContext.PermissionRuntimeEpoch = runtimeAuthority.RuntimeEpoch()
+	liveScope := scope
+	liveScope.InvocationID = "web-full-access-invocation-live"
+	liveScope.OperationKey = "web-full-access-fetch-live-0001"
+	liveScope.PermissionSnapshotID = permission.ID
+	liveScope.PermissionGeneration = grant.Generation
+	liveScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(liveContext).Generation
+	if _, err := executor.ExecuteWebEvidence(ctx, liveScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/live"}`)); err != nil || backend.calls != 2 {
+		t.Fatalf("live Full Access fetch calls=%d err=%v", backend.calls, err)
+	}
+	// A new process can issue the same numeric generation for the same durable
+	// permission snapshot. The old capability must still fail before fetch.
+	freshRuntimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	freshGrant, err := freshRuntimeAuthority.ActivateRunFullAccess(permission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshGrant.Generation != grant.Generation ||
+		freshRuntimeAuthority.RuntimeEpoch() == runtimeAuthority.RuntimeEpoch() {
+		t.Fatal("cross-instance generation collision fixture was not established")
+	}
+	executor.WithExecutionPermissionCapabilities(domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: freshRuntimeAuthority})
+	oldProcessScope := liveScope
+	oldProcessScope.InvocationID = "web-full-access-invocation-old-process"
+	oldProcessScope.OperationKey = "web-full-access-fetch-old-process-0001"
+	if _, err := executor.ExecuteWebEvidence(ctx, oldProcessScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/old-process"}`)); err == nil || backend.calls != 2 {
+		t.Fatalf("old process authority revived: calls=%d err=%v", backend.calls, err)
+	}
+	freshContext := liveContext
+	freshContext.PermissionRuntimeEpoch = freshRuntimeAuthority.RuntimeEpoch()
+	freshScope := liveScope
+	freshScope.InvocationID = "web-full-access-invocation-new-process"
+	freshScope.OperationKey = "web-full-access-fetch-new-process-0001"
+	freshScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(freshContext).Generation
+	if _, err := executor.ExecuteWebEvidence(ctx, freshScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/new-process"}`)); err != nil || backend.calls != 3 {
+		t.Fatalf("new process authority failed: calls=%d err=%v", backend.calls, err)
+	}
+	executor.WithExecutionPermissionCapabilities(liveCapabilities)
+	runtimeAuthority.RevokeRun(run.ID)
+	revokedScope := liveScope
+	revokedScope.InvocationID = "web-full-access-invocation-revoked"
+	revokedScope.OperationKey = "web-full-access-fetch-revoked-0001"
+	if _, err := executor.ExecuteWebEvidence(ctx, revokedScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
+		t.Fatalf("revoked Full Access was not fenced: calls=%d err=%v", backend.calls, err)
+	}
+	newGrant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newGrant.Generation == grant.Generation {
+		t.Fatal("reactivation reused a revoked runtime generation")
+	}
+	if _, err := executor.ExecuteWebEvidence(ctx, revokedScope, toolgateway.WebFetchTool,
+		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
+		t.Fatalf("old generation was revived: calls=%d err=%v", backend.calls, err)
+	}
 }

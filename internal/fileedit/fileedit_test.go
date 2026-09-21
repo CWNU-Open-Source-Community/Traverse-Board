@@ -374,6 +374,177 @@ func TestManagerMoveRecoversPublishedHardLinkAfterInterruptedApply(t *testing.T)
 	}
 }
 
+func TestManagerMoveRechecksAutomaticAuthorityAtBothWriteBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		failAt int
+	}{
+		{name: "before link", failAt: 1},
+		{name: "before source removal", failAt: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "source.txt")
+			destination := filepath.Join(root, "destination.txt")
+			if err := os.WriteFile(source, []byte("bounded move\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			sourceHash, err := CurrentHash(root, "source.txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager := NewManager(newMemoryStore())
+			move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+				WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+				DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+				ExpectedDestinationHash: missingHash})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+				t.Fatal(err)
+			}
+			checks := 0
+			_, err = manager.ApproveWithPreWriteCheck(context.Background(), move.ID, root,
+				func() error {
+					checks++
+					if checks == test.failAt {
+						return errors.New("Full Access was revoked")
+					}
+					return nil
+				})
+			if err == nil || checks != test.failAt {
+				t.Fatalf("move authority checks=%d err=%v", checks, err)
+			}
+			if data, readErr := os.ReadFile(source); readErr != nil || string(data) != "bounded move\n" {
+				t.Fatalf("revoked move changed source=%q err=%v", data, readErr)
+			}
+			if test.failAt == 1 {
+				if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+					t.Fatalf("first-boundary rejection published destination: %v", statErr)
+				}
+			} else {
+				if data, readErr := os.ReadFile(destination); readErr != nil || string(data) != "bounded move\n" {
+					t.Fatalf("second-boundary rejection lost recoverable destination=%q err=%v", data, readErr)
+				}
+			}
+		})
+	}
+}
+
+func TestManagerMoveRecoveryRechecksAuthorityBeforeRemovingSource(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination.txt")
+	if err := os.WriteFile(source, []byte("recoverable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, _ := CurrentHash(root, "source.txt")
+	manager := NewManager(newMemoryStore())
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	if _, err := manager.ApproveWithPreWriteCheck(context.Background(), move.ID, root,
+		func() error { checks++; return errors.New("grant revoked during recovery") }); err == nil || checks != 1 {
+		t.Fatalf("linked recovery authority checks=%d err=%v", checks, err)
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("revoked linked recovery removed source: %v", err)
+	}
+	if _, err := os.Stat(destination); err != nil {
+		t.Fatalf("revoked linked recovery removed destination: %v", err)
+	}
+}
+
+func TestManagerMoveRefusesDestinationReplacementBetweenAuthorityChecks(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination.txt")
+	if err := os.WriteFile(source, []byte("owned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, _ := CurrentHash(root, "source.txt")
+	manager := NewManager(newMemoryStore())
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	failed, err := manager.ApproveWithPreWriteCheck(context.Background(), move.ID, root,
+		func() error {
+			checks++
+			if checks == 2 {
+				if err := os.Remove(destination); err != nil {
+					return err
+				}
+				return os.WriteFile(destination, []byte("foreign\n"), 0o644)
+			}
+			return nil
+		})
+	if err == nil || failed.Status != StatusFailed || checks != 2 {
+		t.Fatalf("replaced destination move=%+v checks=%d err=%v", failed, checks, err)
+	}
+	if data, readErr := os.ReadFile(source); readErr != nil || string(data) != "owned\n" {
+		t.Fatalf("destination replacement changed source=%q err=%v", data, readErr)
+	}
+	if data, readErr := os.ReadFile(destination); readErr != nil || string(data) != "foreign\n" {
+		t.Fatalf("foreign destination was overwritten=%q err=%v", data, readErr)
+	}
+}
+
+func TestManagerMoveRevalidatesSourceAfterAuthorizationCheck(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination.txt")
+	if err := os.WriteFile(source, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, _ := CurrentHash(root, "source.txt")
+	manager := NewManager(newMemoryStore())
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	failed, err := manager.ApproveWithPreWriteCheck(context.Background(), move.ID, root,
+		func() error {
+			checks++
+			return os.WriteFile(source, []byte("changed during check\n"), 0o644)
+		})
+	if err == nil || failed.Status != StatusFailed || checks != 1 {
+		t.Fatalf("source drift move=%+v checks=%d err=%v", failed, checks, err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("source drift was linked to destination: %v", err)
+	}
+	if data, readErr := os.ReadFile(source); readErr != nil || string(data) != "changed during check\n" {
+		t.Fatalf("source drift was overwritten=%q err=%v", data, readErr)
+	}
+}
+
 func TestManagerCreateRefusesConcurrentTargetAfterReview(t *testing.T) {
 	root := t.TempDir()
 	manager := NewManager(newMemoryStore())

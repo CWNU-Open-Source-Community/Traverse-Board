@@ -69,7 +69,7 @@ function unavailableReason(route: V2AvailableModelRoute): string {
     auth_failed: "API Key 验证失败",
     network_failed: "无法连接模型供应商",
     rate_limit: "供应商正在限流，请稍后重试",
-    capacity: "供应商当前容量不足",
+    capacity: "供应商额度或容量不足，请检查账单或服务状态",
     model_unsupported: "供应商不支持该模型",
     unavailable: "Harness 可用性尚未确认",
   };
@@ -111,7 +111,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   threadID: string;
   pendingRoute?: V2PendingModelRoute | null;
   runActive?: boolean;
-  onManageModels: () => void;
+  onManageModels: (prepareForDraft?: boolean) => void;
   onPendingRouteChange?: (route: V2PendingModelRoute | null) => void;
 }) {
   const catalogAvailable = Boolean(client.hasModelControl);
@@ -216,6 +216,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
     }
     return [...grouped.entries()].map(([id, value]) => ({ id, ...value }));
   }, [catalogQuery.data?.routes]);
+  const hasSelectableRoutes = Boolean(catalogQuery.data?.routes.some((route) => route.selectable));
   const current = threadID ? routeQuery.data : pendingRoute ? {
     protocol_version: "thread_model_route.v1" as const,
     thread_id: "",
@@ -253,7 +254,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   const closeForNavigation = () => {
     pendingFocusOriginRef.current = null;
     setLevel("closed");
-    onManageModels();
+    onManageModels(!threadID && catalogQuery.isSuccess && !hasSelectableRoutes);
   };
 
   return <div className="v2-model-route-control" ref={rootRef}>
@@ -336,7 +337,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
           <CircleAlert aria-hidden="true" size={14} />{mutation.error instanceof Error
             ? mutation.error.message : "模型路由更新失败"}</span>}
         <button onClick={closeForNavigation} role="menuitem" type="button">
-        <Settings aria-hidden="true" size={15} /><span>{groups.length ? "管理模型供应商…" : "添加模型供应商"}</span>
+        <Settings aria-hidden="true" size={15} /><span>{hasSelectableRoutes ? "管理模型供应商…" : "添加模型供应商"}</span>
       </button></footer>
     </div>}
   </div>;

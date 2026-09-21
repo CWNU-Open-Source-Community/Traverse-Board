@@ -1,6 +1,7 @@
 package toolgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -79,7 +80,7 @@ func (i CommandRuntimeInput) Validate() error {
 	}
 	for _, command := range i.Commands {
 		if command.Version != runner.CommandRuntimeProtocolVersion ||
-			!command.Profile.Valid() || command.Network != runner.CommandRuntimeNetworkDisabled ||
+			!command.Profile.Valid() || !command.Network.Valid() ||
 			command.Credentials != runner.CommandRuntimeCredentialsNone ||
 			command.TimeoutMilliseconds < 1 ||
 			command.TimeoutMilliseconds > runner.MaxCommandRuntimeTimeout.Milliseconds() {
@@ -146,28 +147,31 @@ func (i CommandRuntimeInput) Validate() error {
 }
 
 type CommandRuntimeContext struct {
-	InvocationID         string
-	OperationKey         string
-	RunID                string
-	MissionID            string
-	RootAgentID          string
-	AgentID              string
-	AgentAttemptID       string
-	SessionID            string
-	WorkspaceID          string
-	Surface              domain.ExecutionSurface
-	Phase                domain.ExecutionPhase
-	Role                 domain.AgentRole
-	Profile              domain.Profile
-	PermissionMode       domain.RunExecutionPermissionMode
-	ModeRevision         int64
-	PermissionRevision   int64
-	CapabilityGeneration string
-	LeaseID              string
-	LeaseGeneration      int64
-	RequestedBy          string
-	PolicyDecision       Decision
-	Adapter              commandruntimeadapter.Identity
+	InvocationID           string
+	OperationKey           string
+	RunID                  string
+	MissionID              string
+	RootAgentID            string
+	AgentID                string
+	AgentAttemptID         string
+	SessionID              string
+	WorkspaceID            string
+	Surface                domain.ExecutionSurface
+	Phase                  domain.ExecutionPhase
+	Role                   domain.AgentRole
+	Profile                domain.Profile
+	PermissionMode         domain.RunExecutionPermissionMode
+	ModeRevision           int64
+	PermissionRevision     int64
+	CapabilityGeneration   string
+	PermissionSnapshotID   string
+	PermissionGeneration   uint64
+	PermissionRuntimeEpoch string
+	LeaseID                string
+	LeaseGeneration        int64
+	RequestedBy            string
+	PolicyDecision         Decision
+	Adapter                commandruntimeadapter.Identity
 }
 
 func (c CommandRuntimeContext) Validate() error {
@@ -201,6 +205,14 @@ func (c CommandRuntimeContext) Validate() error {
 		c.Profile != domain.ProfileCode || !c.PermissionMode.Valid() ||
 		c.ModeRevision <= 0 || c.PermissionRevision <= 0) {
 		return errors.New("command runtime authority tuple is invalid or partial")
+	}
+	if c.PermissionSnapshotID != "" || c.PermissionGeneration != 0 ||
+		c.PermissionRuntimeEpoch != "" {
+		if !domain.ValidAgentID(c.PermissionSnapshotID) ||
+			c.PermissionGeneration == 0 || c.PermissionRuntimeEpoch == "" ||
+			!c.PermissionMode.IncludesFullAccess() {
+			return errors.New("command runtime live Full Access authority is invalid or partial")
+		}
 	}
 	return nil
 }
@@ -311,6 +323,26 @@ var commandRuntimeDefinition = ToolDefinition{
 	Name: CommandRuntimeTool, Class: ClassProcess, Approval: ApprovalAutomatic,
 	Description: "Run an ordered command-runtime.v2 batch or manage one Run-owned background Job through the adapter selected by current Run authority; the model cannot select or override that adapter. Every command declares a fixed PowerShell/Bash/process profile, literal argv or script, workspace-relative cwd, restricted environment, stdin lifecycle, timeout, bounded output, disabled network intent, and no credentials. Output is untrusted, sanitized, cursor-addressed evidence; this tool is separate from the user terminal, Debug terminal, reviewed one-shot command, and Docker Sandbox. " + commandRuntimeTimeoutGuidance,
 	InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","additionalProperties":false,"required":["version","action"],"properties":{"version":{"const":"command-runtime.v2"},"action":{"description":%s,"enum":["run","start","list","read","wait","write_stdin","cancel","kill"]},"commands":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["version","profile","working_directory","environment","stdin_policy","close_initial_stdin","timeout_milliseconds","output","network","credentials","purpose"],"properties":{"version":{"const":"command-runtime.v2"},"profile":{"description":"process accepts an absolute native development runtime such as Node/Python or another allowed native executable plus literal arguments; omit script. Shells, system script hosts, script files and blocked launchers are rejected as process executables. For shell syntax use script with powershell or bash only when supported by the current adapter, and omit executable and arguments. The executable remains outside the Workspace and pinned by SHA-256; a listed profile does not grant runtime availability or permission.","enum":["powershell","bash","process"]},"executable":{"type":"string","maxLength":4096},"arguments":{"type":"array","maxItems":128,"items":{"type":"string","maxLength":16384}},"script":{"type":"string","maxLength":65536},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"environment":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"value":{"type":"string","maxLength":65536}}}},"stdin_policy":{"enum":["closed","pipe"]},"initial_stdin":{"type":"string","maxLength":65536},"close_initial_stdin":{"type":"boolean"},"timeout_milliseconds":{"description":%s,"type":"integer","minimum":1,"maximum":%d},"output":{"type":"object","additionalProperties":false,"required":["inline_bytes","artifact_bytes"],"properties":{"inline_bytes":{"type":"integer","minimum":4096,"maximum":524288},"artifact_bytes":{"type":"integer","minimum":4096,"maximum":4194304}}},"network":{"const":"disabled"},"credentials":{"const":"none"},"purpose":{"type":"string","minLength":1,"maxLength":1200}}}},"failure_policy":{"enum":["fail_fast","continue"]},"job_id":{"type":"string","minLength":1,"maxLength":256},"cursor":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":4,"maximum":32768},"wait_milliseconds":{"type":"integer","minimum":0,"maximum":5000},"stdin":{"type":"string","maxLength":65536},"close_stdin":{"type":"boolean"}},"allOf":[{"if":{"properties":{"action":{"const":"run"}}},"then":{"required":["commands","failure_policy","max_bytes"],"properties":{"commands":{"items":{"properties":{"timeout_milliseconds":{"maximum":%d}}}}}}},{"if":{"properties":{"action":{"const":"start"}}},"then":{"required":["commands"],"properties":{"commands":{"maxItems":1}}}},{"if":{"properties":{"action":{"enum":["read","wait"]}}},"then":{"required":["job_id","cursor","max_bytes","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"write_stdin"}}},"then":{"required":["job_id","stdin","close_stdin"]}},{"if":{"properties":{"action":{"const":"cancel"}}},"then":{"required":["job_id","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"kill"}}},"then":{"required":["job_id"]}}]}`, strconv.Quote(fmt.Sprintf("run executes a foreground batch within %dms total; start creates one background Job; read/wait observe that original Job.", MaxCommandRuntimeForegroundMillis)), strconv.Quote(fmt.Sprintf("Milliseconds for this command. run requires the batch sum <= %dms; start permits one command up to %dms.", MaxCommandRuntimeForegroundMillis, runner.MaxCommandRuntimeTimeout.Milliseconds())), runner.MaxCommandRuntimeTimeout.Milliseconds(), MaxCommandRuntimeForegroundMillis)),
+}
+
+// The host adapter already has host networking. Advertise that fact only to
+// a Run whose current Full Access authority selected this adapter; the
+// Workspace Sandbox retains the disabled-network contract.
+func CommandRuntimeDefinitionForAdapter(adapter commandruntimeadapter.Identity) ToolDefinition {
+	if adapter.Kind != commandruntimeadapter.KindHostUnsandboxed {
+		return commandRuntimeDefinition
+	}
+	definition := commandRuntimeDefinition
+	oldNetwork := []byte(`"network":{"const":"disabled"}`)
+	if bytes.Count(definition.InputSchema, oldNetwork) != 1 {
+		panic("command runtime network schema marker is unavailable")
+	}
+	definition.InputSchema = bytes.Replace(definition.InputSchema, oldNetwork,
+		[]byte(`"network":{"const":"host"}`), 1)
+	definition.Description = strings.Replace(definition.Description,
+		"disabled network intent, and no credentials",
+		"host network intent without a destination allowlist, and no product-injected credentials", 1)
+	return definition
 }
 
 func validCommandRuntimeAction(value string) bool {
@@ -503,7 +535,12 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		allAllowed := true
 		for index, command := range input.Commands {
 			commandDecision := policy.Decision{}
-			if networkReason := commandRuntimeNetworkViolation(command); networkReason != "" {
+			if command.Network == runner.CommandRuntimeNetworkHost &&
+				(call.CommandRuntimeAdapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
+					!call.PermissionMode.IncludesFullAccess()) {
+				commandDecision = policy.Decision{Allowed: false, Risk: "high",
+					Reason: "host network requires current Full Access runtime authority"}
+			} else if networkReason := commandRuntimeNetworkViolation(command); networkReason != "" {
 				commandDecision = policy.Decision{Allowed: false, Risk: "high",
 					Reason: networkReason}
 			} else {
@@ -550,8 +587,11 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role,
 		Profile: call.Profile, PermissionMode: call.PermissionMode,
 		ModeRevision: call.ModeRevision, PermissionRevision: call.PermissionRevision,
-		CapabilityGeneration: call.CapabilityGeneration,
-		LeaseID:              call.LeaseID, LeaseGeneration: call.LeaseGeneration,
+		CapabilityGeneration:   call.CapabilityGeneration,
+		PermissionSnapshotID:   call.PermissionSnapshotID,
+		PermissionGeneration:   call.PermissionGeneration,
+		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		LeaseID:                call.LeaseID, LeaseGeneration: call.LeaseGeneration,
 		RequestedBy: call.RequestedBy, PolicyDecision: decision,
 		Adapter: call.CommandRuntimeAdapter}
 	if err := scope.Validate(); err != nil {
@@ -648,6 +688,9 @@ func sanitizeCommandRuntimeExecutionResult(result *CommandRuntimeExecutionResult
 }
 
 func commandRuntimeNetworkViolation(spec runner.CommandRuntimeSpec) string {
+	if spec.Network == runner.CommandRuntimeNetworkHost {
+		return ""
+	}
 	value := strings.ToLower(spec.Script + " " + spec.Executable + " " +
 		strings.Join(spec.Arguments, " "))
 	base := strings.ToLower(filepath.Base(spec.Executable))

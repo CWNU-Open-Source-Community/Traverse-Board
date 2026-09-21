@@ -21,6 +21,9 @@ import type { V2DraftVersion } from "../draft-version";
 
 const maximumContentBytes = 16 * 1024;
 
+export const v2ComposerNotSubmitted = "not_submitted" as const;
+export type V2ComposerSubmitResult = void | typeof v2ComposerNotSubmitted;
+
 export function V2Composer({ client, threadID, workspaceID, workspaces, disabled = false, submitDisabled = false,
   placeholder = "输入消息…", newThreadControls, threadControls, runActive = false, onManageModels,
   pendingModelRoute, onPendingModelRouteChange, onWorkspaceChange, onSubmit, draft, onDraftChange,
@@ -36,11 +39,11 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
   newThreadControls?: ReactNode;
   threadControls?: (hasUnsentDraft: boolean) => ReactNode;
   runActive?: boolean;
-  onManageModels?: () => void;
+  onManageModels?: (prepareForDraft?: boolean) => void;
   pendingModelRoute?: V2PendingModelRoute | null;
   onPendingModelRouteChange?: (route: V2PendingModelRoute | null) => void;
   onWorkspaceChange: (workspaceID: string) => void;
-  onSubmit: (content: string, files?: V2FileReference[], images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => Promise<void>;
+  onSubmit: (content: string, files?: V2FileReference[], images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => Promise<V2ComposerSubmitResult>;
   draft?: string;
   onDraftChange?: (content: string, expected?: string) => void;
   fileReferenceUnavailableReason?: string;
@@ -174,14 +177,16 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
     setError(null);
     const submittedContent = content;
     try {
+      let result: V2ComposerSubmitResult;
       if (managedDraft) {
         const version = requireV2DraftVersion(managedDraft, { text: content, files: submittedFiles, images: submittedImages, attachments: submittedAttachments });
-        await onSubmit(normalized, submittedFiles, submittedImages, version, submittedAttachments);
+        result = await onSubmit(normalized, submittedFiles, submittedImages, version, submittedAttachments);
       }
-      else if (submittedAttachments.length) await onSubmit(normalized, submittedFiles, submittedImages, undefined, submittedAttachments);
-      else if (submittedImages.length) await onSubmit(normalized, submittedFiles, submittedImages);
-      else if (submittedFiles.length) await onSubmit(normalized, submittedFiles);
-      else await onSubmit(normalized);
+      else if (submittedAttachments.length) result = await onSubmit(normalized, submittedFiles, submittedImages, undefined, submittedAttachments);
+      else if (submittedImages.length) result = await onSubmit(normalized, submittedFiles, submittedImages);
+      else if (submittedFiles.length) result = await onSubmit(normalized, submittedFiles);
+      else result = await onSubmit(normalized);
+      if (result === v2ComposerNotSubmitted) return;
       if (!managedDraft) {
         references.update((current) => current.filter(({ id }) => !submittedFiles.some((file) => file.id === id)));
         images.update((current) => current.filter(({ id }) => !submittedImages.some((image) => image.id === id)));
@@ -295,7 +300,8 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
                 {workspace.name}
               </option>)}
             </select>
-          </label> : <V2PermissionControl client={client} threadID={threadID} />}
+          </label> : <V2PermissionControl client={client} threadID={threadID}
+            onOpenModelSettings={onManageModels ? () => onManageModels(false) : undefined} />}
         </div>
         <div className="v2-composer-actions">
           {onManageModels && (threadID || onPendingModelRouteChange) &&
@@ -316,7 +322,8 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
     {byteLength > maximumContentBytes && <p className="v2-composer-error">消息不能超过 16 KiB</p>}
     {images.uploading && <p className="v2-composer-caption" role="status">正在保存图片，完成后可发送…</p>}
     {images.images.length > 0 && <p className="v2-image-capability" role="status">{imageCapability.hint}
-      {!imageCapability.allowed && onManageModels && <button className="v2-composer-chip" type="button" onClick={onManageModels}>模型设置</button>}</p>}
+      {!imageCapability.allowed && onManageModels && <button className="v2-composer-chip" type="button"
+        onClick={() => onManageModels(false)}>模型设置</button>}</p>}
     {images.error && <p className="v2-composer-error" role="alert">{images.error}</p>}
     {attachments.notice}
     {nativeClipboard.notice}

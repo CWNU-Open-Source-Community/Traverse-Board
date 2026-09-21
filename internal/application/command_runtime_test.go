@@ -893,6 +893,8 @@ func TestCommandRuntimeBindingBecomesStaleWhenRunningDowngradeCommits(t *testing
 		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
 		PermissionMode: permission.Mode, Adapter: service.adapter,
 	}
+	job.PermissionGeneration, _ = capabilities.FullAccessGeneration(permission)
+	job.PermissionRuntimeEpoch = authority.RuntimeEpoch()
 	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, job); err != nil || !current {
 		t.Fatalf("live Full binding current=%t err=%v", current, err)
 	}
@@ -1003,6 +1005,8 @@ func TestCommandRuntimeBindingBecomesStaleAcrossThreadFullReconfirmation(t *test
 		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
 		PermissionMode: permission.Mode, Adapter: service.adapter,
 	}
+	oldJob.PermissionGeneration, _ = capabilities.FullAccessGeneration(permission)
+	oldJob.PermissionRuntimeEpoch = authority.RuntimeEpoch()
 	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, oldJob); err != nil || !current {
 		t.Fatalf("old Full job binding current=%t err=%v", current, err)
 	}

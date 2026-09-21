@@ -410,17 +410,32 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 }
 
 func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, previousStatus string, existed bool) error {
-	status, reviewer, decidedAt, err := approvalStateForFileEdit(edit, existed)
+	_, automatic, err := getFileEditAutoAuthorizationTx(ctx, tx, edit.ID)
 	if err != nil {
 		return err
+	}
+	status, reviewer, decidedAt, err := approvalStateForFileEdit(edit, existed || automatic)
+	if err != nil {
+		return err
+	}
+	mode := "per_call"
+	decisionReason := edit.Reason
+	if automatic {
+		if edit.Status == fileedit.StatusProposed || edit.Status == fileedit.StatusDenied ||
+			status != approval.StatusApproved {
+			return errors.New("automatic FileEdit cannot require or receive operator review")
+		}
+		mode = "automatic"
+		reviewer = "automatic_policy"
+		decisionReason = "Full Access automatically authorized this file edit"
 	}
 	toolName := fileedit.ApprovalToolName(edit)
 	proposal := approval.Proposal{
 		IdempotencyKey: approval.ProposalIdempotencyKey(toolName, edit.ID), ProposalID: edit.ID,
 		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: toolName, ActionClass: "workspace_write",
-		Mode: "per_call", Status: status,
+		Mode: mode, Status: status,
 		RequestFingerprint: fileEditApprovalFingerprint(edit.SessionID, edit.WorkspaceID, edit),
-		DecisionReason:     edit.Reason, RequestedBy: "tool_gateway", ReviewedBy: reviewer,
+		DecisionReason:     decisionReason, RequestedBy: "tool_gateway", ReviewedBy: reviewer,
 		CreatedAt: edit.CreatedAt, UpdatedAt: edit.UpdatedAt, DecidedAt: decidedAt,
 	}
 	if !existed || previousStatus == edit.Status {

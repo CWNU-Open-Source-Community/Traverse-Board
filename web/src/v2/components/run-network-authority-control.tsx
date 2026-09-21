@@ -6,6 +6,7 @@ import type { ProviderSearchReadinessView, RunDetailView } from "../../api/types
 import { v2QueryKeys } from "../query-keys";
 import { browserCDPQueryKey } from "./browser-cdp-control";
 import { V2ConfirmDialog } from "./dialog";
+import { V2SearchDiagnosticsControl } from "./search-diagnostics-control";
 import {
   canonicalizeExactNetworkTargets,
   exactNetworkTargetLooksValid,
@@ -80,11 +81,12 @@ function remediationLabel(value: ProviderSearchReadinessView | undefined): strin
 }
 
 export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
-  variant = "settings" }: {
+  variant = "settings", onOpenModelSettings }: {
   client: CyberAgentClient;
   threadID?: string;
   runID: string;
   variant?: "menu" | "settings";
+  onOpenModelSettings?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
@@ -184,6 +186,8 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
           ? "搜索 readiness 接口暂不可用；网络白名单仍按下方事实显示。"
           : readinessDetail(readiness)}</small></span>
       {!readinessQuery.isError && <em>{remediationLabel(readiness)}</em>}</div>}
+    {readiness && <V2SearchDiagnosticsControl client={client} readiness={readiness}
+      onOpenModelSettings={onOpenModelSettings} />}
     {!publicHTTPS && current.length > 0 && <div aria-label="当前允许的 HTTPS 主机" className="v2-network-targets">
       {current.map((target) => <code key={target}>{target}</code>)}
     </div>}

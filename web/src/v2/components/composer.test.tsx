@@ -2,15 +2,19 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, type CyberAgentClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
-import { V2Composer } from "./composer";
+import { V2Composer, v2ComposerNotSubmitted } from "./composer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { V2RecoveryProvider } from "../recovery-storage";
+import type { ComponentProps } from "react";
 
 const client = {} as CyberAgentClient;
 const workspaces: WorkspaceView[] = [
   { id: "workspace-1", name: "Traverse Board", created_at: "2026-08-29T00:00:00Z" },
 ];
 
-function renderComposer(onSubmit = vi.fn(async () => undefined), workspaceID = "workspace-1") {
+type ComposerSubmit = ComponentProps<typeof V2Composer>["onSubmit"];
+
+function renderComposer(onSubmit: ComposerSubmit = vi.fn(async () => undefined), workspaceID = "workspace-1") {
   const onWorkspaceChange = vi.fn();
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <V2Composer client={client} onSubmit={onSubmit}
@@ -52,6 +56,39 @@ describe("V2Composer", () => {
       .toHaveBeenCalledWith("检查归档与权限流程"));
     expect(textarea).toHaveValue("");
     expect(textarea).toHaveFocus();
+  });
+
+  it("keeps a legacy draft when submission is explicitly deferred", async () => {
+    const onSubmit = vi.fn<ComposerSubmit>(async () => v2ComposerNotSubmitted);
+    renderComposer(onSubmit);
+    const user = userEvent.setup();
+    const textarea = screen.getByRole("textbox", { name: "开始新对话" });
+    await user.type(textarea, "配置模型后仍要发送的原草稿");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(textarea).toHaveValue("配置模型后仍要发送的原草稿");
+  });
+
+  it("keeps a managed draft version when submission is explicitly deferred", async () => {
+    const onSubmit = vi.fn<ComposerSubmit>(async () => v2ComposerNotSubmitted);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2RecoveryProvider client={{ baseURL: "/api/v1" }} scopeID="composer-deferred-draft">
+        <V2Composer client={client} onSubmit={onSubmit} onWorkspaceChange={() => undefined}
+          threadID="" workspaceID="workspace-managed" workspaces={[
+            { id: "workspace-managed", name: "Managed", created_at: "2026-09-21T00:00:00Z" },
+          ]} />
+      </V2RecoveryProvider>
+    </QueryClientProvider>);
+    const user = userEvent.setup();
+    const textarea = screen.getByRole("textbox", { name: "开始新对话" });
+    await user.type(textarea, "持久草稿也不能被预检吞掉");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]?.[3]).toEqual(expect.objectContaining({
+      scope: expect.objectContaining({ workspaceID: "workspace-managed" }),
+      ref: expect.objectContaining({ seq: expect.any(Number) }),
+    }));
+    expect(textarea).toHaveValue("持久草稿也不能被预检吞掉");
   });
 
   it("keeps failed input visible, reports the error, and clears it on the next edit", async () => {

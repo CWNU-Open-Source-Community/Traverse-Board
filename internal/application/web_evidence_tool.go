@@ -31,6 +31,7 @@ type WebEvidenceToolExecutor struct {
 	store                                 WebEvidenceToolStore
 	service                               *webevidence.Service
 	webFetchAuthorizationSchedulerEnabled bool
+	executionCapabilities                 domain.ExecutionPermissionRuntimeCapabilities
 }
 
 var errWebFetchWaitingApproval = errors.New("web fetch is waiting for exact host approval")
@@ -42,31 +43,42 @@ type webFetchInlineAuthorizationStore interface {
 }
 
 type webFetchToolSnapshot struct {
-	SourceID              string                  `json:"source_id"`
-	SnapshotID            string                  `json:"snapshot_id"`
-	URL                   string                  `json:"url"`
-	Title                 string                  `json:"title,omitempty"`
-	Byline                string                  `json:"byline,omitempty"`
-	PublishedAt           string                  `json:"published_at,omitempty"`
-	FetchedAt             string                  `json:"fetched_at"`
-	StaleAt               string                  `json:"stale_at"`
-	Digest                string                  `json:"digest"`
-	MIME                  string                  `json:"mime"`
-	Charset               string                  `json:"charset,omitempty"`
-	Body                  string                  `json:"body,omitempty"`
-	BodyOffset            int                     `json:"body_offset,omitempty"`
-	BodyRunes             int                     `json:"body_runes,omitempty"`
-	NextOffset            *int                    `json:"next_offset,omitempty"`
-	State                 webevidence.SourceState `json:"state"`
-	Robots                string                  `json:"robots"`
-	ErrorCode             string                  `json:"error_code,omitempty"`
-	Redirects             int                     `json:"redirects"`
-	HTTPStatus            int                     `json:"http_status,omitempty"`
-	SnapshotTruncated     bool                    `json:"snapshot_truncated"`
-	BodyExcerptTruncated  bool                    `json:"body_excerpt_truncated"`
-	Citeable              bool                    `json:"citeable"`
-	Untrusted             bool                    `json:"untrusted"`
-	InstructionAuthorized bool                    `json:"instruction_authorized"`
+	SourceID              string                        `json:"source_id"`
+	SnapshotID            string                        `json:"snapshot_id"`
+	URL                   string                        `json:"url"`
+	Title                 string                        `json:"title,omitempty"`
+	Byline                string                        `json:"byline,omitempty"`
+	PublishedAt           string                        `json:"published_at,omitempty"`
+	FetchedAt             string                        `json:"fetched_at"`
+	StaleAt               string                        `json:"stale_at"`
+	Digest                string                        `json:"digest"`
+	MIME                  string                        `json:"mime"`
+	Charset               string                        `json:"charset,omitempty"`
+	Body                  string                        `json:"body,omitempty"`
+	BodyOffset            int                           `json:"body_offset,omitempty"`
+	BodyRunes             int                           `json:"body_runes,omitempty"`
+	NextOffset            *int                          `json:"next_offset,omitempty"`
+	State                 webevidence.SourceState       `json:"state"`
+	Robots                string                        `json:"robots"`
+	ErrorCode             string                        `json:"error_code,omitempty"`
+	Redirects             int                           `json:"redirects"`
+	HTTPStatus            int                           `json:"http_status,omitempty"`
+	Connector             string                        `json:"connector,omitempty"`
+	ConnectorVersion      string                        `json:"connector_version,omitempty"`
+	ContentKind           string                        `json:"content_kind,omitempty"`
+	Coverage              string                        `json:"coverage,omitempty"`
+	ItemsIncluded         int                           `json:"items_included,omitempty"`
+	ItemsAvailable        int                           `json:"items_available,omitempty"`
+	TruncationReason      string                        `json:"truncation_reason,omitempty"`
+	RetryAfter            string                        `json:"retry_after,omitempty"`
+	RateLimitReset        string                        `json:"rate_limit_reset,omitempty"`
+	RemoteRequestID       string                        `json:"remote_request_id,omitempty"`
+	ContinuationFailure   *webevidence.ConnectorFailure `json:"continuation_failure,omitempty"`
+	SnapshotTruncated     bool                          `json:"snapshot_truncated"`
+	BodyExcerptTruncated  bool                          `json:"body_excerpt_truncated"`
+	Citeable              bool                          `json:"citeable"`
+	Untrusted             bool                          `json:"untrusted"`
+	InstructionAuthorized bool                          `json:"instruction_authorized"`
 }
 
 type webFetchToolOutput struct {
@@ -92,6 +104,15 @@ func (e *WebEvidenceToolExecutor) WithWebFetchAuthorizationScheduler(
 ) *WebEvidenceToolExecutor {
 	if e != nil {
 		e.webFetchAuthorizationSchedulerEnabled = enabled
+	}
+	return e
+}
+
+func (e *WebEvidenceToolExecutor) WithExecutionPermissionCapabilities(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *WebEvidenceToolExecutor {
+	if e != nil {
+		e.executionCapabilities = capabilities
 	}
 	return e
 }
@@ -126,6 +147,26 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"web evidence Run route no longer matches the Supervisor scope")
 	}
+	checkLiveFullAccess := func() error {
+		if permission.Mode != domain.RunExecutionPermissionFullAccess ||
+			!e.executionCapabilities.FullAccessRequiresRuntimeGrant {
+			return nil
+		}
+		generation, live := e.executionCapabilities.FullAccessGeneration(permission)
+		epoch := ""
+		if e.executionCapabilities.RuntimeAuthority != nil {
+			epoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		}
+		if scope.PermissionSnapshotID != permission.ID || !live ||
+			generation != scope.PermissionGeneration || epoch == "" {
+			return apperror.New(apperror.CodePolicyDenied,
+				"Full Access web evidence requires the exact live permission activation")
+		}
+		return nil
+	}
+	if err := checkLiveFullAccess(); err != nil {
+		return toolgateway.WebEvidenceExecutionResult{}, err
+	}
 	networkAuthority := effectiveWebEvidenceAuthority(mode.Scope, permission.Mode)
 	providerFingerprint := e.service.SearchProviderFingerprintForScope(ctx,
 		webevidence.ExecutionScope{RunID: scope.RunID, MissionID: scope.MissionID,
@@ -135,24 +176,36 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		webevidence.ExecutionScope{RunID: scope.RunID, MissionID: scope.MissionID,
 			WorkspaceID: scope.WorkspaceID, ModelRoute: run.Config.ModelRoute,
 			Authority: networkAuthority})
+	connectorFingerprint := e.service.SourceConnectorFingerprintFor(networkAuthority)
 	capabilityContext := toolgateway.WebEvidenceCapabilityContext{
 		RunID: scope.RunID, MissionID: scope.MissionID, SessionID: scope.SessionID,
 		RootAgentID: scope.RootAgentID, WorkspaceID: scope.WorkspaceID,
 		Surface: mode.Surface, Phase: mode.Phase, Role: scope.Role, Profile: mode.Profile,
 		PermissionMode: permission.Mode, PermissionRevision: permission.Revision,
-		ModeRevision: mode.Revision, NetworkMode: networkAuthority.Mode,
+		PermissionSnapshotID: scope.PermissionSnapshotID,
+		PermissionGeneration: scope.PermissionGeneration,
+		ModeRevision:         mode.Revision, NetworkMode: networkAuthority.Mode,
 		AllowedTargets:                  append([]string(nil), networkAuthority.AllowedTargets...),
 		ProviderAvailable:               providerFingerprint != "",
 		ProviderFingerprint:             providerFingerprint,
 		ProviderSearchIndependent:       providerIndependent,
+		SourceConnectorAvailable:        connectorFingerprint != "",
+		SourceConnectorFingerprint:      connectorFingerprint,
 		InlineWebFetchApprovalAvailable: e.webFetchAuthorizationSchedulerEnabled}
+	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
+		e.executionCapabilities.FullAccessRequiresRuntimeGrant &&
+		e.executionCapabilities.RuntimeAuthority != nil {
+		capabilityContext.PermissionRuntimeEpoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+	}
 	capabilities := toolgateway.WebEvidenceCapabilitySnapshot(capabilityContext)
 	if mode.RunID != scope.RunID || mode.MissionID != scope.MissionID ||
 		mode.Revision != scope.ModeRevision || permission.Mode != scope.PermissionMode ||
 		permission.Revision != scope.PermissionRevision || mode.Surface != scope.Surface ||
 		mode.Phase != scope.Phase || mode.Profile != scope.Profile || !capabilities.Available ||
 		(name == toolgateway.WebSearchTool && !capabilities.SearchAvailable) ||
-		(name != toolgateway.WebSearchTool && !capabilities.FetchAvailable) ||
+		(name == toolgateway.SourceSearchTool && !capabilities.SourceSearchAvailable) ||
+		(name != toolgateway.WebSearchTool && name != toolgateway.SourceSearchTool &&
+			!capabilities.FetchAvailable) ||
 		capabilities.Generation != scope.CapabilityGeneration {
 		return toolgateway.WebEvidenceExecutionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
@@ -161,12 +214,16 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 	executionScope := webevidence.ExecutionScope{RunID: scope.RunID,
 		MissionID: scope.MissionID, WorkspaceID: scope.WorkspaceID,
 		ModelRoute: run.Config.ModelRoute, Authority: networkAuthority,
-		RobotsPolicy:        effectiveWebEvidenceRobotsPolicy(permission.Mode),
-		ProviderFingerprint: scope.ProviderFingerprint}
+		RobotsPolicy:         effectiveWebEvidenceRobotsPolicy(permission.Mode),
+		ProviderFingerprint:  scope.ProviderFingerprint,
+		ConnectorFingerprint: scope.ConnectorFingerprint}
 	switch name {
 	case toolgateway.WebSearchTool:
 		var request toolgateway.WebSearchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
+		if err := checkLiveFullAccess(); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
 		result, err := e.service.Search(ctx, executionScope, webevidence.SearchRequest{
@@ -194,6 +251,39 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 				"provider_qualified": strconv.FormatBool(providerGrounded),
 				"locally_verified":   "false", "untrusted": "true",
 				"instruction_authorized": "false"}}, nil
+	case toolgateway.SourceSearchTool:
+		var request toolgateway.SourceSearchPayload
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
+		if err := checkLiveFullAccess(); err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
+		result, err := e.service.SourceSearch(ctx, executionScope,
+			webevidence.SourceSearchRequest{Connectors: request.Connectors,
+				Query: request.Query, Limit: request.Limit}, scope.OperationKey)
+		if err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
+		replayed := result.Replayed
+		result.Replayed = false
+		content, _ := json.Marshal(result)
+		failed := make([]string, 0, len(result.Failures))
+		for _, failure := range result.Failures {
+			failed = append(failed, failure.Connector+":"+failure.Code)
+		}
+		return toolgateway.WebEvidenceExecutionResult{Content: string(content),
+			Metadata: map[string]string{"provider": "source_connectors",
+				"search_policy":     "platform_connectors",
+				"selection_reason":  "explicit_source_search",
+				"connectors":        strings.Join(result.Connectors, ","),
+				"failed_connectors": strings.Join(failed, ","),
+				"source_count":      strconv.Itoa(len(result.Sources)),
+				"searched_at":       result.SearchedAt.Format(time.RFC3339Nano),
+				"partial":           strconv.FormatBool(result.Partial),
+				"replayed":          strconv.FormatBool(replayed), "citeable": "false",
+				"provenance": "connector_discovery", "locally_verified": "false",
+				"untrusted": "true", "instruction_authorized": "false"}}, nil
 	case toolgateway.WebFetchTool:
 		var request toolgateway.WebFetchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
@@ -223,8 +313,12 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			executionScope.Authority = webevidence.NetworkAuthority{Mode: "allowlist",
 				AllowedTargets: []string{inlineAuthorization.ExactTarget}}
 		}
+		if err := checkLiveFullAccess(); err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, err
+		}
 		result, err := e.service.Fetch(ctx, executionScope, webevidence.FetchRequest{
-			SourceID: request.SourceID, URL: request.URL}, scope.OperationKey)
+			SourceID: request.SourceID, URL: request.URL,
+			Connector: request.Connector, MaxItems: request.MaxItems}, scope.OperationKey)
 		if err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
@@ -257,6 +351,16 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 				"http_status":            strconv.Itoa(result.Snapshot.HTTPStatus),
 				"redirects":              strconv.Itoa(result.Snapshot.Redirects),
 				"robots_policy":          string(executionScope.RobotsPolicy),
+				"connector":              result.Snapshot.Connector,
+				"connector_version":      result.Snapshot.ConnectorVersion,
+				"content_kind":           result.Snapshot.ContentKind,
+				"coverage":               result.Snapshot.Coverage,
+				"items_included":         strconv.Itoa(result.Snapshot.ItemsIncluded),
+				"items_available":        strconv.Itoa(result.Snapshot.ItemsAvailable),
+				"truncation_reason":      result.Snapshot.TruncationReason,
+				"retry_after":            result.Snapshot.RetryAfter,
+				"rate_limit_reset":       result.Snapshot.RateLimitReset,
+				"remote_request_id":      result.Snapshot.RemoteRequestID,
 				"partial":                strconv.FormatBool(result.Snapshot.State == webevidence.SourcePartial),
 				"stale":                  strconv.FormatBool(presentation.Stale),
 				"body_excerpt_truncated": strconv.FormatBool(bodyExcerptTruncated),
@@ -380,6 +484,16 @@ func encodeWebFetchToolOutput(result webevidence.FetchResult,
 				Digest:      presentation.Digest, MIME: result.Snapshot.MIME,
 				Charset: result.Snapshot.Charset, Body: body, State: result.Snapshot.State,
 				Robots: result.Snapshot.Robots, ErrorCode: result.Snapshot.ErrorCode,
+				Connector:        result.Snapshot.Connector,
+				ConnectorVersion: result.Snapshot.ConnectorVersion,
+				ContentKind:      result.Snapshot.ContentKind, Coverage: result.Snapshot.Coverage,
+				ItemsIncluded:        result.Snapshot.ItemsIncluded,
+				ItemsAvailable:       result.Snapshot.ItemsAvailable,
+				TruncationReason:     result.Snapshot.TruncationReason,
+				RetryAfter:           result.Snapshot.RetryAfter,
+				RateLimitReset:       result.Snapshot.RateLimitReset,
+				RemoteRequestID:      result.Snapshot.RemoteRequestID,
+				ContinuationFailure:  result.Snapshot.ContinuationFailure,
 				HTTPStatus:           result.Snapshot.HTTPStatus,
 				Redirects:            result.Snapshot.Redirects,
 				SnapshotTruncated:    result.Snapshot.Truncated,
@@ -430,5 +544,6 @@ func webEvidenceServiceForStore(store WebEvidenceToolStore,
 	if strings.TrimSpace(searchEndpoint) != "" {
 		provider, _ = webevidence.NewSearXNGProvider(client, searchEndpoint)
 	}
-	return webevidence.NewService(store, provider, webevidence.NewFetcher(client))
+	return webevidence.NewService(store, provider, webevidence.NewFetcher(client)).
+		WithSourceConnectors(webevidence.NewDefaultSourceConnectors(client)...)
 }

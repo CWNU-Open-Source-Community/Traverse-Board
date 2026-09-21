@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"sync"
@@ -32,6 +34,7 @@ type executionPermissionThreadGrant struct {
 // previously issued browser/command authority can be fenced immediately.
 type ExecutionPermissionRuntimeAuthority struct {
 	mu         sync.RWMutex
+	epoch      string
 	generation uint64
 	threads    map[string]executionPermissionThreadGrant
 	runs       map[string]ExecutionPermissionRuntimeGrant
@@ -39,11 +42,27 @@ type ExecutionPermissionRuntimeAuthority struct {
 }
 
 func NewExecutionPermissionRuntimeAuthority() *ExecutionPermissionRuntimeAuthority {
+	var nonce [16]byte
+	epoch := ""
+	if _, err := rand.Read(nonce[:]); err == nil {
+		epoch = hex.EncodeToString(nonce[:])
+	}
 	return &ExecutionPermissionRuntimeAuthority{
+		epoch:     epoch,
 		threads:   make(map[string]executionPermissionThreadGrant),
 		runs:      make(map[string]ExecutionPermissionRuntimeGrant),
 		runFences: make(map[string]uint64),
 	}
+}
+
+// RuntimeEpoch distinguishes grants from separate authority instances. An
+// empty value means a secure nonce was unavailable and consumers must fail
+// closed instead of relying on a generation counter that restarts at zero.
+func (a *ExecutionPermissionRuntimeAuthority) RuntimeEpoch() string {
+	if a == nil {
+		return ""
+	}
+	return a.epoch
 }
 
 func (a *ExecutionPermissionRuntimeAuthority) nextGenerationLocked() uint64 {

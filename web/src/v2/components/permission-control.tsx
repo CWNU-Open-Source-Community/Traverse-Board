@@ -72,10 +72,12 @@ function effectCopy(result: ThreadExecutionPermissionControlView): string {
   return "将用于此对话的后续执行";
 }
 
-export function V2PermissionControl({ client, threadID, variant = "menu" }: {
+export function V2PermissionControl({ client, threadID, variant = "menu",
+  onOpenModelSettings }: {
   client: CyberAgentClient;
   threadID: string;
   variant?: "menu" | "settings";
+  onOpenModelSettings?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -188,7 +190,8 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
           onToggle={(event) => setNetworkOpen(event.currentTarget.open)}>
           <summary>网页访问与搜索</summary>
           {networkOpen && <V2RunNetworkAuthorityControl key={`${threadID}:${query.data?.current_run_id ?? ""}`}
-            client={client} runID={query.data?.current_run_id ?? ""} threadID={threadID} />}
+            client={client} runID={query.data?.current_run_id ?? ""} threadID={threadID}
+            onOpenModelSettings={onOpenModelSettings} />}
         </details>
       </div>}
     </> : <section className="v2-settings-card v2-permission-settings-card">
@@ -201,7 +204,7 @@ export function V2PermissionControl({ client, threadID, variant = "menu" }: {
         executionRuntimeAvailable={permission?.runtime_gate_available ?? false}
         runID={query.data?.current_run_id ?? ""} />
       <V2RunNetworkAuthorityControl client={client} runID={query.data?.current_run_id ?? ""}
-        threadID={threadID} />
+        threadID={threadID} onOpenModelSettings={onOpenModelSettings} />
       {mutation.isError && <p className="v2-inline-error" role="alert">{mutation.error instanceof Error
         ? mutation.error.message : "权限更新失败"}</p>}
     </section>}

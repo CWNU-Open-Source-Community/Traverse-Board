@@ -14,7 +14,8 @@ type ModelControlRegistry interface {
 	Snapshot() modelregistry.Snapshot
 	SelectRoute(context.Context, modelregistry.RouteSettingWriter, string, string, string) (
 		modelregistry.RouteAvailability, error)
-	Diagnose(context.Context, string, string) (modelregistry.DiagnosticResult, error)
+	DiagnoseAndRecord(context.Context, modelregistry.RouteSettingWriter, string, string) (
+		modelregistry.DiagnosticResult, error)
 	QualifyHarness(context.Context, modelregistry.RouteSettingWriter, string, string) (
 		modelregistry.HarnessQualificationResult, error)
 }
@@ -97,13 +98,14 @@ func (s *ModelControlService) Diagnose(ctx context.Context,
 		return modelregistry.DiagnosticResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "diagnostic Provider model is unavailable")
 	}
-	result, err := s.registry.Diagnose(ctx, request.Provider, request.Model)
+	if s.settings == nil {
+		return modelregistry.DiagnosticResult{}, apperror.New(
+			apperror.CodeFailedPrecondition, "model control settings are required")
+	}
+	result, err := s.registry.DiagnoseAndRecord(ctx, s.settings,
+		request.Provider, request.Model)
 	if err != nil {
 		return modelregistry.DiagnosticResult{}, apperror.Normalize(err)
-	}
-	if s.settings != nil && result.QualificationStatus != "" {
-		modelregistry.PersistQualificationStatus(ctx, s.settings, request.Provider,
-			request.Model, result.QualificationStatus, "diagnostic")
 	}
 	return result, nil
 }

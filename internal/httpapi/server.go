@@ -1123,6 +1123,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveProviderSearchReadiness(tracked, request, requestID, threadID)
 		return
 	}
+	if threadID, matched := matchSearchDiagnosticsPath(request.URL.Path); matched {
+		a.serveSearchDiagnostics(tracked, request, requestID, threadID)
+		return
+	}
 	if threadID, matched := matchThreadModelRoutePath(request.URL.Path); matched {
 		a.serveThreadModelRoute(tracked, request, requestID, threadID)
 		return

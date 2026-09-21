@@ -56,6 +56,12 @@ type ProviderRegistryReloader interface {
 	Generation() uint64
 }
 
+type providerCredentialMutationRegistry interface {
+	ProviderRegistryReloader
+	MutateProviderCredential(context.Context, modelregistry.RouteSettingStore,
+		string, func() error) (modelregistry.ReloadResult, error)
+}
+
 type ProviderCredentialCatalog interface {
 	Snapshot() modelregistry.Snapshot
 }
@@ -127,28 +133,50 @@ func (s *ProviderCredentialService) Change(ctx context.Context,
 		return ProviderCredentialStatus{}, apperror.New(apperror.CodeFailedPrecondition,
 			"system credential storage is unavailable")
 	}
-	switch request.Action {
-	case ProviderCredentialSet:
-		if len([]byte(request.Secret)) < 8 || !credential.ValidSecret(request.Secret) {
-			return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
-				"Provider credential must be a normalized bounded secret")
-		}
-		if err := s.store.Put(ctx, request.Provider, request.Secret); err != nil {
-			return ProviderCredentialStatus{}, apperror.Wrap(apperror.CodeUnavailable,
-				"system credential storage rejected the Provider credential", err)
-		}
-	case ProviderCredentialDelete:
-		if request.Secret != "" {
-			return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
-				"Provider credential deletion cannot contain a secret")
-		}
-		if err := s.store.Delete(ctx, request.Provider); err != nil {
-			return ProviderCredentialStatus{}, apperror.Wrap(apperror.CodeUnavailable,
-				"system credential storage could not delete the Provider credential", err)
-		}
-	default:
+	if request.Action == ProviderCredentialSet &&
+		(len([]byte(request.Secret)) < 8 || !credential.ValidSecret(request.Secret)) {
+		return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
+			"Provider credential must be a normalized bounded secret")
+	}
+	if request.Action == ProviderCredentialDelete && request.Secret != "" {
+		return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
+			"Provider credential deletion cannot contain a secret")
+	}
+	if request.Action != ProviderCredentialSet && request.Action != ProviderCredentialDelete {
 		return ProviderCredentialStatus{}, apperror.New(apperror.CodeInvalidArgument,
 			"Provider credential action is invalid")
+	}
+	mutate := func() error {
+		if request.Action == ProviderCredentialSet {
+			return s.store.Put(ctx, request.Provider, request.Secret)
+		}
+		return s.store.Delete(ctx, request.Provider)
+	}
+	reloaded := false
+	if guarded, ok := s.registry.(providerCredentialMutationRegistry); ok {
+		settings, writable := s.routeSettings.(modelregistry.RouteSettingStore)
+		if !writable {
+			return ProviderCredentialStatus{}, apperror.New(apperror.CodeFailedPrecondition,
+				"Provider credential Registry settings are not writable")
+		}
+		result, mutationErr := guarded.MutateProviderCredential(ctx, settings,
+			request.Provider, mutate)
+		if mutationErr != nil {
+			return ProviderCredentialStatus{}, apperror.Wrap(apperror.CodeUnavailable,
+				"Provider credential change was not safely applied", mutationErr)
+		}
+		if !result.Reloaded || result.ProtocolVersion != modelregistry.ReloadProtocolVersion ||
+			result.Generation == 0 {
+			return ProviderCredentialStatus{}, apperror.New(apperror.CodeInternal,
+				"Provider Registry reload returned an invalid generation")
+		}
+		reloaded = true
+	} else if err := mutate(); err != nil {
+		message := "system credential storage could not delete the Provider credential"
+		if request.Action == ProviderCredentialSet {
+			message = "system credential storage rejected the Provider credential"
+		}
+		return ProviderCredentialStatus{}, apperror.Wrap(apperror.CodeUnavailable, message, err)
 	}
 	configured, err := s.store.Configured(ctx, request.Provider)
 	if err != nil {
@@ -160,8 +188,7 @@ func (s *ProviderCredentialService) Change(ctx context.Context,
 		return ProviderCredentialStatus{}, apperror.New(apperror.CodeInternal,
 			"system credential change failed final status verification")
 	}
-	reloaded := false
-	if s.registry != nil || s.routeSettings != nil {
+	if !reloaded && (s.registry != nil || s.routeSettings != nil) {
 		if s.registry == nil || s.routeSettings == nil {
 			return ProviderCredentialStatus{}, apperror.New(apperror.CodeFailedPrecondition,
 				"Provider Registry reload dependencies are incomplete")

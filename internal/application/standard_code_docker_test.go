@@ -350,7 +350,7 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 	if err := runtimeScope.Validate(); err != nil {
 		t.Fatalf("Docker Command Runtime context is invalid before execution: %v", err)
 	}
-	bindings, err := commandRuntime.loadAuthorizedBindings(ctx, runtimeScope)
+	bindings, err := commandRuntime.loadAuthorizedBindings(ctx, runtimeScope, false)
 	if err != nil {
 		t.Fatalf("Docker Command Runtime bindings are invalid before execution: %v", err)
 	}

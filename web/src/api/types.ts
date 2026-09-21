@@ -205,6 +205,34 @@ export type ThreadModelRouteControlRequestView =
 export type ThreadModelRouteView = components["schemas"]["ThreadModelRouteView"];
 export type ProviderSearchReadinessView =
   components["schemas"]["ProviderSearchReadinessView"];
+export type SearchDiagnosticCode = "none" | "network" | "rate_limited" |
+  "access_challenge" | "authentication" | "provider_rejected" |
+  "tool_unsupported" | "no_usable_results" | "invalid_response" |
+  "not_configured" | "not_authorized" | "timeout" | "configuration_changed";
+export type SearchDiagnosticsRequestView = {
+  version: "search_diagnostics.v1";
+  confirm: true;
+};
+export type SearchDiagnosticsView = {
+  protocol_version: "search_diagnostics.v1";
+  thread_id: string;
+  run_id: string;
+  mode_revision: number;
+  model_route: string;
+  provider: string;
+  model: string;
+  search_policy: "disabled" | "auto" | "web" | "searxng" | "provider_native";
+  backend: string;
+  checked_at: string;
+  state: "succeeded" | "failed";
+  code: SearchDiagnosticCode;
+  result_count: number;
+  network_request_attempted: boolean;
+  retry_after?: string;
+  rate_limit_reset?: string;
+  required_target?: string;
+  http_status?: number;
+};
 export type OperationReceiptView = components["schemas"]["OperationReceiptView"];
 export type OperationReceiptHistoryView = components["schemas"]["OperationReceiptHistoryView"];
 export type EvidenceAttachmentRequestView = components["schemas"]["EvidenceAttachmentRequestView"];

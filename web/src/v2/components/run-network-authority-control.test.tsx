@@ -9,7 +9,7 @@ function renderControl(status: "created" | "paused" | "running" = "paused",
   variant: "menu" | "settings" = "settings",
   readiness: Partial<ProviderSearchReadinessView> = {},
   permissionMode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" =
-  "conservative") {
+  "conservative", onOpenModelSettings = vi.fn()) {
   const mode = {
     protocol_version: "run_mode.v1", policy_version: "mode_policy.v1",
     revision: 3, capability_grant: false, phase: "deliver", profile: "code",
@@ -34,16 +34,23 @@ function renderControl(status: "created" | "paused" | "running" = "paused",
     remediation: "none", required_target: "search.example.org", network_mode: "allowlist",
     mode_revision: 3, runtime_ready: true, capability_grant: false, ...readiness,
   });
+  const diagnoseThreadSearch = vi.fn().mockResolvedValue({
+    protocol_version: "search_diagnostics.v1", thread_id: "thread-1", run_id: "run-1",
+    mode_revision: 3, model_route: "provider/model", provider: "provider", model: "model",
+    search_policy: "provider_native", backend: "provider", checked_at: "2026-09-21T08:00:00Z",
+    state: "failed", code: "access_challenge", result_count: 0,
+    network_request_attempted: true, http_status: 403,
+  });
   const client = { hasControl: true, get, expandRunNetworkAuthority,
-    providerSearchReadiness } as unknown as CyberAgentClient;
+    providerSearchReadiness, diagnoseThreadSearch } as unknown as CyberAgentClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
   render(<QueryClientProvider client={queryClient}>
     <V2RunNetworkAuthorityControl client={client} runID="run-1" threadID="thread-1"
-      variant={variant} />
+      variant={variant} onOpenModelSettings={onOpenModelSettings} />
   </QueryClientProvider>);
-  return { expandRunNetworkAuthority };
+  return { diagnoseThreadSearch, expandRunNetworkAuthority, onOpenModelSettings };
 }
 
 describe("V2RunNetworkAuthorityControl", () => {
@@ -122,6 +129,18 @@ describe("V2RunNetworkAuthorityControl", () => {
     await user.click(trigger);
     expect(screen.getByText(/连接或超时边界内没有完成/u)).toBeInTheDocument();
     expect(screen.getByText(/普通对话仍可继续/u)).toBeInTheDocument();
+  });
+
+  it("integrates the explicit search probe and model-settings recovery action", async () => {
+    const user = userEvent.setup();
+    const controls = renderControl();
+    await screen.findByText("当前 Run 模型：provider / model");
+
+    await user.click(screen.getByRole("button", { name: "检查搜索连接" }));
+    expect(await screen.findByText(/验证码或访问挑战/u)).toBeInTheDocument();
+    expect(controls.diagnoseThreadSearch).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "打开模型设置" }));
+    expect(controls.onOpenModelSettings).toHaveBeenCalledTimes(1);
   });
 
   it("requires a second confirmation and submits an exact revision-bound host grant", async () => {

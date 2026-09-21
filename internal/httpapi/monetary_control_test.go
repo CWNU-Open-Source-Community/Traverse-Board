@@ -24,6 +24,9 @@ func TestPriceSnapshotImportAndList(t *testing.T) {
 	if empty.ProtocolVersion != PriceSnapshotListProtocol || len(empty.Items) != 0 {
 		t.Fatalf("empty price list is invalid: %#v", empty)
 	}
+	if !strings.Contains(listResponse.Body.String(), `"items":[]`) {
+		t.Fatalf("empty price list must encode an array: %s", listResponse.Body.String())
+	}
 
 	document := openAPIPriceSnapshotDocument(t)
 	importRaw, err := json.Marshal(PriceSnapshotImportRequestView{

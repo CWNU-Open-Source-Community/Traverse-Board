@@ -27,6 +27,7 @@ describe("v2 model provider presets", () => {
       endpointURL: "https://api.anthropic.com/v1/messages",
       transport: "anthropic_messages",
       defaultModel: "claude-sonnet-5",
+      searchMode: "web",
     });
     expect(byID.get("official-openai")?.draft).toMatchObject({
       endpointURL: "https://api.openai.com/v1/responses",
@@ -39,7 +40,7 @@ describe("v2 model provider presets", () => {
       endpointURL: "https://api.deepseek.com/responses",
       transport: "openai_responses",
       models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-      searchMode: "auto",
+      searchMode: "web",
       nativeSearchDeclared: false,
       advancedConfig: { request_body: { reasoning: { effort: "none" } } },
     });
@@ -47,6 +48,7 @@ describe("v2 model provider presets", () => {
       endpointURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       transport: "openai_chat_completions",
       defaultModel: "gemini-3.7-flash",
+      searchMode: "web",
     });
     expect(byID.get("official-xai")?.draft).toMatchObject({
       endpointURL: "https://api.x.ai/v1/responses",
@@ -78,11 +80,13 @@ describe("v2 model provider presets", () => {
     expect(kimi?.draft).toMatchObject({
       endpointURL: "https://api.moonshot.ai/v1/chat/completions",
       models: ["kimi-k3"],
+      searchMode: "web",
     });
     expect(coding).toMatchObject({ kind: "api_key", modelName: "kimi-for-coding" });
     expect(coding?.draft).toMatchObject({
       endpointURL: "https://api.kimi.com/coding/v1/chat/completions",
       models: ["kimi-for-coding", "k3", "k3-256k", "kimi-for-coding-highspeed"],
+      searchMode: "web",
       advancedConfig: { request_headers: { "User-Agent": "Traverse-Board" } },
     });
     expect(kimi?.draft?.id).not.toBe(coding?.draft?.id);

@@ -7,15 +7,17 @@
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/Qiyuanqiii/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/Traverse-Board?style=flat-square"></a>
+    <a href="https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Traverse-Board?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
     <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和历史发布件名称继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`，当前用户成品边界见 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md)。完整命名边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
+> **首个正式版：v1.0.0「启航」**。本分支整合当前源码并准备首版发布；功能范围、验证结果与待验项见 [v1.0.0 发布说明](docs/releases/v1.0.0.md)。签名安装包与 Store 上架状态以正式 Release 资产为准。
+
+> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `CWNU-Open-Source-Community/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和历史发布件名称继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`，当前用户成品边界见 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md)。完整命名边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
 > **第三方字体声明：** 中文界面使用 HarmonyOS Sans Fonts；版权归 Huawei Device Co., Ltd. 所有，适用的完整许可文本随软件发布并见 [`web/public/licenses/HarmonyOS-Sans.txt`](web/public/licenses/HarmonyOS-Sans.txt)。四个字重均从华为官方归档逐字节复制，来源与哈希见 [`PROVENANCE.md`](web/src/assets/fonts/PROVENANCE.md)。
 
@@ -274,7 +276,7 @@ Run/Workspace/权限/网络/工具 readiness 与有界单调事件时间线。�
 ### 从源码运行
 
 ```powershell
-git clone https://github.com/Qiyuanqiii/Traverse-Board.git
+git clone https://github.com/CWNU-Open-Source-Community/Traverse-Board.git
 cd "Traverse-Board"
 
 go run ./cmd/cyberagent version
@@ -613,6 +615,11 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 | v159 | 为 Git 和拉取请求操作增加一次性执行认领，固定首次开始时间 | add one-time execution claims for Git and pull-request operations with an immutable first-start timestamp |
 | v160 | 增加不可变上传文件、可读性记录和精确 Thread 附件绑定，文件与图片分别计数 | add immutable uploaded files, readability records, and exact Thread attachment bindings with separate file and image counts |
 | v161 | 将受限历史检索工具纳入 Supervisor 账本，保留旧调用、权限约束和历史游标的行身份 | admit fenced history-recall tools to the Supervisor ledger while preserving existing calls, authority constraints, and row identities used by history cursors |
+| v162 | 增加不可变的 Full Access 文件自动授权来源 | add immutable automatic Full Access FileEdit authorization provenance |
+| v163 | 增加宿主 Command Runtime 网络意图及运行时授权来源 | add host Command Runtime network intent and runtime-grant provenance |
+| v164 | 将不可变 Full Access 文件自动授权扩展到不覆盖目标的移动 | extend immutable automatic Full Access FileEdit authorization to non-overwriting moves |
+| v165 | 接入 GitHub、HN 与 RSS 来源连接器并保留原工具账本和引用身份 | admit GitHub, HN and RSS source connectors while preserving tool-ledger and citation identity |
+| v166 | 恢复精确历史网页审批失败后 paused Run 的普通续聊，保留原调用与证据 | continue paused Runs after exact historical web-approval failures while retaining original calls and evidence |
 
 </details>
 

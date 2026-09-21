@@ -284,6 +284,37 @@ func TestProviderSearchReadinessIsReadOnlyAndDeclaredCapabilityIsNotReady(t *tes
 	}
 }
 
+func TestProviderSearchReadinessAutoPrioritizesNativeQualificationBeforeDisabledFallback(t *testing.T) {
+	definition := testProviderSearchDefinition("resolver-auto-native-readiness",
+		modelregistry.ProviderSearchModeAuto)
+	definition.Transport = modelregistry.ProviderTransportOpenAIResponses
+	definition.NativeWebSearchCapability = modelregistry.NativeWebSearchDeclaredUnverified
+	registry, settings, credentials := testProviderSearchRegistry(t, definition)
+	requests := 0
+	client := providerSearchHTTPClient(t, func(*http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"sources":[]}}]}`))}, nil
+	})
+	resolver, err := NewProviderSearchResolver(registry, settings, credentials,
+		&providerSearchFakeBackend{endpoint: "https://search.example.com/search"}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readiness := resolver.SearchReadiness(t.Context(),
+		webevidence.SearchRoute{ModelRoute: "code"},
+		webevidence.NetworkAuthority{Mode: "disabled"})
+	if readiness.State != ProviderSearchStateProviderUnqualified || readiness.RuntimeReady ||
+		readiness.Reason != ProviderSearchReasonQualificationRequired ||
+		readiness.SearchPolicy != modelregistry.ProviderSearchModeAuto ||
+		readiness.RequiredTarget != "" || requests != 0 {
+		t.Fatalf("readiness=%+v requests=%d", readiness, requests)
+	}
+}
+
 func TestProviderSearchReadinessProjectsConfiguredSearXNGWithoutProbe(t *testing.T) {
 	definition := testProviderSearchDefinition("resolver-searxng-readiness",
 		modelregistry.ProviderSearchModeSearXNG)
@@ -400,6 +431,53 @@ func TestProviderSearchResolverAutoFallbackIsExplicitAndNegativeCached(t *testin
 	}
 	if requests != 1 {
 		t.Fatalf("auto negative qualification requests=%d", requests)
+	}
+}
+
+func TestProviderSearchResolverAutoWithoutFallbackLazilyUsesDeclaredNative(t *testing.T) {
+	definition := testProviderSearchDefinition("official-openai",
+		modelregistry.ProviderSearchModeAuto)
+	definition.DisplayName = "OpenAI Official"
+	definition.EndpointURL = "https://api.openai.com/v1/responses"
+	definition.DefaultModel = "gpt-5.6"
+	definition.Models = []string{"gpt-5.6"}
+	definition.Transport = modelregistry.ProviderTransportOpenAIResponses
+	definition.NativeWebSearchCapability = modelregistry.NativeWebSearchDeclaredUnverified
+	registry, settings, credentials := testProviderSearchRegistry(t, definition)
+	requests := 0
+	client := providerSearchHTTPClientForHost(t, "api.openai.com",
+		func(*http.Request) (*http.Response, error) {
+			requests++
+			return &http.Response{StatusCode: http.StatusOK,
+				Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"sources":[{"url":"https://result.example.net/auto","title":"Auto result"}]}}]}`))}, nil
+		})
+	resolver, err := NewProviderSearchResolver(registry, settings, credentials, nil, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := webevidence.NetworkAuthority{Mode: "disabled"}
+	fingerprint := webevidence.NewService(nil, nil, nil).
+		WithSearchProviderResolver(resolver).
+		SearchProviderFingerprintForScope(t.Context(), webevidence.ExecutionScope{
+			RunID: "run-official-openai", MissionID: "mission-official-openai",
+			ModelRoute: "code", Authority: authority})
+	if len(fingerprint) != 64 || requests != 0 {
+		t.Fatalf("official OpenAI fingerprint=%q requests=%d", fingerprint, requests)
+	}
+	selection, err := resolver.ResolveSearch(t.Context(),
+		webevidence.SearchRoute{ModelRoute: "code"}, authority)
+	if err != nil || requests != 0 || selection.Policy != webevidence.SearchPolicyAuto ||
+		selection.SelectionReason != "auto_declared_provider_native" ||
+		!selection.ProviderAuthorityIndependent || len(selection.Binding) != 64 {
+		t.Fatalf("selection=%#v requests=%d err=%v", selection, requests, err)
+	}
+	results, err := selection.Provider.Search(t.Context(), "first auto query", 1,
+		selection.ProviderAuthority)
+	if err != nil || requests != 1 || len(results) != 1 ||
+		results[0].URL != "https://result.example.net/auto" {
+		t.Fatalf("results=%#v requests=%d err=%v", results, requests, err)
 	}
 }
 

@@ -163,7 +163,7 @@ func (p *SearXNGProvider) Search(ctx context.Context, query string,
 		return nil, err
 	}
 	if document.StatusCode < http.StatusOK || document.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("web search provider returned HTTP %d", document.StatusCode)
+		return nil, searchHTTPDiagnostic(document, fmt.Sprintf("web search provider returned HTTP %d", document.StatusCode))
 	}
 	if document.Truncated {
 		return nil, errors.New("web search provider response exceeded the configured limit")

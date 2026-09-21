@@ -134,6 +134,11 @@ type RouteSettingWriter interface {
 	SetProviderSetting(ctx context.Context, key string, value string) error
 }
 
+type RouteSettingStore interface {
+	RouteSettingReader
+	RouteSettingWriter
+}
+
 type EnvironmentLookup func(string) (string, bool)
 
 type CredentialReader interface {
@@ -154,6 +159,7 @@ type Registry struct {
 	strictCredentialReads   bool
 	customDefinitionsLoaded bool
 	qualificationStatuses   map[string]persistedQualificationStatus
+	credentialRevisions     map[string]uint64
 }
 
 type anthropicEnvironment struct {
@@ -232,6 +238,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 		credentials: credentials, generation: 1,
 		strictCredentialReads: strictCredentialReads,
 		qualificationStatuses: make(map[string]persistedQualificationStatus),
+		credentialRevisions:   make(map[string]uint64),
 	}
 	configs := []anthropicEnvironment{
 		{name: "mimo", apiKeyEnv: "MIMO_API_KEY", baseURLEnv: "MIMO_BASE_URL",
@@ -282,8 +289,14 @@ func (r *Registry) Reload(ctx context.Context, reader RouteSettingReader) (Reloa
 	if err := ctx.Err(); err != nil {
 		return ReloadResult{}, err
 	}
+	r.qualificationMu.Lock()
+	defer r.qualificationMu.Unlock()
 	r.routeMu.Lock()
 	defer r.routeMu.Unlock()
+	return r.reloadLocked(ctx, reader)
+}
+
+func (r *Registry) reloadLocked(ctx context.Context, reader RouteSettingReader) (ReloadResult, error) {
 	candidate, err := buildRegistry(ctx, r.lookup, r.credentials, true)
 	if err != nil {
 		return ReloadResult{}, err
@@ -306,6 +319,15 @@ func (r *Registry) Reload(ctx context.Context, reader RouteSettingReader) (Reloa
 	for name := range candidate.available {
 		available[name] = struct{}{}
 	}
+	qualificationStatuses := make(map[string]persistedQualificationStatus,
+		len(candidate.qualificationStatuses))
+	for key, status := range candidate.qualificationStatuses {
+		qualificationStatuses[key] = status
+	}
+	credentialRevisions := make(map[string]uint64, len(candidate.credentialRevisions))
+	for key, revision := range candidate.credentialRevisions {
+		credentialRevisions[key] = revision
+	}
 	r.mu.Lock()
 	if err := r.router.ReplaceConfiguration(candidate.router); err != nil {
 		r.mu.Unlock()
@@ -313,6 +335,8 @@ func (r *Registry) Reload(ctx context.Context, reader RouteSettingReader) (Reloa
 	}
 	r.providers = providers
 	r.available = available
+	r.qualificationStatuses = qualificationStatuses
+	r.credentialRevisions = credentialRevisions
 	r.generation++
 	generation := r.generation
 	r.mu.Unlock()
@@ -369,6 +393,13 @@ func (r *Registry) LoadRouteSettings(ctx context.Context, reader RouteSettingRea
 		}
 		r.router.SetRoute(route, ref)
 	}
+	credentialRevisions, err := r.loadCredentialRevisions(ctx, reader)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.credentialRevisions = credentialRevisions
+	r.mu.Unlock()
 	if err := r.loadHarnessQualifications(ctx, reader); err != nil {
 		return err
 	}
@@ -492,6 +523,32 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 	result.Outcome = string(llm.OutcomeSuccess)
 	result.FailureReason = llm.ProviderFailureNone
 	result.QualificationStatus = QualificationStatusAvailable
+	return result, nil
+}
+
+// DiagnoseAndRecord serializes the provider call and its durable projection
+// with credential changes, Harness qualification, and Registry reload. This
+// prevents a slow response from an older credential or definition generation
+// from being published as the status of the current provider binding.
+func (r *Registry) DiagnoseAndRecord(ctx context.Context, writer RouteSettingWriter,
+	provider string, model string,
+) (DiagnosticResult, error) {
+	if r == nil || writer == nil {
+		return DiagnosticResult{}, errors.New("diagnostic persistence dependencies are required")
+	}
+	r.qualificationMu.Lock()
+	defer r.qualificationMu.Unlock()
+	result, err := r.Diagnose(ctx, provider, model)
+	if err != nil {
+		return DiagnosticResult{}, err
+	}
+	if result.QualificationStatus == "" {
+		return result, nil
+	}
+	if err := r.persistQualificationStatus(ctx, writer, provider, model,
+		result.QualificationStatus, qualificationStatusSourceDiagnostic); err != nil {
+		return DiagnosticResult{}, fmt.Errorf("persist Provider diagnostic status: %w", err)
+	}
 	return result, nil
 }
 

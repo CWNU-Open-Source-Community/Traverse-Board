@@ -4,15 +4,21 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"unicode/utf16"
+
+	"cyberagent-workbench/internal/hostproxy"
 
 	"golang.org/x/sys/windows"
 )
@@ -44,12 +50,218 @@ func TestCommandRuntimeWindowsExplicitPowerShellPinsHostSelection(t *testing.T) 
 					t.Fatal("host runtime selection leaked into the child environment")
 				}
 			}
+			if name == "powershell.exe" {
+				var profile string
+				for _, entry := range resolved.Environment {
+					key, value, _ := strings.Cut(entry, "=")
+					if strings.EqualFold(key, "USERPROFILE") {
+						profile = value
+					}
+				}
+				if !commandRuntimePathEqual(profile, resolved.WorkspaceRoot) {
+					t.Fatalf("Windows PowerShell 5 USERPROFILE=%q want Workspace %q",
+						profile, resolved.WorkspaceRoot)
+				}
+				_, _, unboundSHA, err := normalizeCommandRuntimeEnvironment(
+					resolved.Spec.Environment, resolved.Spec.Network)
+				if err != nil || resolved.EnvironmentSHA256 == hex.EncodeToString(unboundSHA[:]) {
+					t.Fatalf("profile binding was not included in environment SHA: %v", err)
+				}
+			}
 			spec := commandRuntimeTestPowerShellSpec()
 			spec.Environment = []CommandRuntimeEnvironment{{Name: "CYBERAGENT_POWERSHELL_PATH", Value: executable}}
 			if _, err := NormalizeCommandRuntimeSpec(spec, t.TempDir()); !errors.Is(err, ErrCommandRuntimeBoundary) {
 				t.Fatalf("per-command host runtime configuration was accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestCommandRuntimeWindowsStaticProxyFallbackIsHostOnly(t *testing.T) {
+	for _, tc := range []struct {
+		pac        string
+		autoDetect bool
+	}{
+		{pac: "http://127.0.0.1/proxy.pac"},
+		{autoDetect: true},
+	} {
+		if server, bypass, ok := commandRuntimeWindowsProxySnapshot(
+			"127.0.0.1:7890", "localhost", tc.pac, tc.autoDetect); ok ||
+			server != "" || bypass != "" {
+			t.Fatalf("active automatic route was treated as static: pac=%t auto=%t",
+				tc.pac != "", tc.autoDetect)
+		}
+	}
+	for _, tc := range []struct {
+		pac        string
+		autoDetect bool
+	}{
+		{pac: "http://127.0.0.1/proxy.pac"},
+		{autoDetect: true},
+		{pac: "  http://127.0.0.1/proxy.pac  ", autoDetect: true},
+	} {
+		if proxy, bypass, ok := commandRuntimeWindowsStaticProxyWithoutAutoConfig(
+			"127.0.0.1:7890", "localhost", tc.pac, tc.autoDetect); ok ||
+			proxy != "" || bypass != "" {
+			t.Fatalf("static fallback ignored automatic route pac=%t autodetect=%t",
+				tc.pac != "", tc.autoDetect)
+		}
+	}
+	proxy, bypass, ok := commandRuntimeWindowsStaticProxy(
+		"127.0.0.1:7890", "localhost;127.0.0.1")
+	if !ok || proxy != "http://127.0.0.1:7890" ||
+		bypass != "localhost,127.0.0.1" {
+		t.Fatalf("static proxy=%q bypass=%q available=%t", proxy, bypass, ok)
+	}
+	for _, server := range []string{
+		"http=127.0.0.1:7890;https=127.0.0.1:7891",
+		"http://user:pass@127.0.0.1:7890", "http://127.0.0.1:7890/path",
+	} {
+		if _, _, ok := commandRuntimeWindowsStaticProxy(server, ""); ok {
+			t.Fatalf("ambiguous or credentialed system proxy %q accepted", server)
+		}
+	}
+	for _, bypass := range []string{
+		"<local>", "*.corp", "10.*", "localhost;<local>",
+		"localhost;*.corp", "localhost;10.*", "localhost;*.corp;10.*;<local>",
+	} {
+		if gotProxy, gotBypass, ok := commandRuntimeWindowsStaticProxy(
+			"127.0.0.1:7890", bypass); ok || gotProxy != "" || gotBypass != "" {
+			t.Fatalf("unrepresentable bypass %q enabled proxy=%q no_proxy=%q available=%t",
+				bypass, gotProxy, gotBypass, ok)
+		}
+	}
+	base := []string{"HOME=", "USERPROFILE=", "GIT_TERMINAL_PROMPT=0"}
+	host := commandRuntimeApplyHostProxyEnvironment(append([]string{}, base...),
+		nil, proxy, bypass)
+	joined := strings.Join(host, "\n")
+	for _, want := range []string{"HTTP_PROXY=" + proxy, "HTTPS_PROXY=" + proxy,
+		"ALL_PROXY=" + proxy, "NO_PROXY=" + bypass} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("host fallback missing %q: %q", want, joined)
+		}
+	}
+	explicit := []CommandRuntimeEnvironment{{Name: "HTTPS_PROXY",
+		Value: "http://localhost:9000"}}
+	if got := commandRuntimeApplyHostProxyEnvironment(append([]string{}, base...),
+		explicit, proxy, bypass); len(got) != len(base) {
+		t.Fatalf("system fallback overrode explicit proxy: %q", got)
+	}
+	if got := commandRuntimeApplyHostProxyEnvironment(append([]string{}, base...),
+		[]CommandRuntimeEnvironment{{Name: "NO_PROXY", Value: "localhost"}},
+		proxy, bypass); len(got) != len(base) {
+		t.Fatalf("system fallback ignored explicit bypass: %q", got)
+	}
+	disabled := commandRuntimePlatformEnvironment("not-powershell.exe", t.TempDir(),
+		append([]string{}, base...), CommandRuntimeNetworkDisabled, nil)
+	if len(disabled) != len(base) {
+		t.Fatalf("disabled intent received system proxy: %q", disabled)
+	}
+}
+
+func TestCommandRuntimeManagerBindsComplexSystemProxyOnlyForHost(t *testing.T) {
+	executable := commandRuntimeTestPowerShellImage(t, t.TempDir(), "powershell.exe")
+	t.Setenv("CYBERAGENT_POWERSHELL_PATH", executable)
+	workspace := t.TempDir()
+	config := hostproxy.Config{UpstreamURL: "http://127.0.0.1:7890",
+		Bypass: "localhost;<local>;10.*;*.corp"}
+	manager := &CommandRuntimeManager{hostProxy: &commandRuntimeHostProxySet{
+		readConfig: func() (hostproxy.Config, bool) { return config, true },
+	}}
+	t.Cleanup(func() { _ = manager.hostProxy.close() })
+	spec := commandRuntimeTestPowerShellSpec()
+	spec.Network = CommandRuntimeNetworkHost
+	first, err := manager.NormalizeCommandRuntimeSpec(spec, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(environment []string, name string) string {
+		for _, entry := range environment {
+			key, value, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(key, name) {
+				return value
+			}
+		}
+		return ""
+	}
+	proxy := get(first.Environment, "HTTPS_PROXY")
+	if !strings.HasPrefix(proxy, "http://127.0.0.1:") ||
+		get(first.Environment, "HTTP_PROXY") != proxy ||
+		get(first.Environment, "ALL_PROXY") != proxy ||
+		get(first.Environment, "NO_PROXY") != "" ||
+		get(first.Environment, "NODE_USE_ENV_PROXY") != "1" {
+		t.Fatalf("host bridge environment was not bound: %q", first.Environment)
+	}
+	wantRoute, err := hostproxy.Fingerprint(config)
+	if err != nil || get(first.Environment, "CYBERAGENT_HOST_PROXY_ROUTE_SHA256") != wantRoute {
+		t.Fatal("host route fingerprint was not bound")
+	}
+	second, err := manager.NormalizeCommandRuntimeSpec(spec, workspace)
+	if err != nil || first.EnvironmentSHA256 != second.EnvironmentSHA256 ||
+		CommandRuntimeSpecFingerprint(first) != CommandRuntimeSpecFingerprint(second) {
+		t.Fatalf("same process route changed identity: %v", err)
+	}
+	config.UpstreamURL = "http://127.0.0.1:7891"
+	changed, err := manager.NormalizeCommandRuntimeSpec(spec, workspace)
+	if err != nil || CommandRuntimeSpecFingerprint(first) == CommandRuntimeSpecFingerprint(changed) {
+		t.Fatalf("changed upstream reused command identity: %v", err)
+	}
+	spec.Environment = []CommandRuntimeEnvironment{{Name: "HTTPS_PROXY",
+		Value: "http://127.0.0.1:9000"}}
+	explicit, err := manager.NormalizeCommandRuntimeSpec(spec, workspace)
+	if err != nil || get(explicit.Environment, "HTTPS_PROXY") != "http://127.0.0.1:9000" ||
+		get(explicit.Environment, "CYBERAGENT_HOST_PROXY_ROUTE_SHA256") != "" {
+		t.Fatalf("explicit proxy did not win: %v", err)
+	}
+	spec.Environment = []CommandRuntimeEnvironment{}
+	spec.Network = CommandRuntimeNetworkDisabled
+	disabled, err := manager.NormalizeCommandRuntimeSpec(spec, workspace)
+	if err != nil || get(disabled.Environment, "HTTPS_PROXY") != "" ||
+		get(disabled.Environment, "CYBERAGENT_HOST_PROXY_ROUTE_SHA256") != "" {
+		t.Fatalf("disabled network received bridge: %v", err)
+	}
+}
+
+func TestCommandRuntimeWindowsProxyFallbackChangesFinalFingerprintOnlyWhenSafe(t *testing.T) {
+	base := []string{"HOME=", "USERPROFILE=", "GIT_TERMINAL_PROMPT=0"}
+	proxy, bypass, ok := commandRuntimeWindowsStaticProxy(
+		"127.0.0.1:7890", "localhost;127.0.0.1")
+	if !ok {
+		t.Fatal("simple static proxy was rejected")
+	}
+	plain := commandRuntimePlatformEnvironmentWithProxy("native.exe", `D:\workspace`,
+		append([]string{}, base...), CommandRuntimeNetworkHost, nil, "", "", false)
+	proxied := commandRuntimePlatformEnvironmentWithProxy("native.exe", `D:\workspace`,
+		append([]string{}, base...), CommandRuntimeNetworkHost, nil, proxy, bypass, true)
+	unsafeProxy, unsafeBypass, unsafeAvailable := commandRuntimeWindowsStaticProxy(
+		"127.0.0.1:7890", "localhost;*.corp;10.*;<local>")
+	unsafe := commandRuntimePlatformEnvironmentWithProxy("native.exe", `D:\workspace`,
+		append([]string{}, base...), CommandRuntimeNetworkHost, nil,
+		unsafeProxy, unsafeBypass, unsafeAvailable)
+	if strings.Join(unsafe, "\n") != strings.Join(plain, "\n") {
+		t.Fatalf("unsafe bypass leaked fallback proxy: %q", unsafe)
+	}
+	fingerprint := func(environment []string) string {
+		finalEnvironment := append([]string{}, environment...)
+		sort.Slice(finalEnvironment, func(left, right int) bool {
+			leftKey, _, _ := strings.Cut(finalEnvironment[left], "=")
+			rightKey, _, _ := strings.Cut(finalEnvironment[right], "=")
+			return strings.ToLower(leftKey) < strings.ToLower(rightKey)
+		})
+		encoded, err := json.Marshal(finalEnvironment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(encoded)
+		return CommandRuntimeSpecFingerprint(CommandRuntimeResolvedSpec{
+			Spec: CommandRuntimeSpec{Version: CommandRuntimeProtocolVersion,
+				Network: CommandRuntimeNetworkHost},
+			EnvironmentSHA256: hex.EncodeToString(digest[:]),
+		})
+	}
+	if fingerprint(plain) == fingerprint(proxied) ||
+		fingerprint(plain) != fingerprint(unsafe) {
+		t.Fatal("safe proxy or unsafe bypass did not bind the expected fingerprint")
 	}
 }
 

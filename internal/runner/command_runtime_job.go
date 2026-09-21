@@ -105,28 +105,30 @@ type CommandRuntimeOutputPage struct {
 }
 
 type CommandRuntimeScope struct {
-	InvocationID         string
-	OperationKey         string
-	RunID                string
-	MissionID            string
-	RootAgentID          string
-	AgentID              string
-	AgentAttemptID       string
-	AttributionSource    domain.AgentAttributionSource
-	SessionID            string
-	WorkspaceID          string
-	WorkspaceRootSHA256  string
-	ModeSnapshotID       string
-	ModeRevision         int64
-	ProfileSnapshotID    string
-	ProfileRevision      int64
-	PermissionSnapshotID string
-	PermissionRevision   int64
-	PermissionMode       domain.RunExecutionPermissionMode
-	LeaseID              string
-	LeaseGeneration      int64
-	LeaseOwnerID         string
-	Adapter              commandruntimeadapter.Identity
+	InvocationID           string
+	OperationKey           string
+	RunID                  string
+	MissionID              string
+	RootAgentID            string
+	AgentID                string
+	AgentAttemptID         string
+	AttributionSource      domain.AgentAttributionSource
+	SessionID              string
+	WorkspaceID            string
+	WorkspaceRootSHA256    string
+	ModeSnapshotID         string
+	ModeRevision           int64
+	ProfileSnapshotID      string
+	ProfileRevision        int64
+	PermissionSnapshotID   string
+	PermissionRevision     int64
+	PermissionMode         domain.RunExecutionPermissionMode
+	PermissionRuntimeEpoch string
+	PermissionGeneration   uint64
+	LeaseID                string
+	LeaseGeneration        int64
+	LeaseOwnerID           string
+	Adapter                commandruntimeadapter.Identity
 }
 
 func (s CommandRuntimeScope) Validate() error {
@@ -150,7 +152,14 @@ func (s CommandRuntimeScope) Validate() error {
 		len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
 		s.ModeRevision <= 0 || s.ProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseGeneration <= 0 ||
+		(s.PermissionRuntimeEpoch == "") != (s.PermissionGeneration == 0) ||
 		!s.Adapter.AllowsPermission(s.PermissionMode) {
+		return ErrCommandRuntimeBoundary
+	}
+	if s.PermissionRuntimeEpoch != "" &&
+		(strings.TrimSpace(s.PermissionRuntimeEpoch) != s.PermissionRuntimeEpoch ||
+			!validCommandRuntimeText(s.PermissionRuntimeEpoch, false) ||
+			len([]rune(s.PermissionRuntimeEpoch)) > 256) {
 		return ErrCommandRuntimeBoundary
 	}
 	return nil
@@ -159,70 +168,72 @@ func (s CommandRuntimeScope) Validate() error {
 // CommandRuntimeJob is the durable metadata and sanitized-output projection.
 // Initial stdin content and process handles are intentionally absent.
 type CommandRuntimeJob struct {
-	ID                    string
-	OperationDigest       string
-	RequestFingerprint    string
-	InvocationID          string
-	RunID                 string
-	MissionID             string
-	SessionID             string
-	WorkspaceID           string
-	RootAgentID           string
-	WorkspaceRootSHA256   string
-	ModeSnapshotID        string
-	ModeRevision          int64
-	ProfileSnapshotID     string
-	ProfileRevision       int64
-	PermissionSnapshotID  string
-	PermissionRevision    int64
-	PermissionMode        domain.RunExecutionPermissionMode
-	LeaseID               string
-	LeaseGeneration       int64
-	LeaseOwnerID          string
-	Adapter               commandruntimeadapter.Identity
-	OwnerID               string
-	OwnerGeneration       int64
-	OwnerRenewedAt        time.Time
-	OwnerExpiresAt        time.Time
-	IntentJSON            string
-	SpecFingerprint       string
-	Profile               CommandRuntimeProfile
-	ExecutablePath        string
-	ExecutableSHA256      string
-	EnvironmentSHA256     string
-	WorkingDirectory      string
-	StdinPolicy           CommandRuntimeStdinPolicy
-	Network               CommandRuntimeNetwork
-	Credentials           CommandRuntimeCredentialPolicy
-	TimeoutMilliseconds   int64
-	InlineLimitBytes      int
-	ArtifactLimitBytes    int
-	State                 CommandRuntimeJobState
-	PID                   int
-	ProcessGroup          int
-	Stdout                string
-	Stderr                string
-	StdoutObservedBytes   int64
-	StderrObservedBytes   int64
-	OutputCursor          uint64
-	OutputBaseCursor      uint64
-	OutputFramesJSON      string
-	StdoutSHA256          string
-	StderrSHA256          string
-	TruncationReason      string
-	ExitCode              *int
-	TimedOut              bool
-	Cancelled             bool
-	Killed                bool
-	TreeReaped            bool
-	JobAssignedAtCreation bool
-	StdinClosed           bool
-	StdinWriteCount       int
-	Version               int64
-	CreatedAt             time.Time
-	StartedAt             *time.Time
-	CompletedAt           *time.Time
-	UpdatedAt             time.Time
+	ID                     string
+	OperationDigest        string
+	RequestFingerprint     string
+	InvocationID           string
+	RunID                  string
+	MissionID              string
+	SessionID              string
+	WorkspaceID            string
+	RootAgentID            string
+	WorkspaceRootSHA256    string
+	ModeSnapshotID         string
+	ModeRevision           int64
+	ProfileSnapshotID      string
+	ProfileRevision        int64
+	PermissionSnapshotID   string
+	PermissionRevision     int64
+	PermissionMode         domain.RunExecutionPermissionMode
+	PermissionRuntimeEpoch string
+	PermissionGeneration   uint64
+	LeaseID                string
+	LeaseGeneration        int64
+	LeaseOwnerID           string
+	Adapter                commandruntimeadapter.Identity
+	OwnerID                string
+	OwnerGeneration        int64
+	OwnerRenewedAt         time.Time
+	OwnerExpiresAt         time.Time
+	IntentJSON             string
+	SpecFingerprint        string
+	Profile                CommandRuntimeProfile
+	ExecutablePath         string
+	ExecutableSHA256       string
+	EnvironmentSHA256      string
+	WorkingDirectory       string
+	StdinPolicy            CommandRuntimeStdinPolicy
+	Network                CommandRuntimeNetwork
+	Credentials            CommandRuntimeCredentialPolicy
+	TimeoutMilliseconds    int64
+	InlineLimitBytes       int
+	ArtifactLimitBytes     int
+	State                  CommandRuntimeJobState
+	PID                    int
+	ProcessGroup           int
+	Stdout                 string
+	Stderr                 string
+	StdoutObservedBytes    int64
+	StderrObservedBytes    int64
+	OutputCursor           uint64
+	OutputBaseCursor       uint64
+	OutputFramesJSON       string
+	StdoutSHA256           string
+	StderrSHA256           string
+	TruncationReason       string
+	ExitCode               *int
+	TimedOut               bool
+	Cancelled              bool
+	Killed                 bool
+	TreeReaped             bool
+	JobAssignedAtCreation  bool
+	StdinClosed            bool
+	StdinWriteCount        int
+	Version                int64
+	CreatedAt              time.Time
+	StartedAt              *time.Time
+	CompletedAt            *time.Time
+	UpdatedAt              time.Time
 }
 
 // CommandRuntimeJobMetadata is the output-free projection used by public
@@ -308,7 +319,11 @@ func (j CommandRuntimeJob) Validate() error {
 		len([]byte(j.ExecutablePath)) > MaxCommandRuntimePathBytes ||
 		len([]byte(j.WorkingDirectory)) > MaxCommandRuntimePathBytes ||
 		!jsonValid(j.IntentJSON) || !j.Profile.Valid() || !j.StdinPolicy.Valid() ||
-		j.Network != CommandRuntimeNetworkDisabled || !j.State.Valid() ||
+		(j.Network != CommandRuntimeNetworkDisabled &&
+			j.Network != CommandRuntimeNetworkHost) || !j.State.Valid() ||
+		(j.Network == CommandRuntimeNetworkHost &&
+			(j.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
+				!j.PermissionMode.IncludesFullAccess())) ||
 		j.Credentials != CommandRuntimeCredentialsNone || j.Adapter.Validate() != nil ||
 		(j.Adapter.Kind != commandruntimeadapter.KindLegacyUnbound &&
 			!j.Adapter.AllowsPermission(j.PermissionMode)) ||
@@ -338,6 +353,13 @@ func (j CommandRuntimeJob) Validate() error {
 			j.TruncationReason != "artifact_limit") ||
 		j.Version <= 0 || j.CreatedAt.IsZero() || j.UpdatedAt.IsZero() ||
 		j.UpdatedAt.Before(j.CreatedAt) {
+		return ErrCommandRuntimeBoundary
+	}
+	if (j.PermissionRuntimeEpoch == "") != (j.PermissionGeneration == 0) ||
+		(j.PermissionRuntimeEpoch != "" &&
+			(strings.TrimSpace(j.PermissionRuntimeEpoch) != j.PermissionRuntimeEpoch ||
+				!validCommandRuntimeText(j.PermissionRuntimeEpoch, false) ||
+				len([]rune(j.PermissionRuntimeEpoch)) > 256)) {
 		return ErrCommandRuntimeBoundary
 	}
 	if j.State == CommandRuntimeJobPrepared {
@@ -507,6 +529,7 @@ type commandRuntimeStarter interface {
 type CommandRuntimeManager struct {
 	store             CommandRuntimeStore
 	starter           commandRuntimeStarter
+	hostProxy         *commandRuntimeHostProxySet
 	adapter           commandruntimeadapter.Identity
 	ownerID           string
 	ownerGeneration   int64
@@ -582,7 +605,12 @@ func newCommandRuntimeManagerWithAdapter(store CommandRuntimeStore,
 func NewPlatformCommandRuntimeManager(store CommandRuntimeStore,
 	ownerID string,
 ) (*CommandRuntimeManager, error) {
-	return NewCommandRuntimeManager(store, newPlatformCommandRuntimeStarter(), ownerID)
+	manager, err := NewCommandRuntimeManager(store, newPlatformCommandRuntimeStarter(), ownerID)
+	if err != nil {
+		return nil, err
+	}
+	manager.hostProxy = &commandRuntimeHostProxySet{}
+	return manager, nil
 }
 
 func (m *CommandRuntimeManager) Available() bool {
@@ -608,6 +636,10 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	defer m.startMu.Unlock()
 	if request.Spec.Spec.Version != CommandRuntimeProtocolVersion ||
 		request.Spec.WorkspaceRootSHA256 != request.Scope.WorkspaceRootSHA256 ||
+		!request.Spec.Spec.Network.Valid() ||
+		(request.Spec.Spec.Network == CommandRuntimeNetworkHost &&
+			(request.Scope.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
+				!request.Scope.PermissionMode.IncludesFullAccess())) ||
 		validateCommandRuntimeAttachmentInput(request.Spec) != nil {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
@@ -621,38 +653,47 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	operationDigest, jobID := CommandRuntimeOperationIdentity(request.Scope.RunID,
 		request.Scope.OperationKey)
 	fingerprint := CommandRuntimeSpecFingerprint(request.Spec)
+	requestParts := []string{
+		request.Scope.RunID, request.Scope.MissionID, request.Scope.SessionID,
+		request.Scope.WorkspaceID, request.Scope.RootAgentID,
+		request.Scope.AgentID, request.Scope.AgentAttemptID,
+		string(request.Scope.AttributionSource),
+		request.Scope.WorkspaceRootSHA256,
+		request.Scope.ModeSnapshotID, fmt.Sprint(request.Scope.ModeRevision),
+		request.Scope.ProfileSnapshotID, fmt.Sprint(request.Scope.ProfileRevision),
+		request.Scope.PermissionSnapshotID, fmt.Sprint(request.Scope.PermissionRevision),
+		string(request.Scope.PermissionMode), request.Scope.LeaseID,
+		fmt.Sprint(request.Scope.LeaseGeneration), request.Scope.LeaseOwnerID,
+		string(request.Scope.Adapter.Kind), request.Scope.Adapter.Backend,
+		request.Scope.Adapter.BackendIdentity, request.Scope.Adapter.Generation,
+		string(request.Scope.Adapter.IsolationGrade),
+		string(request.Scope.Adapter.NetworkPolicy),
+		string(request.Scope.Adapter.CredentialPolicy), fingerprint,
+	}
+	if request.Scope.PermissionRuntimeEpoch != "" {
+		requestParts = append(requestParts, "permission_runtime_epoch.v1",
+			request.Scope.PermissionRuntimeEpoch,
+			fmt.Sprint(request.Scope.PermissionGeneration))
+	}
 	now := time.Now().UTC()
 	ownerExpiresAt := now.Add(m.ownerLeaseTTL)
 	record := CommandRuntimeJob{
 		ID: jobID, OperationDigest: operationDigest,
-		RequestFingerprint: commandRuntimeDigest("command_runtime_request.v2",
-			request.Scope.RunID, request.Scope.MissionID, request.Scope.SessionID,
-			request.Scope.WorkspaceID, request.Scope.RootAgentID,
-			request.Scope.AgentID, request.Scope.AgentAttemptID,
-			string(request.Scope.AttributionSource),
-			request.Scope.WorkspaceRootSHA256,
-			request.Scope.ModeSnapshotID, fmt.Sprint(request.Scope.ModeRevision),
-			request.Scope.ProfileSnapshotID, fmt.Sprint(request.Scope.ProfileRevision),
-			request.Scope.PermissionSnapshotID, fmt.Sprint(request.Scope.PermissionRevision),
-			string(request.Scope.PermissionMode), request.Scope.LeaseID,
-			fmt.Sprint(request.Scope.LeaseGeneration), request.Scope.LeaseOwnerID,
-			string(request.Scope.Adapter.Kind), request.Scope.Adapter.Backend,
-			request.Scope.Adapter.BackendIdentity, request.Scope.Adapter.Generation,
-			string(request.Scope.Adapter.IsolationGrade),
-			string(request.Scope.Adapter.NetworkPolicy),
-			string(request.Scope.Adapter.CredentialPolicy),
-			fingerprint),
+		RequestFingerprint: commandRuntimeDigest(append(
+			[]string{"command_runtime_request.v2"}, requestParts...)...),
 		InvocationID: request.Scope.InvocationID, RunID: request.Scope.RunID,
 		MissionID: request.Scope.MissionID, SessionID: request.Scope.SessionID,
 		WorkspaceID: request.Scope.WorkspaceID, RootAgentID: request.Scope.RootAgentID,
 		WorkspaceRootSHA256: request.Scope.WorkspaceRootSHA256,
 		ModeSnapshotID:      request.Scope.ModeSnapshotID, ModeRevision: request.Scope.ModeRevision,
-		ProfileSnapshotID:    request.Scope.ProfileSnapshotID,
-		ProfileRevision:      request.Scope.ProfileRevision,
-		PermissionSnapshotID: request.Scope.PermissionSnapshotID,
-		PermissionRevision:   request.Scope.PermissionRevision,
-		PermissionMode:       request.Scope.PermissionMode,
-		LeaseID:              request.Scope.LeaseID, LeaseGeneration: request.Scope.LeaseGeneration,
+		ProfileSnapshotID:      request.Scope.ProfileSnapshotID,
+		ProfileRevision:        request.Scope.ProfileRevision,
+		PermissionSnapshotID:   request.Scope.PermissionSnapshotID,
+		PermissionRevision:     request.Scope.PermissionRevision,
+		PermissionMode:         request.Scope.PermissionMode,
+		PermissionRuntimeEpoch: request.Scope.PermissionRuntimeEpoch,
+		PermissionGeneration:   request.Scope.PermissionGeneration,
+		LeaseID:                request.Scope.LeaseID, LeaseGeneration: request.Scope.LeaseGeneration,
 		LeaseOwnerID: request.Scope.LeaseOwnerID, Adapter: request.Scope.Adapter,
 		OwnerID: m.ownerID, OwnerGeneration: m.ownerGeneration,
 		OwnerRenewedAt: now, OwnerExpiresAt: ownerExpiresAt,
@@ -1026,7 +1067,7 @@ func (m *CommandRuntimeManager) List(ctx context.Context,
 	return result, nil
 }
 
-func (m *CommandRuntimeManager) Shutdown(ctx context.Context) error {
+func (m *CommandRuntimeManager) Shutdown(ctx context.Context) (result error) {
 	if m == nil {
 		return nil
 	}
@@ -1044,7 +1085,7 @@ func (m *CommandRuntimeManager) Shutdown(ctx context.Context) error {
 	}
 	m.mu.Unlock()
 	m.startMu.Unlock()
-	var result error
+	defer func() { result = errors.Join(result, m.hostProxy.close()) }()
 	for _, entry := range entries {
 		if entry.setDesired(CommandRuntimeJobInterrupted) {
 			result = errors.Join(result, entry.process.Kill())

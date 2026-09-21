@@ -604,6 +604,10 @@ func openAIHTTPError(provider string, statusCode int, retryAfter string, raw []b
 	kind := OutcomePermanent
 	reason := ProviderFailureProtocolIncompatible
 	switch statusCode {
+	case http.StatusPaymentRequired:
+		// Billing failures need an account change, not a protocol repair or
+		// automatic retry. Keep the existing capacity classification contract.
+		reason = ProviderFailureCapacity
 	case http.StatusUnauthorized, http.StatusForbidden:
 		reason = ProviderFailureAuthentication
 	case http.StatusTooManyRequests:

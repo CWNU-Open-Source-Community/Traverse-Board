@@ -32,6 +32,7 @@ func TestAvailableModelRoutesSerializesEmptyDefaultsAsJSONArray(t *testing.T) {
 				Kind:   modelregistry.ProviderKindAnthropicCompatible,
 				Status: modelregistry.ProviderAvailable, Models: []string{"deepseek-v4-flash"},
 				CredentialSource: "system", NetworkRequired: true, Enabled: true,
+				Custom: true, DefinitionRevision: 4,
 				Harnesses: []modelregistry.HarnessAvailability{{
 					ProtocolVersion:     modelregistry.HarnessQualificationProtocolVersion,
 					Model:               "deepseek-v4-flash",
@@ -56,6 +57,7 @@ func TestAvailableModelRoutesSerializesEmptyDefaultsAsJSONArray(t *testing.T) {
 			Routes []struct {
 				QualificationStatus string          `json:"qualification_status"`
 				UnavailableReason   string          `json:"unavailable_reason"`
+				DefinitionRevision  uint64          `json:"definition_revision"`
 				DefaultForRoutes    json.RawMessage `json:"default_for_routes"`
 			} `json:"routes"`
 		} `json:"data"`
@@ -70,7 +72,7 @@ func TestAvailableModelRoutesSerializesEmptyDefaultsAsJSONArray(t *testing.T) {
 		t.Fatalf("default_for_routes=%s, want [] body=%s", got, response.Body.String())
 	}
 	if route := envelope.Data.Routes[0]; route.QualificationStatus != llm.HarnessQualificationRequired ||
-		route.UnavailableReason != "harness_qualification_required" {
+		route.UnavailableReason != "harness_qualification_required" || route.DefinitionRevision != 4 {
 		t.Fatalf("DeepSeek qualification response was not normalized: %+v body=%s",
 			route, response.Body.String())
 	}

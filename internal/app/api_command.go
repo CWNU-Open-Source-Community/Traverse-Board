@@ -352,7 +352,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 			"Provider search resolver is unavailable", err)
 	}
 	webEvidence := webevidence.NewService(a.store, webSearchProvider,
-		webevidence.NewFetcher(webClient)).WithSearchProviderResolver(providerSearchResolver)
+		webevidence.NewFetcher(webClient)).
+		WithSourceConnectors(webevidence.NewDefaultSourceConnectors(webClient)...).
+		WithSearchProviderResolver(providerSearchResolver)
 	lifecycleControl := application.NewRunLifecycleControlService(a.store).
 		WithLifecycleHooks(hookEngine)
 	webFetchAuthorizationSchedulerEnabled := controlToken != "" &&

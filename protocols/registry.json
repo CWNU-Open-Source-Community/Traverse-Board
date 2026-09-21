@@ -600,7 +600,8 @@
       "active_identifiers": [
         "model_availability.v2",
         "run_capability_readiness.v1",
-        "runtime_capabilities.v1"
+        "runtime_capabilities.v1",
+        "search_diagnostics.v1"
       ],
       "retired_identifiers": []
     },
@@ -718,12 +719,15 @@
         "finding_fix_request.v1",
         "finding_report.v1",
         "finding_validation_request.v1",
+        "github-public.v1",
+        "hacker-news-public.v1",
         "macos_portable_compatibility.v1",
         "msix_manifest.v1",
         "msix_manifest.v2",
         "pe_authenticode_normalized.v1",
         "provider_grounded_citation.v1",
         "recovery.data_store_seed.v1",
+        "rss-atom-public.v1",
         "sanitized_host_environment.v1",
         "scheduled-job-worker.v1",
         "scheduled_job_create_request.v1",
@@ -735,6 +739,7 @@
         "script_process_operation_key.v1",
         "script_process_proposal.v1",
         "script_run_create.v1",
+        "source_search.v1",
         "specialist_context.v1",
         "specialist_lifecycle.v1",
         "specialist_model_action.v1",
@@ -1611,6 +1616,7 @@
         "host_command_proposal_review_operation.v1",
         "host_command_review.v1",
         "once_execution.v1",
+        "permission_runtime_epoch.v1",
         "risk_escalation.v1",
         "risk_escalation_execution.v1",
         "risk_escalation_invalidation.v1",
@@ -2273,7 +2279,7 @@
         "generated_handoff.v1",
         "handoff_memory.v0",
         "handoff_memory.v1",
-		"history_recall.v1",
+        "history_recall.v1",
         "llm.item_stream.identity.v1",
         "long_term_memory.v1",
         "note_context.v1",
@@ -2302,7 +2308,7 @@
         "thread_lifecycle_request.v1",
         "thread_run_recovery_operation.v1",
         "thread_run_recovery_request.v1",
-		"thread_summary_window.v1",
+        "thread_summary_window.v1",
         "thread_turn_epoch_transition_operation.v1",
         "thread_turn_handoff_operation.v1",
         "thread_turn_lifecycle_operation.v1",
@@ -2407,6 +2413,8 @@
         ]
       },
       "active_identifiers": [
+        "agent_code_file_edit_proposal.v1",
+        "agent_code_file_edit_source.v1",
         "file_edit_apply_operation.v1",
         "file_edit_apply_request.v1",
         "file_edit_revert_proposal.v1",
@@ -3021,12 +3029,28 @@
       "reason": "Unsupported generated summary version used only to verify rejection; not a production protocol."
     },
     {
+      "identifier": "github-test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/webevidence/service_source_connector_test.go"
+      ],
+      "reason": "Test connector identity used to verify bounded source search and snapshot replay; not a production connector."
+    },
+    {
       "identifier": "handoff_memory.v999",
       "kind": "test-fixture",
       "sources": [
         "internal/contextmgr/continuity_summary_window_test.go"
       ],
       "reason": "Negative fixture verifies unknown summary versions fail closed."
+    },
+    {
+      "identifier": "hn-test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/webevidence/service_source_connector_test.go"
+      ],
+      "reason": "Test connector identity used to verify bounded source search and snapshot replay; not a production connector."
     },
     {
       "identifier": "linux_ephemeral_user_namespace.v1",
@@ -3058,7 +3082,9 @@
       "sources": [
         "internal/application/standard_code_preset_test.go",
         "internal/application/standard_code_supervisor_test.go",
-        "internal/commandruntimeadapter/adapter_test.go"
+        "internal/commandruntimeadapter/adapter_test.go",
+        "internal/store/migration_v163_test.go",
+        "internal/toolgateway/command_runtime_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },

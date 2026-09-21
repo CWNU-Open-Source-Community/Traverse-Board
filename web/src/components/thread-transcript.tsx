@@ -183,7 +183,7 @@ function classifyLiveTool(name: string): ThreadTranscriptItemView["activity_type
   case "workspace_search": case "code_search": case "search": case "find_files":
   case "github_review_evidence_list": case "code_workspace_symbols": case "code_document_symbols":
   case "code_references": case "code_implementation": case "code_call_hierarchy":
-  case "code_type_hierarchy": case "web_search": return "search";
+  case "code_type_hierarchy": case "web_search": case "source_search": return "search";
   case "read_file": case "workspace_read": case "note_get": case "artifact_get":
   case "github_review_evidence_read": case "code_definition": case "code_hover":
   case "code_signature_help": case "web_fetch": case "web_citation": return "read";

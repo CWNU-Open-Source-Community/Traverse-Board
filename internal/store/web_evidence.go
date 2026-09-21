@@ -48,16 +48,28 @@ func getWebEvidenceOperation(ctx context.Context, queryer skillPackageQueryer,
 func (s *SQLiteStore) SaveWebSearch(ctx context.Context, sources []webevidence.Source,
 	operation webevidence.Operation,
 ) (webevidence.Operation, bool, error) {
-	if operation.ToolName != "web_search" || operation.Validate() != nil ||
+	return s.saveWebSourceDiscovery(ctx, sources, operation, "web_search")
+}
+
+func (s *SQLiteStore) SaveSourceSearch(ctx context.Context, sources []webevidence.Source,
+	operation webevidence.Operation,
+) (webevidence.Operation, bool, error) {
+	return s.saveWebSourceDiscovery(ctx, sources, operation, "source_search")
+}
+
+func (s *SQLiteStore) saveWebSourceDiscovery(ctx context.Context, sources []webevidence.Source,
+	operation webevidence.Operation, expectedTool string,
+) (webevidence.Operation, bool, error) {
+	if operation.ToolName != expectedTool || operation.Validate() != nil ||
 		len(sources) > webevidence.MaxSources {
 		return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument,
-			"web search persistence input is invalid")
+			"web source discovery persistence input is invalid")
 	}
 	for _, source := range sources {
 		if source.Validate() != nil || source.RunID != operation.RunID ||
 			source.State != webevidence.SourceDiscovered {
 			return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument,
-				"web search source is invalid")
+				"web source discovery source is invalid")
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})

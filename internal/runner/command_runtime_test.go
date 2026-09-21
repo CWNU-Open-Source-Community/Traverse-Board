@@ -64,6 +64,139 @@ func TestNormalizeCommandRuntimeProcessPinsAbsoluteExecutableAndEnvironment(t *t
 	}
 }
 
+func TestNormalizeCommandRuntimeHostNetworkKeepsCredentialBoundary(t *testing.T) {
+	root := t.TempDir()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := CommandRuntimeSpec{
+		Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimeProcess,
+		Executable: executable, Arguments: []string{"--help"}, WorkingDirectory: ".",
+		Environment: []CommandRuntimeEnvironment{},
+		StdinPolicy: CommandRuntimeStdinClosed, CloseInitialStdin: true,
+		TimeoutMilliseconds: 1000,
+		Output: CommandRuntimeOutputPolicy{InlineBytes: MinCommandRuntimeInlineBytes,
+			ArtifactBytes: MinCommandRuntimeInlineBytes},
+		Network: CommandRuntimeNetworkHost, Credentials: CommandRuntimeCredentialsNone,
+		Purpose: "fetch public build dependencies",
+	}
+	host, err := NormalizeCommandRuntimeSpec(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range host.Environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if commandRuntimeOfflineEnvironmentName(name) {
+			t.Fatalf("host intent retained forced offline setting %q", entry)
+		}
+	}
+	for _, name := range []string{"HOME", "SSH_AUTH_SOCK", "GIT_TERMINAL_PROMPT"} {
+		if !strings.Contains(strings.Join(host.Environment, "\n"), name+"=") {
+			t.Fatalf("host intent lost credential boundary %s", name)
+		}
+	}
+	spec.Network = CommandRuntimeNetworkDisabled
+	disabled, err := NormalizeCommandRuntimeSpec(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.EnvironmentSHA256 == disabled.EnvironmentSHA256 ||
+		CommandRuntimeSpecFingerprint(host) == CommandRuntimeSpecFingerprint(disabled) {
+		t.Fatal("host and disabled launches have the same fingerprint")
+	}
+	if !strings.Contains(strings.Join(disabled.Environment, "\n"), "GOPROXY=off") {
+		t.Fatal("disabled intent lost its offline environment")
+	}
+}
+
+func TestCommandRuntimeHostOnlyExplicitCredentialFreeProxy(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := CommandRuntimeSpec{
+		Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimeProcess,
+		Executable: executable, Arguments: []string{}, WorkingDirectory: ".",
+		Environment: []CommandRuntimeEnvironment{
+			{Name: "HTTPS_PROXY", Value: "http://127.0.0.1:7890"},
+			{Name: "NO_PROXY", Value: "localhost,127.0.0.1"},
+		},
+		StdinPolicy: CommandRuntimeStdinClosed, CloseInitialStdin: true,
+		TimeoutMilliseconds: 1000,
+		Output: CommandRuntimeOutputPolicy{InlineBytes: MinCommandRuntimeInlineBytes,
+			ArtifactBytes: MinCommandRuntimeInlineBytes},
+		Network: CommandRuntimeNetworkHost, Credentials: CommandRuntimeCredentialsNone,
+		Purpose: "fetch public resources through local proxy",
+	}
+	root := t.TempDir()
+	first, err := NormalizeCommandRuntimeSpec(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(first.Environment, "\n"),
+		"HTTPS_PROXY=http://127.0.0.1:7890") {
+		t.Fatal("explicit host proxy was not passed to child")
+	}
+	spec.Environment[0].Value = "http://127.0.0.1:7891"
+	second, err := NormalizeCommandRuntimeSpec(spec, root)
+	if err != nil || first.EnvironmentSHA256 == second.EnvironmentSHA256 ||
+		CommandRuntimeSpecFingerprint(first) == CommandRuntimeSpecFingerprint(second) {
+		t.Fatalf("proxy change did not alter launch fingerprint: %v", err)
+	}
+	spec.Network = CommandRuntimeNetworkDisabled
+	if _, err := NormalizeCommandRuntimeIntent(spec); !errors.Is(err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("disabled network accepted explicit proxy: %v", err)
+	}
+	spec.Network = CommandRuntimeNetworkHost
+	for _, bad := range []string{
+		"http://user:pass@127.0.0.1:7890", "http://127.0.0.1:7890/path",
+		"http://127.0.0.1:7890?token=secret", "127.0.0.1:7890",
+	} {
+		spec.Environment[0].Value = bad
+		if _, err := NormalizeCommandRuntimeIntent(spec); !errors.Is(err, ErrCommandRuntimeBoundary) {
+			t.Fatalf("unsafe proxy %q accepted: %v", bad, err)
+		}
+	}
+	spec.Environment[0] = CommandRuntimeEnvironment{Name: "MY_PROXY",
+		Value: "http://127.0.0.1:7890"}
+	if _, err := NormalizeCommandRuntimeIntent(spec); !errors.Is(err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("non-allowlisted proxy variable accepted: %v", err)
+	}
+}
+
+func TestCommandRuntimeHostNetworkBindsAdapterAndPermissionGeneration(t *testing.T) {
+	store := newCommandRuntimeMemoryStore()
+	starter := &commandRuntimeFakeStarter{}
+	manager, err := NewCommandRuntimeManager(store, starter, "runtime-owner-host-network")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := commandRuntimeTestRequest(manager, 2000)
+	request.Spec.Spec.Network = CommandRuntimeNetworkHost
+	request.Scope.PermissionRuntimeEpoch = "permission-runtime-epoch-1"
+	request.Scope.PermissionGeneration = 1
+	if _, replayed, err := manager.Start(context.Background(), request); err != nil || replayed {
+		t.Fatalf("start host intent replayed=%t err=%v", replayed, err)
+	}
+	request.Scope.PermissionGeneration = 2
+	if _, replayed, err := manager.Start(context.Background(), request); !replayed || !errors.Is(err, ErrCommandRuntimeUncertain) {
+		t.Fatalf("re-grant replayed=%t err=%v", replayed, err)
+	}
+	if starter.starts != 1 {
+		t.Fatalf("stale grant launched %d processes", starter.starts)
+	}
+	request.Scope.PermissionRuntimeEpoch = ""
+	if _, _, err := manager.Start(context.Background(), request); !errors.Is(err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("partial grant tuple accepted: %v", err)
+	}
+	request.Scope.PermissionGeneration = 0
+	request.Scope.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	if _, _, err := manager.Start(context.Background(), request); !errors.Is(err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("Workspace Access host intent accepted: %v", err)
+	}
+}
+
 func TestNormalizeCommandRuntimeProcessRejectsExecutableTextDisguisedAsNative(t *testing.T) {
 	root := t.TempDir()
 	name := "not-native"
@@ -241,11 +374,11 @@ func TestCommandRuntimeEnvironmentRejectsCredentialAndNetworkBootstrapNames(t *t
 	for _, name := range []string{"HTTPS_PROXY", "AWS_ACCESS_KEY_ID", "AWS_PROFILE",
 		"KUBECONFIG", "GIT_ASKPASS", "NPM_TOKEN", "CARGO_HOME",
 		"GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT", "GOPROXY"} {
-		if validCommandRuntimeEnvironmentName(name) {
+		if validCommandRuntimeEnvironmentName(name, CommandRuntimeNetworkDisabled) {
 			t.Fatalf("credential or network environment name %q was accepted", name)
 		}
 	}
-	if !validCommandRuntimeEnvironmentName("SAFE_BUILD_FLAG") {
+	if !validCommandRuntimeEnvironmentName("SAFE_BUILD_FLAG", CommandRuntimeNetworkDisabled) {
 		t.Fatal("ordinary bounded environment name was rejected")
 	}
 }

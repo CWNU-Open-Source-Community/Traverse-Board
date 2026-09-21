@@ -3,6 +3,7 @@ package modelregistry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -22,8 +23,8 @@ const (
 	QualificationStatusCapacity         = "capacity"
 	QualificationStatusModelUnsupported = "model_unsupported"
 
-	qualificationStatusSourceDiagnostic = "diagnostic"
-	qualificationStatusSourceHarness    = "harness_qualification"
+	qualificationStatusSourceDiagnostic   = "diagnostic"
+	qualificationStatusSourceHarness      = "harness_qualification"
 	qualificationStatusSourceAvailability = "availability"
 )
 
@@ -57,9 +58,12 @@ func QualificationStatusFor(outcome llm.Outcome, reason llm.ProviderFailureReaso
 // persistedQualificationStatus is the durable projection of the latest
 // observation for one provider/model pair.
 type persistedQualificationStatus struct {
-	Status    string `json:"status"`
-	Source    string `json:"source"`
-	CheckedAt string `json:"checked_at"`
+	Status             string `json:"status"`
+	Source             string `json:"source"`
+	CheckedAt          string `json:"checked_at"`
+	CredentialRevision uint64 `json:"credential_revision"`
+	DefinitionRevision uint64 `json:"definition_revision"`
+	BindingDigest      string `json:"binding_digest"`
 }
 
 func qualificationStatusSettingKey(provider, model string) string {
@@ -70,24 +74,57 @@ func qualificationStatusSettingKey(provider, model string) string {
 // for one provider/model pair. Invalid or unbounded records are dropped.
 func PersistQualificationStatus(ctx context.Context, writer RouteSettingWriter,
 	provider, model, status, source string,
-) {
-	(&Registry{}).persistQualificationStatus(ctx, writer, provider, model, status, source)
+) error {
+	return (&Registry{}).persistQualificationStatus(ctx, writer, provider, model, status, source)
+}
+
+// RecordQualificationStatus durably publishes one observation and updates the
+// live catalog projection only after persistence succeeds.
+func (r *Registry) RecordQualificationStatus(ctx context.Context,
+	writer RouteSettingWriter, provider, model, status, source string,
+) error {
+	if r == nil {
+		return errors.New("qualification status persistence dependencies are required")
+	}
+	r.qualificationMu.Lock()
+	defer r.qualificationMu.Unlock()
+	return r.persistQualificationStatus(ctx, writer, provider, model, status, source)
 }
 
 func (r *Registry) persistQualificationStatus(ctx context.Context, writer RouteSettingWriter,
 	provider, model, status, source string,
-) {
+) error {
 	if r == nil || writer == nil || status == "" {
-		return
+		return errors.New("qualification status persistence dependencies are required")
+	}
+	if !validQualificationStatus(status) {
+		return errors.New("qualification status is invalid")
+	}
+	definitionRevision, bindingDigest, bindingFound := r.qualificationBinding(provider, model)
+	if status != QualificationStatusNotConfigured && !bindingFound {
+		return errors.New("qualification status Provider binding is unavailable")
 	}
 	record := persistedQualificationStatus{
-		Status: status, Source: source, CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Status: status, Source: normalizeQualificationStatusSource(source),
+		CheckedAt:          time.Now().UTC().Format(time.RFC3339Nano),
+		CredentialRevision: r.credentialRevision(provider),
+		DefinitionRevision: definitionRevision,
+		BindingDigest:      bindingDigest,
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil || len(encoded) > 1024 {
-		return
+		return errors.New("qualification status record is invalid")
 	}
-	_ = writer.SetProviderSetting(ctx, qualificationStatusSettingKey(provider, model), string(encoded))
+	if err := writer.SetProviderSetting(ctx, qualificationStatusSettingKey(provider, model), string(encoded)); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if r.qualificationStatuses == nil {
+		r.qualificationStatuses = make(map[string]persistedQualificationStatus)
+	}
+	r.qualificationStatuses[provider+"."+model] = record
+	r.mu.Unlock()
+	return nil
 }
 
 // loadQualificationStatuses reads the durable latest status per model.
@@ -108,14 +145,52 @@ func (r *Registry) loadQualificationStatuses(ctx context.Context, reader RouteSe
 				continue
 			}
 			var record persistedQualificationStatus
+			definitionRevision, bindingDigest, bindingFound := r.qualificationBinding(
+				provider.Name, model)
 			if json.Unmarshal([]byte(value), &record) != nil || record.Status == "" ||
-				!validQualificationStatus(record.Status) {
+				!validQualificationStatus(record.Status) ||
+				record.CredentialRevision != r.credentialRevision(provider.Name) ||
+				record.DefinitionRevision != definitionRevision ||
+				(record.Status != QualificationStatusNotConfigured &&
+					(!bindingFound || record.BindingDigest == "" ||
+						record.BindingDigest != bindingDigest)) {
 				continue
 			}
 			out[provider.Name+"."+model] = record
 		}
 	}
 	return out
+}
+
+func (r *Registry) qualificationBinding(provider, model string) (uint64, string, bool) {
+	if r == nil || r.router == nil {
+		return 0, "", false
+	}
+	var definitionRevision uint64
+	found := false
+	r.mu.RLock()
+	for _, current := range r.providers {
+		if current.Name != provider {
+			continue
+		}
+		for _, candidate := range current.Models {
+			if candidate == model {
+				definitionRevision = current.DefinitionRevision
+				found = true
+				break
+			}
+		}
+		break
+	}
+	r.mu.RUnlock()
+	if !found {
+		return 0, "", false
+	}
+	profile, err := r.router.HarnessProfile(llm.ModelRef{Provider: provider, Model: model})
+	if err != nil {
+		return definitionRevision, "", false
+	}
+	return definitionRevision, profile.BindingDigest, true
 }
 
 func validQualificationStatus(status string) bool {
@@ -142,4 +217,3 @@ func normalizeQualificationStatusSource(source string) string {
 		return qualificationStatusSourceAvailability
 	}
 }
-

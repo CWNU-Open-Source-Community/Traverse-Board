@@ -8,6 +8,7 @@ import (
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 type webEvidenceExecutorStub struct {
@@ -42,7 +43,7 @@ func testWebEvidenceCapabilityContext() WebEvidenceCapabilityContext {
 
 func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 	definitions := WebEvidenceToolDefinitions()
-	if len(definitions) != 3 {
+	if len(definitions) != 4 {
 		t.Fatalf("definitions=%#v", definitions)
 	}
 	for _, definition := range definitions {
@@ -62,7 +63,9 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 	}
 
 	valid := map[ToolName]json.RawMessage{
-		WebSearchTool:   json.RawMessage("{\"version\":\"web_search.v1\",\"query\":\" public\\n  spec \",\"limit\":3}"),
+		WebSearchTool: json.RawMessage("{\"version\":\"web_search.v1\",\"query\":\" public\\n  spec \",\"limit\":3}"),
+		SourceSearchTool: json.RawMessage(
+			`{"version":"source_search.v1","connectors":["hacker_news","github"],"query":" public source ","limit":3}`),
 		WebFetchTool:    json.RawMessage(`{"version":"web_fetch.v1","source_id":" source-1 "}`),
 		WebCitationTool: json.RawMessage(`{"version":"web_citation.v1","source_id":"source-1","snapshot_id":"snapshot-1","claim":" verified   claim ","span_start":0,"span_end":8}`),
 	}
@@ -95,6 +98,8 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 	}{
 		{WebSearchTool, `{"version":"web_search.v1","query":"x","limit":1,"authority":true}`},
 		{WebSearchTool, `{"version":"web_search.v0","query":"x","limit":1}`},
+		{SourceSearchTool, `{"version":"source_search.v1","connectors":["auto","github"],"query":"x","limit":1}`},
+		{SourceSearchTool, `{"version":"source_search.v1","connectors":["rss"],"query":"x","limit":1}`},
 		{WebFetchTool, `{"version":"web_fetch.v1","source_id":"source-1","url":"https://docs.example.com/"}`},
 		{WebFetchTool, `{"version":"web_fetch.v1"}`},
 		{WebFetchTool, `{"version":"web_fetch.v1","url":"https://user:secret@docs.example.com/report"}`},
@@ -122,7 +127,9 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 	secret := "s" + "k-" + strings.Repeat("x", 28)
 	for name, payload := range map[ToolName]any{
 		WebSearchTool: map[string]any{"version": "web_search.v1", "query": secret, "limit": 1},
-		WebFetchTool:  map[string]any{"version": "web_fetch.v1", "source_id": secret},
+		SourceSearchTool: map[string]any{"version": "source_search.v1",
+			"connectors": []string{"github"}, "query": secret, "limit": 1},
+		WebFetchTool: map[string]any{"version": "web_fetch.v1", "source_id": secret},
 		WebCitationTool: map[string]any{"version": "web_citation.v1", "source_id": "source-1",
 			"snapshot_id": "snapshot-1", "claim": secret},
 	} {
@@ -260,6 +267,26 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	}
 	if _, err := DecodeWebEvidenceCallAuthority(append(encoded, []byte(` {}`)...)); err == nil {
 		t.Fatal("authority accepted trailing JSON")
+	}
+	liveFull := scope
+	liveFull.PermissionMode = domain.RunExecutionPermissionFullAccess
+	liveFull.PermissionSnapshotID = "run-permission-full-1"
+	liveFull.PermissionGeneration = 7
+	liveFull.PermissionRuntimeEpoch = "runtime-epoch-instance-1"
+	liveFull.AllowedTargets = []string{webevidence.PublicHTTPSTarget}
+	fullAuthority, err := NewWebEvidenceCallAuthority(liveFull)
+	if err != nil || fullAuthority.PermissionGeneration != 7 ||
+		fullAuthority.Generation == available.Generation {
+		t.Fatalf("live Full authority=%#v err=%v", fullAuthority, err)
+	}
+	fullAuthority.PermissionGeneration++
+	if err := fullAuthority.Validate(); err == nil {
+		t.Fatal("Full authority survived runtime generation drift")
+	}
+	fullAuthority.PermissionGeneration--
+	fullAuthority.PermissionRuntimeEpoch = "runtime-epoch-instance-2"
+	if err := fullAuthority.Validate(); err == nil {
+		t.Fatal("Full authority survived runtime instance drift")
 	}
 }
 

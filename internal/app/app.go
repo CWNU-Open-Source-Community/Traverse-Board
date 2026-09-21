@@ -130,6 +130,7 @@ func executeContextWithConfig(ctx context.Context, args []string, out io.Writer,
 func (a *App) newRunSupervisor() *application.RunSupervisor {
 	supervisor := application.NewRunSupervisor(a.store, a.router, a.checker).
 		WithActiveCalls(a.calls).
+		WithWebFetchAuthorizationScheduler(true).
 		WithMonetaryBudget(application.NewMonetaryBudgetService(a.store))
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		supervisor.WithDockerSandboxProposalExecutor(executor)
@@ -202,7 +203,8 @@ func (a *App) newWebEvidenceService() *webevidence.Service {
 	if endpoint := strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)); endpoint != "" {
 		provider, _ = webevidence.NewSearXNGProvider(client, endpoint)
 	}
-	service := webevidence.NewService(a.store, provider, webevidence.NewFetcher(client))
+	service := webevidence.NewService(a.store, provider, webevidence.NewFetcher(client)).
+		WithSourceConnectors(webevidence.NewDefaultSourceConnectors(client)...)
 	resolver, err := application.NewProviderSearchResolver(a.models, a.store,
 		a.credentials, provider, providerSearchClient)
 	if err != nil {
@@ -396,7 +398,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent session create|list|send|history|tree|checkpoint|fork|resume")
 	fmt.Fprintln(a.out, "  cyberagent tool schema|invoke|list|show|approve|deny")
 	fmt.Fprintln(a.out, "  cyberagent edit propose|list|show|review-approve|review-deny|approve|deny")
-	fmt.Fprintln(a.out, "  cyberagent approval list|show|grant")
+	fmt.Fprintln(a.out, "  cyberagent approval list|show|approve-once|approve-for-thread|deny|grant")
 	fmt.Fprintln(a.out, "  cyberagent sandbox validate|template|local-readiness")
 	fmt.Fprintln(a.out, "  cyberagent artifact list|show|read|verify")
 	fmt.Fprintln(a.out, "  cyberagent ui-evidence list|show|artifact")

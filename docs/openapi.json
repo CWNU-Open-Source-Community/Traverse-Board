@@ -23052,6 +23052,117 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/threads/{thread_id}/search-diagnostics": {
+      "post": {
+        "operationId": "diagnoseThreadSearch",
+        "summary": "Check the selected search backend",
+        "description": "Explicit bounded search connection check using the active Run model and current authority. May incur provider search costs. Does not approve tools, replay a task, probe other backends or test specialized source connectors.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SearchDiagnostics"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/searchDiagnosticsRequest"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/threads/{thread_id}/search-readiness": {
       "get": {
         "operationId": "getProviderSearchReadiness",
@@ -26545,6 +26656,10 @@
             },
             "type": "array"
           },
+          "definition_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -26608,6 +26723,7 @@
           "provider_id",
           "provider_name",
           "model",
+          "definition_revision",
           "enabled",
           "credential_status",
           "qualification_status",
@@ -47330,6 +47446,112 @@
         ],
         "type": "object"
       },
+      "SearchDiagnostics": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "code": {
+            "enum": [
+              "none",
+              "network",
+              "rate_limited",
+              "access_challenge",
+              "authentication",
+              "provider_rejected",
+              "tool_unsupported",
+              "no_usable_results",
+              "invalid_response",
+              "not_configured",
+              "not_authorized",
+              "timeout",
+              "configuration_changed"
+            ],
+            "type": "string"
+          },
+          "http_status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "mode_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_route": {
+            "type": "string"
+          },
+          "network_request_attempted": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "enum": [
+              "search_diagnostics.v1"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate_limit_reset": {
+            "type": "string"
+          },
+          "required_target": {
+            "type": "string"
+          },
+          "result_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "retry_after": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "search_policy": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "thread_id",
+          "run_id",
+          "model_route",
+          "provider",
+          "model",
+          "search_policy",
+          "backend",
+          "mode_revision",
+          "checked_at",
+          "state",
+          "code",
+          "result_count",
+          "network_request_attempted"
+        ],
+        "type": "object"
+      },
       "SessionArchiveControlRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -58171,6 +58393,25 @@
         "required": [
           "expected_fingerprint",
           "expected_live_fingerprint",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "searchDiagnosticsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "search_diagnostics.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
           "confirm"
         ],
         "type": "object"

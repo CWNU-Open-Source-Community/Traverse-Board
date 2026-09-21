@@ -327,6 +327,15 @@ func (m *Manager) PrepareProposal(ctx context.Context, proposal Proposal) (Edit,
 }
 
 func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) (Edit, error) {
+	return m.ApproveWithPreWriteCheck(ctx, id, workspaceRoot, nil)
+}
+
+// ApproveWithPreWriteCheck rechecks a live automatic authorization before the
+// first workspace mutation and again immediately before atomic publication.
+// An error leaves the existing durable approval available for safe recovery.
+func (m *Manager) ApproveWithPreWriteCheck(ctx context.Context, id string,
+	workspaceRoot string, preWrite func() error,
+) (Edit, error) {
 	edit, err := m.store.GetFileEdit(ctx, strings.TrimSpace(id))
 	if err != nil {
 		return Edit{}, err
@@ -347,7 +356,7 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 	edit.Operation = operation
 	switch operation {
 	case OperationMove:
-		return m.approveMove(ctx, edit, workspaceRoot)
+		return m.approveMove(ctx, edit, workspaceRoot, preWrite)
 	case OperationDelete:
 		return m.approveDelete(ctx, edit, workspaceRoot)
 	}
@@ -381,6 +390,11 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 	edit, err = m.store.SaveFileEdit(ctx, edit)
 	if err != nil {
 		return Edit{}, err
+	}
+	if preWrite != nil {
+		if err := preWrite(); err != nil {
+			return Edit{}, err
+		}
 	}
 	if operation == OperationCreate {
 		if createErr := prepareCreateDirectories(root, workspaceRoot, rootedPath); createErr != nil {
@@ -433,6 +447,11 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 		return m.fail(ctx, edit, errors.New(
 			"workspace file changed before atomic replacement; refusing to overwrite"))
 	}
+	if preWrite != nil {
+		if err := preWrite(); err != nil {
+			return Edit{}, err
+		}
+	}
 	if operation == OperationCreate || edit.OriginalHash == missingHash {
 		// Linking the completed staging inode into an absent target is an
 		// atomic no-clobber publish. A concurrent creator therefore wins and
@@ -463,7 +482,7 @@ func (m *Manager) Approve(ctx context.Context, id string, workspaceRoot string) 
 }
 
 func (m *Manager) approveMove(ctx context.Context, edit Edit,
-	workspaceRoot string,
+	workspaceRoot string, preWrite func() error,
 ) (Edit, error) {
 	if edit.DestinationPath == "" || edit.DestinationPath == edit.Path ||
 		edit.ProposedHash != missingHash || edit.DestinationOriginalHash != missingHash ||
@@ -531,6 +550,28 @@ func (m *Manager) approveMove(ctx context.Context, edit Edit,
 			return m.fail(ctx, edit, errors.New(
 				"workspace move changed before no-clobber publish; refusing to continue"))
 		}
+		if preWrite != nil {
+			if err := preWrite(); err != nil {
+				return Edit{}, err
+			}
+		}
+		latestSource, err = fs.ResolveForWrite(edit.Path)
+		if err != nil || latestSource != source {
+			return m.fail(ctx, edit, errors.New(
+				"workspace move source changed after authorization check"))
+		}
+		latestDestination, err = fs.ResolveForWrite(edit.DestinationPath)
+		if err != nil || latestDestination != destination {
+			return m.fail(ctx, edit, errors.New(
+				"workspace move destination changed after authorization check"))
+		}
+		latestSourceHash, sourceErr = currentHashFromRoot(root, rootedSource)
+		latestDestinationHash, destinationErr = currentHashFromRoot(root, rootedDestination)
+		if sourceErr != nil || destinationErr != nil || latestSourceHash != edit.OriginalHash ||
+			latestDestinationHash != edit.DestinationOriginalHash {
+			return m.fail(ctx, edit, errors.New(
+				"workspace move changed after authorization check; refusing to publish"))
+		}
 		// A hard-link publish is atomic and cannot replace a destination that
 		// appeared after the hash check. Removing the source completes the move;
 		// a crash between these steps leaves a recognizable, recoverable pair.
@@ -543,16 +584,37 @@ func (m *Manager) approveMove(ctx context.Context, edit Edit,
 		if sameErr != nil || !same || sourceErr != nil || destinationErr != nil ||
 			linkedSourceHash != edit.OriginalHash ||
 			linkedDestinationHash != edit.DestinationProposedHash {
-			_ = root.Remove(rootedDestination)
 			return m.fail(ctx, edit, errors.New(
 				"workspace move changed during no-clobber publish"))
 		}
 	}
+	// Moving is a two-step publish. Recheck both the live authorization and
+	// the recoverable hard-link identity immediately before deleting the
+	// source. This check also covers a restart that found both linked paths.
+	if preWrite != nil {
+		if err := preWrite(); err != nil {
+			return Edit{}, err
+		}
+	}
+	latestSource, err = fs.ResolveForWrite(edit.Path)
+	if err != nil || latestSource != source {
+		return m.fail(ctx, edit, errors.New("workspace move source changed before source removal"))
+	}
+	latestDestination, err = fs.ResolveForWrite(edit.DestinationPath)
+	if err != nil || latestDestination != destination {
+		return m.fail(ctx, edit, errors.New("workspace move destination changed before source removal"))
+	}
+	finalSourceBeforeRemove, sourceErr := currentHashFromRoot(root, rootedSource)
+	finalDestinationBeforeRemove, destinationErr := currentHashFromRoot(root, rootedDestination)
+	same, sameErr := sameRootFile(root, rootedSource, rootedDestination)
+	if sourceErr != nil || destinationErr != nil || sameErr != nil || !same ||
+		finalSourceBeforeRemove != edit.OriginalHash ||
+		finalDestinationBeforeRemove != edit.DestinationProposedHash {
+		return m.fail(ctx, edit, errors.New(
+			"workspace move changed before source removal; refusing to continue"))
+	}
 	if err := root.Remove(rootedSource); err != nil {
 		if sourceHashAfter, hashErr := currentHashFromRoot(root, rootedSource); hashErr != nil || sourceHashAfter != missingHash {
-			if !linkedRecovery {
-				_ = root.Remove(rootedDestination)
-			}
 			return m.fail(ctx, edit, err)
 		}
 	}

@@ -317,7 +317,7 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 		return g.invokeCommandRuntime(ctx, normalized)
 	case MCPToolCallTool:
 		return g.invokeMCP(ctx, normalized)
-	case WebSearchTool, WebFetchTool, WebCitationTool:
+	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 		return g.invokeWebEvidence(ctx, normalized)
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
 		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
@@ -991,7 +991,7 @@ func validateToolArguments(call ToolCall) error {
 			}
 			_, err := NormalizeBrowserActionPayload(call.Name, call.Payload)
 			return err
-		case WebSearchTool, WebFetchTool, WebCitationTool:
+		case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
 				call.MissionID == "" || call.LeaseID == "" {
 				return errors.New("web evidence calls require a fenced root Supervisor")
@@ -1093,6 +1093,7 @@ func safeToolCall(call ToolCall) ToolCall {
 	call.LeaseID = ""
 	call.LeaseGeneration = 0
 	call.ProviderFingerprint = ""
+	call.ConnectorFingerprint = ""
 	call.BrowserActionSessionID = ""
 	call.BrowserPermissionSnapshotID = ""
 	call.BrowserPermissionRevision = 0

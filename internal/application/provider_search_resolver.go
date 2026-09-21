@@ -104,8 +104,9 @@ type ProviderSearchReadinessStore interface {
 }
 
 type ProviderSearchReadinessService struct {
-	store    ProviderSearchReadinessStore
-	resolver *ProviderSearchResolver
+	store        ProviderSearchReadinessStore
+	resolver     *ProviderSearchResolver
+	diagnosticMu sync.Mutex
 }
 
 func NewProviderSearchReadinessService(store ProviderSearchReadinessStore,
@@ -194,13 +195,15 @@ func (r *ProviderSearchResolver) ResolveSearch(ctx context.Context,
 		return webevidence.SearchSelection{}, errors.New("Run model Provider is unavailable")
 	}
 
-	// Built-in model routes can use the application's independent Web search.
-	// An explicitly configured SearXNG endpoint remains preferred. Neither
-	// selection grants network access outside the current Run authority.
+	// Built-in model routes do not carry a durable search policy or the exact
+	// endpoint/runtime binding required for Provider-native search. Preserve an
+	// explicitly configured process SearXNG backend, but never silently turn an
+	// unconfigured route into DuckDuckGo. Operators select DuckDuckGo through a
+	// custom Provider's explicit web policy.
 	if !availability.Custom {
 		if r.searxng == nil {
-			return r.webSelection(webevidence.SearchPolicyWeb, "default_web_selected",
-				providerSearchBinding(ref.Provider, ref.Model, "builtin", 0)), nil
+			return webevidence.SearchSelection{}, errors.New(
+				"Run model Provider search is not configured")
 		}
 		return r.searxngSelection(webevidence.SearchPolicySearXNG,
 			"process_searxng_selected", providerSearchBinding(ref.Provider,
@@ -225,15 +228,6 @@ func (r *ProviderSearchResolver) ResolveSearch(ctx context.Context,
 			"configured_searxng_selected", providerSearchBinding(definition.ID,
 				ref.Model, definition.SearchMode, definition.Revision)), nil
 	case modelregistry.ProviderSearchModeProviderNative:
-		if modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
-			// Older presets automatically declared DeepSeek's Responses format
-			// as hosted search. Correct that known incompatible legacy choice
-			// without rewriting saved settings or changing the chat model. The
-			// public search uses Run authority, never model API authority.
-			return r.webSelection(webevidence.SearchPolicyWeb,
-				"legacy_unsupported_native_selected_web", providerSearchBinding(
-					definition.ID, ref.Model, definition.SearchMode, definition.Revision)), nil
-		}
 		selection, err := r.declaredNativeSelection(ctx, authority, definition,
 			ref.Model, webevidence.SearchPolicyProviderNative,
 			"declared_provider_native")
@@ -287,8 +281,8 @@ func (r *ProviderSearchResolver) ResolveSearch(ctx context.Context,
 				"auto_searxng_selected", providerSearchBinding(definition.ID,
 					ref.Model, definition.SearchMode, definition.Revision)), nil
 		}
-		return r.webSelection(webevidence.SearchPolicyAuto, "auto_web_selected",
-			providerSearchBinding(definition.ID, ref.Model, definition.SearchMode, definition.Revision)), nil
+		return webevidence.SearchSelection{}, errors.New(
+			"automatic Web search has no configured backend")
 	default:
 		return webevidence.SearchSelection{}, errors.New("custom Provider search policy is invalid")
 	}
@@ -352,8 +346,9 @@ func (r *ProviderSearchResolver) SearchReadiness(ctx context.Context,
 	}
 	if !availability.Custom {
 		if r.searxng == nil {
-			readiness.SearchPolicy = webevidence.SearchPolicyWeb
-			return providerSearchBackendReadiness(readiness, r.web, authority)
+			readiness.Reason = ProviderSearchReasonBackendNotConfigured
+			readiness.Remediation = ProviderSearchRemediationConfigureProvider
+			return readiness
 		}
 		readiness.SearchPolicy = webevidence.SearchPolicySearXNG
 		return providerSearchBackendReadiness(readiness, r.searxng, authority)
@@ -374,10 +369,6 @@ func (r *ProviderSearchResolver) SearchReadiness(ctx context.Context,
 	case modelregistry.ProviderSearchModeSearXNG:
 		return providerSearchBackendReadiness(readiness, r.searxng, authority)
 	case modelregistry.ProviderSearchModeProviderNative:
-		if modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
-			readiness.SearchPolicy = webevidence.SearchPolicyWeb
-			return providerSearchBackendReadiness(readiness, r.web, authority)
-		}
 		return r.nativeReadiness(ctx, readiness, authority, definition, ref.Model)
 	case modelregistry.ProviderSearchModeAuto:
 		native := readiness
@@ -392,11 +383,7 @@ func (r *ProviderSearchResolver) SearchReadiness(ctx context.Context,
 				return native
 			}
 		}
-		backend := r.searxng
-		if backend == nil {
-			backend = r.web
-		}
-		fallback := providerSearchBackendReadiness(readiness, backend, authority)
+		fallback := providerSearchBackendReadiness(readiness, r.searxng, authority)
 		if native.State == ProviderSearchStateReady {
 			return native
 		}
@@ -406,11 +393,14 @@ func (r *ProviderSearchResolver) SearchReadiness(ctx context.Context,
 		if native.State == ProviderSearchStateNetworkDisabled {
 			return native
 		}
-		if fallback.State == ProviderSearchStateNetworkDisabled {
-			return fallback
-		}
+		// Provider-native search uses its own Provider authority. Report its
+		// qualification state before a disabled direct-network fallback so the
+		// read-only projection matches ResolveSearch's native-first order.
 		if native.State == ProviderSearchStateProviderUnqualified {
 			return native
+		}
+		if fallback.State == ProviderSearchStateNetworkDisabled {
+			return fallback
 		}
 		if fallback.State == ProviderSearchStateMissingAllowlist {
 			return fallback
@@ -429,6 +419,9 @@ func (r *ProviderSearchResolver) nativeReadiness(ctx context.Context,
 	definition modelregistry.ProviderDefinition, model string,
 ) ProviderSearchReadiness {
 	if modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
+		readiness.State = ProviderSearchStateProviderUnavailable
+		readiness.Reason = ProviderSearchReasonQualificationFailed
+		readiness.Remediation = ProviderSearchRemediationConfigureProvider
 		readiness.DetailCode = webevidence.NativeSearchReasonToolUnsupported
 		return readiness
 	}

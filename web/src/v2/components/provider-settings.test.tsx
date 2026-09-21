@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import type { CyberAgentClient } from "../../api/client";
 import type { ProviderDefinitionView } from "../../api/types";
 import { V2ProviderSettings, validProviderEndpointURL, type V2ProviderDraftPreset } from "./provider-settings";
@@ -94,10 +95,10 @@ function createClient(providers: ProviderDefinitionView[] = []) {
     duration_ms: 12,
     qualification_status: "available",
   });
-  const qualifyModelHarness = vi.fn().mockResolvedValue({
+  const qualifyModelHarness = vi.fn().mockImplementation(async (body) => ({
     protocol_version: "model_harness_qualification.v1",
-    provider: "acme",
-    model: "acme-pro",
+    provider: body.provider,
+    model: body.model,
     status: "qualified",
     outcome: "success",
     failure_reason: "none",
@@ -111,7 +112,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
     qualification_status: "available",
     harness: {
       protocol_version: "model_harness.v1",
-      model: "acme-pro",
+      model: body.model,
       transport_protocol: "openai_chat_completions",
       tool_strategy: "native",
       json_strategy: "native",
@@ -128,7 +129,19 @@ function createClient(providers: ProviderDefinitionView[] = []) {
       qualified_at: "2026-08-31T08:00:00Z",
       expires_at: "2026-09-07T08:00:00Z",
     },
-  });
+  }));
+  const availableModelRoutes = vi.fn().mockImplementation(async () => ({
+    protocol_version: "model_route_catalog.v1",
+    generation: 3,
+    routes: providers.flatMap((definition) => definition.models.map((model) => ({
+      provider_id: definition.id, provider_name: definition.display_name, model,
+	  definition_revision: definition.revision,
+      enabled: definition.enabled, credential_status: "configured",
+      qualification_status: "available", harness_ready: true, selectable: true,
+      unavailable_reason: "", default_for_routes: [],
+      vision_capability: { state: "unknown", source: "unknown" },
+    }))),
+  }));
   return {
     client: {
       hasModelControl: true,
@@ -141,6 +154,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
       deleteProviderDefinition,
       diagnoseProvider,
       qualifyModelHarness,
+      availableModelRoutes,
     } as unknown as CyberAgentClient,
     providerDefinitions,
     providerCredentialStatuses,
@@ -149,6 +163,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
     deleteProviderDefinition,
     diagnoseProvider,
     qualifyModelHarness,
+    availableModelRoutes,
   };
 }
 
@@ -186,7 +201,6 @@ describe("V2 custom Provider settings", () => {
     expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.advanced_config).toEqual(expected);
     expect(controls.changeProviderCredential).not.toHaveBeenCalled();
   });
-
   it.each([
     { model_capabilities: "handwritten-invalid" },
     { model_capabilities: { "acme-pro": { vision: "supported", future_detail: "do not discard" } } },
@@ -378,6 +392,132 @@ describe("V2 custom Provider settings", () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it("saves and qualifies a first Provider once before returning its exact model to the draft", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    const onReady = vi.fn();
+    render(<StrictMode><QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset}
+        prepareForDraft onReady={onReady} />
+    </QueryClientProvider></StrictMode>);
+
+    await screen.findByRole("heading", { name: "添加供应商" });
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+
+    await waitFor(() => expect(onReady).toHaveBeenCalledWith(expect.objectContaining({
+      id: "official-openai", default_model: "gpt-5",
+    })));
+    expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1);
+    expect(controls.changeProviderCredential).toHaveBeenCalledTimes(1);
+    expect(controls.diagnoseProvider).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1);
+    expect(controls.qualifyModelHarness).toHaveBeenCalledWith({
+      version: "model_harness_qualification.v1", provider: "official-openai",
+      model: "gpt-5", confirm_qualification: true,
+    });
+    expect(controls.availableModelRoutes).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes the first Provider check under the desktop StrictMode root", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    const onReady = vi.fn();
+    render(<StrictMode><QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset}
+        prepareForDraft onReady={onReady} />
+    </QueryClientProvider></StrictMode>);
+
+    await screen.findByRole("heading", { name: "添加供应商" });
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries only the model check after a saved first Provider check fails", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    controls.qualifyModelHarness.mockRejectedValueOnce(new Error("temporary Provider failure"));
+    const onReady = vi.fn();
+    render(<StrictMode><QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset}
+        prepareForDraft onReady={onReady} />
+    </QueryClientProvider></StrictMode>);
+
+    await screen.findByRole("heading", { name: "添加供应商" });
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("temporary Provider failure");
+    await user.click(screen.getByRole("button", { name: "重新检查" }));
+
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1);
+    expect(controls.changeProviderCredential).toHaveBeenCalledTimes(1);
+    expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a saved Provider and reports billing capacity without automatic retry", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    const onReady = vi.fn();
+    controls.qualifyModelHarness.mockResolvedValue({
+      protocol_version: "model_harness_qualification.v1", provider: "official-openai", model: "gpt-5",
+      status: "unreachable", outcome: "permanent", failure_reason: "capacity", retryable: false,
+      network_request_attempted: true, model_calls: 1, synthetic_tool_calls: 0, tool_executed: false,
+      response_content_returned: false, qualification_status: "capacity", duration_ms: 20,
+      harness: { root_eligible: false },
+    });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset}
+        prepareForDraft onReady={onReady} />
+    </QueryClientProvider>);
+    await screen.findByRole("heading", { name: "添加供应商" });
+    await user.type(screen.getByLabelText("API Key"), "billing-test-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("供应商额度或容量不足，请检查账单或服务状态");
+    expect(screen.getByLabelText("供应商 ID")).toHaveValue("official-openai");
+    expect(screen.getByRole("button", { name: "重新检查" })).toBeEnabled();
+    expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1);
+    expect(controls.changeProviderCredential).toHaveBeenCalledTimes(1);
+    expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1);
+    expect(controls.availableModelRoutes).not.toHaveBeenCalled();
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it("locks the saved Provider form while the paid model check is in flight", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    let rejectCheck!: (reason?: unknown) => void;
+    const pending = new Promise<never>((_resolve, reject) => { rejectCheck = reject; });
+    controls.qualifyModelHarness.mockImplementationOnce(() => pending);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset}
+        prepareForDraft onReady={vi.fn()} />
+    </QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "添加供应商" });
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    await waitFor(() => expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("显示名称")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "返回供应商列表" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "正在保存…" })).toBeDisabled();
+    rejectCheck(new Error("bounded check stopped"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("bounded check stopped");
+    expect(screen.getByLabelText("显示名称")).toBeEnabled();
+  });
+
   it("lists providers without redisplaying their stored API key and inserts a credential reference", async () => {
     const user = userEvent.setup();
     const controls = createClient([provider()]);
@@ -471,7 +611,7 @@ describe("V2 custom Provider settings", () => {
     await screen.findByRole("heading", { name: "编辑供应商" });
     expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
-    expect(screen.getByText(/此官方 DeepSeek 旧配置的原生搜索选择已兼容为普通网页搜索（DuckDuckGo）/u)).toBeInTheDocument();
+    expect(screen.getByText(/系统不会静默改用 DuckDuckGo/u)).toBeInTheDocument();
     expect(screen.getByLabelText("默认模型")).toHaveValue(existing.default_model);
     expect(screen.getByLabelText("API Key")).toHaveValue("");
     expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();

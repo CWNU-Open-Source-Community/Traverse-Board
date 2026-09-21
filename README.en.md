@@ -7,15 +7,17 @@
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/Qiyuanqiii/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/Traverse-Board?style=flat-square"></a>
+    <a href="https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Traverse-Board?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
     <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
-> **Naming:** The product and interface are named **Traverse Board · 针路簿**, and the GitHub repository is `Qiyuanqiii/Traverse-Board`. The `cyberagent` CLI, `cyberagent-workbench` Go module, `CYBERAGENT_*` environment variables, `.prayu/...` project configuration, data directories, installation identities, and historical artifact names remain compatibility identifiers; they are not a second product. The public Windows executable is `TraverseBoard.exe` beginning with `v0.1.0-rc.2`; the current user-deliverable boundary is defined by [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md). See [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) and [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md) for the naming boundary.
+> **First release: v1.0.0 “First Voyage” (启航)**. This branch prepares the first release from the integrated source. See the [v1.0.0 release notes](docs/releases/v1.0.0.md) for scope, checks and remaining acceptance work. Signed downloads and Store availability depend on the published Release assets.
+
+> **Naming:** The product and interface are named **Traverse Board · 针路簿**, and the GitHub repository is `CWNU-Open-Source-Community/Traverse-Board`. The `cyberagent` CLI, `cyberagent-workbench` Go module, `CYBERAGENT_*` environment variables, `.prayu/...` project configuration, data directories, installation identities, and historical artifact names remain compatibility identifiers; they are not a second product. The public Windows executable is `TraverseBoard.exe` beginning with `v0.1.0-rc.2`; the current user-deliverable boundary is defined by [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md). See [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) and [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md) for the naming boundary.
 
 ## What is Traverse Board?
 
@@ -263,7 +265,7 @@ for the complete matrix, candidate bounds, and recovery behavior.
 ### Run from source
 
 ```powershell
-git clone https://github.com/Qiyuanqiii/Traverse-Board.git
+git clone https://github.com/CWNU-Open-Source-Community/Traverse-Board.git
 cd "Traverse-Board"
 
 go run ./cmd/cyberagent version

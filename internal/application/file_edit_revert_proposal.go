@@ -32,11 +32,32 @@ type fileEditRevertProposalStore interface {
 	GetApprovalByProposal(context.Context, string) (approval.Record, error)
 }
 
+type preparedFileEditRevertWriter func(context.Context, fileedit.Edit) (fileedit.Edit, bool, error)
+
 // ProposeRevert derives a new pending edit from an exact applied source. It
 // changes neither the source receipt nor the workspace; ordinary review/apply
 // remain separate, freshly authorized operations.
 func (s *FileEditProposalService) ProposeRevert(ctx context.Context,
 	request CreateFileEditRevertProposalRequest,
+) (CreateFileEditProposalResult, error) {
+	if s == nil || s.store == nil {
+		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"file edit revert proposal dependencies are required")
+	}
+	store, ok := s.store.(fileEditRevertProposalStore)
+	if !ok {
+		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"atomic file edit proposal storage is required")
+	}
+	return s.proposeRevertWithWriter(ctx, request, store.CreateFileEditIfAbsent)
+}
+
+// proposeRevertWithWriter keeps source validation and inverse derivation in the
+// proposal service while allowing the trusted Agent Code boundary to persist a
+// freshly prepared non-delete inverse with its current Full Access authority.
+// The writer is invocation-local so authority can never leak between callers.
+func (s *FileEditProposalService) proposeRevertWithWriter(ctx context.Context,
+	request CreateFileEditRevertProposalRequest, writer preparedFileEditRevertWriter,
 ) (CreateFileEditProposalResult, error) {
 	if s == nil || s.store == nil || s.manager == nil || s.checker == nil {
 		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -46,6 +67,10 @@ func (s *FileEditProposalService) ProposeRevert(ctx context.Context,
 	if !ok {
 		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"atomic file edit proposal storage is required")
+	}
+	if writer == nil {
+		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"file edit revert proposal writer is required")
 	}
 	if request.Version != FileEditProposalProtocolVersion ||
 		!validControlIdentity(request.RunID) || !validControlIdentity(request.SourceEditID) {
@@ -126,8 +151,8 @@ func (s *FileEditProposalService) ProposeRevert(ctx context.Context,
 	if err != nil {
 		return CreateFileEditProposalResult{}, err
 	}
-	// The source proves historical content only. The new edit and its pending
-	// approval belong to the current execution Session, never to the old grant.
+	// The source proves historical content only. The new edit and its current
+	// authorization belong to this execution Session, never to the old grant.
 	expected.SessionID = run.SessionID
 	if existing, getErr := s.store.GetFileEdit(ctx, editID); getErr == nil {
 		if !fileedit.SameProposalContent(existing, expected) {
@@ -178,7 +203,7 @@ func (s *FileEditProposalService) ProposeRevert(ctx context.Context,
 		return CreateFileEditProposalResult{}, apperror.New(apperror.CodeConflict,
 			"file edit revert proposal content failed exact verification")
 	}
-	edit, replayed, err := store.CreateFileEditIfAbsent(ctx, prepared)
+	edit, replayed, err := writer(ctx, prepared)
 	if err != nil {
 		return CreateFileEditProposalResult{}, apperror.Normalize(err)
 	}

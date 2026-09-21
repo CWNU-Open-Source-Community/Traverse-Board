@@ -13,9 +13,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 42 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
-| [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 3 | true |
+| [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 101 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 105 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 18 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
@@ -27,7 +27,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
-| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 53 | true |
+| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 4 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
@@ -37,7 +37,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 44 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 36 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
 | [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
@@ -400,11 +400,12 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `capability-readiness-projection-reader` (`v1, v2`, active) at `internal/httpapi`
 
-<details><summary>3 active identifiers</summary>
+<details><summary>4 active identifiers</summary>
 
 - `model_availability.v2`
 - `run_capability_readiness.v1`
 - `runtime_capabilities.v1`
+- `search_diagnostics.v1`
 
 </details>
 
@@ -441,7 +442,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>101 active identifiers</summary>
+<details><summary>105 active identifiers</summary>
 
 - `byte_identical.v1`
 - `data_store_scope.v1`
@@ -467,12 +468,15 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `finding_fix_request.v1`
 - `finding_report.v1`
 - `finding_validation_request.v1`
+- `github-public.v1`
+- `hacker-news-public.v1`
 - `macos_portable_compatibility.v1`
 - `msix_manifest.v1`
 - `msix_manifest.v2`
 - `pe_authenticode_normalized.v1`
 - `provider_grounded_citation.v1`
 - `recovery.data_store_seed.v1`
+- `rss-atom-public.v1`
 - `sanitized_host_environment.v1`
 - `scheduled-job-worker.v1`
 - `scheduled_job_create_request.v1`
@@ -484,6 +488,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `script_process_operation_key.v1`
 - `script_process_proposal.v1`
 - `script_run_create.v1`
+- `source_search.v1`
 - `specialist_context.v1`
 - `specialist_lifecycle.v1`
 - `specialist_model_action.v1`
@@ -998,7 +1003,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `process-runtime-lifecycle-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>53 active identifiers</summary>
+<details><summary>54 active identifiers</summary>
 
 - `application_docker_container_lifecycle_post_exit.v1`
 - `application_docker_container_lifecycle_running.v1`
@@ -1044,6 +1049,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `host_command_proposal_review_operation.v1`
 - `host_command_review.v1`
 - `once_execution.v1`
+- `permission_runtime_epoch.v1`
 - `risk_escalation.v1`
 - `risk_escalation_execution.v1`
 - `risk_escalation_invalidation.v1`
@@ -1518,8 +1524,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>36 active identifiers</summary>
+<details><summary>38 active identifiers</summary>
 
+- `agent_code_file_edit_proposal.v1`
+- `agent_code_file_edit_source.v1`
 - `file_edit_apply_operation.v1`
 - `file_edit_apply_request.v1`
 - `file_edit_revert_proposal.v1`
@@ -1674,11 +1682,13 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `full_cdp_session.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP session decoding. |
 | `full_cdp_session_close.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP close decoding. |
 | `generated_handoff.v2` | `negative-version-fixture` | `internal/application/thread_generated_compaction_integration_test.go`, `internal/contextmgr/generated_summary_test.go` | Unsupported generated summary version used only to verify rejection; not a production protocol. |
+| `github-test.v1` | `test-fixture` | `internal/webevidence/service_source_connector_test.go` | Test connector identity used to verify bounded source search and snapshot replay; not a production connector. |
 | `handoff_memory.v999` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Negative fixture verifies unknown summary versions fail closed. |
+| `hn-test.v1` | `test-fixture` | `internal/webevidence/service_source_connector_test.go` | Test connector identity used to verify bounded source search and snapshot replay; not a production connector. |
 | `linux_ephemeral_user_namespace.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_inherited_read_fd.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_user_namespace_landlock.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
-| `local-windows-lpac.v1` | `test-fixture` | `internal/application/standard_code_preset_test.go`, `internal/application/standard_code_supervisor_test.go`, `internal/commandruntimeadapter/adapter_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `local-windows-lpac.v1` | `test-fixture` | `internal/application/standard_code_preset_test.go`, `internal/application/standard_code_supervisor_test.go`, `internal/commandruntimeadapter/adapter_test.go`, `internal/store/migration_v163_test.go`, `internal/toolgateway/command_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `my-document.v1` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Opaque historical document fixture; its version is not a product protocol. |
 | `next.good.v4` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ok.v1` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

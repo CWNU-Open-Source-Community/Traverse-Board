@@ -10,11 +10,13 @@ import { useConnectionStore } from "../../state/connection";
 function mount(client: Partial<CyberAgentClient>, section: V2SettingsSection, threadID = "", desktop = false) {
   window.localStorage.setItem("prayu.locale.v1", "zh-CN");
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const rendered = render(<QueryClientProvider client={queryClient}><LocaleProvider>
+  const view = (currentSection: V2SettingsSection) => <QueryClientProvider client={queryClient}><LocaleProvider>
     <V2Settings client={client as CyberAgentClient} desktop={desktop} onOpenInspector={vi.fn()}
-      onSelectSection={vi.fn()} section={section} threadID={threadID} workspaces={[]} />
-  </LocaleProvider></QueryClientProvider>);
-  return { ...rendered, queryClient };
+      onSelectSection={vi.fn()} section={currentSection} threadID={threadID} workspaces={[]} />
+  </LocaleProvider></QueryClientProvider>;
+  const rendered = render(view(section));
+  return { ...rendered, queryClient,
+    rerenderSection: (next: V2SettingsSection) => rendered.rerender(view(next)) };
 }
 
 const emptyExtensions = { mcp_servers: [], mcp_calls: [], plugins: [], workspace_id: "workspace-one" };
@@ -90,27 +92,61 @@ describe("shared advanced settings", () => {
     expect(installSkillPackage).not.toHaveBeenCalled();
   });
 
-  it("reuses the named global route and price controls without a second credential editor", async () => {
+  it("keeps one conversation default and optional prices under Model advanced settings", async () => {
     const user = userEvent.setup();
-    const providerCredentialStatuses = vi.fn();
+    const providerCredentialStatuses = vi.fn().mockResolvedValue({ items: [] });
     const selectModelRoute = vi.fn().mockResolvedValue({});
     const importPriceSnapshot = vi.fn().mockResolvedValue({});
-    mount({ hasModelControl: true, hasControl: true, hasProviderCredentials: true,
+    const { queryClient } = mount({ hasModelControl: true, hasControl: true, hasProviderCredentials: true,
       providerCredentialStatuses, selectModelRoute, importPriceSnapshot,
       modelAvailability: vi.fn().mockResolvedValue({ providers: [{ name: "sample", status: "available",
-        models: ["one", "two"], harnesses: [] }], routes: [{ name: "code", provider: "sample",
-        model: "one", available: true, harness_ready: true }] }),
-      listPriceSnapshots: vi.fn().mockResolvedValue({ items: [] }) }, "advanced-models");
-    await user.selectOptions(await screen.findByRole("combobox", { name: "code 模型路由" }), "sample/two");
-    await user.click(screen.getByRole("button", { name: "保存 code 路由" }));
+        models: ["one", "two"], harnesses: [] }], routes: [
+        { name: "code", provider: "sample", model: "one", available: true, harness_ready: true },
+        { name: "review", provider: "sample", model: "one", available: true, harness_ready: true },
+      ] }), listPriceSnapshots: vi.fn().mockResolvedValue({ items: [] }) }, "models");
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    expect(screen.queryByRole("textbox", { name: "价格文档" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /高级模型设置/ }));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "新对话默认模型" }), "sample/two");
+    expect(screen.queryByRole("combobox", { name: "review 模型路由" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存新对话默认模型" }));
     await waitFor(() => expect(selectModelRoute).toHaveBeenCalledWith("code", {
       version: "model_route_control.v1", provider: "sample", model: "two" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["v2", "models", "available-routes"],
+    }));
+    await user.click(screen.getByText("费用上限所用价格（可选）"));
     fireEvent.change(screen.getByRole("textbox", { name: "价格文档" }), { target: { value: '{"source":"review"}' } });
     await user.click(screen.getByRole("button", { name: "导入" }));
     await waitFor(() => expect(importPriceSnapshot).toHaveBeenCalledWith({ version: "price_snapshot.v1",
       document: '{"source":"review"}' }, expect.any(String)));
-    expect(providerCredentialStatuses).not.toHaveBeenCalled();
+    expect(providerCredentialStatuses).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("heading", { name: "系统凭证" })).not.toBeInTheDocument();
+  });
+
+  it("opens the advanced panel from an old settings address", async () => {
+    mount({ modelAvailability: vi.fn().mockResolvedValue({ providers: [], routes: [] }),
+      listPriceSnapshots: vi.fn().mockResolvedValue({ items: [] }) }, "advanced-models");
+    expect(screen.getByRole("heading", { name: "模型", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /高级模型设置/ })).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("region", { name: "高级模型设置" })).toBeInTheDocument();
+  });
+
+  it("shows the old advanced address while preserving an unsaved provider draft", async () => {
+    const user = userEvent.setup();
+    const { rerenderSection } = mount({ hasProviderDefinitions: true, hasModelControl: true,
+      providerDefinitions: vi.fn().mockResolvedValue({ providers: [] }),
+      modelAvailability: vi.fn().mockResolvedValue({ providers: [], routes: [] }),
+      listPriceSnapshots: vi.fn().mockResolvedValue({ items: [] }) }, "models");
+    await user.click(screen.getByRole("button", { name: /DeepSeek/ }));
+    const displayName = await screen.findByRole("textbox", { name: "显示名称" });
+    await user.clear(displayName);
+    await user.type(displayName, "尚未保存的名称");
+    rerenderSection("advanced-models");
+    await waitFor(() => expect(screen.getByRole("button", { name: /高级模型设置/ }))
+      .toHaveAttribute("aria-expanded", "true"));
+    expect(screen.getByRole("textbox", { name: "显示名称" })).toHaveValue("尚未保存的名称");
+    expect(await screen.findByRole("region", { name: "高级模型设置" })).toBeInTheDocument();
   });
 
   it("uses existing local Inspector preferences without making a service request", async () => {

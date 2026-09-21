@@ -139,6 +139,12 @@ func toolRunEventType(status string) (string, bool) {
 }
 
 func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, previousStatus string, existed bool) error {
+	return projectFileEditWithAuthorizationSourceTx(ctx, tx, edit, previousStatus, existed, "")
+}
+
+func projectFileEditWithAuthorizationSourceTx(ctx context.Context, tx *sql.Tx,
+	edit fileedit.Edit, previousStatus string, existed bool, authorizationSource string,
+) error {
 	if existed && previousStatus == edit.Status {
 		return nil
 	}
@@ -168,6 +174,9 @@ func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, prev
 		snapshot := edit
 		snapshot.OriginalText, snapshot.ProposedText, snapshot.Diff = "", "", ""
 		payload["review_snapshot"] = snapshot
+	}
+	if authorizationSource != "" {
+		payload["authorization_source"] = authorizationSource
 	}
 	if edit.Status == fileedit.StatusProposed {
 		payload["diff"] = edit.Diff

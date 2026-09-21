@@ -57,6 +57,8 @@ type V2ProviderSettingsProps = {
   initialPreset?: V2ProviderDraftPreset;
   onExit?: () => void;
   onSaved?: (definition: ProviderDefinitionView) => void;
+  prepareForDraft?: boolean;
+  onReady?: (definition: ProviderDefinitionView) => void;
 };
 
 type SecretMigration = {
@@ -475,13 +477,13 @@ function harnessStatusLabel(status: string): string {
   return ({ reachable: "连接正常", unreachable: "连接失败", qualified: "验证通过",
     incompatible: "协议不兼容", available: "可用", not_configured: "尚未配置",
     protocol_mismatch: "协议不匹配", auth_failed: "API Key 验证失败",
-    network_failed: "网络连接失败", rate_limit: "供应商限流", capacity: "容量不足",
+    network_failed: "网络连接失败", rate_limit: "供应商限流", capacity: "供应商额度或容量不足",
     model_unsupported: "模型不受支持" } as Record<string, string>)[status] ?? status;
 }
 
 function harnessFailureLabel(reason: string): string {
   return ({ none: "无", not_configured: "尚未配置", authentication: "API Key 验证失败",
-    network: "网络连接失败", rate_limit: "供应商限流", capacity: "容量不足",
+    network: "网络连接失败", rate_limit: "供应商限流", capacity: "供应商额度或容量不足，请检查账单或服务状态",
     model_not_found: "模型不存在", protocol_incompatible: "协议不兼容" } as Record<string, string>)[reason]
     ?? reason;
 }
@@ -492,7 +494,8 @@ function timestampLabel(value: string): string {
   return Number.isNaN(parsed.valueOf()) ? value : parsed.toLocaleString();
 }
 
-export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V2ProviderSettingsProps) {
+export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
+  prepareForDraft = false, onReady }: V2ProviderSettingsProps) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ProviderDraft | null>(null);
   const [error, setError] = useState("");
@@ -505,6 +508,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
   const [harnessError, setHarnessError] = useState("");
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
   const [qualification, setQualification] = useState<ModelHarnessQualificationView | null>(null);
+  const [preparedDefinition, setPreparedDefinition] = useState<ProviderDefinitionView | null>(null);
   const migrationSecretRef = useRef("");
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
@@ -513,6 +517,18 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const initializedPresetIDRef = useRef<string | null>(null);
+  const harnessOperationRef = useRef(false);
+  const harnessOperationVersionRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      harnessOperationVersionRef.current += 1;
+      harnessOperationRef.current = false;
+    };
+  }, []);
 
   const definitions = useQuery({
     queryKey: definitionQueryKey,
@@ -555,10 +571,13 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
     setHarnessError("");
     setDiagnostic(null);
     setQualification(null);
+    setPreparedDefinition(null);
     setDraft(next);
   };
   const closeEditor = () => {
     const target = returnFocusRef.current;
+    harnessOperationVersionRef.current += 1;
+    harnessOperationRef.current = false;
     migrationSecretRef.current = "";
     setMigration(null);
     setDeleteOpen(false);
@@ -578,10 +597,13 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
     setHarnessError("");
     setDiagnostic(null);
     setQualification(null);
+    setPreparedDefinition(null);
   };
 
   const verifyHarness = async () => {
-    if (!draft?.existing || harnessBusy) return;
+    if (!draft?.existing || harnessOperationRef.current) return;
+    harnessOperationRef.current = true;
+    const operationVersion = ++harnessOperationVersionRef.current;
     setHarnessConfirmOpen(false);
     setHarnessBusy(true);
     setHarnessError("");
@@ -593,6 +615,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
       const diagnosticResult = await client.diagnoseProvider({
         version: "provider_diagnostic.v1", provider, model, confirm_diagnostic: true,
       });
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
       setDiagnostic(diagnosticResult);
       if (diagnosticResult.status !== "reachable" || diagnosticResult.failure_reason !== "none") {
         setHarnessError(`连接诊断未通过：${harnessFailureLabel(diagnosticResult.failure_reason)}。未继续执行 Harness 合成验证。`);
@@ -602,15 +625,69 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
         version: "model_harness_qualification.v1", provider, model,
         confirm_qualification: true,
       });
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
       setQualification(qualificationResult);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["models", "availability"] }),
         queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
       ]);
     } catch (reason) {
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
       setHarnessError(reason instanceof Error ? reason.message : "Harness 验证失败。请检查供应商配置与网络权限。");
     } finally {
-      setHarnessBusy(false);
+      if (mountedRef.current && operationVersion === harnessOperationVersionRef.current) {
+        harnessOperationRef.current = false;
+        setHarnessBusy(false);
+      }
+    }
+  };
+
+  const prepareSavedProvider = async (definition: ProviderDefinitionView) => {
+    if (harnessOperationRef.current) return;
+    harnessOperationRef.current = true;
+    const operationVersion = ++harnessOperationVersionRef.current;
+    setHarnessBusy(true);
+    setHarnessError("");
+    setDiagnostic(null);
+    setQualification(null);
+    setNotice(`已保存 ${definition.display_name}，正在检查 ${definition.default_model}…`);
+    try {
+      const result = await client.qualifyModelHarness({
+        version: "model_harness_qualification.v1",
+        provider: definition.id,
+        model: definition.default_model,
+        confirm_qualification: true,
+      });
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
+      setQualification(result);
+      if (result.status !== "qualified" || result.failure_reason !== "none" ||
+        !result.harness.root_eligible) {
+        setHarnessError(`模型检查未通过：${harnessFailureLabel(result.failure_reason)}。配置和草稿都已保留；修正配置后保存，或直接重试检查。`);
+        return;
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["models", "availability"] }),
+        queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
+      ]);
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
+      const catalog = await client.availableModelRoutes();
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
+      const selected = catalog.routes.find((route) => route.provider_id === definition.id &&
+        route.model === definition.default_model);
+      if (!selected?.selectable || selected.definition_revision !== definition.revision) {
+        setHarnessError("模型检查已经返回成功，但当前可用模型目录尚未确认该模型可选择。配置和草稿已保留，请重试检查；系统不会改用 mock。");
+        return;
+      }
+      setNotice(`${definition.display_name} / ${definition.default_model} 已可用，正在返回原草稿。`);
+      onReady?.(definition);
+    } catch (reason) {
+      if (!mountedRef.current || operationVersion !== harnessOperationVersionRef.current) return;
+      setHarnessError(reason instanceof Error ? reason.message : "模型检查失败。配置和草稿已保留，请重试。");
+    } finally {
+      if (mountedRef.current && operationVersion === harnessOperationVersionRef.current) {
+        harnessOperationRef.current = false;
+        setHarnessBusy(false);
+      }
     }
   };
 
@@ -663,9 +740,16 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
         queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
         queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === "v2" && query.queryKey[1] === "thread" && query.queryKey[3] === "model-route" }),
       ]);
+      const saved = result.definition ?? definition;
       setNotice(`已保存 ${definition.display_name}`);
+      onSaved?.(saved);
+      if (prepareForDraft) {
+        setPreparedDefinition(saved);
+        setDraft(draftFromDefinition(saved));
+        await prepareSavedProvider(saved);
+        return;
+      }
       setDraft(null);
-      onSaved?.(result.definition ?? definition);
       if (onExit) {
         onExit();
         return;
@@ -679,7 +763,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
   };
 
   const save = () => {
-    if (!draft || busy) return;
+    if (!draft || busy || harnessBusy) return;
     const parsed = definitionFromDraft(draft);
     if (!parsed.definition) {
       setError(parsed.error ?? "供应商配置无效。");
@@ -888,11 +972,12 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
           : !draft.enabled ? "供应商已停用；启用并保存后才能验证。" : "";
   return <><div className="v2-provider-editor-heading">
     <button aria-label={initialPreset && onExit ? "返回模型目录" : "返回供应商列表"}
-      disabled={busy} onClick={closeEditor} type="button">
+	  disabled={busy || harnessBusy} onClick={closeEditor} type="button">
       <ArrowLeft aria-hidden="true" size={17} /></button>
     <div><h1>{draft.existing ? "编辑供应商" : "添加供应商"}</h1>
       <p>高级 JSON 可自由编辑；受保护字段与明文密钥会在保存边界被拒绝。</p></div></div>
     <form className="v2-provider-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <fieldset className="v2-provider-operation-lock" disabled={harnessBusy}>
       <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-basics-title">
         <header><div><h2 id="provider-basics-title">连接</h2><p>请求发送到你填写的模型地址；外部服务须使用 HTTPS，本机回环地址可使用 HTTP。</p></div>
           <label className="v2-provider-enabled"><input checked={draft.enabled}
@@ -1003,7 +1088,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
           </select><small>{draft.searchMode === "web"
             ? "搜索查询会发送到 DuckDuckGo，不依赖当前模型的原生搜索能力，也不需要额外搜索密钥。搜索和网页读取仍受当前任务的网页访问范围限制。"
             : draft.searchMode === "auto"
-              ? "自动按已配置的 SearXNG 与供应商原生能力选择；没有显式 SearXNG 且原生搜索不可用时使用 DuckDuckGo。不会自动扩大任务的网页访问范围。"
+              ? "自动优先使用已声明并验证的供应商原生搜索；原生不可用时只回退到已配置的 SearXNG。DuckDuckGo 必须单独选择，不会被静默启用。"
               : draft.searchMode === "searxng"
                 ? "SearXNG 地址仍由 Desktop 启动配置提供；未配置时不可用。不会自动切换后端或扩大任务的网页访问范围。"
                 : draft.searchMode === "disabled"
@@ -1011,8 +1096,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
                   : "选择供应商原生时会绑定当前模型、端点、定义 revision 与系统凭据代际。"}</small></label>
           {knownNativeSearchUnsupported(draft.endpointURL) && <p className="is-wide">
             {draft.existing && draft.searchMode === "provider_native"
-              ? "此官方 DeepSeek 旧配置的原生搜索选择已兼容为普通网页搜索（DuckDuckGo）；已保存的模型、密钥和配置不会因此改写。搜索仍受当前任务的网页访问范围限制。"
-              : "此官方 DeepSeek 地址不支持原生搜索，可使用自动选择或普通网页搜索（DuckDuckGo）。"}
+              ? "此官方 DeepSeek 旧配置声明了原生搜索，但该端点当前不支持对应工具；系统不会静默改用 DuckDuckGo。请选择普通网页搜索，或配置 SearXNG 后选择自动。"
+              : "此官方 DeepSeek 地址不支持原生搜索；请选择普通网页搜索，或配置 SearXNG 后选择自动。"}
           </p>}
           <label className="v2-provider-check is-wide"><input aria-label="声明供应商具备原生 Web Search"
             checked={draft.nativeSearchDeclared}
@@ -1046,14 +1131,19 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
 
       <section className="v2-settings-card v2-provider-fields v2-provider-harness"
         aria-labelledby="provider-harness-title">
-        <header><div><h2 id="provider-harness-title">连接与 Harness 验证</h2>
-          <p>先做一次最小连接诊断；通过后再验证工具调用、结果回传与结构化 JSON 合同。</p></div>
-          <button className="secondary" disabled={Boolean(harnessBlocker) || busy || harnessBusy}
+        <header><div><h2 id="provider-harness-title">{prepareForDraft ? "首次模型检查" : "连接与 Harness 验证"}</h2>
+          <p>{prepareForDraft
+            ? "保存后自动检查工具调用、结果回传与结构化 JSON；通过后返回原草稿并选中这个模型。检查通常会产生两次模型调用。"
+            : "先做一次最小连接诊断；通过后再验证工具调用、结果回传与结构化 JSON 合同。"}</p></div>
+          {!prepareForDraft && <button className="secondary" disabled={Boolean(harnessBlocker) || busy || harnessBusy}
             onClick={() => setHarnessConfirmOpen(true)} ref={harnessButtonRef} type="button">
             {harnessBusy ? <LoaderCircle aria-hidden="true" className="spin" size={14} />
               : <ShieldCheck aria-hidden="true" size={14} />}
-            {harnessBusy ? "正在验证…" : "测试并验证 Harness"}</button></header>
-        {harnessBlocker && <p className="v2-provider-help">{harnessBlocker}</p>}
+            {harnessBusy ? "正在验证…" : "测试并验证 Harness"}</button>}
+          {prepareForDraft && preparedDefinition && harnessError && <button className="secondary"
+            disabled={busy || harnessBusy} onClick={() => void prepareSavedProvider(preparedDefinition)}
+            ref={harnessButtonRef} type="button"><ShieldCheck aria-hidden="true" size={14} />重新检查</button>}</header>
+        {!prepareForDraft && harnessBlocker && <p className="v2-provider-help">{harnessBlocker}</p>}
         {!harnessBlocker && !diagnostic && !qualification && !harnessBusy &&
           <p className="v2-provider-help">验证绑定当前供应商、默认模型、端点、定义 revision 与系统凭据代际；任一项变化后需重新验证。</p>}
         {harnessBusy && <p aria-live="polite" className="v2-provider-harness-progress">
@@ -1099,8 +1189,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved }: V
         <span />
         <button disabled={busy} onClick={closeEditor} type="button">取消</button>
         <button className="primary" disabled={busy} ref={saveButtonRef} type="submit">
-          <Save aria-hidden="true" size={15} />{busy ? "正在保存…" : "保存"}</button>
+          <Save aria-hidden="true" size={15} />{busy ? "正在保存…" : prepareForDraft ? "保存并检查" : "保存"}</button>
       </footer>
+      </fieldset>
     </form>
 
     <V2ConfirmDialog busy={busy} confirmLabel="删除" danger

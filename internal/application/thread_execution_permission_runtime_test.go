@@ -46,6 +46,33 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	if err != nil || !authority.AllowsThreadFullAccess(first.Permission, &firstRun) {
 		t.Fatalf("first Thread Full activation failed: run=%+v err=%v", firstRun, err)
 	}
+	firstGeneration, active := capabilities.FullAccessGeneration(firstRun)
+	if !active {
+		t.Fatal("first Thread Full activation has no Run generation")
+	}
+	// A cold exact replay can bind the same snapshot to the same numeric
+	// generation in a fresh process; its runtime epoch must still differ.
+	freshAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	// A separate startup can have one prior runtime revocation before replay,
+	// making its next numeric generation equal to the old process's value.
+	freshAuthority.RevokeRun("run-unrelated-prior-revocation")
+	freshCapabilities := capabilities
+	freshCapabilities.RuntimeAuthority = freshAuthority
+	freshService := application.NewThreadExecutionPermissionService(state, freshCapabilities)
+	coldReplay, err := freshService.Change(ctx,
+		application.ChangeThreadExecutionPermissionRequest{
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "thread-full-first-confirmation-0001", RequestedBy: "test_operator",
+			Reason: "confirm Full Access for the current task", ConfirmDangerFullAccess: true,
+		})
+	if err != nil || !coldReplay.Replayed || coldReplay.Permission.ID != first.Permission.ID {
+		t.Fatalf("fresh process exact replay=%+v err=%v", coldReplay, err)
+	}
+	if after, allowed := freshCapabilities.FullAccessGeneration(firstRun); !allowed ||
+		after != firstGeneration || freshAuthority.RuntimeEpoch() == authority.RuntimeEpoch() {
+		t.Fatalf("fresh process replay did not establish a distinct epoch: first_generation=%d fresh_generation=%d first_epoch=%s fresh_epoch=%s allowed=%t",
+			firstGeneration, after, authority.RuntimeEpoch(), freshAuthority.RuntimeEpoch(), allowed)
+	}
 
 	authority.RevokeThread(threadRecord.ID)
 	inspected, err := service.Inspect(ctx, threadRecord.ID)

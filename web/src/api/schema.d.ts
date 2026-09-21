@@ -3910,6 +3910,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/search-diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check the selected search backend
+         * @description Explicit bounded search connection check using the active Run model and current authority. May incur provider search costs. Does not approve tools, replay a task, probe other backends or test specialized source connectors.
+         */
+        post: operations["diagnoseThreadSearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/search-readiness": {
         parameters: {
             query?: never;
@@ -4675,6 +4695,8 @@ export interface components {
             /** @enum {string} */
             credential_status: "not_required" | "configured" | "not_configured" | "invalid_configuration" | "disabled" | "unavailable";
             default_for_routes: string[];
+            /** Format: int64 */
+            definition_revision: number;
             enabled: boolean;
             harness_ready: boolean;
             model: string;
@@ -9951,6 +9973,33 @@ export interface components {
             network_mode: "disabled" | "allowlist";
             workspace_id?: string;
         };
+        SearchDiagnostics: {
+            backend: string;
+            /** Format: date-time */
+            checked_at: string;
+            /** @enum {string} */
+            code: "none" | "network" | "rate_limited" | "access_challenge" | "authentication" | "provider_rejected" | "tool_unsupported" | "no_usable_results" | "invalid_response" | "not_configured" | "not_authorized" | "timeout" | "configuration_changed";
+            /** Format: int32 */
+            http_status?: number;
+            /** Format: int64 */
+            mode_revision: number;
+            model: string;
+            model_route: string;
+            network_request_attempted: boolean;
+            /** @enum {string} */
+            protocol_version: "search_diagnostics.v1";
+            provider: string;
+            rate_limit_reset?: string;
+            required_target?: string;
+            /** Format: int32 */
+            result_count: number;
+            retry_after?: string;
+            run_id: string;
+            search_policy: string;
+            /** @enum {string} */
+            state: "succeeded" | "failed";
+            thread_id: string;
+        };
         SessionArchiveControlRequestView: {
             confirm: boolean;
             version: string;
@@ -12558,6 +12607,11 @@ export interface components {
             expected_fingerprint: string;
             expected_live_fingerprint: string;
             target_path?: string;
+        };
+        searchDiagnosticsRequest: {
+            confirm: boolean;
+            /** @enum {string} */
+            version: "search_diagnostics.v1";
         };
         uiEvidenceCancelView: {
             confirm: boolean;
@@ -22013,6 +22067,51 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    diagnoseThreadSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["searchDiagnosticsRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SearchDiagnostics"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

@@ -17,7 +17,9 @@ func TestSupervisorSystemPolicySeparatesCommandRuntimeOwnership(t *testing.T) {
 	}
 	for _, clause := range []string{
 		"explicitly offered command_runtime",
-		"disabled network and no credentials",
+		"network intent shown in its current adapter schema",
+		"host adapter may offer network=host without a destination allowlist",
+		"Before destructive database operations",
 		"never conflate its Job ownership with a user or Debug terminal",
 	} {
 		if !strings.Contains(messages[0].Content, clause) {

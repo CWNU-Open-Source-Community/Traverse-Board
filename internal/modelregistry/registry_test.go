@@ -230,7 +230,6 @@ func TestRegistryOllamaRouteSelectionProbesCapabilities(t *testing.T) {
 	}
 }
 
-
 func TestRegistryBootstrapsSystemCredentialWithoutProjectingIt(t *testing.T) {
 	secret := "system-provider-key-0123456789"
 	registry, err := newRegistry(func(string) (string, bool) { return "", false },
@@ -690,6 +689,11 @@ func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
 		// projection.
 		t.Fatalf("qualification persistence count=%d", len(settings))
 	}
+	qualifiedProvider, found := providerByName(registry.Snapshot(), "qualification-test")
+	if !found || len(qualifiedProvider.Harnesses) != 1 ||
+		qualifiedProvider.Harnesses[0].LatestQualificationStatus != QualificationStatusAvailable {
+		t.Fatalf("live qualification status was not published: %#v", qualifiedProvider)
+	}
 
 	restarted := registryWithQualificationProvider("a")
 	if err := restarted.LoadRouteSettings(context.Background(), settings); err != nil {
@@ -705,6 +709,21 @@ func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
 		t.Fatalf("qualification was not restored: %#v", restored)
 	}
 
+	settings[credentialRevisionSettingKey("qualification-test")] = "1"
+	rotated := registryWithQualificationProvider("a")
+	if err := rotated.LoadRouteSettings(context.Background(), settings); err != nil {
+		t.Fatal(err)
+	}
+	invalidated, err := rotated.Router().HarnessProfile(llm.ModelRef{
+		Provider: "qualification-test", Model: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invalidated.QualificationStatus != llm.HarnessQualificationRequired {
+		t.Fatalf("qualification survived a credential revision change: %#v", invalidated)
+	}
+
 	changed := registryWithQualificationProvider("b")
 	if err := changed.LoadRouteSettings(context.Background(), settings); err != nil {
 		t.Fatal(err)
@@ -717,6 +736,165 @@ func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
 	}
 	if stale.QualificationStatus != llm.HarnessQualificationRequired {
 		t.Fatalf("qualification escaped its transport binding: %#v", stale)
+	}
+}
+
+func TestProviderCredentialMutationInvalidatesLiveAndReloadedQualifications(t *testing.T) {
+	definition := validCustomDefinition("https://api.example.com/v1")
+	settings := routeSettings{ProviderDefinitionsSettingKey: providerDefinitionSetting(t, definition, 1)}
+	credentialValue := "credential-before-0123456789"
+	registry, err := newRegistry(func(string) (string, bool) { return "", false },
+		func(_ context.Context, provider string) (string, bool, error) {
+			return credentialValue, provider == definition.ID, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Reload(t.Context(), settings); err != nil {
+		t.Fatal(err)
+	}
+	ref := llm.ModelRef{Provider: definition.ID, Model: definition.DefaultModel}
+	base, err := registry.Router().HarnessProfile(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	qualification := llm.HarnessQualification{ProtocolVersion: llm.ModelHarnessProtocolVersion,
+		BindingDigest: base.BindingDigest, ToolCallsQualified: true, ToolResultsQualified: true,
+		StrictJSONQualified: true, StreamingQualified: true,
+		QualifiedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := registry.Router().SetHarnessQualification(ref, qualification); err != nil {
+		t.Fatal(err)
+	}
+	record, err := json.Marshal(persistedHarnessRecord(definition.ID,
+		definition.DefaultModel, 0, qualification))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings[harnessQualificationSettingKey(definition.ID, definition.DefaultModel)] = string(record)
+	if err := registry.RecordQualificationStatus(t.Context(), settings, definition.ID,
+		definition.DefaultModel, QualificationStatusAvailable, qualificationStatusSourceHarness); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := registry.MutateProviderCredential(t.Context(), settings, definition.ID,
+		func() error { credentialValue = "credential-after-0123456789"; return nil })
+	if err != nil || !result.Reloaded {
+		t.Fatalf("credential mutation result=%#v err=%v", result, err)
+	}
+	if settings[credentialRevisionSettingKey(definition.ID)] != "1" {
+		t.Fatalf("credential revision was not advanced: %#v", settings)
+	}
+	profile, err := registry.Router().HarnessProfile(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.QualificationStatus != llm.HarnessQualificationRequired || rootHarnessReady(profile) {
+		t.Fatalf("rotated credential retained root qualification: %#v", profile)
+	}
+	provider, found := providerByName(registry.Snapshot(), definition.ID)
+	if !found || len(provider.Harnesses) == 0 ||
+		provider.Harnesses[0].LatestQualificationStatus == QualificationStatusAvailable {
+		t.Fatalf("credential rotation did not fail the live catalog closed: %#v", provider)
+	}
+}
+
+func TestSlowDiagnosticCannotPublishAcrossCredentialMutation(t *testing.T) {
+	oldRequestEntered := make(chan struct{})
+	releaseOldRequest := make(chan struct{})
+	var oldRequestOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.Header.Get("Authorization") == "Bearer credential-before-0123456789" {
+			oldRequestOnce.Do(func() { close(oldRequestEntered) })
+			select {
+			case <-releaseOldRequest:
+			case <-request.Context().Done():
+				return
+			}
+			http.Error(writer, "old credential rejected", http.StatusUnauthorized)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"model":"acme-code","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}
+		}`))
+	}))
+	defer server.Close()
+
+	definition := validCustomDefinition(server.URL + "/v1/chat/completions")
+	settings := routeSettings{ProviderDefinitionsSettingKey: providerDefinitionSetting(t, definition, 1)}
+	var credentialMu sync.RWMutex
+	credentialValue := "credential-before-0123456789"
+	credentials := func(_ context.Context, provider string) (string, bool, error) {
+		credentialMu.RLock()
+		defer credentialMu.RUnlock()
+		return credentialValue, provider == definition.ID, nil
+	}
+	registry, err := newRegistry(func(string) (string, bool) { return "", false }, credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadRouteSettings(t.Context(), settings); err != nil {
+		t.Fatal(err)
+	}
+
+	diagnosticDone := make(chan error, 1)
+	go func() {
+		result, diagnosticErr := registry.DiagnoseAndRecord(t.Context(), settings,
+			definition.ID, definition.DefaultModel)
+		if diagnosticErr == nil && result.FailureReason != llm.ProviderFailureAuthentication {
+			diagnosticErr = errors.New("old diagnostic did not observe the rejected credential")
+		}
+		diagnosticDone <- diagnosticErr
+	}()
+	select {
+	case <-oldRequestEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old diagnostic did not reach the Provider")
+	}
+
+	mutationInvoked := make(chan struct{})
+	mutationDone := make(chan error, 1)
+	go func() {
+		_, mutationErr := registry.MutateProviderCredential(t.Context(), settings,
+			definition.ID, func() error {
+				close(mutationInvoked)
+				credentialMu.Lock()
+				credentialValue = "credential-after-0123456789"
+				credentialMu.Unlock()
+				return nil
+			})
+		mutationDone <- mutationErr
+	}()
+	select {
+	case <-mutationInvoked:
+		t.Fatal("credential mutation overtook the in-flight diagnostic")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseOldRequest)
+	if err := <-diagnosticDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-mutationDone; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := registry.DiagnoseAndRecord(t.Context(), settings,
+		definition.ID, definition.DefaultModel)
+	if err != nil || result.QualificationStatus != QualificationStatusAvailable {
+		t.Fatalf("new credential diagnostic result=%#v err=%v", result, err)
+	}
+	var record persistedQualificationStatus
+	if err := json.Unmarshal([]byte(settings[qualificationStatusSettingKey(
+		definition.ID, definition.DefaultModel)]), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != QualificationStatusAvailable || record.CredentialRevision != 1 ||
+		record.DefinitionRevision != 1 || record.BindingDigest == "" {
+		t.Fatalf("stale diagnostic crossed the credential generation: %#v", record)
 	}
 }
 

@@ -436,7 +436,7 @@ function classifyLiveTool(name: string): Exclude<NarrativeToolKind, "plan"> {
   case "workspace_search": case "code_search": case "search": case "find_files":
   case "github_review_evidence_list": case "code_workspace_symbols": case "code_document_symbols":
   case "code_references": case "code_implementation": case "code_call_hierarchy":
-  case "code_type_hierarchy": case "web_search": return "search";
+  case "code_type_hierarchy": case "web_search": case "source_search": return "search";
   case "read_file": case "workspace_read": case "note_get": case "artifact_get":
   case "github_review_evidence_read": case "code_definition": case "code_hover":
   case "code_signature_help": case "web_fetch": case "web_citation": return "read";
@@ -462,6 +462,7 @@ function safeToolActivityTitle(toolName: string, activity: NarrativeToolKind,
   case "apply_patch": return "文件修改请求";
   case "run_tests": case "code_diagnostics": return "验证";
   case "web_search": return "联网搜索";
+  case "source_search": return "搜索专业来源";
   case "web_fetch": return "抓取网页";
   }
   if (!toolName) return fallback;

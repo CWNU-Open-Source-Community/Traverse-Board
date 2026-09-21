@@ -28,7 +28,8 @@ const commandRuntimeJobColumns = `id, operation_digest, request_fingerprint,
 	tree_reaped, job_assigned_at_creation, stdin_closed, stdin_write_count,
 	version, created_at, started_at, completed_at, updated_at,
 	adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
-	adapter_isolation_grade, adapter_network_policy, adapter_credential_policy`
+	adapter_isolation_grade, adapter_network_policy, adapter_credential_policy,
+	permission_runtime_epoch, permission_generation`
 
 type commandRuntimeJobQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -101,6 +102,8 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 			existing.RequestFingerprint != job.RequestFingerprint ||
 			existing.SpecFingerprint != job.SpecFingerprint ||
 			existing.RunID != job.RunID || existing.InvocationID != job.InvocationID ||
+			existing.PermissionRuntimeEpoch != job.PermissionRuntimeEpoch ||
+			existing.PermissionGeneration != job.PermissionGeneration ||
 			existing.Adapter != job.Adapter {
 			return runner.CommandRuntimeJob{}, false, apperror.New(
 				apperror.CodeConflict, "command runtime operation key was reused")
@@ -152,10 +155,11 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		tree_reaped, job_assigned_at_creation, stdin_closed, stdin_write_count,
 		version, created_at, started_at, completed_at, updated_at,
 		adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
-		adapter_isolation_grade, adapter_network_policy, adapter_credential_policy)
+		adapter_isolation_grade, adapter_network_policy, adapter_credential_policy,
+		permission_runtime_epoch, permission_generation)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, runner.CommandRuntimeProtocolVersion, job.OperationDigest,
 		job.RequestFingerprint, job.InvocationID, job.RunID, job.MissionID,
 		job.SessionID, job.WorkspaceID, job.RootAgentID, job.WorkspaceRootSHA256,
@@ -178,7 +182,8 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		ts(job.UpdatedAt), job.Adapter.Kind, job.Adapter.Backend,
 		job.Adapter.BackendIdentity, job.Adapter.Generation,
 		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
-		job.Adapter.CredentialPolicy)
+		job.Adapter.CredentialPolicy, job.PermissionRuntimeEpoch,
+		job.PermissionGeneration)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, false, apperror.Wrap(
 			apperror.CodeConflict, "command runtime launch scope was rejected", err)
@@ -387,7 +392,8 @@ func scanCommandRuntimeJob(scanner commandRuntimeJobScanner) (
 		&job.StdinWriteCount, &job.Version, &createdAt, &startedAt,
 		&completedAt, &updatedAt, &adapterKind, &job.Adapter.Backend,
 		&job.Adapter.BackendIdentity, &job.Adapter.Generation, &adapterIsolation,
-		&adapterNetwork, &adapterCredentials)
+		&adapterNetwork, &adapterCredentials, &job.PermissionRuntimeEpoch,
+		&job.PermissionGeneration)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, err
 	}
