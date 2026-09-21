@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,42 @@ type snapshotPageStore struct {
 	WebEvidenceToolStore
 	source   webevidence.Source
 	snapshot webevidence.Snapshot
+}
+
+func TestSavedWebSnapshotPageRetainsConnectorContinuationFailure(t *testing.T) {
+	state, scope := savedSnapshotFixture(t, "Saved root and first comment")
+	state.snapshot.Connector = "github"
+	state.snapshot.ConnectorVersion = "github-public.v1"
+	state.snapshot.ContentKind = "github_issue_thread"
+	state.snapshot.Coverage = "body_and_issue_comments"
+	state.snapshot.RawDigest = webevidence.DigestBytes([]byte("original JSON"))
+	state.snapshot.RequestEndpoints = []string{"https://api.github.com/repos/example/project/issues/1/comments"}
+	state.snapshot.ItemsIncluded, state.snapshot.ItemsAvailable = 2, 4
+	state.snapshot.TruncationReason = "comment_read_failed"
+	state.snapshot.ContinuationFailure = &webevidence.ConnectorFailure{Connector: "github", Code: "rate_limited", HTTPStatus: 429,
+		Endpoint: state.snapshot.RequestEndpoints[0], RetryAfter: "60", RemoteRequestID: "partial-request"}
+	var err error
+	state.snapshot, err = webevidence.SealSnapshot(state.snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := state.snapshot
+	offset, limit := 0, 5
+	executor := &WebEvidenceToolExecutor{store: state}
+	result, err := executor.readWebSnapshotPage(t.Context(), scope, toolgateway.WebFetchPayload{Version: "web_fetch.v1",
+		SourceID: state.source.ID, SnapshotID: state.snapshot.ID, Offset: &offset, Limit: &limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output webFetchToolOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(output.Snapshot.ContinuationFailure, before.ContinuationFailure) || output.Snapshot.State != webevidence.SourcePartial ||
+		output.Snapshot.TruncationReason != "comment_read_failed" || output.Snapshot.Coverage != before.Coverage || output.Snapshot.Body != "Saved" ||
+		!reflect.DeepEqual(state.snapshot, before) || result.Metadata["network_called"] != "false" {
+		t.Fatalf("saved page lost partial coverage/diagnostics: %+v", output)
+	}
 }
 
 func TestSupervisorWebFetchMultilingualPagesReassembleOriginalAtTokenLimit(t *testing.T) {
@@ -72,7 +109,7 @@ func TestSupervisorWebFetchMultilingualPagesReassembleOriginalAtTokenLimit(t *te
 		}
 		offset = next
 	}
-	if assembled.String() != body || pages < 3 || state.snapshot != before {
+	if assembled.String() != body || pages < 3 || !reflect.DeepEqual(state.snapshot, before) {
 		t.Fatal("following projected next_offset did not recover the exact original Unicode snapshot")
 	}
 }
@@ -135,7 +172,7 @@ func TestSavedWebSnapshotPagePreservesUnicodeAndPartialProvenance(t *testing.T) 
 			t.Fatalf("wrong page or provenance: %+v", output)
 		}
 	}
-	if state.snapshot != before {
+	if !reflect.DeepEqual(state.snapshot, before) {
 		t.Fatal("paging mutated the saved source snapshot")
 	}
 }

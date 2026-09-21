@@ -21,7 +21,9 @@ func TestWorkspaceImportRegistersAndReplaysWithoutDirectoryWritesOrAuthority(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected := t.TempDir()
+	// TEMP may use forward slashes on Windows; the stored import path uses
+	// filepath's native spelling. Compare the same canonical spelling.
+	selected := filepath.Clean(t.TempDir())
 	marker := filepath.Join(selected, "user-owned.txt")
 	if err := os.WriteFile(marker, []byte("user content\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -51,7 +53,7 @@ func TestWorkspaceImportRegistersAndReplaysWithoutDirectoryWritesOrAuthority(t *
 	}
 	record, err := fixture.store.GetWorkspaceByID(t.Context(), first.Workspace.ID)
 	if err != nil || record.RootPath != selected {
-		t.Fatalf("registration failed: %#v %v", record, err)
+		t.Fatalf("registration failed: selected=%q record=%#v err=%v", selected, record, err)
 	}
 	entries, err := os.ReadDir(selected)
 	content, readErr := os.ReadFile(marker)

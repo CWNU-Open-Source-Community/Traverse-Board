@@ -371,7 +371,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	checker := policy.NewDefaultChecker()
 	webEvidence := webevidence.NewService(stateStore, webSearchProvider,
-		webevidence.NewFetcher(webClient))
+		webevidence.NewFetcher(webClient)).
+		WithSourceConnectors(webevidence.NewDefaultSourceConnectors(webClient)...)
 	providerSearchResolver, err := application.NewProviderSearchResolver(models,
 		stateStore, credentialStore, webSearchProvider, providerSearchClient)
 	if err != nil {

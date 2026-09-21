@@ -165,9 +165,12 @@ func (i Identity) SameBackend(other Identity) bool {
 // the durable Supervisor tool call and checked again at execution, so a stale
 // model response cannot cross an adapter restart or backend replacement.
 type Authority struct {
-	ProtocolVersion string   `json:"protocol_version"`
-	RunID           string   `json:"run_id"`
-	Adapter         Identity `json:"adapter"`
+	ProtocolVersion        string   `json:"protocol_version"`
+	RunID                  string   `json:"run_id"`
+	Adapter                Identity `json:"adapter"`
+	PermissionSnapshotID   string   `json:"permission_snapshot_id,omitempty"`
+	PermissionGeneration   uint64   `json:"permission_generation,omitempty"`
+	PermissionRuntimeEpoch string   `json:"permission_runtime_epoch,omitempty"`
 }
 
 func NewAuthority(runID string, identity Identity) Authority {
@@ -179,6 +182,14 @@ func (a Authority) Validate() error {
 	if a.ProtocolVersion != AuthorityProtocolVersion || !domain.ValidAgentID(a.RunID) ||
 		!a.Adapter.Executable() {
 		return errors.New("command runtime adapter authority is invalid")
+	}
+	if a.PermissionSnapshotID != "" || a.PermissionGeneration != 0 ||
+		a.PermissionRuntimeEpoch != "" {
+		if !domain.ValidAgentID(a.PermissionSnapshotID) ||
+			a.PermissionGeneration == 0 || a.PermissionRuntimeEpoch == "" ||
+			a.Adapter.Kind != KindHostUnsandboxed {
+			return errors.New("command runtime Full Access grant authority is invalid or partial")
+		}
 	}
 	return nil
 }

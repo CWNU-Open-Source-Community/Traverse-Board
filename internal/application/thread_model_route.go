@@ -19,6 +19,7 @@ type ModelRouteCatalogItem struct {
 	ProviderID          string
 	ProviderName        string
 	Model               string
+	DefinitionRevision  uint64
 	Enabled             bool
 	CredentialStatus    string
 	QualificationStatus string
@@ -27,11 +28,7 @@ type ModelRouteCatalogItem struct {
 	UnavailableReason   string
 	DefaultForRoutes    []string
 	VisionCapability    llm.VisionCapability
-	// DefinitionRevision is intentionally not projected by the HTTP catalog.
-	// It is an internal CAS token used by Change to close the Registry-to-Store
-	// race for custom Provider definitions.
-	Custom             bool
-	DefinitionRevision uint64
+	Custom              bool
 }
 
 type ModelRouteCatalog struct {

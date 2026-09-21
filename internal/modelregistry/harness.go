@@ -78,6 +78,7 @@ type persistedHarnessQualification struct {
 	Version              string `json:"version"`
 	Provider             string `json:"provider"`
 	Model                string `json:"model"`
+	CredentialRevision   uint64 `json:"credential_revision"`
 	BindingDigest        string `json:"binding_digest"`
 	ToolCallsQualified   bool   `json:"tool_calls_qualified"`
 	ToolResultsQualified bool   `json:"tool_results_qualified"`
@@ -110,6 +111,8 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		return HarnessQualificationResult{},
 			errors.New("model Harness qualification Provider model is unavailable")
 	}
+	r.qualificationMu.Lock()
+	defer r.qualificationMu.Unlock()
 	providerStatus, fallbackHarness, known := r.providerModelStatus(provider, model)
 	if !known {
 		return HarnessQualificationResult{},
@@ -129,14 +132,13 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		return HarnessQualificationResult{},
 			errors.New("model Harness qualification Provider model is unavailable")
 	}
-	r.qualificationMu.Lock()
-	defer r.qualificationMu.Unlock()
 	r.probeOllamaCapabilities(ctx, provider, model)
 	ref := llm.ModelRef{Provider: provider, Model: model}
 	base, err := r.router.HarnessProfile(ref)
 	if err != nil {
 		return HarnessQualificationResult{}, err
 	}
+	credentialRevision := r.credentialRevision(provider)
 	result := HarnessQualificationResult{
 		ProtocolVersion: HarnessQualificationProtocolVersion,
 		Provider:        provider, Model: model,
@@ -151,8 +153,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		result.Outcome = string(llm.OutcomeSuccess)
 		result.FailureReason = llm.ProviderFailureNone
 		result.QualificationStatus = QualificationStatusAvailable
-		r.persistQualificationStatus(ctx, writer, provider, model,
-			QualificationStatusAvailable, qualificationStatusSourceHarness)
+		if err := r.persistQualificationStatus(ctx, writer, provider, model,
+			QualificationStatusAvailable, qualificationStatusSourceHarness); err != nil {
+			return HarnessQualificationResult{}, fmt.Errorf("persist model Harness status: %w", err)
+		}
 		return result, nil
 	}
 	if base.ToolStrategy != llm.HarnessToolStrategyNative ||
@@ -160,8 +164,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		result.Outcome = string(llm.OutcomeInvalidResponse)
 		result.FailureReason = llm.ProviderFailureProtocolIncompatible
 		result.QualificationStatus = QualificationStatusProtocolMismatch
-		r.persistQualificationStatus(ctx, writer, provider, model,
-			QualificationStatusProtocolMismatch, qualificationStatusSourceHarness)
+		if err := r.persistQualificationStatus(ctx, writer, provider, model,
+			QualificationStatusProtocolMismatch, qualificationStatusSourceHarness); err != nil {
+			return HarnessQualificationResult{}, fmt.Errorf("persist model Harness status: %w", err)
+		}
 		return result, nil
 	}
 	qualificationCtx, cancel := context.WithTimeout(ctx, HarnessQualificationTimeout)
@@ -185,12 +191,14 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		if providerErr.Kind != llm.OutcomeInvalidResponse {
 			result.Status = HarnessDiagnosticUnreachable
 		}
-		r.persistQualificationStatus(ctx, writer, provider, model,
-			result.QualificationStatus, qualificationStatusSourceHarness)
+		if err := r.persistQualificationStatus(ctx, writer, provider, model,
+			result.QualificationStatus, qualificationStatusSourceHarness); err != nil {
+			return HarnessQualificationResult{}, fmt.Errorf("persist model Harness status: %w", err)
+		}
 		return result, nil
 	}
 
-	record := persistedHarnessRecord(provider, model, qualification)
+	record := persistedHarnessRecord(provider, model, credentialRevision, qualification)
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return HarnessQualificationResult{}, err
@@ -201,9 +209,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	r.routeMu.Lock()
 	defer r.routeMu.Unlock()
 	current, err := r.router.HarnessProfile(ref)
-	if err != nil || current.BindingDigest != base.BindingDigest {
+	if err != nil || current.BindingDigest != base.BindingDigest ||
+		r.credentialRevision(provider) != credentialRevision {
 		return HarnessQualificationResult{}, errors.New(
-			"model Harness binding changed during qualification")
+			"model Harness binding or credential changed during qualification")
 	}
 	if err := writer.SetProviderSetting(ctx, harnessQualificationSettingKey(provider, model),
 		string(encoded)); err != nil {
@@ -226,8 +235,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	result.Retryable = false
 	result.QualificationStatus = QualificationStatusAvailable
 	result.Harness = harnessAvailability(model, verified)
-	r.persistQualificationStatus(ctx, writer, provider, model,
-		QualificationStatusAvailable, qualificationStatusSourceHarness)
+	if err := r.persistQualificationStatus(ctx, writer, provider, model,
+		QualificationStatusAvailable, qualificationStatusSourceHarness); err != nil {
+		return HarnessQualificationResult{}, fmt.Errorf("persist model Harness status: %w", err)
+	}
 	return result, nil
 }
 
@@ -405,12 +416,13 @@ func decodeExactJSON(raw []byte, target any) error {
 	return nil
 }
 
-func persistedHarnessRecord(provider string, model string,
+func persistedHarnessRecord(provider string, model string, credentialRevision uint64,
 	qualification llm.HarnessQualification,
 ) persistedHarnessQualification {
 	return persistedHarnessQualification{
 		Version:  HarnessQualificationProtocolVersion,
 		Provider: provider, Model: model,
+		CredentialRevision:   credentialRevision,
 		BindingDigest:        qualification.BindingDigest,
 		ToolCallsQualified:   qualification.ToolCallsQualified,
 		ToolResultsQualified: qualification.ToolResultsQualified,
@@ -437,7 +449,8 @@ func (r *Registry) loadHarnessQualifications(ctx context.Context,
 			var record persistedHarnessQualification
 			if decodeExactJSON([]byte(value), &record) != nil ||
 				record.Version != HarnessQualificationProtocolVersion ||
-				record.Provider != provider.Name || record.Model != model {
+				record.Provider != provider.Name || record.Model != model ||
+				record.CredentialRevision != r.credentialRevision(provider.Name) {
 				continue
 			}
 			qualifiedAt, qualifiedErr := time.Parse(time.RFC3339Nano, record.QualifiedAt)

@@ -61,6 +61,18 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
+const selectableModelCatalog = (provider = "fixture-provider", model = "fixture-model") => ({
+  protocol_version: "model_route_catalog.v1",
+  generation: 1,
+  routes: [{ provider_id: provider, provider_name: provider, model,
+	definition_revision: 1, enabled: true, credential_status: "configured",
+	qualification_status: "available", harness_ready: true, selectable: true,
+	unavailable_reason: "", default_for_routes: ["code"],
+	vision_capability: { state: "unknown", source: "unknown" } }],
+});
+
+const readyModelCatalog = () => vi.fn().mockResolvedValue(selectableModelCatalog());
+
 afterEach(() => {
   cleanup();
   useConnectionStore.getState().disconnect();
@@ -266,9 +278,391 @@ describe("V2Workbench model navigation", () => {
     expect(models).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("navigation", { name: "设置分类" })).toContainElement(models);
   });
+
+  it("returns a qualified first model to the original draft and uses it for the first real turn", async () => {
+    let savedDefinition: any;
+    let qualified = false;
+    const providerDefinitions = vi.fn(async () => ({
+      version: "provider_definition_collection.v1", revision: savedDefinition ? 1 : 0,
+      providers: savedDefinition ? [savedDefinition] : [],
+    }));
+    const upsertProviderDefinition = vi.fn(async (_id, body) => {
+      savedDefinition = { ...body.definition, revision: 1 };
+      return { protocol_version: "provider_definition_control.v1", registry_reloaded: true,
+        registry_generation: 2, definition: savedDefinition,
+        collection: { version: "provider_definition_collection.v1", revision: 1,
+          providers: [savedDefinition] } };
+    });
+    const availableModelRoutes = vi.fn(async () => ({
+      protocol_version: "model_route_catalog.v1", generation: 2,
+      routes: qualified && savedDefinition ? [{ provider_id: savedDefinition.id,
+        provider_name: savedDefinition.display_name, model: savedDefinition.default_model,
+		definition_revision: savedDefinition.revision,
+        enabled: true, credential_status: "configured", qualification_status: "available",
+        harness_ready: true, selectable: true, unavailable_reason: "", default_for_routes: [],
+		vision_capability: { state: "unknown", source: "unknown" } }] : [{
+		provider_id: "official-openai", provider_name: "OpenAI", model: "gpt-5",
+		definition_revision: 0, enabled: true, credential_status: "not_configured",
+		qualification_status: "not_configured", harness_ready: false, selectable: false,
+		unavailable_reason: "credential_not_configured", default_for_routes: [],
+		vision_capability: { state: "unknown", source: "unknown" },
+	  }],
+    }));
+    const qualifyModelHarness = vi.fn(async (body) => {
+      qualified = true;
+      return { protocol_version: "model_harness_qualification.v1", provider: body.provider,
+        model: body.model, status: "qualified", outcome: "success", failure_reason: "none",
+        retryable: false, network_request_attempted: true, model_calls: 2,
+        synthetic_tool_calls: 1, tool_executed: false, response_content_returned: false,
+        duration_ms: 20, qualification_status: "available",
+        harness: { protocol_version: "model_harness.v1", model: body.model,
+          transport_protocol: "openai_responses", tool_strategy: "native", json_strategy: "native",
+          qualification_status: "verified", latest_qualification_status: "available",
+          qualification_checked_at: "2026-09-20T00:00:00Z", qualification_source: "harness_qualification",
+          tool_calls_qualified: true, tool_results_qualified: true, strict_json_qualified: true,
+          streaming_qualified: true, root_eligible: true, structured_json_eligible: true,
+          qualified_at: "2026-09-20T00:00:00Z", expires_at: "2026-09-27T00:00:00Z" } };
+    });
+    const createThread = vi.fn().mockResolvedValue({ thread: createdThread });
+    const submitThreadTurn = vi.fn().mockResolvedValue({ accepted: true });
+    const client = { hasThreadControl: true, hasModelControl: true,
+      hasProviderDefinitions: true, hasProviderCredentials: true,
+      getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path })), availableModelRoutes,
+      providerDefinitions, providerCredentialStatuses: vi.fn().mockResolvedValue({
+        protocol_version: "provider_credential.v1", items: [] }),
+      upsertProviderDefinition, changeProviderCredential: vi.fn().mockResolvedValue({
+        protocol_version: "provider_credential.v1", provider: "official-openai", configured: true,
+        store_available: true, store_kind: "windows_credential_manager", plaintext_returned: false,
+        restart_required: false, registry_reloaded: true, registry_generation: 2 }),
+      qualifyModelHarness, createThread, submitThreadTurn,
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    const composer = await screen.findByRole("textbox", { name: "开始新对话" });
+    await user.type(composer, "使用刚配置的真实模型处理这份草稿");
+	await user.click(screen.getByRole("button", { name: "接入模型" }));
+    await user.click(await screen.findByRole("button", { name: /OpenAI/u }));
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+
+    const restored = await screen.findByRole("textbox", { name: "开始新对话" });
+    expect(restored).toHaveValue("使用刚配置的真实模型处理这份草稿");
+    await waitFor(() => expect(restored).toHaveFocus());
+    expect(screen.getByRole("button", { name: /模型路由，当前/u })).toHaveAccessibleName(
+      expect.stringContaining(savedDefinition.default_model),
+    );
+    expect(createThread).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+    expect(createThread.mock.calls[0][0]).toEqual(expect.objectContaining({
+      provider: savedDefinition.id, model: savedDefinition.default_model,
+    }));
+    expect(qualifyModelHarness).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a finished first-model check reclaim navigation after the user leaves", async () => {
+    let savedDefinition: any;
+    let qualified = false;
+    const qualification = deferred<any>();
+    const providerDefinitions = vi.fn(async () => ({
+      version: "provider_definition_collection.v1", revision: savedDefinition ? 1 : 0,
+      providers: savedDefinition ? [savedDefinition] : [],
+    }));
+    const upsertProviderDefinition = vi.fn(async (_id, body) => {
+      savedDefinition = { ...body.definition, revision: 1 };
+      return { protocol_version: "provider_definition_control.v1", registry_reloaded: true,
+        registry_generation: 2, definition: savedDefinition,
+        collection: { version: "provider_definition_collection.v1", revision: 1,
+          providers: [savedDefinition] } };
+    });
+    const availableModelRoutes = vi.fn(async () => ({
+      protocol_version: "model_route_catalog.v1", generation: 2,
+      routes: qualified && savedDefinition ? [{ provider_id: savedDefinition.id,
+        provider_name: savedDefinition.display_name, model: savedDefinition.default_model,
+        definition_revision: savedDefinition.revision,
+        enabled: true, credential_status: "configured", qualification_status: "available",
+        harness_ready: true, selectable: true, unavailable_reason: "", default_for_routes: [],
+        vision_capability: { state: "unknown", source: "unknown" } }] : [{
+        provider_id: "official-openai", provider_name: "OpenAI", model: "gpt-5",
+        definition_revision: 0, enabled: true, credential_status: "not_configured",
+        qualification_status: "not_configured", harness_ready: false, selectable: false,
+        unavailable_reason: "credential_not_configured", default_for_routes: [],
+        vision_capability: { state: "unknown", source: "unknown" },
+      }],
+    }));
+    const qualifyModelHarness = vi.fn(async () => {
+      const result = await qualification.promise;
+      qualified = true;
+      return result;
+    });
+    const createThread = vi.fn().mockResolvedValue({ thread: createdThread });
+    const client = { hasThreadControl: true, hasModelControl: true,
+      hasProviderDefinitions: true, hasProviderCredentials: true,
+      getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path })), availableModelRoutes,
+      providerDefinitions, providerCredentialStatuses: vi.fn().mockResolvedValue({
+        protocol_version: "provider_credential.v1", items: [] }),
+      upsertProviderDefinition, changeProviderCredential: vi.fn().mockResolvedValue({
+        protocol_version: "provider_credential.v1", provider: "official-openai", configured: true,
+        store_available: true, store_kind: "windows_credential_manager", plaintext_returned: false,
+        restart_required: false, registry_reloaded: true, registry_generation: 2 }),
+      qualifyModelHarness, createThread,
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    const composer = await screen.findByRole("textbox", { name: "开始新对话" });
+    await user.type(composer, "离开设置后继续保留的草稿");
+    await user.click(screen.getByRole("button", { name: /模型路由，当前/u }));
+    await user.click(within(screen.getByRole("menu", { name: "模型与响应设置" }))
+      .getAllByRole("menuitem")[0]!);
+    await user.click(await screen.findByRole("menuitem", { name: "添加模型供应商" }));
+    await user.click(await screen.findByRole("button", { name: /OpenAI/u }));
+    await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    await waitFor(() => expect(qualifyModelHarness).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "创建新对话" }));
+    const restored = await screen.findByRole("textbox", { name: "开始新对话" });
+    expect(restored).toHaveValue("离开设置后继续保留的草稿");
+    await act(async () => qualification.resolve({
+      protocol_version: "model_harness_qualification.v1", provider: "official-openai",
+      model: "gpt-5", status: "qualified", outcome: "success", failure_reason: "none",
+      retryable: false, network_request_attempted: true, model_calls: 2,
+      synthetic_tool_calls: 1, tool_executed: false, response_content_returned: false,
+      duration_ms: 20, qualification_status: "available",
+      harness: { protocol_version: "model_harness.v1", model: "gpt-5",
+        transport_protocol: "openai_responses", tool_strategy: "native", json_strategy: "native",
+        qualification_status: "verified", latest_qualification_status: "available",
+        qualification_checked_at: "2026-09-20T00:00:00Z", qualification_source: "harness_qualification",
+        tool_calls_qualified: true, tool_results_qualified: true, strict_json_qualified: true,
+        streaming_qualified: true, root_eligible: true, structured_json_eligible: true,
+        qualified_at: "2026-09-20T00:00:00Z", expires_at: "2026-09-27T00:00:00Z" },
+    }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "开始新对话" }))
+      .toHaveValue("离开设置后继续保留的草稿"));
+    expect(screen.getByRole("button", { name: /模型路由，当前/u }))
+      .not.toHaveAccessibleName(expect.stringContaining("gpt-5"));
+    expect(createThread).not.toHaveBeenCalled();
+  });
 });
 
 describe("V2Workbench first turn", () => {
+
+  it.each([
+    { outcome: "an empty catalog", result: { ...selectableModelCatalog(), routes: [] } },
+    { outcome: "a selectable catalog", result: selectableModelCatalog("late-provider", "late-model") },
+  ])("ignores $outcome returned for a different workspace", async ({ result }) => {
+    window.history.replaceState({}, "", "#/new");
+    const otherWorkspace = { ...workspace, id: "workspace-after-catalog", name: "Later workspace" };
+    const catalog = deferred<any>();
+    const createThread = vi.fn();
+    const client = { hasThreadControl: true, hasWorkspaceImport: true,
+      getPage: vi.fn(async (path: string) => ({
+        items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path,
+      })),
+      importWorkspace: vi.fn().mockResolvedValue({ protocol_version: "workspace_import.v1",
+        workspace: otherWorkspace, directory_content_modified: false, agent_authority_granted: false }),
+      availableModelRoutes: vi.fn(() => catalog.promise), createThread,
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "A项目等待目录的草稿");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await user.click(screen.getByRole("button", { name: "接入项目" }));
+    const dialog = screen.getByRole("dialog", { name: "接入已有项目" });
+    await user.type(within(dialog).getByRole("textbox", { name: "项目文件夹路径" }), "D:\\later-workspace");
+    await user.click(within(dialog).getByRole("button", { name: "接入此目录" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "选择工作区" }))
+      .toHaveValue(otherWorkspace.id));
+    await act(async () => catalog.resolve(result));
+    await waitFor(() => expect(window.location.hash).toBe("#/new"));
+    expect(createThread).not.toHaveBeenCalled();
+  });
+
+  it("invalidates a pending catalog when returning through another workspace", async () => {
+    window.history.replaceState({}, "", "#/new");
+    const otherWorkspace = { ...workspace, id: "workspace-catalog-round-trip", name: "Round trip workspace" };
+    const catalog = deferred<any>();
+    const createThread = vi.fn().mockResolvedValue({ thread: createdThread });
+    const client = { hasThreadControl: true, hasWorkspaceImport: true,
+      getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path })),
+      importWorkspace: vi.fn().mockResolvedValue({ protocol_version: "workspace_import.v1",
+        workspace: otherWorkspace, directory_content_modified: false, agent_authority_granted: false }),
+      availableModelRoutes: vi.fn(() => catalog.promise), createThread,
+      submitThreadTurn: vi.fn().mockResolvedValue({ accepted: true }),
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "A项目往返后仍未提交的草稿");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await user.click(screen.getByRole("button", { name: "接入项目" }));
+    const dialog = screen.getByRole("dialog", { name: "接入已有项目" });
+    await user.type(within(dialog).getByRole("textbox", { name: "项目文件夹路径" }), "D:\\round-trip-workspace");
+    await user.click(within(dialog).getByRole("button", { name: "接入此目录" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "选择工作区" }))
+      .toHaveValue(otherWorkspace.id));
+    await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), workspace.id);
+    expect(screen.getByRole("combobox", { name: "选择工作区" })).toHaveValue(workspace.id);
+    await act(async () => catalog.resolve(selectableModelCatalog("late-provider", "late-model")));
+    expect(window.location.hash).toBe("#/new");
+    expect(createThread).not.toHaveBeenCalled();
+  });
+
+	it("opens model setup before creating when the fresh catalog has no selectable route", async () => {
+	  window.history.replaceState({}, "", "#/new");
+	  const createThread = vi.fn();
+	  const availableModelRoutes = vi.fn().mockResolvedValue({
+		protocol_version: "model_route_catalog.v1", generation: 3,
+		routes: [{ ...selectableModelCatalog().routes[0], selectable: false,
+		  credential_status: "not_configured", qualification_status: "not_configured",
+		  harness_ready: false, unavailable_reason: "credential_not_configured" }],
+	  });
+	  const client = { hasThreadControl: true, hasModelControl: true,
+		hasProviderDefinitions: true, hasProviderCredentials: true,
+		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+		  page: { limit: 100 }, requestID: path })),
+		availableModelRoutes, createThread,
+		providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
+		providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
+	  } as unknown as CyberAgentClient;
+	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+		<V2Workbench client={client} />
+	  </QueryClientProvider>);
+	  const user = userEvent.setup();
+	  await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "先配置模型再发送这份草稿");
+	  await user.click(screen.getByRole("button", { name: "发送消息" }));
+	  await waitFor(() => expect(window.location.hash).toBe("#/new/settings/models"));
+	  expect(createThread).not.toHaveBeenCalled();
+	  await user.click(screen.getByRole("button", { name: "返回应用" }));
+	  expect(await screen.findByRole("textbox", { name: "开始新对话" })).toHaveValue("先配置模型再发送这份草稿");
+	});
+
+  it("does not create or inspect a recovery request before model setup", async () => {
+    window.history.replaceState({}, "", "#/new");
+    const scope = `ds1_${"f".repeat(64)}`;
+    const baseURL = "/api/v1";
+    const storagePrefix = `v2_recovery.v1:${encodeURIComponent(window.location.origin)}:${encodeURIComponent(baseURL)}:${encodeURIComponent(scope)}:`;
+    Object.keys(localStorage).filter((key) => key.startsWith(storagePrefix))
+      .forEach((key) => localStorage.removeItem(key));
+    act(() => useConnectionStore.getState().setHealth({ status: "ok", api_version: "api.v1",
+      app_version: "fixture", schema_version: 166, data_store_id: scope }));
+    const inspectThreadCreationRequest = vi.fn();
+    const createThread = vi.fn();
+    const submitThreadTurn = vi.fn();
+    const client = { baseURL, hasThreadControl: true, hasModelControl: true,
+      hasProviderDefinitions: true, hasProviderCredentials: true,
+      getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path })),
+      availableModelRoutes: vi.fn().mockResolvedValue({ ...selectableModelCatalog(), routes: [] }),
+      inspectThreadCreationRequest, createThread, submitThreadTurn,
+      providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
+      providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
+    } as unknown as CyberAgentClient;
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } })}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "没有模型时不要写创建恢复记录");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/new/settings/models"));
+    expect(inspectThreadCreationRequest).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
+    expect(submitThreadTurn).not.toHaveBeenCalled();
+    const creationStoragePrefix = storagePrefix + encodeURIComponent("creation:");
+    expect(Object.keys(localStorage).filter((key) => key.startsWith(creationStoragePrefix))).toEqual([]);
+  });
+
+	it("keeps the first draft visible when the fresh model catalog cannot be read", async () => {
+	  window.history.replaceState({}, "", "#/new");
+	  const createThread = vi.fn();
+	  const availableModelRoutes = vi.fn().mockRejectedValue(new Error("catalog connection failed"));
+	  const client = { hasThreadControl: true,
+		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+		  page: { limit: 100 }, requestID: path })),
+		availableModelRoutes, createThread,
+	  } as unknown as CyberAgentClient;
+	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+		<V2Workbench client={client} />
+	  </QueryClientProvider>);
+	  const user = userEvent.setup();
+	  const composer = await screen.findByRole("textbox", { name: "开始新对话" });
+	  await user.type(composer, "目录读取失败也保留原任务");
+	  await user.click(screen.getByRole("button", { name: "发送消息" }));
+	  expect(await screen.findByRole("alert")).toHaveTextContent("无法检查可用模型，草稿已保留");
+	  expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("目录读取失败也保留原任务");
+	  expect(window.location.hash).toBe("#/new");
+	  expect(createThread).not.toHaveBeenCalled();
+	});
+
+	it("does not let a late model preflight reclaim navigation after leaving the new conversation", async () => {
+	  window.history.replaceState({}, "", "#/new");
+	  const catalog = deferred<any>();
+	  const createThread = vi.fn();
+	  const client = { hasThreadControl: true,
+		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+		  page: { limit: 100 }, requestID: path })),
+		availableModelRoutes: vi.fn(() => catalog.promise), createThread,
+	  } as unknown as CyberAgentClient;
+	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+		<V2Workbench client={client} />
+	  </QueryClientProvider>);
+	  const user = userEvent.setup();
+	  await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "离开后也保留的首条草稿");
+	  await user.click(screen.getByRole("button", { name: "发送消息" }));
+	  await user.click(screen.getByRole("button", { name: "Inspector 视图" }));
+	  expect(window.location.hash).toBe("#/new/inspector");
+	  await act(async () => catalog.resolve({ ...selectableModelCatalog(), routes: [] }));
+	  await waitFor(() => expect(window.location.hash).toBe("#/new/inspector"));
+	  expect(createThread).not.toHaveBeenCalled();
+	  await user.click(screen.getByRole("button", { name: "对话视图" }));
+	  expect(await screen.findByRole("textbox", { name: "开始新对话" })).toHaveValue("离开后也保留的首条草稿");
+	});
+
+	it("rejects a stale selected route before creation and preserves the exact draft", async () => {
+	  window.history.replaceState({}, "", "#/new");
+	  const stale = selectableModelCatalog("old-provider", "old-model");
+	  const availableModelRoutes = vi.fn()
+		.mockResolvedValueOnce(stale)
+		.mockResolvedValueOnce({ ...stale, generation: 2, routes: [
+		  { ...stale.routes[0], selectable: false, enabled: false,
+			unavailable_reason: "definition_disabled" },
+		  ...selectableModelCatalog("new-provider", "new-model").routes,
+		] });
+	  const createThread = vi.fn();
+	  const client = { hasThreadControl: true, hasModelControl: true,
+		hasProviderDefinitions: true, hasProviderCredentials: true,
+		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+		  page: { limit: 100 }, requestID: path })), availableModelRoutes, createThread,
+		providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
+		providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
+	  } as unknown as CyberAgentClient;
+	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+		<V2Workbench client={client} />
+	  </QueryClientProvider>);
+	  const user = userEvent.setup();
+	  const composer = await screen.findByRole("textbox", { name: "开始新对话" });
+	  await user.click(screen.getByRole("button", { name: /模型路由，当前/u }));
+	  await user.click(screen.getByRole("menuitem", { name: /^模型/ }));
+	  await user.click(await screen.findByRole("menuitemradio", { name: /old-model/ }));
+	  await user.type(composer, "旧模型失效时保留的任务");
+	  await user.click(screen.getByRole("button", { name: "发送消息" }));
+	  await waitFor(() => expect(window.location.hash).toBe("#/new/settings/models"));
+	  expect(createThread).not.toHaveBeenCalled();
+	  await user.click(screen.getByRole("button", { name: "返回应用" }));
+	  expect(await screen.findByRole("textbox", { name: "开始新对话" })).toHaveValue("旧模型失效时保留的任务");
+	});
+
   it("keeps the import receipt and current draft when a reimported project is outside the first page", async () => {
     const imported = { ...workspace, id: "workspace-older-import", name: "Older project" };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -480,6 +874,7 @@ describe("V2Workbench first turn", () => {
       getPage,
       createThread,
       submitThreadTurn,
+	  availableModelRoutes: readyModelCatalog(),
     } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -532,6 +927,7 @@ describe("V2Workbench first turn", () => {
       getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace, otherWorkspace] : [],
         page: { limit: 100 }, requestID: path })),
       createThread: vi.fn(() => creation.promise), submitThreadTurn: vi.fn(() => submission.promise),
+	  availableModelRoutes: readyModelCatalog(),
     } as unknown as CyberAgentClient;
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
@@ -588,6 +984,7 @@ describe("V2Workbench first turn", () => {
       getPage,
       createThread,
       submitThreadTurn,
+	  availableModelRoutes: readyModelCatalog(),
     } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -625,6 +1022,7 @@ describe("V2Workbench first turn", () => {
       getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace, otherWorkspace] : [],
         page: { limit: 100 }, requestID: path })),
       submitThreadTurn: vi.fn().mockResolvedValue({ accepted: true }),
+	  availableModelRoutes: readyModelCatalog(),
     } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);

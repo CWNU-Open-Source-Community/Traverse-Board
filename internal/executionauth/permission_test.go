@@ -128,11 +128,20 @@ func TestEvaluateExecutionPermissionDistinguishesAllFiveModes(t *testing.T) {
 		managed.PersistentTerminal || managed.AgentTerminalInput {
 		t.Fatalf("full managed command=%+v err=%v", managed, err)
 	}
-	if _, err := EvaluateExecutionPermission(
+	managedNetwork, err := EvaluateExecutionPermission(
 		permissionSnapshot(t, domain.RunExecutionPermissionFullAccess), fullRuntime,
 		PermissionRequest{Kind: PermissionOperationManagedCommand,
-			HostFilesystem: true, Network: true, BackgroundProcess: true}); err == nil {
-		t.Fatal("managed command accepted a network capability")
+			HostFilesystem: true, Network: true, BackgroundProcess: true})
+	if err != nil || !managedNetwork.Allowed || !managedNetwork.Network ||
+		managedNetwork.RequiresApproval {
+		t.Fatalf("Full Access managed network=%+v err=%v", managedNetwork, err)
+	}
+	approvalManaged, err := EvaluateExecutionPermission(
+		permissionSnapshot(t, domain.RunExecutionPermissionApproval), approvalRuntime,
+		PermissionRequest{Kind: PermissionOperationManagedCommand,
+			HostFilesystem: true, Network: true, BackgroundProcess: true})
+	if err != nil || approvalManaged.Allowed {
+		t.Fatalf("approval unexpectedly ran managed network command=%+v err=%v", approvalManaged, err)
 	}
 	fullPersistent, err := EvaluateExecutionPermission(
 		permissionSnapshot(t, domain.RunExecutionPermissionFullAccess), fullRuntime,

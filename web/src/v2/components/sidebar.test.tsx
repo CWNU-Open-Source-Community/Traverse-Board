@@ -80,7 +80,7 @@ describe("V2 model navigation", () => {
 
     const navigation = screen.getByRole("navigation", { name: "设置分类" });
     const labels = within(navigation).getAllByRole("button").map((button) => button.textContent);
-    expect(labels).toEqual(["常规", "外观", "快捷键", "关于", "模型", "全局模型路由与价格",
+    expect(labels).toEqual(["常规", "外观", "快捷键", "关于", "模型",
       "扩展与代码智能", "Skill 包", "当前任务权限", "Inspector 偏好与诊断"]);
     expect(labels).not.toContain("智能伙伴");
     const models = within(navigation).getByRole("button", { name: "模型" });

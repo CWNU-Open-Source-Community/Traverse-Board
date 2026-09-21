@@ -85,7 +85,7 @@ var zipTimestamp = time.Unix(315532800, 0).UTC() // 1980-01-01, the ZIP DOS mini
 
 func main() {
 	outDir := flag.String("out", "build/desktop", "output directory for sbom.json and NOTICE")
-	appVersion := flag.String("version", "v0.1.0", "application version for the SBOM component")
+	appVersion := flag.String("version", "v1.0.0", "application version for the SBOM component")
 	pkg := flag.String("pkg", "./cmd/cyberagent-desktop", "Go package whose build list the SBOM covers")
 	buildTags := flag.String("tags", "desktop,production,wv2runtime.error", "Go build tags for the dependency list")
 	sourceRoot := flag.String("source-root", ".", "repository root containing bundled asset notices")

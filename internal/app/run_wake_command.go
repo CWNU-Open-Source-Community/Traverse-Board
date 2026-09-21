@@ -110,7 +110,8 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
 		}
 		handoff := application.NewRunExecutionHandoffService(a.store, a.router,
-			a.checker).WithActiveCalls(a.calls)
+			a.checker).WithActiveCalls(a.calls).
+			WithWebEvidence(a.newWebEvidenceService()).WithWebFetchAuthorizationScheduler(true)
 		drydocks, err := a.newRunFileDrydockService(ctx, fs.Arg(0))
 		if err != nil {
 			return err

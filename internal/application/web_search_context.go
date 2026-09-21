@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"cyberagent-workbench/internal/contextmgr"
@@ -30,22 +31,25 @@ type webSearchContextSource struct {
 }
 
 type webSearchContextOutput struct {
-	ProtocolVersion       string                    `json:"protocol_version"`
-	Query                 string                    `json:"query"`
-	Provider              string                    `json:"provider"`
-	SearchPolicy          string                    `json:"search_policy"`
-	SearchedAt            time.Time                 `json:"searched_at"`
-	Sources               []webSearchContextSource  `json:"sources"`
-	SourceCount           int                       `json:"source_count"`
-	Provenance            string                    `json:"provenance"`
-	SourceStateAt         string                    `json:"source_state_at"`
-	Fetched               bool                      `json:"fetched"`
-	Citeable              bool                      `json:"citeable"`
-	LocallyVerified       bool                      `json:"locally_verified"`
-	Untrusted             bool                      `json:"untrusted"`
-	InstructionAuthorized bool                      `json:"instruction_authorized"`
-	ContextExcerpt        bool                      `json:"context_excerpt"`
-	OriginalResult        domain.HistoryReadRequest `json:"original_result"`
+	ProtocolVersion       string                         `json:"protocol_version"`
+	Query                 string                         `json:"query"`
+	Provider              string                         `json:"provider"`
+	SearchPolicy          string                         `json:"search_policy"`
+	SearchedAt            time.Time                      `json:"searched_at"`
+	Sources               []webSearchContextSource       `json:"sources"`
+	SourceCount           int                            `json:"source_count"`
+	Provenance            string                         `json:"provenance"`
+	SourceStateAt         string                         `json:"source_state_at"`
+	Fetched               bool                           `json:"fetched"`
+	Citeable              bool                           `json:"citeable"`
+	LocallyVerified       bool                           `json:"locally_verified"`
+	Untrusted             bool                           `json:"untrusted"`
+	InstructionAuthorized bool                           `json:"instruction_authorized"`
+	ContextExcerpt        bool                           `json:"context_excerpt"`
+	OriginalResult        domain.HistoryReadRequest      `json:"original_result"`
+	Connectors            []string                       `json:"connectors,omitempty"`
+	Partial               bool                           `json:"partial,omitempty"`
+	Failures              []webevidence.ConnectorFailure `json:"failures,omitempty"`
 }
 
 // Only the model-bound discovery copy is compacted. Native call/result pairing,
@@ -102,6 +106,81 @@ func supervisorWebSearchContextResult(call domain.SupervisorToolCall) (string, e
 			Rank: source.Rank, Title: title, Snippet: snippet,
 			TitleTruncated: titleTruncated, SnippetTruncated: snippetTruncated}
 		output.Sources = append(output.Sources, item)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return "", err
+	}
+	envelope.Stdout = string(encoded)
+	envelope.Truncated = true
+	envelope.Metadata = map[string]string{
+		"context_excerpt": "true", "result_sha256": output.OriginalResult.ExpectedSHA256,
+		"arguments_sha256": session.ContentSHA256(call.PayloadJSON),
+	}
+	projected, err := marshalSupervisorToolResultEnvelope(envelope)
+	return string(projected), err
+}
+
+func supervisorSourceSearchContextResult(call domain.SupervisorToolCall) (string, error) {
+	if call.ToolName != string(toolgateway.SourceSearchTool) ||
+		call.Status != domain.SupervisorToolCompleted {
+		return call.ResultJSON, nil
+	}
+	var envelope supervisorToolResultEnvelope
+	if !decodeKnownWebSearchContextJSON(call.ResultJSON, &envelope) ||
+		envelope.Version != supervisorToolResultVersion || envelope.Tool != call.ToolName ||
+		envelope.Status != string(call.Status) {
+		return call.ResultJSON, nil
+	}
+	var original webevidence.SourceSearchResult
+	if !decodeKnownWebSearchContextJSON(envelope.Stdout, &original) ||
+		original.ProtocolVersion != webevidence.SourceSearchProtocolVersion ||
+		len(original.Sources) > webevidence.MaxSources || len(original.Connectors) > 3 ||
+		len(original.Failures) > 3 || original.Partial != (len(original.Failures) > 0) {
+		return call.ResultJSON, nil
+	}
+	for _, failure := range original.Failures {
+		if failure.Validate() != nil {
+			return call.ResultJSON, nil
+		}
+	}
+	for _, source := range original.Sources {
+		canonical, err := webevidence.CanonicalizePublicHTTPSURL(source.CanonicalURL)
+		if source.SourceID == "" || source.Rank < 1 || err != nil ||
+			canonical != source.CanonicalURL || !strings.HasPrefix(source.Provider, "source:") ||
+			source.ProviderGroundedCitation != nil || source.Provenance != "" ||
+			source.Citeable || source.Fetched || source.LocallyVerified ||
+			!source.Untrusted || source.InstructionAuthorized {
+			return call.ResultJSON, nil
+		}
+	}
+	ref, err := json.Marshal(struct {
+		Run     string `json:"r"`
+		Turn    int    `json:"t"`
+		Attempt string `json:"a"`
+		Call    string `json:"c"`
+	}{call.RunID, call.Turn, call.AttemptID, call.CallID})
+	if err != nil {
+		return "", err
+	}
+	output := webSearchContextOutput{ProtocolVersion: original.ProtocolVersion,
+		Query: original.Query, Provider: "source_connectors",
+		Connectors: original.Connectors, Partial: original.Partial, Failures: original.Failures,
+		SearchPolicy: "platform_connectors", SearchedAt: original.SearchedAt,
+		Sources:     make([]webSearchContextSource, 0, len(original.Sources)),
+		SourceCount: len(original.Sources), Provenance: "connector_discovery",
+		SourceStateAt: "this_source_search_operation; later web_fetch results may contain connector snapshots",
+		Untrusted:     true, ContextExcerpt: true,
+		OriginalResult: domain.HistoryReadRequest{SourceID: "tool:" +
+			base64.RawURLEncoding.EncodeToString(ref), Part: "result",
+			ExpectedSHA256: session.ContentSHA256(call.ResultJSON)}}
+	for _, source := range original.Sources {
+		title, titleTruncated := boundedWebContextText(source.Title, webSearchContextTitleTokens)
+		snippet, snippetTruncated := boundedWebContextText(source.Snippet, webSearchContextSnippetTokens)
+		output.Sources = append(output.Sources, webSearchContextSource{
+			SourceID: source.SourceID, URL: source.CanonicalURL, Rank: source.Rank,
+			Title: title, Snippet: snippet, TitleTruncated: titleTruncated,
+			SnippetTruncated: snippetTruncated})
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {

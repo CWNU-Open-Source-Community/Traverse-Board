@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspace"
@@ -30,11 +31,22 @@ type AgentCodeToolStore interface {
 }
 
 type AgentCodeToolExecutor struct {
-	store    AgentCodeToolStore
-	manager  *fileedit.Manager
-	apply    *FileEditApplyService
-	revert   *FileEditProposalService
-	drydocks *DrydockService
+	store                 AgentCodeToolStore
+	manager               *fileedit.Manager
+	apply                 *FileEditApplyService
+	revert                *FileEditProposalService
+	drydocks              *DrydockService
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities
+}
+
+func (e *AgentCodeToolExecutor) WithExecutionPermissionCapabilities(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *AgentCodeToolExecutor {
+	if e != nil {
+		e.executionCapabilities = capabilities
+		e.apply.WithExecutionPermissionCapabilities(capabilities)
+	}
+	return e
 }
 
 type agentCodeGitHubEvidenceStore interface {
@@ -178,7 +190,8 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		if err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
 		}
-		value = agentCodeEditResult(result, result.Operation == fileedit.OperationDelete)
+		value = e.agentCodeEditResult(ctx, scope, result,
+			result.Operation == fileedit.OperationDelete)
 		metadata["edit_id"] = result.ID
 		metadata["status"] = result.Status
 		metadata["operation"] = result.Operation
@@ -211,7 +224,7 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 			if err != nil {
 				return toolgateway.AgentCodeExecutionResult{}, err
 			}
-			value = agentCodeEditResult(result, true)
+			value = e.agentCodeEditResult(ctx, scope, result, true)
 			metadata["edit_id"] = result.ID
 			metadata["status"] = result.Status
 			metadata["operation"] = result.Operation
@@ -272,6 +285,19 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	if err != nil {
 		return apperror.Normalize(err)
 	}
+	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
+		e.executionCapabilities.FullAccessRequiresRuntimeGrant {
+		generation, live := e.executionCapabilities.FullAccessGeneration(permission)
+		epoch := ""
+		if e.executionCapabilities.RuntimeAuthority != nil {
+			epoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		}
+		if !live || epoch == "" || scope.PermissionSnapshotID != permission.ID ||
+			scope.PermissionGeneration != generation || scope.PermissionRuntimeEpoch != epoch {
+			return apperror.New(apperror.CodePolicyDenied,
+				"agent code tool requires the exact live Full Access activation")
+		}
+	}
 	agent, err := e.store.GetAgentNode(ctx, scope.RootAgentID)
 	if err != nil {
 		return apperror.Normalize(err)
@@ -306,7 +332,10 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 		WorkspaceID:     sourceWorkspaceID,
 		RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: agent.Role, Profile: agent.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision})
+		PermissionSnapshotID:   scope.PermissionSnapshotID,
+		PermissionGeneration:   scope.PermissionGeneration,
+		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		ModeRevision:           mode.Revision, PermissionRevision: permission.Revision})
 	if capabilities.Generation != scope.CapabilityGeneration {
 		return apperror.New(apperror.CodeConflict,
 			"agent code capability generation changed before execution")
@@ -341,11 +370,25 @@ func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 	scope toolgateway.AgentCodeExecutionScope, input toolgateway.WorkspaceChangePayload,
 ) (fileedit.Edit, bool, error) {
 	if input.Action == "propose_revert" {
-		result, err := e.revert.ProposeRevert(ctx, CreateFileEditRevertProposalRequest{
+		result, err := e.revert.proposeRevertWithWriter(ctx, CreateFileEditRevertProposalRequest{
 			Version: FileEditProposalProtocolVersion, RunID: scope.RunID,
 			SourceRunID: input.SourceRunID, SourceEditID: input.SourceEditID,
 			Path: input.Path, ExpectedSHA256: input.ExpectedSHA256,
-			OperationKey: scope.OperationKey})
+			OperationKey: scope.OperationKey}, func(ctx context.Context,
+			prepared fileedit.Edit,
+		) (fileedit.Edit, bool, error) {
+			if e.canAutomaticallyAuthorizeFileEdit(scope, prepared.Operation) {
+				return e.saveAutomaticallyAuthorizedPreparedProposal(ctx, scope, prepared)
+			}
+			writer, ok := e.store.(interface {
+				CreateFileEditIfAbsent(context.Context, fileedit.Edit) (fileedit.Edit, bool, error)
+			})
+			if !ok {
+				return fileedit.Edit{}, false, apperror.New(apperror.CodeFailedPrecondition,
+					"atomic file edit proposal storage is required")
+			}
+			return writer.CreateFileEditIfAbsent(ctx, prepared)
+		})
 		return result.Edit, result.Replayed, err
 	}
 	operation := fileedit.OperationReplace
@@ -406,7 +449,7 @@ func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 		DestinationPath: destination, ProposedText: proposedText,
 		ExpectedOriginalHash:    input.ExpectedSHA256,
 		ExpectedDestinationHash: destinationHash}
-	return e.saveProposal(ctx, proposal)
+	return e.saveProposal(ctx, scope, proposal)
 }
 
 func (e *AgentCodeToolExecutor) proposeDelete(ctx context.Context,
@@ -416,14 +459,14 @@ func (e *AgentCodeToolExecutor) proposeDelete(ctx context.Context,
 		input.Path, false); err != nil {
 		return fileedit.Edit{}, false, err
 	}
-	return e.saveProposal(ctx, fileedit.Proposal{ID: agentCodeEditID(scope.OperationKey),
+	return e.saveProposal(ctx, scope, fileedit.Proposal{ID: agentCodeEditID(scope.OperationKey),
 		SessionID: scope.SessionID, WorkspaceID: scope.WorkspaceID,
 		WorkspaceRoot: scope.WorkspaceRoot, Path: input.Path,
 		Operation: fileedit.OperationDelete, ExpectedOriginalHash: input.ExpectedSHA256})
 }
 
 func (e *AgentCodeToolExecutor) saveProposal(ctx context.Context,
-	proposal fileedit.Proposal,
+	scope toolgateway.AgentCodeExecutionScope, proposal fileedit.Proposal,
 ) (fileedit.Edit, bool, error) {
 	if existing, err := e.store.GetFileEdit(ctx, proposal.ID); err == nil {
 		if !sameAgentCodeProposal(existing, proposal) {
@@ -434,8 +477,67 @@ func (e *AgentCodeToolExecutor) saveProposal(ctx context.Context,
 	} else if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeNotFound {
 		return fileedit.Edit{}, false, apperror.Normalize(err)
 	}
+	if e.canAutomaticallyAuthorizeFileEdit(scope, proposal.Operation) {
+		edit, err := e.manager.PrepareProposal(ctx, proposal)
+		if err != nil {
+			return fileedit.Edit{}, false, apperror.Normalize(err)
+		}
+		return e.saveAutomaticallyAuthorizedPreparedProposal(ctx, scope, edit)
+	}
 	edit, err := e.manager.Propose(ctx, proposal)
 	return edit, false, apperror.Normalize(err)
+}
+
+func (e *AgentCodeToolExecutor) canAutomaticallyAuthorizeFileEdit(
+	scope toolgateway.AgentCodeExecutionScope, operation string,
+) bool {
+	return (operation == fileedit.OperationCreate || operation == fileedit.OperationReplace ||
+		operation == fileedit.OperationMove) &&
+		scope.PermissionMode == domain.RunExecutionPermissionFullAccess &&
+		e.executionCapabilities.FullAccessRequiresRuntimeGrant
+}
+
+func (e *AgentCodeToolExecutor) saveAutomaticallyAuthorizedPreparedProposal(ctx context.Context,
+	scope toolgateway.AgentCodeExecutionScope, edit fileedit.Edit,
+) (fileedit.Edit, bool, error) {
+	if !e.canAutomaticallyAuthorizeFileEdit(scope, edit.Operation) {
+		return fileedit.Edit{}, false, apperror.New(apperror.CodePolicyDenied,
+			"automatic FileEdit authorization is unavailable for this operation")
+	}
+	writer, ok := e.store.(interface {
+		CreateAutomaticallyAuthorizedFileEditIfAbsent(context.Context,
+			fileedit.Edit, fileedit.AutoAuthorization) (fileedit.Edit, bool, error)
+	})
+	if !ok {
+		return fileedit.Edit{}, false, apperror.New(apperror.CodeFailedPrecondition,
+			"automatic FileEdit authorization store is unavailable")
+	}
+	// Recheck the exact live grant, lease, permission revision, and capability
+	// after reading and preparing the file but before the atomic durable insert.
+	if err := e.validateScope(ctx, scope, toolgateway.WorkspaceChangeTool); err != nil {
+		return fileedit.Edit{}, false, err
+	}
+	auth := fileedit.AutoAuthorization{
+		RunID: scope.RunID, SessionID: scope.SessionID,
+		WorkspaceID: scope.WorkspaceID, AgentID: scope.RootAgentID,
+		OperationKeyDigest: runmutation.Fingerprint("agent_code_file_edit_source.v1",
+			scope.RunID, scope.OperationKey),
+		ProposalFingerprint: runmutation.Fingerprint("agent_code_file_edit_proposal.v1",
+			edit.ID, edit.SessionID, edit.WorkspaceID, edit.Operation, edit.Path,
+			edit.DestinationPath, edit.OriginalHash, edit.ProposedHash,
+			edit.DestinationOriginalHash, edit.DestinationProposedHash),
+		PermissionSnapshotID:    scope.PermissionSnapshotID,
+		DestinationPath:         edit.DestinationPath,
+		DestinationOriginalHash: edit.DestinationOriginalHash,
+		DestinationProposedHash: edit.DestinationProposedHash,
+		PermissionRevision:      scope.PermissionRevision,
+		ModeRevision:            scope.ModeRevision,
+		RuntimeEpoch:            scope.PermissionRuntimeEpoch,
+		RuntimeGeneration:       scope.PermissionGeneration,
+		CapabilityGeneration:    scope.CapabilityGeneration,
+		LeaseID:                 scope.LeaseID, LeaseGeneration: scope.LeaseGeneration,
+	}
+	return writer.CreateAutomaticallyAuthorizedFileEditIfAbsent(ctx, edit, auth)
 }
 
 func sameAgentCodeProposal(edit fileedit.Edit, proposal fileedit.Proposal) bool {
@@ -485,7 +587,10 @@ func (e *AgentCodeToolExecutor) applyChange(ctx context.Context,
 		RunID: scope.RunID, EditID: edit.ID, OperationKey: operationKey,
 		AppliedBy: scope.RootAgentID, InvocationID: scope.CheckpointInvocationID(),
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
-		LeaseGeneration: scope.LeaseGeneration})
+		LeaseGeneration:        scope.LeaseGeneration,
+		PermissionSnapshotID:   scope.PermissionSnapshotID,
+		PermissionGeneration:   scope.PermissionGeneration,
+		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch})
 }
 
 func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
@@ -513,7 +618,25 @@ func agentCodeEditID(operationKey string) string {
 	return "edit-" + hex.EncodeToString(sum[:16])
 }
 
-func agentCodeEditResult(edit fileedit.Edit, deleteConfirmation bool) map[string]any {
+func (e *AgentCodeToolExecutor) agentCodeEditResult(ctx context.Context,
+	scope toolgateway.AgentCodeExecutionScope, edit fileedit.Edit,
+	deleteConfirmation bool,
+) map[string]any {
+	automatic := false
+	authorized := false
+	if reader, ok := e.store.(interface {
+		GetFileEditAutoAuthorization(context.Context, string) (fileedit.AutoAuthorization, bool, error)
+	}); ok {
+		if source, found, err := reader.GetFileEditAutoAuthorization(ctx, edit.ID); err == nil && found {
+			automatic = true
+			authorized = edit.Status == fileedit.StatusApproved &&
+				source.RunID == scope.RunID &&
+				source.PermissionSnapshotID == scope.PermissionSnapshotID &&
+				source.RuntimeEpoch == scope.PermissionRuntimeEpoch &&
+				source.RuntimeGeneration == scope.PermissionGeneration &&
+				source.CapabilityGeneration == scope.CapabilityGeneration
+		}
+	}
 	return map[string]any{"version": toolgateway.AgentCodeRegistryVersion,
 		"edit_id": edit.ID, "operation": edit.Operation, "path": edit.Path,
 		"destination_path": edit.DestinationPath, "status": edit.Status,
@@ -521,7 +644,13 @@ func agentCodeEditResult(edit fileedit.Edit, deleteConfirmation bool) map[string
 		"proposed_sha256":             edit.ProposedHash,
 		"destination_original_sha256": edit.DestinationOriginalHash,
 		"destination_proposed_sha256": edit.DestinationProposedHash,
-		"review_required":             true, "apply_authorized": false,
+		"review_required":             !automatic, "apply_authorized": authorized,
+		"authorization_source": func() string {
+			if automatic {
+				return "full_access_automatic"
+			}
+			return "operator_review"
+		}(),
 		"delete_confirmation_required": deleteConfirmation}
 }
 

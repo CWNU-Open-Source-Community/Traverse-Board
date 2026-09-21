@@ -407,6 +407,11 @@ func migrationPlan() []migration {
 		{Version: 159, Name: "Claim reviewed Git and pull request execution exactly once", Statements: threadGitStartedStatements},
 		{Version: 160, Name: "Immutable uploaded files and exact Thread attachment inputs", Statements: workspaceFileAttachmentStatements, DisableForeignKeys: true},
 		{Version: 161, Name: "Fenced Thread history recall Supervisor tools", Statements: historyRecallSupervisorStatements, DisableForeignKeys: true},
+		{Version: 162, Name: "Immutable automatic Full Access FileEdit authorization", Statements: automaticFileEditAuthorizationStatements},
+		{Version: 163, Name: "Host Command Runtime network intent and grant provenance", Statements: commandRuntimeHostNetworkStatements, DisableForeignKeys: true},
+		{Version: 164, Name: "Immutable automatic Full Access move authorization", Statements: automaticFileEditMoveAuthorizationStatements, DisableForeignKeys: true},
+		{Version: 165, Name: "Durable public source search evidence", Statements: sourceSearchEvidenceStatements, DisableForeignKeys: true},
+		{Version: 166, Name: "Exact paused web fetch failure observation", Statements: webFetchFailureObservationStatements},
 	}
 }
 

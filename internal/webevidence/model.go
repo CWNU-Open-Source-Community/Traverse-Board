@@ -100,23 +100,36 @@ type Snapshot struct {
 	FinalURL        string `json:"final_url"`
 	// HTTPStatus is optional for snapshots written before the status became a
 	// durable fact. New fetches always record the observed final response code.
-	HTTPStatus  int         `json:"http_status,omitempty"`
-	Title       string      `json:"title,omitempty"`
-	Byline      string      `json:"byline,omitempty"`
-	PublishedAt string      `json:"published_at,omitempty"`
-	FetchedAt   time.Time   `json:"fetched_at"`
-	StaleAt     time.Time   `json:"stale_at"`
-	Digest      string      `json:"digest"`
-	MIME        string      `json:"mime"`
-	Charset     string      `json:"charset,omitempty"`
-	Body        string      `json:"body,omitempty"`
-	State       SourceState `json:"state"`
-	Truncated   bool        `json:"truncated"`
-	Robots      string      `json:"robots"`
-	ErrorCode   string      `json:"error_code,omitempty"`
-	Redirects   int         `json:"redirects"`
-	Provider    string      `json:"provider"`
-	Fingerprint string      `json:"fingerprint"`
+	HTTPStatus          int               `json:"http_status,omitempty"`
+	Title               string            `json:"title,omitempty"`
+	Byline              string            `json:"byline,omitempty"`
+	PublishedAt         string            `json:"published_at,omitempty"`
+	FetchedAt           time.Time         `json:"fetched_at"`
+	StaleAt             time.Time         `json:"stale_at"`
+	Digest              string            `json:"digest"`
+	MIME                string            `json:"mime"`
+	Charset             string            `json:"charset,omitempty"`
+	Body                string            `json:"body,omitempty"`
+	State               SourceState       `json:"state"`
+	Truncated           bool              `json:"truncated"`
+	Robots              string            `json:"robots"`
+	ErrorCode           string            `json:"error_code,omitempty"`
+	Redirects           int               `json:"redirects"`
+	Provider            string            `json:"provider"`
+	Connector           string            `json:"connector,omitempty"`
+	ConnectorVersion    string            `json:"connector_version,omitempty"`
+	ContentKind         string            `json:"content_kind,omitempty"`
+	RequestEndpoints    []string          `json:"request_endpoints,omitempty"`
+	RawDigest           string            `json:"raw_digest,omitempty"`
+	Coverage            string            `json:"coverage,omitempty"`
+	ItemsIncluded       int               `json:"items_included,omitempty"`
+	ItemsAvailable      int               `json:"items_available,omitempty"`
+	TruncationReason    string            `json:"truncation_reason,omitempty"`
+	RetryAfter          string            `json:"retry_after,omitempty"`
+	RateLimitReset      string            `json:"rate_limit_reset,omitempty"`
+	RemoteRequestID     string            `json:"remote_request_id,omitempty"`
+	ContinuationFailure *ConnectorFailure `json:"continuation_failure,omitempty"`
+	Fingerprint         string            `json:"fingerprint"`
 }
 
 func (s Snapshot) Validate() error {
@@ -136,14 +149,44 @@ func (s Snapshot) Validate() error {
 		!validBoundedText(s.Charset, 128, true) ||
 		!validBoundedText(s.Title, 1024, true) || !validBoundedText(s.Byline, 512, true) ||
 		!validBoundedText(s.PublishedAt, 128, true) || !validBoundedText(s.Robots, 64, false) ||
-		!validBoundedText(s.ErrorCode, 128, true) || !validBoundedBytes(s.Body, MaxBodyBytes) {
+		!validBoundedText(s.ErrorCode, 128, true) || !validBoundedBytes(s.Body, MaxBodyBytes) ||
+		s.ItemsIncluded < 0 || s.ItemsAvailable < 0 || (s.ItemsAvailable != 0 && s.ItemsAvailable < s.ItemsIncluded) ||
+		len(s.RequestEndpoints) > 64 {
 		return errors.New("web snapshot metadata is invalid")
+	}
+	if s.Connector == "" {
+		if s.ConnectorVersion != "" || s.ContentKind != "" || len(s.RequestEndpoints) != 0 ||
+			s.RawDigest != "" || s.Coverage != "" || s.ItemsIncluded != 0 ||
+			s.ItemsAvailable != 0 || s.TruncationReason != "" || s.RetryAfter != "" ||
+			s.RateLimitReset != "" || s.RemoteRequestID != "" {
+			return errors.New("web snapshot connector metadata is inconsistent")
+		}
+	} else if !validConnectorIdentity(s.Connector) ||
+		!validBoundedText(s.ConnectorVersion, 128, false) ||
+		!validBoundedText(s.ContentKind, 128, false) ||
+		!validBoundedText(s.Coverage, 256, false) || !validDigest(s.RawDigest) ||
+		!validBoundedText(s.TruncationReason, 128, true) ||
+		!validBoundedText(s.RetryAfter, 128, true) ||
+		!validBoundedText(s.RateLimitReset, 128, true) ||
+		!validBoundedText(s.RemoteRequestID, 256, true) || len(s.RequestEndpoints) == 0 ||
+		(s.Truncated && s.TruncationReason == "") || (!s.Truncated && s.TruncationReason != "") {
+		return errors.New("web snapshot connector metadata is invalid")
 	}
 	for _, rawURL := range []string{s.RequestedURL, s.FinalURL} {
 		canonical, err := CanonicalizePublicHTTPSURL(rawURL)
 		if err != nil || canonical != rawURL {
 			return errors.New("web snapshot URL is invalid")
 		}
+	}
+	for _, rawURL := range s.RequestEndpoints {
+		canonical, err := CanonicalizePublicHTTPSURL(rawURL)
+		if err != nil || canonical != rawURL {
+			return errors.New("web snapshot connector endpoint is invalid")
+		}
+	}
+	if s.ContinuationFailure != nil && (s.Connector == "" || s.State != SourcePartial ||
+		s.ContinuationFailure.Connector != s.Connector || s.ContinuationFailure.Validate() != nil) {
+		return errors.New("web snapshot continuation failure is invalid")
 	}
 	switch s.State {
 	case SourceFetched:

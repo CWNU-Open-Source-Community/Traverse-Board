@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
+import type { ProviderDefinitionView, ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
-import { V2Composer } from "./components/composer";
+import { V2Composer, v2ComposerNotSubmitted } from "./components/composer";
 import { v2FileReferenceKey, type V2FileReference } from "./components/file-context";
 import { V2Conversation } from "./components/conversation";
 import { V2ConfirmDialog } from "./components/dialog";
@@ -47,7 +47,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   onImported: (workspace: WorkspaceView, currentDraft?: string) => void;
   onCreated: (thread: ThreadView, submittedDraft: string, files: V2FileReference[], images?: WorkspaceImageAttachment[], version?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => void;
   onTurnSuccess: (threadID: string, submittedDraft: string) => void;
-  onManageModels: () => void;
+  onManageModels: (prepareForDraft?: boolean) => void;
   draft: string;
   onDraftChange: (content: string, expected?: string) => void;
   creationAttemptRef: RefObject<CreationAttempt>;
@@ -58,6 +58,17 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   const queryClient = useQueryClient();
   const turn = useV2ThreadTurn(client);
   const recovery = useV2RecoveryStore();
+  const activeRef = useRef(true);
+  const workspaceRef = useRef(workspaceID);
+  const modelCatalogRequestRef = useRef(0);
+  if (workspaceRef.current !== workspaceID) {
+    workspaceRef.current = workspaceID;
+    modelCatalogRequestRef.current += 1;
+  }
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
   const managedDraft = useV2DraftDocument(workspaceID);
   const draft = managedDraft?.state.snapshot.text ?? legacyDraft;
   const onDraftChange = managedDraft?.changeText ?? legacyDraftChange;
@@ -66,11 +77,33 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
     onCreated(thread, originalDraft, files, input.images, input.draftVersion, input.attachments);
   });
   const { networkMode, allowedTargets, modelRoute } = options;
+  const [modelCatalogError, setModelCatalogError] = useState("");
   const [savedPhase, setSavedPhase] = useV2PersistentState<unknown>(`new-thread-phase:${workspaceID}`, "deliver");
   const phase: V2WorkPhase = savedPhase === "plan" ? "plan" : "deliver";
   const create = async (content: string, files: V2FileReference[] = [], images: WorkspaceImageAttachment[] = [], draftVersion?: V2DraftVersion, attachments: WorkspaceFileAttachment[] = []) => {
     if (phase === "plan" && !client.hasPlanDelivery) throw new Error("当前连接未启用计划确认。请检查连接，或选择直接执行。");
     const submittedDraft = draft;
+    setModelCatalogError("");
+    const catalogWorkspaceID = workspaceID;
+    const catalogRequest = ++modelCatalogRequestRef.current;
+    const catalogRequestIsCurrent = () => activeRef.current &&
+      workspaceRef.current === catalogWorkspaceID && modelCatalogRequestRef.current === catalogRequest;
+    try {
+      const catalog = await client.availableModelRoutes();
+      if (!catalogRequestIsCurrent()) return v2ComposerNotSubmitted;
+      const selectable = catalog.routes.filter((route) => route.selectable);
+      const selectedReady = !modelRoute || selectable.some((route) =>
+        route.provider_id === modelRoute.provider && route.model === modelRoute.model);
+      if (!selectable.length || !selectedReady) {
+        onManageModels(true);
+        return v2ComposerNotSubmitted;
+      }
+    } catch (error) {
+      if (!catalogRequestIsCurrent()) return v2ComposerNotSubmitted;
+      setModelCatalogError(`无法检查可用模型，草稿已保留。${error instanceof Error && error.message
+        ? ` ${error.message}` : " 请检查连接后重试。"}`);
+      return v2ComposerNotSubmitted;
+    }
     const request = {
       version: "thread_creation.v1",
       workspace_id: workspaceID,
@@ -123,6 +156,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
         : "先接入项目。你也可以先写下需求，选择项目后继续。"}</p>
     </div></div>
     {creationRecovery.notice}
+    {modelCatalogError && <div className="v2-notice" role="alert">{modelCatalogError}</div>}
     <div className="v2-composer-dock">
       {managedDraft && <V2DraftConflict key={workspaceID} client={client} workspaceID={workspaceID} state={managedDraft.state}
         onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
@@ -168,6 +202,8 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
   const selectThread = useConnectionStore((state) => state.selectThread);
   const navigation = useV2Navigation();
   const { route, navigate } = navigation;
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const selectedThreadID = route.threadID ?? "";
   const surface = route.section ? "settings" : "conversation";
   const view = route.view ?? "conversation";
@@ -185,6 +221,12 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
   const [newThreadOptions, setNewThreadOptions] = useState<NewThreadOptions>({
     networkMode: "disabled", allowedTargets: [], modelRoute: null,
   });
+  const [modelSetupToken, setModelSetupToken] = useState("");
+  const modelSetupContextRef = useRef<{ token: string; workspaceID: string; entered: boolean } | null>(null);
+  const updateModelSetupToken = (value: string, setupWorkspaceID = "") => {
+    modelSetupContextRef.current = value ? { token: value, workspaceID: setupWorkspaceID, entered: false } : null;
+    setModelSetupToken(value);
+  };
   const draftKey = newConversation || !selectedThreadID ? `new:${workspaceID}` : `thread:${selectedThreadID}`;
   const updateDraft = (content: string, expected?: string) => setDrafts((current) =>
     expected !== undefined && (current[draftKey] ?? "") !== expected ? current
@@ -233,6 +275,15 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
     navigate(id ? { kind: "thread", threadID: id } : { kind: "new" }, true);
   }, [route.kind, previousThreadID, threads, threadsQuery.isSuccess, navigate, recovery]);
   useEffect(() => {
+    const setup = modelSetupContextRef.current;
+    if (!setup) return;
+    if (route.kind === "new" && route.section === "models" && workspaceID === setup.workspaceID) {
+      setup.entered = true;
+      return;
+    }
+    if (setup.entered) updateModelSetupToken("");
+  }, [route, workspaceID]);
+  useEffect(() => {
     if (route.kind === "initial" || route.kind === "invalid") return;
     try { recovery?.write("route", window.location.hash); } catch { /* Visible save notice. */ }
   }, [route, recovery]);
@@ -257,10 +308,12 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
     if (window.matchMedia?.("(max-width: 760px)").matches) setSidebarVisible(false);
   };
   const openConversation = (threadID: string) => {
+    updateModelSetupToken("");
     navigate({ kind: "thread", threadID, ...(route.view ? { view: route.view } : {}) });
     closeNavigationSidebar();
   };
   const startNew = () => {
+    updateModelSetupToken("");
     const currentWorkspace = queryClient.getQueryData<ThreadDetailView>(
       v2QueryKeys.thread(selectedThreadID))?.thread.workspace_id ??
       threads.find(({ id }) => id === selectedThreadID)?.workspace_id;
@@ -269,23 +322,42 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
     closeNavigationSidebar();
   };
   const setSettingsSection = (section: V2SettingsSection) => {
+    if (section !== "models" && section !== "advanced-models") updateModelSetupToken("");
     navigate({ ...route, kind: selectedThreadID ? "thread" : "new",
       ...(selectedThreadID ? { threadID: selectedThreadID } : {}), section }, Boolean(route.section));
     closeNavigationSidebar();
   };
-  const goBack = () => { navigation.back(); closeNavigationSidebar(); };
+  const goBack = () => { updateModelSetupToken(""); navigation.back(); closeNavigationSidebar(); };
   const returnFromSettings = () => {
+    updateModelSetupToken("");
     navigate({ ...route, section: undefined }, true);
     closeNavigationSidebar();
   };
   const changeView = (next: "conversation" | "inspector") => {
+    updateModelSetupToken("");
     navigate({ kind: selectedThreadID ? "thread" : "new",
       ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
       ...(next === "inspector" ? { view: "inspector" } : {}) });
     closeNavigationSidebar();
   };
   const openSettings = () => setSettingsSection("general");
-  const openModels = () => setSettingsSection("models");
+  const openModels = (prepareForDraft = false) => {
+    updateModelSetupToken(prepareForDraft && newConversation ? globalThis.crypto.randomUUID() : "",
+      workspaceID);
+    setSettingsSection("models");
+  };
+  const completeModelSetup = (token: string, definition: ProviderDefinitionView) => {
+    const setup = modelSetupContextRef.current;
+    const currentRoute = routeRef.current;
+    if (!token || token !== setup?.token || !setup.entered || workspaceID !== setup.workspaceID ||
+      currentRoute.section !== "models" || currentRoute.kind !== "new") return;
+    setNewThreadOptions((current) => ({ ...current,
+      modelRoute: { provider: definition.id, model: definition.default_model } }));
+    updateModelSetupToken("");
+    navigate({ ...currentRoute, section: undefined }, true);
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      document.querySelector<HTMLTextAreaElement>(".v2-new-conversation .v2-composer textarea")?.focus()));
+  };
   const openInspector = () => changeView("inspector");
   const openTool = (tool: "run" | "session" | "schedule", resourceID?: string) => navigate({
     kind: selectedThreadID ? "thread" : "new", ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
@@ -302,7 +374,7 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
     <div className="v2-shell-body">
       {sidebarVisible && (surface === "settings" ? <V2SettingsSidebar onBack={returnFromSettings}
         onSelect={setSettingsSection} section={settingsSection} /> : <V2Sidebar
-          onArchive={setArchiveCandidate} onNewConversation={startNew} onOpenModels={openModels}
+          onArchive={setArchiveCandidate} onNewConversation={startNew} onOpenModels={() => openModels(newConversation)}
           onOpenSettings={openSettings}
           onSearchOpen={setSearchOpen} onSelectThread={openConversation} searchOpen={searchOpen}
           hasMore={threadsQuery.hasNextPage} loading={threadsQuery.isLoading}
@@ -314,7 +386,9 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
           <button onClick={startNew} type="button">打开新对话</button></div>
           : surface === "settings" ? <V2Settings client={client} onOpenInspector={openInspector}
           onSelectSection={setSettingsSection} onOpenThread={openConversation} section={settingsSection}
-          threadID={selectedThreadID} workspaces={workspaces} /> : route.tool
+          threadID={selectedThreadID} workspaces={workspaces}
+          prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}
+          onModelReady={completeModelSetup} /> : route.tool
           ? <V2InspectorTools client={client} tool={route.tool} resourceID={route.resourceID}
             threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection} />
           : view === "inspector" && !selectedThreadID
@@ -379,7 +453,7 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
             view={view} onOpenTool={openTool}
             onOpenInspectorHome={() => navigate({ kind: "new", view: "inspector" })}
             draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}
-            onManageModels={openModels} onOpenInspector={openInspector}
+            onManageModels={() => openModels(false)} onOpenInspector={openInspector}
             threadID={selectedThreadID} workspaces={workspaces} />}
       </div>
     </div>

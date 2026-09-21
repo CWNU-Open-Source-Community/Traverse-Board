@@ -254,6 +254,10 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindApproval, "等待用户审批", "pending"
 	case events.ApprovalDecidedEvent:
 		base.Kind, base.Title, base.Status = KindApproval, "用户审批已记录", "completed"
+		if stringField(event.PayloadJSON, "mode") == "automatic" &&
+			stringField(event.PayloadJSON, "reviewed_by") == "automatic_policy" {
+			base.Title = "完全访问自动授权已记录"
+		}
 	case events.ApprovalBoundEvent:
 		base.Kind, base.Title, base.Status = KindApproval, "审批已绑定到操作", "pending"
 	case events.ControlledCommandProposedEvent:
@@ -266,6 +270,9 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindFileChange, "文件修改已提议", "pending"
 	case events.FileEditApprovedEvent:
 		base.Kind, base.Title, base.Status = KindFileChange, "文件修改已批准", "approved"
+		if stringField(event.PayloadJSON, "authorization_source") == "full_access_automatic" {
+			base.Title = "文件修改已自动授权"
+		}
 	case events.FileEditAppliedEvent, events.FileEditApplyCompletedEvent:
 		base.Kind, base.Title, base.Status = KindFileChange, "文件修改已应用", "completed"
 	case events.FileEditDeniedEvent:

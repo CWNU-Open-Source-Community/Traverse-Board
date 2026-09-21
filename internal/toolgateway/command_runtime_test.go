@@ -147,6 +147,64 @@ func TestCommandRuntimeGatewayRejectsNetworkIntentBeforeExecution(t *testing.T) 
 	}
 }
 
+func TestCommandRuntimeHostNetworkRequiresFullHostAuthority(t *testing.T) {
+	hostDefinition := CommandRuntimeDefinitionForAdapter(
+		commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)))
+	if !strings.Contains(string(hostDefinition.InputSchema), `"network":{"const":"host"}`) ||
+		!strings.Contains(hostDefinition.Description, "host network intent") {
+		t.Fatalf("Full Access host network was not advertised: %+v", hostDefinition)
+	}
+	sandbox := commandruntimeadapter.SandboxedWorkspace(
+		"local_windows_lpac", "local-windows-lpac.v1", strings.Repeat("b", 64))
+	sandboxDefinition := CommandRuntimeDefinitionForAdapter(sandbox)
+	if !strings.Contains(string(sandboxDefinition.InputSchema), `"network":{"const":"disabled"}`) {
+		t.Fatal("Workspace Sandbox network schema was widened")
+	}
+	var input CommandRuntimeInput
+	if err := json.Unmarshal(commandRuntimeValidPayload("Invoke-WebRequest https://example.com"), &input); err != nil {
+		t.Fatal(err)
+	}
+	input.Commands[0].Network = runner.CommandRuntimeNetworkHost
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &commandRuntimePolicyStore{trackedStructuredStore: newTrackedStructuredStore()}
+	executor := &commandRuntimeExecutorStub{}
+	gateway := New(state, policy.NewDefaultChecker()).WithCommandRuntimeExecutor(executor)
+	fullCall := commandRuntimeToolCall(payload)
+	outcome, err := gateway.Invoke(t.Context(), fullCall)
+	if err != nil || outcome.Result == nil || outcome.Result.Status != StatusCompleted ||
+		executor.calls != 1 || executor.input.Commands[0].Network != runner.CommandRuntimeNetworkHost {
+		t.Fatalf("Full Access host network outcome=%+v calls=%d err=%v", outcome, executor.calls, err)
+	}
+	workspaceCall := fullCall
+	workspaceCall.OperationKey = "workspace-host-network-denied"
+	workspaceCall.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	workspaceCall.CommandRuntimeAdapter = sandbox
+	workspaceCall.CapabilityGeneration = sandbox.Generation
+	outcome, err = gateway.Invoke(t.Context(), workspaceCall)
+	if err != nil || outcome.Result == nil || outcome.Result.Status != StatusDenied ||
+		executor.calls != 1 {
+		t.Fatalf("Workspace Access widened to host network: outcome=%+v calls=%d err=%v",
+			outcome, executor.calls, err)
+	}
+	input.Commands[0].Script = "masscan 0.0.0.0/0"
+	unsafePayload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafeCall := fullCall
+	unsafeCall.OperationKey = "full-host-network-sensitive-denied"
+	unsafeCall.Payload = unsafePayload
+	outcome, err = gateway.Invoke(t.Context(), unsafeCall)
+	if err != nil || outcome.Result == nil || outcome.Result.Status != StatusDenied ||
+		executor.calls != 1 {
+		t.Fatalf("known sensitive host command bypassed policy: outcome=%+v calls=%d err=%v",
+			outcome, executor.calls, err)
+	}
+}
+
 func TestCommandRuntimeGatewayAuditsEveryCommandBeforeDenyingBatch(t *testing.T) {
 	state := &commandRuntimePolicyStore{trackedStructuredStore: newTrackedStructuredStore()}
 	executor := &commandRuntimeExecutorStub{}

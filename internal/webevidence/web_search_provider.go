@@ -55,8 +55,22 @@ func (p *WebSearchProvider) Search(ctx context.Context, query string,
 	if err != nil {
 		return nil, err
 	}
-	if document.StatusCode != http.StatusOK || document.Truncated {
-		return nil, errors.New("web search page was unavailable or exceeded the response limit")
+	// DDG can return a challenge as HTTP 202. Identify the actual form before
+	// classifying status, without treating an arbitrary HTML error as a captcha.
+	if !document.Truncated {
+		if _, parseErr := parseWebSearchPage(document.Body, limit); parseErr != nil {
+			var diagnostic *SearchDiagnosticError
+			if errors.As(parseErr, &diagnostic) && diagnostic.Code == "access_challenge" {
+				diagnostic.HTTPStatus = document.StatusCode
+				return nil, diagnostic
+			}
+		}
+	}
+	if document.StatusCode != http.StatusOK {
+		return nil, searchHTTPDiagnostic(document, "web search page was unavailable or exceeded the response limit")
+	}
+	if document.Truncated {
+		return nil, &SearchDiagnosticError{Code: "invalid_response", HTTPStatus: document.StatusCode, Message: "web search page was unavailable or exceeded the response limit"}
 	}
 	mediaType, _, err := mime.ParseMediaType(document.Header.Get("Content-Type"))
 	if err != nil || (mediaType != "text/html" && mediaType != "application/xhtml+xml") {
@@ -80,7 +94,7 @@ func parseWebSearchPage(body []byte, limit int) ([]ProviderResult, error) {
 			strings.Contains(classes, " g-recaptcha ") || strings.Contains(classes, " h-captcha ")
 	})
 	if challenge != nil {
-		return nil, errors.New("web search requires an access challenge")
+		return nil, &SearchDiagnosticError{Code: "access_challenge", Message: "web search requires an access challenge"}
 	}
 	container := findSearchNode(document, func(n *html.Node) bool {
 		return n.Data == "div" && searchAttribute(n, "id") == "links"

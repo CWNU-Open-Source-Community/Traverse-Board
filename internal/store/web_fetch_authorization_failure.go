@@ -108,7 +108,12 @@ func (s *SQLiteStore) PrepareWebFetchAuthorizationHandoff(ctx context.Context, a
 	if err != nil {
 		return empty, false, err
 	}
-	if run.Status != domain.RunRunning || run.SessionID != value.SessionID {
+	// Failed Supervisor turns now pause the Run before releasing their lease.
+	// Only the exact historical failed boundary above may bind that paused Run;
+	// an active approval continuation still requires Running.
+	validRunState := run.Status == domain.RunRunning ||
+		(phase == domain.SupervisorTurnFailed && run.Status == domain.RunPaused)
+	if !validRunState || run.SessionID != value.SessionID {
 		return empty, false, nil
 	}
 	var messageID string

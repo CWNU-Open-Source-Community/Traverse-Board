@@ -291,17 +291,28 @@ func projectThreadActivityWebSearch(call domain.SupervisorToolCall,
 	facts ThreadActivityToolFacts, envelope threadActivityResultEnvelope,
 	boundary ThreadActivityBoundary,
 ) (ThreadActivityWebSearchDetail, error) {
-	canonical, err := toolgateway.NormalizeWebEvidencePayload(toolgateway.WebSearchTool,
+	name := toolgateway.ToolName(call.ToolName)
+	canonical, err := toolgateway.NormalizeWebEvidencePayload(name,
 		json.RawMessage(call.PayloadJSON))
 	if err != nil {
 		return ThreadActivityWebSearchDetail{}, err
 	}
-	var input toolgateway.WebSearchPayload
-	if err := json.Unmarshal(canonical, &input); err != nil {
-		return ThreadActivityWebSearchDetail{}, err
+	query, limit := "", 0
+	var webInput toolgateway.WebSearchPayload
+	var sourceInput toolgateway.SourceSearchPayload
+	if name == toolgateway.SourceSearchTool {
+		if err := json.Unmarshal(canonical, &sourceInput); err != nil {
+			return ThreadActivityWebSearchDetail{}, err
+		}
+		query, limit = sourceInput.Query, sourceInput.Limit
+	} else {
+		if err := json.Unmarshal(canonical, &webInput); err != nil {
+			return ThreadActivityWebSearchDetail{}, err
+		}
+		query, limit = webInput.Query, webInput.Limit
 	}
 	detail := ThreadActivityWebSearchDetail{Operation: facts.Operation,
-		Query: input.Query, Limit: input.Limit, Boundary: boundary,
+		Query: query, Limit: limit, Boundary: boundary,
 		Provider:        safeThreadActivityFactValue(envelope.Metadata["provider"]),
 		SearchPolicy:    safeThreadActivityFactIdentity(envelope.Metadata["search_policy"]),
 		SelectionReason: safeThreadActivityFactValue(envelope.Metadata["selection_reason"]),
@@ -310,7 +321,14 @@ func projectThreadActivityWebSearch(call domain.SupervisorToolCall,
 	if call.Status == domain.SupervisorToolFailed && strings.EqualFold(boundary.ErrorCode, "unavailable") {
 		detail.Boundary.FailureReason = threadActivitySearchFailureReason(envelope.Message)
 	}
-	if sources, provider, ok := safeThreadActivitySearchSources(envelope.Stdout, input); ok {
+	var sources []ThreadActivitySearchSource
+	provider, ok := "", false
+	if name == toolgateway.SourceSearchTool {
+		sources, provider, ok = safeThreadActivitySourceSearchSources(envelope.Stdout, sourceInput)
+	} else {
+		sources, provider, ok = safeThreadActivitySearchSources(envelope.Stdout, webInput)
+	}
+	if ok {
 		detail.Sources = sources
 		if detail.Provider == "" {
 			detail.Provider = provider
@@ -323,6 +341,46 @@ func projectThreadActivityWebSearch(call domain.SupervisorToolCall,
 		detail.Sources = []ThreadActivitySearchSource{}
 	}
 	return detail, nil
+}
+
+func safeThreadActivitySourceSearchSources(raw string, input toolgateway.SourceSearchPayload) (
+	[]ThreadActivitySearchSource, string, bool,
+) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, "", false
+	}
+	var result webevidence.SourceSearchResult
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	if decoder.Decode(&result) != nil ||
+		result.ProtocolVersion != webevidence.SourceSearchProtocolVersion ||
+		result.Query != input.Query || len(result.Sources) > MaxThreadActivitySearchSources {
+		return nil, "", false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, "", false
+	}
+	sources := make([]ThreadActivitySearchSource, 0, len(result.Sources))
+	for index, source := range result.Sources {
+		if source.Rank != index+1 || source.Rank < 1 ||
+			source.Rank > MaxThreadActivitySearchSources ||
+			!strings.HasPrefix(source.Provider, "source:") {
+			return nil, "", false
+		}
+		urlValue := safeThreadActivityURL(source.CanonicalURL)
+		if urlValue == "" || urlValue == "受控网页目标" {
+			return nil, "", false
+		}
+		title := safeThreadActivityFactValue(source.Title)
+		if utf8.RuneCountInString(title) > 512 {
+			title = string([]rune(title)[:511]) + "…"
+		}
+		sources = append(sources, ThreadActivitySearchSource{Rank: source.Rank,
+			Title: title, URL: urlValue, Provider: safeThreadActivityFactValue(source.Provider),
+			State:    safeThreadActivityFactIdentity(string(webevidence.SourceDiscovered)),
+			Citeable: false})
+	}
+	return sources, "source_connectors", true
 }
 
 // Only translate messages constructed by the search service from stable reason

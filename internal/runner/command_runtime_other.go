@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cyberagent-workbench/internal/hostproxy"
 )
 
 func resolveCommandRuntimeShell(profile CommandRuntimeProfile) (string, error) {
@@ -66,6 +68,22 @@ func commandRuntimeFixedEnvironment() []string {
 		"DOTNET_CLI_TELEMETRY_OPTOUT=1", "POWERSHELL_TELEMETRY_OPTOUT=1",
 		"HOME=", "SSH_AUTH_SOCK=",
 	}
+}
+
+func commandRuntimePlatformEnvironment(_ string, _ string,
+	environment []string, _ CommandRuntimeNetwork, _ []CommandRuntimeEnvironment,
+) []string {
+	return environment
+}
+
+func commandRuntimePlatformEnvironmentWithoutProxy(_ string, _ string,
+	environment []string, _ CommandRuntimeNetwork, _ []CommandRuntimeEnvironment,
+) []string {
+	return environment
+}
+
+func commandRuntimePlatformHostProxy() (hostproxy.Config, bool) {
+	return hostproxy.Config{}, false
 }
 
 func commandRuntimeExecutableAttributes(path string) error {

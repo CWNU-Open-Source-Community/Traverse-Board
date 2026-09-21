@@ -9,7 +9,7 @@
 set -euo pipefail
 
 OutputDirectory="build/desktop"
-Version="v0.1.0"
+Version="v1.0.0"
 SkipFrontend=false
 VerifyReproducible=false
 

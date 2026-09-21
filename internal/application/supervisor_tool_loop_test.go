@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/session"
@@ -196,6 +197,88 @@ func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
 	}
 }
 
+func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-full-web-runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+	runService := application.NewRunService(st)
+	_, run, err := runService.Create(ctx, application.CreateRunRequest{
+		Goal: "fetch after a live Full Access activation", Profile: "review",
+		Surface: "code", Phase: "deliver", ModelRoute: "tool-loop/model",
+		NetworkMode: "disabled",
+		Budget:      domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := application.NewRunExecutionPermissionService(st, capabilities).
+		Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "supervisor-full-web-permission-0001",
+			RequestedBy:  "test_operator", Reason: "test the live Full Access boundary",
+			ConfirmDangerFullAccess: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A persisted Full snapshot by itself must not restore authority on a cold
+	// process. Revoke before the first turn to model that startup state.
+	runtimeAuthority.RevokeRun(run.ID)
+	if _, err := runService.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"waiting for permission activation", "", "")),
+		toolResponse("provider-full-web-fetch", string(toolgateway.WebFetchTool),
+			`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"fetched with live permission", "", "")),
+	}}
+	backend := &applicationWebFetchBackend{}
+	supervisor := newToolLoopSupervisor(st, provider).
+		WithWebEvidence(webevidence.NewService(st, nil, backend)).
+		WithExecutionPermissionCapabilities(capabilities)
+	cold, err := supervisor.Step(ctx, run.ID)
+	if err != nil || cold.Text != "waiting for permission activation" || backend.calls != 0 {
+		t.Fatalf("cold Full web turn=%#v calls=%d err=%v", cold, backend.calls, err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 || hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) {
+		t.Fatalf("cold Full snapshot advertised direct fetch: %#v", requests)
+	}
+	grant, err := runtimeAuthority.ActivateRunFullAccess(selection.Permission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := supervisor.Step(ctx, run.ID)
+	if err != nil || live.ToolCalls != 1 || backend.calls != 1 ||
+		live.Text != "fetched with live permission" {
+		t.Fatalf("live Full web turn=%#v calls=%d err=%v", live, backend.calls, err)
+	}
+	requests = provider.Requests()
+	if len(requests) != 3 || !hasToolSpec(requests[1], string(toolgateway.WebFetchTool)) {
+		t.Fatalf("live Full permission did not advertise fetch: %#v", requests)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
+		t.Fatalf("live Full web round=%#v err=%v", rounds, err)
+	}
+	callAuthority, err := toolgateway.DecodeWebEvidenceCallAuthority(
+		json.RawMessage(rounds[0].Calls[0].AuthorityJSON))
+	if err != nil || callAuthority.PermissionSnapshotID != selection.Permission.ID ||
+		callAuthority.PermissionGeneration != grant.Generation ||
+		callAuthority.PermissionRuntimeEpoch != runtimeAuthority.RuntimeEpoch() {
+		t.Fatalf("durable live Full authority=%#v err=%v", callAuthority, err)
+	}
+}
+
 func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch-inline-approval.db"))
 	if err != nil {
@@ -370,6 +453,177 @@ func TestRunSupervisorCompletesTwoRealAgentCodeToolRounds(t *testing.T) {
 	if !artifactTools[string(toolgateway.WorkspaceListTool)] ||
 		!artifactTools[string(toolgateway.WorkspaceReadTool)] {
 		t.Fatalf("agent code artifact tools=%#v", artifactTools)
+	}
+}
+
+func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-full-auto-file.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	workspaceRoot := t.TempDir()
+	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{ID: "ws-supervisor-full-auto",
+		Name: "supervisor-full-auto", RootPath: workspaceRoot,
+		CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	runService := application.NewRunService(st)
+	_, run, err := runService.Create(ctx, application.CreateRunRequest{
+		Goal: "create a note with Full Access", Profile: "code", Surface: "code",
+		Phase: "deliver", WorkspaceID: "ws-supervisor-full-auto",
+		ModelRoute: "tool-loop/model", Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 6}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+	selected, err := application.NewRunExecutionPermissionService(st, runtimeCapabilities).
+		Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "supervisor-full-auto-permission-0001", RequestedBy: "test_operator",
+			Reason: "allow this Run to complete ordinary file edits", ConfirmDangerFullAccess: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runService.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := runtimeCapabilities.FullAccessGeneration(selected.Permission); !live {
+		if _, err := runtimeAuthority.ActivateRunFullAccess(selected.Permission); err != nil {
+			t.Fatal(err)
+		}
+	}
+	createdEditID := ""
+	createdHash := ""
+	movedEditID := ""
+	provider := &scriptedToolProvider{}
+	provider.respond = func(request llm.ChatRequest, index int) (*llm.ChatResponse, error) {
+		switch index {
+		case 0:
+			return toolResponse("provider-auto-change", string(toolgateway.WorkspaceChangeTool),
+				`{"version":"agent-code-tools.v1","action":"create","path":"note.txt","expected_sha256":"missing","content":"created by agent\n"}`), nil
+		case 1:
+			var edit struct {
+				EditID          string `json:"edit_id"`
+				Operation       string `json:"operation"`
+				OriginalSHA256  string `json:"original_sha256"`
+				ProposedSHA256  string `json:"proposed_sha256"`
+				ApplyAuthorized bool   `json:"apply_authorized"`
+			}
+			for _, message := range request.Messages {
+				for _, result := range message.ToolResults {
+					if strings.Contains(result.Content, `"workspace_change"`) &&
+						strings.Contains(result.Content, `"operation":"create"`) {
+						var envelope struct {
+							Stdout string `json:"stdout"`
+						}
+						if err := json.Unmarshal([]byte(result.Content), &envelope); err != nil {
+							return nil, err
+						}
+						if err := json.Unmarshal([]byte(envelope.Stdout), &edit); err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
+			if edit.EditID == "" || !edit.ApplyAuthorized {
+				return nil, errors.New("Full Access file proposal was not available to apply")
+			}
+			createdEditID = edit.EditID
+			createdHash = edit.ProposedSHA256
+			payload, err := json.Marshal(toolgateway.WorkspaceApplyPayload{
+				Version: toolgateway.AgentCodeRegistryVersion, EditID: edit.EditID,
+				ExpectedAction: "create", ExpectedOriginalSHA256: edit.OriginalSHA256,
+				ExpectedProposedSHA256: edit.ProposedSHA256})
+			if err != nil {
+				return nil, err
+			}
+			return toolResponse("provider-auto-apply", string(toolgateway.WorkspaceApplyTool), string(payload)), nil
+		case 2:
+			return toolResponse("provider-auto-move", string(toolgateway.WorkspaceChangeTool),
+				fmt.Sprintf(`{"version":"agent-code-tools.v1","action":"move","path":"note.txt","expected_sha256":%q,"destination_path":"renamed.txt","destination_expected_sha256":"missing"}`, createdHash)), nil
+		case 3:
+			var edit struct {
+				EditID          string `json:"edit_id"`
+				Operation       string `json:"operation"`
+				OriginalSHA256  string `json:"original_sha256"`
+				ProposedSHA256  string `json:"proposed_sha256"`
+				ApplyAuthorized bool   `json:"apply_authorized"`
+			}
+			for _, message := range request.Messages {
+				for _, result := range message.ToolResults {
+					if !strings.Contains(result.Content, `"workspace_change"`) ||
+						!strings.Contains(result.Content, `"operation":"move"`) {
+						continue
+					}
+					var envelope struct {
+						Stdout string `json:"stdout"`
+					}
+					if err := json.Unmarshal([]byte(result.Content), &envelope); err != nil {
+						return nil, err
+					}
+					if err := json.Unmarshal([]byte(envelope.Stdout), &edit); err != nil {
+						return nil, err
+					}
+				}
+			}
+			if edit.EditID == "" || edit.Operation != fileedit.OperationMove ||
+				!edit.ApplyAuthorized {
+				return nil, errors.New("Full Access move proposal was not available to apply")
+			}
+			movedEditID = edit.EditID
+			payload, err := json.Marshal(toolgateway.WorkspaceApplyPayload{
+				Version: toolgateway.AgentCodeRegistryVersion, EditID: edit.EditID,
+				ExpectedAction: "move", ExpectedOriginalSHA256: edit.OriginalSHA256,
+				ExpectedProposedSHA256: edit.ProposedSHA256})
+			if err != nil {
+				return nil, err
+			}
+			return toolResponse("provider-auto-move-apply",
+				string(toolgateway.WorkspaceApplyTool), string(payload)), nil
+		case 4:
+			return textResponse(rootActionResponse(domain.RootActionContinue,
+				"ordinary file created and moved", "", "")), nil
+		default:
+			return nil, errors.New("unexpected additional model attempt")
+		}
+	}
+	supervisor := newToolLoopSupervisor(st, provider).
+		WithExecutionPermissionCapabilities(runtimeCapabilities)
+	result, err := supervisor.Step(ctx, run.ID)
+	if err != nil || result.ToolCalls != 4 || result.ToolRounds != 4 ||
+		result.Text != "ordinary file created and moved" {
+		t.Fatalf("Full Access Supervisor file journey=%+v err=%v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "note.txt")); !os.IsNotExist(err) {
+		t.Fatalf("Supervisor move left source: %v", err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(workspaceRoot, "renamed.txt"))
+	if err != nil || string(bytes) != "created by agent\n" {
+		t.Fatalf("Supervisor did not write ordinary file: bytes=%q err=%v", bytes, err)
+	}
+	approvalRecord, err := st.GetApprovalByProposal(ctx, createdEditID)
+	if err != nil || approvalRecord.Mode != "automatic" || approvalRecord.Status != approval.StatusApproved {
+		t.Fatalf("Supervisor file edit required per-call approval: record=%+v err=%v", approvalRecord, err)
+	}
+	moveApproval, err := st.GetApprovalByProposal(ctx, movedEditID)
+	if err != nil || moveApproval.Mode != "automatic" || moveApproval.Status != approval.StatusApproved ||
+		moveApproval.ToolName != "move_file" {
+		t.Fatalf("Supervisor move required per-call approval: record=%+v err=%v", moveApproval, err)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 5)
+	if err != nil || len(rounds) != 4 {
+		t.Fatalf("Supervisor Full file rounds=%+v err=%v", rounds, err)
+	}
+	for _, round := range rounds {
+		if len(round.Calls) != 1 ||
+			!strings.Contains(round.Calls[0].AuthorityJSON, `"permission_runtime_epoch"`) {
+			t.Fatalf("Full file call lacked live runtime authority: %+v", round)
+		}
 	}
 }
 
@@ -969,6 +1223,7 @@ type scriptedToolProvider struct {
 	mu        sync.Mutex
 	responses []*llm.ChatResponse
 	requests  []llm.ChatRequest
+	respond   func(llm.ChatRequest, int) (*llm.ChatResponse, error)
 }
 
 func (*scriptedToolProvider) Name() string { return "tool-loop" }
@@ -981,6 +1236,9 @@ func (p *scriptedToolProvider) Chat(_ context.Context, request llm.ChatRequest) 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.requests = append(p.requests, request)
+	if p.respond != nil {
+		return p.respond(request, len(p.requests)-1)
+	}
 	if len(p.responses) == 0 {
 		return nil, errors.New("scripted tool provider response queue is empty")
 	}

@@ -40,18 +40,21 @@ const (
 )
 
 type AgentCodeCapabilityContext struct {
-	RunID              string
-	MissionID          string
-	RootAgentID        string
-	WorkspaceID        string
-	RootFingerprint    string
-	Surface            domain.ExecutionSurface
-	Phase              domain.ExecutionPhase
-	Role               domain.AgentRole
-	Profile            domain.Profile
-	PermissionMode     domain.RunExecutionPermissionMode
-	ModeRevision       int64
-	PermissionRevision int64
+	RunID                  string
+	MissionID              string
+	RootAgentID            string
+	WorkspaceID            string
+	RootFingerprint        string
+	Surface                domain.ExecutionSurface
+	Phase                  domain.ExecutionPhase
+	Role                   domain.AgentRole
+	Profile                domain.Profile
+	PermissionMode         domain.RunExecutionPermissionMode
+	PermissionSnapshotID   string
+	PermissionGeneration   uint64
+	PermissionRuntimeEpoch string
+	ModeRevision           int64
+	PermissionRevision     int64
 	// UnavailableReason lets read-only product projections expose a complete,
 	// deterministic registry when a legacy Run has no registered Workspace or
 	// root Agent. Executable authority never carries this field.
@@ -117,6 +120,14 @@ func AgentCodeCapabilities(scope AgentCodeCapabilityContext) AgentCodeCapability
 			if definition.Name == WorkspaceApplyTool {
 				approval = "approved_proposal_only"
 			}
+			if scope.PermissionMode == domain.RunExecutionPermissionFullAccess &&
+				scope.PermissionGeneration != 0 && scope.PermissionRuntimeEpoch != "" {
+				if definition.Name == WorkspaceChangeTool {
+					approval = "create_replace_automatic_other_changes_reviewed"
+				} else if definition.Name == WorkspaceApplyTool {
+					approval = "authorized_proposal_only"
+				}
+			}
 		}
 		tools = append(tools, AgentCodeCapabilityTool{Name: definition.Name,
 			Class: definition.Class, Source: AgentCodeRegistryVersion, ReadOnly: readOnly,
@@ -141,6 +152,10 @@ func agentCodeCapabilityGeneration(scope AgentCodeCapabilityContext,
 	for _, item := range tools {
 		parts = append(parts, string(item.Name), fmt.Sprint(item.Available), item.Refusal)
 	}
+	if scope.PermissionGeneration != 0 {
+		parts = append(parts, scope.PermissionSnapshotID,
+			fmt.Sprint(scope.PermissionGeneration), scope.PermissionRuntimeEpoch)
+	}
 	for _, part := range parts {
 		_, _ = fmt.Fprintf(hash, "%d:", len(part))
 		_, _ = io.WriteString(hash, part)
@@ -153,21 +168,24 @@ func agentCodeCapabilityGeneration(scope AgentCodeCapabilityContext,
 // to a provider tool call after its arguments have been normalized. It is not
 // part of the provider-visible schema and cannot be supplied by the model.
 type AgentCodeCallAuthority struct {
-	ProtocolVersion      string                            `json:"protocol_version"`
-	RunID                string                            `json:"run_id"`
-	MissionID            string                            `json:"mission_id"`
-	RootAgentID          string                            `json:"root_agent_id"`
-	SessionID            string                            `json:"session_id"`
-	WorkspaceID          string                            `json:"workspace_id"`
-	RootFingerprint      string                            `json:"root_fingerprint"`
-	Surface              domain.ExecutionSurface           `json:"surface"`
-	Phase                domain.ExecutionPhase             `json:"phase"`
-	Role                 domain.AgentRole                  `json:"role"`
-	Profile              domain.Profile                    `json:"profile"`
-	PermissionMode       domain.RunExecutionPermissionMode `json:"permission_mode"`
-	ModeRevision         int64                             `json:"mode_revision"`
-	PermissionRevision   int64                             `json:"permission_revision"`
-	CapabilityGeneration string                            `json:"capability_generation"`
+	ProtocolVersion        string                            `json:"protocol_version"`
+	RunID                  string                            `json:"run_id"`
+	MissionID              string                            `json:"mission_id"`
+	RootAgentID            string                            `json:"root_agent_id"`
+	SessionID              string                            `json:"session_id"`
+	WorkspaceID            string                            `json:"workspace_id"`
+	RootFingerprint        string                            `json:"root_fingerprint"`
+	Surface                domain.ExecutionSurface           `json:"surface"`
+	Phase                  domain.ExecutionPhase             `json:"phase"`
+	Role                   domain.AgentRole                  `json:"role"`
+	Profile                domain.Profile                    `json:"profile"`
+	PermissionMode         domain.RunExecutionPermissionMode `json:"permission_mode"`
+	PermissionSnapshotID   string                            `json:"permission_snapshot_id,omitempty"`
+	PermissionGeneration   uint64                            `json:"permission_generation,omitempty"`
+	PermissionRuntimeEpoch string                            `json:"permission_runtime_epoch,omitempty"`
+	ModeRevision           int64                             `json:"mode_revision"`
+	PermissionRevision     int64                             `json:"permission_revision"`
+	CapabilityGeneration   string                            `json:"capability_generation"`
 }
 
 func NewAgentCodeCallAuthority(scope AgentCodeCapabilityContext, sessionID string) (
@@ -178,7 +196,10 @@ func NewAgentCodeCallAuthority(scope AgentCodeCapabilityContext, sessionID strin
 		SessionID: sessionID, WorkspaceID: scope.WorkspaceID,
 		RootFingerprint: scope.RootFingerprint, Surface: scope.Surface, Phase: scope.Phase,
 		Role: scope.Role, Profile: scope.Profile, PermissionMode: scope.PermissionMode,
-		ModeRevision: scope.ModeRevision, PermissionRevision: scope.PermissionRevision,
+		PermissionSnapshotID:   scope.PermissionSnapshotID,
+		PermissionGeneration:   scope.PermissionGeneration,
+		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		ModeRevision:           scope.ModeRevision, PermissionRevision: scope.PermissionRevision,
 		CapabilityGeneration: AgentCodeCapabilities(scope).Generation}
 	if err := authority.Validate(); err != nil {
 		return AgentCodeCallAuthority{}, err
@@ -201,6 +222,12 @@ func (a AgentCodeCallAuthority) Validate() error {
 		a.PermissionRevision <= 0 {
 		return errors.New("agent code authority scope is invalid")
 	}
+	if (a.PermissionSnapshotID == "") != (a.PermissionGeneration == 0) ||
+		(a.PermissionRuntimeEpoch == "") != (a.PermissionGeneration == 0) ||
+		(a.PermissionSnapshotID != "" && !validAgentCodeIdentity(a.PermissionSnapshotID)) ||
+		(a.PermissionRuntimeEpoch != "" && !validAgentCodeIdentity(a.PermissionRuntimeEpoch)) {
+		return errors.New("agent code runtime authority binding is invalid")
+	}
 	if _, err := domain.ParseProfile(string(a.Profile)); err != nil {
 		return err
 	}
@@ -208,7 +235,10 @@ func (a AgentCodeCallAuthority) Validate() error {
 		MissionID: a.MissionID, RootAgentID: a.RootAgentID, WorkspaceID: a.WorkspaceID,
 		RootFingerprint: a.RootFingerprint, Surface: a.Surface, Phase: a.Phase,
 		Role: a.Role, Profile: a.Profile, PermissionMode: a.PermissionMode,
-		ModeRevision: a.ModeRevision, PermissionRevision: a.PermissionRevision})
+		PermissionSnapshotID:   a.PermissionSnapshotID,
+		PermissionGeneration:   a.PermissionGeneration,
+		PermissionRuntimeEpoch: a.PermissionRuntimeEpoch,
+		ModeRevision:           a.ModeRevision, PermissionRevision: a.PermissionRevision})
 	if expected.Generation != a.CapabilityGeneration {
 		return errors.New("agent code authority capability generation is invalid")
 	}
@@ -261,10 +291,10 @@ var agentCodeDefinitions = []ToolDefinition{
 		Description: "Read one immutable sanitized GitHub PR evidence graph only when it is bound to this exact Run. This grants no network or write-back authority.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","evidence_id"],"properties":{"version":{"const":"agent-code-tools.v1"},"evidence_id":{"type":"string","minLength":1,"maxLength":256}}}`)},
 	{Name: WorkspaceChangeTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
-		Description: "Create an exact-hash review proposal for a patch, new file, move, or reversal of one applied edit. All paths are slash-separated paths relative to the selected workspace, never absolute host paths. For action create, expected_sha256 must be the literal 'missing' and content is the new UTF-8 file text. propose_revert requires exact source_run_id, source_edit_id, path and the applied source hash; accepts no content; reads the saved source itself. This never applies or approves the change. A reversed creation needs separately confirmed workspace_delete apply.",
+		Description: "Prepare one exact-hash patch, new file, move, or reversal proposal. In a live confirmed Full Access Run, a new create, replace, non-overwriting move, or reversal that resolves to create/replace may receive recorded automatic authorization; then call workspace_apply to write it. Direct deletes and reversals that resolve to delete require operator review. All paths are workspace-relative. For create, expected_sha256 is 'missing' and content is UTF-8. A move requires an existing destination parent and destination_expected_sha256 'missing'. propose_revert uses exact source_run_id, source_edit_id, path and applied source hash. This tool itself does not write the file; a reversed creation requires separately confirmed workspace_delete apply.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose_patch","create","move","propose_revert"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":7,"maxLength":64},"content":{"type":"string","maxLength":65536},"destination_path":{"type":"string","minLength":1,"maxLength":512},"destination_expected_sha256":{"type":"string","minLength":7,"maxLength":64},"replacements":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["old_text","new_text","expected_occurrences"],"properties":{"old_text":{"type":"string","minLength":1,"maxLength":32768},"new_text":{"type":"string","maxLength":32768},"expected_occurrences":{"type":"integer","minimum":1,"maximum":1024}}}},"source_run_id":{"type":"string","minLength":1,"maxLength":256},"source_edit_id":{"type":"string","minLength":1,"maxLength":256}},"oneOf":[{"properties":{"action":{"const":"propose_revert"}},"required":["source_run_id","source_edit_id"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}}]},{"properties":{"action":{"enum":["propose_patch","create","move"]}},"allOf":[{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]}]}`)},
 	{Name: WorkspaceApplyTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
-		Description: "Apply one already operator-approved patch, create, or move proposal using exact hashes and a durable compare-and-swap receipt.",
+		Description: "Apply one exact-hash patch, create, or non-overwriting move proposal with a durable compare-and-swap receipt. The proposal must have operator approval or a current recorded Full Access automatic authorization for create/replace/move; use the returned apply_authorized field to determine whether it can be applied now.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","edit_id","expected_action","expected_original_sha256","expected_proposed_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"edit_id":{"type":"string","minLength":1,"maxLength":256},"expected_action":{"enum":["propose_patch","create","move"]},"expected_original_sha256":{"type":"string","minLength":7,"maxLength":64},"expected_proposed_sha256":{"type":"string","minLength":7,"maxLength":64}}}`)},
 	{Name: WorkspaceDeleteTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
 		Description: "Separately propose or apply deletion of one exact path and hash. The confirmation path must exactly repeat the target.",
@@ -621,29 +651,32 @@ func validAgentCodeDigest(value string, allowMissing bool) bool {
 }
 
 type AgentCodeExecutionScope struct {
-	InvocationID         string
-	SupervisorToolCallID string
-	OperationKey         string
-	RunID                string
-	MissionID            string
-	RootAgentID          string
-	SessionID            string
-	WorkspaceID          string
-	SourceWorkspaceID    string
-	WorkspaceRoot        string
-	RootFingerprint      string
-	Surface              domain.ExecutionSurface
-	Phase                domain.ExecutionPhase
-	Role                 domain.AgentRole
-	Profile              domain.Profile
-	PermissionMode       domain.RunExecutionPermissionMode
-	ModeRevision         int64
-	PermissionRevision   int64
-	CapabilityGeneration string
-	LeaseID              string
-	LeaseGeneration      int64
-	RequestedBy          string
-	PolicyDecision       Decision
+	InvocationID           string
+	SupervisorToolCallID   string
+	OperationKey           string
+	RunID                  string
+	MissionID              string
+	RootAgentID            string
+	SessionID              string
+	WorkspaceID            string
+	SourceWorkspaceID      string
+	WorkspaceRoot          string
+	RootFingerprint        string
+	Surface                domain.ExecutionSurface
+	Phase                  domain.ExecutionPhase
+	Role                   domain.AgentRole
+	Profile                domain.Profile
+	PermissionMode         domain.RunExecutionPermissionMode
+	PermissionSnapshotID   string
+	PermissionGeneration   uint64
+	PermissionRuntimeEpoch string
+	ModeRevision           int64
+	PermissionRevision     int64
+	CapabilityGeneration   string
+	LeaseID                string
+	LeaseGeneration        int64
+	RequestedBy            string
+	PolicyDecision         Decision
 }
 
 func (s AgentCodeExecutionScope) ControlWorkspaceID() string {
@@ -674,6 +707,8 @@ func (s AgentCodeExecutionScope) Validate() error {
 		s.Surface != domain.ExecutionSurfaceCode || s.Role != domain.AgentRoleRoot ||
 		!s.Phase.Valid() || !s.PermissionMode.Valid() || s.ModeRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseID == "" || s.LeaseGeneration <= 0 ||
+		((s.PermissionSnapshotID == "") != (s.PermissionGeneration == 0)) ||
+		((s.PermissionRuntimeEpoch == "") != (s.PermissionGeneration == 0)) ||
 		s.RequestedBy != "run_supervisor" {
 		return errors.New("agent code tool requires an exact fenced Code/Root capability scope")
 	}
@@ -742,8 +777,11 @@ func (g *Gateway) invokeAgentCode(ctx context.Context, call ToolCall) (Outcome, 
 		WorkspaceRoot:     root, RootFingerprint: rootFingerprint,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role, Profile: call.Profile,
 		PermissionMode: call.PermissionMode, ModeRevision: call.ModeRevision,
-		PermissionRevision:   call.PermissionRevision,
-		CapabilityGeneration: call.CapabilityGeneration, LeaseID: call.LeaseID,
+		PermissionSnapshotID:   call.PermissionSnapshotID,
+		PermissionGeneration:   call.PermissionGeneration,
+		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		PermissionRevision:     call.PermissionRevision,
+		CapabilityGeneration:   call.CapabilityGeneration, LeaseID: call.LeaseID,
 		LeaseGeneration: call.LeaseGeneration, RequestedBy: call.RequestedBy,
 		PolicyDecision: decision}
 	if err := scope.Validate(); err != nil {

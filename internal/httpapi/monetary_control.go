@@ -41,16 +41,16 @@ type PriceSnapshotImportView struct {
 }
 
 type PriceSnapshotItemView struct {
-	ID           string               `json:"id"`
-	Source       string               `json:"source"`
-	Currency     string               `json:"currency"`
-	ImportedBy   string               `json:"imported_by"`
-	ImportedAt   time.Time            `json:"imported_at"`
-	ValidFrom    time.Time            `json:"valid_from"`
-	ValidUntil   time.Time            `json:"valid_until"`
-	Fingerprint  string               `json:"fingerprint"`
-	EntryCount   int                  `json:"entry_count"`
-	Entries      []PriceEntryView     `json:"entries"`
+	ID          string           `json:"id"`
+	Source      string           `json:"source"`
+	Currency    string           `json:"currency"`
+	ImportedBy  string           `json:"imported_by"`
+	ImportedAt  time.Time        `json:"imported_at"`
+	ValidFrom   time.Time        `json:"valid_from"`
+	ValidUntil  time.Time        `json:"valid_until"`
+	Fingerprint string           `json:"fingerprint"`
+	EntryCount  int              `json:"entry_count"`
+	Entries     []PriceEntryView `json:"entries"`
 }
 
 type PriceEntryView struct {
@@ -100,7 +100,8 @@ func (a *API) servePriceSnapshots(writer http.ResponseWriter, request *http.Requ
 			a.writeError(writer, requestID, err, 0)
 			return
 		}
-		view := PriceSnapshotListView{ProtocolVersion: PriceSnapshotListProtocol}
+		view := PriceSnapshotListView{ProtocolVersion: PriceSnapshotListProtocol,
+			Items: []PriceSnapshotItemView{}}
 		for _, snapshot := range items {
 			item := PriceSnapshotItemView{
 				ID: snapshot.ID, Source: snapshot.Source, Currency: snapshot.Currency,
@@ -167,4 +168,3 @@ func (a *API) servePriceSnapshots(writer http.ResponseWriter, request *http.Requ
 			"price snapshot endpoint only supports GET and POST"), http.StatusMethodNotAllowed)
 	}
 }
-

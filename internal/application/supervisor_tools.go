@@ -33,6 +33,29 @@ const (
 
 var errSupervisorWaitingApproval = errors.New("Supervisor tool is waiting for operator approval")
 
+func commandRuntimeFullAuthorityCurrent(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	authority commandruntimeadapter.Authority,
+	permission domain.RunExecutionPermissionSnapshot,
+) bool {
+	if permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		!capabilities.FullAccessRequiresRuntimeGrant {
+		return authority.PermissionSnapshotID == "" &&
+			authority.PermissionGeneration == 0 &&
+			authority.PermissionRuntimeEpoch == ""
+	}
+	if capabilities.RuntimeAuthority == nil {
+		return false
+	}
+	generation, live := capabilities.FullAccessGeneration(permission)
+	return live && generation != 0 &&
+		authority.PermissionSnapshotID == permission.ID &&
+		authority.PermissionGeneration == generation &&
+		authority.PermissionRuntimeEpoch ==
+			capabilities.RuntimeAuthority.RuntimeEpoch() &&
+		authority.PermissionRuntimeEpoch != ""
+}
+
 type supervisorAgentCodeTools struct {
 	Capabilities toolgateway.AgentCodeCapabilitySnapshot
 	Authority    json.RawMessage
@@ -153,6 +176,10 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 				!configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
 			continue
 		}
+		if definition.Name == toolgateway.CommandRuntimeTool {
+			definition = toolgateway.CommandRuntimeDefinitionForAdapter(
+				configured.CommandRuntime.Adapter)
+		}
 		if definition.Name == toolgateway.MCPToolCallTool {
 			if surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
 				!permissionMode.IncludesFullAccess() ||
@@ -167,7 +194,10 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			if !configured.WebEvidence.Capabilities.Available ||
 				(definition.Name == toolgateway.WebSearchTool &&
 					!configured.WebEvidence.Capabilities.SearchAvailable) ||
+				(definition.Name == toolgateway.SourceSearchTool &&
+					!configured.WebEvidence.Capabilities.SourceSearchAvailable) ||
 				(definition.Name != toolgateway.WebSearchTool &&
+					definition.Name != toolgateway.SourceSearchTool &&
 					!configured.WebEvidence.Capabilities.FetchAvailable) {
 				continue
 			}
@@ -281,7 +311,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		if toolgateway.IsWebEvidenceTool(name) && (!webEvidence.Available ||
 			len(webEvidenceAuthority) == 0 ||
 			(name == toolgateway.WebSearchTool && !webEvidence.SearchAvailable) ||
-			(name != toolgateway.WebSearchTool && !webEvidence.FetchAvailable)) {
+			(name == toolgateway.SourceSearchTool && !webEvidence.SourceSearchAvailable) ||
+			(name != toolgateway.WebSearchTool && name != toolgateway.SourceSearchTool &&
+				!webEvidence.FetchAvailable)) {
 			return nil, fmt.Errorf("provider requested unavailable web evidence tool %q: %s",
 				call.Name, supervisorWebEvidenceUnavailableReason(name, webEvidence))
 		}
@@ -449,7 +481,11 @@ func supervisorWebEvidenceUnavailableReason(name toolgateway.ToolName,
 			"allowlist. Do not retry web_search until it is opened. Use web_fetch " +
 			"for one specific approved URL, or continue without web search."
 	}
-	if name != toolgateway.WebSearchTool && !capabilities.FetchAvailable {
+	if name == toolgateway.SourceSearchTool && !capabilities.SourceSearchAvailable {
+		return "platform source search is not opened for the current Run: public connector endpoints are outside the current network authority. Enable Full Access or add the connector hosts to the Run allowlist. Do not retry source_search until it is opened."
+	}
+	if name != toolgateway.WebSearchTool && name != toolgateway.SourceSearchTool &&
+		!capabilities.FetchAvailable {
 		return "web fetch is not opened for the current Run: the current network " +
 			"permission does not authorize direct web fetch. An operator can enable " +
 			"web access in the conversation permissions or add the target host to " +
@@ -465,6 +501,30 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 	if s == nil || s.webEvidence == nil || turn.Agent.Role != domain.AgentRoleRoot {
 		return toolgateway.WebEvidenceCapabilities{}, nil, nil
 	}
+	permissionGeneration := uint64(0)
+	permissionSnapshotID := ""
+	permissionRuntimeEpoch := ""
+	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
+		s.executionCapabilities.FullAccessRequiresRuntimeGrant {
+		var live bool
+		permissionGeneration, live = s.executionCapabilities.FullAccessGeneration(permission)
+		if !live {
+			return toolgateway.WebEvidenceCapabilities{
+				ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
+				Refusal:         "Full Access web evidence requires a live confirmed permission activation",
+			}, nil, nil
+		}
+		permissionSnapshotID = permission.ID
+		if s.executionCapabilities.RuntimeAuthority != nil {
+			permissionRuntimeEpoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		}
+		if permissionRuntimeEpoch == "" {
+			return toolgateway.WebEvidenceCapabilities{
+				ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
+				Refusal:         "Full Access web evidence requires a valid runtime activation",
+			}, nil, nil
+		}
+	}
 	networkAuthority := effectiveWebEvidenceAuthority(turn.Mode.Scope, permission.Mode)
 	providerFingerprint := s.webEvidence.SearchProviderFingerprintForScope(ctx,
 		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
@@ -474,11 +534,15 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
 			WorkspaceID: turn.Mission.WorkspaceID,
 			ModelRoute:  turn.Run.Config.ModelRoute, Authority: networkAuthority})
+	connectorFingerprint := s.webEvidence.SourceConnectorFingerprintFor(networkAuthority)
 	context := toolgateway.WebEvidenceCapabilityContext{RunID: turn.Run.ID,
 		MissionID: turn.Mission.ID, SessionID: turn.Run.SessionID,
 		RootAgentID: turn.Agent.ID, WorkspaceID: turn.Mission.WorkspaceID,
 		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
 		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+		PermissionSnapshotID:            permissionSnapshotID,
+		PermissionGeneration:            permissionGeneration,
+		PermissionRuntimeEpoch:          permissionRuntimeEpoch,
 		ModeRevision:                    turn.Mode.Revision,
 		PermissionRevision:              permission.Revision,
 		NetworkMode:                     networkAuthority.Mode,
@@ -486,6 +550,8 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 		ProviderAvailable:               providerFingerprint != "",
 		ProviderFingerprint:             providerFingerprint,
 		ProviderSearchIndependent:       providerIndependent,
+		SourceConnectorAvailable:        connectorFingerprint != "",
+		SourceConnectorFingerprint:      connectorFingerprint,
 		InlineWebFetchApprovalAvailable: s.webFetchAuthorizationSchedulerEnabled}
 	snapshot := toolgateway.WebEvidenceCapabilitySnapshot(context)
 	if !snapshot.Available {
@@ -708,12 +774,30 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 	if err != nil {
 		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
 	}
+	permissionGeneration := uint64(0)
+	permissionRuntimeEpoch := ""
+	permissionSnapshotID := ""
+	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
+		s.executionCapabilities.FullAccessRequiresRuntimeGrant {
+		var live bool
+		permissionGeneration, live = s.executionCapabilities.FullAccessGeneration(permission)
+		if s.executionCapabilities.RuntimeAuthority != nil {
+			permissionRuntimeEpoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		}
+		if !live || permissionRuntimeEpoch == "" {
+			return toolgateway.AgentCodeCapabilitySnapshot{}, nil, nil
+		}
+		permissionSnapshotID = permission.ID
+	}
 	scope := toolgateway.AgentCodeCapabilityContext{RunID: turn.Run.ID,
 		MissionID: turn.Mission.ID, RootAgentID: turn.Agent.ID,
 		WorkspaceID: turn.Mission.WorkspaceID, RootFingerprint: rootFingerprint,
 		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
 		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
-		ModeRevision: turn.Mode.Revision, PermissionRevision: permission.Revision}
+		PermissionSnapshotID:   permissionSnapshotID,
+		PermissionGeneration:   permissionGeneration,
+		PermissionRuntimeEpoch: permissionRuntimeEpoch,
+		ModeRevision:           turn.Mode.Revision, PermissionRevision: permission.Revision}
 	snapshot := toolgateway.AgentCodeCapabilities(scope)
 	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, turn.Run.SessionID)
 	if err != nil {
@@ -894,7 +978,22 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	if toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
+		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
+		live := true
+		if permissionErr == nil && permission.Mode == domain.RunExecutionPermissionFullAccess &&
+			s.executionCapabilities.FullAccessRequiresRuntimeGrant {
+			generation, active := s.executionCapabilities.FullAccessGeneration(permission)
+			epoch := ""
+			if s.executionCapabilities.RuntimeAuthority != nil {
+				epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+			}
+			live = active && epoch != "" && authority.PermissionSnapshotID == permission.ID &&
+				authority.PermissionGeneration == generation &&
+				authority.PermissionRuntimeEpoch == epoch
+		}
 		if authorityErr != nil || authority.RunID != call.RunID ||
+			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
+			permission.Revision != authority.PermissionRevision ||
 			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
 			authority.MissionID != turn.Mission.ID ||
 			authority.WorkspaceID != turn.Mission.WorkspaceID {
@@ -908,6 +1007,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.Role = authority.Role
 		toolCall.Profile = authority.Profile
 		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
+		toolCall.PermissionGeneration = authority.PermissionGeneration
+		toolCall.PermissionRuntimeEpoch = authority.PermissionRuntimeEpoch
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.CapabilityGeneration
@@ -917,7 +1019,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
 		if authorityErr != nil || permissionErr != nil || authority.RunID != call.RunID ||
-			!authority.Adapter.AllowsPermission(permission.Mode) {
+			!authority.Adapter.AllowsPermission(permission.Mode) ||
+			!commandRuntimeFullAuthorityCurrent(s.executionCapabilities,
+				authority, permission) {
 			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
 				"durable command runtime adapter authority does not match the active Supervisor turn")
 		}
@@ -931,6 +1035,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.PermissionRevision = permission.Revision
 		toolCall.CapabilityGeneration = authority.Adapter.Generation
 		toolCall.CommandRuntimeAdapter = authority.Adapter
+		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
+		toolCall.PermissionGeneration = authority.PermissionGeneration
+		toolCall.PermissionRuntimeEpoch = authority.PermissionRuntimeEpoch
 	}
 	if name == toolgateway.MCPToolCallTool {
 		authority, authorityErr := mcp.DecodeSupervisorCallAuthority(
@@ -965,7 +1072,22 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	if toolgateway.IsWebEvidenceTool(name) {
 		authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
+		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
+		live := true
+		if permissionErr == nil && permission.Mode == domain.RunExecutionPermissionFullAccess &&
+			s.executionCapabilities.FullAccessRequiresRuntimeGrant {
+			generation, active := s.executionCapabilities.FullAccessGeneration(permission)
+			epoch := ""
+			if s.executionCapabilities.RuntimeAuthority != nil {
+				epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+			}
+			live = active && authority.PermissionSnapshotID == permission.ID &&
+				authority.PermissionGeneration == generation && epoch != "" &&
+				authority.PermissionRuntimeEpoch == epoch
+		}
 		if authorityErr != nil || authority.RunID != call.RunID ||
+			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
+			permission.Revision != authority.PermissionRevision ||
 			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
 			authority.MissionID != turn.Mission.ID ||
 			authority.WorkspaceID != turn.Mission.WorkspaceID {
@@ -978,10 +1100,13 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.Role = authority.Role
 		toolCall.Profile = authority.Profile
 		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
+		toolCall.PermissionGeneration = authority.PermissionGeneration
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.Generation
 		toolCall.ProviderFingerprint = authority.ProviderFingerprint
+		toolCall.ConnectorFingerprint = authority.SourceConnectorFingerprint
 	}
 	if toolgateway.IsBrowserActionTool(name) {
 		if s.browserActions == nil {
@@ -1129,7 +1254,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 }
 
 func supervisorToolExecutionTimeout(name toolgateway.ToolName) time.Duration {
-	if name == toolgateway.WebSearchTool {
+	if name == toolgateway.WebSearchTool || name == toolgateway.SourceSearchTool {
 		return supervisorWebSearchToolCallTimeout
 	}
 	return supervisorToolCallTimeout
@@ -1177,6 +1302,8 @@ func supervisorToolContextResult(call domain.SupervisorToolCall) (string, error)
 		return supervisorWebFetchContextResult(call)
 	case toolgateway.WebSearchTool:
 		return supervisorWebSearchContextResult(call)
+	case toolgateway.SourceSearchTool:
+		return supervisorSourceSearchContextResult(call)
 	default:
 		return call.ResultJSON, nil
 	}

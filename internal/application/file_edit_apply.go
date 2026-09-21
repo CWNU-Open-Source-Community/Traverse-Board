@@ -35,12 +35,22 @@ type FileEditApplyStore interface {
 }
 
 type FileEditApplyService struct {
-	store       FileEditApplyStore
-	manager     *fileedit.Manager
-	checker     policy.Checker
-	checkpoints *WorkspaceCheckpointService
-	drydocks    *DrydockService
-	now         func() time.Time
+	store                 FileEditApplyStore
+	manager               *fileedit.Manager
+	checker               policy.Checker
+	checkpoints           *WorkspaceCheckpointService
+	drydocks              *DrydockService
+	now                   func() time.Time
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities
+}
+
+func (s *FileEditApplyService) WithExecutionPermissionCapabilities(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *FileEditApplyService {
+	if s != nil {
+		s.executionCapabilities = capabilities
+	}
+	return s
 }
 
 func (s *FileEditApplyService) WithDrydock(drydocks *DrydockService) *FileEditApplyService {
@@ -51,15 +61,18 @@ func (s *FileEditApplyService) WithDrydock(drydocks *DrydockService) *FileEditAp
 }
 
 type ApplyFileEditRequest struct {
-	Version              string
-	RunID                string
-	EditID               string
-	OperationKey         string
-	AppliedBy            string
-	InvocationID         string
-	CapabilityGeneration string
-	LeaseID              string
-	LeaseGeneration      int64
+	Version                string
+	RunID                  string
+	EditID                 string
+	OperationKey           string
+	AppliedBy              string
+	InvocationID           string
+	CapabilityGeneration   string
+	LeaseID                string
+	LeaseGeneration        int64
+	PermissionSnapshotID   string
+	PermissionGeneration   uint64
+	PermissionRuntimeEpoch string
 }
 
 type ApplyFileEditResult struct {
@@ -177,6 +190,9 @@ func (s *FileEditApplyService) applyWithLease(ctx context.Context,
 		if bindingErr != nil {
 			return ApplyFileEditResult{}, bindingErr
 		}
+		if err := s.checkAutomaticFileEditAuthorization(ctx, binding, normalized); err != nil {
+			return ApplyFileEditResult{}, err
+		}
 		if policyErr := s.checkCurrentPolicy(ctx, binding); policyErr != nil {
 			return ApplyFileEditResult{}, policyErr
 		}
@@ -263,6 +279,9 @@ func (s *FileEditApplyService) applyWithLease(ctx context.Context,
 		if policyErr := s.checkCurrentPolicy(ctx, binding); policyErr != nil {
 			return ApplyFileEditResult{}, policyErr
 		}
+		if err := s.checkAutomaticFileEditAuthorization(ctx, binding, normalized); err != nil {
+			return ApplyFileEditResult{}, err
+		}
 	}
 	boundaryRequest := WorkspaceMutationBoundaryRequest{RunID: operation.RunID,
 		Kind: workspacecheckpoint.TransactionFileTool, OperationKey: operation.KeyDigest,
@@ -298,8 +317,15 @@ func (s *FileEditApplyService) applyWithLease(ctx context.Context,
 	var applyErr error
 	switch binding.edit.Status {
 	case fileedit.StatusApproved:
-		applied, applyErr = s.manager.Approve(ctx, binding.edit.ID,
-			binding.workspace.RootPath)
+		if binding.approval.Mode == "automatic" {
+			applied, applyErr = s.manager.ApproveWithPreWriteCheck(ctx, binding.edit.ID,
+				binding.workspace.RootPath, func() error {
+					return s.checkAutomaticFileEditAuthorization(ctx, binding, normalized)
+				})
+		} else {
+			applied, applyErr = s.manager.Approve(ctx, binding.edit.ID,
+				binding.workspace.RootPath)
+		}
 	case fileedit.StatusApplied, fileedit.StatusFailed:
 		// Recover the durable result after a process interruption.
 	default:
@@ -464,6 +490,81 @@ func (s *FileEditApplyService) checkCurrentPolicy(ctx context.Context,
 	return nil
 }
 
+// Automatic approval records the operator's selected Full Access tier, not a
+// perpetual permission to write. Recheck the exact source and live grant on
+// every attempt that can still publish file bytes.
+func (s *FileEditApplyService) checkAutomaticFileEditAuthorization(ctx context.Context,
+	binding fileEditApplyBinding, request ApplyFileEditRequest,
+) error {
+	if binding.approval.Mode != "automatic" {
+		return nil
+	}
+	reader, ok := s.store.(interface {
+		GetFileEditAutoAuthorization(context.Context, string) (fileedit.AutoAuthorization, bool, error)
+		GetRunExecutionPermission(context.Context, string) (domain.RunExecutionPermissionSnapshot, error)
+		GetRunMode(context.Context, string) (domain.RunModeSnapshot, error)
+		GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
+	})
+	if !ok {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"automatic FileEdit authorization reader is unavailable")
+	}
+	source, found, err := reader.GetFileEditAutoAuthorization(ctx, binding.edit.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if !found || binding.edit.Operation != source.Operation ||
+		binding.edit.Path != source.Path || binding.edit.OriginalHash != source.OriginalHash ||
+		binding.edit.ProposedHash != source.ProposedHash ||
+		binding.edit.DestinationPath != source.DestinationPath ||
+		binding.edit.DestinationOriginalHash != source.DestinationOriginalHash ||
+		binding.edit.DestinationProposedHash != source.DestinationProposedHash ||
+		binding.edit.SessionID != source.SessionID || binding.edit.WorkspaceID != source.WorkspaceID ||
+		binding.run.ID != source.RunID || request.AppliedBy != source.AgentID ||
+		binding.edit.Operation == fileedit.OperationDelete {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"automatic FileEdit source no longer matches the exact proposal")
+	}
+	currentRun, err := s.store.GetRun(ctx, binding.run.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	permission, err := reader.GetRunExecutionPermission(ctx, binding.run.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	mode, err := reader.GetRunMode(ctx, binding.run.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	lease, leaseFound, err := reader.GetRunExecutionLease(ctx, binding.run.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	generation, live := s.executionCapabilities.FullAccessGeneration(permission)
+	epoch := ""
+	if s.executionCapabilities.RuntimeAuthority != nil {
+		epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+	}
+	if currentRun.Status != domain.RunRunning ||
+		permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		!s.executionCapabilities.FullAccessRequiresRuntimeGrant || !live || epoch == "" ||
+		permission.ID != source.PermissionSnapshotID ||
+		permission.Revision != source.PermissionRevision ||
+		mode.Revision != source.ModeRevision ||
+		request.PermissionSnapshotID != permission.ID ||
+		request.PermissionGeneration != generation ||
+		request.PermissionRuntimeEpoch != epoch ||
+		source.RuntimeGeneration != generation || source.RuntimeEpoch != epoch ||
+		request.CapabilityGeneration != source.CapabilityGeneration ||
+		!leaseFound || !lease.ActiveAt(s.now().UTC()) ||
+		lease.LeaseID != request.LeaseID || lease.Generation != request.LeaseGeneration {
+		return apperror.New(apperror.CodePolicyDenied,
+			"automatic FileEdit apply requires the exact current Full Access activation and lease")
+	}
+	return nil
+}
+
 func (s *FileEditApplyService) loadOperationBinding(ctx context.Context,
 	operation fileedit.ApplyOperation,
 ) (fileEditApplyBinding, error) {
@@ -505,8 +606,12 @@ func normalizeFileEditApplyRequest(request ApplyFileEditRequest) (
 	request.InvocationID = strings.TrimSpace(request.InvocationID)
 	request.CapabilityGeneration = strings.TrimSpace(request.CapabilityGeneration)
 	request.LeaseID = strings.TrimSpace(request.LeaseID)
+	request.PermissionSnapshotID = strings.TrimSpace(request.PermissionSnapshotID)
+	request.PermissionRuntimeEpoch = strings.TrimSpace(request.PermissionRuntimeEpoch)
 	if (request.LeaseID == "") != (request.LeaseGeneration == 0) ||
-		request.LeaseGeneration < 0 {
+		request.LeaseGeneration < 0 ||
+		(request.PermissionSnapshotID == "") != (request.PermissionGeneration == 0) ||
+		(request.PermissionRuntimeEpoch == "") != (request.PermissionGeneration == 0) {
 		return ApplyFileEditRequest{}, apperror.New(apperror.CodeInvalidArgument,
 			"FileEdit apply execution lease is invalid")
 	}

@@ -424,8 +424,7 @@ func isRedirect(status int) bool {
 
 func isRetryableHTTPStatus(status int) bool {
 	switch status {
-	case http.StatusTooManyRequests, http.StatusBadGateway,
-		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
 		return false

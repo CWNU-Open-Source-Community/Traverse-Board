@@ -76,6 +76,15 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     queryFn: ({ signal }) => client.modelAvailability(signal),
     enabled: open,
   });
+  const refreshModelRoutes = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["models", "availability"] }),
+      queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
+      queryClient.invalidateQueries({ predicate: (candidate) =>
+        candidate.queryKey[0] === "v2" && candidate.queryKey[1] === "thread" &&
+        candidate.queryKey.at(-1) === "model-route" }),
+    ]);
+  };
   const credentialQuery = useQuery({
     queryKey: ["models", "credentials"],
     queryFn: ({ signal }) => client.providerCredentialStatuses(signal),
@@ -92,13 +101,16 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         provider: reference.slice(0, slash), model: reference.slice(slash + 1),
       });
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["models", "availability"] }),
+    onSuccess: refreshModelRoutes,
   });
   const diagnosticMutation = useMutation({
     mutationFn: ({ provider, model }: { provider: string; model: string }) =>
       client.diagnoseProvider({ version: "provider_diagnostic.v1", provider, model,
         confirm_diagnostic: true }),
-    onSuccess: setDiagnostic,
+    onSuccess: async (result) => {
+      setDiagnostic(result);
+      await refreshModelRoutes();
+    },
   });
   const qualificationMutation = useMutation({
     mutationFn: ({ provider, model }: { provider: string; model: string }) =>
@@ -106,7 +118,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         provider, model, confirm_qualification: true }),
     onSuccess: async (result) => {
       setQualification(result);
-      await queryClient.invalidateQueries({ queryKey: ["models", "availability"] });
+      await refreshModelRoutes();
     },
   });
   const changeCredential = async (provider: string, action: "set" | "delete") => {
@@ -126,8 +138,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       const status = await client.changeProviderCredential(provider, body);
       setCredentialRestart(status.restart_required);
       setCredentialGeneration(status.registry_reloaded ? status.registry_generation : null);
-      await Promise.all([credentialQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["models", "availability"] })]);
+      await Promise.all([credentialQuery.refetch(), refreshModelRoutes()]);
     } catch (caught) {
       setCredentialError(caught instanceof Error ? caught.message : t("凭证修改失败", "Credential change failed"));
     } finally {
@@ -139,7 +150,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     return null;
   }
   const surface = (
-      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : presentation === "settings" ? t("全局模型路由与价格", "Global model routes and prices") : t("模型切换", "Model selection")}
+      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : presentation === "settings" ? t("高级模型设置", "Advanced model settings") : t("模型切换", "Model selection")}
         aria-modal={presentation === "dialog" ? "true" : undefined}
         className={presentation === "dialog"
           ? "desktop-dialog model-availability-dialog" : "model-control-workspace"}
@@ -161,7 +172,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
           {query.isError && <ErrorState error={query.error} />}
           {query.data && (
             <>
-              {presentation !== "settings" && <>
+              <>
               <section className="model-availability-section">
                 <h3><Cpu aria-hidden="true" size={14} />{t("提供商", "Provider")}</h3>
                 <div className="model-provider-list">
@@ -254,7 +265,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                     ? qualificationMutation.error.message : t("模型 Harness 验证失败", "Model Harness qualification failed")}
                 </div>}
               </section>
-              {client.hasProviderCredentials && <section className="model-availability-section">
+              {presentation !== "settings" && client.hasProviderCredentials && <section className="model-availability-section">
                 <h3><KeyRound aria-hidden="true" size={14} />{t("系统凭证", "System credentials")}</h3>
                 {credentialQuery.isLoading && <LoadingState label={t("加载凭证状态", "Loading credential status")} />}
                 {credentialQuery.isError && <ErrorState error={credentialQuery.error} />}
@@ -298,15 +309,17 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                   {credentialError}
                 </div>}
               </section>}
-              </>}
-              <PriceSnapshotsSection client={client} />
+              </>
               <section className="model-availability-section">
-                <h3><Route aria-hidden="true" size={14} />{t("模型路由", "Routes")}</h3>
+                <h3><Route aria-hidden="true" size={14} />{presentation === "settings"
+                  ? t("新对话默认模型", "Default model for new conversations") : t("模型路由", "Routes")}</h3>
                 <div className="model-route-list">
-                  {query.data.routes.map((route) => (
+                  {query.data.routes.filter((route) => presentation !== "settings" || route.name === "code").map((route) => (
                     <div className="model-route-row" key={route.name}>
-                      <strong>{route.name}</strong>
-                      {client.hasModelControl ? <select aria-label={t(`${route.name} 模型路由`, `${route.name} model route`)}
+                      <strong>{presentation === "settings" ? t("默认", "Default") : route.name}</strong>
+                      {client.hasModelControl ? <select aria-label={presentation === "settings"
+                        ? t("新对话默认模型", "Default model for new conversations")
+                        : t(`${route.name} 模型路由`, `${route.name} model route`)}
                         onChange={(event) => setSelections((current) => ({ ...current,
                           [route.name]: event.target.value }))}
                         value={selections[route.name] ?? `${route.provider}/${route.model}`}>
@@ -319,7 +332,9 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                       </select> : <span>{route.provider}/{route.model}</span>}
                       <StatusBadge status={!route.available ? "unavailable"
                         : route.harness_ready ? "harness ready" : "qualification required"} />
-                      {client.hasModelControl && <button aria-label={t(`保存 ${route.name} 路由`, `Save ${route.name} route`)}
+                      {client.hasModelControl && <button aria-label={presentation === "settings"
+                        ? t("保存新对话默认模型", "Save default model for new conversations")
+                        : t(`保存 ${route.name} 路由`, `Save ${route.name} route`)}
                         className="icon-button" disabled={routeMutation.isPending}
                         onClick={() => routeMutation.mutate({ route: route.name,
                           reference: selections[route.name] ?? `${route.provider}/${route.model}` })}
@@ -331,11 +346,17 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                     </div>
                   ))}
                 </div>
+                {presentation === "settings" && <p>此设置写入 code 默认路由。新对话未单独选模型时会优先使用已通过能力验证的默认模型；若它不可用，创建时会查找其他可用模型。仍引用 code 的旧任务也可能在后续执行中使用此值；其他四条命名路由不会被修改。</p>}
               </section>
               {routeMutation.isError && <div className="inline-warning" role="alert">
                 {routeMutation.error instanceof Error
                   ? routeMutation.error.message : t("模型路由选择失败", "Model route selection failed")}
               </div>}
+              {presentation === "settings" ? <details className="model-optional-prices">
+                <summary>费用上限所用价格（可选）</summary>
+                <p>仅启用美元费用上限的任务需要价格快照；它用于本地估算，不是供应商账单。</p>
+                <PriceSnapshotsSection client={client} />
+              </details> : <PriceSnapshotsSection client={client} />}
             </>
           )}
         </div>

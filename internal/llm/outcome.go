@@ -185,6 +185,9 @@ func ProviderErrorReason(err error) ProviderFailureReason {
 }
 
 func defaultProviderFailureReason(kind Outcome, statusCode int) ProviderFailureReason {
+	if statusCode == 402 {
+		return ProviderFailureCapacity
+	}
 	switch statusCode {
 	case 401, 403:
 		return ProviderFailureAuthentication

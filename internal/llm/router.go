@@ -230,6 +230,24 @@ func (r *Router) SetHarnessQualification(ref ModelRef,
 	return nil
 }
 
+// ClearHarnessQualification removes a previously verified qualification for
+// one exact Provider/model pair. It is used when credential authority changes:
+// a qualification obtained with the previous credential must not keep a model
+// root eligible while the Registry reload is still in progress or has failed.
+func (r *Router) ClearHarnessQualification(ref ModelRef) {
+	if r == nil {
+		return
+	}
+	ref.Provider = strings.TrimSpace(ref.Provider)
+	ref.Model = strings.TrimSpace(ref.Model)
+	if ref.Provider == "" || ref.Model == "" {
+		return
+	}
+	r.mu.Lock()
+	delete(r.qualifications, ref.Provider+"\x00"+ref.Model)
+	r.mu.Unlock()
+}
+
 func (r *Router) PrepareHarnessRequest(ref ModelRef, workload HarnessWorkload,
 	request ChatRequest,
 ) (ChatRequest, ModelHarness, error) {

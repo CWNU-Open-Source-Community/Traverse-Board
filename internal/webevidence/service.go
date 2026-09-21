@@ -29,19 +29,21 @@ type Store interface {
 }
 
 type ExecutionScope struct {
-	RunID               string
-	MissionID           string
-	WorkspaceID         string
-	ModelRoute          string
-	Authority           NetworkAuthority
-	RobotsPolicy        RobotsPolicy
-	ProviderFingerprint string
+	RunID                string
+	MissionID            string
+	WorkspaceID          string
+	ModelRoute           string
+	Authority            NetworkAuthority
+	RobotsPolicy         RobotsPolicy
+	ProviderFingerprint  string
+	ConnectorFingerprint string
 }
 
 func (s ExecutionScope) Validate() error {
 	if !validIdentity(s.RunID) || !validIdentity(s.MissionID) ||
 		(s.WorkspaceID != "" && !validIdentity(s.WorkspaceID)) ||
-		(s.ProviderFingerprint != "" && !validDigest(s.ProviderFingerprint)) {
+		(s.ProviderFingerprint != "" && !validDigest(s.ProviderFingerprint)) ||
+		(s.ConnectorFingerprint != "" && !validDigest(s.ConnectorFingerprint)) {
 		return errors.New("web evidence execution scope identity is invalid")
 	}
 	if err := s.Authority.Validate(); err != nil {
@@ -59,8 +61,10 @@ type SearchRequest struct {
 }
 
 type FetchRequest struct {
-	SourceID string `json:"source_id,omitempty"`
-	URL      string `json:"url,omitempty"`
+	SourceID  string `json:"source_id,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Connector string `json:"connector,omitempty"`
+	MaxItems  int    `json:"max_items,omitempty"`
 }
 
 type CiteRequest struct {
@@ -78,6 +82,7 @@ type Service struct {
 	fetcher    FetchBackend
 	now        func() time.Time
 	staleAfter time.Duration
+	connectors map[string]SourceConnector
 }
 
 func (s *Service) WithSearchProviderResolver(resolver SearchProviderResolver) *Service {
@@ -92,7 +97,27 @@ func NewService(store Store, provider SearchProvider, fetcher FetchBackend) *Ser
 		fetcher = NewFetcher(nil)
 	}
 	return &Service{store: store, provider: provider, fetcher: fetcher,
-		now: func() time.Time { return time.Now().UTC() }, staleAfter: DefaultStaleAfter}
+		connectors: make(map[string]SourceConnector),
+		now:        func() time.Time { return time.Now().UTC() }, staleAfter: DefaultStaleAfter}
+}
+
+func (s *Service) WithSourceConnectors(connectors ...SourceConnector) *Service {
+	if s == nil {
+		return s
+	}
+	registry := make(map[string]SourceConnector, len(connectors))
+	for _, connector := range connectors {
+		if connector == nil {
+			continue
+		}
+		name := normalizeConnectorName(connector.Name())
+		if !validConnectorIdentity(name) || strings.TrimSpace(connector.Version()) == "" {
+			continue
+		}
+		registry[name] = connector
+	}
+	s.connectors = registry
+	return s
 }
 
 func (s *Service) WithClock(now func() time.Time) *Service {
@@ -419,6 +444,7 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	}
 	request.SourceID = strings.TrimSpace(request.SourceID)
 	request.URL = strings.TrimSpace(request.URL)
+	request.Connector = normalizeConnectorName(request.Connector)
 	if (request.SourceID == "") == (request.URL == "") {
 		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web fetch requires exactly one of source_id or url")
@@ -427,7 +453,17 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web fetch source_id cannot contain credential material")
 	}
+	if request.Connector != "" && request.Connector != "auto" &&
+		!validConnectorIdentity(request.Connector) {
+		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
+			"web fetch connector is invalid")
+	}
+	if request.MaxItems < 0 || request.MaxItems > MaxConnectorItemLimit {
+		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
+			"web fetch connector item limit must be between 1 and 50")
+	}
 	var source Source
+	var sourceConnector SourceConnector
 	var err error
 	now := s.now().UTC()
 	if request.SourceID != "" {
@@ -446,10 +482,17 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		if err != nil && apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeNotFound {
 			return FetchResult{}, apperror.Normalize(err)
 		}
-		if err != nil {
+		sourceMissing := err != nil
+		var connectorErr error
+		sourceConnector, connectorErr = connectorForURL(s.connectors, canonical, request.Connector)
+		if connectorErr != nil {
+			return FetchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
+				"web fetch source connector is invalid", connectorErr)
+		}
+		if sourceMissing {
 			source, err = SealSource(Source{ID: sourceID,
 				RunID: scope.RunID, MissionID: scope.MissionID, WorkspaceID: scope.WorkspaceID,
-				CanonicalURL: canonical, Provider: "direct", State: SourceDiscovered,
+				CanonicalURL: canonical, Provider: fetchSourceProvider(sourceConnector), State: SourceDiscovered,
 				DiscoveredAt: now})
 		}
 		if err != nil {
@@ -462,11 +505,34 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		return FetchResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"web fetch source does not match the active Run scope")
 	}
+	if sourceConnector == nil {
+		connectorHint := request.Connector
+		if (connectorHint == "" || connectorHint == "auto") &&
+			strings.HasPrefix(source.Provider, "source:") {
+			connectorHint = strings.TrimPrefix(source.Provider, "source:")
+		}
+		sourceConnector, err = connectorForURL(s.connectors, source.CanonicalURL, connectorHint)
+		if err != nil {
+			return FetchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
+				"web fetch source connector is invalid", err)
+		}
+	}
+	if sourceConnector == nil && request.MaxItems != 0 {
+		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
+			"web fetch max_items requires a supported source connector")
+	}
 	if _, err := scope.Authority.Authorize(source.CanonicalURL); err != nil {
 		return FetchResult{}, apperror.Wrap(apperror.CodePolicyDenied,
 			"web fetch source is outside the Run network authority", err)
 	}
 	canonicalRequest := FetchRequest{SourceID: source.ID}
+	if sourceConnector != nil {
+		canonicalRequest.Connector = sourceConnector.Name() + "@" + sourceConnector.Version()
+		canonicalRequest.MaxItems = request.MaxItems
+		if canonicalRequest.MaxItems == 0 {
+			canonicalRequest.MaxItems = DefaultConnectorItemLimit
+		}
+	}
 	fingerprint, _ := RequestFingerprint(canonicalRequest)
 	keyDigest, err := ScopedOperationKeyDigest(scope.RunID, operationKey)
 	if err != nil {
@@ -476,8 +542,35 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	if replay, found, replayErr := s.replayFetch(ctx, scope.RunID, keyDigest, fingerprint); found || replayErr != nil {
 		return replay, replayErr
 	}
-	fetched, fetchErr := s.fetcher.Fetch(ctx, source.CanonicalURL, scope.Authority,
-		effectiveRobotsPolicy(scope.RobotsPolicy))
+	var fetched FetchedContent
+	var fetchErr error
+	if sourceConnector != nil {
+		maxItems := request.MaxItems
+		if maxItems == 0 {
+			maxItems = DefaultConnectorItemLimit
+		}
+		var document ConnectorDocument
+		document, fetchErr = sourceConnector.Read(ctx, source.CanonicalURL, maxItems,
+			scope.Authority)
+		if fetchErr == nil {
+			if canonical, canonicalErr := CanonicalizePublicHTTPSURL(document.CanonicalURL); canonicalErr != nil || canonical != source.CanonicalURL ||
+				!validDigest(document.RawDigest) {
+				fetchErr = errors.New("source connector document identity is invalid")
+			}
+			for _, endpoint := range document.RequestEndpoints {
+				if _, endpointErr := scope.Authority.Authorize(endpoint); endpointErr != nil {
+					fetchErr = errors.New("source connector endpoint escaped the Run authority")
+					break
+				}
+			}
+		}
+		if fetchErr == nil {
+			fetched = connectorDocumentAsFetched(document, sourceConnector)
+		}
+	} else {
+		fetched, fetchErr = s.fetcher.Fetch(ctx, source.CanonicalURL, scope.Authority,
+			effectiveRobotsPolicy(scope.RobotsPolicy))
+	}
 	if fetchErr == nil {
 		requested, requestedErr := scope.Authority.Authorize(fetched.RequestedURL)
 		final, finalErr := scope.Authority.Authorize(fetched.FinalURL)
@@ -494,7 +587,26 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		FetchedAt:  fetchedAt, StaleAt: fetchedAt.Add(s.staleAfter), Digest: DigestBytes(nil),
 		MIME: "application/octet-stream", State: SourceFailed, Robots: "unknown",
 		Provider: source.Provider}
+	if sourceConnector != nil {
+		snapshot.Connector = sourceConnector.Name()
+		snapshot.ConnectorVersion = sourceConnector.Version()
+		snapshot.ContentKind = "connector_error"
+		snapshot.Coverage = "none"
+		snapshot.RawDigest = DigestBytes(nil)
+		snapshot.RequestEndpoints = []string{source.CanonicalURL}
+	}
 	if fetchErr != nil {
+		if sourceConnector != nil {
+			status, endpoint, retryAfter, rateLimitReset, remoteRequestID :=
+				connectorErrorObservation(fetchErr)
+			snapshot.HTTPStatus = status
+			if endpoint != "" {
+				snapshot.RequestEndpoints = []string{endpoint}
+			}
+			snapshot.RetryAfter = retryAfter
+			snapshot.RateLimitReset = rateLimitReset
+			snapshot.RemoteRequestID = remoteRequestID
+		}
 		if strings.TrimSpace(fetched.Robots) != "" {
 			snapshot.Robots = fetched.Robots
 		}
@@ -520,7 +632,20 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		snapshot.Body = body
 		snapshot.Robots = fetched.Robots
 		snapshot.Redirects = fetched.Redirects
+		snapshot.Connector = fetched.Connector
+		snapshot.ConnectorVersion = fetched.ConnectorVersion
+		snapshot.ContentKind = fetched.ContentKind
+		snapshot.RequestEndpoints = append([]string(nil), fetched.RequestEndpoints...)
+		snapshot.RawDigest = fetched.ConnectorRawDigest
+		snapshot.Coverage = fetched.Coverage
+		snapshot.ItemsIncluded = fetched.ItemsIncluded
+		snapshot.ItemsAvailable = fetched.ItemsAvailable
+		snapshot.TruncationReason = fetched.TruncationReason
+		snapshot.ContinuationFailure = fetched.ContinuationFailure
 		snapshot.Truncated = fetched.Truncated || redactionTruncated
+		if snapshot.Connector != "" && snapshot.Truncated && snapshot.TruncationReason == "" {
+			snapshot.TruncationReason = "body_limit_or_redaction"
+		}
 		snapshot.State = SourceFetched
 		if snapshot.Truncated || fetched.Parsed.Partial {
 			snapshot.State = SourcePartial
@@ -828,6 +953,10 @@ func validateStoredSearchResult(runID, operationDigest string, result SearchResu
 }
 
 func classifyFetchError(err error) string {
+	var connectorErr *connectorError
+	if errors.As(err, &connectorErr) {
+		return connectorFailureCode(err)
+	}
 	value := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(value, "robots"):

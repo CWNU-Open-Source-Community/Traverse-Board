@@ -30,6 +30,7 @@ type AvailableModelRouteView struct {
 	ProviderID          string               `json:"provider_id"`
 	ProviderName        string               `json:"provider_name"`
 	Model               string               `json:"model"`
+	DefinitionRevision  uint64               `json:"definition_revision"`
 	Enabled             bool                 `json:"enabled"`
 	CredentialStatus    string               `json:"credential_status"`
 	QualificationStatus string               `json:"qualification_status"`
@@ -178,6 +179,7 @@ func availableModelRouteCollectionView(catalog application.ModelRouteCatalog) Av
 	for index, route := range catalog.Routes {
 		routes[index] = AvailableModelRouteView{ProviderID: route.ProviderID,
 			ProviderName: route.ProviderName, Model: route.Model, Enabled: route.Enabled,
+			DefinitionRevision:  route.DefinitionRevision,
 			CredentialStatus:    route.CredentialStatus,
 			QualificationStatus: route.QualificationStatus,
 			HarnessReady:        route.HarnessReady, Selectable: route.Selectable,

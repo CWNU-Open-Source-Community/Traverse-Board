@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
@@ -215,15 +216,25 @@ func TestHistoricalWebFetchFailureContinuesThroughOrdinaryThreadMessage(t *testi
 	if err != nil || len(snapshots) != 1 {
 		t.Fatalf("saved snapshots=%d err=%v", len(snapshots), err)
 	}
-	var sawOriginal, sawEvidence, sawErrorProvenance bool
+	rounds, err := st.ListRunSupervisorToolRoundsPage(t.Context(), authorization.RunID, 0, 10)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
+		t.Fatalf("original tool journal unavailable: %#v err=%v", rounds, err)
+	}
+	digest := session.ContentSHA256(rounds[0].Calls[0].ResultJSON)
+	var sawOriginal, sawEvidence, sawSavedReference, sawErrorProvenance bool
 	for _, item := range requests[len(requests)-1].Messages {
 		sawOriginal = sawOriginal || item.Role == "user" && strings.Contains(item.Content, request.Content)
 		sawEvidence = sawEvidence || strings.Contains(item.Content, "web_fetch") && strings.Contains(item.Content, "result SHA256") &&
-			strings.Contains(item.Content, snapshots[0].ID) && strings.Contains(item.Content, snapshots[0].SourceID)
+			strings.Contains(item.Content, digest)
+		// The immutable failure preview and the full saved-reference projection
+		// are separate messages. A longer tool envelope can truncate the preview
+		// before the IDs; the supplemental record must retain their exact digest.
+		sawSavedReference = sawSavedReference || strings.Contains(item.Content, "web_fetch") && strings.Contains(item.Content, "result_sha256") &&
+			strings.Contains(item.Content, digest) && strings.Contains(item.Content, snapshots[0].ID) && strings.Contains(item.Content, snapshots[0].SourceID)
 		sawErrorProvenance = sawErrorProvenance || strings.Contains(item.Content, "not the original model cause") && strings.Contains(item.Content, "provider request failed")
 	}
-	if len(requests) != 3 || !sawOriginal || !sawEvidence || !sawErrorProvenance {
-		t.Fatalf("new model lost preserved history: calls=%d original=%t evidence=%t error_provenance=%t", len(requests), sawOriginal, sawEvidence, sawErrorProvenance)
+	if len(requests) != 3 || !sawOriginal || !sawEvidence || !sawSavedReference || !sawErrorProvenance {
+		t.Fatalf("new model lost preserved history: calls=%d original=%t evidence=%t saved_reference=%t error_provenance=%t", len(requests), sawOriginal, sawEvidence, sawSavedReference, sawErrorProvenance)
 	}
 	failure, found, err := st.GetThreadTurnFailure(t.Context(), authorization.RunID, first.Submission.Message.ID)
 	if err != nil || !found || failure.ErrorCode != string(apperror.CodeFailedPrecondition) {

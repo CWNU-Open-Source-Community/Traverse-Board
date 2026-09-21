@@ -116,9 +116,11 @@ func migrationTriggerBeforeForTest(name string, version int) string {
 func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
-	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`,
+	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	statements = append(statements, removeSchemaV162ForTestStatements()...)
+	statements = append(statements,
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert;`,
-		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable;`}
+		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable;`)
 	rebuild := rebuildRiskEscalationSupervisorToolCalls(browserActionSupervisorToolCallCreate(next), next, previous)
 	for i, statement := range rebuild {
 		if statement == `INSERT INTO `+next+` SELECT * FROM `+previous+`;` {
@@ -151,6 +153,121 @@ func removeSchemaV157ForTestStatements() []string {
 	for _, name := range []string{"trg_session_message_provenance_insert", "trg_run_execution_handoff_item_insert"} {
 		statements = append(statements, "DROP TRIGGER "+name, migrationTriggerBeforeForTest(name, 157))
 	}
-	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 161;`,
+	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 166;`,
 		`PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
+}
+
+// This is a fixture-only inverse to v161. The caller already disables foreign
+// keys and rename propagation. It restores every changed contract, not just the
+// triggers that happen to prevent an older fixture from renaming its tables.
+// The caller's existing Supervisor rebuild also removes v165's source_search.
+func removeSchemaV162ForTestStatements() []string {
+	statements := []string{
+		`DROP TRIGGER trg_web_fetch_failure_observation_handoff_item_insert;`,
+		`DROP TRIGGER trg_run_execution_handoff_operation_insert;`,
+		migrationTriggerBeforeForTest("trg_run_execution_handoff_operation_insert", 166),
+	}
+	for _, name := range []string{"trg_file_edit_auto_authorization_insert", "trg_file_edit_auto_authorization_update", "trg_file_edit_auto_authorization_delete", "trg_file_edit_auto_content_update", "trg_file_edit_auto_approval_insert", "trg_file_edit_auto_approval_update", "trg_file_edit_auto_apply_insert"} {
+		statements = append(statements, "DROP TRIGGER "+name+";")
+	}
+	// Reject incompatible modern data rather than silently discarding authority.
+	statements = append(statements,
+		`CREATE TEMP TABLE legacy_fixture_empty_authority (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_authority SELECT count(*) FROM file_edit_auto_authorizations;`,
+		`DROP TABLE legacy_fixture_empty_authority;`,
+		`DROP TABLE file_edit_auto_authorizations;`)
+	for _, name := range []string{"trg_command_runtime_job_insert_scope", "trg_command_runtime_job_insert_limit", "trg_command_runtime_job_update_transition", "trg_command_runtime_job_delete_immutable"} {
+		statements = append(statements, "DROP TRIGGER "+name+";")
+	}
+	const jobs = "command_runtime_jobs_v162_restore"
+	createJobs := strings.Replace(requireMigrationStatement("CREATE TABLE command_runtime_jobs_v142 (", debugFullAccessInheritanceStatements), "command_runtime_jobs_v142", jobs, 1)
+	columns := strings.TrimSuffix(commandRuntimeJobColumns, ",\n\tpermission_runtime_epoch, permission_generation")
+	if columns == commandRuntimeJobColumns {
+		panic("legacy command runtime columns changed")
+	}
+	columns = "rowid,protocol_version," + columns
+	statements = append(statements,
+		`CREATE TEMP TABLE legacy_fixture_empty_grant (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_grant SELECT count(*) FROM command_runtime_jobs WHERE permission_runtime_epoch<>'' OR permission_generation<>0;`,
+		`DROP TABLE legacy_fixture_empty_grant;`,
+		createJobs,
+		"INSERT INTO "+jobs+" ("+columns+") SELECT "+columns+" FROM command_runtime_jobs;",
+		`DROP TABLE command_runtime_jobs;`,
+		"ALTER TABLE "+jobs+" RENAME TO command_runtime_jobs;",
+		requireMigrationStatement("CREATE INDEX idx_command_runtime_jobs_run_created", commandRuntimeStatements),
+		requireMigrationStatement("CREATE INDEX idx_command_runtime_jobs_active", commandRuntimeStatements))
+	for _, name := range []string{"trg_command_runtime_job_insert_scope", "trg_command_runtime_job_insert_limit", "trg_command_runtime_job_update_transition", "trg_command_runtime_job_delete_immutable"} {
+		statements = append(statements, migrationTriggerBeforeForTest(name, 163))
+	}
+	const operations = "web_evidence_operations_v164_restore"
+	createOperations := strings.Replace(requireMigrationStatement("CREATE TABLE web_evidence_operations (", webEvidenceStatements), "web_evidence_operations", operations, 1)
+	const operationColumns = "rowid,key_digest,protocol_version,request_fingerprint,run_id,tool_name,response_json,created_at"
+	statements = append(statements, createOperations,
+		"INSERT INTO "+operations+" ("+operationColumns+") SELECT "+operationColumns+" FROM web_evidence_operations;",
+		`DROP TABLE web_evidence_operations;`,
+		"ALTER TABLE "+operations+" RENAME TO web_evidence_operations;",
+		requireMigrationStatement("CREATE INDEX idx_web_evidence_operations_run", webEvidenceStatements),
+		requireMigrationTrigger("trg_web_evidence_operation_immutable", webEvidenceStatements),
+		requireMigrationTrigger("trg_web_evidence_operation_delete_immutable", webEvidenceStatements))
+	return statements
+}
+
+// Current writers may seed only historical values. Both helpers restore the
+// exact schema and ledger before the migration under test is allowed to run.
+func addCurrentCommandGrantColumnsForLegacySeed(t testing.TB, state *SQLiteStore) func() {
+	t.Helper()
+	return withLegacySeedSchema(t, state, []string{
+		`ALTER TABLE command_runtime_jobs ADD COLUMN permission_runtime_epoch TEXT NOT NULL DEFAULT '' CHECK(permission_runtime_epoch='');`,
+		`ALTER TABLE command_runtime_jobs ADD COLUMN permission_generation INTEGER NOT NULL DEFAULT 0 CHECK(permission_generation=0);`,
+	}, []string{
+		`ALTER TABLE command_runtime_jobs DROP COLUMN permission_runtime_epoch;`,
+		`ALTER TABLE command_runtime_jobs DROP COLUMN permission_generation;`,
+	})
+}
+
+func addEmptyCurrentAutoAuthorizationForLegacySeed(t testing.TB, state *SQLiteStore) func() {
+	t.Helper()
+	return withLegacySeedSchema(t, state, []string{
+		requireMigrationStatement("CREATE TABLE file_edit_auto_authorizations (", automaticFileEditMoveAuthorizationStatements),
+		`CREATE TRIGGER legacy_fixture_no_automatic_authority BEFORE INSERT ON file_edit_auto_authorizations BEGIN SELECT RAISE(ABORT, 'historical fixture cannot contain automatic authority'); END;`,
+	}, []string{
+		`CREATE TEMP TABLE legacy_fixture_empty_authority (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_authority SELECT count(*) FROM file_edit_auto_authorizations;`,
+		`DROP TABLE legacy_fixture_empty_authority;`,
+		`DROP TABLE file_edit_auto_authorizations;`,
+	})
+}
+
+func withLegacySeedSchema(t testing.TB, state *SQLiteStore, setup, restore []string) func() {
+	t.Helper()
+	before := legacyFixtureSchema(t, state)
+	ledger, err := state.loadAppliedMigrations(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMigrationPlan(migrationPlan(), ledger); err != nil {
+		t.Fatal(err)
+	}
+	execute := func(statements []string) {
+		for _, statement := range statements {
+			if _, err := state.db.ExecContext(t.Context(), statement); err != nil {
+				t.Fatalf("legacy seed schema %q: %v", statement, err)
+			}
+		}
+	}
+	execute(setup)
+	return func() {
+		t.Helper()
+		execute(restore)
+		if after := legacyFixtureSchema(t, state); !reflect.DeepEqual(after, before) {
+			t.Fatal("legacy seed changed the historical schema")
+		}
+		after, err := state.loadAppliedMigrations(t.Context())
+		if err != nil || !reflect.DeepEqual(after, ledger) {
+			t.Fatalf("legacy seed changed migration prefix: %v", err)
+		}
+		if err := verifySQLiteForeignKeys(t.Context(), state.db); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

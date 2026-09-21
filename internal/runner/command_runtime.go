@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -70,12 +71,15 @@ func (p CommandRuntimeStdinPolicy) Valid() bool {
 type CommandRuntimeNetwork string
 
 const (
-	// Native commands do not have a portable OS network sandbox. The ordinary
-	// runtime therefore accepts only disabled intent and sends network-looking
-	// commands through Policy, where they fail closed or require the separate
-	// reviewed host-command path.
 	CommandRuntimeNetworkDisabled CommandRuntimeNetwork = "disabled"
+	// Host intent is executable only through a host-unsandboxed adapter with
+	// Full Access (or Debug) authority. Sandbox adapters remain network-denied.
+	CommandRuntimeNetworkHost CommandRuntimeNetwork = "host"
 )
+
+func (n CommandRuntimeNetwork) Valid() bool {
+	return n == CommandRuntimeNetworkDisabled || n == CommandRuntimeNetworkHost
+}
 
 type CommandRuntimeCredentialPolicy string
 
@@ -154,7 +158,7 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 		redact.String(spec.Executable) != spec.Executable || spec.Environment == nil ||
 		!spec.StdinPolicy.Valid() ||
 		(spec.StdinPolicy == CommandRuntimeStdinClosed && !spec.CloseInitialStdin) ||
-		spec.Network != CommandRuntimeNetworkDisabled ||
+		!spec.Network.Valid() ||
 		spec.Credentials != CommandRuntimeCredentialsNone ||
 		spec.TimeoutMilliseconds < 1 ||
 		spec.TimeoutMilliseconds > MaxCommandRuntimeTimeout.Milliseconds() ||
@@ -205,7 +209,8 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 			return CommandRuntimeSpec{}, fmt.Errorf("%w: %s", ErrCommandRuntimeBoundary, commandRuntimeProcessProfileRestriction)
 		}
 	}
-	environment, _, _, err := normalizeCommandRuntimeEnvironment(spec.Environment)
+	environment, _, _, err := normalizeCommandRuntimeEnvironment(spec.Environment,
+		spec.Network)
 	if err != nil {
 		return CommandRuntimeSpec{}, err
 	}
@@ -215,6 +220,12 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 
 func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 	workspaceRoot string,
+) (CommandRuntimeResolvedSpec, error) {
+	return normalizeCommandRuntimeSpec(spec, workspaceRoot, true)
+}
+
+func normalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
+	workspaceRoot string, systemProxyFallback bool,
 ) (CommandRuntimeResolvedSpec, error) {
 	spec, err := NormalizeCommandRuntimeIntent(spec)
 	if err != nil {
@@ -266,21 +277,28 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 	if err != nil {
 		return CommandRuntimeResolvedSpec{}, err
 	}
-	environmentSpec, environment, environmentSHA, err :=
-		normalizeCommandRuntimeEnvironment(spec.Environment)
+	environmentSpec, environment, _, err :=
+		normalizeCommandRuntimeEnvironment(spec.Environment, spec.Network)
 	if err != nil {
 		return CommandRuntimeResolvedSpec{}, err
 	}
-	if runtime.GOOS == "windows" && spec.Profile == CommandRuntimePowerShell &&
-		strings.EqualFold(filepath.Base(executablePath), "powershell.exe") {
-		// Windows PowerShell 5 fails before executing -NoProfile commands when
-		// USERPROFILE is empty. Use the already canonical Workspace path, never
-		// the host user's profile, and bind this actual value into the receipt.
-		// This startup requirement does not add an isolation guarantee.
-		environment = replaceCommandRuntimeEnvironment(environment, "USERPROFILE", root)
-		encoded, _ := json.Marshal(environment)
-		environmentSHA = sha256.Sum256(encoded)
+	if systemProxyFallback {
+		environment = commandRuntimePlatformEnvironment(executablePath, root, environment,
+			spec.Network, spec.Environment)
+	} else {
+		environment = commandRuntimePlatformEnvironmentWithoutProxy(executablePath,
+			root, environment, spec.Network, spec.Environment)
 	}
+	sort.Slice(environment, func(left int, right int) bool {
+		leftKey, _, _ := strings.Cut(environment[left], "=")
+		rightKey, _, _ := strings.Cut(environment[right], "=")
+		return strings.ToLower(leftKey) < strings.ToLower(rightKey)
+	})
+	encodedEnvironment, err := json.Marshal(environment)
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, ErrCommandRuntimeBoundary
+	}
+	environmentSHA := sha256.Sum256(encodedEnvironment)
 	spec.Environment = environmentSpec
 	rootDigest := sha256.Sum256([]byte(root))
 	return CommandRuntimeResolvedSpec{
@@ -437,7 +455,9 @@ func cloneCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) []Comman
 	return result
 }
 
-func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
+func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment,
+	network CommandRuntimeNetwork,
+) (
 	[]CommandRuntimeEnvironment, []string, [sha256.Size]byte, error,
 ) {
 	if len(values) > MaxCommandRuntimeEnvironment {
@@ -453,8 +473,10 @@ func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
 	for index := range result {
 		entry := &result[index]
 		entry.Name = strings.TrimSpace(entry.Name)
-		if !validCommandRuntimeEnvironmentName(entry.Name) ||
+		if !validCommandRuntimeEnvironmentName(entry.Name, network) ||
 			!validCommandRuntimeText(entry.Value, false) ||
+			(commandRuntimeProxyEnvironmentName(entry.Name) &&
+				!validCommandRuntimeProxyValue(entry.Name, entry.Value)) ||
 			redact.String(entry.Name+"="+entry.Value) != entry.Name+"="+entry.Value {
 			return nil, nil, [sha256.Size]byte{}, fmt.Errorf("%w: environment entry is invalid or secret-like", ErrCommandRuntimeBoundary)
 		}
@@ -468,7 +490,7 @@ func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
 	if total > MaxCommandRuntimeEnvironmentBytes {
 		return nil, nil, [sha256.Size]byte{}, fmt.Errorf("%w: environment is too large", ErrCommandRuntimeBoundary)
 	}
-	merged := commandRuntimeBaseEnvironment()
+	merged := commandRuntimeBaseEnvironment(network)
 	for _, entry := range result {
 		merged = replaceCommandRuntimeEnvironment(merged, entry.Name, entry.Value)
 	}
@@ -484,7 +506,9 @@ func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
 	return result, merged, sha256.Sum256(encoded), nil
 }
 
-func validCommandRuntimeEnvironmentName(value string) bool {
+func validCommandRuntimeEnvironmentName(value string,
+	network CommandRuntimeNetwork,
+) bool {
 	if value == "" || len(value) > 128 || strings.ContainsAny(value, "=\x00") {
 		return false
 	}
@@ -496,6 +520,9 @@ func validCommandRuntimeEnvironmentName(value string) bool {
 		return false
 	}
 	lower := strings.ToLower(value)
+	if commandRuntimeProxyEnvironmentName(value) {
+		return network == CommandRuntimeNetworkHost
+	}
 	if strings.HasPrefix(lower, "git_") || strings.HasPrefix(lower, "ssh_") {
 		return false
 	}
@@ -528,6 +555,47 @@ func validCommandRuntimeEnvironmentName(value string) bool {
 		return false
 	}
 	return !strings.HasPrefix(lower, "dyld_")
+}
+
+func commandRuntimeProxyEnvironmentName(name string) bool {
+	switch strings.ToUpper(name) {
+	case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
+		return true
+	default:
+		return false
+	}
+}
+
+func validCommandRuntimeProxyValue(name, value string) bool {
+	if strings.EqualFold(name, "NO_PROXY") {
+		if strings.Contains(value, "://") || strings.ContainsAny(value, "@=?#;\\") {
+			return false
+		}
+		for _, part := range strings.Split(value, ",") {
+			if strings.TrimSpace(part) != part || strings.ContainsAny(part, " \t\r\n") {
+				return false
+			}
+		}
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
+		parsed.Opaque != "" || parsed.Path != "" || parsed.RawQuery != "" ||
+		parsed.Fragment != "" || parsed.RawFragment != "" {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return false
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return false
+		}
+	}
+	return !strings.ContainsAny(value, "@?#\\")
 }
 
 func validCommandRuntimeText(value string, allowLineWhitespace bool) bool {
@@ -651,7 +719,7 @@ func validateCommandRuntimeLaunchDirectory(spec CommandRuntimeResolvedSpec) erro
 	return nil
 }
 
-func commandRuntimeBaseEnvironment() []string {
+func commandRuntimeBaseEnvironment(network CommandRuntimeNetwork) []string {
 	allowed := commandRuntimeInheritedEnvironmentNames()
 	values := make([]string, 0, len(allowed)+16)
 	for _, name := range allowed {
@@ -664,9 +732,22 @@ func commandRuntimeBaseEnvironment() []string {
 	fixed := commandRuntimeFixedEnvironment()
 	for _, entry := range fixed {
 		name, value, _ := strings.Cut(entry, "=")
+		if network == CommandRuntimeNetworkHost && commandRuntimeOfflineEnvironmentName(name) {
+			continue
+		}
 		values = replaceCommandRuntimeEnvironment(values, name, value)
 	}
 	return values
+}
+
+func commandRuntimeOfflineEnvironmentName(name string) bool {
+	switch strings.ToUpper(name) {
+	case "GIT_ALLOW_PROTOCOL", "GOPROXY", "GOSUMDB", "CARGO_NET_OFFLINE",
+		"NPM_CONFIG_OFFLINE", "PIP_NO_INDEX", "UV_OFFLINE":
+		return true
+	default:
+		return false
+	}
 }
 
 func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {

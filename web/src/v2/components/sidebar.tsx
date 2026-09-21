@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Archive, ArchiveRestore, ArrowLeft, Box, Cpu, Folder, MessagesSquare, MoreHorizontal, RefreshCw,
-  Info, Keyboard, PackageSearch, Palette, PlugZap, Route, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
+  Info, Keyboard, PackageSearch, Palette, PlugZap, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
 import type { ThreadView, WorkspaceView } from "../../api/types";
 
 export type V2SettingsSection = "general" | "permissions" | "appearance" | "voice" |
@@ -115,7 +115,6 @@ const settingsGroups: Array<{ label: string; items: Array<{
   ] },
   { label: "模型与扩展", items: [
     { id: "models", label: "模型", icon: Cpu },
-    { id: "advanced-models", label: "全局模型路由与价格", icon: Route },
     { id: "extensions", label: "扩展与代码智能", icon: PlugZap },
     { id: "skills", label: "Skill 包", icon: PackageSearch },
   ] },
@@ -142,12 +141,13 @@ export function V2SettingsSidebar({ section, onBack, onSelect }: {
       {settingsGroups.map((group) => {
         const items = group.items.filter((item) => !normalized || item.label.toLocaleLowerCase().includes(normalized));
         if (!items.length) return null;
-        return <section key={group.label}><h2>{group.label}</h2>{items.map(({ id, label, icon: Icon }) =>
-          <button aria-current={(section === id || section === "plugins" && id === "extensions" ||
-            section === "keyboard" && id === "shortcuts") ? "page" : undefined}
-            className={(section === id || section === "plugins" && id === "extensions" ||
-              section === "keyboard" && id === "shortcuts") ? "is-active" : ""}
-            key={id} onClick={() => onSelect(id)} type="button"><Icon aria-hidden="true" size={16} />{label}</button>)}</section>;
+        return <section key={group.label}><h2>{group.label}</h2>{items.map(({ id, label, icon: Icon }) => {
+          const active = section === id || section === "advanced-models" && id === "models" ||
+            section === "plugins" && id === "extensions" || section === "keyboard" && id === "shortcuts";
+          return <button aria-current={active ? "page" : undefined}
+            className={active ? "is-active" : ""} key={id} onClick={() => onSelect(id)}
+            type="button"><Icon aria-hidden="true" size={16} />{label}</button>;
+        })}</section>;
       })}
     </nav>
     <div className="v2-settings-archive"><span>已归档</span>

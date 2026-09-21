@@ -2,6 +2,7 @@ package application
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,35 @@ import (
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/webevidence"
 )
+
+func TestSupervisorSourceSearchContextPreservesFailuresAndOriginalReceipt(t *testing.T) {
+	call, _ := searchContextFixture(t)
+	call.ToolName = "source_search"
+	original := webevidence.SourceSearchResult{ProtocolVersion: webevidence.SourceSearchProtocolVersion,
+		Query: "search", Connectors: []string{"github"}, SearchedAt: call.CreatedAt, Partial: true,
+		Sources: []webevidence.SearchStub{}, Failures: []webevidence.ConnectorFailure{{Connector: "github", Code: "rate_limited",
+			HTTPStatus: 403, Endpoint: "https://api.github.com/search/issues?q=search", RateLimitReset: "1789923975", RemoteRequestID: "request-id"}}}
+	encoded, _ := json.Marshal(original)
+	envelope, err := marshalSupervisorToolResultEnvelope(supervisorToolResultEnvelope{Version: supervisorToolResultVersion,
+		Tool: call.ToolName, Status: "completed", Stdout: string(encoded)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call.ResultJSON = string(envelope)
+	projected, err := supervisorSourceSearchContextResult(call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer supervisorToolResultEnvelope
+	var output webSearchContextOutput
+	if json.Unmarshal([]byte(projected), &outer) != nil || json.Unmarshal([]byte(outer.Stdout), &output) != nil {
+		t.Fatal("invalid projection")
+	}
+	if !output.Partial || !reflect.DeepEqual(output.Failures, original.Failures) || !reflect.DeepEqual(output.Connectors, original.Connectors) ||
+		output.OriginalResult.ExpectedSHA256 != session.ContentSHA256(call.ResultJSON) || output.SourceCount != 0 || !output.ContextExcerpt {
+		t.Fatalf("lost connector failure or receipt identity: %+v", output)
+	}
+}
 
 func searchContextFixture(t *testing.T) (domain.SupervisorToolCall, webevidence.SearchResult) {
 	t.Helper()

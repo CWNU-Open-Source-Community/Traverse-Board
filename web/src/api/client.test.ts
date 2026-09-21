@@ -3074,6 +3074,7 @@ describe("CyberAgentClient", () => {
     const catalog = {
       protocol_version: "model_route_catalog.v1", generation: 9,
       routes: [{ provider_id: "deepseek", provider_name: "DeepSeek", model: "deepseek-chat",
+		definition_revision: 0,
         enabled: true, credential_status: "configured", qualification_status: "verified",
         harness_ready: true, selectable: true, unavailable_reason: "",
         default_for_routes: ["code"] }],
@@ -3125,6 +3126,7 @@ describe("CyberAgentClient", () => {
     const invalidCatalog = {
       protocol_version: "model_route_catalog.v1", generation: 1,
       routes: [{ provider_id: "deepseek", provider_name: "DeepSeek", model: "deepseek-chat",
+		definition_revision: 0,
         enabled: true, credential_status: "configured", qualification_status: "verified",
         harness_ready: true, selectable: true, unavailable_reason: "credential_not_configured",
         default_for_routes: [] }],

@@ -60,6 +60,12 @@ func TestSupervisorThreadPromptUsesExactEndTurnBinding(t *testing.T) {
 			if strings.Contains(text.String(), "finish ends only the current reply") != test.want {
 				t.Fatal("reply guidance did not match verified Thread binding")
 			}
+			if !strings.Contains(text.String(),
+				"A new create, replace, non-overwriting move, or reversal that resolves to create/replace") ||
+				!strings.Contains(text.String(),
+					"Direct deletes and reversals that resolve to delete still require operator review") {
+				t.Fatal("Full Access move and destructive-operation guidance is stale")
+			}
 			for _, guidance := range []string{
 				"tool-free action=continue after tool results is not a finished reply",
 				"Outside an explicitly announced Harness scheduling boundary",

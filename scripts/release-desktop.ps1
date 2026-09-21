@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "build/desktop",
-    [string]$Version = "v0.1.0",
+    [string]$Version = "v1.0.0",
     [switch]$SkipSmoke
 )
 

@@ -35,7 +35,7 @@ export function V2SkillSettings({ client, desktop }: { client: CyberAgentClient;
   const [previewOpen, setPreviewOpen] = useState(false);
   return <><h1>Skill 包</h1><p className="v2-settings-lead">
     将已有技能包登记到本地技能库。安装不授予执行权限，也不代表当前任务已经加载或执行它。
-  </p><section className="v2-settings-section v2-shared-settings"><div className="v2-settings-card">
+  </p><section className="v2-settings-section v2-shared-settings"><div className="v2-settings-card v2-skill-settings-card">
     {desktop ? <>
       <p>先预览 ZIP 包的结构、来源与文件，再确认安装到 Code 或 Cyber 工作面。</p>
       <button className="settings-action" onClick={() => setPreviewOpen(true)} type="button">预览 Skill 包</button>
@@ -65,7 +65,7 @@ export function V2InspectorPreferences({ onOpenInspector }: {
   };
   return <><h1>Inspector 偏好与诊断</h1><p className="v2-settings-lead">
     这些显示偏好保存在本机，仅调整 Inspector 的列表间距与高级导航，不改变任务权限或执行状态。
-  </p><section className="v2-settings-section"><div className="v2-settings-card v2-inspector-preferences">
+  </p><section className="v2-settings-section v2-shared-settings"><div className="v2-settings-card v2-inspector-preferences">
     <div><strong>Inspector 内容间距</strong><div className="v2-setting-segmented" role="group" aria-label="Inspector 内容间距">
       {(["comfortable", "compact"] as const).map((value) => <button aria-pressed={density === value}
         key={value} onClick={() => changeDensity(value)} type="button">{value === "compact" ? "紧凑" : "舒展"}</button>)}
@@ -74,7 +74,7 @@ export function V2InspectorPreferences({ onOpenInspector }: {
       {(["compact", "diagnostic"] as const).map((value) => <button aria-pressed={navigation === value}
         key={value} onClick={() => changeNavigation(value)} type="button">{value === "compact" ? "精简" : "完整诊断"}</button>)}
     </div></div>
-    <button className="v2-setting-link" onClick={(event) => onOpenInspector(event.currentTarget)} type="button">打开 Inspector</button>
+    <button className="settings-action" onClick={(event) => onOpenInspector(event.currentTarget)} type="button">打开 Inspector</button>
   </div></section></>;
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
-import type { ThreadView, WorkspaceView } from "../../api/types";
+import type { ProviderDefinitionView, ThreadView, WorkspaceView } from "../../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../../lib/appearance";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { v2QueryKeys } from "../query-keys";
@@ -129,9 +129,16 @@ function AppearanceSettings() {
     </div></section></>;
 }
 
-function ModelSettingsPage({ client }: { client: CyberAgentClient }) {
+function ModelSettingsPage({ client, initialAdvancedOpen = false, prepareForDraft = false,
+  setupToken = "", onModelReady }: {
+  client: CyberAgentClient; initialAdvancedOpen?: boolean; prepareForDraft?: boolean;
+  setupToken?: string;
+  onModelReady?: (token: string, definition: ProviderDefinitionView) => void;
+}) {
   const [selected, setSelected] = useState<V2ConfiguredModelProviderPreset | null>(null);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen);
+  useEffect(() => { if (initialAdvancedOpen) setAdvancedOpen(true); }, [initialAdvancedOpen]);
   const selectedIDRef = useRef("");
   const copilotTriggerRef = useRef<HTMLButtonElement | null>(null);
   const credentials = useQuery({
@@ -170,13 +177,26 @@ function ModelSettingsPage({ client }: { client: CyberAgentClient }) {
     setSelected(preset);
   };
 
+  const advancedPanel = <section className="v2-model-advanced">
+      <button aria-expanded={advancedOpen} className="v2-model-advanced-toggle"
+        onClick={() => setAdvancedOpen((open) => !open)} type="button">
+        高级模型设置：默认模型、能力诊断与费用预算
+      </button>
+      {advancedOpen && <><p>新对话可在输入区直接选模型；这里管理未单独选择时的默认值。
+        价格表只用于启用金额上限的任务。</p>
+        <ModelAvailabilitySettings client={client} /></>}
+    </section>;
+
   if (selected?.draft) {
-    return <V2ProviderSettings client={client} initialPreset={selected.draft}
-      onExit={restoreCatalogFocus} />;
+    return <>{initialAdvancedOpen && advancedPanel}
+      <V2ProviderSettings client={client} initialPreset={selected.draft}
+        onExit={restoreCatalogFocus} prepareForDraft={prepareForDraft}
+        onReady={(definition) => onModelReady?.(setupToken, definition)} /></>;
   }
 
   return <>
     <V2ModelSettings client={client} onSelectPreset={selectPreset} presets={presets} />
+    {advancedPanel}
     <V2ConfirmDialog confirmLabel="知道了"
       description="GitHub Copilot 使用 GitHub/Copilot 账户与订阅席位，不是通用 API Key 接口。Traverse 会把它作为独立的账户连接器接入；当前版本尚未完成 Copilot SDK 登录，因此不会把 PAT 或任意 Base URL 冒充为 Copilot 推理凭据。"
       onCancel={() => setCopilotOpen(false)} onConfirm={() => setCopilotOpen(false)}
@@ -266,7 +286,8 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 }
 
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
-  onOpenInspector, onOpenThread, desktop = desktopBridgeAvailable() }: {
+  onOpenInspector, onOpenThread, prepareModelForDraft = false, modelSetupToken = "",
+  onModelReady, desktop = desktopBridgeAvailable() }: {
   client: CyberAgentClient;
   section: V2SettingsSection;
   threadID: string;
@@ -274,6 +295,9 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
   onSelectSection: (section: V2SettingsSection) => void;
   onOpenThread?: (id: string) => void;
   onOpenInspector: (returnFocus?: HTMLElement | null) => void;
+  prepareModelForDraft?: boolean;
+  modelSetupToken?: string;
+  onModelReady?: (token: string, definition: ProviderDefinitionView) => void;
   desktop?: boolean;
 }) {
   return <main className="v2-settings-main"><div className="v2-settings-toolbar" />
@@ -284,18 +308,19 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
         本页管理当前打开的对话。运行中提高权限不会改变当前执行，将从下一次执行生效；降低权限会撤销相应能力。
       </p>
         <section className="v2-settings-section"><h2>任务权限</h2>
-          <V2PermissionControl client={client} threadID={threadID} variant="settings" />
+          <V2PermissionControl client={client} threadID={threadID} variant="settings"
+            onOpenModelSettings={() => onSelectSection("models")} />
         </section>
         <V2ExecutionSettings client={client} threadID={threadID} workspaces={workspaces} />
         <section className="v2-settings-section"><V2RuntimeCapabilityControl /></section></>}
       {section === "appearance" && <AppearanceSettings />}
       {section === "archived" && <ArchivedSettings client={client} onOpenThread={onOpenThread} />}
-      {section === "models" && <ModelSettingsPage client={client} />}
+      {(section === "models" || section === "advanced-models") &&
+        <ModelSettingsPage client={client} initialAdvancedOpen={section === "advanced-models"}
+          prepareForDraft={prepareModelForDraft} setupToken={modelSetupToken}
+          onModelReady={onModelReady} />}
       {(section === "extensions" || section === "plugins") && <V2ExtensionSettings client={client} threadID={threadID} />}
       {section === "skills" && <V2SkillSettings client={client} desktop={desktop} />}
-      {section === "advanced-models" && <><h1>全局模型路由与价格</h1><p className="v2-settings-lead">
-        管理服务的命名模型路由和价格快照。当前对话的模型仍从对话输入区选择；这里不会替换已经开始的执行。
-      </p><div className="v2-shared-settings"><ModelAvailabilitySettings client={client} /></div></>}
       {section === "about" && <V2AboutSettings client={client} desktop={desktop} />}
       {(section === "shortcuts" || section === "keyboard") && <div className="v2-shared-settings">
         <ShortcutSettings /><p>这是已有快捷键的说明。方向键与 Enter 用于当前菜单或对话框；输入框中 Enter 发送、Shift+Enter 换行。</p>

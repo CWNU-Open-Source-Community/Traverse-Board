@@ -9,14 +9,24 @@ import (
 )
 
 type FetchedContent struct {
-	RequestedURL string
-	FinalURL     string
-	HTTPStatus   int
-	RawDigest    string
-	Parsed       ParsedDocument
-	Robots       string
-	Redirects    int
-	Truncated    bool
+	RequestedURL        string
+	FinalURL            string
+	HTTPStatus          int
+	RawDigest           string
+	Parsed              ParsedDocument
+	Robots              string
+	Redirects           int
+	Truncated           bool
+	Connector           string
+	ConnectorVersion    string
+	ContentKind         string
+	RequestEndpoints    []string
+	ConnectorRawDigest  string
+	Coverage            string
+	ItemsIncluded       int
+	ItemsAvailable      int
+	TruncationReason    string
+	ContinuationFailure *ConnectorFailure
 }
 
 // RobotsPolicy determines whether robots observations are an execution gate or

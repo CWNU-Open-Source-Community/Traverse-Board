@@ -56,6 +56,7 @@ describe("ThreadTranscript", () => {
   it("classifies live tools by exact structured names instead of natural-language parsing", () => {
     const read = mergeThreadTranscriptItems([], [], snapshot("read_file"), "live");
     const search = mergeThreadTranscriptItems([], [], snapshot("workspace_grep"), "live");
+    const sourceSearch = mergeThreadTranscriptItems([], [], snapshot("source_search"), "live");
     const edit = mergeThreadTranscriptItems([], [], snapshot("workspace_apply"), "live");
     const verify = mergeThreadTranscriptItems([], [], snapshot("code_diagnostics"), "live");
     const checkpoint = mergeThreadTranscriptItems([], [], snapshot("work_item_create"), "live");
@@ -63,6 +64,7 @@ describe("ThreadTranscript", () => {
     expect(read[0]).toMatchObject({ activity_type: "read", stage: "arguments_ready",
       canonical_id: "item-tool" });
     expect(search[0]).toMatchObject({ activity_type: "search" });
+    expect(sourceSearch[0]).toMatchObject({ activity_type: "search" });
     expect(edit[0]).toMatchObject({ activity_type: "edit" });
     expect(verify[0]).toMatchObject({ activity_type: "verify" });
     expect(checkpoint[0]).toMatchObject({ activity_type: "checkpoint" });

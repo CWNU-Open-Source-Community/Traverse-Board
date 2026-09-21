@@ -59,6 +59,12 @@ func (s *memoryWebStore) SaveWebSearch(_ context.Context, sources []Source,
 	return operation, false, nil
 }
 
+func (s *memoryWebStore) SaveSourceSearch(ctx context.Context, sources []Source,
+	operation Operation,
+) (Operation, bool, error) {
+	return s.SaveWebSearch(ctx, sources, operation)
+}
+
 func (s *memoryWebStore) SaveWebFetch(_ context.Context, source Source,
 	snapshot Snapshot, operation Operation,
 ) (Operation, bool, error) {

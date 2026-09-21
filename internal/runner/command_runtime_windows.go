@@ -10,9 +10,27 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unsafe"
+
+	"cyberagent-workbench/internal/hostproxy"
+	"cyberagent-workbench/internal/redact"
 
 	"golang.org/x/sys/windows"
 )
+
+var (
+	commandRuntimeWinHTTPCurrentUserProxy = windows.NewLazySystemDLL("winhttp.dll").
+						NewProc("WinHttpGetIEProxyConfigForCurrentUser")
+	commandRuntimeGlobalFree = windows.NewLazySystemDLL("kernel32.dll").
+					NewProc("GlobalFree")
+)
+
+type commandRuntimeCurrentUserProxyConfig struct {
+	AutoDetect    int32
+	AutoConfigURL *uint16
+	Proxy         *uint16
+	ProxyBypass   *uint16
+}
 
 func resolveCommandRuntimeShell(profile CommandRuntimeProfile) (string, error) {
 	candidates := make([]string, 0, 12)
@@ -157,6 +175,179 @@ func commandRuntimeFixedEnvironment() []string {
 		"DOTNET_CLI_TELEMETRY_OPTOUT=1", "POWERSHELL_TELEMETRY_OPTOUT=1",
 		"HOME=", "USERPROFILE=", "SSH_AUTH_SOCK=",
 	}
+}
+
+func commandRuntimePlatformEnvironment(executablePath, workspaceRoot string,
+	environment []string, network CommandRuntimeNetwork,
+	explicit []CommandRuntimeEnvironment,
+) []string {
+	var server, bypass string
+	var available bool
+	if network == CommandRuntimeNetworkHost {
+		server, bypass, available = commandRuntimeWindowsSystemProxy()
+	}
+	return commandRuntimePlatformEnvironmentWithProxy(executablePath, workspaceRoot,
+		environment, network, explicit, server, bypass, available)
+}
+
+func commandRuntimePlatformEnvironmentWithoutProxy(executablePath, workspaceRoot string,
+	environment []string, network CommandRuntimeNetwork,
+	explicit []CommandRuntimeEnvironment,
+) []string {
+	return commandRuntimePlatformEnvironmentWithProxy(executablePath, workspaceRoot,
+		environment, network, explicit, "", "", false)
+}
+
+func commandRuntimePlatformEnvironmentWithProxy(executablePath, workspaceRoot string,
+	environment []string, network CommandRuntimeNetwork,
+	explicit []CommandRuntimeEnvironment, server, bypass string, available bool,
+) []string {
+	if network == CommandRuntimeNetworkHost && available {
+		environment = commandRuntimeApplyHostProxyEnvironment(environment,
+			explicit, server, bypass)
+	}
+	if strings.EqualFold(filepath.Base(executablePath), "powershell.exe") {
+		// Windows PowerShell 5 needs a valid USERPROFILE before script startup.
+		// Bind it to the canonical Workspace root, never the operator home.
+		environment = replaceCommandRuntimeEnvironment(environment, "USERPROFILE", workspaceRoot)
+	}
+	return environment
+}
+
+func commandRuntimeWindowsSystemProxy() (string, string, bool) {
+	server, bypass, available := commandRuntimeWindowsProxySettings()
+	if !available {
+		return "", "", false
+	}
+	return commandRuntimeWindowsStaticProxy(server, bypass)
+}
+
+func commandRuntimePlatformHostProxy() (hostproxy.Config, bool) {
+	server, bypass, available := commandRuntimeWindowsProxySettings()
+	if !available {
+		return hostproxy.Config{}, false
+	}
+	server, ok := commandRuntimeWindowsStaticProxyServer(server)
+	if !ok {
+		return hostproxy.Config{}, false
+	}
+	config := hostproxy.Config{UpstreamURL: server, Bypass: bypass}
+	if _, err := hostproxy.Fingerprint(config); err != nil {
+		return hostproxy.Config{}, false
+	}
+	return config, true
+}
+
+func commandRuntimeWindowsProxySettings() (string, string, bool) {
+	// WinHTTP returns the active connection's settings, including WPAD and
+	// PAC. The top-level Internet Settings registry values can be stale when
+	// the current connection is a VPN or dial-up connection.
+	if commandRuntimeWinHTTPCurrentUserProxy.Find() != nil ||
+		commandRuntimeGlobalFree.Find() != nil {
+		return "", "", false
+	}
+	var config commandRuntimeCurrentUserProxyConfig
+	result, _, _ := commandRuntimeWinHTTPCurrentUserProxy.Call(
+		uintptr(unsafe.Pointer(&config)))
+	if result == 0 {
+		return "", "", false
+	}
+	defer func() {
+		for _, value := range []*uint16{config.AutoConfigURL, config.Proxy,
+			config.ProxyBypass} {
+			if value != nil {
+				_, _, _ = commandRuntimeGlobalFree.Call(uintptr(unsafe.Pointer(value)))
+			}
+		}
+	}()
+	return commandRuntimeWindowsProxySnapshot(
+		windows.UTF16PtrToString(config.Proxy),
+		windows.UTF16PtrToString(config.ProxyBypass),
+		windows.UTF16PtrToString(config.AutoConfigURL), config.AutoDetect != 0)
+}
+
+func commandRuntimeWindowsProxySnapshot(server, bypass, autoConfigURL string,
+	autoDetect bool,
+) (string, string, bool) {
+	if autoDetect || strings.TrimSpace(autoConfigURL) != "" {
+		return "", "", false
+	}
+	if len(server) > 2048 || len(bypass) > 8192 || strings.TrimSpace(server) == "" {
+		return "", "", false
+	}
+	return server, bypass, true
+}
+
+func commandRuntimeWindowsStaticProxyWithoutAutoConfig(server, bypass,
+	autoConfigURL string, autoDetect bool,
+) (string, string, bool) {
+	// A PAC or auto-detected route can vary per destination. A static proxy
+	// value beside it cannot be applied to every request by environment vars.
+	if strings.TrimSpace(autoConfigURL) != "" || autoDetect {
+		return "", "", false
+	}
+	return commandRuntimeWindowsStaticProxy(server, bypass)
+}
+
+func commandRuntimeWindowsStaticProxy(server, bypass string) (string, string, bool) {
+	server, ok := commandRuntimeWindowsStaticProxyServer(server)
+	if !ok {
+		return "", "", false
+	}
+	var domains []string
+	for _, item := range strings.Split(bypass, ";") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		// <local> and wildcard masks have no portable NO_PROXY equivalent
+		// across PowerShell, curl, Go, Git, npm and Python. Never turn on the
+		// proxy while silently dropping any bypass rule.
+		if strings.EqualFold(item, "<local>") ||
+			strings.ContainsAny(item, "*=@?#\\/ ,<>") {
+			return "", "", false
+		}
+		domains = append(domains, item)
+	}
+	noProxy := strings.Join(domains, ",")
+	if !validCommandRuntimeProxyValue("NO_PROXY", noProxy) ||
+		redact.String("NO_PROXY="+noProxy) != "NO_PROXY="+noProxy {
+		return "", "", false
+	}
+	return server, noProxy, true
+}
+
+func commandRuntimeWindowsStaticProxyServer(server string) (string, bool) {
+	server = strings.TrimSpace(server)
+	if server == "" || strings.ContainsAny(server, ";=, \t\r\n") {
+		// Windows protocol maps and PAC settings have no single portable env value.
+		return "", false
+	}
+	if !strings.Contains(server, "://") {
+		server = "http://" + server
+	}
+	if !validCommandRuntimeProxyValue("HTTPS_PROXY", server) ||
+		redact.String("HTTPS_PROXY="+server) != "HTTPS_PROXY="+server {
+		return "", false
+	}
+	return server, true
+}
+
+func commandRuntimeApplyHostProxyEnvironment(environment []string,
+	explicit []CommandRuntimeEnvironment, server, bypass string,
+) []string {
+	for _, entry := range explicit {
+		if commandRuntimeProxyEnvironmentName(entry.Name) {
+			return environment
+		}
+	}
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} {
+		environment = replaceCommandRuntimeEnvironment(environment, name, server)
+	}
+	if bypass != "" {
+		environment = replaceCommandRuntimeEnvironment(environment, "NO_PROXY", bypass)
+	}
+	return environment
 }
 
 func commandRuntimeExecutableAttributes(path string) error {

@@ -134,7 +134,7 @@ var threadActivityAuthorizations = map[string]bool{
 
 func threadActivityToolKind(name toolgateway.ToolName) string {
 	switch {
-	case name == toolgateway.WebSearchTool:
+	case name == toolgateway.WebSearchTool || name == toolgateway.SourceSearchTool:
 		return "web_search"
 	case name == toolgateway.WebFetchTool || name == toolgateway.WebCitationTool:
 		return "web_fetch"
@@ -162,7 +162,8 @@ func threadActivityToolLabel(name toolgateway.ToolName) string {
 		toolgateway.WorkspaceGlobTool: "匹配文件", toolgateway.WorkspaceGrepTool: "搜索工作区",
 		toolgateway.WorkspaceChangeTool: "提议文件修改", toolgateway.WorkspaceApplyTool: "应用文件修改",
 		toolgateway.WorkspaceDeleteTool: "删除文件", toolgateway.WebSearchTool: "联网搜索",
-		toolgateway.WebFetchTool: "抓取网页", toolgateway.WebCitationTool: "验证网页引用",
+		toolgateway.SourceSearchTool: "搜索专业来源",
+		toolgateway.WebFetchTool:     "抓取网页", toolgateway.WebCitationTool: "验证网页引用",
 		toolgateway.MCPToolCallTool: "MCP 调用", toolgateway.BrowserStatusTool: "读取浏览器状态",
 		toolgateway.GitHubEvidenceListTool: "列出 GitHub 审查证据",
 		toolgateway.GitHubEvidenceReadTool: "读取 GitHub 审查证据",
@@ -320,6 +321,13 @@ func projectThreadActivityWebInput(value *ThreadActivityToolFacts, name toolgate
 		var input toolgateway.WebSearchPayload
 		_ = json.Unmarshal(raw, &input)
 		value.Target = safeThreadActivityFactValue(input.Query)
+		appendThreadActivityFact(&value.Parameters, "limit", "结果上限", strconv.Itoa(input.Limit))
+	case toolgateway.SourceSearchTool:
+		var input toolgateway.SourceSearchPayload
+		_ = json.Unmarshal(raw, &input)
+		value.Target = safeThreadActivityFactValue(input.Query)
+		appendThreadActivityFact(&value.Parameters, "connectors", "来源",
+			strings.Join(input.Connectors, ", "))
 		appendThreadActivityFact(&value.Parameters, "limit", "结果上限", strconv.Itoa(input.Limit))
 	case toolgateway.WebFetchTool:
 		var input toolgateway.WebFetchPayload

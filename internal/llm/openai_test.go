@@ -547,9 +547,11 @@ func TestOpenAICompatibleProviderHTTPFailuresAreContentFree(t *testing.T) {
 		reason ProviderFailureReason
 	}{
 		{http.StatusUnauthorized, OutcomePermanent, ProviderFailureAuthentication},
+		{http.StatusPaymentRequired, OutcomePermanent, ProviderFailureCapacity},
 		{http.StatusNotFound, OutcomePermanent, ProviderFailureProtocolIncompatible},
 		{http.StatusTooManyRequests, OutcomeRateLimited, ProviderFailureRateLimit},
 		{http.StatusServiceUnavailable, OutcomeRetryable, ProviderFailureCapacity},
+		{529, OutcomeRetryable, ProviderFailureCapacity},
 	}
 	for _, test := range tests {
 		t.Run(fmt.Sprint(test.status), func(t *testing.T) {

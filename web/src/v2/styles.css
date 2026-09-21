@@ -1206,6 +1206,7 @@
 .v2-provider-empty strong { color: var(--v2-ink); }
 .v2-provider-empty p { line-height: 1.5; margin: 0; max-width: 480px; }
 .v2-provider-form { display: grid; gap: 18px; }
+.v2-provider-operation-lock { border: 0; display: grid; gap: 18px; margin: 0; min-inline-size: 0; padding: 0; }
 .v2-provider-fields { overflow: visible; }
 .v2-provider-fields > header { align-items: center; border-bottom: 1px solid var(--v2-border); display: flex; gap: 16px; justify-content: space-between; min-height: 67px; padding: 12px 15px; }
 .v2-provider-fields > header h2 { font-size: 15px; letter-spacing: -.005em; margin: 0 0 4px; }
@@ -2297,6 +2298,29 @@
   line-height: 1.45;
   margin: 0;
 }
+.v2-model-advanced {
+  border-top: 1px solid var(--v2-border);
+  margin-top: 32px;
+  padding-top: 20px;
+}
+.v2-model-advanced-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--v2-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 0;
+  text-align: left;
+}
+.v2-model-advanced-toggle::before { content: "▸"; display: inline-block; margin-right: 10px; }
+.v2-model-advanced-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.v2-model-advanced-toggle:focus-visible,
+.model-optional-prices summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.v2-model-advanced > p,
+.model-optional-prices > p { color: var(--v2-muted); line-height: 1.5; }
+.model-optional-prices { border-top: 1px solid var(--v2-border); margin-top: 20px; padding-top: 14px; }
+.model-optional-prices summary { color: var(--v2-ink); cursor: pointer; font-weight: 600; }
 .v2-model-catalog {
   display: grid;
   gap: 12px;

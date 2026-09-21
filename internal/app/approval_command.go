@@ -26,6 +26,8 @@ func (a *App) approvalCommand(ctx context.Context, args []string) error {
 		return a.approvalShow(ctx, args[1:])
 	case "grant":
 		return a.approvalGrantCommand(ctx, args[1:])
+	case "approve-once", "approve-for-thread", "deny":
+		return a.approvalDecideAndContinue(ctx, args[0], args[1:])
 	default:
 		return fmt.Errorf("unknown approval subcommand %q", args[0])
 	}

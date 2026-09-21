@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Windows release version (for example v0.1.0-rc.1)
+        description: Windows release version (for example v1.0.0-rc.1)
         required: true
-        default: v0.1.0-rc.1
+        default: v1.0.0-rc.1
         type: string
       phase:
         description: Prepare a stable signing request, or finalize a release candidate
@@ -193,7 +193,7 @@ jobs:
             }
           } elseif ($env:EVENT_NAME -eq "pull_request") {
             if ($env:PR_NUMBER -notmatch '^[1-9][0-9]*$') { throw "Pull request number is invalid" }
-            $version = "v0.1.0-pr.$($env:PR_NUMBER)"
+            $version = "v1.0.0-pr.$($env:PR_NUMBER)"
             $phase = "validate"
           } else {
             throw "Unsupported Desktop release event"

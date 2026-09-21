@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "build/desktop",
-    [string]$Version = "0.1.0.0",
+    [string]$Version = "1.0.0.0",
     [ValidateSet("Development", "MicrosoftStore")]
     [string]$Distribution = "Development",
     [ValidateSet("x64", "arm64")]

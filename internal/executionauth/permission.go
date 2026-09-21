@@ -163,9 +163,9 @@ func validatePermissionRequest(request PermissionRequest) error {
 		return errors.New("fixed command templates cannot request a background process")
 	}
 	if request.Kind == PermissionOperationManagedCommand &&
-		(!request.HostFilesystem || !request.BackgroundProcess || request.Network ||
+		(!request.HostFilesystem || !request.BackgroundProcess ||
 			request.AgentTerminalInput || request.OperatorApproved) {
-		return errors.New("managed commands require host/background ownership without network, terminal input, or approval")
+		return errors.New("managed commands require host/background ownership without terminal input or per-command approval")
 	}
 	return nil
 }

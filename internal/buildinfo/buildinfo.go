@@ -20,7 +20,7 @@ const ProductName = "Traverse Board"
 // These values are intentionally reproducible inputs. Release builds set them
 // with -ldflags; no wall-clock build timestamp is embedded.
 var (
-	Version         = "v0.1.0"
+	Version         = "v1.0.0"
 	Revision        = "unknown"
 	SourceDateEpoch = "0"
 	Modified        = "unknown"

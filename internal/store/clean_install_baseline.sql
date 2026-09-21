@@ -1403,6 +1403,8 @@ CREATE TABLE "command_runtime_jobs" (
 		adapter_isolation_grade TEXT NOT NULL,
 		adapter_network_policy TEXT NOT NULL,
 		adapter_credential_policy TEXT NOT NULL,
+		permission_runtime_epoch TEXT NOT NULL DEFAULT '',
+		permission_generation INTEGER NOT NULL DEFAULT 0,
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
@@ -1412,9 +1414,10 @@ CREATE TABLE "command_runtime_jobs" (
 		FOREIGN KEY(profile_snapshot_id) REFERENCES run_execution_profile_snapshots(id) ON DELETE RESTRICT,
 		FOREIGN KEY(permission_snapshot_id) REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'command-runtime.v2'),
+		CHECK((permission_runtime_epoch = '' AND permission_generation = 0) OR (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_runtime_epoch = trim(permission_runtime_epoch) AND instr(permission_runtime_epoch, char(0)) = 0 AND permission_generation > 0)),
 		CHECK(profile IN ('powershell', 'bash', 'process')),
 		CHECK(stdin_policy IN ('closed', 'pipe')),
-		CHECK(network = 'disabled' AND credentials = 'none'),
+		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug') AND adapter_network_policy = 'host_available'))),
 		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode = 'workspace_access'
 				AND adapter_isolation_grade = 'workspace_sandbox'
 				AND adapter_network_policy = 'denied' AND adapter_credential_policy = 'none')
@@ -2253,6 +2256,38 @@ CREATE TABLE file_edit_apply_results (
 		CHECK(reason_code = trim(reason_code) AND instr(reason_code, char(0)) = 0),
 		CHECK(event_sequence > 0)
 	) WITHOUT ROWID;
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE file_edit_auto_authorizations (
+		edit_id TEXT PRIMARY KEY REFERENCES file_edits(id) ON DELETE RESTRICT,
+		operation_key_digest TEXT NOT NULL UNIQUE CHECK(length(operation_key_digest)=64),
+		proposal_fingerprint TEXT NOT NULL CHECK(length(proposal_fingerprint)=64),
+		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move')),
+		path TEXT NOT NULL,
+		destination_path TEXT NOT NULL,
+		original_hash TEXT NOT NULL,
+		proposed_hash TEXT NOT NULL,
+		destination_original_hash TEXT NOT NULL,
+		destination_proposed_hash TEXT NOT NULL,
+		permission_snapshot_id TEXT NOT NULL REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
+		permission_revision INTEGER NOT NULL CHECK(permission_revision > 0),
+		mode_revision INTEGER NOT NULL CHECK(mode_revision > 0),
+		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 1 AND 256),
+		runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+		agent_id TEXT NOT NULL REFERENCES agent_nodes(id) ON DELETE RESTRICT,
+		capability_generation TEXT NOT NULL CHECK(length(capability_generation)=64),
+		lease_id TEXT NOT NULL CHECK(length(lease_id) BETWEEN 1 AND 256),
+		lease_generation INTEGER NOT NULL CHECK(lease_generation > 0),
+		created_at TEXT NOT NULL,
+		CHECK((operation_kind='move' AND length(destination_path) BETWEEN 1 AND 512
+			AND destination_path<>path AND proposed_hash='missing'
+			AND destination_original_hash='missing'
+			AND destination_proposed_hash=original_hash)
+			OR (operation_kind IN ('create','replace') AND destination_path=''
+				AND destination_original_hash='' AND destination_proposed_hash=''))
+	);
 -- traverse-board-clean-install-object-boundary --
 CREATE TABLE file_edits (
 			id TEXT PRIMARY KEY,
@@ -5891,7 +5926,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'sandbox_docker_run_propose', 'skill_candidate_propose', 'debug_terminal',
 			'workspace_list', 'workspace_read', 'workspace_glob', 'workspace_grep',
 			'workspace_change', 'workspace_apply', 'workspace_delete', 'command_runtime',
-			'mcp_tool_call', 'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'web_fetch', 'web_citation',
+			'mcp_tool_call', 'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'source_search', 'web_fetch', 'web_citation',
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
@@ -5900,7 +5935,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'browser_click', 'browser_type', 'browser_screenshot')),
 		CHECK((tool_name IN ('host_command_propose', 'mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 			'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
-			'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'web_fetch', 'web_citation',
+			'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'source_search', 'web_fetch', 'web_citation',
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
@@ -5910,7 +5945,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			AND length(authority_json) BETWEEN 2 AND 4096 AND json_valid(authority_json) = 1)
 			OR (tool_name NOT IN ('mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 				'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
-				'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'web_fetch', 'web_citation',
+				'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'source_search', 'web_fetch', 'web_citation',
 			'code_workspace_symbols', 'code_document_symbols', 'code_definition',
 			'code_references', 'code_implementation', 'code_hover',
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
@@ -12517,7 +12552,7 @@ CREATE TABLE web_evidence_citations (
 			CHECK(json_valid(citation_json) = 1)
 		);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE web_evidence_operations (
+CREATE TABLE "web_evidence_operations" (
 			key_digest TEXT PRIMARY KEY,
 			protocol_version TEXT NOT NULL,
 			request_fingerprint TEXT NOT NULL,
@@ -12528,7 +12563,7 @@ CREATE TABLE web_evidence_operations (
 			FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 			CHECK(protocol_version = 'web_evidence_operation.v1'),
 			CHECK(length(key_digest) = 64 AND length(request_fingerprint) = 64),
-			CHECK(tool_name IN ('web_search', 'web_fetch', 'web_citation')),
+			CHECK(tool_name IN ('web_search', 'source_search', 'web_fetch', 'web_citation')),
 			CHECK(json_valid(response_json) = 1)
 		);
 -- traverse-board-clean-install-object-boundary --
@@ -13285,6 +13320,9 @@ CREATE INDEX idx_drydock_workspaces_expiry
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_file_edit_apply_operations_run_created
 		ON file_edit_apply_operations(run_id, created_at);
+-- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_file_edit_auto_authorizations_run_created
+		ON file_edit_auto_authorizations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_file_edits_session_status_updated_at
 			ON file_edits(session_id, status, updated_at);
@@ -14937,6 +14975,8 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 			OR NEW.adapter_isolation_grade != OLD.adapter_isolation_grade
 			OR NEW.adapter_network_policy != OLD.adapter_network_policy
 			OR NEW.adapter_credential_policy != OLD.adapter_credential_policy
+			OR NEW.permission_runtime_epoch != OLD.permission_runtime_epoch
+			OR NEW.permission_generation != OLD.permission_generation
 			OR NEW.owner_id != OLD.owner_id
 			OR NEW.owner_generation != OLD.owner_generation
 			OR julianday(NEW.owner_renewed_at) < julianday(OLD.owner_renewed_at)
@@ -15759,6 +15799,137 @@ CREATE TRIGGER trg_file_edit_apply_result_update_immutable
 		BEFORE UPDATE ON file_edit_apply_results BEGIN
 			SELECT RAISE(ABORT, 'FileEdit apply result cannot be updated');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_apply_insert
+		BEFORE INSERT ON file_edit_apply_operations
+		WHEN (EXISTS (SELECT 1 FROM file_edit_auto_authorizations source
+			WHERE source.edit_id=NEW.edit_id)
+			OR EXISTS (SELECT 1 FROM tool_approvals approval
+			WHERE approval.proposal_id=NEW.edit_id AND approval.mode='automatic'))
+			AND NOT EXISTS (
+				SELECT 1 FROM file_edit_auto_authorizations source
+				JOIN file_edits edit ON edit.id=source.edit_id
+				JOIN tool_approvals approval ON approval.proposal_id=edit.id
+				JOIN runs run ON run.id=source.run_id
+				JOIN run_execution_permission_snapshots permission
+					ON permission.id=source.permission_snapshot_id AND permission.run_id=run.id
+				JOIN run_mode_snapshots mode
+					ON mode.run_id=run.id AND mode.revision=source.mode_revision
+				JOIN run_execution_leases lease ON lease.run_id=run.id
+				WHERE source.edit_id=NEW.edit_id AND source.run_id=NEW.run_id
+					AND source.session_id=NEW.session_id AND source.workspace_id=NEW.workspace_id
+					AND source.operation_kind=NEW.operation_kind AND source.path=NEW.path
+					AND source.destination_path=NEW.destination_path
+					AND source.original_hash=NEW.original_hash
+					AND source.proposed_hash=NEW.proposed_hash
+					AND source.destination_original_hash=NEW.destination_original_hash
+					AND source.destination_proposed_hash=NEW.destination_proposed_hash
+					AND NEW.applied_by=source.agent_id
+					AND edit.status='approved' AND run.status='running'
+					AND approval.run_id=run.id AND approval.mode='automatic'
+					AND approval.status='approved' AND approval.reviewed_by='automatic_policy'
+					AND permission.mode='full_access'
+					AND permission.revision=source.permission_revision
+					AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
+						WHERE later.run_id=run.id AND later.revision>permission.revision)
+					AND mode.surface='code' AND mode.phase='deliver'
+					AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later
+						WHERE later.run_id=run.id AND later.revision>mode.revision)
+					AND lease.status='active' AND julianday(lease.expires_at)>julianday('now')
+			)
+		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit apply authority is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_approval_insert
+		BEFORE INSERT ON tool_approvals
+		WHEN ((NEW.mode='automatic' AND NEW.tool_name IN
+			('create_file','replace_file','move_file','delete_file')) OR EXISTS (
+			SELECT 1 FROM file_edit_auto_authorizations source WHERE source.edit_id=NEW.proposal_id))
+			AND NOT EXISTS (
+				SELECT 1 FROM file_edit_auto_authorizations source
+				WHERE source.edit_id=NEW.proposal_id AND source.run_id=NEW.run_id
+					AND source.session_id=NEW.session_id AND source.workspace_id=NEW.workspace_id
+					AND NEW.mode='automatic' AND NEW.status='approved'
+					AND NEW.reviewed_by='automatic_policy'
+					AND NEW.action_class='workspace_write'
+					AND NEW.tool_name=CASE source.operation_kind
+						WHEN 'create' THEN 'create_file'
+						WHEN 'move' THEN 'move_file' ELSE 'replace_file' END)
+		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit approval source is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_approval_update
+		BEFORE UPDATE ON tool_approvals
+		WHEN EXISTS (SELECT 1 FROM file_edit_auto_authorizations source WHERE source.edit_id=OLD.proposal_id)
+			AND (NEW.mode<>'automatic' OR NEW.status<>'approved'
+			OR NEW.reviewed_by<>'automatic_policy' OR NEW.proposal_id<>OLD.proposal_id
+			OR NEW.run_id<>OLD.run_id OR NEW.session_id<>OLD.session_id
+			OR NEW.workspace_id<>OLD.workspace_id OR NEW.tool_name<>OLD.tool_name
+			OR NEW.action_class<>OLD.action_class
+			OR NEW.request_fingerprint<>OLD.request_fingerprint)
+		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit approval source is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_authorization_delete
+		BEFORE DELETE ON file_edit_auto_authorizations BEGIN
+			SELECT RAISE(ABORT, 'automatic FileEdit source is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_authorization_insert
+		BEFORE INSERT ON file_edit_auto_authorizations
+		WHEN NOT EXISTS (
+			SELECT 1 FROM file_edits edit
+			JOIN runs run ON run.id=NEW.run_id AND run.session_id=NEW.session_id
+			JOIN missions mission ON mission.id=run.mission_id
+			JOIN sessions session_record ON session_record.id=run.session_id
+			JOIN run_execution_permission_snapshots permission
+				ON permission.id=NEW.permission_snapshot_id AND permission.run_id=run.id
+			JOIN run_mode_snapshots mode ON mode.run_id=run.id AND mode.revision=NEW.mode_revision
+			JOIN agent_nodes agent ON agent.id=NEW.agent_id AND agent.run_id=run.id
+			JOIN run_execution_leases lease ON lease.run_id=run.id
+			WHERE edit.id=NEW.edit_id AND edit.session_id=NEW.session_id
+				AND edit.workspace_id=NEW.workspace_id AND edit.status='approved'
+				AND edit.operation_kind=NEW.operation_kind AND edit.path=NEW.path
+				AND edit.destination_path=NEW.destination_path
+				AND edit.original_hash=NEW.original_hash
+				AND edit.proposed_hash=NEW.proposed_hash
+				AND edit.destination_original_hash=NEW.destination_original_hash
+				AND edit.destination_proposed_hash=NEW.destination_proposed_hash
+				AND NOT EXISTS (SELECT 1 FROM tool_approvals prior WHERE prior.proposal_id=edit.id)
+				AND run.status='running' AND session_record.status='active'
+				AND session_record.workspace_id=mission.workspace_id
+				AND permission.mission_id=mission.id AND permission.mode='full_access'
+				AND permission.revision=NEW.permission_revision
+				AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
+					WHERE later.run_id=run.id AND later.revision>permission.revision)
+				AND mode.mission_id=mission.id AND mode.surface='code' AND mode.phase='deliver'
+				AND NOT EXISTS (SELECT 1 FROM run_mode_snapshots later
+					WHERE later.run_id=run.id AND later.revision>mode.revision)
+				AND agent.session_id=run.session_id AND agent.role='root'
+				AND agent.parent_id IS NULL AND agent.depth=0
+				AND agent.status IN ('ready','running','waiting')
+				AND lease.lease_id=NEW.lease_id AND lease.generation=NEW.lease_generation
+				AND lease.status='active' AND julianday(lease.expires_at)>julianday('now')
+				AND NEW.created_at=edit.created_at
+		)
+		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit source binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_authorization_update
+		BEFORE UPDATE ON file_edit_auto_authorizations BEGIN
+			SELECT RAISE(ABORT, 'automatic FileEdit source is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_file_edit_auto_content_update
+		BEFORE UPDATE ON file_edits
+		WHEN EXISTS (SELECT 1 FROM file_edit_auto_authorizations source WHERE source.edit_id=OLD.id)
+			AND (NEW.id<>OLD.id OR NEW.session_id<>OLD.session_id
+			OR NEW.workspace_id<>OLD.workspace_id OR NEW.path<>OLD.path
+			OR NEW.operation_kind<>OLD.operation_kind OR NEW.destination_path<>OLD.destination_path
+			OR NEW.original_text<>OLD.original_text OR NEW.proposed_text<>OLD.proposed_text
+			OR NEW.diff_text<>OLD.diff_text OR NEW.original_hash<>OLD.original_hash
+			OR NEW.proposed_hash<>OLD.proposed_hash
+			OR NEW.destination_original_hash<>OLD.destination_original_hash
+			OR NEW.destination_proposed_hash<>OLD.destination_proposed_hash
+			OR NEW.secrets_redacted<>OLD.secrets_redacted OR NEW.created_at<>OLD.created_at
+			OR NEW.status NOT IN ('approved','applied','failed')
+			OR (OLD.status='applied' AND NEW.status<>'applied')
+			OR (OLD.status='failed' AND NEW.status<>'failed'))
+		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit proposal is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_finding_acceptance_delete_immutable
 		BEFORE DELETE ON finding_acceptance_decisions BEGIN
@@ -18355,7 +18526,43 @@ CREATE TRIGGER trg_run_execution_handoff_operation_insert
 			JOIN sessions session_record ON session_record.id = run.session_id
 			JOIN run_events event ON event.run_id = run.id AND event.sequence = NEW.event_sequence
 			WHERE run.id = NEW.run_id AND run.session_id = NEW.session_id
-				AND run.status = 'running' AND session_record.status = 'active'
+				AND (run.status='running' OR (run.status='paused'
+		 AND NEW.requested_by='web_fetch_authorization' AND NEW.max_steps=1 AND NEW.selected_count=1
+		 AND EXISTS (
+	 SELECT 1 FROM threads thread
+	 JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id=thread.active_run_id
+	 JOIN web_fetch_authorizations authorization ON authorization.run_id=checkpoint.run_id
+	   AND authorization.thread_id=thread.id AND authorization.session_id=run.session_id
+	   AND authorization.supervisor_turn=checkpoint.next_turn
+	 JOIN run_supervisor_tool_calls call ON call.run_id=checkpoint.run_id
+	   AND call.attempt_id=checkpoint.attempt_id AND call.turn=checkpoint.next_turn
+	   AND call.call_id=authorization.supervisor_tool_call_id AND call.tool_name='web_fetch'
+	 JOIN run_execution_leases lease ON lease.run_id=checkpoint.run_id
+	   AND lease.lease_id=checkpoint.lease_id AND lease.generation=checkpoint.lease_generation
+	 JOIN operator_steering_deliveries delivery ON delivery.run_id=checkpoint.run_id
+	   AND delivery.attempt_id=checkpoint.attempt_id AND delivery.turn=checkpoint.next_turn
+	 JOIN operator_steering_messages message ON message.id=delivery.message_id
+	   AND message.run_id=run.id AND message.session_id=run.session_id
+	 JOIN run_execution_handoff_items original_item ON original_item.message_id=message.id
+	   AND original_item.message_sequence=message.sequence
+	 JOIN run_execution_handoff_operations original ON original.id=original_item.operation_id
+	   AND original.run_id=run.id AND original.session_id=run.session_id
+	 JOIN run_execution_handoff_results original_result ON original_result.operation_id=original.id
+	 WHERE thread.status='active' AND thread.active_run_id=run.id AND thread.last_run_id=run.id
+	   AND checkpoint.phase='turn_failed' AND checkpoint.attempt_id<>''
+	   AND authorization.status IN ('approved','consumed','denied')
+	   AND call.status IN ('completed','failed','denied') AND lease.status='released'
+	   AND delivery.status='prepared' AND message.status='pending'
+	   AND message.content=checkpoint.pending_input
+	   AND original_result.status='completed' AND original_result.run_status='waiting_approval'
+	   AND NOT EXISTS (SELECT 1 FROM run_supervisor_tool_calls pending
+	     WHERE pending.run_id=run.id AND pending.status='pending')
+	   AND EXISTS (SELECT 1 FROM run_events failure WHERE failure.run_id=run.id
+	     AND failure.type='agent.turn_failed' AND failure.source='run_supervisor'
+	     AND failure.subject_id=checkpoint.attempt_id
+	     AND json_extract(failure.payload_json,'$.turn')=checkpoint.next_turn
+	     AND json_extract(failure.payload_json,'$.error')=checkpoint.last_error)
+	 ))) AND session_record.status='active'
 				AND event.type = 'run.execution_handoff_requested'
 				AND event.source = 'run_execution_handoff' AND event.subject_id = NEW.id
 				AND json_extract(event.payload_json, '$.max_steps') = NEW.max_steps
@@ -25576,6 +25783,52 @@ CREATE TRIGGER trg_web_fetch_authorizations_identity_immutable
 			NEW.request_fingerprint <> OLD.request_fingerprint OR
 			NEW.requested_by <> OLD.requested_by OR NEW.created_at <> OLD.created_at
 		BEGIN SELECT RAISE(ABORT, 'web fetch authorization identity is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_web_fetch_failure_observation_handoff_item_insert
+		 BEFORE INSERT ON run_execution_handoff_items
+		 WHEN EXISTS (SELECT 1 FROM run_execution_handoff_operations operation
+		   JOIN runs run ON run.id=operation.run_id
+		   WHERE operation.id=NEW.operation_id AND run.status='paused')
+		 AND NOT EXISTS (SELECT 1 FROM run_execution_handoff_operations operation
+		   JOIN runs run ON run.id=operation.run_id
+		   WHERE operation.id=NEW.operation_id AND operation.requested_by='web_fetch_authorization'
+		   AND operation.max_steps=1 AND operation.selected_count=1
+		   AND NEW.ordinal=1 AND NEW.prepared=1 AND EXISTS (
+	 SELECT 1 FROM threads thread
+	 JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id=thread.active_run_id
+	 JOIN web_fetch_authorizations authorization ON authorization.run_id=checkpoint.run_id
+	   AND authorization.thread_id=thread.id AND authorization.session_id=run.session_id
+	   AND authorization.supervisor_turn=checkpoint.next_turn
+	 JOIN run_supervisor_tool_calls call ON call.run_id=checkpoint.run_id
+	   AND call.attempt_id=checkpoint.attempt_id AND call.turn=checkpoint.next_turn
+	   AND call.call_id=authorization.supervisor_tool_call_id AND call.tool_name='web_fetch'
+	 JOIN run_execution_leases lease ON lease.run_id=checkpoint.run_id
+	   AND lease.lease_id=checkpoint.lease_id AND lease.generation=checkpoint.lease_generation
+	 JOIN operator_steering_deliveries delivery ON delivery.run_id=checkpoint.run_id
+	   AND delivery.attempt_id=checkpoint.attempt_id AND delivery.turn=checkpoint.next_turn
+	 JOIN operator_steering_messages message ON message.id=delivery.message_id
+	   AND message.run_id=run.id AND message.session_id=run.session_id
+	 JOIN run_execution_handoff_items original_item ON original_item.message_id=message.id
+	   AND original_item.message_sequence=message.sequence
+	 JOIN run_execution_handoff_operations original ON original.id=original_item.operation_id
+	   AND original.run_id=run.id AND original.session_id=run.session_id
+	 JOIN run_execution_handoff_results original_result ON original_result.operation_id=original.id
+	 WHERE thread.status='active' AND thread.active_run_id=run.id AND thread.last_run_id=run.id
+	   AND checkpoint.phase='turn_failed' AND checkpoint.attempt_id<>''
+	   AND authorization.status IN ('approved','consumed','denied')
+	   AND call.status IN ('completed','failed','denied') AND lease.status='released'
+	   AND delivery.status='prepared' AND message.status='pending'
+	   AND message.content=checkpoint.pending_input
+	   AND original_result.status='completed' AND original_result.run_status='waiting_approval'
+	   AND NOT EXISTS (SELECT 1 FROM run_supervisor_tool_calls pending
+	     WHERE pending.run_id=run.id AND pending.status='pending')
+	   AND EXISTS (SELECT 1 FROM run_events failure WHERE failure.run_id=run.id
+	     AND failure.type='agent.turn_failed' AND failure.source='run_supervisor'
+	     AND failure.subject_id=checkpoint.attempt_id
+	     AND json_extract(failure.payload_json,'$.turn')=checkpoint.next_turn
+	     AND json_extract(failure.payload_json,'$.error')=checkpoint.last_error)
+	 AND message.id=NEW.message_id AND message.sequence=NEW.message_sequence))
+		 BEGIN SELECT RAISE(ABORT, 'Historical web fetch observation item binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_work_item_owner_agent_insert
 		BEFORE INSERT ON work_items

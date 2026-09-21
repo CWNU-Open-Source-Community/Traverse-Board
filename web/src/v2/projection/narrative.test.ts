@@ -313,6 +313,20 @@ describe("projectThreadNarrative", () => {
       provisional: false, count: 1 });
   });
 
+  it("presents source discovery as a safe search activity", () => {
+    const live = snapshot({
+      text: "",
+      items: [{
+        id: "stream-source-search", response_id: "response-1", type: "tool_call",
+        status: "ready_for_validation", tool_name: "source_search", argument_bytes: 96,
+        durable: false, provisional: true,
+      }],
+    });
+    expect(projectThreadNarrative([], { runId: "run-1", snapshot: live, status: "live" }))
+      .toEqual([expect.objectContaining({ kind: "activity", activity: "search",
+        title: "搜索专业来源", provisional: true })]);
+  });
+
   it("merges durable lifecycle stages by canonical tool-call identity", () => {
     const projected = projectThreadNarrative([
       item({ id: "tool-arguments", canonical_id: "call-workspace-list", sequence: 1,
