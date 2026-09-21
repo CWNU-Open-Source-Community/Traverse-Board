@@ -20,7 +20,7 @@ Thank you for contributing to Traverse Board. Resumability, auditability, and fa
 | Node.js | 24 | [CI](.github/workflows/ci.yml)；`web/` 下的 React/Vite 控制台 |
 | Rust | 1.97.1 | [`analyzers/rust-toolchain.toml`](analyzers/rust-toolchain.toml)；确定性 Analyzer 夹具 |
 
-建议另外安装 Git 和 rustup。普通 Go/Web 开发不要求 Docker、真实 Provider 或 API key；[`configs/models.yaml`](configs/models.yaml) 默认使用 Mock Provider。
+Git 需要 2.41+；修改 Analyzer 时另需 rustup。普通 Go/Web 开发不要求 Docker、真实 Provider 或 API key；未配置外部模型时使用 Mock Provider。`configs/models.yaml` 是无秘密的示例，不是运行时配置源。
 
 首次检出后，按你要修改的表面准备依赖：
 
@@ -63,10 +63,52 @@ macOS 便携构建需要 macOS 11+（Big Sur）与 Xcode 命令行工具（codes
 # 发布候选验证会连续构建并比较 SHA-256
 ./scripts/build-desktop-darwin.sh -VerifyReproducible
 
-open build/desktop/Prayu.app
+open build/desktop/TraverseBoard.app
 ```
 
 产物位于忽略的 `build/desktop/`。它不是已签名/已公证发行版；系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭或失败关闭，凭证使用环境变量。更多边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 和包内使用的 [本地测试说明](packaging/macos/LOCAL-TEST-GUIDE.txt)。
+
+## 从源码运行 / Run from source
+
+```powershell
+git clone https://github.com/CWNU-Open-Source-Community/Traverse-Board.git
+cd "Traverse-Board"
+
+go run ./cmd/cyberagent version
+go run ./cmd/cyberagent provider list
+go run ./cmd/cyberagent workspace init demo
+go run ./cmd/cyberagent workspace list
+go run ./cmd/cyberagent tui
+```
+
+默认配置使用确定性的 Mock Provider，不需要 API key。接入外部模型前，请先阅读 [Provider 与模型配置](docs/usage.md#model-and-provider-commands)；凭证应进入系统凭证存储或进程环境，不能提交到仓库。
+
+OpenAI-compatible 连接使用独立的 `CYBERAGENT_OPENAI_API_KEY`、
+`CYBERAGENT_OPENAI_BASE_URL` 与 `CYBERAGENT_OPENAI_MODEL` 环境变量；后两项默认分别为
+`https://api.openai.com` 和 `gpt-4.1-mini`。仓库内的 `configs/models.yaml`
+只是无秘密示例，不会作为运行时配置源。
+
+本地 Ollama 是唯一无凭证 Provider，只在显式设置 `CYBERAGENT_OLLAMA_BASE_URL`（仅
+loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL` 时启用；
+非 loopback、HTTPS、redirect 与代理绕过一律拒绝。tools/vision/JSON/context 能力按
+`/api/show` 探测结果失败关闭，不自动安装 Ollama、不 pull 模型、不扫描局域网。
+
+The default configuration uses the deterministic Mock Provider and requires no API key. Read [Model and Provider Commands](docs/usage.md#model-and-provider-commands) before connecting an external model. Credentials belong in the OS credential store or process environment, never in the repository.
+
+Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLAMA_BASE_URL` (loopback `http` only, default `http://127.0.0.1:11434`) and `CYBERAGENT_OLLAMA_MODEL` are set explicitly. Non-loopback hosts, HTTPS, redirects, and proxy bypasses are rejected; tools/vision/JSON/context capabilities fail closed from `/api/show` probing, and Traverse Board never installs Ollama, pulls a model, or scans the LAN.
+
+## Repository layout / 项目结构
+
+| Path | Purpose |
+|---|---|
+| `cmd/cyberagent` | CLI, TUI, and API entry point |
+| `cmd/cyberagent-desktop` | Windows/macOS Desktop shell |
+| `internal/` | Go domain, application, Policy, Store, Tool, Sandbox, and HTTP control plane |
+| `web/` | React/Vite operator UI; owns no authority, secrets, or executor |
+| `analyzers/` | Deterministic Rust Analyzer and shared vectors |
+| `configs/` | Secret-free configuration templates |
+| `docs/` | Architecture, usage, status ledgers, ADRs, and product scope |
+| `packaging/` | Local portable preview and test guidance |
 
 ## 设计与实现原则 / Design and implementation principles
 

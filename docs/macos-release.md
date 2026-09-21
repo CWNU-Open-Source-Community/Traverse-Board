@@ -6,7 +6,16 @@ Mac 交付包含 Apple Silicon（arm64）和 Intel（amd64）两份 ZIP。文件
 
 ## 获取候选包
 
-在当前 PR 的 **Desktop release** 检查页面下载两个 `TraverseBoard-macos-<arch>-<revision>`
+[PR #204 的双架构候选](https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/runs/35599997265)
+已完成原生构建与归档复验。以下链接对应 `v1.0.0-pr.204`、源码合并检出 `2cd160fb213c`，
+保留 30 天；下载 Actions artifact 需要登录 GitHub。到期后从最新 PR 检查获取新候选。
+
+| Mac 类型 / Architecture | 下载 / Download |
+| --- | --- |
+| Apple Silicon（M 系列 / arm64） | [预览包 / Preview](https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/runs/35599997265/artifacts/10638234234) |
+| Intel（amd64） | [预览包 / Preview](https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/runs/35599997265/artifacts/10639166111) |
+
+在对应候选的 **Desktop release** 检查页面下载两个 `TraverseBoard-macos-<arch>-<revision>`
 artifact。artifact 外层是 GitHub 的传输 ZIP；解开后取得产品 ZIP、manifest 和 checksum。
 CI artifact 保留 30 天，仍不是 GitHub Release。预发布 tag 的流程成功后，同一 publisher
 才会把两架构文件发布到同一个 Release 的 Assets 中。

@@ -10,12 +10,14 @@ This directory separates user-facing documentation, current engineering state, a
 
 | 文档 | 用途 |
 |---|---|
-| [README 中文](../README.md) / [README English](../README.en.md) | 产品定位、核心能力、快速开始和历史阶段索引 |
+| [README 中文](../README.md) / [README English](../README.en.md) | 产品用途、核心价值和首次对话 |
+| [Windows 下载](windows-release.md) / [Mac 下载](macos-release.md) | 获取应用、平台要求、预览与正式发行状态 |
+| [v1.0.0「启航」发布说明](releases/v1.0.0.md) | 首版范围、已验证结果与仍待完成的验收 |
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
 | [Pre-1.0 产品收敛](convergence/README.md) | Surface tier、协议冻结等级、Durable Operation 边界、规范词汇与有界后续 Issue |
 | [SQLite 全新安装基线](schema-baseline.md) | 严格空库准入、事务化 latest-schema 建库、备份/旧二进制回滚与失败恢复 |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
-| [Web Evidence / Web 证据](web-evidence.md) | SearXNG 配置、Run 网络 allowlist、Search/Fetch/Citation、故障与条款边界 |
+| [Web Evidence / Web 证据](web-evidence.md) | 原生搜索、显式网页后端、来源连接器、快照引用与故障排查 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
 | [Standard Code 原子预设](standard-code-preset.md) | 一键 Code/Plan 组合、Local/显式 Docker、Workspace Trust、暂停配置与故障恢复 |
@@ -37,6 +39,8 @@ This directory separates user-facing documentation, current engineering state, a
 | 文档 | 用途 |
 |---|---|
 | [架构说明 / Architecture](architecture.md) | Go 单一控制平面、Run-centric 领域和跨语言边界 |
+| [技术能力参考](technical-reference.md) / [Technical reference](technical-reference.en.md) | 从首页移入的运行时、工具、权限和扩展细节 |
+| [贡献指南 / Contributing](../CONTRIBUTING.md) | 开发环境、源码启动、项目结构和验证方法 |
 | [品牌迁移 / Branding Migration](branding/README.md) | Traverse Board · 针路簿品牌、展示词汇与兼容迁移矩阵 |
 | [LSP 语义代码智能 / Code Intelligence](code-intelligence.md) | 审查配置、十项只读工具、进程生命周期、证据失效与真实 Server 验证 |
 | [HTTP API](http-api.md) | 认证 API 行为与 DTO 边界 |
@@ -85,7 +89,7 @@ These files are intentionally detailed. Read them in the order above when resumi
 
 ## 历史与指标 / History and Metrics
 
-根 README 的[“历史开发记录”](../README.md#历史开发记录)提供可读的阶段索引和旧双指标快照。完整证据仍在 `PROGRESS_BOOK.md` 与 `PROJECT_STATUS.md` 中。
+[开发历史与迁移索引](development-history.md)保存从首页移入的阶段索引、旧指标快照和完整 SQLite 迁移表。迁移表仍由 Store 测试核对顺序与数量。完整历史证据保留在 `PROGRESS_BOOK.md` 与 `PROJECT_STATUS.md` 中；最新发布验收见 [v1.0.0 发布说明](releases/v1.0.0.md)。
 
 历史百分比是基于当时任务书的工程估算，不是性能 Benchmark、语义版本承诺或正式发布证明。CTF/Cyber 自动化旧百分比已经退役；该方向现在属于可选附加范围，见[产品范围](PRODUCT_SCOPE.md)。
 
@@ -95,7 +99,8 @@ The historical percentages are roadmap estimates, not performance benchmarks, se
 
 - 产品能力声明以当前代码、测试、`PROJECT_STATUS.md` 和相关 ADR 为准。
 - `PROGRESS_BOOK.md` 与 ADR 只追加或显式标记 superseded，不重写历史来匹配当前叙事。
-- 新增用户能力时同步更新 README、Usage 和 Product Scope；新增权限或所有权边界时先更新 ADR。
+- README 只保留产品用途、核心价值、最短上手路径和文档入口；按需配置、命令参数、协议、迁移记录与验证矩阵放入专题文档。中英文首页保持同一使用路径。
+- 新增用户能力时更新对应专题文档、Usage 和 Product Scope；仅在改变产品定位或上手步骤时扩充 README。新增权限或所有权边界时先更新 ADR。
 - 新增产品 Surface、持久协议或用户主概念时同步更新 `docs/convergence/`；inventory 只描述边界，不能授予 authority。
 - 不在文档、示例或截图中提交 API key、控制令牌、绝对用户路径或 Provider 原始响应。
 - Keep Chinese and English product entry points aligned; additional README language variants are intentionally out of scope.
