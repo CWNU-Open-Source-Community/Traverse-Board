@@ -794,16 +794,19 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		delegate: application.NewThreadModelRouteService(
 			fixture.store, fixture.api.modelRegistry),
 	}
-	fixture.api.providerSearchReadinessController = &providerSearchReadinessControllerFake{
-		value: application.ProviderSearchReadiness{
-			ProtocolVersion: application.ProviderSearchReadinessProtocolVersion,
-			RunID:           fixture.run.ID, ModelRoute: fixture.run.Config.ModelRoute,
-			Provider: "mock", Model: "mock-code", SearchPolicy: "disabled",
-			State:       application.ProviderSearchStateNetworkDisabled,
-			Reason:      application.ProviderSearchReasonRunNetworkDisabled,
-			Remediation: application.ProviderSearchRemediationEnableNetwork,
-			NetworkMode: "disabled",
-		}}
+	fixture.api.providerSearchReadinessController = &searchDiagnosticsFake{
+		providerSearchReadinessControllerFake: providerSearchReadinessControllerFake{
+			value: application.ProviderSearchReadiness{
+				ProtocolVersion: application.ProviderSearchReadinessProtocolVersion,
+				RunID:           fixture.run.ID, ModelRoute: fixture.run.Config.ModelRoute,
+				Provider: "mock", Model: "mock-code", SearchPolicy: "disabled",
+				State:       application.ProviderSearchStateNetworkDisabled,
+				Reason:      application.ProviderSearchReasonRunNetworkDisabled,
+				Remediation: application.ProviderSearchRemediationEnableNetwork,
+				NetworkMode: "disabled",
+			},
+		},
+	}
 	providerDefinitionController, err := application.NewProviderDefinitionService(
 		fixture.store, fixture.api.modelRegistry)
 	if err != nil {
@@ -1638,6 +1641,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"confirm_non_authorizing_review":true}`
 				} else if spec.Path == RunExecutionPermissionControlPathTemplate {
 					body = `{"mode":"full_access","confirm_danger_full_access":true}`
+				} else if spec.Path == "/api/v1/threads/{thread_id}/search-diagnostics" {
+					body = `{"version":"search_diagnostics.v1","confirm":true}`
 				} else if spec.Path == ThreadExecutionPermissionControlPathTemplate {
 					body = `{"mode":"conservative"}`
 				} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {

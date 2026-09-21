@@ -335,7 +335,7 @@ jobs:
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify Windows command runtime transports
-        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell(5PowerShell7AndGitBashSmoke|5BindsWorkspaceProfileBeforeLaunch|7KeepsExistingProfileEnvironment))$'
+        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell(5PowerShell7AndGitBashSmoke|5BindsWorkspaceProfileBeforeLaunch|5ProfileWatchdogReapsProcess|7KeepsExistingProfileEnvironment))$'
       - name: Verify Windows analyzer conformance boundaries
         shell: pwsh
         run: |
