@@ -26,3 +26,9 @@ scripts/standard-code-packaged-e2e.ps1 text eol=lf
 
 # Runtime verifies the generated baseline byte digest before using it.
 internal/store/clean_install_baseline.sql text eol=lf
+
+# Native macOS entry points and hash-bound guide retain POSIX line endings.
+*.sh text eol=lf
+*.command text eol=lf
+*.py text eol=lf
+packaging/macos/LOCAL-TEST-GUIDE.txt text eol=lf

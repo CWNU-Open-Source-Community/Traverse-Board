@@ -49,7 +49,7 @@ func TestDesktopReleaseWorkflowWiresEvidenceAndReverifiesBeforePublish(t *testin
 		"The prepare phase is only valid for a stable signing request",
 		"-PrepareSigningRequest",
 		"signing_prepare",
-		"name: ${{ steps.release.outputs.artifact_name }}-direct-exe-signing-request",
+		"name: ${{ needs.dependency-boundaries.outputs.artifact_name }}-direct-exe-signing-request",
 		"direct-exe-signing-request.json",
 		"-SigningRequestPath build/signing/direct-exe-signing-request.json",
 		"TraverseBoard-signed.exe",
@@ -169,7 +169,7 @@ func TestDesktopReleaseWorkflowWiresEvidenceAndReverifiesBeforePublish(t *testin
 	}
 	prepareBlock := portableJob[prepareStart:prepareEnd]
 	for _, value := range []string{
-		"steps.release.outputs.signing_prepare == 'true'",
+		"needs.dependency-boundaries.outputs.signing_prepare == 'true'",
 		"-PrepareSigningRequest",
 		"build/desktop/TraverseBoard.exe",
 		"build/desktop/release-metadata.json",
@@ -188,7 +188,7 @@ func TestDesktopReleaseWorkflowWiresEvidenceAndReverifiesBeforePublish(t *testin
 			t.Fatalf("stable signing-request artifact leaks finalize-only input %q", forbiddenSigningResult)
 		}
 	}
-	if count := strings.Count(portableJob, "steps.release.outputs.signing_prepare != 'true'"); count < 12 {
+	if count := strings.Count(portableJob, "needs.dependency-boundaries.outputs.signing_prepare != 'true'"); count < 12 {
 		t.Fatalf("stable signing prepare does not cleanly skip downstream work; only %d guards", count)
 	}
 	for _, artifactContract := range []struct {
@@ -296,6 +296,84 @@ func TestPackagedHarnessRequiresBothReportsForAggregate(t *testing.T) {
 		"go run ./cmd/releasegate", "standard_code_release_gate: passed"} {
 		if !strings.Contains(text, value) {
 			t.Fatalf("packaged harness is missing %q", value)
+		}
+	}
+}
+
+func TestMacArchivesShareIdentityAndHaveOneReleaseWriter(t *testing.T) {
+	content := readTestFile(t, filepath.Join("..", "..", ".github", "workflows", "release-desktop.yml"))
+	type step struct {
+		Name string `yaml:"name"`
+		If   string `yaml:"if"`
+		Run  string `yaml:"run"`
+	}
+	type job struct {
+		Needs       interface{}       `yaml:"needs"`
+		Outputs     map[string]string `yaml:"outputs"`
+		Permissions map[string]string `yaml:"permissions"`
+		Steps       []step            `yaml:"steps"`
+		Strategy    struct {
+			Matrix struct {
+				Include []map[string]string `yaml:"include"`
+			} `yaml:"matrix"`
+		} `yaml:"strategy"`
+	}
+	var workflow struct {
+		Jobs map[string]job `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(content, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"version", "revision", "prerelease", "phase", "signing_prepare"} {
+		if workflow.Jobs["dependency-boundaries"].Outputs[field] != "${{ steps.release.outputs."+field+" }}" ||
+			workflow.Jobs["portable-zip"].Outputs[field] != "${{ needs.dependency-boundaries.outputs."+field+" }}" {
+			t.Fatalf("release identity %s is not shared with the Windows compatibility outputs", field)
+		}
+	}
+	mac := workflow.Jobs["macos-archive"]
+	if mac.Needs != "dependency-boundaries" || mac.Permissions["contents"] != "read" {
+		t.Fatal("Mac builds must depend on shared identity with read-only repository authority")
+	}
+	runners := map[string]string{}
+	for _, row := range mac.Strategy.Matrix.Include {
+		runners[row["arch"]] = row["runner"]
+	}
+	if len(mac.Strategy.Matrix.Include) != 2 || runners["arm64"] != "macos-15" || runners["amd64"] != "macos-15-intel" {
+		t.Fatal("Mac archive matrix must use distinct native Apple Silicon and Intel runners")
+	}
+	blocked := false
+	for _, current := range mac.Steps {
+		if current.Name == "Require Mac distribution evidence for stable finalize" {
+			blocked = strings.Contains(current.If, "outputs.prerelease == 'false'") &&
+				strings.Contains(current.If, "outputs.phase == 'finalize'") && strings.Contains(current.Run, "exit 1")
+		}
+	}
+	if !blocked {
+		t.Fatal("preview-only Mac packaging must reject stable finalize")
+	}
+	writers := 0
+	for name, current := range workflow.Jobs {
+		if current.Permissions["contents"] == "write" {
+			writers++
+			if name != "publish" {
+				t.Fatalf("unexpected release writer %s", name)
+			}
+		}
+	}
+	if writers != 1 {
+		t.Fatal("release must have exactly one repository writer")
+	}
+	needs, ok := workflow.Jobs["publish"].Needs.([]interface{})
+	if !ok {
+		t.Fatal("publish requires every platform and the Windows attestation job")
+	}
+	for _, required := range []string{"portable-zip", "attest-windows-artifacts", "macos-archive"} {
+		found := false
+		for _, name := range needs {
+			found = found || name == required
+		}
+		if !found {
+			t.Fatalf("publisher can run without %s", required)
 		}
 	}
 }

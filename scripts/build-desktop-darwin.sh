@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Prayu macOS Desktop portable .app build.
+# Traverse Board macOS Desktop portable .app build.
 #
 # Produces an unsigned, ad-hoc-signed development artifact at
-# build/desktop/Prayu.app. It intentionally ships no installer, no
+# build/desktop/TraverseBoard.app. It intentionally ships no installer, no
 # LaunchAgent, no notarization, no auto-update, and no registry-equivalent
 # writes. Release metadata records that release_ready remains false until
 # signing, notarization, and the manual macOS matrix are complete.
@@ -48,11 +48,11 @@ case "$outputRoot" in
     *) die "Desktop output directory must remain inside the repository" ;;
 esac
 
-if ! printf '%s' "$Version" | grep -Eq '^v[0-9]+.[0-9]+.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+if ! printf '%s' "$Version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
     die "Desktop release version is invalid"
 fi
 
-appName="Prayu"
+appName="TraverseBoard"
 bundleDir="$outputRoot/$appName.app"
 binaryPath="$bundleDir/Contents/MacOS/cyberagent-desktop"
 reproBinaryPath="$outputRoot/cyberagent-desktop.repro"
@@ -136,7 +136,8 @@ cp "$launcherSourcePath" "$launcherPath"
 cp "$guideSourcePath" "$guidePath"
 cp "$iconSourcePath" "$iconPath"
 chmod +x "$launcherPath"
-sed "s/@VERSION@/$Version/g" "$plistSourcePath" > "$plistPath"
+bundleVersion="$(printf '%s' "$Version" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')"
+sed "s/@VERSION@/$bundleVersion/g" "$plistSourcePath" > "$plistPath"
 
 ldflags="-s -w -X=cyberagent-workbench/internal/buildinfo.Version=$Version -X=cyberagent-workbench/internal/buildinfo.Revision=$revision -X=cyberagent-workbench/internal/buildinfo.SourceDateEpoch=$sourceDateEpoch -X=cyberagent-workbench/internal/buildinfo.Modified=$modified -X=cyberagent-workbench/internal/buildinfo.CGOEnabled=$cgoEnabled"
 

@@ -1,17 +1,20 @@
 Traverse Board · 针路簿 macOS 本地试用说明
 ==========================
 
+从下载的产品 ZIP 解压后，直接双击同目录 TraverseBoard.app；无需安装 Go、Node 或 Xcode。
+以下命令在解压后的产品目录执行；源码构建后先进入 build/desktop/。
+
 推荐入口
 --------
 直接打开应用：
 
-    open build/desktop/Prayu.app
+    open ./TraverseBoard.app
 
 默认入口启用安全控制面；不启用完全访问、Debug 最大权限、完整
 CDP、后台唤醒/定时 Worker 或 Agent 持久终端。历史文件名
 Start-Prayu-Operator-Preview.command 只是同一默认入口的兼容快捷方式。显式只读入口为：
 
-    ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --safe-view
+    ./TraverseBoard.app/Contents/MacOS/cyberagent-desktop --safe-view
 
 启动器与指南位于 build/desktop/ 目录，仅用于本地产品测试，不是正式发行包。
 
@@ -38,7 +41,7 @@ Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist �
    http，默认 http://127.0.0.1:11434）与 CYBERAGENT_OLLAMA_MODEL；请先自行
    安装 Ollama 并 pull 模型，针路簿不会自动安装或下载。
 
-       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop
+       DEEPSEEK_API_KEY=sk-... ./TraverseBoard.app/Contents/MacOS/cyberagent-desktop
 
 3. 依次点击 Provider 的"连接诊断"和"Harness 验证"。Harness 验证会发起最多
    两次真实、受限的模型请求，但不会执行 Shell、文件、浏览器或工具动作。
@@ -77,11 +80,15 @@ English；选择保存在本机界面存储中。
 Traverse Board macOS Local Test Guide
 ============================
 
+After extracting the product ZIP, double-click TraverseBoard.app in that directory.
+Go, Node and Xcode are only build dependencies. Run the commands below from the
+extracted product directory; after building from source, first enter build/desktop/.
+
 Recommended entry point
 -----------------------
 Open the application directly:
 
-    open build/desktop/Prayu.app
+    open ./TraverseBoard.app
 
 The default enables the safe control plane. It does
 not enable danger-full-access, maximum Debug, Full CDP, background wake/scheduled
@@ -89,7 +96,7 @@ workers, or an Agent-controlled persistent terminal. The historical
 Start-Prayu-Operator-Preview.command filename is only a compatibility shortcut.
 The explicit read-only entry is:
 
-    ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --safe-view
+    ./TraverseBoard.app/Contents/MacOS/cyberagent-desktop --safe-view
 
 The launcher and this guide live under build/desktop/ and exist only for local
 product testing; they are not a distribution package.
@@ -121,7 +128,7 @@ Connect a real model
    explicitly. Install Ollama and pull the model yourself first; Traverse Board never
    installs or downloads.
 
-       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop
+       DEEPSEEK_API_KEY=sk-... ./TraverseBoard.app/Contents/MacOS/cyberagent-desktop
 
 3. Run Provider diagnostics, then Harness qualification. Qualification
    performs at most two bounded real model calls and executes no shell, file,

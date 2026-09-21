@@ -148,7 +148,7 @@ add_check(
     "release_identity",
     "pass"
     if metadata["protocol_version"] == "portable_release_metadata.v1"
-    and re.match(r"^v[0-9]+.[0-9]+.[0-9]+", metadata["app_version"])
+    and re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$", metadata["app_version"])
     and re.match(r"^[0-9a-f]{40}$", metadata["revision"])
     and int(metadata["source_date_epoch"]) > 0
     else "fail",
@@ -255,7 +255,7 @@ else:
 add_check(
     "macos_matrix",
     "manual",
-    "verify macOS 10.15+, Retina scaling, notarized distribution, launch, and recovery on a clean machine",
+    "verify macOS 11+, Retina scaling, notarized distribution, launch, and recovery on a clean machine",
 )
 
 failed = [check for check in checks if check["status"] == "fail"]

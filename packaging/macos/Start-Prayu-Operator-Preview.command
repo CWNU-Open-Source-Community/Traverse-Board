@@ -6,4 +6,4 @@
 # background wake worker, or an Agent-controlled persistent terminal.
 set -eu
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
-exec "$script_dir/Prayu.app/Contents/MacOS/cyberagent-desktop"
+exec "$script_dir/TraverseBoard.app/Contents/MacOS/cyberagent-desktop"
