@@ -1,13 +1,33 @@
 # Web Evidence / Web 证据
 
-Schema v134 adds a default-off, first-party path for a root Supervisor to discover,
-fetch, and cite public Web sources without granting a model generic network access.
-The architecture and threat boundary are recorded in
-[ADR 0137](adr/0137-go-owned-web-evidence.md).
+这里说明搜索配置、公开来源读取与引用。实际可用性取决于所选供应商、网络及当前任务权限；[v1.0.0 发布说明](releases/v1.0.0.md)单独记录用户链路的验收状态。
 
-## Configure search
+## 当前搜索配置 / Current search setup
 
-Search uses exactly one operator-configured SearXNG JSON endpoint. The endpoint must
+在桌面 **设置 → 模型** 中连接供应商，在其搜索设置中选择策略：
+
+| 策略 / Strategy | 行为 / Behavior |
+| --- | --- |
+| 自动 / Auto | 优先使用已声明且通过验证的供应商原生搜索；否则只回退到已配置的 SearXNG。Prefers qualified provider-native search; falls back only to configured SearXNG. |
+| 供应商原生 / Provider native | 使用当前模型服务的原生搜索能力；兼容 Responses API 本身不足以证明支持 `web_search`。Requires actual native search support, not just Responses API compatibility. |
+| SearXNG | 使用下方显式配置的服务。Uses the explicitly configured endpoint below. |
+| DuckDuckGo | 需要明确选择，可能遇到机器人验证；不会静默启用。Explicit selection only; bot challenges can make it unavailable. |
+
+原生搜索首次真实调用仍需验证，可能产生供应商费用。连接诊断失败、额度不足、搜索能力不支持与网页抓取失败是不同原因，应按界面提示分别处理。连接了模型不等于搜索已经可用。
+
+Configure the strategy under **Settings → Models** for the selected provider. Initial native-search validation can incur provider charges. Model connectivity, available quota, search support, and page retrieval are separate checks.
+
+### GitHub、Hacker News 与 RSS/Atom
+
+`source_search` 搜索 GitHub/Hacker News；`web_fetch` 读取 GitHub 公开 Issue/PR 正文及 issue comments（不含 PR review comments）、Hacker News 及最多四层评论，并通过显式 `connector=rss` 读取 RSS/Atom feed。RSS 是读取订阅源，不是全网搜索。来源内容进入快照与引用路径；没有登录平台或视频检索能力的承诺。
+
+These connectors cover public GitHub issue/PR bodies and issue comments, Hacker News with up to four comment levels, and explicit RSS/Atom feeds. RSS is a feed reader, not a general search engine. Retrieved sources use the existing snapshot and citation paths.
+
+底层 Web 证据协议从 schema v134 开始，来源连接器在 v165 接入；架构与边界见 [ADR 0137](adr/0137-go-owned-web-evidence.md)。以下是 SearXNG 和受控任务的高级配置说明。
+
+## Configure SearXNG
+
+The SearXNG backend uses one operator-configured JSON endpoint. The endpoint must
 be a public HTTPS URL on port 443 and must support the documented JSON search API.
 See the upstream [SearXNG Search API](https://docs.searxng.org/dev/search_api.html)
 for instance-side configuration, including enabling JSON output.
@@ -17,16 +37,15 @@ $env:CYBERAGENT_WEB_SEARCH_ENDPOINT = "https://search.example.org/search"
 ```
 
 The request uses `GET` with `q`, `format=json`, and `safesearch=1`. Traverse Board
-sends no search credential or cookie. If the variable is unset or invalid,
-`web_search` is not advertised. Fetch and citation may still be available for an
-allowlisted Run. There is no built-in public SearXNG instance, HTML scraper, browser,
-shell, or alternate-provider fallback.
+sends no search credential or cookie. If the variable is unset or invalid, this
+backend is unavailable. Other explicitly selected search backends have their own
+readiness checks. There is no built-in public SearXNG instance, and a SearXNG failure
+does not silently enable DuckDuckGo, browser, shell, or another paid provider.
 
 ## Create an opted-in Run
 
-New Runs remain network-disabled unless the operator creates one with an explicit
-allowlist. Include the search host if search is required and every destination host
-that fetch may contact:
+This constrained CLI example creates a Run with an explicit network allowlist.
+Include the SearXNG host and every destination host that fetch may contact:
 
 ```powershell
 cyberagent workspace init web-research
@@ -54,8 +73,10 @@ rejected.
 
 The model-facing workflow is intentionally ordered:
 
-1. `web_search` returns up to ten title/snippet/URL stubs. They are discovery hints,
-   `untrusted`, and not citeable.
+1. `web_search` returns up to ten results. Ordinary title/snippet/URL stubs are
+   untrusted discovery hints, not citations. A qualified hosted provider can also
+   return explicitly marked `provider_grounded` citations; those may be cited with
+   provider provenance, without claiming they are locally verified snapshots.
 2. `web_fetch` accepts one returned `source_id` or one authorized URL. It evaluates
    robots according to the current permission mode, fetches and parses the source,
    and creates an immutable snapshot.
