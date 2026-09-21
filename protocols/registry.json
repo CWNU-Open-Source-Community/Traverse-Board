@@ -1830,6 +1830,7 @@
         ]
       },
       "active_identifiers": [
+        "macos_release_archive.v1",
         "portable_build_diagnostic.v1",
         "portable_release_metadata.v1",
         "portable_zip_manifest.v1"

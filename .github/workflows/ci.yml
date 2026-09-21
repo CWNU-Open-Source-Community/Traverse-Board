@@ -271,18 +271,15 @@ jobs:
         run: go test -tags "desktop" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
       - name: Verify POSIX command runtime transport
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntimePlatform(ShellSmoke|CancelReapsOwnedProcessTree)$'
-      - name: Build and verify portable macOS app bundle
-        run: ./scripts/build-desktop-darwin.sh -SkipFrontend -VerifyReproducible
-      - name: Upload portable macOS app bundle
+      - name: Build and verify downloadable macOS preview
+        run: bash scripts/release-desktop-darwin.sh "v1.0.0-ci.$GITHUB_RUN_ID" "$GITHUB_SHA" "$(go env GOARCH)"
+      - name: Upload downloadable macOS preview
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prayu-macos-desktop
-          path: |
-            build/desktop/Prayu.app
-            build/desktop/release-metadata.json
-            build/desktop/macos-compatibility.json
+          name: TraverseBoard-macos-preview-arm64
+          path: build/macos-public/*
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 30
 
   desktop:
     name: Windows Desktop shell

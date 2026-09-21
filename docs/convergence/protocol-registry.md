@@ -31,7 +31,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 4 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
-| [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 3 | true |
+| [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 4 | true |
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
@@ -1142,8 +1142,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `release-and-packaging-contracts-reader` (`v1`, active) at `internal/buildinfo`
 
-<details><summary>3 active identifiers</summary>
+<details><summary>4 active identifiers</summary>
 
+- `macos_release_archive.v1`
 - `portable_build_diagnostic.v1`
 - `portable_release_metadata.v1`
 - `portable_zip_manifest.v1`

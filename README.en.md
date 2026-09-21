@@ -360,12 +360,14 @@ See
 
 ### macOS Desktop preview
 
+See [Mac delivery status](docs/macos-release.md) for Apple Silicon / Intel downloads, verification and remaining distribution requirements. Current packages are explicitly unnotarized previews.
+
 ```bash
 ./scripts/build-desktop-darwin.sh
-open build/desktop/Prayu.app
+open build/desktop/TraverseBoard.app
 ```
 
-Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`. The user terminal stays off by default and uses a local Bash PTY when the corresponding startup gates are enabled; the restricted browser and Full CDP stay off. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt), [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md), and [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md).
+Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `TraverseBoard.app` directly (safe control-plane default; use `--safe-view` for read-only mode). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`. The user terminal stays off by default and uses a local Bash PTY when the corresponding startup gates are enabled; the restricted browser and Full CDP stay off. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt), [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md), and [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md).
 
 See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Windows release version (for example v1.0.0-rc.1)
+        description: Desktop release version (for example v1.0.0-rc.1)
         required: true
         default: v1.0.0-rc.1
         type: string
@@ -26,6 +26,12 @@ on:
       - 'internal/packagede2e/**'
       - 'internal/producte2e/**'
       - 'internal/releasegate/**'
+      - 'scripts/build-desktop-darwin.sh'
+      - 'scripts/check-macos-compat.sh'
+      - 'scripts/release-desktop-darwin.sh'
+      - 'scripts/macos-release.py'
+      - 'scripts/test_macos_release.py'
+      - 'docs/macos-release.md'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
       - 'scripts/finalize-windows-release.ps1'
@@ -80,82 +86,6 @@ jobs:
   dependency-boundaries:
     name: Release dependency and license boundaries
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout exact source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      - name: Require successful central CI for the exact release revision
-        if: ${{ github.event_name != 'pull_request' }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $revision = (git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
-            throw "Release CI revision is invalid"
-          }
-          $endpoint = "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" +
-            "?head_sha=$revision&event=push&status=completed&per_page=100"
-          $response = gh api $endpoint
-          if ($LASTEXITCODE -ne 0) { throw "Central CI provenance lookup failed" }
-          $runs = ($response | Out-String) | ConvertFrom-Json
-          $successful = @($runs.workflow_runs | Where-Object {
-              [string]$_.head_sha -ceq $revision -and
-              [string]$_.event -ceq "push" -and
-              [string]$_.status -ceq "completed" -and
-              [string]$_.conclusion -ceq "success"
-            })
-          if ($successful.Count -lt 1) {
-            throw "The exact release revision has no successful central CI push run"
-          }
-
-      - name: Set up pinned Go 1.25.12
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.25.12'
-          cache: true
-
-      - name: Set up pinned Node 24.16.0
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24.16.0'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Verify Go module graph and checksums
-        run: |
-          go mod verify
-          go mod tidy -diff
-
-      - name: Verify Node lockfile
-        working-directory: web
-        run: npm ci --ignore-scripts
-
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal
-
-      - name: Verify locked Rust graph and canonical embedded analyzer
-        run: |
-          cargo +1.97.1 metadata --locked --format-version 1 --manifest-path analyzers/Cargo.toml >/dev/null
-          ./scripts/build-embedded-wasi.sh
-          cmp --silent \
-            analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm \
-            internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm
-
-  portable-zip:
-    name: Windows dual-product candidate
-    needs: dependency-boundaries
-    runs-on: windows-latest
-    env:
-      TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
-      STORE_PACKAGE_IDENTITY_NAME: ${{ vars.STORE_PACKAGE_IDENTITY_NAME }}
-      STORE_PACKAGE_PUBLISHER: ${{ vars.STORE_PACKAGE_PUBLISHER }}
-      STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
-      STORE_PACKAGE_VERSION: ${{ vars.STORE_PACKAGE_VERSION }}
-      DIRECT_EXE_SIGNER_SUBJECT: ${{ vars.DIRECT_EXE_SIGNER_SUBJECT }}
-      DIRECT_EXE_SIGNER_THUMBPRINT: ${{ vars.DIRECT_EXE_SIGNER_THUMBPRINT }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       msix_version: ${{ steps.release.outputs.msix_version }}
@@ -228,6 +158,156 @@ jobs:
           "phase=$phase" >> $env:GITHUB_OUTPUT
           "signing_prepare=$($signingPrepare.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
+      - name: Require successful central CI for the exact release revision
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $revision = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Release CI revision is invalid"
+          }
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" +
+            "?head_sha=$revision&event=push&status=completed&per_page=100"
+          $response = gh api $endpoint
+          if ($LASTEXITCODE -ne 0) { throw "Central CI provenance lookup failed" }
+          $runs = ($response | Out-String) | ConvertFrom-Json
+          $successful = @($runs.workflow_runs | Where-Object {
+              [string]$_.head_sha -ceq $revision -and
+              [string]$_.event -ceq "push" -and
+              [string]$_.status -ceq "completed" -and
+              [string]$_.conclusion -ceq "success"
+            })
+          if ($successful.Count -lt 1) {
+            throw "The exact release revision has no successful central CI push run"
+          }
+
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+
+      - name: Set up pinned Node 24.16.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify Mac archive rejection cases
+        run: python3 -B -m unittest discover -s scripts -p test_macos_release.py -v
+
+      - name: Verify Go module graph and checksums
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Verify Node lockfile
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Verify locked Rust graph and canonical embedded analyzer
+        run: |
+          cargo +1.97.1 metadata --locked --format-version 1 --manifest-path analyzers/Cargo.toml >/dev/null
+          ./scripts/build-embedded-wasi.sh
+          cmp --silent \
+            analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm \
+            internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm
+
+  macos-archive:
+    name: macOS preview archive (${{ matrix.arch }})
+    needs: dependency-boundaries
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Require Mac distribution evidence for stable finalize
+        if: ${{ needs.dependency-boundaries.outputs.prerelease == 'false' && needs.dependency-boundaries.outputs.phase == 'finalize' }}
+        run: |
+          echo 'Stable macOS publication requires Developer ID signing, notarization and final-package manual acceptance; this pipeline currently produces previews only.' >&2
+          exit 1
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+      - name: Set up pinned Node 24.16.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build embedded renderer
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Build archive and verify extracted native bundle
+        env:
+          RELEASE_VERSION: ${{ needs.dependency-boundaries.outputs.version }}
+          RELEASE_REVISION: ${{ needs.dependency-boundaries.outputs.revision }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: bash scripts/release-desktop-darwin.sh "$RELEASE_VERSION" "$RELEASE_REVISION" "$RELEASE_ARCH"
+      - name: Upload exact Mac preview archive and verification sidecars
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: TraverseBoard-macos-${{ matrix.arch }}-${{ needs.dependency-boundaries.outputs.revision }}
+          path: build/macos-public/*
+          if-no-files-found: error
+          retention-days: 30
+
+  portable-zip:
+    name: Windows dual-product candidate
+    needs: dependency-boundaries
+    runs-on: windows-latest
+    env:
+      TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
+      STORE_PACKAGE_IDENTITY_NAME: ${{ vars.STORE_PACKAGE_IDENTITY_NAME }}
+      STORE_PACKAGE_PUBLISHER: ${{ vars.STORE_PACKAGE_PUBLISHER }}
+      STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+      STORE_PACKAGE_VERSION: ${{ vars.STORE_PACKAGE_VERSION }}
+      DIRECT_EXE_SIGNER_SUBJECT: ${{ vars.DIRECT_EXE_SIGNER_SUBJECT }}
+      DIRECT_EXE_SIGNER_THUMBPRINT: ${{ vars.DIRECT_EXE_SIGNER_THUMBPRINT }}
+    outputs:
+      version: ${{ needs.dependency-boundaries.outputs.version }}
+      msix_version: ${{ needs.dependency-boundaries.outputs.msix_version }}
+      revision: ${{ needs.dependency-boundaries.outputs.revision }}
+      artifact_name: ${{ needs.dependency-boundaries.outputs.artifact_name }}
+      prerelease: ${{ needs.dependency-boundaries.outputs.prerelease }}
+      phase: ${{ needs.dependency-boundaries.outputs.phase }}
+      signing_prepare: ${{ needs.dependency-boundaries.outputs.signing_prepare }}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify shared release revision
+        shell: pwsh
+        env:
+          RELEASE_REVISION: ${{ needs.dependency-boundaries.outputs.revision }}
+        run: |
+          if ((git rev-parse HEAD).Trim() -cne $env:RELEASE_REVISION) {
+            throw "Windows source differs from shared release revision"
+          }
+
       - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -250,15 +330,15 @@ jobs:
 
       - name: Build Desktop twice and compare bytes
         shell: pwsh
-        run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
+        run: ./scripts/build-desktop.ps1 -Version '${{ needs.dependency-boundaries.outputs.version }}' -VerifyReproducible
 
       - name: Validate Store and direct-EXE signing configuration
         if: ${{ github.event_name != 'pull_request' }}
         shell: pwsh
         env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
-          RELEASE_PHASE: ${{ steps.release.outputs.phase }}
+          RELEASE_VERSION: ${{ needs.dependency-boundaries.outputs.version }}
+          IS_PRERELEASE: ${{ needs.dependency-boundaries.outputs.prerelease }}
+          RELEASE_PHASE: ${{ needs.dependency-boundaries.outputs.phase }}
         run: |
           $storeValues = @(
             $env:STORE_PACKAGE_IDENTITY_NAME,
@@ -306,22 +386,22 @@ jobs:
           }
 
       - name: Prepare protected direct-EXE signing request
-        if: ${{ steps.release.outputs.signing_prepare == 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare == 'true' }}
         shell: pwsh
         run: |
           ./scripts/stage-direct-exe.ps1 `
             -Channel stable `
             -PrepareSigningRequest `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}' `
             -ExpectedSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
             -ExpectedSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Upload isolated direct-EXE signing request
-        if: ${{ steps.release.outputs.signing_prepare == 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.release.outputs.artifact_name }}-direct-exe-signing-request
+          name: ${{ needs.dependency-boundaries.outputs.artifact_name }}-direct-exe-signing-request
           if-no-files-found: error
           retention-days: 7
           path: |
@@ -330,25 +410,25 @@ jobs:
             build/desktop/direct-exe-signing-request.json
 
       - name: Package internal verification ZIP with evidence
-        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
-        run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
+        run: ./scripts/package-portable-zip.ps1 -Version '${{ needs.dependency-boundaries.outputs.version }}' -VerifyReproducible
 
       - name: Verify direct executable through the internal archive
-        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/verify-portable-zip.ps1 `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}' `
             -SmokeTest
 
       - name: Validate Draft Release evidence intake
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_VERSION: ${{ needs.dependency-boundaries.outputs.version }}
         run: |
           $release = gh release view $env:RELEASE_VERSION `
             --repo $env:GITHUB_REPOSITORY `
@@ -361,7 +441,7 @@ jobs:
             "standard-code-product-e2e.json",
             "standard-code-security-evidence.json"
           )
-          $stable = '${{ steps.release.outputs.prerelease }}' -ceq 'false'
+          $stable = '${{ needs.dependency-boundaries.outputs.prerelease }}' -ceq 'false'
           if ($stable) {
             $required += @(
               "direct-exe-signing-request.json",
@@ -437,36 +517,36 @@ jobs:
           }
 
       - name: Exercise packaged Standard Code bootstrap
-        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/standard-code-packaged-e2e.ps1 `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}'
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}'
 
       - name: Aggregate candidate-bound Standard Code release evidence
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/standard-code-packaged-e2e.ps1 `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}' `
             -ProductReportPath 'build/desktop/standard-code-product-e2e.json' `
             -SecurityReportPath 'build/desktop/standard-code-security-evidence.json' `
             -AggregateOutputPath 'build/desktop/standard-code-release-gate.json' `
             -RequireReleaseGate
 
       - name: Stage prerelease direct executable
-        if: ${{ steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && needs.dependency-boundaries.outputs.prerelease == 'true' }}
         shell: pwsh
         run: |
           ./scripts/stage-direct-exe.ps1 `
             -Channel prerelease `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}'
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}'
 
       - name: Stage trusted stable direct executable
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' && needs.dependency-boundaries.outputs.prerelease == 'false' }}
         shell: pwsh
         run: |
           ./scripts/stage-direct-exe.ps1 `
@@ -474,20 +554,20 @@ jobs:
             -SigningRequestPath build/signing/direct-exe-signing-request.json `
             -SignedArtifactPath build/signing/TraverseBoard-signed.exe `
             -SigningHandoffPath build/signing/direct-exe-signing-handoff.json `
-            -ExpectedVersion '${{ steps.release.outputs.version }}' `
-            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedVersion '${{ needs.dependency-boundaries.outputs.version }}' `
+            -ExpectedRevision '${{ needs.dependency-boundaries.outputs.revision }}' `
             -ExpectedSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
             -ExpectedSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Reverify staged direct executable
-        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         env:
-          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          IS_PRERELEASE: ${{ needs.dependency-boundaries.outputs.prerelease }}
         run: |
           $parameters = @{
-            ExpectedVersion = '${{ steps.release.outputs.version }}'
-            ExpectedRevision = '${{ steps.release.outputs.revision }}'
+            ExpectedVersion = '${{ needs.dependency-boundaries.outputs.version }}'
+            ExpectedRevision = '${{ needs.dependency-boundaries.outputs.revision }}'
             VerifyOnly = $true
           }
           if ($env:IS_PRERELEASE -ceq 'false') {
@@ -497,17 +577,17 @@ jobs:
           ./scripts/stage-direct-exe.ps1 @parameters
 
       - name: Package unsigned development MSIX candidate
-        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || needs.dependency-boundaries.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         shell: pwsh
-        run: ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
+        run: ./scripts/package-msix.ps1 -Version '${{ needs.dependency-boundaries.outputs.msix_version }}'
 
       - name: Inspect development MSIX candidate
-        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || needs.dependency-boundaries.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         shell: pwsh
         run: ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Exercise synthetic Partner Center contract on pull requests
-        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/package-msix.ps1 `
@@ -520,27 +600,27 @@ jobs:
           ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Restore development MSIX evidence after synthetic Store check
-        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
-          ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
+          ./scripts/package-msix.ps1 -Version '${{ needs.dependency-boundaries.outputs.msix_version }}'
           ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Package Partner Center-bound Store upload
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' && needs.dependency-boundaries.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         shell: pwsh
         run: ./scripts/package-msix.ps1 -Distribution MicrosoftStore -Version $env:STORE_PACKAGE_VERSION -PackageIdentityName $env:STORE_PACKAGE_IDENTITY_NAME -PackagePublisher $env:STORE_PACKAGE_PUBLISHER -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Inspect Partner Center-bound Store upload
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' && needs.dependency-boundaries.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         shell: pwsh
         run: ./scripts/verify-msix.ps1 -Action inspect -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Upload exact Desktop verification and direct-EXE candidate
-        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.release.outputs.artifact_name }}
+          name: ${{ needs.dependency-boundaries.outputs.artifact_name }}
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -563,10 +643,10 @@ jobs:
             build/desktop/NOTICE
 
       - name: Upload isolated development MSIX validation artifact
-        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
+        if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || needs.dependency-boundaries.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.release.outputs.artifact_name }}-development-msix
+          name: ${{ needs.dependency-boundaries.outputs.artifact_name }}-development-msix
           if-no-files-found: error
           retention-days: 7
           path: |
@@ -578,10 +658,10 @@ jobs:
             build/desktop/release-metadata.json
 
       - name: Upload isolated Partner Center submission artifact
-        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && needs.dependency-boundaries.outputs.signing_prepare != 'true' && needs.dependency-boundaries.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.release.outputs.artifact_name }}-partner-center
+          name: ${{ needs.dependency-boundaries.outputs.artifact_name }}-partner-center
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -903,6 +983,7 @@ jobs:
     needs:
       - portable-zip
       - attest-windows-artifacts
+      - macos-archive
     runs-on: windows-latest
     permissions:
       actions: read
@@ -932,6 +1013,25 @@ jobs:
             --name '${{ needs.portable-zip.outputs.artifact_name }}-attestations' `
             --dir build/attestations
           if ($LASTEXITCODE -ne 0) { throw "Exact attestation artifact download failed" }
+
+      - name: Download and reverify both exact Mac archives from this run
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.portable-zip.outputs.version }}
+          RELEASE_REVISION: ${{ needs.portable-zip.outputs.revision }}
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
+        run: |
+          foreach ($arch in @('arm64', 'amd64')) {
+            $directory = "build/macos/$arch"
+            gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY `
+              --name "TraverseBoard-macos-$arch-$env:RELEASE_REVISION" --dir $directory
+            if ($LASTEXITCODE -ne 0) { throw "Exact Mac candidate download failed: $arch" }
+            $verify = @('scripts/macos-release.py', 'verify', '--directory', $directory,
+              '--version', $env:RELEASE_VERSION, '--revision', $env:RELEASE_REVISION, '--arch', $arch)
+            if ($env:IS_PRERELEASE -ceq 'false') { $verify += '--require-release-ready' }
+            python @verify
+            if ($LASTEXITCODE -ne 0) { throw "Mac archive verification failed: $arch" }
+          }
 
       - name: Download stable Store submission from this run
         if: ${{ needs.portable-zip.outputs.prerelease == 'false' }}
@@ -1171,6 +1271,13 @@ jobs:
             }
             $assets += Join-Path build/attestations $bundleName
           }
+          $macRevision = '${{ needs.portable-zip.outputs.revision }}'
+          foreach ($arch in @('arm64', 'amd64')) {
+            $stem = "TraverseBoard-$env:RELEASE_VERSION-macos-$arch-$($macRevision.Substring(0,12))-preview"
+            foreach ($extension in @('.zip', '.manifest.json', '.sha256')) {
+              $assets += "build/macos/$arch/$stem$extension"
+            }
+          }
           foreach ($asset in $assets) {
             if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
               throw "Release asset is missing: $asset"
@@ -1219,6 +1326,14 @@ jobs:
             throw "Windows release notes contain an unexpanded placeholder"
           }
           $renderedNotes = $renderedNotes.TrimEnd([char[]]"`r`n")
+          $macTemplate = [System.IO.File]::ReadAllText('packaging/macos/RELEASE-NOTES.md')
+          if ([regex]::Matches($macTemplate, [regex]::Escape('{{MACOS_VERSION}}')).Count -ne 1 -or
+              -not $macTemplate.Contains('macOS downloads / macOS 下载') -or
+              -not $macTemplate.Contains('release_ready=false')) {
+            throw "Canonical Mac preview release notes are invalid"
+          }
+          $renderedNotes += "`n`n" + $macTemplate.Replace('{{MACOS_VERSION}}', $env:RELEASE_VERSION)
+          $renderedNotes = $renderedNotes.Replace("`r`n", "`n").TrimEnd([char[]]"`r`n")
           $notesPath = 'build/public/windows-release-notes.md'
           [System.IO.File]::WriteAllText(
             $notesPath,

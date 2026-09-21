@@ -311,12 +311,14 @@ loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL
 
 ### macOS Desktop
 
+Apple Silicon 与 Intel 下载包、校验方式及正式发行缺项见 [Mac 交付说明](docs/macos-release.md)。当前仅提供明确标注的未公证预览。
+
 ```bash
 ./scripts/build-desktop-darwin.sh
-open build/desktop/Prayu.app
+open build/desktop/TraverseBoard.app
 ```
 
-直接打开 `Prayu.app` 即进入安全控制面；历史 operator-preview 启动器文件名仅作兼容。显式只读入口为 app 内二进制加 `--safe-view`。Standard Code 首次向导只在 Go 证明平台 Local Sandbox adapter 可用时出现；当前 Windows-first adapter 在 macOS 上保持不可用，不伪造 readiness。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量。用户终端默认关闭；带相应启动闸门时使用本地 Bash PTY，受限浏览器与完整 CDP 仍保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 与 [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)。
+直接打开 `TraverseBoard.app` 即进入安全控制面；历史 operator-preview 启动器文件名仅作兼容。显式只读入口为 app 内二进制加 `--safe-view`。Standard Code 首次向导只在 Go 证明平台 Local Sandbox adapter 可用时出现；当前 Windows-first adapter 在 macOS 上保持不可用，不伪造 readiness。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量。用户终端默认关闭；带相应启动闸门时使用本地 Bash PTY，受限浏览器与完整 CDP 仍保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 与 [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)。
 
 更多命令与边界见[使用手册](docs/usage.md)。
 
