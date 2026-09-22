@@ -12,6 +12,7 @@ vi.mock("../../hooks/use-public-model-stream", () => ({ usePublicModelStream: ()
 vi.mock("./permission-control", () => ({ V2PermissionControl: () => null }));
 vi.mock("./run-network-authority-control", () => ({ V2RunNetworkAuthorityControl: () => null }));
 vi.mock("./model-route-control", () => ({ V2ModelRouteControl: () => null }));
+vi.mock("./agent-browser", () => ({ V2AgentBrowser: () => null }));
 
 const workspaces = [{ id: "workspace-1", name: "Workspace" }] as WorkspaceView[];
 
@@ -229,11 +230,12 @@ it.each(["stopping", "stop_failed"] as const)("keeps a draft editable while %s p
   const user = userEvent.setup();
   const input = await screen.findByRole("textbox", { name: "继续对话" });
   await user.type(input, "Next requirement");
-  await screen.findByText("已接收 1 条消息，等待处理。");
+  await screen.findByText(state === "stopping"
+    ? "正在停止执行。可以继续编辑，停止完成后再发送。"
+    : "停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。");
   expect(input).toHaveValue("Next requirement");
   expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
   expect(submit).not.toHaveBeenCalled();
-  if (state === "stopping") expect(screen.getByText(/停止完成后再发送/)).toBeInTheDocument();
 });
 
 it("lets a known failed turn continue through the ordinary composer with a fresh key", async () => {

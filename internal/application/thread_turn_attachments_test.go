@@ -59,6 +59,32 @@ func TestPureFileAttachmentApprovalContinuationRetainsOriginalEmptyInput(t *test
 	if resume.State != "completed" || !resume.ModelCalled || resume.ToolCalled || len(p.Requests()) != 3 {
 		t.Fatalf("unexpected continuation %#v", resume)
 	}
+	replayed := turns.ResumeApproval(t.Context(), application.ApprovalContinuationRequest{RunID: run.ID, Kind: "file_edit", ProposalID: edits[0].ID})
+	if replayed.State != "completed" || !replayed.Replayed || replayed.HandoffID != resume.HandoffID || len(p.Requests()) != 3 {
+		t.Fatalf("attachment continuation executed again: %#v calls=%d", replayed, len(p.Requests()))
+	}
+	history, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, fileEvidence := 0, 0
+	for _, message := range history {
+		if message.Role == "user" {
+			users++
+			if message.Content != "" {
+				t.Fatal("attachment continuation fabricated user text")
+			}
+		}
+		if message.Provenance.SourceKind == session.SourceUploadedFile && message.Provenance.SourceRef == f.ID {
+			fileEvidence++
+			if message.Provenance.InstructionAuthorized {
+				t.Fatal("attachment continuation promoted evidence to instructions")
+			}
+		}
+	}
+	if users != 1 || fileEvidence != 1 {
+		t.Fatalf("attachment continuation duplicated input: users=%d evidence=%d", users, fileEvidence)
+	}
 	message, err := st.GetOperatorSteering(t.Context(), result.Submission.Message.ID)
 	if err != nil || message.Content != "" || message.ImageCount != 0 || message.AttachmentCount != 1 || message.Status != domain.OperatorSteeringCommitted {
 		t.Fatal("original input changed", err)

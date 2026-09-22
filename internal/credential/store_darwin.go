@@ -183,7 +183,7 @@ func (s darwinStore) Put(ctx context.Context, name, secret string) error {
 		if add {
 			mode = 1
 		}
-		status := C.traverse_keychain_put(query, target, unsafe.Pointer(&blob[0]), C.CFIndex(len(blob)), mode)
+		status := C.traverse_keychain_put(C.CFDictionaryRef(query), target, unsafe.Pointer(&blob[0]), C.CFIndex(len(blob)), mode)
 		runtime.KeepAlive(blob)
 		return int32(status)
 	}
@@ -230,7 +230,7 @@ func (s darwinStore) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	status := int32(C.SecItemDelete(query))
+	status := int32(C.SecItemDelete(C.CFDictionaryRef(query)))
 	if status == darwinItemNotFound {
 		return nil
 	}

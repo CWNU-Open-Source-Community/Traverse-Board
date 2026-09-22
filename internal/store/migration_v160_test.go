@@ -42,7 +42,12 @@ func TestSchemaV160PreservesOldImageRowsBindingsAndForeignKeys(t *testing.T) {
 	if err := st.applyMigration(t.Context(), migrationPlan()[159]); err != nil {
 		t.Fatal(err)
 	}
-	message, err := st.GetOperatorSteering(t.Context(), "steer-image-v159")
+	// Assert the v160 row directly: the current reader requires columns added
+	// by later migrations and must not change this historical test's schema.
+	var message domain.OperatorSteeringMessage
+	err = st.db.QueryRowContext(t.Context(), `SELECT id,content,image_count,attachment_count
+		FROM operator_steering_messages WHERE id=?`, "steer-image-v159").
+		Scan(&message.ID, &message.Content, &message.ImageCount, &message.AttachmentCount)
 	if err != nil || message.Content != "" || message.ImageCount != 1 || message.AttachmentCount != 0 {
 		t.Fatalf("old image row changed %#v %v", message, err)
 	}

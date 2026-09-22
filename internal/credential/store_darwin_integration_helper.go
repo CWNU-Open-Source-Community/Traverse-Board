@@ -120,7 +120,7 @@ func writeDarwinTestRaw(s darwinStore, name string, bytes []byte) error {
 	if len(bytes) > 0 {
 		ptr = unsafe.Pointer(&bytes[0])
 	}
-	status := C.traverse_test_raw_item(query, target, ptr, C.CFIndex(len(bytes)))
+	status := C.traverse_test_raw_item(C.CFDictionaryRef(query), target, ptr, C.CFIndex(len(bytes)))
 	runtime.KeepAlive(bytes)
 	return darwinStatusError(int32(status))
 }

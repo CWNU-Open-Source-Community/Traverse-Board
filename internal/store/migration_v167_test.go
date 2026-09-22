@@ -48,8 +48,10 @@ func v167CreateRequest(runID, operationKey string, now time.Time) application.Cr
 func TestSchemaV167DoesNotBackfillAndConsentIsImmutable(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v167-upgrade.db")
-	state, err := Open(path)
-	if err != nil {
+	// Seed at exactly v167 before removing its empty consent table. Opening the
+	// latest schema would leave later ledger entries and create a false gap.
+	state := openUnmigratedSQLiteStore(t, path)
+	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 167); err != nil {
 		t.Fatal(err)
 	}
 	run := createV167ScheduledRun(t, state)
@@ -59,6 +61,10 @@ func TestSchemaV167DoesNotBackfillAndConsentIsImmutable(t *testing.T) {
 		"v167-legacy-create", now))
 	if err != nil {
 		t.Fatal(err)
+	}
+	var originalConsents int
+	if err := state.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM scheduled_job_observation_consents`).Scan(&originalConsents); err != nil || originalConsents != 0 {
+		t.Fatalf("legacy seed unexpectedly created consent: count=%d err=%v", originalConsents, err)
 	}
 	for _, statement := range []string{
 		`DROP TRIGGER trg_scheduled_job_observation_consent_insert`,
@@ -72,6 +78,14 @@ func TestSchemaV167DoesNotBackfillAndConsentIsImmutable(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	applied, err := state.loadAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMigrationPlan(migrationPlan(), applied); err != nil {
+		t.Fatal(err)
+	}
+	assertNoForeignKeyViolations(t, state.db)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
