@@ -152,6 +152,16 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 		}
 		_, _, err = webStore.DecideWebFetchAuthorization(ctx, value.ID, scope, approve,
 			request.OperationKey, request.ReviewedBy, request.Reason)
+	} else if record.ToolName == toolgateway.AgentBrowserApprovalTool {
+		st, ok := s.store.(agentBrowserApprovalStore)
+		if !ok {
+			return DecideApprovalControlResult{}, agentBrowserUnavailable("browser approval store unavailable")
+		}
+		action := approval.ActionDeny
+		if request.Action == ApprovalControlApproveOnce {
+			action = approval.ActionApprove
+		}
+		_, err = st.DecideApproval(ctx, approval.DecisionRequest{ProposalID: record.ProposalID, IdempotencyKey: request.OperationKey, Action: action, Reason: request.Reason, ReviewedBy: request.ReviewedBy})
 	} else if record.ToolName == ThreadPullRequestApprovalTool {
 		prStore, ok := s.store.(threadPullRequestApprovalStore)
 		if !ok {
@@ -205,6 +215,8 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 ) error {
 	var decision policy.Decision
 	switch record.ToolName {
+	case toolgateway.AgentBrowserApprovalTool:
+		return recheckAgentBrowserApproval(ctx, s.store, record)
 	case ThreadPullRequestApprovalTool:
 		return recheckThreadPullRequestApproval(ctx, s.store, record)
 	case string(toolgateway.ShellTool):
@@ -295,7 +307,7 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 	}
 	switch record.ToolName {
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool:
+		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.WebFetchTool):
 		return []ApprovalControlAction{ApprovalControlApproveOnce,
@@ -317,7 +329,7 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 	if record.Status != approval.StatusPending {
 		switch record.ToolName {
 		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool:
+			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny

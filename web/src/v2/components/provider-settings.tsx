@@ -501,6 +501,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [migration, setMigration] = useState<SecretMigration | null>(null);
   const [harnessConfirmOpen, setHarnessConfirmOpen] = useState(false);
@@ -555,6 +556,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     const existing = definitions.data.providers.find((provider) => provider.id === initialPreset.id);
     setError("");
     setNotice("");
+    setAdvancedOpen(false);
     setDraft(existing ? draftFromDefinition(existing) : draftFromPreset(initialPreset));
   }, [definitions.data, initialPreset]);
 
@@ -562,7 +564,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     if (!draft) return;
     const frame = requestAnimationFrame(() => firstFieldRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [draft?.existing?.id]);
+  }, [draft !== null, draft?.existing?.id]);
 
   const openEditor = (next: ProviderDraft, trigger: HTMLElement) => {
     returnFocusRef.current = trigger;
@@ -724,7 +726,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
           } catch {
             const saved = result.definition ?? { ...definition, revision: 1 };
             setDraft(draftFromDefinition(saved));
-            setError("供应商定义已保存，但 API Key 未写入系统凭据。请确认 Windows Credential Manager 可用，然后在此页重新输入密钥并再次保存；定义与高级 JSON 已保留，不会自动回滚。");
+            setError("供应商定义已保存，但 API Key 未写入系统凭据。请确认系统凭据管理器可用，然后在此页重新输入密钥并再次保存；定义与高级 JSON 已保留，不会自动回滚。");
             await queryClient.invalidateQueries({ queryKey: credentialQueryKey });
             return;
           }
@@ -766,6 +768,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     if (!draft || busy || harnessBusy) return;
     const parsed = definitionFromDraft(draft);
     if (!parsed.definition) {
+      setAdvancedOpen(true);
       setError(parsed.error ?? "供应商配置无效。");
       return;
     }
@@ -956,6 +959,24 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
   const configuredCredential = credentialByProvider.get(draft.id)?.configured ?? false;
   const modelOptions = normalizeModels(draft.models);
+  const quickSetup = Boolean(initialPreset);
+  const showAdvanced = !quickSetup || advancedOpen;
+  const modelField = <label>默认模型<select disabled={modelOptions.length === 0}
+    onChange={(event) => update("defaultModel", event.target.value)}
+    value={modelOptions.includes(draft.defaultModel) ? draft.defaultModel : ""}>
+    <option value="">{modelOptions.length ? "选择默认模型" : "先填写模型列表"}</option>
+    {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>;
+  const credentialField = <div className="v2-provider-credential-row"><label>API Key
+    <input aria-describedby="provider-key-help" autoComplete="new-password"
+      disabled={!client.hasProviderCredentials} onChange={(event) => update("apiKey", event.target.value)}
+      placeholder={configuredCredential ? "留空以保留现有密钥" : "粘贴提供商的 API Key"}
+      ref={quickSetup ? firstFieldRef : undefined} type="password" value={draft.apiKey} /></label>
+    {configuredCredential && <button className="secondary" disabled={busy || !client.hasProviderCredentials}
+      onClick={() => void removeCredential()} type="button"><KeyRound aria-hidden="true" size={14} />移除密钥</button>}</div>;
+  const syncCredentialField = <label className="v2-provider-check v2-provider-sync"><input checked={draft.syncCredentialReference}
+    onChange={(event) => update("syncCredentialReference", event.target.checked)} type="checkbox" />
+    <span><strong>把凭据引用同步到高级 JSON</strong>
+      <small>输入新 API Key 时，默认写入对应协议的 request_headers。这里只保存 $credential 引用；你仍可自由移动、改模板或关闭同步。</small></span></label>;
   const parsedDraftDefinition = definitionFromDraft(draft).definition;
   const parsedCapabilities = parseAdvancedJSON(draft.advancedJSON).value;
   const modelCapabilities = isRecord(parsedCapabilities?.model_capabilities) ? parsedCapabilities.model_capabilities : {};
@@ -975,10 +996,26 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 	  disabled={busy || harnessBusy} onClick={closeEditor} type="button">
       <ArrowLeft aria-hidden="true" size={17} /></button>
     <div><h1>{draft.existing ? "编辑供应商" : "添加供应商"}</h1>
-      <p>高级 JSON 可自由编辑；受保护字段与明文密钥会在保存边界被拒绝。</p></div></div>
+      <p>{quickSetup ? "填入 API Key 并确认模型，即可保存。自建服务可展开高级设置。"
+        : "填写服务地址和模型；密钥将单独保存到系统凭据管理器。"}</p></div></div>
     <form className="v2-provider-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <fieldset className="v2-provider-operation-lock" disabled={harnessBusy}>
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-basics-title">
+      {quickSetup && <section className="v2-settings-card v2-provider-fields v2-provider-quick" aria-labelledby="provider-quick-title">
+        <header><div><h2 id="provider-quick-title">{draft.displayName}</h2>
+          <p>提供商已选定；其他连接参数使用当前配置。</p></div>
+          <span className={configuredCredential ? "v2-provider-status is-ready" : "v2-provider-status"}>
+            {configuredCredential ? "密钥已存储" : "等待配置密钥"}</span></header>
+        {credentialField}
+        <p className="v2-provider-help" id="provider-key-help">{client.hasProviderCredentials
+          ? "密钥只保存到系统凭据管理器，保存后不会再次显示。已有密钥可留空保留。"
+          : "当前环境不支持保存密钥，请使用支持系统凭据存储的桌面版本。"}</p>
+        <div className="v2-provider-grid">{modelField}</div>
+      </section>}
+      {quickSetup && <button aria-expanded={advancedOpen} aria-controls="provider-advanced-connection"
+        className="v2-model-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} type="button">
+        {advancedOpen ? "收起高级设置" : "高级设置：自定义连接、模型与搜索"}
+      </button>}
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" id="provider-advanced-connection" aria-labelledby="provider-basics-title">
         <header><div><h2 id="provider-basics-title">连接</h2><p>请求发送到你填写的模型地址；外部服务须使用 HTTPS，本机回环地址可使用 HTTP。</p></div>
           <label className="v2-provider-enabled"><input checked={draft.enabled}
             onChange={(event) => update("enabled", event.target.checked)} type="checkbox" />
@@ -986,11 +1023,11 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         <div className="v2-provider-grid">
           <label>供应商 ID<input autoComplete="off" disabled={Boolean(draft.existing)}
             maxLength={64} onChange={(event) => update("id", event.target.value)}
-            placeholder="例如 acme-ai" ref={firstFieldRef} required spellCheck={false}
+            placeholder="例如 acme-ai" ref={!quickSetup ? firstFieldRef : undefined} required spellCheck={false}
             value={draft.id} /></label>
           <label>显示名称<input autoComplete="organization" maxLength={128}
             onChange={(event) => update("displayName", event.target.value)}
-            placeholder="例如 Acme AI" ref={draft.existing ? firstFieldRef : undefined}
+            placeholder="例如 Acme AI" ref={!quickSetup && draft.existing ? firstFieldRef : undefined}
             required value={draft.displayName} /></label>
           <label className="is-wide">备注<input maxLength={2048}
             onChange={(event) => update("note", event.target.value)}
@@ -1033,11 +1070,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             <option value="openai_responses">OpenAI Responses</option>
             <option value="anthropic_messages">Anthropic Messages</option>
           </select></label>
-          <label>默认模型<select disabled={modelOptions.length === 0}
-            onChange={(event) => update("defaultModel", event.target.value)}
-            value={modelOptions.includes(draft.defaultModel) ? draft.defaultModel : ""}>
-            <option value="">{modelOptions.length ? "选择默认模型" : "先填写模型列表"}</option>
-            {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
+          {!quickSetup && modelField}
           <label className="is-wide">模型列表<textarea aria-describedby="provider-models-help"
             aria-label="模型列表"
             onChange={(event) => {
@@ -1048,9 +1081,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             placeholder={"model-a\nmodel-b"} rows={3} spellCheck={false} value={draft.models} />
             <small id="provider-models-help">每行或逗号分隔；名称会原样传给供应商。移除模型会清除对应图片能力声明，新名称需重新确认。</small></label>
         </div>
-      </section>
+      </section>}
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
         <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明确认每个模型是否接收图片。保存的是能力声明，不代表已经验证图像理解；原始图片会发送到上方的请求地址。</p></div></header>
         <div className="v2-provider-grid">{modelOptions.map((model) => {
           const capability = modelCapabilities[model];
@@ -1065,9 +1098,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         {!modelOptions.length && <p>先填写模型列表。</p>}
         {!parsedCapabilities && <p>先修正下方高级 JSON，再设置图片能力。</p>}
         {capabilitiesError && <p>{capabilitiesError}</p>}
-      </section>
+      </section>}
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-search-title">
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-search-title">
         <header><div><h2 id="provider-search-title">网页搜索</h2>
           <p>兼容 Responses API 不代表支持原生搜索。请按供应商实际能力选择；原生搜索的首次真实调用仍须通过有界资格验证。</p></div></header>
         <div className="v2-provider-grid">
@@ -1106,28 +1139,19 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             <span><strong>声明供应商具备原生 Web Search</strong>
               <small>声明不代表搜索已经可用，也不扩大网页抓取权限。原生搜索只使用当前供应商端点的授权范围，首次真实搜索须完成有界验证，可能产生供应商 API 调用费用。</small></span></label>
         </div>
-      </section>
+      </section>}
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-credential-title">
+      {!quickSetup && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-credential-title">
         <header><div><h2 id="provider-credential-title">系统凭据</h2>
           <p>密钥只写入操作系统凭据管理器，读取接口永不返回明文。</p></div>
           <span className={configuredCredential ? "v2-provider-status is-ready" : "v2-provider-status"}>
             {configuredCredential ? "已存储" : "未存储"}</span></header>
-        <div className="v2-provider-credential-row"><label>API Key
-          <input aria-describedby="provider-key-help" autoComplete="new-password"
-            disabled={!client.hasProviderCredentials} onChange={(event) => update("apiKey", event.target.value)}
-            placeholder={configuredCredential ? "留空以保留现有密钥" : "一次性输入；保存后不会再次显示"}
-            type="password" value={draft.apiKey} /></label>
-          {configuredCredential && <button className="secondary" disabled={busy || !client.hasProviderCredentials}
-            onClick={() => void removeCredential()} type="button"><KeyRound aria-hidden="true" size={14} />移除密钥</button>}</div>
-        <label className="v2-provider-check v2-provider-sync"><input checked={draft.syncCredentialReference}
-          onChange={(event) => update("syncCredentialReference", event.target.checked)} type="checkbox" />
-          <span><strong>把凭据引用同步到高级 JSON</strong>
-            <small>输入新 API Key 时，默认写入对应协议的 request_headers。这里只保存 $credential 引用；你仍可自由移动、改模板或关闭同步。</small></span></label>
+        {credentialField}
+        {syncCredentialField}
         <p id="provider-key-help" className="v2-provider-help">{keylessLocal
           ? "本机模型未引用凭据，可留空并进行连接验证；若服务要求认证，请填写其真实 API Key。"
           : <>保存后输入框会立即清空。高级 JSON 应使用 <code>$credential</code> 引用。</>}</p>
-      </section>
+      </section>}
 
       <section className="v2-settings-card v2-provider-fields v2-provider-harness"
         aria-labelledby="provider-harness-title">
@@ -1168,7 +1192,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
           <CircleAlert aria-hidden="true" size={15} />{harnessError}</p>}
       </section>
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-json-title">
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-json-title">
         <header><div><h2 id="provider-json-title">高级 JSON</h2>
           <p>完整可编辑；HTTP 运行时解释 request_headers、request_body 与 model_mapping，其余扩展原样保留，但不能覆盖 Harness 核心字段。</p></div>
           <button className="secondary" onClick={insertCredentialReference} type="button">
@@ -1176,8 +1200,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         <label className="v2-provider-json">
           <textarea aria-label="高级 JSON" onChange={(event) => update("advancedJSON", event.target.value)}
             spellCheck={false} value={draft.advancedJSON} /></label>
+        {quickSetup && syncCredentialField}
         <p className="v2-provider-help">示例：<code>{'{"request_headers":{"Authorization":{"$credential":"' + (draft.id || "provider-id") + '","template":"Bearer ${secret}"}}}'}</code>。如粘贴一个明文密钥，保存时会先要求二次确认并迁移。</p>
-      </section>
+      </section>}
 
       {error && <p className="v2-inline-error v2-provider-error" role="alert">
         <CircleAlert aria-hidden="true" size={16} />{error}</p>}

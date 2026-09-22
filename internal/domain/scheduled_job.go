@@ -17,16 +17,17 @@ const (
 	ScheduledJobAuthProtocolVersion    = "scheduled-job-authorization.v1"
 	scheduledJobReplayDomain           = "scheduled_job_operation.v1"
 
-	MinScheduledJobIntervalSeconds = 1
-	MaxScheduledJobIntervalSeconds = 30 * 24 * 60 * 60
-	MaxScheduledJobElapsedSeconds  = 90 * 24 * 60 * 60
-	MaxScheduledJobRounds          = 10_000
-	MaxScheduledJobModelCalls      = 10_000
-	MaxScheduledJobAttempts        = 8
-	MaxScheduledJobBackoffSeconds  = 6 * 60 * 60
-	ScheduledJobLeaseSeconds       = 30
-	MaxScheduledJobSummaryRunes    = 512
-	MaxScheduledJobTimezoneBytes   = 128
+	MinScheduledJobIntervalSeconds        = 1
+	MaxScheduledJobIntervalSeconds        = 30 * 24 * 60 * 60
+	MaxScheduledJobElapsedSeconds         = 90 * 24 * 60 * 60
+	MaxScheduledJobRounds                 = 10_000
+	MaxScheduledJobModelCalls             = 10_000
+	MaxScheduledJobAttempts               = 8
+	MaxScheduledJobBackoffSeconds         = 6 * 60 * 60
+	ScheduledJobLeaseSeconds              = 30
+	MaxScheduledJobSummaryRunes           = 512
+	MaxScheduledJobTimezoneBytes          = 128
+	ScheduledJobObservationConsentVersion = 1
 )
 
 type ScheduledJobKind string
@@ -237,28 +238,29 @@ func (s ScheduledJobSpec) Validate() error {
 }
 
 type ScheduledJob struct {
-	ID                    string                 `json:"id"`
-	Spec                  ScheduledJobSpec       `json:"spec"`
-	OwnerRunID            string                 `json:"owner_run_id"`
-	OwnerRootAgentID      string                 `json:"owner_root_agent_id"`
-	Status                ScheduledJobStatus     `json:"status"`
-	Revision              int64                  `json:"revision"`
-	NextWakeAt            *time.Time             `json:"next_wake_at,omitempty"`
-	PendingOccurrenceAt   *time.Time             `json:"pending_occurrence_at,omitempty"`
-	RoundsCompleted       int                    `json:"rounds_completed"`
-	ModelCalls            int                    `json:"model_calls"`
-	ConsecutiveUnchanged  int                    `json:"consecutive_unchanged"`
-	LastEventSequence     int64                  `json:"last_event_sequence"`
-	LastObservationSHA256 string                 `json:"last_observation_sha256,omitempty"`
-	LastResult            string                 `json:"last_result,omitempty"`
-	LastErrorCode         string                 `json:"last_error_code,omitempty"`
-	StopReason            ScheduledJobStopReason `json:"stop_reason,omitempty"`
-	ActiveLeaseGeneration int64                  `json:"active_lease_generation"`
-	ActiveLeaseExpiresAt  *time.Time             `json:"active_lease_expires_at,omitempty"`
-	CreatedBy             string                 `json:"created_by"`
-	CreatedAt             time.Time              `json:"created_at"`
-	UpdatedAt             time.Time              `json:"updated_at"`
-	CompletedAt           *time.Time             `json:"completed_at,omitempty"`
+	ID                        string                 `json:"id"`
+	Spec                      ScheduledJobSpec       `json:"spec"`
+	OwnerRunID                string                 `json:"owner_run_id"`
+	OwnerRootAgentID          string                 `json:"owner_root_agent_id"`
+	Status                    ScheduledJobStatus     `json:"status"`
+	Revision                  int64                  `json:"revision"`
+	NextWakeAt                *time.Time             `json:"next_wake_at,omitempty"`
+	PendingOccurrenceAt       *time.Time             `json:"pending_occurrence_at,omitempty"`
+	RoundsCompleted           int                    `json:"rounds_completed"`
+	ModelCalls                int                    `json:"model_calls"`
+	ConsecutiveUnchanged      int                    `json:"consecutive_unchanged"`
+	LastEventSequence         int64                  `json:"last_event_sequence"`
+	LastObservationSHA256     string                 `json:"last_observation_sha256,omitempty"`
+	LastResult                string                 `json:"last_result,omitempty"`
+	LastErrorCode             string                 `json:"last_error_code,omitempty"`
+	StopReason                ScheduledJobStopReason `json:"stop_reason,omitempty"`
+	ActiveLeaseGeneration     int64                  `json:"active_lease_generation"`
+	ActiveLeaseExpiresAt      *time.Time             `json:"active_lease_expires_at,omitempty"`
+	CreatedBy                 string                 `json:"created_by"`
+	CreatedAt                 time.Time              `json:"created_at"`
+	UpdatedAt                 time.Time              `json:"updated_at"`
+	CompletedAt               *time.Time             `json:"completed_at,omitempty"`
+	ObservationConsentVersion int                    `json:"observation_consent_version"`
 }
 
 func (j ScheduledJob) Validate() error {
@@ -280,7 +282,9 @@ func (j ScheduledJob) Validate() error {
 		j.RoundsCompleted > j.Spec.MaxRounds || j.ModelCalls < 0 ||
 		j.ModelCalls > j.Spec.MaxModelCalls || j.ConsecutiveUnchanged < 0 ||
 		j.LastEventSequence < 0 || j.ActiveLeaseGeneration < 0 ||
-		j.CreatedAt.IsZero() || j.UpdatedAt.Before(j.CreatedAt) {
+		j.CreatedAt.IsZero() || j.UpdatedAt.Before(j.CreatedAt) ||
+		(j.ObservationConsentVersion != 0 &&
+			j.ObservationConsentVersion != ScheduledJobObservationConsentVersion) {
 		return errors.New("scheduled job mutable state is invalid")
 	}
 	if j.LastObservationSHA256 != "" && !validLowerHexDigest(j.LastObservationSHA256) {
@@ -318,6 +322,33 @@ func (j ScheduledJob) Validate() error {
 		}
 	} else if j.CompletedAt != nil || j.StopReason != ScheduledJobStopNone {
 		return errors.New("non-terminal scheduled job cannot contain terminal metadata")
+	}
+	return nil
+}
+
+// ScheduledJobObservationConsent is an immutable per-job receipt. It records
+// only consent to the versioned read-only, zero-model observation semantics;
+// it does not grant model, tool, network, filesystem, or process authority.
+type ScheduledJobObservationConsent struct {
+	JobID              string    `json:"job_id"`
+	RunID              string    `json:"run_id"`
+	Version            int       `json:"version"`
+	ConfirmedBy        string    `json:"confirmed_by"`
+	ConfirmedAt        time.Time `json:"confirmed_at"`
+	OperationKeySHA256 string    `json:"-"`
+	RequestFingerprint string    `json:"-"`
+}
+
+func (c ScheduledJobObservationConsent) Validate() error {
+	if c.Version != ScheduledJobObservationConsentVersion || c.ConfirmedAt.IsZero() ||
+		c.ConfirmedAt.Location() != time.UTC || !validLowerHexDigest(c.OperationKeySHA256) ||
+		!validLowerHexDigest(c.RequestFingerprint) {
+		return errors.New("scheduled job observation consent version, time, or digest is invalid")
+	}
+	for _, value := range []string{c.JobID, c.RunID, c.ConfirmedBy} {
+		if !ValidAgentID(value) || strings.ContainsRune(value, 0) {
+			return errors.New("scheduled job observation consent identity is invalid")
+		}
 	}
 	return nil
 }

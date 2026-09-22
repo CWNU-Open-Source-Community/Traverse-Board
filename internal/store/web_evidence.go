@@ -42,6 +42,9 @@ func getWebEvidenceOperation(ctx context.Context, queryer skillPackageQueryer,
 	if err := operation.Validate(); err != nil {
 		return webevidence.Operation{}, false, err
 	}
+	if err := validateWebOperationEnhancements(operation); err != nil {
+		return webevidence.Operation{}, false, err
+	}
 	return operation, true, nil
 }
 
@@ -61,6 +64,7 @@ func (s *SQLiteStore) saveWebSourceDiscovery(ctx context.Context, sources []webe
 	operation webevidence.Operation, expectedTool string,
 ) (webevidence.Operation, bool, error) {
 	if operation.ToolName != expectedTool || operation.Validate() != nil ||
+		validateWebOperationEnhancements(operation) != nil ||
 		len(sources) > webevidence.MaxSources {
 		return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument,
 			"web source discovery persistence input is invalid")
@@ -70,6 +74,17 @@ func (s *SQLiteStore) saveWebSourceDiscovery(ctx context.Context, sources []webe
 			source.State != webevidence.SourceDiscovered {
 			return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument,
 				"web source discovery source is invalid")
+		}
+	}
+	if operation.ToolName == "web_search" && webOperationHasSearchFilters(operation) {
+		var result webevidence.SearchResult
+		if json.Unmarshal(operation.Response, &result) != nil || len(result.Sources) != len(sources) {
+			return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument, "filtered search result does not match saved sources")
+		}
+		for i, item := range result.Sources {
+			if item.SourceID != sources[i].ID || item.CanonicalURL != sources[i].CanonicalURL {
+				return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument, "filtered search source identity does not match")
+			}
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
@@ -103,12 +118,18 @@ func (s *SQLiteStore) SaveWebFetch(ctx context.Context, source webevidence.Sourc
 	snapshot webevidence.Snapshot, operation webevidence.Operation,
 ) (webevidence.Operation, bool, error) {
 	if source.Validate() != nil || snapshot.Validate() != nil || operation.Validate() != nil ||
+		validateWebOperationEnhancements(operation) != nil ||
 		operation.ToolName != "web_fetch" || source.RunID != operation.RunID ||
 		snapshot.RunID != operation.RunID || snapshot.SourceID != source.ID ||
 		snapshot.MissionID != source.MissionID ||
 		snapshot.RequestedURL != source.CanonicalURL || snapshot.Provider != source.Provider {
 		return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument,
 			"web fetch persistence input is invalid")
+	}
+	var result webevidence.FetchResult
+	if json.Unmarshal(operation.Response, &result) == nil && result.Extraction != nil &&
+		(result.Source.Fingerprint != source.Fingerprint || result.Snapshot.Fingerprint != snapshot.Fingerprint) {
+		return webevidence.Operation{}, false, apperror.New(apperror.CodeInvalidArgument, "question extraction does not match saved snapshot")
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -136,6 +157,51 @@ func (s *SQLiteStore) SaveWebFetch(ctx context.Context, source webevidence.Sourc
 		return webevidence.Operation{}, false, err
 	}
 	return operation, false, nil
+}
+
+// New retrieval annotations must remain bound to the evidence they describe.
+// Legacy operations without these optional fields retain their existing reader.
+func validateWebOperationEnhancements(operation webevidence.Operation) error {
+	if operation.ToolName == "web_search" && webOperationHasSearchFilters(operation) {
+		var result webevidence.SearchResult
+		if err := json.Unmarshal(operation.Response, &result); err != nil {
+			return err
+		}
+		if result.ProtocolVersion != webevidence.SearchProtocolVersion {
+			return errors.New("filtered search protocol is invalid")
+		}
+		return result.ValidateFilters()
+	}
+	if operation.ToolName == "web_fetch" {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(operation.Response, &fields); err != nil {
+			return err
+		}
+		if _, exists := fields["extraction"]; exists {
+			var result webevidence.FetchResult
+			if json.Unmarshal(operation.Response, &result) != nil || result.Extraction == nil ||
+				result.ProtocolVersion != webevidence.FetchProtocolVersion || result.Source.Validate() != nil ||
+				result.Snapshot.Validate() != nil || result.Source.RunID != operation.RunID ||
+				result.Snapshot.RunID != operation.RunID || result.Snapshot.SourceID != result.Source.ID ||
+				result.Snapshot.MissionID != result.Source.MissionID || result.Extraction.Validate(result.Snapshot) != nil {
+				return errors.New("stored question extraction is invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func webOperationHasSearchFilters(operation webevidence.Operation) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(operation.Response, &fields) != nil {
+		return false
+	}
+	for _, key := range []string{"allowed_domains", "blocked_domains", "filter_policy", "filtered_out_count"} {
+		if _, exists := fields[key]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SQLiteStore) SaveWebCitation(ctx context.Context, citation webevidence.Citation,

@@ -446,11 +446,15 @@ type SearchResult struct {
 	// Provider, SearchPolicy, and SelectionReason are the observed decision for
 	// this exact Run operation. They deliberately do not promote a credential-
 	// and-authority-scoped probe into a Registry-wide capability boolean.
-	Provider        string    `json:"provider"`
-	SearchPolicy    string    `json:"search_policy"`
-	SelectionReason string    `json:"selection_reason"`
-	SearchedAt      time.Time `json:"searched_at"`
-	Replayed        bool      `json:"replayed"`
+	Provider         string    `json:"provider"`
+	SearchPolicy     string    `json:"search_policy"`
+	SelectionReason  string    `json:"selection_reason"`
+	AllowedDomains   []string  `json:"allowed_domains,omitempty"`
+	BlockedDomains   []string  `json:"blocked_domains,omitempty"`
+	FilterPolicy     string    `json:"filter_policy,omitempty"`
+	FilteredOutCount int       `json:"filtered_out_count,omitempty"`
+	SearchedAt       time.Time `json:"searched_at"`
+	Replayed         bool      `json:"replayed"`
 }
 
 func (r SearchResult) HasProviderGroundedCitations() bool {
@@ -468,10 +472,11 @@ func (r SearchResult) HasProviderGroundedCitations() bool {
 }
 
 type FetchResult struct {
-	ProtocolVersion string   `json:"protocol_version"`
-	Source          Source   `json:"source"`
-	Snapshot        Snapshot `json:"snapshot"`
-	Replayed        bool     `json:"replayed"`
+	ProtocolVersion string      `json:"protocol_version"`
+	Source          Source      `json:"source"`
+	Snapshot        Snapshot    `json:"snapshot"`
+	Extraction      *Extraction `json:"extraction,omitempty"`
+	Replayed        bool        `json:"replayed"`
 }
 
 type CitationResult struct {

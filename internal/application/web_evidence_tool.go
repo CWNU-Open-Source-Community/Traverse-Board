@@ -88,6 +88,7 @@ type webFetchToolOutput struct {
 	Replayed        bool                           `json:"replayed"`
 	SourceRunID     string                         `json:"source_run_id,omitempty"`
 	Historical      bool                           `json:"historical,omitempty"`
+	Extraction      *webevidence.Extraction        `json:"extraction,omitempty"`
 }
 
 func NewWebEvidenceToolExecutor(store WebEvidenceToolStore,
@@ -227,7 +228,7 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
 		result, err := e.service.Search(ctx, executionScope, webevidence.SearchRequest{
-			Query: request.Query, Limit: request.Limit}, scope.OperationKey)
+			Query: request.Query, Limit: request.Limit, AllowedDomains: request.AllowedDomains, BlockedDomains: request.BlockedDomains}, scope.OperationKey)
 		if err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
@@ -318,7 +319,7 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		}
 		result, err := e.service.Fetch(ctx, executionScope, webevidence.FetchRequest{
 			SourceID: request.SourceID, URL: request.URL,
-			Connector: request.Connector, MaxItems: request.MaxItems}, scope.OperationKey)
+			Connector: request.Connector, MaxItems: request.MaxItems, Question: request.Question}, scope.OperationKey)
 		if err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
@@ -471,6 +472,30 @@ func encodeWebFetchToolOutput(result webevidence.FetchResult,
 ) ([]byte, bool, error) {
 	body := result.Snapshot.Body
 	bodyExcerptTruncated := false
+	bodyOffset, bodyRunes := 0, 0
+	// Select the relevant span at a size the model can receive. Truncating the
+	// prefix of a larger matched span can remove the only relevant passage.
+	questionMaxRunes := webSnapshotContextBodyTokens / utf8.UTFMax
+	selectQuestionBody := func() error {
+		selected, err := webevidence.ExtractSnapshotWithin(result.Snapshot, result.Extraction.Question, questionMaxRunes)
+		if err != nil {
+			return err
+		}
+		result.Extraction = &selected
+		runes := []rune(result.Snapshot.Body)
+		bodyOffset, bodyRunes = selected.SpanStart, len(runes)
+		body = string(runes[bodyOffset:selected.SpanEnd])
+		bodyExcerptTruncated = bodyOffset > 0 || selected.SpanEnd < len(runes)
+		return nil
+	}
+	if result.Extraction != nil {
+		if err := result.Extraction.Validate(result.Snapshot); err != nil {
+			return nil, false, err
+		}
+		if err := selectQuestionBody(); err != nil {
+			return nil, false, err
+		}
+	}
 	const reserve = 1024
 	for {
 		output := webFetchToolOutput{ProtocolVersion: webevidence.FetchProtocolVersion,
@@ -499,6 +524,16 @@ func encodeWebFetchToolOutput(result webevidence.FetchResult,
 				SnapshotTruncated:    result.Snapshot.Truncated,
 				BodyExcerptTruncated: bodyExcerptTruncated,
 				Citeable:             presentation.Citeable, Untrusted: true}}
+		if result.Extraction != nil {
+			extraction := *result.Extraction
+			extraction.SpanEnd = bodyOffset + utf8.RuneCountInString(body)
+			output.Extraction = &extraction
+			output.Snapshot.BodyOffset, output.Snapshot.BodyRunes = bodyOffset, bodyRunes
+			if extraction.SpanEnd < bodyRunes {
+				next := extraction.SpanEnd
+				output.Snapshot.NextOffset = &next
+			}
+		}
 		var buffer bytes.Buffer
 		encoder := json.NewEncoder(&buffer)
 		encoder.SetEscapeHTML(false)
@@ -511,6 +546,16 @@ func encodeWebFetchToolOutput(result webevidence.FetchResult,
 		}
 		if body == "" {
 			return nil, false, errors.New("Web fetch metadata exceeds the tool result limit")
+		}
+		if result.Extraction != nil {
+			questionMaxRunes = min(questionMaxRunes, utf8.RuneCountInString(body)) * 3 / 4
+			if questionMaxRunes < 1 {
+				return nil, false, errors.New("Web fetch question metadata exceeds the tool result limit")
+			}
+			if err := selectQuestionBody(); err != nil {
+				return nil, false, err
+			}
+			continue
 		}
 		bodyExcerptTruncated = true
 		nextLimit := len([]byte(body)) * 3 / 4

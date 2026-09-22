@@ -18,6 +18,10 @@ type ScheduledJobWorkerHealthSource interface {
 	Health() scheduler.WorkerHealth
 }
 
+type ScheduledJobWorkerSelectionSource interface {
+	SelectionScope() string
+}
+
 type RunWakeWorkerHealthView struct {
 	ProtocolVersion        string `json:"protocol_version"`
 	Enabled                bool   `json:"enabled"`
@@ -31,6 +35,7 @@ type RunWakeWorkerHealthView struct {
 }
 
 type ScheduledJobWorkerHealthView struct {
+	SelectionScope         string `json:"selection_scope,omitempty"`
 	ProtocolVersion        string `json:"protocol_version"`
 	Enabled                bool   `json:"enabled"`
 	State                  string `json:"state"`
@@ -153,6 +158,14 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 				"scheduled job worker health source is unavailable")
 		}
 		health := a.scheduledJobWorkerHealthSource.Health()
+		scheduledWorker.SelectionScope = "all_jobs"
+		if source, ok := a.scheduledJobWorkerHealthSource.(ScheduledJobWorkerSelectionSource); ok {
+			scheduledWorker.SelectionScope = source.SelectionScope()
+		}
+		if scheduledWorker.SelectionScope != "all_jobs" && scheduledWorker.SelectionScope != "confirmed_read_only" {
+			return nil, nil, apperror.New(apperror.CodeInternal,
+				"scheduled job worker selection scope is invalid")
+		}
 		if health.ProtocolVersion != scheduler.WorkerHealthProtocolVersion ||
 			!validScheduledJobWorkerHealthState(health.State, health.Active) ||
 			health.PollIntervalMillis < scheduler.MinPollInterval.Milliseconds() ||

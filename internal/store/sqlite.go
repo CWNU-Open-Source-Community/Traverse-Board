@@ -412,6 +412,9 @@ func migrationPlan() []migration {
 		{Version: 164, Name: "Immutable automatic Full Access move authorization", Statements: automaticFileEditMoveAuthorizationStatements, DisableForeignKeys: true},
 		{Version: 165, Name: "Durable public source search evidence", Statements: sourceSearchEvidenceStatements, DisableForeignKeys: true},
 		{Version: 166, Name: "Exact paused web fetch failure observation", Statements: webFetchFailureObservationStatements},
+		{Version: 167, Name: "Durable scheduled job observation consent", Statements: scheduledJobObservationConsentStatements},
+		{Version: 168, Name: "Revisable queued messages and commit-bound attachment evidence", Statements: operatorSteeringRevisionStatements},
+		{Version: 169, Name: "Authority-bound Agent browser scroll and key tools", Statements: agentBrowserSupervisorLedgerStatements, DisableForeignKeys: true},
 	}
 }
 
@@ -801,9 +804,9 @@ func saveSessionMessageTx(ctx context.Context, tx *sql.Tx, message session.Messa
 func (s *SQLiteStore) ListSessionMessages(ctx context.Context, sessionID string, includeCompacted bool) ([]session.Message, error) {
 	query := `SELECT id, session_id, role, content, provenance_version, source_kind, source_ref,
 		content_sha256, instruction_authorized, token_estimate, compacted, created_at
-		FROM session_messages WHERE session_id = ?`
+		FROM session_messages message WHERE session_id = ?`
 	if !includeCompacted {
-		query += ` AND compacted = 0`
+		query += ` AND compacted = 0` + supervisorModelVisibleAttachmentEvidenceSQL
 	}
 	query += ` ORDER BY id`
 	rows, err := s.db.QueryContext(ctx, query, sessionID)

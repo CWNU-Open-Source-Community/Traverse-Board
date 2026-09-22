@@ -91,13 +91,13 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		!defaults.dangerFullAccess || !defaults.fullCDPDebug ||
 		!defaults.runCreation || !defaults.runExecution || !defaults.modelControl ||
 		!defaults.providerCredentials || !defaults.gitAdvanced || !defaults.riskProfileRestart ||
-		!defaults.githubReview {
+		!defaults.githubReview || !defaults.scheduledJobControl ||
+		!defaults.scheduledJobWorker || !defaults.scheduledJobObservationOnly {
 		t.Fatalf("default safe product capability bundle is incomplete: %#v", defaults)
 	}
 	if defaults.operatorPreview || defaults.safeView ||
 		defaults.debugMaximumAccess || defaults.userTerminal ||
-		defaults.dockerExecution || defaults.batchValidation || defaults.runWakeWorker ||
-		defaults.scheduledJobWorker {
+		defaults.dockerExecution || defaults.batchValidation || defaults.runWakeWorker {
 		t.Fatalf("default product launch silently enabled high-risk authority: %#v", defaults)
 	}
 	readOnly, err := parseDesktopOptions([]string{"--safe-view"})
@@ -223,7 +223,7 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !scheduled.scheduledJobControl || !scheduled.scheduledJobWorker {
+	if !scheduled.scheduledJobControl || !scheduled.scheduledJobWorker || scheduled.scheduledJobObservationOnly {
 		t.Fatalf("scheduled job capability set is incomplete: %+v", scheduled)
 	}
 	batchValidation, err := parseDesktopOptions([]string{
@@ -283,7 +283,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.githubReview {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
-	if preview.debugMaximumAccess ||
+	if preview.debugMaximumAccess || preview.scheduledJobObservationOnly ||
 		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution ||
 		preview.riskProfileRestart ||
 		preview.batchValidation {

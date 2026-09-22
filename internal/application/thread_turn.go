@@ -586,7 +586,7 @@ func (s *ThreadTurnService) findCompletedReplay(ctx context.Context,
 					return ExecuteThreadTurnResult{}, false, apperror.Normalize(err)
 				}
 				if message.RequestedBy != request.RequestedBy ||
-					message.ContentSHA256 != expectedDigest {
+					message.OriginalContentSHA256 != expectedDigest {
 					continue
 				}
 				queued, err := s.threads.store.EnqueueOperatorSteering(ctx,

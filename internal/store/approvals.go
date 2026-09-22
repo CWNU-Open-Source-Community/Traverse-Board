@@ -18,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/toolrun"
 )
 
@@ -250,6 +251,8 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 		}
 	}
 	switch proposal.ToolName {
+	case toolgateway.AgentBrowserApprovalTool:
+		return validateAgentBrowserApprovalSourceTx(ctx, tx, proposal)
 	case "thread.git":
 		return validateThreadGitApprovalSourceTx(ctx, tx, proposal)
 	case "shell":

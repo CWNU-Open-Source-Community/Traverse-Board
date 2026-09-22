@@ -21,9 +21,9 @@ import (
 )
 
 // ProviderSearchResolver maps the active Run's model route to an explicit
-// search policy. A custom Provider declaration is configuration only: hosted
-// search is selected only after the Responses adapter has observed a real,
-// bounded tool call for the exact Provider/model/configuration generation.
+// search policy. A declared hosted adapter may execute the first query, while
+// readiness requires an observed native tool result for the exact current
+// Provider/model/configuration generation.
 type ProviderSearchResolver struct {
 	registry    *modelregistry.Registry
 	definitions modelregistry.RouteSettingReader
@@ -32,7 +32,7 @@ type ProviderSearchResolver struct {
 	web         webevidence.SearchProvider
 	client      *webevidence.SafeHTTPClient
 	nativeMu    sync.Mutex
-	native      map[[sha256.Size]byte]*webevidence.OpenAIResponsesSearchProvider
+	native      map[[sha256.Size]byte]webevidence.NativeSearchProvider
 	nativeOrder [][sha256.Size]byte
 }
 
@@ -173,7 +173,7 @@ func NewProviderSearchResolver(registry *modelregistry.Registry,
 	return &ProviderSearchResolver{registry: registry, definitions: definitions,
 		credentials: credentials, searxng: searxng, client: client,
 		web:    webevidence.NewWebSearchProvider(client),
-		native: make(map[[sha256.Size]byte]*webevidence.OpenAIResponsesSearchProvider)}, nil
+		native: make(map[[sha256.Size]byte]webevidence.NativeSearchProvider)}, nil
 }
 
 func (r *ProviderSearchResolver) ResolveSearch(ctx context.Context,
@@ -244,7 +244,7 @@ func (r *ProviderSearchResolver) ResolveSearch(ctx context.Context,
 	case modelregistry.ProviderSearchModeAuto:
 		if definition.NativeWebSearchCapability ==
 			modelregistry.NativeWebSearchDeclaredUnverified &&
-			definition.Transport == llm.HarnessTransportOpenAIResponses &&
+			nativeSearchTransportSupported(definition.Transport) &&
 			!modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
 			// Without a configured fallback there is no backend choice for auto
 			// to make. Treat the locally validated native declaration like the
@@ -374,7 +374,7 @@ func (r *ProviderSearchResolver) SearchReadiness(ctx context.Context,
 		native := readiness
 		if definition.NativeWebSearchCapability ==
 			modelregistry.NativeWebSearchDeclaredUnverified &&
-			definition.Transport == llm.HarnessTransportOpenAIResponses &&
+			nativeSearchTransportSupported(definition.Transport) &&
 			!modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
 			native = r.nativeReadiness(ctx, native, authority, definition, ref.Model)
 			if r.searxng == nil {
@@ -427,7 +427,7 @@ func (r *ProviderSearchResolver) nativeReadiness(ctx context.Context,
 	}
 	if definition.NativeWebSearchCapability !=
 		modelregistry.NativeWebSearchDeclaredUnverified ||
-		definition.Transport != llm.HarnessTransportOpenAIResponses ||
+		!nativeSearchTransportSupported(definition.Transport) ||
 		!r.credentials.Available() {
 		readiness.Reason = ProviderSearchReasonConfigurationInvalid
 		readiness.Remediation = ProviderSearchRemediationRepairConfiguration
@@ -536,7 +536,7 @@ func (r *ProviderSearchResolver) nativeSelection(ctx context.Context,
 
 func (r *ProviderSearchResolver) nativeSelectionCandidate(
 	definition modelregistry.ProviderDefinition, model string,
-) (*webevidence.OpenAIResponsesSearchProvider, llm.HTTPProviderRuntime,
+) (webevidence.NativeSearchProvider, llm.HTTPProviderRuntime,
 	webevidence.NetworkAuthority, error,
 ) {
 	if modelregistry.ProviderNativeWebSearchKnownUnsupported(definition) {
@@ -544,7 +544,7 @@ func (r *ProviderSearchResolver) nativeSelectionCandidate(
 	}
 	if definition.NativeWebSearchCapability !=
 		modelregistry.NativeWebSearchDeclaredUnverified ||
-		definition.Transport != llm.HarnessTransportOpenAIResponses ||
+		!nativeSearchTransportSupported(definition.Transport) ||
 		!r.credentials.Available() {
 		return nil, nil, webevidence.NetworkAuthority{},
 			errors.New("Provider-native search is not declared")
@@ -588,8 +588,11 @@ func providerNativeSearchAuthority(endpoint string) (webevidence.NetworkAuthorit
 func (r *ProviderSearchResolver) nativeProvider(
 	definition modelregistry.ProviderDefinition, model string,
 	runtime llm.HTTPProviderRuntime,
-) (*webevidence.OpenAIResponsesSearchProvider, error) {
+) (webevidence.NativeSearchProvider, error) {
 	endpoint := providerSearchResponsesEndpoint(definition.EndpointURL)
+	if definition.Transport == llm.HarnessTransportAnthropicMessages {
+		endpoint = providerSearchAnthropicEndpoint(definition.EndpointURL)
+	}
 	key := sha256.Sum256([]byte(strings.Join([]string{
 		"provider-search-adapter.v1", definition.ID, endpoint,
 		model, definition.Transport, strconv.FormatUint(definition.Revision, 10),
@@ -600,8 +603,16 @@ func (r *ProviderSearchResolver) nativeProvider(
 	if provider := r.native[key]; provider != nil {
 		return provider, nil
 	}
-	provider, err := webevidence.NewOpenAIResponsesSearchProvider(r.client,
-		endpoint, definition.ID, model, runtime)
+	var provider webevidence.NativeSearchProvider
+	var err error
+	switch definition.Transport {
+	case llm.HarnessTransportOpenAIResponses:
+		provider, err = webevidence.NewOpenAIResponsesSearchProvider(r.client, endpoint, definition.ID, model, runtime)
+	case llm.HarnessTransportAnthropicMessages:
+		provider, err = webevidence.NewAnthropicSearchProvider(r.client, endpoint, definition.ID, model, runtime)
+	default:
+		return nil, errors.New("Provider-native search transport is unsupported")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -625,6 +636,21 @@ func providerSearchResponsesEndpoint(baseURL string) string {
 		return baseURL + "/responses"
 	}
 	return baseURL + "/v1/responses"
+}
+
+func nativeSearchTransportSupported(transport string) bool {
+	return transport == llm.HarnessTransportOpenAIResponses || transport == llm.HarnessTransportAnthropicMessages
+}
+
+func providerSearchAnthropicEndpoint(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(baseURL, "/v1/messages") {
+		return baseURL
+	}
+	if strings.HasSuffix(baseURL, "/v1") {
+		return baseURL + "/messages"
+	}
+	return baseURL + "/v1/messages"
 }
 
 func (r *ProviderSearchResolver) webSelection(policy string, reason string, binding string) webevidence.SearchSelection {

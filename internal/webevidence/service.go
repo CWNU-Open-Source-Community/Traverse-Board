@@ -56,8 +56,10 @@ func (s ExecutionScope) Validate() error {
 }
 
 type SearchRequest struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit"`
+	Query          string   `json:"query"`
+	Limit          int      `json:"limit"`
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
+	BlockedDomains []string `json:"blocked_domains,omitempty"`
 }
 
 type FetchRequest struct {
@@ -65,6 +67,7 @@ type FetchRequest struct {
 	URL       string `json:"url,omitempty"`
 	Connector string `json:"connector,omitempty"`
 	MaxItems  int    `json:"max_items,omitempty"`
+	Question  string `json:"question,omitempty"`
 }
 
 type CiteRequest struct {
@@ -264,6 +267,11 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 		return SearchResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web search limit must be between 1 and 10")
 	}
+	filter, err := NormalizeSearchDomains(request.AllowedDomains, request.BlockedDomains)
+	if err != nil {
+		return SearchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
+			"web search domain filter is invalid", err)
+	}
 	expectedProviderFingerprint := strings.TrimSpace(scope.ProviderFingerprint)
 	if !validDigest(expectedProviderFingerprint) {
 		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -272,11 +280,24 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 	// Idempotency is bound to the exact model-routed backend generation. The
 	// same operation key cannot silently replay a result produced by an older
 	// Provider definition, policy, endpoint, or qualification.
-	fingerprint, _ := RequestFingerprint(struct {
+	baseFingerprintRequest := struct {
 		Query                string `json:"query"`
 		Limit                int    `json:"limit"`
 		SelectionFingerprint string `json:"selection_fingerprint"`
-	}{Query: query, Limit: limit, SelectionFingerprint: expectedProviderFingerprint})
+	}{Query: query, Limit: limit, SelectionFingerprint: expectedProviderFingerprint}
+	var fingerprint string
+	if filter.Policy() == "" {
+		fingerprint, _ = RequestFingerprint(baseFingerprintRequest)
+	} else {
+		fingerprint, _ = RequestFingerprint(struct {
+			Query                string   `json:"query"`
+			Limit                int      `json:"limit"`
+			SelectionFingerprint string   `json:"selection_fingerprint"`
+			AllowedDomains       []string `json:"allowed_domains,omitempty"`
+			BlockedDomains       []string `json:"blocked_domains,omitempty"`
+		}{query, limit, expectedProviderFingerprint, filter.AllowedDomains,
+			filter.BlockedDomains})
+	}
 	keyDigest, err := ScopedOperationKeyDigest(scope.RunID, operationKey)
 	if err != nil {
 		return SearchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
@@ -309,7 +330,17 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"web_search_provider_unavailable: the selected search egress boundary is invalid")
 	}
-	providerResults, err := selection.Provider.Search(ctx, query, limit, searchAuthority)
+	var providerResults []ProviderResult
+	if filter.Policy() == "" {
+		providerResults, err = selection.Provider.Search(ctx, query, limit, searchAuthority)
+	} else if filteredProvider, ok := selection.Provider.(FilteredSearchProvider); ok {
+		providerResults, err = filteredProvider.SearchFiltered(ctx, SearchRequest{Query: query,
+			Limit: limit, AllowedDomains: filter.AllowedDomains,
+			BlockedDomains: filter.BlockedDomains}, searchAuthority)
+	} else {
+		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"web_search_filter_unsupported: the selected provider cannot enforce domain filters")
+	}
 	if err != nil {
 		message := "web search provider request failed; no fallback provider was attempted"
 		var qualification *NativeSearchQualificationError
@@ -325,7 +356,15 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 				NativeSearchReasonToolUnsupported,
 				NativeSearchReasonSearchNotPerformed,
 				NativeSearchReasonResponseIncomplete,
-				NativeSearchReasonResponseInvalid:
+				NativeSearchReasonResponseInvalid,
+				NativeSearchReasonRateLimited,
+				NativeSearchReasonServiceUnavailable,
+				NativeSearchReasonInvalidToolInput,
+				NativeSearchReasonQueryTooLong,
+				NativeSearchReasonRequestTooLarge,
+				NativeSearchReasonMaxUsesExceeded,
+				NativeSearchReasonRequestSizeBudget,
+				NativeSearchReasonConfigurationChanged:
 				message = "web search provider request failed (" + qualification.Reason +
 					"); no fallback provider was attempted"
 			}
@@ -347,7 +386,10 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 	result := SearchResult{ProtocolVersion: SearchProtocolVersion, Query: query,
 		Provider: providerName, SearchPolicy: selection.Policy,
 		SelectionReason: selection.SelectionReason,
-		SearchedAt:      now, Sources: []SearchStub{}}
+		SearchedAt:      now, Sources: []SearchStub{},
+		AllowedDomains: append([]string(nil), filter.AllowedDomains...),
+		BlockedDomains: append([]string(nil), filter.BlockedDomains...),
+		FilterPolicy:   filter.Policy()}
 	sources := make([]Source, 0, limit)
 	for _, item := range providerResults {
 		if len(result.Sources) == limit {
@@ -355,6 +397,11 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 		}
 		canonical, canonicalErr := CanonicalizePublicHTTPSURL(item.URL)
 		if canonicalErr != nil {
+			continue
+		}
+		matched, matchErr := filter.MatchURL(canonical)
+		if matchErr != nil || !matched {
+			result.FilteredOutCount++
 			continue
 		}
 		sourceID := StableSourceID(scope.RunID, canonical)
@@ -402,7 +449,7 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 				ProviderGroundedCitation{
 					ID:    StableProviderGroundedCitationID(scope.RunID, keyDigest, source.ID),
 					RunID: scope.RunID, SourceID: source.ID, URL: source.CanonicalURL,
-					Title: source.Title, Provider: providerName,
+					Title: stubTitle, Provider: providerName,
 					ProviderBinding: expectedProviderFingerprint,
 					Provenance:      ProviderGroundedProvenance, SearchedAt: now,
 					ProviderQualified: true, LocallyVerified: false, Untrusted: true,
@@ -445,6 +492,16 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	request.SourceID = strings.TrimSpace(request.SourceID)
 	request.URL = strings.TrimSpace(request.URL)
 	request.Connector = normalizeConnectorName(request.Connector)
+	if strings.TrimSpace(request.Question) == "" {
+		request.Question = ""
+	} else {
+		var questionErr error
+		request.Question, questionErr = NormalizeFetchQuestion(request.Question)
+		if questionErr != nil {
+			return FetchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
+				"web fetch question is invalid", questionErr)
+		}
+	}
 	if (request.SourceID == "") == (request.URL == "") {
 		return FetchResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web fetch requires exactly one of source_id or url")
@@ -525,7 +582,7 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		return FetchResult{}, apperror.Wrap(apperror.CodePolicyDenied,
 			"web fetch source is outside the Run network authority", err)
 	}
-	canonicalRequest := FetchRequest{SourceID: source.ID}
+	canonicalRequest := FetchRequest{SourceID: source.ID, Question: request.Question}
 	if sourceConnector != nil {
 		canonicalRequest.Connector = sourceConnector.Name() + "@" + sourceConnector.Version()
 		canonicalRequest.MaxItems = request.MaxItems
@@ -659,6 +716,14 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	}
 	result := FetchResult{ProtocolVersion: FetchProtocolVersion, Source: source,
 		Snapshot: snapshot}
+	if request.Question != "" && (snapshot.State == SourceFetched || snapshot.State == SourcePartial) {
+		extraction, extractionErr := ExtractSnapshot(snapshot, request.Question)
+		if extractionErr != nil {
+			return FetchResult{}, apperror.Wrap(apperror.CodeInternal,
+				"extract saved web snapshot for question", extractionErr)
+		}
+		result.Extraction = &extraction
+	}
 	response, err := marshalOperationResponse(result)
 	if err != nil {
 		return FetchResult{}, apperror.Wrap(apperror.CodeInternal,
@@ -861,7 +926,8 @@ func decodeFetchOperation(operation Operation, fingerprint string,
 		result.Source.RunID != operation.RunID ||
 		result.Snapshot.RunID != operation.RunID ||
 		result.Snapshot.SourceID != result.Source.ID ||
-		result.Snapshot.MissionID != result.Source.MissionID {
+		result.Snapshot.MissionID != result.Source.MissionID ||
+		(result.Extraction != nil && result.Extraction.Validate(result.Snapshot) != nil) {
 		return FetchResult{}, apperror.New(apperror.CodeInternal,
 			"stored web fetch result binding is invalid")
 	}
@@ -895,6 +961,9 @@ func decodeCitationOperation(operation Operation, fingerprint string,
 }
 
 func validateStoredSearchResult(runID, operationDigest string, result SearchResult) error {
+	if err := result.ValidateFilters(); err != nil {
+		return errors.New("stored web search domain filter is invalid")
+	}
 	legacySelection := result.SearchPolicy == "" && result.SelectionReason == ""
 	validSelection := false
 	switch result.SearchPolicy {

@@ -9,12 +9,13 @@ type Action = "approve_once" | "approve_for_thread" | "deny";
 const fieldLabels: Record<string, string> = { command: "命令", executable: "可执行文件",
   arguments: "参数（按顺序）", requested_backend: "提案环境", operation: "操作",
   parameters: "精确参数", summary: "影响", path: "文件", destination_path: "目标文件",
-  url: "网址", host: "主机" };
+  url: "网址", host: "主机", effect: "操作类型" };
 const effectText: Record<ApprovalPreviewView["effect"], string> = {
   dry_run: "批准后只记录这一次模拟执行，不启动真实进程。拒绝会终止这份提案。",
   record_git_approval: "仅授权这份 Git 提案一次；执行前仍会核对仓库、权限和预览是否变化。此按钮不执行 Git 操作，拒绝后该提案不能执行。",
   file_review_required: "这里可以拒绝这份编辑。批准、差异审阅和写入请使用任务的「审阅改动」入口。",
   fetch_public_https: "允许一次仅覆盖本次读取；本对话允许仅覆盖此精确主机在当前对话内的公开 HTTPS 读取。拒绝会将本次读取的拒绝结果返回给 Agent。",
+  browser_sensitive_action: "仅批准当前页面的这一次操作。Agent 会继续处理；页面或权限变化时，原操作不会执行。",
   unavailable: "此类操作暂不支持在这里批准。",
 };
 
@@ -80,7 +81,13 @@ function ApprovalCard({ client, item, runID, onDecided }: {
         ...(denialReason ? { reason: denialReason } : {}) }, key);
     },
     onSuccess: (result, action) => {
-      const next = webFetch ? result.retry_scheduled
+      const continuation = result.continuation;
+      const next = item.tool_name === "agent_browser_sensitive" ? continuation?.state === "queued"
+        ? "Agent 已接收继续处理的请求。"
+        : continuation?.state === "completed" || continuation?.state === "waiting_approval"
+          ? "Agent 已继续处理，可在工作记录中查看结果。"
+          : "决定已保存，后续执行尚未完成；请查看工作记录后继续。"
+        : webFetch ? result.retry_scheduled
         ? "后台已安排继续处理，可在工作记录中查看结果。"
         : "读取尚未恢复；可以发送消息让 Agent 继续。"
         : preview.data?.effect === "dry_run" && action !== "deny"

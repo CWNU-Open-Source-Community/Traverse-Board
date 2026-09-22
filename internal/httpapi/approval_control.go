@@ -7,6 +7,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 const ApprovalDecisionControlPathTemplate = "/api/v1/runs/{run_id}/approvals/{approval_id}/decision"
@@ -28,23 +29,24 @@ type ApprovalDecisionControlRequestView struct {
 }
 
 type ApprovalDecisionControlView struct {
-	Version                 string                            `json:"version"`
-	RunID                   string                            `json:"run_id"`
-	ApprovalID              string                            `json:"approval_id"`
-	ProposalID              string                            `json:"proposal_id"`
-	ToolName                string                            `json:"tool_name"`
-	Action                  application.ApprovalControlAction `json:"action"`
-	Status                  string                            `json:"status"`
-	Replayed                bool                              `json:"replayed"`
-	ProcessExecutionEnabled bool                              `json:"process_execution_enabled"`
-	ShellExecutionEnabled   bool                              `json:"shell_execution_enabled"`
-	DockerExecutionEnabled  bool                              `json:"docker_execution_enabled"`
-	WorkspaceWriteApplied   bool                              `json:"workspace_write_applied"`
-	SessionGrantCreated     bool                              `json:"session_grant_created"`
-	CapabilityGrant         bool                              `json:"capability_grant"`
-	ExecutionResumed        bool                              `json:"execution_resumed"`
-	RetryCompleted          bool                              `json:"retry_completed"`
-	RetryScheduled          bool                              `json:"retry_scheduled"`
+	Version                 string                                  `json:"version"`
+	RunID                   string                                  `json:"run_id"`
+	ApprovalID              string                                  `json:"approval_id"`
+	ProposalID              string                                  `json:"proposal_id"`
+	ToolName                string                                  `json:"tool_name"`
+	Action                  application.ApprovalControlAction       `json:"action"`
+	Status                  string                                  `json:"status"`
+	Replayed                bool                                    `json:"replayed"`
+	ProcessExecutionEnabled bool                                    `json:"process_execution_enabled"`
+	ShellExecutionEnabled   bool                                    `json:"shell_execution_enabled"`
+	DockerExecutionEnabled  bool                                    `json:"docker_execution_enabled"`
+	WorkspaceWriteApplied   bool                                    `json:"workspace_write_applied"`
+	SessionGrantCreated     bool                                    `json:"session_grant_created"`
+	CapabilityGrant         bool                                    `json:"capability_grant"`
+	ExecutionResumed        bool                                    `json:"execution_resumed"`
+	RetryCompleted          bool                                    `json:"retry_completed"`
+	RetryScheduled          bool                                    `json:"retry_scheduled"`
+	Continuation            *application.ApprovalContinuationResult `json:"continuation,omitempty"`
 }
 
 func matchApprovalDecisionControlPath(requestPath string) (string, string, bool) {
@@ -103,6 +105,10 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 		return
 	}
 	executionResumed, retryCompleted, retryScheduled := false, false, false
+	var continuation *application.ApprovalContinuationResult
+	if result.Approval.ToolName == toolgateway.AgentBrowserApprovalTool {
+		continuation = a.resumeReviewedProposal(request.Context(), result.Approval.RunID, "agent_browser", result.Approval.ProposalID)
+	}
 	if result.Approval.ToolName == "web_fetch" &&
 		a.webFetchAuthorizationSchedulerEnabled {
 		_, ok := a.runExecutionController.(WebFetchAuthorizationResumeController)
@@ -123,6 +129,7 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 		Action: result.Action, Status: string(result.Approval.Status),
 		Replayed: result.Replayed, ExecutionResumed: executionResumed,
 		RetryCompleted: retryCompleted, RetryScheduled: retryScheduled,
+		Continuation: continuation,
 	}, nil, http.StatusAccepted)
 }
 

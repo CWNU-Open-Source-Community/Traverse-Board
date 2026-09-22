@@ -4987,6 +4987,300 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/agent-browser": {
+      "get": {
+        "operationId": "getRunAgentBrowser",
+        "summary": "Read the Agent browser state",
+        "description": "Reads the Run's process-local Agent browser status without starting a browser or executing an action. Excludes runtime authority and profile/DevTools handles.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AgentBrowserStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/agent-browser/close": {
+      "post": {
+        "operationId": "closeRunAgentBrowser",
+        "summary": "Stop one exact Agent browser session",
+        "description": "Permanently invalidates and cleans the exact session. Repeating a close cannot target another session or start a browser. Cleanup does not require a still-live execution grant.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AgentBrowserStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBrowserCloseRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/agent-browser/screenshot": {
+      "get": {
+        "operationId": "readRunAgentBrowserScreenshot",
+        "summary": "Read a saved Agent browser screenshot",
+        "description": "Reads exact completed screenshot evidence for this Run, manager session and artifact. Requires the expected PNG hash and never captures again.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_locator",
+            "in": "query",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sha256",
+            "in": "query",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authenticated hash-verified image bytes",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/runs/{run_id}/agent-graph": {
       "get": {
         "operationId": "getRunAgentGraph",
@@ -14262,6 +14556,141 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/enable-observation": {
+      "post": {
+        "operationId": "enableRunScheduledJobObservation",
+        "summary": "Confirm durable read-only observation of one scheduled job",
+        "description": "Records one immutable, idempotent consent for an exact revision of a read-only zero-model job. The ordinary desktop worker observes confirmed jobs on later launches. This does not resume a paused job, grant repair authority, or start an OS service.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "Scheduled job identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledJobObservationRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}": {
       "post": {
         "operationId": "transitionRunScheduledJob",
@@ -19274,6 +19703,357 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/sessions/{session_id}/messages/{message_id}/cancellations/{operation_key}": {
+      "get": {
+        "operationId": "inspectSessionSteeringCancellation",
+        "summary": "Observe one exact message cancellation receipt",
+        "description": "Read-only confirmation bound to the original operation key and HTTP operator. If absent, returns the current message status from the same transaction; another cancellation is never reported as this operation's success.",
+        "tags": [
+          "Sessions"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Operator steering message identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionSteeringCancellationObservationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages/{message_id}/revise": {
+      "post": {
+        "operationId": "reviseSessionSteering",
+        "summary": "Revise one queued message without changing its order",
+        "description": "CAS replaces the body of the exact pending, unprepared message. Original submission identity and attachment references remain immutable. The sealed receipt supports safe explicit retries; no execution is started.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Operator steering message identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionSteeringRevisionView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionSteeringRevisionRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages/{message_id}/revisions/{operation_key}": {
+      "get": {
+        "operationId": "inspectSessionSteeringRevision",
+        "summary": "Observe one exact message revision receipt",
+        "description": "Read-only confirmation of the original operation key and fixed HTTP operator. An absent receipt is not proof that an in-flight request will not commit. This never resubmits the modification.",
+        "tags": [
+          "Sessions"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Operator steering message identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionSteeringRevisionObservationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/sessions/{session_id}/tree": {
       "get": {
         "operationId": "getSessionContinuityTree",
@@ -22635,6 +23415,90 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/threads/{thread_id}/queued-messages": {
+      "get": {
+        "operationId": "listThreadQueuedMessages",
+        "summary": "Read every durable queued message for the current Thread Run",
+        "description": "Reads the complete bounded pending queue and prepared flags in one transaction. Counts exclude committed and cancelled messages. It does not start or resume execution.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadQueuedMessagesView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/threads/{thread_id}/recovery": {
       "post": {
         "operationId": "recoverThreadRun",
@@ -25706,6 +26570,9 @@
             "description": "Only present as true when a pending Standard Code preset's immutable Thread preference binding is obsolete and the original operation key cannot apply. Explicitly review a new configuration attempt with a new key and fresh workspace trust preflight. Omission does not establish whether the operation succeeded.",
             "type": "boolean"
           },
+          "revision_unchanged": {
+            "$ref": "#/components/schemas/QueueRevisionUnchangedView"
+          },
           "turn_failed": {
             "const": true,
             "description": "Only present as true after the exact product Thread turn is durably closed as failed. The original input and completed tool evidence remain in the conversation. A new request must use a new operation key; absence does not establish the previous outcome.",
@@ -25797,6 +26664,155 @@
           "stream_chunks",
           "stream_bytes",
           "cancel_requested"
+        ],
+        "type": "object"
+      },
+      "AgentBrowserCloseRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "agent_browser_close.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "AgentBrowserScreenshotView": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "locator": {
+            "type": "string"
+          },
+          "mime_type": {
+            "enum": [
+              "image/png"
+            ],
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locator",
+          "sha256",
+          "byte_size",
+          "mime_type"
+        ],
+        "type": "object"
+      },
+      "AgentBrowserStatusView": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "can_start": {
+            "type": "boolean"
+          },
+          "cleanup_pending": {
+            "type": "boolean"
+          },
+          "document_epoch": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "headless": {
+            "type": "boolean"
+          },
+          "last_action": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "profile_removed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "screenshot": {
+            "$ref": "#/components/schemas/AgentBrowserScreenshotView"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "unavailable",
+              "idle",
+              "starting",
+              "ready",
+              "loading",
+              "busy",
+              "waiting_user",
+              "failed",
+              "closing",
+              "closed",
+              "cleanup_pending"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tree_reaped": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "agent_browser_status.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "generation",
+          "state",
+          "available",
+          "can_start",
+          "headless",
+          "document_epoch",
+          "updated_at",
+          "cleanup_pending",
+          "tree_reaped",
+          "profile_removed"
         ],
         "type": "object"
       },
@@ -26154,6 +27170,7 @@
               "not_started",
               "queued",
               "completed",
+              "waiting_approval",
               "failed"
             ],
             "type": "string"
@@ -26216,6 +27233,9 @@
           },
           "capability_grant": {
             "type": "boolean"
+          },
+          "continuation": {
+            "$ref": "#/components/schemas/ApprovalContinuationResult"
           },
           "docker_execution_enabled": {
             "type": "boolean"
@@ -26322,6 +27342,7 @@
               "record_git_approval",
               "file_review_required",
               "fetch_public_https",
+              "browser_sensitive_action",
               "unavailable"
             ],
             "type": "string"
@@ -40608,6 +41629,47 @@
         ],
         "type": "object"
       },
+      "OperatorSteeringObservationMessageView": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "committed",
+              "cancelled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "session_id",
+          "revision",
+          "status"
+        ],
+        "type": "object"
+      },
       "OperatorSteeringQueueView": {
         "additionalProperties": false,
         "properties": {
@@ -42583,6 +43645,93 @@
         ],
         "type": "object"
       },
+      "QueueRevisionUnchangedView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "current_content_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "execution_started": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model_called": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "normalized_content_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "operation_key_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "request_content_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_called": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "queue_revision_unchanged.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "session_id",
+          "message_id",
+          "expected_revision",
+          "operation_key_sha256",
+          "request_content_sha256",
+          "normalized_content_sha256",
+          "current_content_sha256",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
       "Record": {
         "additionalProperties": false,
         "properties": {
@@ -44488,6 +45637,95 @@
         ],
         "type": "object"
       },
+      "RunContextDiagnosticView": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fallback_code": {
+            "enum": [
+              "generation_cost_budget",
+              "generation_protocol_repair",
+              "generation_provider_failure",
+              "generation_invalid_response",
+              "generation_input_data",
+              "generation_input_window",
+              "generation_token_budget",
+              "unclassified"
+            ],
+            "type": "string"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "model_attempt": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "generation_started",
+              "generation_received",
+              "generation_rejected",
+              "generation_failed",
+              "summary_saved"
+            ],
+            "type": "string"
+          },
+          "removed_messages": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "summary_id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "occurred_at",
+          "phase",
+          "attempt_id",
+          "source_sha256"
+        ],
+        "type": "object"
+      },
+      "RunContextDiagnosticsView": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/RunContextDiagnosticView"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "records",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "RunContextSummaryView": {
         "additionalProperties": false,
         "properties": {
@@ -44496,6 +45734,12 @@
           },
           "current_summary": {
             "$ref": "#/components/schemas/RunStoredContextSummaryView"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/RunContextDiagnosticsView"
+          },
+          "diagnostics_unavailable": {
+            "type": "boolean"
           },
           "inherited_context": {
             "$ref": "#/components/schemas/RunInheritedContextView"
@@ -46690,6 +47934,12 @@
             "format": "date-time",
             "type": "string"
           },
+          "observation_consent_version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "integer"
+          },
           "owner_root_agent_id": {
             "maxLength": 256,
             "minLength": 1,
@@ -46763,7 +48013,8 @@
           "active_lease_generation",
           "created_by",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "observation_consent_version"
         ],
         "type": "object"
       },
@@ -46927,6 +48178,12 @@
             ],
             "type": "string"
           },
+          "observation_consent_version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "integer"
+          },
           "retry": {
             "$ref": "#/components/schemas/ScheduledJobRetryPolicy"
           },
@@ -47036,6 +48293,34 @@
           "kind",
           "summary",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobObservationRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "observation_consent_version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              "scheduled-job-control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_revision",
+          "observation_consent_version"
         ],
         "type": "object"
       },
@@ -47395,6 +48680,13 @@
           "runtime_enable_supported": {
             "type": "boolean"
           },
+          "selection_scope": {
+            "enum": [
+              "confirmed_read_only",
+              "all_jobs"
+            ],
+            "type": "string"
+          },
           "state": {
             "enum": [
               "disabled",
@@ -47680,6 +48972,95 @@
         ],
         "type": "object"
       },
+      "SessionSteeringCancellationObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "message": {
+            "$ref": "#/components/schemas/OperatorSteeringObservationMessageView"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SessionSteeringCancellationObservedReceiptView"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "absent",
+              "sealed"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "session_steering_cancellation.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id",
+          "message_id",
+          "state",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringCancellationObservedReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "cancellation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "operator"
+            ],
+            "type": "string"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "cancellation_id",
+          "run_id",
+          "session_id",
+          "message_id",
+          "kind",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "SessionSteeringCancellationRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -47756,6 +49137,174 @@
           "steering",
           "cancellation_id",
           "cancellation_kind",
+          "replayed",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringRevisionObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "message": {
+            "$ref": "#/components/schemas/OperatorSteeringObservationMessageView"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/SessionSteeringRevisionView"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "absent",
+              "sealed"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "session_steering_revision.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id",
+          "message_id",
+          "state",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringRevisionReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "from_revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "new_content_sha256": {
+            "type": "string"
+          },
+          "old_content_sha256": {
+            "type": "string"
+          },
+          "to_revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "from_revision",
+          "to_revision",
+          "old_content_sha256",
+          "new_content_sha256",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringRevisionRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 16384,
+            "minLength": 0,
+            "type": "string"
+          },
+          "expected_revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              "session_steering_revision.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_revision",
+          "content"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringRevisionView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SessionSteeringRevisionReceiptView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_called": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "session_steering_revision.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "session_id",
+          "message_id",
+          "receipt",
           "replayed",
           "execution_started",
           "model_called",
@@ -52745,6 +54294,141 @@
           "receipt_saved",
           "replayed",
           "checked_at"
+        ],
+        "type": "object"
+      },
+      "ThreadQueuedMessageView": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceFileAttachment"
+            },
+            "type": "array"
+          },
+          "can_cancel": {
+            "type": "boolean"
+          },
+          "can_edit": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_redacted": {
+            "type": "boolean"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceImage"
+            },
+            "type": "array"
+          },
+          "prepared": {
+            "type": "boolean"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "status",
+          "prepared",
+          "content",
+          "content_sha256",
+          "content_redacted",
+          "revision",
+          "created_at",
+          "images",
+          "attachments",
+          "can_edit",
+          "can_cancel"
+        ],
+        "type": "object"
+      },
+      "ThreadQueuedMessagesView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadQueuedMessageView"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "pending": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "prepared": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_queued_messages.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "thread_id",
+          "run_id",
+          "session_id",
+          "pending",
+          "prepared",
+          "items",
+          "capability_grant"
         ],
         "type": "object"
       },

@@ -35,6 +35,10 @@ type webSearchContextOutput struct {
 	Query                 string                         `json:"query"`
 	Provider              string                         `json:"provider"`
 	SearchPolicy          string                         `json:"search_policy"`
+	AllowedDomains        []string                       `json:"allowed_domains,omitempty"`
+	BlockedDomains        []string                       `json:"blocked_domains,omitempty"`
+	FilterPolicy          string                         `json:"filter_policy,omitempty"`
+	FilteredOutCount      int                            `json:"filtered_out_count,omitempty"`
 	SearchedAt            time.Time                      `json:"searched_at"`
 	Sources               []webSearchContextSource       `json:"sources"`
 	SourceCount           int                            `json:"source_count"`
@@ -71,6 +75,9 @@ func supervisorWebSearchContextResult(call domain.SupervisorToolCall) (string, e
 		original.ProtocolVersion != webevidence.SearchProtocolVersion || len(original.Sources) > 10 {
 		return call.ResultJSON, nil
 	}
+	if err := original.ValidateFilters(); err != nil {
+		return "", err
+	}
 	for _, source := range original.Sources {
 		canonical, err := webevidence.CanonicalizePublicHTTPSURL(source.CanonicalURL)
 		if source.SourceID == "" || source.Rank < 1 || err != nil || canonical != source.CanonicalURL || source.Provider != original.Provider ||
@@ -93,6 +100,8 @@ func supervisorWebSearchContextResult(call domain.SupervisorToolCall) (string, e
 	output := webSearchContextOutput{
 		ProtocolVersion: original.ProtocolVersion, Query: original.Query,
 		Provider: original.Provider, SearchPolicy: original.SearchPolicy, SearchedAt: original.SearchedAt,
+		AllowedDomains: original.AllowedDomains, BlockedDomains: original.BlockedDomains,
+		FilterPolicy: original.FilterPolicy, FilteredOutCount: original.FilteredOutCount,
 		Sources: make([]webSearchContextSource, 0, len(original.Sources)), SourceCount: len(original.Sources),
 		Provenance: "discovery_only", SourceStateAt: "this_search_operation; later web_fetch results may contain fetched snapshots",
 		Untrusted: true, ContextExcerpt: true,

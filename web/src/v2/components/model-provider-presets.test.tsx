@@ -27,7 +27,8 @@ describe("v2 model provider presets", () => {
       endpointURL: "https://api.anthropic.com/v1/messages",
       transport: "anthropic_messages",
       defaultModel: "claude-sonnet-5",
-      searchMode: "web",
+      searchMode: "provider_native",
+      nativeSearchDeclared: true,
     });
     expect(byID.get("official-openai")?.draft).toMatchObject({
       endpointURL: "https://api.openai.com/v1/responses",

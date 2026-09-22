@@ -49,6 +49,9 @@ func supervisorWebFetchContextResult(call domain.SupervisorToolCall) (string, er
 	output.Snapshot.BodyExcerptTruncated = true
 	next := output.Snapshot.BodyOffset + utf8.RuneCountInString(excerpt)
 	output.Snapshot.NextOffset = &next
+	if output.Extraction != nil {
+		output.Extraction.SpanEnd = next
+	}
 	encoded, err := marshalWebSnapshotPage(output)
 	if err != nil {
 		return "", err
@@ -75,9 +78,11 @@ type threadPredecessorWebSnapshotReader interface {
 func (e *WebEvidenceToolExecutor) readWebSnapshotPage(ctx context.Context,
 	scope toolgateway.WebEvidenceExecutionScope, request toolgateway.WebFetchPayload,
 ) (toolgateway.WebEvidenceExecutionResult, error) {
-	if request.URL != "" || request.SourceID == "" || request.SnapshotID == "" ||
-		request.Offset == nil || request.Limit == nil || *request.Offset < 0 ||
-		*request.Limit < 1 || *request.Limit > toolgateway.MaxWebSnapshotPageRunes {
+	questionRead := request.Question != ""
+	if request.URL != "" || request.SourceID == "" || request.SnapshotID == "" || request.Connector != "" || request.MaxItems != 0 ||
+		(questionRead && (request.Offset != nil || request.Limit != nil)) ||
+		(!questionRead && (request.Offset == nil || request.Limit == nil || *request.Offset < 0 ||
+			*request.Limit < 1 || *request.Limit > toolgateway.MaxWebSnapshotPageRunes)) {
 		return toolgateway.WebEvidenceExecutionResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"saved web snapshot read requires an exact source and bounded character range")
 	}
@@ -110,16 +115,29 @@ func (e *WebEvidenceToolExecutor) readWebSnapshotPage(ctx context.Context,
 			"saved web snapshot must belong to this Run, workspace and source")
 	}
 	body := []rune(snapshot.Body)
-	if *request.Offset > len(body) {
+	start, end := 0, 0
+	var extraction *webevidence.Extraction
+	if questionRead {
+		selected, err := webevidence.ExtractSnapshot(snapshot, request.Question)
+		if err != nil {
+			return toolgateway.WebEvidenceExecutionResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "saved snapshot question is invalid", err)
+		}
+		extraction = &selected
+		start, end = selected.SpanStart, selected.SpanEnd
+	} else if *request.Offset > len(body) {
 		return toolgateway.WebEvidenceExecutionResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web snapshot offset exceeds the saved body")
+	} else {
+		start = *request.Offset
+		end = start + min(*request.Limit, len(body)-start)
 	}
-	end := *request.Offset + min(*request.Limit, len(body)-*request.Offset)
 	presentation := webevidence.PresentSnapshot(snapshot, time.Now().UTC())
 	page := snapshot
-	page.Body = string(body[*request.Offset:end])
+	if !questionRead {
+		page.Body = string(body[start:end])
+	}
 	encoded, _, err := encodeWebFetchToolOutput(webevidence.FetchResult{
-		ProtocolVersion: webevidence.FetchProtocolVersion, Source: source, Snapshot: page}, presentation)
+		ProtocolVersion: webevidence.FetchProtocolVersion, Source: source, Snapshot: page, Extraction: extraction}, presentation)
 	if err != nil {
 		return toolgateway.WebEvidenceExecutionResult{}, err
 	}
@@ -128,9 +146,13 @@ func (e *WebEvidenceToolExecutor) readWebSnapshotPage(ctx context.Context,
 		return toolgateway.WebEvidenceExecutionResult{}, err
 	}
 	output.SourceRunID, output.Historical = source.RunID, historical
-	output.Snapshot.BodyOffset = *request.Offset
+	if questionRead {
+		start = output.Snapshot.BodyOffset
+	}
+	output.Snapshot.BodyOffset = start
 	output.Snapshot.BodyRunes = len(body)
-	output.Snapshot.BodyExcerptTruncated = *request.Offset > 0 || end < len(body)
+	end = start + utf8.RuneCountInString(output.Snapshot.Body)
+	output.Snapshot.BodyExcerptTruncated = start > 0 || end < len(body)
 	if end < len(body) {
 		output.Snapshot.NextOffset = &end
 	}
@@ -146,7 +168,7 @@ func (e *WebEvidenceToolExecutor) readWebSnapshotPage(ctx context.Context,
 			"state": presentation.Status, "partial": strconv.FormatBool(presentation.Partial),
 			"stale": strconv.FormatBool(presentation.Stale), "citeable": strconv.FormatBool(presentation.Citeable),
 			"body_excerpt_truncated": strconv.FormatBool(output.Snapshot.BodyExcerptTruncated),
-			"body_offset":            strconv.Itoa(*request.Offset), "body_runes": strconv.Itoa(len(body)),
+			"body_offset":            strconv.Itoa(start), "body_runes": strconv.Itoa(len(body)),
 			"snapshot_read": "true", "network_called": "false", "untrusted": "true",
 			"instruction_authorized": "false"}}, nil
 }

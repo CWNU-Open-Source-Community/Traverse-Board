@@ -152,7 +152,7 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
   const sameMessagePending = pendingContents.current.has(fingerprint) ||
     pendingSubmissions.some(({ input }) => JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint);
   const ready = !disabled && !submitDisabled && !managedDraft?.state.conflict && !managedDraft?.state.error && !images.uploading && !attachments.uploading && !attachments.pending && !nativeClipboard.pending && !nativeClipboard.busy && !importStatus.busy && (!images.images.length || imageCapability.allowed) && !sameMessagePending && Boolean(workspaceID) && (byteLength > 0 || images.images.length > 0 || attachments.attachments.length > 0) &&
-    byteLength <= maximumContentBytes && !(fileReferenceUnavailableReason && (references.files.length > 0 || attachments.attachments.length > 0));
+    byteLength <= maximumContentBytes && !(fileReferenceUnavailableReason && references.files.length > 0);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -315,10 +315,9 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
         </div>
       </div>
     </div>
-    {workspaceID && (client.hasEvidenceAttachment || attachments.attachments.length > 0) && fileReferenceUnavailableReason &&
+    {workspaceID && references.files.length > 0 && fileReferenceUnavailableReason &&
       <p className="v2-composer-caption" role="status">{fileReferenceUnavailableReason}
-        {attachments.attachments.length > 0 ? " 附件与草稿会保留，当前也暂不能提交附件。"
-          : references.files.length > 0 && " 已选引用与草稿会保留；先移除这些引用，才能发送不带引用的消息。"}</p>}
+        {" 已选引用与草稿会保留；先移除项目文件引用，即可发送补充文字和上传附件。"}</p>}
     {byteLength > maximumContentBytes && <p className="v2-composer-error">消息不能超过 16 KiB</p>}
     {images.uploading && <p className="v2-composer-caption" role="status">正在保存图片，完成后可发送…</p>}
     {images.images.length > 0 && <p className="v2-image-capability" role="status">{imageCapability.hint}

@@ -881,3 +881,34 @@ func TestOpenAIResponsesSearchProviderRequiresPublicAuthorizedEndpointAndValidRu
 			qualification, transportCalled, err)
 	}
 }
+
+func TestOpenAIResponsesSearchProviderEncodesFiltersOnlyOnModernTool(t *testing.T) {
+	runtime := newResponsesSearchRuntimeStub("credential")
+	provider, err := NewOpenAIResponsesSearchProvider(nil,
+		"https://api.vendor.com/v1/responses", "provider", "model", runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := responsesSearchState{secret: "credential", mappedModel: "remote-search-model"}
+	filter := SearchDomainFilter{AllowedDomains: []string{"example.com"}}
+	payload, _, err := provider.prepareRequestWithFilter(state, "query", nativeSearchTool, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Tools []struct {
+			Type    string              `json:"type"`
+			Filters map[string][]string `json:"filters"`
+		} `json:"tools"`
+	}
+	if json.Unmarshal(payload, &body) != nil || len(body.Tools) != 1 ||
+		body.Tools[0].Type != nativeSearchTool ||
+		len(body.Tools[0].Filters["allowed_domains"]) != 1 ||
+		body.Tools[0].Filters["allowed_domains"][0] != "example.com" {
+		t.Fatalf("filtered Responses request=%s", payload)
+	}
+	if _, _, err := provider.prepareRequestWithFilter(state, "query",
+		nativeSearchPreviewTool, filter); nativeSearchQualificationReason(err) != NativeSearchReasonToolUnsupported {
+		t.Fatalf("preview filter err=%v", err)
+	}
+}

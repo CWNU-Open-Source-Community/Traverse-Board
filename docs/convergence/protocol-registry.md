@@ -8,21 +8,22 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | Family | Class | Owner | Active IDs | Persisted/exported |
 | --- | --- | --- | ---: | --- |
 | [activity-event-projection](#activity-event-projection) | `projection` | Run activity and HTTP maintainers | 5 | true |
+| [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
 | [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 42 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
-| [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
+| [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 105 | true |
-| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 18 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 110 | true |
+| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 21 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 40 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 104 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 108 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
@@ -35,7 +36,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
-| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 44 | true |
+| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 49 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
 | [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
@@ -64,6 +65,36 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run-event-poll.v1`
 - `run-events.v1`
 - `run_activity.v1`
+
+</details>
+
+### agent-browser-supervisor-ledger
+
+- Class: `internal-durable`
+- Owner: Agent browser, Supervisor tool, and persistence maintainers
+- Source of truth: `internal/application`, `internal/store`, `internal/toolgateway`
+- Persistence/export boundary: SQLite preserves exact Supervisor calls, authority, payloads, approvals, dispatch markers, results, and screenshot receipts; process-local browser sessions and manager boot identities are intentionally invalid after restart.
+- Compatibility rule: Keep durable call and receipt readers for every stored version, reject unknown action payloads, and require fresh runtime authority before any post-restart dispatch.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
+- Writers:
+  - `agent-browser-supervisor-ledger-writer` (`v1, v2`, write-new) at `internal/application`
+- Readers:
+  - `agent-browser-supervisor-ledger-reader` (`v1, v2`, active) at `internal/store`
+  - `agent-browser-supervisor-authority-reader` (`v1, v2`, active) at `internal/toolgateway`
+
+<details><summary>11 active identifiers</summary>
+
+- `agent-browser-actions.v1`
+- `browser_click.v2`
+- `browser_key.v2`
+- `browser_navigate.v2`
+- `browser_screenshot.v2`
+- `browser_screenshot_result.v2`
+- `browser_scroll.v2`
+- `browser_sensitive_intent.v1`
+- `browser_snapshot.v2`
+- `browser_status.v2`
+- `browser_type.v2`
 
 </details>
 
@@ -333,8 +364,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `browser-full-cdp-authorization-reader` (`v2`, active) at `internal/browserruntime`
   - `browser-ui-evidence-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>41 active identifiers</summary>
+<details><summary>44 active identifiers</summary>
 
+- `agent-browser-runtime.v1`
+- `agent_browser_process.v1`
+- `agent_browser_profile.v1`
 - `browser-launch-budget.v1`
 - `browser-launch-lease-owner-request.v1`
 - `browser-launch-owner.v1`
@@ -433,7 +467,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Core Go control-plane maintainers
-- Source of truth: `internal/application`, `internal/domain`, `internal/store`
+- Source of truth: `internal/application`, `internal/domain`, `internal/store`, `internal/webevidence`
 - Persistence/export boundary: Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence.
 - Compatibility rule: Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
@@ -442,7 +476,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>105 active identifiers</summary>
+<details><summary>110 active identifiers</summary>
 
 - `byte_identical.v1`
 - `data_store_scope.v1`
@@ -470,6 +504,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `finding_validation_request.v1`
 - `github-public.v1`
 - `hacker-news-public.v1`
+- `lexical_window.v1`
 - `macos_portable_compatibility.v1`
 - `msix_manifest.v1`
 - `msix_manifest.v2`
@@ -479,8 +514,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `rss-atom-public.v1`
 - `sanitized_host_environment.v1`
 - `scheduled-job-worker.v1`
+- `scheduled_job_create_observation_consent.v1`
 - `scheduled_job_create_request.v1`
 - `scheduled_job_observation.v1`
+- `scheduled_job_observation_consent_request.v1`
 - `scheduled_job_operation.v1`
 - `scheduled_job_transition_request.v1`
 - `script_process.v1`
@@ -532,6 +569,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `web_fetch.v1`
 - `web_fetch_authorization.v1`
 - `web_fetch_continuation.v1`
+- `web_question_excerpt.v1`
 - `web_search.v1`
 - `windows-two-deliverable-contract.v1`
 - `windows_artifact_attestations.v1`
@@ -545,6 +583,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `windows_store_readback.v1`
 - `work_board.v1`
 - `work_item_create.v1`
+- `workbench.prayu.desktop.credentials.v1`
 - `workspace-checkpoint-api.v1`
 - `workspace-checkpoint-transaction.v1`
 - `workspace-checkpoint.v1`
@@ -556,7 +595,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Credential, provider, model-route, and pricing maintainers
-- Source of truth: `internal/credential`, `internal/modelregistry`, `internal/store`
+- Source of truth: `internal/credential`, `internal/modelregistry`, `internal/store`, `internal/webevidence`
 - Persistence/export boundary: Secret-free references, provider diagnostics, qualifications, and declared snapshots survive restart.
 - Compatibility rule: Never weaken credential separation or qualification; retain readers for every supported stored snapshot.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
@@ -565,8 +604,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `credential-provider-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>18 active identifiers</summary>
+<details><summary>21 active identifiers</summary>
 
+- `anthropic_native_search.v1`
+- `anthropic_native_search_cache.v1`
+- `anthropic_native_search_negative.v1`
 - `model_cancellation_operation.v1`
 - `model_cancellation_request.v1`
 - `model_context_window.v1`
@@ -792,9 +834,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>104 active identifiers</summary>
+<details><summary>108 active identifiers</summary>
 
 - `agent-code-tools.v1`
+- `agent_browser_close.v1`
+- `agent_browser_status.v1`
 - `agent_graph.v1`
 - `api.v1`
 - `approval_control.v1`
@@ -874,6 +918,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `session_evidence_inventory.v1`
 - `session_message_submission.v1`
 - `session_steering_cancellation.v1`
+- `session_steering_revision.v1`
 - `skill_package_installation.v1`
 - `standard_code_preset.v1`
 - `thread.v1`
@@ -887,6 +932,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `thread_message_submission.v1`
 - `thread_model_route.v1`
 - `thread_model_route_control.v1`
+- `thread_queued_messages.v1`
 - `thread_run_recovery.v1`
 - `ui-evidence-artifact.v1`
 - `ui-evidence-attempt.v1`
@@ -1437,7 +1483,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3`, active) at `internal/store`
   - `thread-local-recovery-reader` (`v1`, active) at `web/src/v2`
 
-<details><summary>44 active identifiers</summary>
+<details><summary>49 active identifiers</summary>
 
 - `context_memory.v1`
 - `continuity_context.v1`
@@ -1450,6 +1496,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `llm.item_stream.identity.v1`
 - `long_term_memory.v1`
 - `note_context.v1`
+- `operator_steering_revision_operation.v1`
+- `operator_steering_revision_request.v1`
+- `queue_edit.v1`
+- `queue_operation.v1`
+- `queue_revision_unchanged.v1`
 - `root_action_compatibility.v1`
 - `root_inbox_context.v1`
 - `root_lifecycle.v1`
@@ -1664,6 +1715,8 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `batch-owner-token.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `batch-receipt.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `batch-review.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `browser_key.v1` | `negative-version-fixture` | `internal/toolgateway/agent_browser_actions_test.go` | Agent browser v2 rejects the prior-version payload in an exact negative test; it is not a production Agent browser protocol. |
+| `browser_navigate.v3` | `negative-version-fixture` | `internal/toolgateway/agent_browser_actions_test.go` | Agent browser v2 rejects the unsupported future-version payload in an exact negative test; it is not a production protocol. |
 | `browser_network_containment_evidence.v0` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `browser_network_containment_policy.v1` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `call.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1731,7 +1784,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `ui-evidence-ci-launch.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ui-evidence-ci-smoke.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ui-evidence-ci-startup-diagnostic.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
-| `unknown.v1` | `negative-version-fixture` | `internal/analyzer/descriptor_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `unknown.v1` | `negative-version-fixture` | `internal/analyzer/descriptor_test.go`, `web/src/api/queued-messages.test.ts` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `web_search.v0` | `test-fixture` | `internal/toolgateway/web_evidence_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `windows-local-sandbox.v1` | `test-fixture` | `internal/application/command_runtime_test.go`, `internal/application/supervisor_tool_permission_test.go`, `internal/store/supervisor_tool_registry_migration_test.go`, `internal/store/supervisor_tools_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `windows_appcontainer.v1` | `test-fixture` | `internal/runner/command_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

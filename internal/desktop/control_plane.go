@@ -57,6 +57,7 @@ type ControlPlane struct {
 	policyChecker                  policy.Checker
 	uiEvidence                     *application.UIEvidenceService
 	fullCDPSessions                *application.FullCDPProductionService
+	agentBrowser                   *application.AgentBrowserService
 	commandRuntimeManager          *runner.CommandRuntimeManager
 	commandRuntimeManagers         []*runner.CommandRuntimeManager
 	commandRuntimeAdapterInstalled bool
@@ -145,6 +146,7 @@ type ControlPlaneConfig struct {
 	RunWakeWorkerEnabled                    bool
 	ScheduledJobControlEnabled              bool
 	ScheduledJobWorkerEnabled               bool
+	ScheduledJobObservationOnly             bool
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
@@ -689,6 +691,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		// execution permission, browser permission, and runtime fence per action.
 		executionControl.WithBrowserActions(fullCDPSessions)
 	}
+	// The ordinary Agent browser starts only when an authorized model navigates.
+	// It uses a separate profile and service from the operator's Full CDP session.
+	var agentBrowser *application.AgentBrowserService
+	var agentBrowserController httpapi.AgentBrowserController
+	if config.RunExecutionEnabled {
+		agentBrowser = application.NewAgentBrowserService(stateStore, application.AgentBrowserOptions{
+			HomePath: home, Capabilities: config.ExecutionPermissionCapabilities,
+			Headless: true})
+		executionControl.WithAgentBrowser(agentBrowser)
+		agentBrowserController = agentBrowser
+	}
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
 		dockerSandbox)
 	if err != nil {
@@ -745,7 +758,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	scheduledJobs := application.NewScheduledJobService(stateStore)
 	var scheduledJobWorker *scheduler.Worker
 	if config.ScheduledJobWorkerEnabled {
-		scheduledJobWorker, err = scheduler.NewWorker(scheduledJobs, scheduler.WorkerConfig{
+		var dueRunner scheduler.DueRunner = scheduledJobs
+		if config.ScheduledJobObservationOnly {
+			dueRunner = scheduledObservationRunner{service: scheduledJobs}
+		}
+		scheduledJobWorker, err = scheduler.NewWorker(dueRunner, scheduler.WorkerConfig{
 			OnError: config.OnScheduledJobWorkerError,
 		})
 		if err != nil {
@@ -755,7 +772,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	var scheduledWorkerHealth httpapi.ScheduledJobWorkerHealthSource
 	if scheduledJobWorker != nil {
-		scheduledWorkerHealth = scheduledJobWorker
+		scheduledWorkerHealth = scheduledDesktopWorkerHealth{Worker: scheduledJobWorker,
+			observationOnly: config.ScheduledJobObservationOnly}
 	}
 	var skillInstaller *application.SkillPackageRegistryService
 	if config.SkillInstallationEnabled {
@@ -985,6 +1003,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		CodeIntelSource:                     codeIntelManager,
 		UIEvidenceController:                uiEvidence,
 		FullCDPSessionController:            fullCDPSessions,
+		AgentBrowserController:              agentBrowserController,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,
@@ -1025,6 +1044,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		policyChecker:                  checker,
 		uiEvidence:                     uiEvidence,
 		fullCDPSessions:                fullCDPSessions,
+		agentBrowser:                   agentBrowser,
 		commandRuntimeManager:          commandManager,
 		commandRuntimeManagers:         commandManagers,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
@@ -1353,6 +1373,11 @@ func (c *ControlPlane) Close() error {
 			shutdownContext, shutdownCancel := context.WithTimeout(
 				context.Background(), 35*time.Second)
 			c.closeErr = errors.Join(c.closeErr, c.uiEvidence.Close(shutdownContext))
+			shutdownCancel()
+		}
+		if c.agentBrowser != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 35*time.Second)
+			c.closeErr = errors.Join(c.closeErr, c.agentBrowser.Shutdown(shutdownContext))
 			shutdownCancel()
 		}
 		if fullCDPShutdown != nil {

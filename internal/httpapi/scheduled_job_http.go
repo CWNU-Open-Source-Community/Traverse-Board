@@ -13,13 +13,15 @@ import (
 )
 
 const (
-	ScheduledJobsPath              = "/api/v1/scheduled-jobs"
-	ScheduledJobPathTemplate       = "/api/v1/scheduled-jobs/{job_id}"
-	RunScheduledJobsPathTemplate   = "/api/v1/runs/{run_id}/scheduled-jobs"
-	ScheduledJobActionPathTemplate = "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}"
-	DoctorSnapshotPath             = "/api/v1/doctor"
-	DebugQueryPath                 = "/api/v1/debug"
-	DiagnosticBundlePath           = "/api/v1/diagnostic-bundle"
+	ScheduledJobsPath                                             = "/api/v1/scheduled-jobs"
+	ScheduledJobPathTemplate                                      = "/api/v1/scheduled-jobs/{job_id}"
+	RunScheduledJobsPathTemplate                                  = "/api/v1/runs/{run_id}/scheduled-jobs"
+	ScheduledJobActionPathTemplate                                = "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}"
+	ScheduledJobObservationPathTemplate                           = "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/enable-observation"
+	scheduledJobObservationAction       domain.ScheduledJobAction = "enable-observation"
+	DoctorSnapshotPath                                            = "/api/v1/doctor"
+	DebugQueryPath                                                = "/api/v1/debug"
+	DiagnosticBundlePath                                          = "/api/v1/diagnostic-bundle"
 )
 
 type ScheduledJobController interface {
@@ -40,17 +42,29 @@ type ScheduledJobScheduleRequestView struct {
 }
 
 type ScheduledJobCreateRequestView struct {
-	Version              string                              `json:"version"`
-	Schedule             ScheduledJobScheduleRequestView     `json:"schedule"`
-	DeadlineAt           time.Time                           `json:"deadline_at"`
-	StopOnTargetTerminal bool                                `json:"stop_on_target_terminal"`
-	MaxRounds            int                                 `json:"max_rounds"`
-	MaxModelCalls        int                                 `json:"max_model_calls"`
-	MaxElapsedSeconds    int64                               `json:"max_elapsed_seconds"`
-	Retry                domain.ScheduledJobRetryPolicy      `json:"retry"`
-	Notification         domain.ScheduledJobNotificationMode `json:"notification"`
-	ExecutionMode        domain.ScheduledJobExecutionMode    `json:"execution_mode"`
-	ConfirmRepair        bool                                `json:"confirm_repair"`
+	Version                   string                              `json:"version"`
+	Schedule                  ScheduledJobScheduleRequestView     `json:"schedule"`
+	DeadlineAt                time.Time                           `json:"deadline_at"`
+	StopOnTargetTerminal      bool                                `json:"stop_on_target_terminal"`
+	MaxRounds                 int                                 `json:"max_rounds"`
+	MaxModelCalls             int                                 `json:"max_model_calls"`
+	MaxElapsedSeconds         int64                               `json:"max_elapsed_seconds"`
+	Retry                     domain.ScheduledJobRetryPolicy      `json:"retry"`
+	Notification              domain.ScheduledJobNotificationMode `json:"notification"`
+	ExecutionMode             domain.ScheduledJobExecutionMode    `json:"execution_mode"`
+	ConfirmRepair             bool                                `json:"confirm_repair"`
+	ObservationConsentVersion int                                 `json:"observation_consent_version,omitempty"`
+}
+
+type ScheduledJobObservationController interface {
+	EnableObservation(context.Context, application.EnableScheduledJobObservationRequest) (
+		application.ScheduledJobControlResult, error)
+}
+
+type ScheduledJobObservationRequestView struct {
+	Version                   string `json:"version"`
+	ExpectedRevision          int64  `json:"expected_revision"`
+	ObservationConsentVersion int    `json:"observation_consent_version"`
 }
 
 type ScheduledJobTransitionRequestView struct {
@@ -94,7 +108,7 @@ func matchScheduledJobMutationPath(requestPath string) (runID string,
 	}
 	action = domain.ScheduledJobAction(segments[3])
 	if action != domain.ScheduledJobPause && action != domain.ScheduledJobResume &&
-		action != domain.ScheduledJobCancel {
+		action != domain.ScheduledJobCancel && action != scheduledJobObservationAction {
 		return "", "", "", false
 	}
 	return segments[0], segments[2], action, true
@@ -153,7 +167,31 @@ func (a *API) serveScheduledJobControl(writer http.ResponseWriter,
 				MaxElapsedSeconds: view.MaxElapsedSeconds, Retry: view.Retry,
 				Notification: view.Notification, ExecutionMode: view.ExecutionMode,
 				ConfirmRepair: view.ConfirmRepair, OperationKey: operationKey,
-				RequestedBy: "http_control",
+				ObservationConsentVersion: view.ObservationConsentVersion,
+				RequestedBy:               "http_control",
+			})
+	} else if action == scheduledJobObservationAction {
+		var view ScheduledJobObservationRequestView
+		if err := decodeStrictRunOperation(body, &view, label); err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+		if view.Version != domain.ScheduledJobControlProtocolVersion {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
+				"scheduled observation version is invalid"), 0)
+			return
+		}
+		controller, ok := a.scheduledJobController.(ScheduledJobObservationController)
+		if !ok {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeUnavailable,
+				"scheduled observation control is unavailable"), 0)
+			return
+		}
+		result, err = controller.EnableObservation(request.Context(),
+			application.EnableScheduledJobObservationRequest{
+				RunID: runID, JobID: jobID, ExpectedRevision: view.ExpectedRevision,
+				ObservationConsentVersion: view.ObservationConsentVersion,
+				OperationKey:              operationKey, RequestedBy: "http_control",
 			})
 	} else {
 		var view ScheduledJobTransitionRequestView

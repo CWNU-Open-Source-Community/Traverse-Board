@@ -52,8 +52,9 @@ Developer ID 签名、公证、staple 验证及绑定最终分发包的真机验
 
 后续正式 Mac 接入至少需要：Apple Developer 身份及受保护签名/公证配置；验证实际
 签名者、公证票据和最终包；在干净 Mac 验证 Finder 启动、模型配置（含失败提示）、退出与
-重启后数据恢复，两架构分别记录。macOS 系统凭证库、Local Sandbox 和其他平台能力缺口
-仍应单独实现或在交付范围中明确说明。不得用明文凭据存储或默认提升权限绕过。
+重启后数据恢复，两架构分别记录。新增的 [macOS Keychain 实现](mac-keychain.md) 尚需原生
+编译、隔离凭据检查和实际应用验收；上方旧候选包不包含它。Local Sandbox 和其他平台能力
+缺口仍需单独处理。不得用明文凭据存储或默认提升权限绕过。
 
 现有 Windows 签名、Store、精确 CI revision、Draft evidence 和 attestation 门保持。
 Mac job 不预先向 Draft 添加附件，避免破坏 Windows 的精确证据清单。

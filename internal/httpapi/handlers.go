@@ -47,6 +47,7 @@ type apiErrorView struct {
 	OperationKeyInvalidated *bool                           `json:"operation_key_invalidated,omitempty"`
 	TurnFailed              *bool                           `json:"turn_failed,omitempty"`
 	TurnFailure             *ThreadTurnFailureReferenceView `json:"turn_failure,omitempty"`
+	RevisionUnchanged       *QueueRevisionUnchangedView     `json:"revision_unchanged,omitempty"`
 }
 
 func (a *API) route(request *http.Request) (any, *Page, error) {
@@ -933,6 +934,12 @@ func recoverableWebFetchApprovalActions(value domain.WebFetchAuthorization) []ap
 }
 
 func (a *API) routeSessions(request *http.Request, segments []string) (any, *Page, error) {
+	if len(segments) == 6 && segments[2] == "messages" && segments[4] == "revisions" {
+		return a.sessionSteeringRevisionObservation(request, segments[1], segments[3], segments[5])
+	}
+	if len(segments) == 6 && segments[2] == "messages" && segments[4] == "cancellations" {
+		return a.sessionSteeringCancellationObservation(request, segments[1], segments[3], segments[5])
+	}
 	switch len(segments) {
 	case 1:
 		return a.sessions(request)
@@ -1639,6 +1646,15 @@ func (a *API) writeError(writer http.ResponseWriter, requestID string, err error
 		status = apperror.HTTPStatus(classified)
 	}
 	view := apiErrorView{Code: string(code), Message: message}
+	var unchanged *domain.OperatorSteeringRevisionUnchangedError
+	if errors.As(err, &unchanged) {
+		view.Code, view.Message = string(apperror.CodeInvalidArgument), "修改后的正文与当前消息相同，未产生修订。"
+		status = http.StatusBadRequest
+		view.RevisionUnchanged = &QueueRevisionUnchangedView{Version: domain.QueueRevisionUnchangedProtocolVersion,
+			RunID: unchanged.RunID, SessionID: unchanged.SessionID, MessageID: unchanged.MessageID, ExpectedRevision: unchanged.ExpectedRevision,
+			OperationKeySHA256: unchanged.OperationKeySHA256, RequestContentSHA256: unchanged.RequestContentSHA256,
+			NormalizedContentSHA256: unchanged.NormalizedContentSHA256, CurrentContentSHA256: unchanged.CurrentContentSHA256}
+	}
 	var notQueued *application.ThreadMessageNotQueuedError
 	if errors.As(err, &notQueued) {
 		value := false

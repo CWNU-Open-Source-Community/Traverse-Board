@@ -111,6 +111,44 @@ func TestScheduledJobHTTPControlDiagnosticsAndRedaction(t *testing.T) {
 	if pause.Code != http.StatusAccepted || !strings.Contains(pause.Body.String(), `"status":"paused"`) {
 		t.Fatalf("scheduled job pause status=%d body=%s", pause.Code, pause.Body.String())
 	}
+	if err := json.Unmarshal(pause.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	observePath := path + "/" + job.ID + "/enable-observation"
+	observeBody := `{"version":"scheduled-job-control.v1","observation_consent_version":1,` +
+		`"expected_revision":` + jsonInt(envelope.Data.Job.Revision) + `}`
+	readObserve := performSessionMessageRequest(t, api, http.MethodPost, observePath,
+		testAccessToken, "scheduled-http-observe-read", "application/json", strings.NewReader(observeBody))
+	assertAPIError(t, readObserve, http.StatusUnauthorized, "POLICY_DENIED")
+	for attempt := 0; attempt < 2; attempt++ {
+		observe := performSessionMessageRequest(t, api, http.MethodPost, observePath,
+			testControlToken, "scheduled-http-observe-0001", "application/json", strings.NewReader(observeBody))
+		if observe.Code != http.StatusAccepted {
+			t.Fatalf("observation: %d %s", observe.Code, observe.Body.String())
+		}
+		if err := json.Unmarshal(observe.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Data.Action != "enable-observation" || envelope.Data.Job.ObservationConsentVersion != 1 ||
+			envelope.Data.Job.Status != domain.ScheduledJobPaused || envelope.Data.Replayed != (attempt == 1) ||
+			envelope.Data.ExecutionStarted || envelope.Data.AuthorityBypass {
+			t.Fatalf("observation consent resumed work or was not persisted: %+v", envelope.Data)
+		}
+		if strings.Contains(observe.Body.String(), "operation_key") {
+			t.Fatal("observation receipt leaked operation key")
+		}
+	}
+	unknownObserve := performSessionMessageRequest(t, api, http.MethodPost, observePath,
+		testControlToken, "scheduled-http-observe-unknown", "application/json",
+		strings.NewReader(strings.TrimSuffix(observeBody, "}")+`,"resume":true}`))
+	assertAPIError(t, unknownObserve, http.StatusBadRequest, "INVALID_ARGUMENT")
+	consentedCreate := performSessionMessageRequest(t, api, http.MethodPost, path,
+		testControlToken, "scheduled-http-create-consent", "application/json",
+		strings.NewReader(strings.TrimSuffix(body, "}")+`,"observation_consent_version":1}`))
+	if consentedCreate.Code != http.StatusAccepted ||
+		!strings.Contains(consentedCreate.Body.String(), `"observation_consent_version":1`) {
+		t.Fatalf("create and observe did not persist consent: %d %s", consentedCreate.Code, consentedCreate.Body.String())
+	}
 	unknown := performSessionMessageRequest(t, api, http.MethodPost, path,
 		testControlToken, "scheduled-http-unknown-0001", "application/json",
 		strings.NewReader(strings.TrimSuffix(body, "}")+`,"unknown":true}`))

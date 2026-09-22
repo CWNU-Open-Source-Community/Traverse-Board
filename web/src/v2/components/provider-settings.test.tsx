@@ -312,6 +312,9 @@ describe("V2 custom Provider settings", () => {
 
     expect(screen.getByRole("heading", { name: "连接 OpenAI" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "添加供应商" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("供应商 ID")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("供应商 ID")).toHaveValue("official-openai");
     expect(screen.getByLabelText("请求地址")).toHaveValue("https://api.openai.com/v1/responses");
     expect(screen.getByLabelText("协议")).toHaveValue("openai_responses");
@@ -322,6 +325,9 @@ describe("V2 custom Provider settings", () => {
 
     await user.clear(screen.getByLabelText("显示名称"));
     await user.type(screen.getByLabelText("显示名称"), "我的 OpenAI");
+    await user.click(screen.getByRole("button", { name: "收起高级设置" }));
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
+    expect(screen.getByLabelText("显示名称")).toHaveValue("我的 OpenAI");
     const changedPreset = { ...openAIPreset, displayName: "不应覆盖用户输入" };
     view.rerender(<QueryClientProvider client={queryClient}>
       <V2ProviderSettings client={controls.client} initialPreset={changedPreset} onExit={onExit} />
@@ -350,6 +356,7 @@ describe("V2 custom Provider settings", () => {
     </QueryClientProvider>);
 
     expect(await screen.findByRole("heading", { name: "编辑供应商" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("供应商 ID")).toBeDisabled();
     expect(screen.getByLabelText("显示名称")).toHaveValue("团队 OpenAI");
     expect(screen.getByLabelText("请求地址")).toHaveValue("https://gateway.example/v1/responses");
@@ -404,11 +411,14 @@ describe("V2 custom Provider settings", () => {
     </QueryClientProvider></StrictMode>);
 
     await screen.findByRole("heading", { name: "添加供应商" });
+    expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "高级 JSON" })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("默认模型"), "gpt-5-mini");
     await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
     await user.click(screen.getByRole("button", { name: "保存并检查" }));
 
     await waitFor(() => expect(onReady).toHaveBeenCalledWith(expect.objectContaining({
-      id: "official-openai", default_model: "gpt-5",
+      id: "official-openai", default_model: "gpt-5-mini",
     })));
     expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1);
     expect(controls.changeProviderCredential).toHaveBeenCalledTimes(1);
@@ -416,9 +426,25 @@ describe("V2 custom Provider settings", () => {
     expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1);
     expect(controls.qualifyModelHarness).toHaveBeenCalledWith({
       version: "model_harness_qualification.v1", provider: "official-openai",
-      model: "gpt-5", confirm_qualification: true,
+      model: "gpt-5-mini", confirm_qualification: true,
     });
     expect(controls.availableModelRoutes).toHaveBeenCalledTimes(1);
+  });
+
+  it("reveals an invalid custom connection after collapsing advanced settings without losing it", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset} prepareForDraft />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
+    fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: "http://remote.example/v1" } });
+    await user.click(screen.getByRole("button", { name: "收起高级设置" }));
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("请求地址必须使用 HTTPS");
+    expect(screen.getByLabelText("请求地址")).toHaveValue("http://remote.example/v1");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
   });
 
   it("completes the first Provider check under the desktop StrictMode root", async () => {
@@ -484,7 +510,8 @@ describe("V2 custom Provider settings", () => {
     await user.type(screen.getByLabelText("API Key"), "billing-test-key-123456");
     await user.click(screen.getByRole("button", { name: "保存并检查" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("供应商额度或容量不足，请检查账单或服务状态");
-    expect(screen.getByLabelText("供应商 ID")).toHaveValue("official-openai");
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-5");
+    expect(screen.getByLabelText("API Key")).toHaveValue("");
     expect(screen.getByRole("button", { name: "重新检查" })).toBeEnabled();
     expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1);
     expect(controls.changeProviderCredential).toHaveBeenCalledTimes(1);
@@ -510,12 +537,15 @@ describe("V2 custom Provider settings", () => {
     await user.type(screen.getByLabelText("API Key"), "first-model-key-123456");
     await user.click(screen.getByRole("button", { name: "保存并检查" }));
     await waitFor(() => expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText("显示名称")).toBeDisabled();
+    expect(screen.getByLabelText("默认模型")).toBeDisabled();
+    expect(screen.getByLabelText("API Key")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "返回供应商列表" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "正在保存…" })).toBeDisabled();
     rejectCheck(new Error("bounded check stopped"));
     expect(await screen.findByRole("alert")).toHaveTextContent("bounded check stopped");
-    expect(screen.getByLabelText("显示名称")).toBeEnabled();
+    expect(screen.getByLabelText("默认模型")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" })).toBeEnabled();
   });
 
   it("lists providers without redisplaying their stored API key and inserts a credential reference", async () => {
@@ -591,6 +621,7 @@ describe("V2 custom Provider settings", () => {
         id: "official-deepseek", displayName: "DeepSeek", endpointURL }} />
     </QueryClientProvider>);
     await screen.findByRole("heading", { name: "添加供应商" });
+    fireEvent.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("搜索策略")).toHaveValue(declared ? "provider_native" : "auto");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search").getAttribute("type")).toBe("checkbox");
     if (declared) expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
@@ -609,6 +640,7 @@ describe("V2 custom Provider settings", () => {
         id: "official-deepseek", endpointURL: existing.endpoint_url }} />
     </QueryClientProvider>);
     await screen.findByRole("heading", { name: "编辑供应商" });
+    fireEvent.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
     expect(screen.getByText(/系统不会静默改用 DuckDuckGo/u)).toBeInTheDocument();
@@ -645,6 +677,7 @@ describe("V2 custom Provider settings", () => {
       <V2ProviderSettings client={controls.client} initialPreset={openAIPreset} />
     </QueryClientProvider>);
     await screen.findByRole("heading", { name: "添加供应商" });
+    fireEvent.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
     fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: "https://api.deepseek.com/responses" } });
     expect(screen.getByLabelText("搜索策略")).toHaveValue("auto");

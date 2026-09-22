@@ -65,6 +65,39 @@ function renderCards(item: ApprovalQueueItemView, previewOverrides = {}) {
 }
 
 describe("V2ApprovalCards", () => {
+  it("approves a browser action through the strict client and accepts same-checkpoint continuation", async () => {
+    const item = pending({ tool_name: "agent_browser_sensitive", action_class: "browser_external_write", mode: "per_call",
+      allowed_actions: ["approve_once", "deny"], canonical_url: undefined, exact_target: undefined });
+    const preview = { protocol_version: "approval_queue.v1", run_id: "run-1", approval_id: item.id,
+      proposal_id: item.proposal_id, tool_name: item.tool_name, workspace_id: item.workspace_id,
+      effect: "browser_sensitive_action", working_directory: "", fields: [{ name: "summary", value: "Publish this draft once" }],
+      source_current: true, redacted: false, truncated: false };
+    const decision = { version: "approval_control.v1", run_id: "run-1", approval_id: item.id, proposal_id: item.proposal_id,
+      tool_name: item.tool_name, action: "approve_once", status: "approved", replayed: false,
+      process_execution_enabled: false, shell_execution_enabled: false, docker_execution_enabled: false,
+      workspace_write_applied: false, session_grant_created: false, capability_grant: false,
+      execution_resumed: false, retry_completed: false, retry_scheduled: false,
+      continuation: { state: "completed", replayed: false, model_called: true, tool_called: true } };
+    let decided = false;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (init?.method === "POST") decided = true;
+      const queue = { protocol_version: "approval_queue.v1", run_id: "run-1", items: decided ? [] : [item],
+        truncated: false, process_execution_enabled: false, session_grant_created: false, capability_grant: false };
+      return new Response(JSON.stringify({ version: "api.v1", request_id: "browser-decision", data:
+        path.endsWith("/decision") ? decision : path.endsWith("/preview") ? preview : queue }),
+      { status: path.endsWith("/decision") ? 202 : 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("test-read", "/api/v1", "test-control");
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+      <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
+    </QueryClientProvider>);
+    expect(await screen.findByText("Publish this draft once")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "仅批准一次" }));
+    expect(await screen.findByText(/Agent 已继续处理/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
   it("renders a real create-file preview through the strict client and keeps approval in diff review", async () => {
     const item = pending({ id: "approval-20260910072057-6583f54ed917",
       proposal_id: "edit-99e4b9e0fc83e37efdda6745e8835851", workspace_id: "workspace-1",

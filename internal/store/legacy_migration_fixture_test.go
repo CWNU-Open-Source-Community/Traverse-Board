@@ -116,7 +116,12 @@ func migrationTriggerBeforeForTest(name string, version int) string {
 func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
-	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`,
+		`DROP TRIGGER trg_scheduled_job_observation_consent_insert;`,
+		`DROP TRIGGER trg_scheduled_job_observation_consent_update_immutable;`,
+		`DROP TRIGGER trg_scheduled_job_observation_consent_delete_immutable;`,
+		`DROP INDEX idx_scheduled_job_observation_consents_run;`,
+		`DROP TABLE scheduled_job_observation_consents;`}
 	statements = append(statements, removeSchemaV162ForTestStatements()...)
 	statements = append(statements,
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert;`,
@@ -153,7 +158,7 @@ func removeSchemaV157ForTestStatements() []string {
 	for _, name := range []string{"trg_session_message_provenance_insert", "trg_run_execution_handoff_item_insert"} {
 		statements = append(statements, "DROP TRIGGER "+name, migrationTriggerBeforeForTest(name, 157))
 	}
-	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 166;`,
+	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 167;`,
 		`PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
 }
 

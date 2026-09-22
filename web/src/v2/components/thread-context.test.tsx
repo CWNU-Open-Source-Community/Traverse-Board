@@ -55,6 +55,26 @@ function mount(f: ReturnType<typeof fixture>, initial = detail()) {
 }
 afterEach(cleanup);
 
+test("ordinary context drawer reads diagnostic receipts from the bound summary endpoint without control writes", async () => {
+  const f = fixture();
+  f.hooks.summary = () => ({ ...summary(), diagnostics: { truncated: false, records: [{ sequence: 12,
+    phase: "summary_saved", occurred_at: when, attempt_id: "attempt-a", source_sha256: sha,
+    summary_id: 7, generated: false, removed_messages: 18, fallback_code: "generation_provider_failure" }] } });
+  mount(f);
+  expect(await screen.findByRole("heading", { name: "压缩与恢复进展" })).toBeVisible();
+  expect(screen.getByText("已采用规则摘要回退：模型服务调用失败。")).toBeVisible();
+  expect(f.get).toHaveBeenCalledWith("/runs/task-a-run/context-summary", {}, expect.any(AbortSignal));
+  expect(f.postControl).not.toHaveBeenCalled();
+});
+
+test("malformed diagnostics are not displayed from a cached or cross-bound summary", async () => {
+  const f = fixture();
+  f.hooks.summary = () => ({ ...summary(), diagnostics: { records: [{ phase: "summary_saved" }], truncated: false } });
+  mount(f);
+  expect(await screen.findByText(/摘要读取失败，当前内容未确认/u)).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "压缩与恢复进展" })).not.toBeInTheDocument();
+});
+
 test.each([false, true])("distinguishes generated handoff from original excerpts (inherited: %s)", async (inherited) => {
   const f = fixture();
   f.hooks.summary = () => {

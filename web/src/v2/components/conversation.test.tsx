@@ -116,6 +116,7 @@ function renderConversation(client: CyberAgentClient, initialThreadID = "thread-
 function baseClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient {
   return {
     get: vi.fn((path: string) => {
+      if (path.endsWith("/agent-browser")) return Promise.reject(new APIRequestError("Route unavailable", "NOT_FOUND", 404));
       const match = path.match(/^\/threads\/([^/]+)$/u);
       return Promise.resolve(detail(decodeURIComponent(match?.[1] ?? "missing")));
     }),
@@ -201,7 +202,7 @@ describe("V2Conversation", () => {
     const view = renderConversation(baseClient({ hasThreadExecutionRead: true, threadExecution }));
     await screen.findByText("正在工作");
     const composer = screen.getByRole("button", { name: "发送 thread-a" });
-    expect(composer).toHaveAttribute("data-file-reference-unavailable", expect.stringContaining("当前正在执行"));
+    expect(composer).toHaveAttribute("data-file-reference-unavailable", expect.stringContaining("项目内文件引用需等执行结束"));
     threadExecution.mockRejectedValue(new Error("execution read failed"));
     await act(async () => { await view.queryClient.invalidateQueries({ queryKey: v2QueryKeys.execution("thread-a") }); });
     expect(await screen.findByText("状态读取失败")).toBeInTheDocument();
@@ -309,11 +310,19 @@ describe("V2Conversation", () => {
   });
 
   it("describes an unconfirmed stop without claiming to cancel accepted input", async () => {
+    const current = detail("thread-a");
+    current.last_run.session_id = "session-thread-a";
     renderConversation(baseClient({ hasThreadExecutionRead: true,
-      threadExecution: vi.fn(async () => ({ state: "stop_failed", queued_messages: 1 } as ThreadExecutionView)),
+      threadExecution: vi.fn(async () => ({ state: "stop_failed", queued_messages: 0 } as ThreadExecutionView)),
+      get: vi.fn(async (path: string) => path.endsWith("/queued-messages") ? {
+        version: "thread_queued_messages.v1", thread_id: "thread-a", run_id: "run-thread-a", session_id: "session-thread-a",
+        pending: 1, prepared: 0, capability_grant: false, items: [{ id: "message-pending", sequence: 1, status: "pending", prepared: false,
+          content: "停止后仍保留的要求", content_sha256: "a".repeat(64), content_redacted: false, revision: 0,
+          created_at: "2026-09-22T01:00:00Z", images: [], attachments: [], can_edit: false, can_cancel: false }],
+      } : current) as CyberAgentClient["get"],
     }));
     expect(await screen.findByText("停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。")).toBeInTheDocument();
-    expect(screen.getByText("已接收 1 条消息，等待处理。")).toBeInTheDocument();
+    expect(await screen.findByText("待处理 1 条")).toBeInTheDocument();
     expect(screen.queryByText(/排队消息的取消/u)).not.toBeInTheDocument();
   });
 

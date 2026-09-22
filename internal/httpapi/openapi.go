@@ -872,6 +872,25 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(ThreadTranscriptItemView{}), Collection: true,
 			Paginated: true, NotFound: true,
 			Parameters: append([]openAPIParameter{threadID}, threadTranscriptPaginationParameters()...)},
+		{Path: ThreadQueuedMessagesPathTemplate, OperationID: "listThreadQueuedMessages",
+			Summary: "Read every durable queued message for the current Thread Run", Tag: "Threads",
+			Description: "Reads the complete bounded pending queue and prepared flags in one transaction. Counts exclude committed and cancelled messages. It does not start or resume execution.",
+			DataType:    reflect.TypeOf(ThreadQueuedMessagesView{}), NotFound: true,
+			Parameters: []openAPIParameter{threadID}},
+		{Path: SessionSteeringRevisionObservationPathTemplate, OperationID: "inspectSessionSteeringRevision",
+			Summary: "Observe one exact message revision receipt", Tag: "Sessions",
+			Description: "Read-only confirmation of the original operation key and fixed HTTP operator. An absent receipt is not proof that an in-flight request will not commit. This never resubmits the modification.",
+			DataType:    reflect.TypeOf(SessionSteeringRevisionObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
+		{Path: SessionSteeringCancellationObservationPathTemplate, OperationID: "inspectSessionSteeringCancellation",
+			Summary: "Observe one exact message cancellation receipt", Tag: "Sessions",
+			Description: "Read-only confirmation bound to the original operation key and HTTP operator. If absent, returns the current message status from the same transaction; another cancellation is never reported as this operation's success.",
+			DataType:    reflect.TypeOf(SessionSteeringCancellationObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: ThreadActivityDetailPathTemplate, OperationID: "getThreadActivityDetail",
 			Summary: "Inspect safe typed Thread activity details", Tag: "Threads",
 			Description: "Lazily returns one Go-owned discriminated detail branch for command, Web search/fetch, file read/edit, MCP, verification, or browser activity. References are resolved through the Thread-to-Run binding and cannot expose another Thread. Environment values, stdin, credentials, raw payload/result JSON, process identities, private host paths, edit bodies, MCP scalar values, and private reasoning are never returned.",
@@ -1496,6 +1515,22 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: AgentBrowserStatusPathTemplate, Method: http.MethodGet,
+			OperationID: "getRunAgentBrowser", Summary: "Read the Agent browser state", Tag: "Runs",
+			Description: "Reads the Run's process-local Agent browser status without starting a browser or executing an action. Excludes runtime authority and profile/DevTools handles.",
+			DataType:    reflect.TypeOf(AgentBrowserStatusView{}), NotFound: true, Parameters: []openAPIParameter{runID}},
+		{Path: AgentBrowserClosePathTemplate, Method: http.MethodPost,
+			OperationID: "closeRunAgentBrowser", Summary: "Stop one exact Agent browser session", Tag: "Control", Control: true,
+			Description: "Permanently invalidates and cleans the exact session. Repeating a close cannot target another session or start a browser. Cleanup does not require a still-live execution grant.",
+			DataType:    reflect.TypeOf(AgentBrowserStatusView{}), RequestType: reflect.TypeOf(AgentBrowserCloseRequestView{}), NotFound: true,
+			SuccessStatus: http.StatusOK, Parameters: []openAPIParameter{runID}},
+		{Path: AgentBrowserScreenshotPathTemplate, Method: http.MethodGet,
+			OperationID: "readRunAgentBrowserScreenshot", Summary: "Read a saved Agent browser screenshot", Tag: "Runs", RawArtifact: true, NotFound: true,
+			Description: "Reads exact completed screenshot evidence for this Run, manager session and artifact. Requires the expected PNG hash and never captures again.",
+			Parameters: []openAPIParameter{runID,
+				{Name: "session_id", In: "query", Required: true, Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 256}},
+				{Name: "artifact_locator", In: "query", Required: true, Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 1024}},
+				{Name: "sha256", In: "query", Required: true, Schema: map[string]any{"type": "string", "pattern": "^[a-f0-9]{64}$", "minLength": 64, "maxLength": 64}}}},
 		{Path: FullCDPSessionControlPathTemplate, Method: http.MethodGet,
 			OperationID: "getRunFullCDPSession", Summary: "Get the current Full CDP session state",
 			Tag:         "Runs",
@@ -1579,6 +1614,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: SessionSteeringRevisionPathTemplate, Method: http.MethodPost,
+			OperationID: "reviseSessionSteering", Summary: "Revise one queued message without changing its order", Tag: "Control",
+			Description: "CAS replaces the body of the exact pending, unprepared message. Original submission identity and attachment references remain immutable. The sealed receipt supports safe explicit retries; no execution is started.",
+			DataType:    reflect.TypeOf(SessionSteeringRevisionView{}), RequestType: reflect.TypeOf(SessionSteeringRevisionRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusAccepted,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: RunLifecycleControlPathTemplate, Method: http.MethodPost,
 			OperationID: "controlRunLifecycle", Summary: "Start, pause, or resume a Run",
 			Tag:         "Control",
@@ -1869,6 +1912,13 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			RequestType: reflect.TypeOf(ScheduledJobTransitionRequestView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID, jobID,
 				scheduledJobAction, dockerSandboxIdempotencyKey}},
+		{Path: ScheduledJobObservationPathTemplate, Method: http.MethodPost,
+			OperationID: "enableRunScheduledJobObservation", Summary: "Confirm durable read-only observation of one scheduled job",
+			Tag:         "Automation",
+			Description: "Records one immutable, idempotent consent for an exact revision of a read-only zero-model job. The ordinary desktop worker observes confirmed jobs on later launches. This does not resume a paused job, grant repair authority, or start an OS service.",
+			DataType:    reflect.TypeOf(ScheduledJobControlView{}),
+			RequestType: reflect.TypeOf(ScheduledJobObservationRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID, jobID, dockerSandboxIdempotencyKey}},
 		{Path: DoctorSnapshotPath, OperationID: "getDoctorSnapshot",
 			Summary: "Read a structured doctor snapshot", Tag: "Diagnostics",
 			Description: "Reports versioned Provider, model Harness, Run, Workspace, network, tool, sandbox, browser, and plugin readiness metadata. It performs no mutation, installation, process start, network probe, or model call.",
@@ -2022,7 +2072,7 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 			"image/png":                {Schema: map[string]any{"type": "string", "format": "binary"}},
 			"application/json":         {Schema: map[string]any{"type": "string", "format": "binary"}},
 		}}
-		if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" {
+		if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" || spec.OperationID == "readRunAgentBrowserScreenshot" {
 			mediaTypes := []string{"image/png"}
 			if spec.OperationID == "readWorkspaceImageContent" {
 				mediaTypes = append(mediaTypes, "image/jpeg", "image/webp")
@@ -2450,6 +2500,28 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 }
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
+	if typeName == "SessionSteeringRevisionRequestView" && fieldName == "content" {
+		schema["minLength"], schema["maxLength"] = 0, domain.MaxOperatorSteeringContentBytes
+	}
+	if (typeName == "SessionSteeringRevisionRequestView" && fieldName == "expected_revision") ||
+		(typeName == "QueueRevisionUnchangedView" && fieldName == "expected_revision") ||
+		(typeName == "OperatorSteeringObservationMessageView" && fieldName == "revision") ||
+		(typeName == "ThreadQueuedMessageView" && fieldName == "revision") ||
+		(typeName == "SessionSteeringRevisionReceiptView" && (fieldName == "from_revision" || fieldName == "to_revision")) {
+		schema["minimum"] = 0
+	}
+	if typeName == "QueueRevisionUnchangedView" && strings.HasSuffix(fieldName, "_sha256") {
+		schema["pattern"] = "^[0-9a-f]{64}$"
+	}
+	if typeName == "QueueRevisionUnchangedView" && (fieldName == "execution_started" || fieldName == "model_called" || fieldName == "tool_called" || fieldName == "capability_grant") {
+		schema["enum"] = []bool{false}
+	}
+	if typeName == "ThreadQueuedMessagesView" && fieldName == "items" {
+		schema["maxItems"] = domain.MaxPendingOperatorSteering
+	}
+	if typeName == "RunContextDiagnosticsView" && fieldName == "records" {
+		schema["maxItems"] = contextDiagnosticLimit
+	}
 	if typeName == "HealthView" && fieldName == "data_store_id" {
 		schema["pattern"] = "^ds1_[0-9a-f]{64}$"
 		schema["minLength"] = 68
@@ -3014,6 +3086,8 @@ var openAPIFieldEnums = map[string][]string{
 	"ScheduledJobCreateRequestView.notification":               {string(domain.ScheduledJobNotifySilent), string(domain.ScheduledJobNotifyChange), string(domain.ScheduledJobNotifyFailure), string(domain.ScheduledJobNotifyAll)},
 	"ScheduledJobCreateRequestView.execution_mode":             {string(domain.ScheduledJobReadOnly), string(domain.ScheduledJobApprovedRepair)},
 	"ScheduledJobTransitionRequestView.version":                {domain.ScheduledJobControlProtocolVersion},
+	"ScheduledJobObservationRequestView.version":               {domain.ScheduledJobControlProtocolVersion},
+	"ScheduledJobWorkerHealthView.selection_scope":             {"confirmed_read_only", "all_jobs"},
 	"ScheduledJobControlView.protocol_version":                 {domain.ScheduledJobControlProtocolVersion},
 	"ScheduledJobControlView.action":                           {string(domain.ScheduledJobCreate), string(domain.ScheduledJobPause), string(domain.ScheduledJobResume), string(domain.ScheduledJobCancel)},
 	"ScheduledJobListView.protocol_version":                    {domain.ScheduledJobProtocolVersion},
@@ -3099,7 +3173,7 @@ var openAPIFieldEnums = map[string][]string{
 	"FileEditReviewRequestView.action":                         {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
 	"FileEditReviewView.protocol_version":                      {application.FileEditReviewProtocolVersion},
 	"FileEditReviewView.action":                                {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
-	"ApprovalContinuationResult.state":                         {"not_started", "queued", "completed", "failed"},
+	"ApprovalContinuationResult.state":                         {"not_started", "queued", "completed", "waiting_approval", "failed"},
 	"FileEditPreviewView.status":                               {fileedit.StatusProposed, fileedit.StatusApproved, fileedit.StatusApplied, fileedit.StatusDenied, fileedit.StatusFailed},
 	"FileEditPreviewView.operation":                            {fileedit.OperationReplace, fileedit.OperationCreate, fileedit.OperationMove, fileedit.OperationDelete},
 	"FileEditApplyRequestView.version":                         {fileedit.FileEditApplyProtocolVersion},
@@ -3333,6 +3407,19 @@ var openAPIFieldEnums = map[string][]string{
 	"SessionSteeringCancellationRequestView.version":           {domain.SessionSteeringCancellationProtocolVersion},
 	"SessionSteeringCancellationView.version":                  {domain.SessionSteeringCancellationProtocolVersion},
 	"SessionSteeringCancellationView.cancellation_kind":        {string(domain.OperatorSteeringCancellationOperator)},
+	"ThreadQueuedMessagesView.version":                         {domain.ThreadQueuedMessagesProtocolVersion},
+	"ThreadQueuedMessageView.status":                           {string(domain.OperatorSteeringPending)},
+	"SessionSteeringRevisionRequestView.version":               {domain.SessionSteeringRevisionProtocolVersion},
+	"SessionSteeringRevisionView.version":                      {domain.SessionSteeringRevisionProtocolVersion},
+	"SessionSteeringRevisionObservationView.version":           {domain.SessionSteeringRevisionProtocolVersion},
+	"SessionSteeringRevisionObservationView.state":             {"absent", "sealed"},
+	"QueueRevisionUnchangedView.version":                       {domain.QueueRevisionUnchangedProtocolVersion},
+	"SessionSteeringCancellationObservationView.version":       {domain.SessionSteeringCancellationProtocolVersion},
+	"SessionSteeringCancellationObservationView.state":         {"absent", "sealed"},
+	"SessionSteeringCancellationObservedReceiptView.kind":      {string(domain.OperatorSteeringCancellationOperator)},
+	"OperatorSteeringObservationMessageView.status":            {"pending", "committed", "cancelled"},
+	"RunContextDiagnosticView.phase":                           {"generation_started", "generation_received", "generation_rejected", "generation_failed", "summary_saved"},
+	"RunContextDiagnosticView.fallback_code":                   {"generation_cost_budget", "generation_protocol_repair", "generation_provider_failure", "generation_invalid_response", "generation_input_data", "generation_input_window", "generation_token_budget", "unclassified"},
 	"RunLifecycleControlRequestView.version":                   {domain.RunLifecycleControlProtocolVersion},
 	"RunLifecycleControlRequestView.action":                    {string(domain.RunLifecycleStart), string(domain.RunLifecyclePause), string(domain.RunLifecycleResume)},
 	"RunLifecycleControlView.version":                          {domain.RunLifecycleControlProtocolVersion},
@@ -3360,7 +3447,11 @@ var openAPIFieldEnums = map[string][]string{
 	"PlanDeliveryWorkItemControlView.applied_status":           {string(domain.WorkItemInProgress), string(domain.WorkItemCompleted)},
 	"ApprovalQueueView.protocol_version":                       {application.ApprovalQueueProtocolVersion},
 	"ApprovalPreviewView.protocol_version":                     {application.ApprovalQueueProtocolVersion},
-	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "unavailable"},
+	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"},
+	"AgentBrowserStatusView.version":                           {"agent_browser_status.v1"},
+	"AgentBrowserStatusView.state":                             {"unavailable", "idle", "starting", "ready", "loading", "busy", "waiting_user", "failed", "closing", "closed", "cleanup_pending"},
+	"AgentBrowserCloseRequestView.version":                     {"agent_browser_close.v1"},
+	"AgentBrowserScreenshotView.mime_type":                     {"image/png"},
 	"ApprovalQueueItemView.status":                             {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
 	"ApprovalDecisionControlRequestView.version":               {application.ApprovalControlProtocolVersion},
 	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
@@ -3455,6 +3546,10 @@ var openAPIFieldMinimums = map[string]float64{
 	"ScheduledJobRetryPolicy.initial_backoff_seconds":                        1,
 	"ScheduledJobRetryPolicy.max_backoff_seconds":                            1,
 	"ScheduledJobTransitionRequestView.expected_revision":                    1,
+	"ScheduledJobObservationRequestView.expected_revision":                   1,
+	"ScheduledJobObservationRequestView.observation_consent_version":         1,
+	"ScheduledJobCreateRequestView.observation_consent_version":              0,
+	"ScheduledJob.observation_consent_version":                               0,
 	"ScheduledJob.revision":                                                  1,
 	"ScheduledJob.rounds_completed":                                          0,
 	"ScheduledJob.model_calls":                                               0,
@@ -3674,6 +3769,9 @@ var openAPIFieldMaximums = map[string]float64{
 	"HostCommandProposalView.grant_uses_remaining":                      runner.MaxRiskEscalationGrantUses,
 	"ScheduledJobScheduleRequestView.interval_seconds":                  domain.MaxScheduledJobIntervalSeconds,
 	"ScheduledJobCreateRequestView.max_rounds":                          domain.MaxScheduledJobRounds,
+	"ScheduledJobCreateRequestView.observation_consent_version":         1,
+	"ScheduledJobObservationRequestView.observation_consent_version":    1,
+	"ScheduledJob.observation_consent_version":                          1,
 	"ScheduledJobCreateRequestView.max_model_calls":                     domain.MaxScheduledJobModelCalls,
 	"ScheduledJobCreateRequestView.max_elapsed_seconds":                 domain.MaxScheduledJobElapsedSeconds,
 	"ScheduledJobRetryPolicy.max_attempts":                              domain.MaxScheduledJobAttempts,

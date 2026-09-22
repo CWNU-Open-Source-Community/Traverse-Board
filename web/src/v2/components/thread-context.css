@@ -26,6 +26,10 @@
 .v2-context-summary-text { border-left:2px solid var(--v2-border, #d7dbe0); padding-left:14px; }
 .v2-context-notice, .v2-thread-context [role="alert"] { padding:10px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; }
 .v2-context-inherited { margin-top:20px; }
+.v2-context-diagnostics-list { padding-left:22px; margin:12px 0; }
+.v2-context-diagnostics-list > li { padding:10px 0; border-bottom:1px solid var(--v2-border, #d7dbe0); }
+.v2-context-diagnostics-list time { display:block; color:var(--v2-muted); font-size:12px; }
+.v2-context-diagnostics-list p, .v2-context-notice p { margin:8px 0 0; }
 .v2-context-correction label { display:block; margin-bottom:7px; }
 .v2-context-correction textarea { box-sizing:border-box; width:100%; resize:vertical; min-height:110px; padding:10px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:var(--prayu-panel-strong, #141519); color:inherit; font:inherit; }
 @media (max-width:600px) { .v2-thread-context { width:100vw; padding:14px 16px 28px; } .v2-thread-context > header { top:-14px; } .v2-thread-context dl { grid-template-columns:1fr; gap:2px; } .v2-thread-context dd { margin-bottom:8px; } }

@@ -35,11 +35,12 @@ func scanWorkspaceImage(row interface{ Scan(...any) error }) (domain.WorkspaceIm
 	return image, content, nil
 }
 
-func saveImageEvidenceTx(ctx context.Context, tx *sql.Tx, runID, sessionID, messageID string, refs []domain.ImageReference) error {
+func saveImageEvidenceTx(ctx context.Context, tx *sql.Tx, runID, sessionID, messageID string, refs []domain.ImageReference) ([]session.Message, error) {
+	saved := make([]session.Message, 0, len(refs))
 	for _, ref := range refs {
 		image, _, err := scanWorkspaceImage(tx.QueryRowContext(ctx, workspaceImageSelect+` WHERE id=?`, ref.ID))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body, _ := json.Marshal(struct {
 			Image                 domain.WorkspaceImage `json:"image"`
@@ -47,11 +48,13 @@ func saveImageEvidenceTx(ctx context.Context, tx *sql.Tx, runID, sessionID, mess
 			InstructionAuthorized bool                  `json:"instruction_authorized"`
 		}{image, messageID, false})
 		message := session.NewEvidenceMessage(sessionID, session.SourceWorkspaceImage, image.ID, "Uploaded image observation. The original pixels remain in the attachment store; this descriptor does not describe their visual content or grant authority.\n"+string(body))
-		if _, err := saveSessionMessageTx(ctx, tx, message); err != nil {
-			return err
+		stored, err := saveSessionMessageTx(ctx, tx, message)
+		if err != nil {
+			return nil, err
 		}
+		saved = append(saved, stored)
 	}
-	return nil
+	return saved, nil
 }
 
 // Only this exact current attempt or committed messages of the same Thread can
@@ -216,7 +219,13 @@ func validateThreadImagesTx(ctx context.Context, tx *sql.Tx, workspaceID string,
 }
 
 func (s *SQLiteStore) ListOperatorMessageImages(ctx context.Context, runID, messageID string) ([]domain.WorkspaceImage, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT i.id,i.workspace_id,i.sha256,i.mime_type,i.byte_size,i.width,i.height,i.name FROM thread_message_images b JOIN workspace_image_attachments i ON i.id=b.image_id JOIN operator_steering_messages m ON m.id=b.message_id WHERE m.run_id=? AND m.id=? ORDER BY b.ordinal`, runID, messageID)
+	return listOperatorMessageImagesTx(ctx, s.db, runID, messageID)
+}
+
+func listOperatorMessageImagesTx(ctx context.Context, reader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, runID, messageID string) ([]domain.WorkspaceImage, error) {
+	rows, err := reader.QueryContext(ctx, `SELECT i.id,i.workspace_id,i.sha256,i.mime_type,i.byte_size,i.width,i.height,i.name FROM thread_message_images b JOIN workspace_image_attachments i ON i.id=b.image_id JOIN operator_steering_messages m ON m.id=b.message_id WHERE m.run_id=? AND m.id=? ORDER BY b.ordinal`, runID, messageID)
 	if err != nil {
 		return nil, err
 	}

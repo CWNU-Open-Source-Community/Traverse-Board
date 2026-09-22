@@ -22,8 +22,9 @@ import (
 
 const operatorSteeringSelect = `SELECT message.id, message.run_id, message.session_id,
 	message.sequence, message.status, message.content, message.content_sha256,
+	message.revision, message.original_content, message.original_content_sha256,
 	message.requested_by, message.session_message_id, message.created_at,
-	message.committed_at, message.cancelled_at,
+	message.committed_at, message.cancelled_at, message.edited_at,
 	EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
 		WHERE delivery.message_id = message.id AND delivery.status = 'prepared'),message.image_count,message.attachment_count
 	FROM operator_steering_messages message`
@@ -181,7 +182,8 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 	message := domain.OperatorSteeringMessage{
 		ID: idgen.New("steer"), RunID: run.ID, SessionID: run.SessionID, Sequence: sequence,
 		Status: domain.OperatorSteeringPending, Content: normalized.Content, ImageCount: len(normalized.Images), AttachmentCount: len(normalized.Attachments),
-		ContentSHA256: contentDigest, RequestedBy: normalized.RequestedBy, CreatedAt: now,
+		ContentSHA256: contentDigest, OriginalContent: normalized.Content,
+		OriginalContentSHA256: contentDigest, RequestedBy: normalized.RequestedBy, CreatedAt: now,
 	}
 	if err := message.Validate(); err != nil {
 		return domain.OperatorSteeringEnqueueResult{}, false,
@@ -189,10 +191,12 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO operator_steering_messages
 		(id, run_id, session_id, sequence, status, content, content_sha256, requested_by,
-		 session_message_id, created_at, committed_at, cancelled_at,image_count,attachment_count)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL,?,?)`, message.ID, message.RunID,
+		 session_message_id, created_at, committed_at, cancelled_at,image_count,attachment_count,
+		 revision,original_content,original_content_sha256,edited_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL,?,?,0,?,?,NULL)`, message.ID, message.RunID,
 		message.SessionID, message.Sequence, message.Status, message.Content,
-		message.ContentSHA256, message.RequestedBy, ts(message.CreatedAt), message.ImageCount, message.AttachmentCount); err != nil {
+		message.ContentSHA256, message.RequestedBy, ts(message.CreatedAt), message.ImageCount,
+		message.AttachmentCount, message.OriginalContent, message.OriginalContentSHA256); err != nil {
 		return domain.OperatorSteeringEnqueueResult{}, false, err
 	}
 	for index, ref := range normalized.Attachments {
@@ -470,8 +474,9 @@ func (s *SQLiteStore) ListOperatorSteering(ctx context.Context, runID string,
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT message.id, message.run_id,
 		message.session_id, message.sequence, message.status, message.content,
-		message.content_sha256, message.requested_by, message.session_message_id,
-		message.created_at, message.committed_at, message.cancelled_at,
+		message.content_sha256,message.revision,message.original_content,message.original_content_sha256,
+		message.requested_by, message.session_message_id,
+		message.created_at, message.committed_at, message.cancelled_at,message.edited_at,
 		EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
 			WHERE delivery.message_id = message.id AND delivery.status = 'prepared'), message.image_count,message.attachment_count
 		FROM (SELECT * FROM operator_steering_messages WHERE run_id = ?
@@ -689,6 +694,9 @@ func commitOperatorSteeringDeliveryTx(ctx context.Context, tx *sql.Tx, run domai
 	message.Status = domain.OperatorSteeringCommitted
 	message.SessionMessageID = userMessage.ID
 	message.CommittedAt = &at
+	if err := commitOperatorMessageAttachmentEvidenceTx(ctx, tx, message); err != nil {
+		return domain.OperatorSteeringMessage{}, false, err
+	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.OperatorSteeringCommittedEvent,
 		"run_supervisor", deliveryID, map[string]any{
 			"message_id": message.ID, "sequence": message.Sequence,
@@ -921,10 +929,11 @@ func getOperatorSteeringMessageRow(row operatorSteeringRow) (domain.OperatorStee
 	var message domain.OperatorSteeringMessage
 	var sessionMessageID sql.NullInt64
 	var createdAt string
-	var committedAt, cancelledAt sql.NullString
+	var committedAt, cancelledAt, editedAt sql.NullString
 	if err := row.Scan(&message.ID, &message.RunID, &message.SessionID, &message.Sequence,
-		&message.Status, &message.Content, &message.ContentSHA256, &message.RequestedBy,
-		&sessionMessageID, &createdAt, &committedAt, &cancelledAt,
+		&message.Status, &message.Content, &message.ContentSHA256, &message.Revision,
+		&message.OriginalContent, &message.OriginalContentSHA256, &message.RequestedBy,
+		&sessionMessageID, &createdAt, &committedAt, &cancelledAt, &editedAt,
 		&message.Prepared, &message.ImageCount, &message.AttachmentCount); err != nil {
 		return domain.OperatorSteeringMessage{}, err
 	}
@@ -932,6 +941,7 @@ func getOperatorSteeringMessageRow(row operatorSteeringRow) (domain.OperatorStee
 	message.CreatedAt = parseTS(createdAt)
 	message.CommittedAt = parseNullableTS(committedAt)
 	message.CancelledAt = parseNullableTS(cancelledAt)
+	message.EditedAt = parseNullableTS(editedAt)
 	if err := message.Validate(); err != nil {
 		return domain.OperatorSteeringMessage{}, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"invalid persisted operator steering message", err)

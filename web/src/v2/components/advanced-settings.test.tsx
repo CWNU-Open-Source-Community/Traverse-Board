@@ -139,6 +139,7 @@ describe("shared advanced settings", () => {
       modelAvailability: vi.fn().mockResolvedValue({ providers: [], routes: [] }),
       listPriceSnapshots: vi.fn().mockResolvedValue({ items: [] }) }, "models");
     await user.click(screen.getByRole("button", { name: /DeepSeek/ }));
+    await user.click(await screen.findByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     const displayName = await screen.findByRole("textbox", { name: "显示名称" });
     await user.clear(displayName);
     await user.type(displayName, "尚未保存的名称");

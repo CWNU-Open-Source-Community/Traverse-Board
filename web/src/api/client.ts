@@ -195,6 +195,7 @@ import type {
   ScheduledJobDetailView,
   ScheduledJobListView,
   ScheduledJobTransitionRequestView,
+  ScheduledJobObservationRequestView,
   ScheduledJobView,
   DiagnosticBundleView,
   UIEvidenceArtifactMetadata,
@@ -304,6 +305,7 @@ export class APIRequestError extends Error {
     readonly operationKeyInvalidated?: true,
     readonly turnFailed?: true,
     readonly turnFailure?: ThreadTurnFailureReferenceView,
+    readonly revisionUnchanged?: unknown,
   ) {
     super(message);
     this.name = "APIRequestError";
@@ -1588,10 +1590,12 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
 function parseApprovalDecision(value: unknown, expectedRunID: string, expectedApprovalID: string,
   request: ApprovalDecisionControlRequestView): ApprovalDecisionControlView {
   const expectedStatus = request.action === "deny" ? "denied" : "approved";
-  if (!hasExactKeys(value, ["action", "approval_id", "capability_grant",
+  const required = ["action", "approval_id", "capability_grant",
     "docker_execution_enabled", "execution_resumed", "process_execution_enabled", "proposal_id",
     "replayed", "retry_completed", "retry_scheduled", "run_id", "session_grant_created",
-    "shell_execution_enabled", "status", "tool_name", "version", "workspace_write_applied"]) ||
+    "shell_execution_enabled", "status", "tool_name", "version", "workspace_write_applied"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation"]) ||
+    !required.every((key) => Object.hasOwn(value, key)) ||
     value.version !== "approval_control.v1" ||
     value.run_id !== expectedRunID || value.approval_id !== expectedApprovalID ||
     value.action !== request.action || value.status !== expectedStatus ||
@@ -1607,6 +1611,12 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
     value.capability_grant !== false) {
     throw new APIRequestError("Approval decision violated its closed authority contract",
       "INVALID_RESPONSE", 502);
+  }
+  if (value.continuation !== undefined) {
+    if (value.tool_name !== "agent_browser_sensitive") {
+      throw new APIRequestError("Approval continuation belongs to another operation", "INVALID_RESPONSE", 502);
+    }
+    validateApprovalContinuation(value.continuation, true);
   }
   return value as unknown as ApprovalDecisionControlView;
 }
@@ -2927,7 +2937,10 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (!worker.enabled && (worker.state !== "disabled" || worker.active || worker.poll_interval_ms !== 0)) ||
     !hasExactKeys(scheduledWorker, ["active", "authority_escalation", "concurrency",
       "enabled", "persistent_service", "poll_interval_ms", "protocol_version",
-      "runtime_enable_supported", "state"]) ||
+      "runtime_enable_supported", "state",
+      ...(isRecord(scheduledWorker) && "selection_scope" in scheduledWorker ? ["selection_scope"] : [])]) ||
+    (scheduledWorker.selection_scope !== undefined &&
+      scheduledWorker.selection_scope !== "confirmed_read_only" && scheduledWorker.selection_scope !== "all_jobs") ||
     scheduledWorker.protocol_version !== "scheduled-job-worker-health.v1" ||
     typeof scheduledWorker.enabled !== "boolean" || typeof scheduledWorker.active !== "boolean" ||
     scheduledWorker.concurrency !== 1 || scheduledWorker.runtime_enable_supported !== false ||
@@ -3653,16 +3666,17 @@ function parseFileEditReview(value: unknown, runID: string, editID: string,
   return { ...value, edit } as unknown as FileEditReviewView;
 }
 
-function validateApprovalContinuation(value: unknown): void {
+function validateApprovalContinuation(value: unknown, pendingBrowserTool = false): void {
   if (!isRecord(value) || !hasOnlyKeys(value, ["state", "replayed", "model_called", "tool_called",
     "handoff_id", "error_code", "message"]) ||
-    typeof value.state !== "string" || !["not_started", "queued", "completed", "failed"].includes(value.state) ||
+    typeof value.state !== "string" || !["not_started", "queued", "completed", "failed", ...(pendingBrowserTool ? ["waiting_approval"] : [])].includes(value.state) ||
     typeof value.replayed !== "boolean" || typeof value.model_called !== "boolean" ||
     typeof value.tool_called !== "boolean" ||
     (value.handoff_id !== undefined && boundedIdentity(value.handoff_id) !== value.handoff_id) ||
     (value.error_code !== undefined && boundedIdentity(value.error_code) !== value.error_code) ||
     (value.message !== undefined && !boundedText(value.message, 4_096)) ||
-    (value.state === "completed" && (!boundedIdentity(value.handoff_id) || value.error_code !== undefined)) ||
+    (pendingBrowserTool && value.handoff_id !== undefined) ||
+    (value.state === "completed" && ((!pendingBrowserTool && !boundedIdentity(value.handoff_id)) || value.error_code !== undefined)) ||
     ((value.state === "not_started" || value.state === "queued") &&
       (value.model_called || value.tool_called || value.handoff_id !== undefined || value.error_code !== undefined))) {
     throw new APIRequestError("Approval continuation response is invalid", "INVALID_RESPONSE", 502);
@@ -5733,7 +5747,7 @@ function parseScheduledJob(value: unknown): ScheduledJobView {
     "owner_run_id", "revision", "rounds_completed", "spec", "status", "updated_at"];
   const allowed = [...required, "active_lease_expires_at", "completed_at", "last_error_code",
     "last_observation_sha256", "last_result", "next_wake_at", "pending_occurrence_at",
-    "stop_reason"];
+    "stop_reason", "observation_consent_version"];
   if (!isRecord(value) || !hasOnlyKeys(value, allowed) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     !boundedIdentity(value.id) || !boundedIdentity(value.owner_run_id) ||
@@ -5744,7 +5758,9 @@ function parseScheduledJob(value: unknown): ScheduledJobView {
     !safeBoundedCount(value.rounds_completed, 10_000) ||
     !safeBoundedCount(value.consecutive_unchanged, 10_000) ||
     !safeBoundedCount(value.model_calls, 10_000) ||
-    !safeBoundedCount(value.last_event_sequence, Number.MAX_SAFE_INTEGER)) {
+    !safeBoundedCount(value.last_event_sequence, Number.MAX_SAFE_INTEGER) ||
+    (value.observation_consent_version !== undefined &&
+      value.observation_consent_version !== 0 && value.observation_consent_version !== 1)) {
     throw new APIRequestError("Scheduled job response is invalid", "INVALID_RESPONSE", 502);
   }
   for (const field of ["active_lease_expires_at", "completed_at", "next_wake_at",
@@ -5773,6 +5789,10 @@ function parseScheduledJob(value: unknown): ScheduledJobView {
     !safePositiveInteger(spec.max_elapsed_seconds)) {
     throw new APIRequestError("Scheduled job specification is invalid", "INVALID_RESPONSE", 502);
   }
+  if (value.observation_consent_version === 1 &&
+    (spec.execution_mode !== "read_only" || spec.max_model_calls !== 0)) {
+    throw new APIRequestError("Scheduled observation widened authority", "INVALID_RESPONSE", 502);
+  }
   const retry = spec.retry;
   if (!hasExactKeys(retry, ["initial_backoff_seconds", "max_attempts",
     "max_backoff_seconds"]) || !safePositiveInteger(retry.max_attempts) ||
@@ -5791,7 +5811,7 @@ function parseScheduledJob(value: unknown): ScheduledJobView {
     (schedule.kind === "periodic" && !safePositiveInteger(schedule.interval_seconds))) {
     throw new APIRequestError("Scheduled job schedule is invalid", "INVALID_RESPONSE", 502);
   }
-  return value as unknown as ScheduledJobView;
+  return { ...value, observation_consent_version: value.observation_consent_version ?? 0 } as unknown as ScheduledJobView;
 }
 
 function parseScheduledJobList(value: unknown): ScheduledJobListView {
@@ -5804,7 +5824,7 @@ function parseScheduledJobList(value: unknown): ScheduledJobListView {
 }
 
 function parseScheduledJobControl(value: unknown, runID: string, jobID: string,
-  action: "create" | "pause" | "resume" | "cancel"): ScheduledJobControlView {
+  action: "create" | "pause" | "resume" | "cancel" | "enable-observation"): ScheduledJobControlView {
   if (!hasExactKeys(value, ["action", "authority_bypass", "execution_started", "job",
     "protocol_version", "replayed"]) ||
     value.protocol_version !== "scheduled-job-control.v1" || value.action !== action ||
@@ -7623,6 +7643,24 @@ export class CyberAgentClient {
     ), runID, jobID, action);
   }
 
+  async enableScheduledJobObservation(runID: string, jobID: string,
+    body: ScheduledJobObservationRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ScheduledJobControlView> {
+    if (!this.hasScheduledJobControl || boundedIdentity(runID) !== runID ||
+      boundedIdentity(jobID) !== jobID || body.version !== "scheduled-job-control.v1" ||
+      body.observation_consent_version !== 1 || !safePositiveInteger(body.expected_revision)) {
+      throw new Error("Scheduled observation requires exact identities, a revision, and consent");
+    }
+    const result = parseScheduledJobControl(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/scheduled-jobs/${encodeURIComponent(jobID)}/enable-observation`,
+      body, idempotencyKey, signal,
+    ), runID, jobID, "enable-observation");
+    if (result.job.observation_consent_version !== 1) {
+      throw new APIRequestError("Scheduled observation consent was not confirmed", "INVALID_RESPONSE", 502);
+    }
+    return result;
+  }
+
   async diagnosticBundle(runID: string, signal?: AbortSignal): Promise<DiagnosticBundleView> {
     if (boundedIdentity(runID) !== runID) {
       throw new Error("A normalized Run identity is required for diagnostic export");
@@ -8407,7 +8445,7 @@ export class CyberAgentClient {
       value.run_id !== runID || value.approval_id !== approvalID ||
       !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
       (value.workspace_id !== "" && !boundedIdentity(value.workspace_id)) ||
-      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "unavailable"]
+      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"]
         .includes(String(value.effect)) || typeof value.working_directory !== "string" ||
       !["", "."].includes(value.working_directory) ||
       typeof value.source_current !== "boolean" || typeof value.redacted !== "boolean" ||
@@ -8422,7 +8460,7 @@ export class CyberAgentClient {
     const effects: Record<string, string> = { shell: "dry_run", script_process: "dry_run",
       "git.advanced": "record_git_approval", replace_file: "file_review_required",
       create_file: "file_review_required", move_file: "file_review_required", delete_file: "file_review_required",
-      web_fetch: "fetch_public_https" };
+      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action" };
     if (value.effect !== (effects[value.tool_name] ?? "unavailable")) {
       throw new APIRequestError("Approval preview returned a different effect", "INVALID_RESPONSE", 502);
     }
@@ -8627,7 +8665,8 @@ export class CyberAgentClient {
         throw new APIRequestError(payload.error.message, payload.error.code, response.status, payload.request_id,
           payload.error.message_queued === false ? false : undefined,
           payload.error.operation_key_invalidated === true ? true : undefined,
-          payload.error.turn_failed === true ? true : undefined, payload.error.turn_failure);
+          payload.error.turn_failed === true ? true : undefined, payload.error.turn_failure,
+          payload.error.revision_unchanged);
       }
       throw new APIRequestError("CyberAgent control request failed", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");

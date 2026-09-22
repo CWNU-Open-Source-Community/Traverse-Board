@@ -269,6 +269,11 @@ jobs:
           npm run build
       - name: Test Desktop boundaries
         run: go test -tags "desktop" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+      - name: Verify isolated macOS Keychain persistence
+        env:
+          CGO_ENABLED: '1'
+          TRAVERSE_TEST_KEYCHAIN: '1'
+        run: go test -v -tags keychainintegration -count=1 -timeout=90s ./internal/credential
       - name: Verify POSIX command runtime transport
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntimePlatform(ShellSmoke|CancelReapsOwnedProcessTree)$'
       - name: Build and verify downloadable macOS preview

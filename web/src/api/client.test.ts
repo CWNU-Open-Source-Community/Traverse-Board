@@ -917,6 +917,43 @@ describe("CyberAgentClient", () => {
       "Idempotency-Key": "scheduled-client-operation-0001" });
   });
 
+  it.each(["valid", "different-job", "missing-consent"])("binds observation confirmation to the exact job and persisted consent: %s", async (scenario) => {
+    const job = scheduledJobData({ observation_consent_version: scenario === "missing-consent" ? 0 : 1,
+      ...(scenario === "different-job" ? { id: "scheduled-job-other" } : {}) });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-observation", data: {
+        protocol_version: "scheduled-job-control.v1", action: "enable-observation", job,
+        replayed: false, execution_started: false, authority_bypass: false,
+      },
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      scheduledJobControlEnabled: true,
+    });
+    const result = client.enableScheduledJobObservation("run-1", "scheduled-job-1", {
+      version: "scheduled-job-control.v1", expected_revision: 1, observation_consent_version: 1,
+    }, "scheduled-observation-client-0001");
+    if (scenario === "valid") await expect(result).resolves.toMatchObject({ job });
+    else await expect(result).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/scheduled-jobs/scheduled-job-1/enable-observation");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "scheduled-observation-client-0001" });
+  });
+
+  it.each([undefined, "confirmed_read_only", "all_jobs", ["all_jobs"], "unknown"])("validates worker selection scope without coercion: %j", async (scope) => {
+    const data = runtimeCapabilitiesData();
+    const scoped = { ...data, scheduled_job_worker: { ...data.scheduled_job_worker,
+      ...(scope === undefined ? {} : { selection_scope: scope }) } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-scope", data: scoped,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const result = new CyberAgentClient("read-secret").runtimeCapabilities();
+    if (scope === undefined || scope === "confirmed_read_only" || scope === "all_jobs") {
+      await expect(result).resolves.toMatchObject({ scheduled_job_worker: scoped.scheduled_job_worker });
+    } else await expect(result).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("rejects private fencing fields and unredacted diagnostic timeline data", async () => {
     const job = scheduledJobData();
     const detail = { protocol_version: "scheduled-job.v1", snapshot: { job,

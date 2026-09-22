@@ -149,6 +149,12 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 	if phase == domain.ExecutionPhasePlan {
 		definitions = toolgateway.PlanPhaseSupervisorToolDefinitions()
 	}
+	if configured.BrowserActions.Capabilities.Available && configured.BrowserActions.Capabilities.ProtocolVersion == toolgateway.AgentBrowserAuthorityVersion {
+		for _, name := range []toolgateway.ToolName{toolgateway.BrowserScrollTool, toolgateway.BrowserKeyTool} {
+			d, _ := toolgateway.AgentBrowserToolDefinition(name)
+			definitions = append(definitions, d)
+		}
+	}
 	out := make([]llm.ToolSpec, 0, len(definitions))
 	for _, definition := range definitions {
 		if toolgateway.IsHistoryRecallTool(definition.Name) && !configured.HistoryRecall {
@@ -205,6 +211,9 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 		if toolgateway.IsBrowserActionTool(definition.Name) &&
 			!configured.BrowserActions.Capabilities.Available {
 			continue
+		}
+		if toolgateway.IsBrowserActionTool(definition.Name) && configured.BrowserActions.Capabilities.ProtocolVersion == toolgateway.AgentBrowserAuthorityVersion {
+			definition, _ = toolgateway.AgentBrowserToolDefinition(definition.Name)
 		}
 		out = append(out, llm.ToolSpec{
 			Name: string(definition.Name), Description: definition.Description,
@@ -438,12 +447,16 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			out[index].Authority = append(json.RawMessage(nil), webEvidenceAuthority...)
 		}
 		if toolgateway.IsBrowserActionTool(name) {
-			authority, authorityErr := toolgateway.DecodeBrowserActionCallAuthority(
-				browserActionAuthority)
-			if authorityErr != nil || authority.RunID != runID ||
-				authority.Generation != browserActions.Generation ||
-				authority.FullCDPSessionID != browserActions.FullCDPSessionID {
-				return nil, errors.New("browser action advertisement authority is invalid")
+			if toolgateway.IsAgentBrowserPayload(out[index].Arguments) {
+				a, e := toolgateway.DecodeAgentBrowserAuthority(browserActionAuthority)
+				if e != nil || a.RunID != runID || a.Generation != browserActions.Generation || browserActions.ProtocolVersion != toolgateway.AgentBrowserAuthorityVersion {
+					return nil, errors.New("Agent browser advertisement authority mismatch")
+				}
+			} else {
+				a, e := toolgateway.DecodeBrowserActionCallAuthority(browserActionAuthority)
+				if e != nil || a.RunID != runID || a.Generation != browserActions.Generation || a.FullCDPSessionID != browserActions.FullCDPSessionID {
+					return nil, errors.New("browser action advertisement authority mismatch")
+				}
 			}
 			out[index].Authority = append(json.RawMessage(nil), browserActionAuthority...)
 		}
@@ -571,6 +584,9 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
+	if s != nil && s.agentBrowser != nil && turn.Agent.Role == domain.AgentRoleRoot {
+		return s.agentBrowserCapabilities(ctx, turn)
+	}
 	if s == nil || s.browserActions == nil || turn.Agent.Role != domain.AgentRoleRoot ||
 		(permission.Mode != domain.RunExecutionPermissionFullAccess &&
 			permission.Mode != domain.RunExecutionPermissionDebug) {
@@ -884,12 +900,34 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 					return rounds, false, apperror.Normalize(err)
 				}
 			}
-			if _, err := s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint,
-				call.CallID); err != nil {
-				return rounds, false, apperror.Normalize(err)
+			agentBrowserCall := toolgateway.IsBrowserActionTool(toolgateway.ToolName(call.ToolName)) && toolgateway.IsAgentBrowserPayload(json.RawMessage(call.PayloadJSON))
+			browserPreflightStopped := false
+			if agentBrowserCall && decision.Allowed {
+				waiting, denial, preflightErr := s.preflightAgentBrowserApproval(ctx, call)
+				if preflightErr != nil {
+					return rounds, false, preflightErr
+				}
+				if waiting {
+					return rounds, true, nil
+				}
+				if denial != nil {
+					decision.Allowed = false
+					decision.Result = denial
+					browserPreflightStopped = true
+				}
+			}
+			fresh := true
+			if !browserPreflightStopped {
+				var startedErr error
+				fresh, startedErr = s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint, call.CallID)
+				if startedErr != nil {
+					return rounds, false, apperror.Normalize(startedErr)
+				}
 			}
 			var result domain.SupervisorToolResult
-			if decision.Allowed {
+			if agentBrowserCall && !fresh {
+				result = agentBrowserStoppedResult(call, "outcome_unknown", "A prior browser dispatch started without a completed receipt. Do not automatically repeat the action.", domain.SupervisorToolFailed)
+			} else if decision.Allowed {
 				result, err = s.invokeSupervisorTool(ctx, turn, call)
 				if err != nil {
 					if errors.Is(err, errSupervisorWaitingApproval) {
@@ -902,6 +940,15 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 			} else {
 				return rounds, false, apperror.New(apperror.CodeFailedPrecondition,
 					"Standard Code Supervisor denial omitted its durable result")
+			}
+			if agentBrowserCall && result.Status == domain.SupervisorToolCompleted {
+				a, checkErr := toolgateway.DecodeAgentBrowserAuthority(json.RawMessage(call.AuthorityJSON))
+				if checkErr == nil {
+					checkErr = s.agentBrowser.check(ctx, a)
+				}
+				if checkErr != nil {
+					result = agentBrowserStoppedResult(call, "authority_changed", "Browser authority changed before persistence; no success is reported.", domain.SupervisorToolFailed)
+				}
 			}
 			stored, _, err := s.store.RecordSupervisorToolResult(ctx, turn.Checkpoint, result)
 			if err != nil {
@@ -1108,7 +1155,28 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.ProviderFingerprint = authority.ProviderFingerprint
 		toolCall.ConnectorFingerprint = authority.SourceConnectorFingerprint
 	}
-	if toolgateway.IsBrowserActionTool(name) {
+	if toolgateway.IsBrowserActionTool(name) && toolgateway.IsAgentBrowserPayload(json.RawMessage(call.PayloadJSON)) {
+		a, e := toolgateway.DecodeAgentBrowserAuthority(json.RawMessage(call.AuthorityJSON))
+		if e != nil || s.agentBrowser == nil || a.RootAgentID != turn.Agent.ID || a.RunID != turn.Run.ID || a.MissionID != turn.Mission.ID || a.SessionID != turn.Run.SessionID || a.WorkspaceID != turn.Mission.WorkspaceID || a.Surface != turn.Mode.Surface || a.Phase != turn.Mode.Phase || a.Profile != turn.Mode.Profile || a.ModeRevision != turn.Mode.Revision {
+			return domain.SupervisorToolResult{}, agentBrowserUnavailable("durable Agent browser authority mismatches active turn")
+		}
+		if e = s.agentBrowser.check(ctx, a); e != nil {
+			return domain.SupervisorToolResult{}, e
+		}
+		toolCall.AgentBrowserAuthority = json.RawMessage(call.AuthorityJSON)
+		toolCall.MissionID = a.MissionID
+		toolCall.Surface = a.Surface
+		toolCall.Phase = a.Phase
+		toolCall.Role = a.Role
+		toolCall.Profile = a.Profile
+		toolCall.PermissionMode = a.PermissionMode
+		toolCall.ModeRevision = a.ModeRevision
+		toolCall.PermissionSnapshotID = a.PermissionSnapshotID
+		toolCall.PermissionRevision = a.PermissionRevision
+		toolCall.PermissionGeneration = a.PermissionActivation
+		toolCall.RunAuthorizationFence = a.RunAuthorizationFence
+		toolCall.CapabilityGeneration = a.Generation
+	} else if toolgateway.IsBrowserActionTool(name) {
 		if s.browserActions == nil {
 			return domain.SupervisorToolResult{}, apperror.New(
 				apperror.CodeFailedPrecondition,

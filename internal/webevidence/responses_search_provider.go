@@ -65,6 +65,14 @@ const (
 	NativeSearchReasonResponseInvalid       = "response_invalid"
 	NativeSearchReasonSearchNotPerformed    = "search_not_performed"
 	NativeSearchReasonResponseIncomplete    = "response_incomplete"
+	NativeSearchReasonRateLimited           = "rate_limited"
+	NativeSearchReasonServiceUnavailable    = "service_unavailable"
+	NativeSearchReasonInvalidToolInput      = "invalid_tool_input"
+	NativeSearchReasonQueryTooLong          = "query_too_long"
+	NativeSearchReasonRequestTooLarge       = "request_too_large"
+	NativeSearchReasonMaxUsesExceeded       = "max_uses_exceeded"
+	NativeSearchReasonRequestSizeBudget     = "request_size_budget"
+	NativeSearchReasonConfigurationChanged  = "configuration_changed"
 )
 
 var (
@@ -363,6 +371,29 @@ func (p *OpenAIResponsesSearchProvider) Search(ctx context.Context, query string
 	return attempt.results, attempt.err
 }
 
+func (p *OpenAIResponsesSearchProvider) SearchFiltered(ctx context.Context,
+	request SearchRequest, authority NetworkAuthority,
+) ([]ProviderResult, error) {
+	if p == nil || ctx == nil || request.Limit < 1 || request.Limit > MaxSources {
+		return nil, nativeSearchError(NativeSearchReasonInvalidConfiguration)
+	}
+	query := boundedCleanText(request.Query, MaxQueryRunes)
+	filter, err := NormalizeSearchDomains(request.AllowedDomains, request.BlockedDomains)
+	if err != nil || query == "" || redact.String(query) != query || filter.Policy() == "" {
+		return nil, nativeSearchError(NativeSearchReasonInvalidConfiguration)
+	}
+	state, err := p.resolveState(ctx, authority)
+	if err != nil {
+		return nil, err
+	}
+	attempt := p.executeFiltered(ctx, state, authority, query, request.Limit, filter)
+	if attempt.err != nil {
+		return nil, attempt.err
+	}
+	p.storeTool(state, nativeSearchTool)
+	return attempt.results, nil
+}
+
 func (p *OpenAIResponsesSearchProvider) resolveState(ctx context.Context,
 	authority NetworkAuthority,
 ) (responsesSearchState, error) {
@@ -515,16 +546,78 @@ func (p *OpenAIResponsesSearchProvider) execute(ctx context.Context,
 	return responsesSearchAttempt{results: results}
 }
 
+func (p *OpenAIResponsesSearchProvider) executeFiltered(ctx context.Context,
+	state responsesSearchState, authority NetworkAuthority, query string, limit int,
+	filter SearchDomainFilter,
+) responsesSearchAttempt {
+	payload, headers, err := p.prepareRequestWithFilter(state, query, nativeSearchTool, filter)
+	if err != nil {
+		return responsesSearchAttempt{err: err}
+	}
+	document, err := p.client.PostJSONAuthorizedNoRedirect(ctx, p.endpoint, payload,
+		nativeSearchResponseLimit, headers, func(raw string) error {
+			_, authorizeErr := authority.Authorize(raw)
+			return authorizeErr
+		})
+	if err != nil {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonTransportUnavailable)}
+	}
+	if document.Truncated {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
+	}
+	if document.StatusCode < http.StatusOK || document.StatusCode >= http.StatusMultipleChoices {
+		if explicitUnsupportedResponsesTool(document, nativeSearchTool) {
+			return responsesSearchAttempt{unsupported: true,
+				err: nativeSearchError(NativeSearchReasonToolUnsupported)}
+		}
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonProviderRejected)}
+	}
+	mediaType, _, mimeErr := mime.ParseMediaType(document.Header.Get("Content-Type"))
+	if mimeErr != nil || !strings.EqualFold(mediaType, "application/json") {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
+	}
+	results, observed, parseErr := parseResponsesSearchResults(document.Body, limit, p.deepSeek)
+	if errors.Is(parseErr, errResponsesSearchIncomplete) {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseIncomplete)}
+	}
+	if errors.Is(parseErr, errResponsesSearchNotPerformed) {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonSearchNotPerformed)}
+	}
+	if parseErr != nil || !observed {
+		return responsesSearchAttempt{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
+	}
+	return responsesSearchAttempt{results: results}
+}
+
 func (p *OpenAIResponsesSearchProvider) prepareRequest(state responsesSearchState,
 	query, tool string,
+) ([]byte, http.Header, error) {
+	return p.prepareRequestWithFilter(state, query, tool, SearchDomainFilter{})
+}
+
+func (p *OpenAIResponsesSearchProvider) prepareRequestWithFilter(state responsesSearchState,
+	query, tool string, filter SearchDomainFilter,
 ) ([]byte, http.Header, error) {
 	if !validNativeSearchTool(tool) {
 		return nil, nil, nativeSearchError(NativeSearchReasonRuntimeInvalid)
 	}
+	toolBody := map[string]any{"type": tool}
+	if filter.Policy() != "" {
+		if tool != nativeSearchTool {
+			return nil, nil, nativeSearchError(NativeSearchReasonToolUnsupported)
+		}
+		filters := map[string]any{}
+		if len(filter.AllowedDomains) > 0 {
+			filters["allowed_domains"] = append([]string(nil), filter.AllowedDomains...)
+		} else {
+			filters["blocked_domains"] = append([]string(nil), filter.BlockedDomains...)
+		}
+		toolBody["filters"] = filters
+	}
 	body := map[string]any{
 		"model":       state.mappedModel,
 		"input":       query,
-		"tools":       []any{map[string]any{"type": tool}},
+		"tools":       []any{toolBody},
 		"tool_choice": "required",
 		// DeepSeek currently ignores these three OpenAI-compatible fields.
 		// They remain protected request-shape fields, but neither qualification
@@ -547,7 +640,7 @@ func (p *OpenAIResponsesSearchProvider) prepareRequest(state responsesSearchStat
 	if err := p.runtime.Apply(state.secret, headers, body); err != nil ||
 		!validNativeSearchHeaders(headers) ||
 		!protectedResponsesSearchBody(body, state.mappedModel, query, tool,
-			p.deepSeek) {
+			p.deepSeek, filter) {
 		return nil, nil, nativeSearchError(NativeSearchReasonRuntimeInvalid)
 	}
 	encoded, err := json.Marshal(body)
@@ -567,7 +660,7 @@ func validNativeSearchTool(tool string) bool {
 }
 
 func protectedResponsesSearchBody(body map[string]any, model, query, tool string,
-	deepSeek bool,
+	deepSeek bool, filter SearchDomainFilter,
 ) bool {
 	expectedInput := query
 	expectedChoice := any("required")
@@ -583,7 +676,13 @@ func protectedResponsesSearchBody(body map[string]any, model, query, tool string
 		body["parallel_tool_calls"] != false || body["store"] != false {
 		return false
 	}
-	if !reflect.DeepEqual(body["tools"], []any{map[string]any{"type": tool}}) ||
+	expectedTool := map[string]any{"type": tool}
+	if len(filter.AllowedDomains) > 0 {
+		expectedTool["filters"] = map[string]any{"allowed_domains": filter.AllowedDomains}
+	} else if len(filter.BlockedDomains) > 0 {
+		expectedTool["filters"] = map[string]any{"blocked_domains": filter.BlockedDomains}
+	}
+	if !reflect.DeepEqual(body["tools"], []any{expectedTool}) ||
 		!reflect.DeepEqual(body["include"], []any{"web_search_call.action.sources"}) {
 		return false
 	}

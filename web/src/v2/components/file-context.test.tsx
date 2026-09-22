@@ -118,7 +118,7 @@ it("keeps a selected file and draft recoverable when the old execution can no lo
   expect(screen.getByRole("button", { name: "移除引用 README.md" })).toBeEnabled();
   expect(screen.getByRole("textbox", { name: "继续对话" })).toHaveValue("继续修改这个项目");
   expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
-  expect(screen.getByRole("status")).toHaveTextContent("先移除这些引用");
+  expect(screen.getByRole("status")).toHaveTextContent("先移除项目文件引用");
   expect(submit).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "移除引用 README.md" }));
   await user.click(screen.getByRole("button", { name: "发送消息" }));

@@ -196,7 +196,7 @@ func (s *SQLiteStore) InspectThreadTurnRequest(ctx context.Context, threadID, ke
 		if err = validateObservedThreadImages(ctx, tx, thread.WorkspaceID, message, images); err != nil {
 			return value, err
 		}
-		_, fingerprint, _, err := threadMessageIntentIdentity(domain.ThreadMessageIntentRequest{ThreadID: threadID, Content: message.Content, Files: files, Images: images, Attachments: attachments, RequestedBy: requester, OperationKey: key})
+		_, fingerprint, _, err := threadMessageIntentIdentity(domain.ThreadMessageIntentRequest{ThreadID: threadID, Content: message.OriginalContent, Files: files, Images: images, Attachments: attachments, RequestedBy: requester, OperationKey: key})
 		if err != nil {
 			return value, err
 		}

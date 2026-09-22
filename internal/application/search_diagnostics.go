@@ -98,7 +98,7 @@ func (s *ProviderSearchReadinessService) Check(ctx context.Context, threadID str
 	result.NetworkRequestAttempted = true
 	var items []webevidence.ProviderResult
 	var probeErr error
-	if native, ok := selection.Provider.(*webevidence.OpenAIResponsesSearchProvider); ok {
+	if native, ok := selection.Provider.(webevidence.NativeSearchProvider); ok {
 		items, probeErr = native.CheckSearchConnection(probeCtx, "Traverse Board", 1, authority)
 	} else {
 		items, probeErr = selection.Provider.Search(probeCtx, "Traverse Board", 1, authority)
@@ -201,7 +201,10 @@ func (r *ProviderSearchResolver) diagnosticSelection(ctx context.Context, route 
 	case modelregistry.ProviderSearchModeAuto:
 		candidate, nativeErr := r.declaredNativeSelection(ctx, authority, definition, ref.Model, webevidence.SearchPolicyAuto, "diagnostic_auto_native")
 		if nativeErr == nil {
-			native := candidate.Provider.(*webevidence.OpenAIResponsesSearchProvider)
+			native, ok := candidate.Provider.(webevidence.NativeSearchProvider)
+			if !ok {
+				return webevidence.SearchSelection{}, errors.New("native search adapter does not implement diagnostics")
+			}
 			fallback := providerSearchBackendReadiness(ProviderSearchReadiness{}, r.searxng, authority)
 			if native.QualificationSnapshot(ctx, candidate.ProviderAuthority).Status == webevidence.SearchQualificationReady || fallback.State != ProviderSearchStateReady {
 				return candidate, nil

@@ -17,13 +17,15 @@ import (
 // These are durable context records, not a reconstruction of a provider request.
 // Reading them never compacts history, refreshes instructions, or grants authority.
 type RunContextSummaryView struct {
-	RunID            string                       `json:"run_id"`
-	ThreadID         string                       `json:"thread_id"`
-	SessionID        string                       `json:"session_id"`
-	WorkspaceID      string                       `json:"workspace_id"`
-	CapabilityGrant  bool                         `json:"capability_grant"`
-	CurrentSummary   *RunStoredContextSummaryView `json:"current_summary,omitempty"`
-	InheritedContext *RunInheritedContextView     `json:"inherited_context,omitempty"`
+	RunID                  string                       `json:"run_id"`
+	ThreadID               string                       `json:"thread_id"`
+	SessionID              string                       `json:"session_id"`
+	WorkspaceID            string                       `json:"workspace_id"`
+	CapabilityGrant        bool                         `json:"capability_grant"`
+	CurrentSummary         *RunStoredContextSummaryView `json:"current_summary,omitempty"`
+	InheritedContext       *RunInheritedContextView     `json:"inherited_context,omitempty"`
+	Diagnostics            *RunContextDiagnosticsView   `json:"diagnostics,omitempty"`
+	DiagnosticsUnavailable bool                         `json:"diagnostics_unavailable,omitempty"`
 }
 
 type RunStoredContextSummaryView struct {
@@ -88,6 +90,13 @@ func (a *API) runContextSummary(request *http.Request, runID string) (any, *Page
 	}
 	view := RunContextSummaryView{RunID: run.ID, ThreadID: thread.ID,
 		SessionID: sess.ID, WorkspaceID: mission.WorkspaceID}
+	if diagnostics, ok := a.store.(runContextDiagnosticReader); ok {
+		view.Diagnostics, err = readRunContextDiagnostics(ctx, diagnostics, run)
+		if err != nil {
+			view.Diagnostics = nil
+			view.DiagnosticsUnavailable = true
+		}
+	}
 	summary, found, err := reader.LatestContextSummary(ctx, sess.ID)
 	if err != nil {
 		return nil, nil, err

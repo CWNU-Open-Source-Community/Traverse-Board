@@ -128,6 +128,8 @@ func (a *API) routeThreads(request *http.Request, segments []string) (any, *Page
 			return a.threadRequestObservation(request, segments[1])
 		case "messages":
 			return a.threadMessages(request, segments[1])
+		case "queued-messages":
+			return a.threadQueuedMessages(request, segments[1])
 		case "runs":
 			return a.threadRuns(request, segments[1])
 		case "transcript":

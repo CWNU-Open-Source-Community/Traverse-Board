@@ -5,6 +5,7 @@ import { RefreshCw, X } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type { EvidenceInventoryView, ProjectInstructionStateView, ThreadDetailView } from "../../api/types";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
+import { ContextDiagnosticsPanel, validContextDiagnostics, type ContextDiagnostics } from "./context-diagnostics";
 import "./thread-context.css";
 
 export interface RunStoredContextSummary {
@@ -21,6 +22,8 @@ export interface RunInheritedContext {
 export interface RunContextSummary {
   run_id: string; thread_id: string; session_id: string; workspace_id: string; capability_grant: false;
   current_summary?: RunStoredContextSummary; inherited_context?: RunInheritedContext;
+  diagnostics?: ContextDiagnostics;
+  diagnostics_unavailable?: boolean;
 }
 
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -35,6 +38,9 @@ const invalid = () => new Error("上下文记录的来源或格式不匹配，�
 export function parseRunContextSummary(value: unknown, threadID: string, runID: string, sessionID: string, workspaceID: string): RunContextSummary {
   if (!record(value) || value.thread_id !== threadID || value.run_id !== runID || value.session_id !== sessionID ||
     value.workspace_id !== workspaceID || value.capability_grant !== false) throw invalid();
+  if (value.diagnostics !== undefined && !validContextDiagnostics(value.diagnostics)) throw invalid();
+  if (value.diagnostics_unavailable !== undefined && typeof value.diagnostics_unavailable !== "boolean" ||
+    value.diagnostics_unavailable === true && value.diagnostics !== undefined) throw invalid();
   if (value.current_summary !== undefined) {
     const item = value.current_summary;
     if (!record(item) || !integer(item.id) || item.id === 0 || !integer(item.previous_summary_id) ||
@@ -76,7 +82,8 @@ function ThreadContextContent({ client, threadID, detail, onClose, onRequestChan
   const bound = detail.thread.id === threadID && Boolean(run.id && sessionID);
   const path = `/runs/${encodeURIComponent(run.id)}`;
   const key = ["thread-context", client.baseURL, threadID, run.id, sessionID, workspaceID];
-  const summary = useQuery({ queryKey: [...key, "summary"], enabled: bound, retry: false, refetchOnMount: "always",
+  const summary = useQuery<RunContextSummary>({ queryKey: [...key, "summary"], enabled: bound, retry: false, refetchOnMount: "always",
+    refetchInterval: (query) => run.status === "running" && !query.state.error ? 3000 : false,
     queryFn: async ({ signal }) => parseRunContextSummary(await client.get<unknown>(`${path}/context-summary`, {}, signal), threadID, run.id, sessionID, workspaceID) });
   const instructions = useQuery({ queryKey: [...key, "instructions"], enabled: bound && Boolean(workspaceID), retry: false, refetchOnMount: "always",
     queryFn: async ({ signal }) => {
@@ -125,6 +132,8 @@ function ThreadContextContent({ client, threadID, detail, onClose, onRequestChan
           {!workspaceID ? <p>此执行没有项目引用目录。</p> : evidence.isError ? <ContextError label="引用" error={evidence.error} /> : !evidence.data ? <p role="status">正在读取引用…</p> : <ContextReferences value={evidence.data} />}
           <p className="v2-context-help">引用保留来源与版本；是否进入某次请求、全文还是摘要，取决于当次上下文装配。没有记录不表示从未读取过文件。</p>
         </section>
+        {!summary.isError && summary.data && <ContextDiagnosticsPanel value={summary.data.diagnostics} unavailable={summary.data.diagnostics_unavailable}
+          recovery={detail.recovery} runID={run.id} runStatus={run.status} />}
         <section aria-labelledby="context-summary"><h3 id="context-summary">摘要与压缩</h3>
           {summary.isError ? <ContextError label="摘要" error={summary.error} /> : !summary.data ? <p role="status">正在读取摘要…</p> : <>
             {current ? <><p>此会话已保存压缩摘要，累计归纳 {current.compacted_message_count} 条消息；保存时保留最近 {current.preserved_message_count} 条原消息。</p>
