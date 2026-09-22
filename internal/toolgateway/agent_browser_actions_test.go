@@ -1,0 +1,60 @@
+package toolgateway
+
+import (
+	"context"
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/policy"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+type agentBrowserGatewayProbe struct{ calls int }
+
+func (p *agentBrowserGatewayProbe) ExecuteAgentBrowserAction(context.Context, AgentBrowserExecutionScope, ToolName, json.RawMessage) (BrowserActionExecutionResult, error) {
+	p.calls++
+	return BrowserActionExecutionResult{Content: `{"ok":true}`}, nil
+}
+func TestAgentBrowserV2ProtocolIsExplicitAndTyped(t *testing.T) {
+	valid := map[ToolName]string{BrowserNavigateTool: `{"version":"browser_navigate.v2","url":"https://developer.mozilla.org/en-US/#guide"}`, BrowserClickTool: `{"version":"browser_click.v2","snapshot_id":"snap-1","element_ref":"ref-1"}`, BrowserTypeTool: `{"version":"browser_type.v2","snapshot_id":"snap-1","element_ref":"ref-1","value":"public search","mode":"replace"}`, BrowserKeyTool: `{"version":"browser_key.v2","key":"Enter"}`, BrowserScrollTool: `{"version":"browser_scroll.v2","delta_x":0,"delta_y":800}`}
+	for name, p := range valid {
+		if _, e := NormalizeBrowserActionPayload(name, json.RawMessage(p)); e != nil {
+			t.Errorf("%s %v", name, e)
+		}
+		d, ok := AgentBrowserToolDefinition(name)
+		if !ok || !strings.Contains(string(d.InputSchema), string(name)+".v2") {
+			t.Fatalf("missing v2 schema %s", name)
+		}
+	}
+	bad := []struct {
+		name ToolName
+		raw  string
+	}{{BrowserKeyTool, `{"version":"browser_key.v2","key":"Control+L"}`}, {BrowserKeyTool, `{"version":"browser_key.v1","key":"Enter"}`}, {BrowserScrollTool, `{"version":"browser_scroll.v2","delta_x":0,"delta_y":10001}`}, {BrowserNavigateTool, `{"version":"browser_navigate.v3","url":"https://example.org"}`}, {BrowserNavigateTool, `{"version":"browser_navigate.v1","url":"https://example.org"}`}, {BrowserClickTool, `{"version":"browser_click.v2","selector":"#publish"}`}, {BrowserNavigateTool, `{"version":"browser_navigate.v2","url":"https://user:password@example.org"}`}, {BrowserNavigateTool, `{"version":"browser_navigate.v2","url":"file:///D:/secret"}`}, {BrowserTypeTool, `{"version":"browser_type.v2","snapshot_id":"s","element_ref":"r","value":"text","mode":"replace","confirmed":true}`}}
+	for _, item := range bad {
+		if _, e := NormalizeBrowserActionPayload(item.name, json.RawMessage(item.raw)); e == nil {
+			t.Fatalf("invalid accepted %s", item.raw)
+		}
+	}
+}
+func TestAgentBrowserGatewayRoutesV2WithoutLegacyFallback(t *testing.T) {
+	a := AgentBrowserCallAuthority{ProtocolVersion: AgentBrowserAuthorityVersion, RunID: "run-browser", MissionID: "mission-browser", SessionID: "session-browser", RootAgentID: "root-browser", WorkspaceID: "workspace-browser", Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver, Role: domain.AgentRoleRoot, Profile: domain.ProfileCode, PermissionMode: domain.RunExecutionPermissionFullAccess, ModeRevision: 1, PermissionSnapshotID: "permission-browser", PermissionRevision: 1, PermissionActivation: 2, RunAuthorizationFence: 3, ManagerBootID: "boot-browser", BrowserSessionID: "managed-browser", SessionGeneration: 1}
+	a.Generation = a.Fingerprint()
+	auth, _ := json.Marshal(a)
+	call := ToolCall{Name: BrowserNavigateTool, Payload: json.RawMessage(`{"version":"browser_navigate.v2","url":"https://example.org"}`), OperationKey: "browser-operation", RunID: a.RunID, MissionID: a.MissionID, AgentID: a.RootAgentID, AgentAttemptID: "attempt-browser", SessionID: a.SessionID, WorkspaceID: a.WorkspaceID, Surface: a.Surface, Phase: a.Phase, Role: a.Role, Profile: a.Profile, PermissionMode: a.PermissionMode, ModeRevision: a.ModeRevision, PermissionSnapshotID: a.PermissionSnapshotID, PermissionRevision: a.PermissionRevision, PermissionGeneration: a.PermissionActivation, RunAuthorizationFence: a.RunAuthorizationFence, CapabilityGeneration: a.Generation, LeaseID: "lease-browser", LeaseGeneration: 1, SupervisorTurn: 1, SupervisorToolCallID: "call-browser", RequestedBy: "run_supervisor", AgentBrowserAuthority: auth}
+	probe := &agentBrowserGatewayProbe{}
+	legacy := &browserActionExecutorStub{}
+	gateway := New(nil, policy.NewDefaultChecker()).WithAgentBrowserExecutor(probe).WithBrowserActionExecutor(legacy)
+	if _, e := gateway.Invoke(t.Context(), call); e != nil || probe.calls != 1 || legacy.calls != 0 {
+		t.Fatalf("v2 routing %v %+v %+v", e, probe, legacy)
+	}
+	wrong := call
+	wrong.PermissionGeneration++
+	if _, e := gateway.Invoke(t.Context(), wrong); e == nil || probe.calls != 1 || legacy.calls != 0 {
+		t.Fatal("authority mismatch was dispatched or fell back")
+	}
+	wrong = call
+	wrong.Payload = json.RawMessage(`{"version":"browser_navigate.v3","url":"https://example.org"}`)
+	if _, e := gateway.Invoke(t.Context(), wrong); e == nil || legacy.calls != 0 {
+		t.Fatal("unknown protocol fell back")
+	}
+}

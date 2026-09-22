@@ -70,6 +70,9 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 165); err != nil {
 		t.Fatal(err)
 	}
+	// Current services need queue columns introduced after this historical
+	// boundary. Restore the exact v165 schema before exercising its migration.
+	restoreHistoricalQueue := addV166FixtureQueueCompatibility(t, state)
 	_, run, err := application.NewRunService(state).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve historical fetch failure", Profile: "review", Surface: "code", Phase: "deliver",
 		ModelRoute: "v166-fixture/model", Interactive: true, NetworkMode: "disabled",
@@ -129,7 +132,33 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := state.PrepareWebFetchAuthorizationHandoff(ctx, authorization.ID, cp.AttemptID, domain.SupervisorTurnFailed); err == nil || !strings.Contains(err.Error(), "operation binding is invalid") {
-		t.Fatalf("v165 did not reproduce paused observation rejection: %v", err)
+		t.Fatalf("v165 handoff guard with current queue reader did not reject observation: %v", err)
+	}
+	restoreHistoricalQueue()
+	newOperation := func(actor string) domain.RunExecutionHandoffOperation {
+		return domain.RunExecutionHandoffOperation{ID: "v166-observation-probe", ProtocolVersion: domain.RunExecutionHandoffProtocolVersion,
+			KeyDigest:          runmutation.RunExecutionHandoffOperationDigest(run.ID, "v166-probe"),
+			RequestFingerprint: runmutation.RunExecutionHandoffRequestFingerprint(run.ID, actor, 1),
+			RunID:              run.ID, SessionID: run.SessionID, RequestedBy: actor, MaxSteps: 1, CreatedAt: time.Now().UTC()}
+	}
+	// This insertion uses only historical columns, so both sides of the
+	// migration are checked on their actual schema without compatibility fields.
+	probeExactHistoricalObservation := func() error {
+		t.Helper()
+		tx, err := state.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		op := newOperation("web_fetch_authorization")
+		_, err = insertRunExecutionHandoffTx(ctx, tx, run, op, []domain.RunExecutionHandoffItem{{
+			OperationID: op.ID, Ordinal: 1, MessageID: first.Submission.Message.ID,
+			MessageSequence: first.Submission.Message.Sequence, Prepared: true,
+		}})
+		return err
+	}
+	if err := probeExactHistoricalObservation(); err == nil || !strings.Contains(err.Error(), "operation binding is invalid") {
+		t.Fatalf("exact v165 schema did not reject paused observation: %v", err)
 	}
 	if err := state.applyMigration(ctx, migrationPlan()[165]); err != nil {
 		t.Fatal(err)
@@ -138,11 +167,8 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 		t.Fatalf("schema=%d err=%v", version, err)
 	}
 
-	newOperation := func(actor string) domain.RunExecutionHandoffOperation {
-		return domain.RunExecutionHandoffOperation{ID: "v166-observation-probe", ProtocolVersion: domain.RunExecutionHandoffProtocolVersion,
-			KeyDigest:          runmutation.RunExecutionHandoffOperationDigest(run.ID, "v166-probe"),
-			RequestFingerprint: runmutation.RunExecutionHandoffRequestFingerprint(run.ID, actor, 1),
-			RunID:              run.ID, SessionID: run.SessionID, RequestedBy: actor, MaxSteps: 1, CreatedAt: time.Now().UTC()}
+	if err := probeExactHistoricalObservation(); err != nil {
+		t.Fatalf("exact v166 schema rejected its historical observation: %v", err)
 	}
 	if _, _, err := state.PrepareRunExecutionHandoff(ctx, newOperation("web_fetch_authorization")); err == nil {
 		t.Fatal("public handoff accepted a paused Run using an internal actor name")
@@ -185,6 +211,9 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 			t.Fatalf("observer selected a different queued input: %v", err)
 		}
 	})
+	// The historical trigger probes above need no current queue reader. Restore
+	// compatibility only for the existing service identity and replay assertions.
+	restoreHistoricalQueue = addV166FixtureQueueCompatibility(t, state)
 	observed, bound, err := state.PrepareWebFetchAuthorizationHandoff(ctx, authorization.ID, cp.AttemptID, domain.SupervisorTurnFailed)
 	if err != nil || !bound || len(observed.Items) != 1 || observed.Items[0].MessageID != first.Submission.Message.ID || !observed.Items[0].Prepared {
 		t.Fatalf("exact observation=%#v bound=%t err=%v", observed, bound, err)
@@ -212,4 +241,5 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 	if _, err := state.db.ExecContext(ctx, `UPDATE run_execution_handoff_operations SET requested_by='rewritten' WHERE id=?`, original.Operation.ID); err == nil {
 		t.Fatal("old operation lost immutability")
 	}
+	restoreHistoricalQueue()
 }

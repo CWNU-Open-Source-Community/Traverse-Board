@@ -187,6 +187,111 @@ func TestScheduledJobConcurrentClaimAndCrashFence(t *testing.T) {
 	}
 }
 
+func TestScheduledObservationScopeSkipsUnconsentedExpiryAndKeepsFenceExclusive(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "scheduled-observation-concurrency.db")
+	first, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	run := createScheduledStoreRun(t, first)
+	now := time.Now().UTC().Add(time.Second).Truncate(time.Millisecond)
+	clock := &storeScheduledClock{now: now}
+	service := application.NewScheduledJobService(first).WithClock(clock)
+	unconsentedRequest := scheduledStoreRequest(run.ID, now)
+	unconsentedRequest.MaxModelCalls = 0
+	unconsentedRequest.OperationKey = "scheduled-observation-unconsented"
+	unconsented, err := service.Create(ctx, unconsentedRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, unconsentedLease, claimed, err := first.ClaimDueScheduledJob(ctx,
+		"unconsented-owner", now)
+	if err != nil || !claimed || unconsentedLease.JobID != unconsented.Job.ID {
+		t.Fatalf("unconsented lease=%#v claimed=%t err=%v", unconsentedLease, claimed, err)
+	}
+
+	consentedRequest := scheduledStoreRequest(run.ID, now)
+	consentedRequest.MaxModelCalls = 0
+	consentedRequest.OperationKey = "scheduled-observation-consented"
+	consentedRequest.ObservationConsentVersion = domain.ScheduledJobObservationConsentVersion
+	consented, err := service.Create(ctx, consentedRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	claimAt := unconsentedLease.ExpiresAt.Add(time.Millisecond)
+	if count, err := second.ReconcileObservationScheduledJobs(ctx, claimAt, 10); err != nil || count != 0 {
+		t.Fatalf("scoped reconcile changed unconsented lease: count=%d err=%v", count, err)
+	}
+	unchanged, err := first.GetScheduledJob(ctx, unconsented.Job.ID)
+	if err != nil || unchanged.ActiveLeaseGeneration != unconsentedLease.Generation {
+		t.Fatalf("unconsented job changed=%#v err=%v", unchanged, err)
+	}
+
+	type result struct {
+		lease domain.ScheduledJobLease
+		ok    bool
+		err   error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var wait sync.WaitGroup
+	for index, current := range []*store.SQLiteStore{first, second} {
+		wait.Add(1)
+		go func(index int, current *store.SQLiteStore) {
+			defer wait.Done()
+			<-start
+			_, lease, ok, err := current.ClaimDueObservationScheduledJob(ctx,
+				"observation-owner-"+string(rune('a'+index)), claimAt)
+			results <- result{lease: lease, ok: ok, err: err}
+		}(index, current)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	winners := 0
+	var oldLease domain.ScheduledJobLease
+	for current := range results {
+		if current.err != nil {
+			t.Fatal(current.err)
+		}
+		if current.ok {
+			winners++
+			oldLease = current.lease
+		}
+	}
+	if winners != 1 || oldLease.JobID != consented.Job.ID {
+		t.Fatalf("winners=%d lease=%#v", winners, oldLease)
+	}
+	reclaimAt := oldLease.ExpiresAt.Add(time.Millisecond)
+	if count, err := second.ReconcileObservationScheduledJobs(ctx, reclaimAt, 10); err != nil || count != 1 {
+		t.Fatalf("consented reconcile count=%d err=%v", count, err)
+	}
+	_, replacement, ok, err := second.ClaimDueObservationScheduledJob(ctx,
+		"observation-recovery-owner", reclaimAt)
+	if err != nil || !ok || replacement.JobID != oldLease.JobID ||
+		replacement.Generation <= oldLease.Generation {
+		t.Fatalf("replacement=%#v ok=%t err=%v", replacement, ok, err)
+	}
+	sequence, err := first.LatestRunEventSequence(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome := domain.ScheduledJobRoundOutcome{EventSequence: sequence,
+		ObservationSHA256: runmutation.Fingerprint("scheduled-store-observation.v1"),
+		TargetStatus:      run.Status, Result: "no relevant changes"}
+	if _, _, _, err := first.CompleteScheduledJobRound(ctx, oldLease, outcome,
+		reclaimAt); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("old fence code=%s err=%v", apperror.CodeOf(err), err)
+	}
+}
+
 func createScheduledStoreRun(t *testing.T, state *store.SQLiteStore) domain.Run {
 	t.Helper()
 	ctx := context.Background()

@@ -189,11 +189,12 @@ func TestDesktopRiskProfilesPreserveSafeProductAndAddOnlyTheirCeiling(t *testing
 		t.Fatal(err)
 	}
 	if !debug.riskProfileRestart || !debug.permissionControl || !debug.dangerFullAccess ||
-		!debug.debugMaximumAccess || !debug.userTerminal || !debug.runExecution {
+		!debug.debugMaximumAccess || !debug.userTerminal || !debug.runExecution ||
+		!debug.scheduledJobWorker || !debug.scheduledJobObservationOnly {
 		t.Fatalf("debug product bundle is incomplete: %+v", debug)
 	}
 	if !debug.fullCDPDebug || debug.dockerExecution || debug.batchValidation ||
-		debug.runWakeWorker || debug.scheduledJobWorker {
+		debug.runWakeWorker {
 		t.Fatalf("debug product bundle widened unrelated capabilities: %+v", debug)
 	}
 	if _, err := desktopOptionsForRiskProfile("shell"); err == nil {

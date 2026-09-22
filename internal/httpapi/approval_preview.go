@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/toolrun"
 )
 
@@ -173,6 +174,40 @@ func (a *API) runApprovalPreview(request *http.Request, runID, approvalID string
 			add("destination_path", value.DestinationPath)
 		}
 		view.Redacted = view.Redacted || value.SecretsRedacted
+	case toolgateway.AgentBrowserApprovalTool:
+		source, ok := a.store.(interface {
+			GetAgentBrowserCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+		})
+		if !ok {
+			return stale()
+		}
+		call, started, err := source.GetAgentBrowserCall(ctx, run.ID, record.ProposalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		authority, err := toolgateway.DecodeAgentBrowserAuthority(json.RawMessage(call.AuthorityJSON))
+		var payload toolgateway.AgentBrowserPayload
+		if err != nil || json.Unmarshal([]byte(call.PayloadJSON), &payload) != nil || payload.Sensitive == nil ||
+			call.RunID != run.ID || call.CallID != record.ProposalID || authority.RunID != run.ID ||
+			authority.SessionID != record.SessionID || authority.WorkspaceID != record.WorkspaceID ||
+			record.RequestFingerprint != toolgateway.AgentBrowserApprovalFingerprint(call) ||
+			record.ActionClass != "browser_"+payload.Sensitive.Effect || record.Mode != "per_call" {
+			return stale()
+		}
+		view.Effect = "browser_sensitive_action"
+		view.SourceCurrent = view.SourceCurrent && !started && call.Status == domain.SupervisorToolPending
+		if a.agentBrowserController == nil {
+			view.SourceCurrent = false
+		} else {
+			current, statusErr := a.agentBrowserController.GetStatus(ctx, run.ID)
+			view.SourceCurrent = view.SourceCurrent && statusErr == nil && current.SessionID == authority.BrowserSessionID &&
+				current.Capabilities.Available && current.DocumentEpoch == payload.Sensitive.DocumentEpoch &&
+				current.CanonicalURL == payload.Sensitive.Target
+		}
+		add("operation", call.ToolName)
+		add("url", payload.Sensitive.Target)
+		add("summary", payload.Sensitive.Description)
+		add("effect", payload.Sensitive.Effect)
 	case "web_fetch":
 		source, ok := a.store.(interface {
 			GetWebFetchAuthorizationByApproval(context.Context, string) (domain.WebFetchAuthorization, error)

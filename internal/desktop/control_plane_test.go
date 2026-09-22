@@ -778,7 +778,7 @@ func TestControlPlaneScheduledWorkerIsExplicitSingleInstanceAndStopsOnClose(t *t
 	worker := capabilities.ScheduledJobWorker
 	if !capabilities.ScheduledJobControlEnabled || !capabilities.ScheduledJobWorkerEnabled ||
 		!worker.Enabled || worker.Concurrency != 1 || worker.PersistentService ||
-		worker.RuntimeEnableSupported || worker.AuthorityEscalation {
+		worker.RuntimeEnableSupported || worker.AuthorityEscalation || worker.SelectionScope != "all_jobs" {
 		t.Fatalf("scheduled worker capability widened authority: %#v", capabilities)
 	}
 	if err := plane.StartWakeWorker(t.Context()); err != nil {

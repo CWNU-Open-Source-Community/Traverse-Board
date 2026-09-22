@@ -358,12 +358,7 @@ func TestSQLiteWorkItemEventFailureRollsBackUpdate(t *testing.T) {
 
 func openWorkItemTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
-	st, err := Open(filepath.Join(t.TempDir(), "cyberagent.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return openCurrentTestDatabase(t, filepath.Join(t.TempDir(), "cyberagent.db"))
 }
 
 func createWorkItemTestRun(t *testing.T, ctx context.Context, st *SQLiteStore, goal string) (domain.Mission, domain.Run) {

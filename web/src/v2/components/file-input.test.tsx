@@ -224,7 +224,7 @@ it("keeps a failed download visible on a message attachment without inventing a 
   expect(URL.createObjectURL).not.toHaveBeenCalled();
 });
 
-it("retains editable text and attachments while execution is busy, sends them after idle, and still permits text-only input while busy", async () => {
+it("queues uploaded attachments while project file references are unavailable, then permits the next text-only input", async () => {
   const client = fixture();
   const page = mount(client);
   const file = fixtureFile();
@@ -239,14 +239,7 @@ it("retains editable text and attachments while execution is busy, sends them af
   expect(textbox).toBeEnabled();
   expect(textbox).toHaveValue("请依据附件补充下一步");
   expect(screen.getByTitle(file.name)).toBeInTheDocument();
-  expect(screen.getByText(/附件与草稿会保留，当前也暂不能提交附件/)).toBeInTheDocument();
-  expect(send).toBeDisabled();
-  fireEvent.submit(textbox.closest("form")!);
-  expect(page.submit).not.toHaveBeenCalled();
-
-  page.changeAvailability();
-  expect(textbox).toHaveValue("请依据附件补充下一步");
-  expect(screen.getByTitle(file.name)).toBeInTheDocument();
+  expect(screen.queryByText(/当前也暂不能提交附件/)).not.toBeInTheDocument();
   expect(send).toBeEnabled();
   fireEvent.click(send);
   expect(page.submit).toHaveBeenCalledExactlyOnceWith("请依据附件补充下一步", [], [], undefined, [expected]);

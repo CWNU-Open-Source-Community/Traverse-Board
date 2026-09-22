@@ -161,6 +161,8 @@ export type ScheduledJobCreateRequestView =
   components["schemas"]["ScheduledJobCreateRequestView"];
 export type ScheduledJobTransitionRequestView =
   components["schemas"]["ScheduledJobTransitionRequestView"];
+export type ScheduledJobObservationRequestView =
+  components["schemas"]["ScheduledJobObservationRequestView"];
 export type ScheduledJobControlView = components["schemas"]["ScheduledJobControlView"];
 export type ScheduledJobListView = components["schemas"]["ScheduledJobListView"];
 export type ScheduledJobDetailView = components["schemas"]["ScheduledJobDetailView"];

@@ -39,8 +39,10 @@ func TestOperatorSteeringMessageRequiresMonotonicTerminalShape(t *testing.T) {
 	message := OperatorSteeringMessage{
 		ID: "steer-1", RunID: "run-1", SessionID: "session-1", Sequence: 1,
 		Status: OperatorSteeringPending, Content: "review the current result",
-		ContentSHA256: OperatorSteeringContentSHA256("review the current result"),
-		RequestedBy:   "operator", CreatedAt: now,
+		ContentSHA256:         OperatorSteeringContentSHA256("review the current result"),
+		OriginalContent:       "review the current result",
+		OriginalContentSHA256: OperatorSteeringContentSHA256("review the current result"),
+		RequestedBy:           "operator", CreatedAt: now,
 	}
 	if err := message.Validate(); err != nil {
 		t.Fatal(err)

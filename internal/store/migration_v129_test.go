@@ -280,29 +280,9 @@ func TestThreadLifecycleAndExportNeverOrphanHistory(t *testing.T) {
 
 func openSchemaV128Store(t testing.TB, path string) *SQLiteStore {
 	t.Helper()
-	db, err := sql.Open("sqlite3", sqliteDSN(path))
-	if err != nil {
+	state := openHistoricalTestDatabase(t, path, 128)
+	if _, err := state.db.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
 		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;`); err != nil {
-		t.Fatal(err)
-	}
-	state := &SQLiteStore{db: db, home: filepath.Dir(path)}
-	if _, err := db.Exec(`CREATE TABLE schema_migrations (
-		version INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		checksum TEXT NOT NULL,
-		applied_at TEXT NOT NULL
-	);`); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range migrationPlan()[:128] {
-		if err := state.applyMigration(context.Background(), item); err != nil {
-			_ = state.Close()
-			t.Fatalf("apply schema v128 fixture migration %d: %v", item.Version, err)
-		}
 	}
 	return state
 }

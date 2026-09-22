@@ -3586,6 +3586,17 @@ CREATE TABLE once_command_proposals (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE operator_message_attachment_evidence (
+		message_id TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		attachment_id TEXT NOT NULL,
+		session_message_id INTEGER NOT NULL UNIQUE,
+		PRIMARY KEY(message_id,kind,attachment_id),
+		FOREIGN KEY(message_id) REFERENCES operator_steering_messages(id) ON DELETE RESTRICT,
+		FOREIGN KEY(session_message_id) REFERENCES session_messages(id) ON DELETE RESTRICT,
+		CHECK(kind IN ('image','file'))
+	) WITHOUT ROWID;
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE operator_steering_cancellation_operations (
 		operation_key_digest TEXT PRIMARY KEY,
 		request_fingerprint TEXT NOT NULL,
@@ -3656,7 +3667,7 @@ CREATE TABLE operator_steering_messages (
 		session_message_id INTEGER UNIQUE,
 		created_at TEXT NOT NULL,
 		committed_at TEXT,
-		cancelled_at TEXT,
+		cancelled_at TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0), original_content TEXT NOT NULL DEFAULT '', original_content_sha256 TEXT NOT NULL DEFAULT '', edited_at TEXT,
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_message_id) REFERENCES session_messages(id) ON DELETE RESTRICT,
@@ -3694,6 +3705,31 @@ CREATE TABLE operator_steering_operations (
 			AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
 		CHECK(requested_by = trim(requested_by) AND length(requested_by) BETWEEN 1 AND 256
 			AND instr(requested_by, char(0)) = 0)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE operator_steering_revisions (
+		id TEXT PRIMARY KEY,
+		message_id TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		from_revision INTEGER NOT NULL,
+		to_revision INTEGER NOT NULL,
+		old_content_sha256 TEXT NOT NULL,
+		new_content TEXT NOT NULL,
+		new_content_sha256 TEXT NOT NULL,
+		requested_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		operation_key_digest TEXT NOT NULL UNIQUE,
+		request_fingerprint TEXT NOT NULL,
+		FOREIGN KEY(message_id) REFERENCES operator_steering_messages(id) ON DELETE RESTRICT,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
+		UNIQUE(message_id,to_revision),
+		CHECK(from_revision >= 0 AND to_revision = from_revision + 1),
+		CHECK(length(CAST(new_content AS BLOB)) BETWEEN 0 AND 16384),
+		CHECK(length(old_content_sha256)=64 AND length(new_content_sha256)=64),
+		CHECK(length(operation_key_digest)=64 AND length(request_fingerprint)=64),
+		CHECK(requested_by=trim(requested_by) AND length(requested_by) BETWEEN 1 AND 256)
 	);
 -- traverse-board-clean-install-object-boundary --
 CREATE TABLE operator_verification_evidence (
@@ -5932,7 +5968,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
 			'code_type_hierarchy',
 			'browser_status', 'browser_navigate', 'browser_snapshot',
-			'browser_click', 'browser_type', 'browser_screenshot')),
+			'browser_click', 'browser_type', 'browser_screenshot', 'browser_scroll', 'browser_key')),
 		CHECK((tool_name IN ('host_command_propose', 'mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 			'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
 			'github_review_evidence_list', 'github_review_evidence_read', 'command_runtime', 'web_search', 'source_search', 'web_fetch', 'web_citation',
@@ -5941,7 +5977,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
 			'code_type_hierarchy',
 			'browser_status', 'browser_navigate', 'browser_snapshot',
-			'browser_click', 'browser_type', 'browser_screenshot')
+			'browser_click', 'browser_type', 'browser_screenshot', 'browser_scroll', 'browser_key')
 			AND length(authority_json) BETWEEN 2 AND 4096 AND json_valid(authority_json) = 1)
 			OR (tool_name NOT IN ('mcp_tool_call', 'workspace_list', 'workspace_read', 'workspace_glob',
 				'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete',
@@ -5951,7 +5987,7 @@ CREATE TABLE "run_supervisor_tool_calls" (
 			'code_signature_help', 'code_diagnostics', 'code_call_hierarchy',
 			'code_type_hierarchy',
 			'browser_status', 'browser_navigate', 'browser_snapshot',
-			'browser_click', 'browser_type', 'browser_screenshot')
+			'browser_click', 'browser_type', 'browser_screenshot', 'browser_scroll', 'browser_key')
 				AND authority_json = '')),
 		CHECK(status IN ('pending', 'completed', 'denied', 'failed')),
 		CHECK((status = 'pending' AND result_json = '' AND error_code = '' AND completed_at IS NULL)
@@ -10517,6 +10553,23 @@ CREATE TABLE scheduled_job_notifications (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE scheduled_job_observation_consents (
+		job_id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		confirmed_by TEXT NOT NULL,
+		confirmed_at TEXT NOT NULL,
+		operation_key_sha256 TEXT NOT NULL UNIQUE,
+		request_fingerprint TEXT NOT NULL,
+		FOREIGN KEY(job_id) REFERENCES scheduled_jobs(id) ON DELETE RESTRICT,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		CHECK(version = 1),
+		CHECK(length(operation_key_sha256) = 64
+			AND operation_key_sha256 NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(request_fingerprint) = 64
+			AND request_fingerprint NOT GLOB '*[^0-9a-f]*')
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE scheduled_job_operations (
 		operation_key_sha256 TEXT PRIMARY KEY,
 		request_fingerprint TEXT NOT NULL,
@@ -13440,6 +13493,8 @@ CREATE UNIQUE INDEX idx_operator_steering_one_committed
 CREATE UNIQUE INDEX idx_operator_steering_one_prepared
 		ON operator_steering_deliveries(message_id) WHERE status = 'prepared';
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_operator_steering_revisions_message ON operator_steering_revisions(message_id,to_revision);
+-- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_operator_steering_run_status_sequence
 		ON operator_steering_messages(run_id, status, sequence);
 -- traverse-board-clean-install-object-boundary --
@@ -13718,6 +13773,9 @@ CREATE INDEX idx_sandbox_output_simulations_run_created
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_scheduled_job_notifications_recent
 		ON scheduled_job_notifications(job_id, created_at DESC, id DESC);
+-- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_scheduled_job_observation_consents_run
+		ON scheduled_job_observation_consents(run_id, confirmed_at, job_id);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_scheduled_job_operations_job
 		ON scheduled_job_operations(job_id, created_at, operation_key_sha256);
@@ -16786,6 +16844,25 @@ CREATE TRIGGER trg_note_owner_agent_update
 			SELECT RAISE(ABORT, 'note owner Agent does not belong to Run');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_message_attachment_evidence_delete_immutable BEFORE DELETE ON operator_message_attachment_evidence
+		BEGIN SELECT RAISE(ABORT,'operator message attachment evidence cannot be deleted'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_message_attachment_evidence_insert
+		BEFORE INSERT ON operator_message_attachment_evidence
+		WHEN NOT EXISTS (
+			SELECT 1 FROM operator_steering_messages message JOIN session_messages evidence
+				ON evidence.id=NEW.session_message_id AND evidence.session_id=message.session_id
+			WHERE message.id=NEW.message_id AND message.status='committed'
+				AND instr(evidence.content,'"operator_message_id":"'||NEW.message_id||'"')>0
+				AND ((NEW.kind='image' AND evidence.source_kind='workspace_image'
+					AND evidence.source_ref=NEW.attachment_id AND EXISTS(SELECT 1 FROM thread_message_images b WHERE b.message_id=message.id AND b.image_id=NEW.attachment_id))
+				OR (NEW.kind='file' AND evidence.source_kind='uploaded_file'
+					AND evidence.source_ref=NEW.attachment_id AND EXISTS(SELECT 1 FROM thread_message_attachments b WHERE b.message_id=message.id AND b.attachment_id=NEW.attachment_id))))
+		BEGIN SELECT RAISE(ABORT,'operator message attachment evidence binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_message_attachment_evidence_update_immutable BEFORE UPDATE ON operator_message_attachment_evidence
+		BEGIN SELECT RAISE(ABORT,'operator message attachment evidence cannot be updated'); END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_steering_cancellation_delete_immutable
 		BEFORE DELETE ON operator_steering_cancellations BEGIN
 			SELECT RAISE(ABORT, 'operator steering cancellations cannot be deleted');
@@ -16912,6 +16989,25 @@ CREATE TRIGGER trg_operator_steering_operation_update_immutable
 			SELECT RAISE(ABORT, 'operator steering operations cannot be updated');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_revision_delete_immutable BEFORE DELETE ON operator_steering_revisions
+		BEGIN SELECT RAISE(ABORT,'operator steering revisions cannot be deleted'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_revision_insert
+		BEFORE INSERT ON operator_steering_revisions
+		WHEN NOT EXISTS (
+			SELECT 1 FROM operator_steering_messages message JOIN runs run ON run.id=message.run_id
+			WHERE message.id=NEW.message_id AND message.run_id=NEW.run_id
+				AND message.session_id=NEW.session_id AND run.session_id=NEW.session_id
+				AND run.status IN ('running','paused') AND message.status='pending'
+				AND message.revision=NEW.from_revision
+				AND message.content_sha256=NEW.old_content_sha256
+				AND NOT EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
+					WHERE delivery.message_id=message.id AND delivery.status='prepared'))
+		BEGIN SELECT RAISE(ABORT,'operator steering revision source is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_revision_update_immutable BEFORE UPDATE ON operator_steering_revisions
+		BEGIN SELECT RAISE(ABORT,'operator steering revisions cannot be updated'); END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_steering_run_completion_guard
 		BEFORE UPDATE OF status ON runs
 		WHEN NEW.status = 'completed' AND OLD.status != 'completed'
@@ -16923,22 +17019,43 @@ CREATE TRIGGER trg_operator_steering_run_completion_guard
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_steering_update_monotonic
 		BEFORE UPDATE ON operator_steering_messages
-		WHEN NEW.attachment_count IS NOT OLD.attachment_count OR NEW.image_count IS NOT OLD.image_count OR NEW.id IS NOT OLD.id OR NEW.run_id IS NOT OLD.run_id
-			OR NEW.session_id IS NOT OLD.session_id OR NEW.sequence IS NOT OLD.sequence
-			OR NEW.content IS NOT OLD.content OR NEW.content_sha256 IS NOT OLD.content_sha256
-			OR NEW.requested_by IS NOT OLD.requested_by OR NEW.created_at IS NOT OLD.created_at
-			OR OLD.status != 'pending' OR NEW.status NOT IN ('committed', 'cancelled')
-			OR (NEW.status = 'cancelled' AND NOT EXISTS (
-				SELECT 1 FROM operator_steering_cancellations cancellation
-				WHERE cancellation.message_id = OLD.id AND cancellation.run_id = OLD.run_id
-					AND cancellation.created_at = NEW.cancelled_at
-					AND (cancellation.kind = 'run_terminal' OR EXISTS (
-						SELECT 1 FROM operator_steering_cancellation_operations operation
-						WHERE operation.cancellation_id = cancellation.id
-							AND operation.message_id = OLD.id AND operation.run_id = OLD.run_id))))
-		BEGIN
-			SELECT RAISE(ABORT, 'operator steering content is immutable and status is monotonic');
-		END;
+		WHEN NOT (
+			(OLD.status='pending' AND NEW.status IN ('committed','cancelled')
+				AND NEW.id IS OLD.id AND NEW.run_id IS OLD.run_id AND NEW.session_id IS OLD.session_id
+				AND NEW.sequence IS OLD.sequence AND NEW.content IS OLD.content
+				AND NEW.content_sha256 IS OLD.content_sha256 AND NEW.revision IS OLD.revision
+				AND NEW.original_content IS OLD.original_content
+				AND NEW.original_content_sha256 IS OLD.original_content_sha256
+				AND NEW.edited_at IS OLD.edited_at AND NEW.image_count IS OLD.image_count
+				AND NEW.attachment_count IS OLD.attachment_count
+				AND NEW.requested_by IS OLD.requested_by AND NEW.created_at IS OLD.created_at
+				AND (NEW.status='committed' OR EXISTS (
+					SELECT 1 FROM operator_steering_cancellations cancellation
+					WHERE cancellation.message_id=OLD.id AND cancellation.run_id=OLD.run_id
+						AND cancellation.created_at=NEW.cancelled_at
+						AND (cancellation.kind='run_terminal' OR EXISTS (
+							SELECT 1 FROM operator_steering_cancellation_operations operation
+							WHERE operation.cancellation_id=cancellation.id
+								AND operation.message_id=OLD.id AND operation.run_id=OLD.run_id)))))
+			OR
+			(OLD.status='pending' AND NEW.status='pending'
+				AND NEW.id IS OLD.id AND NEW.run_id IS OLD.run_id AND NEW.session_id IS OLD.session_id
+				AND NEW.sequence IS OLD.sequence AND NEW.revision=OLD.revision+1
+				AND NEW.original_content IS OLD.original_content
+				AND NEW.original_content_sha256 IS OLD.original_content_sha256
+				AND NEW.image_count IS OLD.image_count AND NEW.attachment_count IS OLD.attachment_count
+				AND NEW.requested_by IS OLD.requested_by AND NEW.created_at IS OLD.created_at
+				AND NEW.session_message_id IS OLD.session_message_id
+				AND NEW.committed_at IS OLD.committed_at AND NEW.cancelled_at IS OLD.cancelled_at
+				AND NEW.edited_at IS NOT NULL
+				AND NOT EXISTS (SELECT 1 FROM operator_steering_deliveries delivery WHERE delivery.message_id=OLD.id AND delivery.status='prepared')
+				AND EXISTS (SELECT 1 FROM operator_steering_revisions revision
+					WHERE revision.message_id=OLD.id AND revision.run_id=OLD.run_id
+						AND revision.session_id=OLD.session_id AND revision.from_revision=OLD.revision
+						AND revision.to_revision=NEW.revision AND revision.old_content_sha256=OLD.content_sha256
+						AND revision.new_content=NEW.content AND revision.new_content_sha256=NEW.content_sha256
+						AND revision.created_at=NEW.edited_at)))
+		BEGIN SELECT RAISE(ABORT,'operator steering transition is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_verification_association_delete_immutable
 		BEFORE DELETE ON operator_verification_plan_evidence_associations BEGIN
@@ -23448,6 +23565,23 @@ CREATE TRIGGER trg_scheduled_job_notification_update_immutable
 		BEFORE UPDATE ON scheduled_job_notifications BEGIN
 			SELECT RAISE(ABORT, 'scheduled job notification cannot be updated');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_scheduled_job_observation_consent_delete_immutable
+		BEFORE DELETE ON scheduled_job_observation_consents
+		BEGIN SELECT RAISE(ABORT, 'scheduled job observation consent cannot be deleted'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_scheduled_job_observation_consent_insert
+		BEFORE INSERT ON scheduled_job_observation_consents
+		WHEN NOT EXISTS (
+			SELECT 1 FROM scheduled_jobs job
+			WHERE job.id = NEW.job_id AND job.owner_run_id = NEW.run_id
+				AND job.execution_mode = 'read_only'
+				AND CAST(json_extract(job.spec_json, '$.max_model_calls') AS INTEGER) = 0)
+		BEGIN SELECT RAISE(ABORT, 'scheduled job observation consent source is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_scheduled_job_observation_consent_update_immutable
+		BEFORE UPDATE ON scheduled_job_observation_consents
+		BEGIN SELECT RAISE(ABORT, 'scheduled job observation consent is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_scheduled_job_operation_delete_immutable
 		BEFORE DELETE ON scheduled_job_operations BEGIN

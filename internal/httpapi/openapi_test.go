@@ -528,6 +528,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		capture: application.FullCDPPreviewCapture{View: previewView, PNG: imageBytes},
 	}
 	fixture.api.fullCDPSessionControlEnabled = true
+	fixture.api.agentBrowserController = &agentBrowserHTTPStub{png: imageBytes, digest: imageReceipt.SHA256,
+		view: application.AgentBrowserView{Version: "agent_browser_status.v1", RunID: fixture.run.ID,
+			SessionID: "agent-browser-openapi", Generation: 1, State: "ready", Headless: true,
+			UpdatedAt: time.Now().UTC(), ArtifactLocator: "openapi-browser.png", ScreenshotSHA256: imageReceipt.SHA256,
+			ScreenshotBytes: len(imageBytes), Capabilities: application.AgentBrowserCapabilities{Available: true}}}
 	fixture.api.gitAdvancedController = &gitAdvancedControllerStub{}
 	fixture.api.gitAdvancedControlEnabled = true
 	fixture.api.githubReviewController = &githubReviewControllerStub{}
@@ -871,6 +876,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	evidenceContent := "OpenAPI evidence\n"
+	revisionSteering, err := fixture.store.EnqueueOperatorSteering(t.Context(), domain.EnqueueOperatorSteeringRequest{
+		RunID: fixture.run.ID, SessionID: fixture.run.SessionID, Content: "OpenAPI revision target",
+		OperationKey: "openapi-revision-target-0001", RequestedBy: "openapi_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(fixture.workspace.RootPath, "README.md"),
 		[]byte(evidenceContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -1117,6 +1128,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		for placeholder, value := range replacements {
 			requestPath = strings.ReplaceAll(requestPath, placeholder, value)
 		}
+		if spec.Path == SessionSteeringRevisionPathTemplate || spec.Path == SessionSteeringRevisionObservationPathTemplate {
+			requestPath = strings.ReplaceAll(requestPath, steering.Message.ID, revisionSteering.Message.ID)
+		}
 		if spec.Path == SpecialistModelCancellationPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", childRun.ID)
 			requestPath = strings.ReplaceAll(requestPath, "{agent_id}", child.ID)
@@ -1158,7 +1172,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		} else if spec.Path == RunWakeExecutionPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", wakeExecutionRun.ID)
 		} else if spec.Path == RunScheduledJobsPathTemplate ||
-			spec.Path == ScheduledJobActionPathTemplate {
+			spec.Path == ScheduledJobActionPathTemplate || spec.Path == ScheduledJobObservationPathTemplate {
 			requestPath = strings.ReplaceAll(requestPath, fixture.run.ID, scheduledCreated.ID)
 		} else if spec.Path == FileEditProposalRecoveryPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", fixture.run.ID)
@@ -1192,6 +1206,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?connection_id=github-connection-openapi"
 		} else if spec.OperationID == "readRunFullCDPPreviewImage" {
 			requestPath += "?session_id=" + previewView.SessionID + "&sha256=" + previewView.Image.SHA256
+		} else if spec.OperationID == "readRunAgentBrowserScreenshot" {
+			requestPath += "?session_id=agent-browser-openapi&artifact_locator=openapi-browser.png&sha256=" + imageReceipt.SHA256
 		} else if spec.OperationID == "inspectThreadCreationRequest" {
 			requestPath += "?workspace_id=" + fixture.workspace.ID
 		} else if spec.OperationID == "inspectThreadPlanRequest" {
@@ -1279,6 +1295,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"workspace_image_upload.v1","mime_type":"image/png","name":"image.png","data_base64":"` + base64.StdEncoding.EncodeToString(imageBytes) + `"}`
 				} else if spec.OperationID == "captureRunFullCDPPreview" {
 					body = `{"version":"full_cdp_preview.v1","expected_session_id":"` + previewView.SessionID + `"}`
+				} else if spec.OperationID == "closeRunAgentBrowser" {
+					body = `{"version":"agent_browser_close.v1","session_id":"agent-browser-openapi"}`
 				} else if spec.OperationID == "actRunFullCDPPreview" {
 					body = `{"version":"full_cdp_preview_action.v1","expected_session_id":"` + previewView.SessionID + `","expected_snapshot_id":"` + previewView.Page.SnapshotID + `","action":"click","selector":"#press"}`
 				} else if spec.OperationID == "createContextMemory" {
@@ -1454,6 +1472,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == SessionSteeringCancellationPathTemplate {
 					body = `{"version":"session_steering_cancellation.v1",` +
 						`"reason":"OpenAPI live cancellation"}`
+				} else if spec.Path == SessionSteeringRevisionPathTemplate {
+					body = `{"version":"session_steering_revision.v1","expected_revision":0,"content":"OpenAPI updated body"}`
 				} else if spec.Path == RunLifecycleControlPathTemplate {
 					body = `{"version":"run_lifecycle_control.v1","action":"start"}`
 				} else if spec.Path == ThreadRunRecoveryControlPathTemplate {
@@ -1595,6 +1615,13 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == ScheduledJobActionPathTemplate {
 					body = `{"version":"scheduled-job-control.v1","expected_revision":` +
 						fmt.Sprint(scheduledSeed.Job.Revision) + `}`
+				} else if spec.Path == ScheduledJobObservationPathTemplate {
+					current, getErr := scheduledJobs.Get(t.Context(), scheduledSeed.Job.ID, 1, 1)
+					if getErr != nil {
+						t.Fatal(getErr)
+					}
+					body = `{"version":"scheduled-job-control.v1","observation_consent_version":1,"expected_revision":` +
+						fmt.Sprint(current.Job.Revision) + `}`
 				} else if spec.Path == SkillPackageInstallPath {
 					body = `{"version":"skill_package_installation.v1","archive_base64":"` +
 						base64.StdEncoding.EncodeToString(skillArchive) +
@@ -1726,7 +1753,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					!bytes.Contains(response.Body.Bytes(), []byte(`"openapi": "3.1.0"`)) {
 					t.Fatalf("raw OpenAPI response is invalid: content-type=%q body=%s", contentType, response.Body.String())
 				}
-			} else if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" {
+			} else if spec.OperationID == "readWorkspaceImageContent" || spec.OperationID == "readRunFullCDPPreviewImage" || spec.OperationID == "readRunAgentBrowserScreenshot" {
 				if contentType != "image/png" || !bytes.Equal(response.Body.Bytes(), imageBytes) || response.Header().Get("ETag") != `"`+imageReceipt.SHA256+`"` || response.Header().Get("X-Cyberagent-Content-SHA256") != imageReceipt.SHA256 {
 					t.Fatalf("raw image did not match saved identity: content-type=%q", contentType)
 				}

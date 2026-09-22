@@ -39,5 +39,25 @@ func (s *RunSupervisor) supervisorMessagesWithOriginalFiles(ctx context.Context,
 	}
 	note += fmt.Sprintf("Exact input manifest SHA-256: %s\n%s", digest, body)
 	evidence := session.ProjectContextMessage(session.NewEvidenceMessage(turn.Run.SessionID, session.SourceUploadedFile, digest, note))
-	return append(messages, llm.Message{Role: evidence.Role, Content: evidence.Content}), nil
+	messages = append(messages, llm.Message{Role: evidence.Role, Content: evidence.Content})
+	// Approval continuation resumes an already committed operator message. Its
+	// attachment evidence is in Session history; there is no prepared delivery
+	// to project again. The original-file inventory above still checks the exact
+	// checkpoint and active execution lease before exposing the saved files.
+	if turn.ApprovalContinuation {
+		return messages, nil
+	}
+	if current, ok := s.store.(interface {
+		ListPreparedOperatorMessageAttachmentEvidence(context.Context, domain.SupervisorCheckpoint) ([]session.Message, error)
+	}); ok {
+		projected, err := current.ListPreparedOperatorMessageAttachmentEvidence(ctx, turn.Checkpoint)
+		if err != nil {
+			return nil, err
+		}
+		for _, message := range projected {
+			contextMessage := session.ProjectContextMessage(message)
+			messages = append(messages, llm.Message{Role: contextMessage.Role, Content: contextMessage.Content})
+		}
+	}
+	return messages, nil
 }

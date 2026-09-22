@@ -9,6 +9,9 @@ Schema v122 为显式指定的 Run 增加持久化、有边界的监控器，以
 
 ## Safety defaults / 安全默认值
 
+Schema v167 adds immutable per-job consent for ordinary desktop observation. It does not
+backfill existing jobs or change their original specification hashes.
+
 - The owner and target are an exact existing Run and its root Agent.
 - `read_only` is the default; model-call budget zero disables model calls.
 - Deadline, maximum rounds, maximum elapsed time, retry attempts, and backoff are mandatory.
@@ -60,9 +63,13 @@ $env:CYBERAGENT_API_CONTROL_TOKEN = "<control-token>"
 cyberagent api serve --enable-scheduled-job-worker
 ```
 
-Desktop exposes control with `--enable-scheduled-jobs` and starts the process-local worker
-with `--enable-scheduled-job-worker`. The operator preview enables both for the current
-process. Closing API/Desktop drains and stops the worker. Capability output always reports
+Ordinary Desktop startup installs a restricted observer. It selects only jobs with persisted
+observation consent version 1, `read_only` execution and a zero model-call budget, before
+both reconciliation and claiming. Existing jobs require one exact-job confirmation; restarting
+does not ask again. The explicit `--enable-scheduled-jobs --enable-scheduled-job-worker`
+launch and operator preview retain their existing whole-job worker behavior.
+
+Closing API/Desktop drains and stops the worker. Capability output always reports
 `runtime_enable_supported=false`, `persistent_service=false`, and
 `authority_escalation=false`.
 
@@ -102,14 +109,27 @@ Control bearer plus `Idempotency-Key` routes:
 
 - `POST /api/v1/runs/{run_id}/scheduled-jobs`
 - `POST /api/v1/runs/{run_id}/scheduled-jobs/{job_id}/pause|resume|cancel`
+- `POST /api/v1/runs/{run_id}/scheduled-jobs/{job_id}/enable-observation`
+
+Creation accepts optional `observation_consent_version: 1` to save the job and its consent
+atomically. Omission preserves legacy creation and idempotency behavior. The separate
+confirmation body is `{"version":"scheduled-job-control.v1","expected_revision":<n>,
+"observation_consent_version":1}`. Confirmation never resumes a paused job. The receipt is
+immutable; pause/cancel control whether an already confirmed job can be observed.
 
 Unknown/duplicate/blank query parameters and unknown JSON fields fail closed. Scheduled
 control never returns a fence token or starts execution inside the HTTP request.
 
 ## Desktop
 
-Open **Scheduled tasks / 自动定时** to list all jobs or filter/create by Run ID. Creation is
-deliberately read-only and bounded. Select a job to inspect next wake, deadline, round
+Open **定时观察 / Scheduled observations** from the current conversation's Inspector tools.
+The current Run is filled in. Set a time window and choose **创建并观察 / Create and observe**.
+The app records status changes without model calls; it observes while open and continues
+confirmed schedules on later launches. Previously created plans show a separate confirmation
+button. A paused plan remains paused after confirmation or restart.
+
+The page reads actual worker health instead of presenting a startup capability as running.
+Select a job to inspect next wake, deadline, round
 budget, latest result, and notifications; active jobs can be paused/cancelled and paused
 jobs resumed with exact revision CAS. **Export diagnostics** downloads the same redacted
 `diagnostic-bundle.v1` JSON after the renderer validates its redaction contract.

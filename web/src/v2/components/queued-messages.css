@@ -1,0 +1,12 @@
+.v2-queued-messages { margin: 12px 0; padding: 16px; border: 1px solid var(--v2-border, #7775); border-radius: 14px; min-width: 0; }
+.v2-queued-messages > header, .v2-queued-message-heading, .v2-queued-message-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.v2-queued-messages > header { justify-content: space-between; }
+.v2-queued-messages ol { list-style: none; padding: 0; margin: 12px 0 0; max-height: 320px; overflow: auto; }
+.v2-queued-messages li { padding: 12px 0; border-top: 1px solid var(--v2-border, #7775); }
+.v2-queued-messages pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 10px 0; max-height: 240px; overflow: auto; }
+.v2-queued-messages summary { cursor: pointer; padding: 8px 0; }
+.v2-queued-message-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+.v2-queued-messages button { min-height: 36px; padding: 6px 12px; }
+.v2-queue-editor, .v2-queued-message-pending { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--v2-border, #7775); overflow-wrap: anywhere; }
+.v2-queue-editor textarea { display: block; box-sizing: border-box; width: 100%; min-height: 100px; padding: 10px; margin: 8px 0; resize: vertical; font: inherit; }
+.v2-queued-messages p { margin: 8px 0; overflow-wrap: anywhere; }

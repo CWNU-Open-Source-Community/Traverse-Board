@@ -928,6 +928,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/agent-browser": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the Agent browser state
+         * @description Reads the Run's process-local Agent browser status without starting a browser or executing an action. Excludes runtime authority and profile/DevTools handles.
+         */
+        get: operations["getRunAgentBrowser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/agent-browser/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one exact Agent browser session
+         * @description Permanently invalidates and cleans the exact session. Repeating a close cannot target another session or start a browser. Cleanup does not require a still-live execution grant.
+         */
+        post: operations["closeRunAgentBrowser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/agent-browser/screenshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a saved Agent browser screenshot
+         * @description Reads exact completed screenshot evidence for this Run, manager session and artifact. Requires the expected PNG hash and never captures again.
+         */
+        get: operations["readRunAgentBrowserScreenshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/agent-graph": {
         parameters: {
             query?: never;
@@ -2524,6 +2584,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/enable-observation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm durable read-only observation of one scheduled job
+         * @description Records one immutable, idempotent consent for an exact revision of a read-only zero-model job. The ordinary desktop worker observes confirmed jobs on later launches. This does not resume a paused job, grant repair authority, or start an OS service.
+         */
+        post: operations["enableRunScheduledJobObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}": {
         parameters: {
             query?: never;
@@ -3300,6 +3380,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session_id}/messages/{message_id}/cancellations/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe one exact message cancellation receipt
+         * @description Read-only confirmation bound to the original operation key and HTTP operator. If absent, returns the current message status from the same transaction; another cancellation is never reported as this operation's success.
+         */
+        get: operations["inspectSessionSteeringCancellation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/messages/{message_id}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revise one queued message without changing its order
+         * @description CAS replaces the body of the exact pending, unprepared message. Original submission identity and attachment references remain immutable. The sealed receipt supports safe explicit retries; no execution is started.
+         */
+        post: operations["reviseSessionSteering"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/messages/{message_id}/revisions/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe one exact message revision receipt
+         * @description Read-only confirmation of the original operation key and fixed HTTP operator. An absent receipt is not proof that an in-flight request will not commit. This never resubmits the modification.
+         */
+        get: operations["inspectSessionSteeringRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session_id}/tree": {
         parameters: {
             query?: never;
@@ -3822,6 +3962,26 @@ export interface paths {
         };
         /** Observe original draft PR intent without repeating creation */
         get: operations["observeThreadPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/queued-messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read every durable queued message for the current Thread Run
+         * @description Reads the complete bounded pending queue and prepared flags in one transaction. Counts exclude committed and cancelled messages. It does not start or resume execution.
+         */
+        get: operations["listThreadQueuedMessages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4461,6 +4621,7 @@ export interface components {
              * @constant
              */
             operation_key_invalidated?: true;
+            revision_unchanged?: components["schemas"]["QueueRevisionUnchangedView"];
             /**
              * @description Only present as true after the exact product Thread turn is durably closed as failed. The original input and completed tool evidence remain in the conversation. A new request must use a new operation key; absence does not establish the previous outcome.
              * @constant
@@ -4492,6 +4653,45 @@ export interface components {
             tool_round: number;
             /** Format: int32 */
             transport_attempt: number;
+        };
+        AgentBrowserCloseRequestView: {
+            session_id: string;
+            /** @enum {string} */
+            version: "agent_browser_close.v1";
+        };
+        AgentBrowserScreenshotView: {
+            /** Format: int32 */
+            byte_size: number;
+            locator: string;
+            /** @enum {string} */
+            mime_type: "image/png";
+            sha256: string;
+        };
+        AgentBrowserStatusView: {
+            available: boolean;
+            can_start: boolean;
+            cleanup_pending: boolean;
+            /** Format: int64 */
+            document_epoch: number;
+            failure_code?: string;
+            /** Format: int64 */
+            generation: number;
+            headless: boolean;
+            last_action?: string;
+            product?: string;
+            profile_removed: boolean;
+            run_id: string;
+            screenshot?: components["schemas"]["AgentBrowserScreenshotView"];
+            session_id?: string;
+            /** @enum {string} */
+            state: "unavailable" | "idle" | "starting" | "ready" | "loading" | "busy" | "waiting_user" | "failed" | "closing" | "closed" | "cleanup_pending";
+            title?: string;
+            tree_reaped: boolean;
+            /** Format: date-time */
+            updated_at: string;
+            url?: string;
+            /** @enum {string} */
+            version: "agent_browser_status.v1";
         };
         AgentCodeCapabilitiesView: {
             generation: string;
@@ -4579,7 +4779,7 @@ export interface components {
             model_called: boolean;
             replayed: boolean;
             /** @enum {string} */
-            state: "not_started" | "queued" | "completed" | "failed";
+            state: "not_started" | "queued" | "completed" | "waiting_approval" | "failed";
             tool_called: boolean;
         };
         ApprovalDecisionControlRequestView: {
@@ -4594,6 +4794,7 @@ export interface components {
             action: "approve_once" | "approve_for_thread" | "deny";
             approval_id: string;
             capability_grant: boolean;
+            continuation?: components["schemas"]["ApprovalContinuationResult"];
             docker_execution_enabled: boolean;
             execution_resumed: boolean;
             process_execution_enabled: boolean;
@@ -4618,7 +4819,7 @@ export interface components {
         ApprovalPreviewView: {
             approval_id: string;
             /** @enum {string} */
-            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "unavailable";
+            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "unavailable";
             fields: components["schemas"]["ApprovalPreviewFieldView"][];
             proposal_id: string;
             /** @enum {string} */
@@ -8248,6 +8449,15 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "committed" | "cancelled";
         };
+        OperatorSteeringObservationMessageView: {
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            run_id: string;
+            session_id: string;
+            /** @enum {string} */
+            status: "pending" | "committed" | "cancelled";
+        };
         OperatorSteeringQueueView: {
             /** Format: int32 */
             cancelled: number;
@@ -8731,6 +8941,27 @@ export interface components {
             updated_at: string;
             version: string;
         };
+        QueueRevisionUnchangedView: {
+            /** @enum {boolean} */
+            capability_grant: false;
+            current_content_sha256: string;
+            /** @enum {boolean} */
+            execution_started: false;
+            /** Format: int64 */
+            expected_revision: number;
+            message_id: string;
+            /** @enum {boolean} */
+            model_called: false;
+            normalized_content_sha256: string;
+            operation_key_sha256: string;
+            request_content_sha256: string;
+            run_id: string;
+            session_id: string;
+            /** @enum {boolean} */
+            tool_called: false;
+            /** @enum {string} */
+            version: "queue_revision_unchanged.v1";
+        };
         Record: {
             ActionClass: string;
             /** Format: date-time */
@@ -9207,9 +9438,34 @@ export interface components {
             project_config_fingerprint?: string;
             project_instructions_fingerprint?: string;
         };
+        RunContextDiagnosticView: {
+            attempt_id: string;
+            /** @enum {string} */
+            fallback_code?: "generation_cost_budget" | "generation_protocol_repair" | "generation_provider_failure" | "generation_invalid_response" | "generation_input_data" | "generation_input_window" | "generation_token_budget" | "unclassified";
+            generated?: boolean;
+            /** Format: int32 */
+            model_attempt?: number;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string} */
+            phase: "generation_started" | "generation_received" | "generation_rejected" | "generation_failed" | "summary_saved";
+            /** Format: int32 */
+            removed_messages?: number;
+            /** Format: int64 */
+            sequence: number;
+            source_sha256: string;
+            /** Format: int64 */
+            summary_id?: number;
+        };
+        RunContextDiagnosticsView: {
+            records: components["schemas"]["RunContextDiagnosticView"][];
+            truncated: boolean;
+        };
         RunContextSummaryView: {
             capability_grant: boolean;
             current_summary?: components["schemas"]["RunStoredContextSummaryView"];
+            diagnostics?: components["schemas"]["RunContextDiagnosticsView"];
+            diagnostics_unavailable?: boolean;
             inherited_context?: components["schemas"]["RunInheritedContextView"];
             run_id: string;
             session_id: string;
@@ -9778,6 +10034,8 @@ export interface components {
             model_calls: number;
             /** Format: date-time */
             next_wake_at?: string;
+            /** Format: int32 */
+            observation_consent_version: number;
             owner_root_agent_id: string;
             owner_run_id: string;
             /** Format: date-time */
@@ -9838,6 +10096,8 @@ export interface components {
             max_rounds: number;
             /** @enum {string} */
             notification: "silent" | "on_change" | "on_failure" | "all";
+            /** Format: int32 */
+            observation_consent_version?: number;
             retry: components["schemas"]["ScheduledJobRetryPolicy"];
             schedule: components["schemas"]["ScheduledJobScheduleRequestView"];
             stop_on_target_terminal: boolean;
@@ -9862,6 +10122,14 @@ export interface components {
             /** @enum {string} */
             kind: "change" | "failure" | "recovery" | "completed";
             summary: string;
+        };
+        ScheduledJobObservationRequestView: {
+            /** Format: int64 */
+            expected_revision: number;
+            /** Format: int32 */
+            observation_consent_version: number;
+            /** @enum {string} */
+            version: "scheduled-job-control.v1";
         };
         ScheduledJobRetryPolicy: {
             /** Format: int32 */
@@ -9965,6 +10233,8 @@ export interface components {
             protocol_version: "scheduled-job-worker-health.v1";
             runtime_enable_supported: boolean;
             /** @enum {string} */
+            selection_scope?: "confirmed_read_only" | "all_jobs";
+            /** @enum {string} */
             state: "disabled" | "ready" | "running" | "draining" | "stopped";
         };
         ScopeView: {
@@ -10031,6 +10301,27 @@ export interface components {
             /** @enum {string} */
             version: "session_message_submission.v1";
         };
+        SessionSteeringCancellationObservationView: {
+            capability_grant: boolean;
+            message?: components["schemas"]["OperatorSteeringObservationMessageView"];
+            message_id: string;
+            receipt?: components["schemas"]["SessionSteeringCancellationObservedReceiptView"];
+            session_id: string;
+            /** @enum {string} */
+            state: "absent" | "sealed";
+            /** @enum {string} */
+            version: "session_steering_cancellation.v1";
+        };
+        SessionSteeringCancellationObservedReceiptView: {
+            cancellation_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            kind: "operator";
+            message_id: string;
+            run_id: string;
+            session_id: string;
+        };
         SessionSteeringCancellationRequestView: {
             reason: string;
             /** @enum {string} */
@@ -10050,6 +10341,48 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "session_steering_cancellation.v1";
+        };
+        SessionSteeringRevisionObservationView: {
+            capability_grant: boolean;
+            message?: components["schemas"]["OperatorSteeringObservationMessageView"];
+            message_id: string;
+            revision?: components["schemas"]["SessionSteeringRevisionView"];
+            session_id: string;
+            /** @enum {string} */
+            state: "absent" | "sealed";
+            /** @enum {string} */
+            version: "session_steering_revision.v1";
+        };
+        SessionSteeringRevisionReceiptView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            from_revision: number;
+            id: string;
+            new_content_sha256: string;
+            old_content_sha256: string;
+            /** Format: int64 */
+            to_revision: number;
+        };
+        SessionSteeringRevisionRequestView: {
+            content: string;
+            /** Format: int64 */
+            expected_revision: number;
+            /** @enum {string} */
+            version: "session_steering_revision.v1";
+        };
+        SessionSteeringRevisionView: {
+            capability_grant: boolean;
+            execution_started: boolean;
+            message_id: string;
+            model_called: boolean;
+            receipt: components["schemas"]["SessionSteeringRevisionReceiptView"];
+            replayed: boolean;
+            run_id: string;
+            session_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "session_steering_revision.v1";
         };
         SessionTree: {
             capability_grant: boolean;
@@ -11218,6 +11551,40 @@ export interface components {
             state: string;
             thread_id: string;
             version: string;
+        };
+        ThreadQueuedMessageView: {
+            attachments: components["schemas"]["WorkspaceFileAttachment"][];
+            can_cancel: boolean;
+            can_edit: boolean;
+            content: string;
+            content_redacted: boolean;
+            content_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            edited_at?: string;
+            id: string;
+            images: components["schemas"]["WorkspaceImage"][];
+            prepared: boolean;
+            /** Format: int64 */
+            revision: number;
+            /** Format: int64 */
+            sequence: number;
+            /** @enum {string} */
+            status: "pending";
+        };
+        ThreadQueuedMessagesView: {
+            capability_grant: boolean;
+            items: components["schemas"]["ThreadQueuedMessageView"][];
+            /** Format: int32 */
+            pending: number;
+            /** Format: int32 */
+            prepared: number;
+            run_id: string;
+            session_id: string;
+            thread_id: string;
+            /** @enum {string} */
+            version: "thread_queued_messages.v1";
         };
         ThreadRequestObservationView: {
             error_code?: string;
@@ -14870,6 +15237,124 @@ export interface operations {
                         /** @constant */
                         version: "api.v1";
                     };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getRunAgentBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentBrowserStatusView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    closeRunAgentBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBrowserCloseRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentBrowserStatusView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    readRunAgentBrowserScreenshot: {
+        parameters: {
+            query: {
+                session_id: string;
+                artifact_locator: string;
+                sha256: string;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated hash-verified image bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -18536,6 +19021,56 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    enableRunScheduledJobObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Scheduled job identity */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledJobObservationRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     transitionRunScheduledJob: {
         parameters: {
             query?: never;
@@ -20541,6 +21076,135 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    inspectSessionSteeringCancellation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Operator steering message identity */
+                message_id: string;
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionSteeringCancellationObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    reviseSessionSteering: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Operator steering message identity */
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionSteeringRevisionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionSteeringRevisionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    inspectSessionSteeringRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Operator steering message identity */
+                message_id: string;
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionSteeringRevisionObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getSessionContinuityTree: {
         parameters: {
             query?: never;
@@ -21886,6 +22550,43 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ThreadPullRequestResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    listThreadQueuedMessages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadQueuedMessagesView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

@@ -192,3 +192,58 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	}
 	assertNoForeignKeyViolations(t, state.db)
 }
+
+func TestLegacyFixtureRejectsModernQueueRevisionWithoutDiscardingHistory(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "modern-queue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	ctx := t.Context()
+	_, created := createWorkItemTestRun(t, ctx, state, "preserve modern queue revision")
+	run, err := application.NewRunService(state).Start(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := state.EnqueueOperatorSteering(ctx, domain.EnqueueOperatorSteeringRequest{
+		RunID: run.ID, SessionID: run.SessionID, Content: "original content",
+		OperationKey: "legacy-guard-queue-0001", RequestedBy: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = state.ReviseOperatorSteering(ctx, domain.ReviseOperatorSteeringRequest{
+		SessionID: run.SessionID, MessageID: queued.Message.ID, ExpectedRevision: 0,
+		Content: "revised content", OperationKey: "legacy-guard-revision-0001", RequestedBy: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.loadAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := false
+	for _, statement := range removeSchemaV157ForTestStatements() {
+		if _, err := state.db.ExecContext(ctx, statement); err != nil {
+			if !strings.HasPrefix(statement, "INSERT INTO legacy_fixture_empty_queue_history") {
+				t.Fatalf("fixture failed outside the history guard: %q: %v", statement, err)
+			}
+			rejected = true
+			break
+		}
+	}
+	if !rejected {
+		t.Fatal("legacy fixture silently discarded modern queue history")
+	}
+	var count, revision int
+	var content string
+	if err := state.db.QueryRowContext(ctx, `SELECT count(*) FROM operator_steering_revisions`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("revision receipt was discarded: count=%d err=%v", count, err)
+	}
+	if err := state.db.QueryRowContext(ctx, `SELECT revision,content FROM operator_steering_messages WHERE id=?`, queued.Message.ID).Scan(&revision, &content); err != nil || revision != 1 || content != "revised content" {
+		t.Fatalf("revised message changed: revision=%d content=%q err=%v", revision, content, err)
+	}
+	after, err := state.loadAppliedMigrations(ctx)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("rejected downgrade changed migration ledger: %v", err)
+	}
+}

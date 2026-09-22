@@ -60,6 +60,8 @@ const (
 	BrowserClickTool                ToolName = "browser_click"
 	BrowserTypeTool                 ToolName = "browser_type"
 	BrowserScreenshotTool           ToolName = "browser_screenshot"
+	BrowserScrollTool               ToolName = "browser_scroll"
+	BrowserKeyTool                  ToolName = "browser_key"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -94,7 +96,7 @@ func TypedActionIDs() map[string]struct{} {
 	for _, name := range WebEvidenceToolNames() {
 		out[string(name)] = struct{}{}
 	}
-	for _, name := range BrowserActionToolNames() {
+	for _, name := range append(BrowserActionToolNames(), BrowserScrollTool, BrowserKeyTool) {
 		out[string(name)] = struct{}{}
 	}
 	return out
@@ -169,7 +171,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 		return ClassNetworkRead, true
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
+		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
 		return ClassProcess, true
 	case WorkItemCreateTool, NoteCreateTool, HistorySearchTool, HistoryReadTool:
 		return ClassRunMemory, true
@@ -257,6 +259,7 @@ type ToolCall struct {
 	BrowserActionSessionID      string                            `json:"-"`
 	BrowserPermissionSnapshotID string                            `json:"-"`
 	BrowserPermissionRevision   int64                             `json:"-"`
+	AgentBrowserAuthority       json.RawMessage                   `json:"-"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {

@@ -8,6 +8,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/llm"
 )
 
 const ThreadExecutionProtocolVersion = "thread_execution.v1"
@@ -100,20 +101,22 @@ func (s *ThreadTurnService) executeWithPreparation(ctx context.Context, request 
 	s.turnMu.Lock()
 	if active := s.activeTurns[request.ThreadID]; active != nil {
 		defer s.turnMu.Unlock()
+		if (len(normalized.Files) > 0 || len(normalized.Images) > 0 || len(normalized.Attachments) > 0) &&
+			active.operationKey == normalized.OperationKey && intent.MessageID == "" {
+			canReject = false
+			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeUnavailable,
+				"This Thread submission is still preparing; retry the same operation to confirm its result")
+		}
 		if prepare != nil || active.preparingPlan {
 			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeFailedPrecondition, "Plan preparation requires an idle task; keep this input and retry after preparation")
 		}
-		if len(normalized.Files) > 0 || len(normalized.Images) > 0 || len(normalized.Attachments) > 0 {
-			if active.operationKey == normalized.OperationKey && intent.MessageID == "" {
-				canReject = false
-				return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeUnavailable, "This Thread submission is still preparing; retry the same operation to confirm its result")
-			}
+		if len(normalized.Files) > 0 {
 			if intent.MessageID != "" {
 				submission, _, err := s.threads.prepareMessage(ctx, normalized, intent)
 				return ExecuteThreadTurnResult{Submission: submission, Replayed: true}, err
 			}
 			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeFailedPrecondition,
-				"Thread file references require an idle task. Wait for this execution or remove the references")
+				"Thread project file references require an idle task. Wait for this execution or remove the references")
 		}
 		if active.stopping {
 			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -123,7 +126,27 @@ func (s *ThreadTurnService) executeWithPreparation(ctx context.Context, request 
 			return ExecuteThreadTurnResult{}, apperror.New(apperror.CodeResourceExhausted,
 				"The pending Thread message queue is full")
 		}
-		submission, err := s.threads.Submit(ctx, normalized)
+		var submission SubmitThreadMessageResult
+		if len(normalized.Images) > 0 || len(normalized.Attachments) > 0 {
+			submission, intent, err = s.threads.prepareMessage(ctx, normalized, intent)
+			if err == nil && submission.Message.ID == "" && len(normalized.Images) > 0 {
+				var refErr error
+				var ref = llm.ModelRef{}
+				ref, refErr = supervisorModelRef(s.execution.supervisor.router,
+					submission.Run.Config.ModelRoute)
+				if refErr != nil {
+					err = refErr
+				} else if capability := s.execution.supervisor.router.DescribeVision(ref); capability.State != llm.VisionSupported {
+					err = apperror.New(apperror.CodeFailedPrecondition,
+						"Selected model image capability is "+string(capability.State)+"; select a confirmed vision model before sending images")
+				}
+			}
+			if err == nil && submission.Message.ID == "" {
+				submission, err = s.threads.commitMessage(ctx, normalized, submission, nil)
+			}
+		} else {
+			submission, err = s.threads.Submit(ctx, normalized)
+		}
 		if err != nil {
 			return ExecuteThreadTurnResult{}, err
 		}

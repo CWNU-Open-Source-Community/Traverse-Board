@@ -13,6 +13,8 @@ export function ApprovalContinuationNotice({ continuation }: {
       "Review saved. This request did not start automatic continuation; you can send a message in this conversation."),
     queued: t("审批已保存，继续请求已排队；最新进度见对话执行记录。",
       "Review saved and continuation queued. See the conversation records for current progress."),
+    waiting_approval: t("Agent 已继续处理，另一次操作需要批准。",
+      "The Agent continued; another operation needs approval."),
     completed: t("审批已保存，后续工作轮已有结果；具体修改和命令结果见执行记录。",
       "Review saved. The subsequent turn has a recorded outcome; see execution records for file changes and command results."),
     failed: t("审批已保存，后续执行失败；请查看记录后在当前对话继续。",

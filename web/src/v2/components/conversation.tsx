@@ -18,6 +18,8 @@ import { v2FileReferenceKey, type V2FileReference } from "./file-context";
 import { imageIdentities, type WorkspaceImageAttachment } from "../../api/image-attachments";
 import { fileAttachmentIdentities, type WorkspaceFileAttachment } from "../../api/file-attachments";
 import { V2FileAttachments } from "./file-input";
+import { V2QueuedMessages } from "./queued-messages";
+import { V2AgentBrowser } from "./agent-browser";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { v2ImageReferenceKey, V2ImagePreview } from "./image-input";
 import { V2ApplicationPreview } from "./application-preview";
@@ -329,7 +331,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const fileReferenceUnavailableReason = currentRun.status === "waiting_approval"
       ? "当前任务正在等待批准，暂时不能新增文件引用。请先处理待批准的操作。"
       : working || runActive ? modelActive || activityLabel === "正在工作" || activityLabel === "正在停止"
-        ? "当前正在执行，文件引用需等执行结束后发送；不带引用的补充消息仍可排队。"
+        ? "项目内文件引用需等执行结束后发送；补充文字和上传附件可以排队。"
         : turnSubmitting ? "消息正在提交，暂时不能新增文件引用。已有输入会保留。"
           : activityLabel === "停止未完成" ? "停止尚未完成，暂时不能新增文件引用。请先重试停止。"
             : "活动状态尚未确认，暂时不能新增文件引用。已有输入会保留。"
@@ -434,7 +436,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         <button onClick={() => onOpenTool("run", currentRun.id)} type="button">运行诊断与工具</button>
         {currentRun.session_id && <button onClick={() => onOpenTool("session", currentRun.session_id)}
           type="button">会话上下文</button>}
-        <button onClick={() => onOpenTool("schedule", currentRun.id)} type="button">定时任务</button>
+        <button onClick={() => onOpenTool("schedule", currentRun.id)} type="button">定时观察</button>
       </div></details>}
     </nav>}
     {contextOpen && <V2ThreadContext client={client} threadID={threadID} detail={detail}
@@ -492,6 +494,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           <span><ShieldCheck aria-hidden="true" size={18} /></span><p>{detail.thread.status === "archived"
             ? "此归档对话没有公开进展记录。" : "任务已经创建。Agent 的公开进展会出现在这里。"}</p></div>}
         {view === "conversation" && <Narrative client={client} entries={visibleNarrative} threadID={threadID} />}
+        {view === "conversation" && <V2AgentBrowser client={client} runID={currentRun.id} running={working || runActive} />}
         {submissionNotices.map(({ input, error }) =>
           <div className="v2-notice tone-warning" key={input.operationKey} role="alert">
             <p>{v2TurnWasNotQueued(error) ? "这条消息未入队，草稿与引用已保留。请重新选择、移除引用或处理当前限制后重试。"
@@ -534,8 +537,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       {executionQuery.data?.state === "stop_failed" && <p role="alert">
         停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。
       </p>}
-      {executionQuery.data && executionQuery.data.queued_messages > 0 &&
-        <p role="status">已接收 {executionQuery.data.queued_messages} 条消息，等待处理。</p>}
+      {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
+        workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive} />}
       {reconciling ? <p className="v2-composer-caption" role="status">正在核对上次提交，避免重复执行。可以继续编辑，核对完成后再发送。</p>
         : executionQuery.data?.state === "stopping" ? <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>
         : working && <p className="v2-composer-caption">可以补充要求，已受理的消息会提供给下一次模型调用；受理不代表已执行，停止后仍会保留。</p>}

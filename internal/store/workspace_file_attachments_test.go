@@ -10,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/policy"
 )
 
 func TestFileAttachmentImmutableOriginalKeyReadOnlyAndReopen(t *testing.T) {
@@ -120,23 +121,8 @@ func TestThreadFileAttachmentsExactBindingAndAtomicEvidence(t *testing.T) {
 	if _, err := st.ReserveThreadMessageIntent(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
-	// An evidence-storage failure must roll back the new steering, binding and
-	// Session content together; the original intent remains safely retryable.
-	if _, err := st.db.Exec(`CREATE TRIGGER test_fail_file_evidence BEFORE INSERT ON session_messages BEGIN SELECT RAISE(ABORT,'test evidence failure'); END;`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CommitThreadMessage(t.Context(), request, run.ID, nil); err == nil {
-		t.Fatal("injected evidence failure not observed")
-	}
-	for _, table := range []string{"operator_steering_messages", "thread_message_attachments", "session_messages"} {
-		var n int
-		if err := st.db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil || n != 0 {
-			t.Fatal("partial attachment commit", table, n, err)
-		}
-	}
-	if _, err := st.db.Exec(`DROP TRIGGER test_fail_file_evidence`); err != nil {
-		t.Fatal(err)
-	}
+	// Queue admission persists only the binding. Model-visible Session evidence
+	// is delayed until this exact message commits its prepared delivery.
 	queued, err := st.CommitThreadMessage(t.Context(), request, run.ID, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -153,8 +139,51 @@ func TestThreadFileAttachmentsExactBindingAndAtomicEvidence(t *testing.T) {
 		t.Fatal("lost exact attachments", err)
 	}
 	history, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
-	if err != nil || len(history) != 1 || history[0].Provenance.SourceKind != "uploaded_file" || history[0].Provenance.InstructionAuthorized {
-		t.Fatalf("evidence not atomic/nonauthorizing %#v %v", history, err)
+	if err != nil || len(history) != 0 {
+		t.Fatalf("pending attachment leaked into Session evidence %#v %v", history, err)
+	}
+	lease := acquireTestRunExecutionLease(t, t.Context(), st, run.ID)
+	started, err := st.BeginSupervisorTurn(t.Context(), lease, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, response := recordOperatorSteeringModelSuccess(t, t.Context(), st,
+		started.Checkpoint, "attachment observed")
+	finish := domain.RootAction{Version: domain.RootLifecycleVersion,
+		Kind: domain.RootActionFinish, Message: response.Text, Summary: "done"}
+	if _, err := st.db.Exec(`CREATE TRIGGER test_fail_file_evidence BEFORE INSERT ON session_messages BEGIN SELECT RAISE(ABORT,'test evidence failure'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.CompleteSupervisorTurn(t.Context(), checkpoint, response, finish,
+		policy.Decision{Allowed: true}, 0); err == nil {
+		t.Fatal("injected evidence failure not observed")
+	}
+	stored, err := st.GetOperatorSteering(t.Context(), queued.Message.ID)
+	if err != nil || stored.Status != domain.OperatorSteeringPending {
+		t.Fatalf("failed evidence commit changed message %#v %v", stored, err)
+	}
+	if _, err := st.db.Exec(`DROP TRIGGER test_fail_file_evidence`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.CompleteSupervisorTurn(t.Context(), checkpoint, response, finish,
+		policy.Decision{Allowed: true}, 0); err != nil {
+		t.Fatal(err)
+	}
+	history, err = st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := 0
+	for _, message := range history {
+		if message.Provenance.SourceKind == "uploaded_file" {
+			evidence++
+			if message.Provenance.InstructionAuthorized {
+				t.Fatal("attachment evidence authorized instructions")
+			}
+		}
+	}
+	if evidence != 1 {
+		t.Fatalf("commit-bound evidence count=%d history=%#v", evidence, history)
 	}
 	for _, sql := range []string{`UPDATE workspace_file_attachments SET name='changed'`, `UPDATE thread_message_attachments SET ordinal=1`, `DELETE FROM workspace_file_attachments`} {
 		if _, err := st.db.Exec(sql); err == nil {

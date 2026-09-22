@@ -25,14 +25,25 @@ type BrowserModelScreenshot struct {
 
 // The immutable call, rather than a model-provided path, determines which
 // saved image may be read. This grants no new browser or execution authority.
+type browserScreenshotStore interface {
+	GetRun(context.Context, string) (domain.Run, error)
+	GetMission(context.Context, string) (domain.Mission, error)
+}
+
 func (s *FullCDPProductionService) ReadModelScreenshot(ctx context.Context, checkpoint domain.SupervisorCheckpoint, callID string) (BrowserModelScreenshot, error) {
+	return readBrowserModelScreenshot(ctx, s.store, checkpoint, callID, false)
+}
+func (s *AgentBrowserService) ReadModelScreenshot(ctx context.Context, checkpoint domain.SupervisorCheckpoint, callID string) (BrowserModelScreenshot, error) {
+	return readBrowserModelScreenshot(ctx, s.store, checkpoint, callID, true)
+}
+func readBrowserModelScreenshot(ctx context.Context, st browserScreenshotStore, checkpoint domain.SupervisorCheckpoint, callID string, agent bool) (BrowserModelScreenshot, error) {
 	fail := func() (BrowserModelScreenshot, error) {
 		return BrowserModelScreenshot{}, apperror.New(apperror.CodeFailedPrecondition, "saved browser screenshot does not match the current tool evidence")
 	}
-	if s == nil || checkpoint.Validate() != nil || checkpoint.AttemptID == "" || callID == "" {
+	if st == nil || checkpoint.Validate() != nil || checkpoint.AttemptID == "" || callID == "" {
 		return fail()
 	}
-	reader, ok := s.store.(interface {
+	reader, ok := st.(interface {
 		ListSupervisorToolRounds(context.Context, domain.SupervisorCheckpoint) ([]domain.SupervisorToolRound, error)
 	})
 	if !ok {
@@ -61,15 +72,34 @@ func (s *FullCDPProductionService) ReadModelScreenshot(ctx context.Context, chec
 	if call.Validate() != nil || call.RunID != checkpoint.RunID || call.Turn != checkpoint.NextTurn || call.AttemptID != checkpoint.AttemptID || call.ToolName != string(toolgateway.BrowserScreenshotTool) || call.Status != domain.SupervisorToolCompleted || call.ErrorCode != "" {
 		return fail()
 	}
-	authority, err := toolgateway.DecodeBrowserActionCallAuthority(json.RawMessage(call.AuthorityJSON))
-	if err != nil || authority.RunID != checkpoint.RunID || call.AgentID != authority.RootAgentID || call.AgentAttemptID != checkpoint.AttemptID {
+	return readCompletedBrowserScreenshot(ctx, st, call, agent)
+}
+
+func readCompletedBrowserScreenshot(ctx context.Context, st browserScreenshotStore, call domain.SupervisorToolCall, agent bool) (BrowserModelScreenshot, error) {
+	fail := func() (BrowserModelScreenshot, error) {
+		return BrowserModelScreenshot{}, agentBrowserUnavailable("saved browser screenshot does not match its completed tool evidence")
+	}
+	if call.Validate() != nil || call.ToolName != string(toolgateway.BrowserScreenshotTool) || call.Status != domain.SupervisorToolCompleted || call.ErrorCode != "" {
 		return fail()
 	}
-	run, err := s.store.GetRun(ctx, checkpoint.RunID)
+	authority, err := toolgateway.DecodeBrowserActionCallAuthority(json.RawMessage(call.AuthorityJSON))
+	var agentAuthority toolgateway.AgentBrowserCallAuthority
+	if agent {
+		agentAuthority, err = toolgateway.DecodeAgentBrowserAuthority(json.RawMessage(call.AuthorityJSON))
+		authority.RunID = agentAuthority.RunID
+		authority.RootAgentID = agentAuthority.RootAgentID
+		authority.SessionID = agentAuthority.SessionID
+		authority.MissionID = agentAuthority.MissionID
+		authority.WorkspaceID = agentAuthority.WorkspaceID
+	}
+	if err != nil || authority.RunID != call.RunID || call.AgentID != authority.RootAgentID || call.AgentAttemptID != call.AttemptID {
+		return fail()
+	}
+	run, err := st.GetRun(ctx, call.RunID)
 	if err != nil {
 		return BrowserModelScreenshot{}, err
 	}
-	mission, err := s.store.GetMission(ctx, run.MissionID)
+	mission, err := st.GetMission(ctx, run.MissionID)
 	if err != nil {
 		return BrowserModelScreenshot{}, err
 	}
@@ -79,32 +109,46 @@ func (s *FullCDPProductionService) ReadModelScreenshot(ctx context.Context, chec
 	var envelope supervisorToolResultEnvelope
 	// Decode named wire fields explicitly; do not interpret arbitrary locators.
 	var output struct {
-		Version      string `json:"version"`
-		CanonicalURL string `json:"canonical_url"`
-		MediaType    string `json:"media_type"`
-		SHA256       string `json:"sha256"`
-		Artifact     string `json:"artifact_locator"`
-		Bytes        int    `json:"bytes"`
+		Version       string `json:"version"`
+		SessionID     string `json:"session_id"`
+		DocumentEpoch uint64 `json:"document_epoch"`
+		CanonicalURL  string `json:"canonical_url"`
+		MediaType     string `json:"media_type"`
+		SHA256        string `json:"sha256"`
+		Artifact      string `json:"artifact_locator"`
+		Bytes         int    `json:"bytes"`
 	}
 	if json.Unmarshal([]byte(call.ResultJSON), &envelope) != nil || envelope.Version != supervisorToolResultVersion || envelope.Tool != call.ToolName || envelope.Status != "completed" || envelope.Code != "" || envelope.Truncated || json.Unmarshal([]byte(envelope.Stdout), &output) != nil {
 		return fail()
 	}
 	pageURL, urlErr := url.Parse(output.CanonicalURL)
-	if urlErr != nil || pageURL.Scheme+"://"+pageURL.Host != authority.TargetOrigin || output.Version != "browser_screenshot_result.v1" || output.MediaType != "image/png" || output.Bytes < 1 || output.Bytes > browserruntime.MaxScreenshotBytes || envelope.Metadata["full_cdp_session_id"] != authority.FullCDPSessionID || envelope.Metadata["target_origin"] != authority.TargetOrigin || envelope.Metadata["artifact_locator"] != output.Artifact || envelope.Metadata["artifact_sha256"] != output.SHA256 || envelope.Metadata["artifact_bytes"] != strconv.Itoa(output.Bytes) {
+	commonValid := output.MediaType == "image/png" && output.Bytes > 0 && output.Bytes <= browserruntime.MaxScreenshotBytes && envelope.Metadata["artifact_locator"] == output.Artifact && envelope.Metadata["artifact_sha256"] == output.SHA256 && envelope.Metadata["artifact_bytes"] == strconv.Itoa(output.Bytes)
+	if !commonValid {
 		return fail()
 	}
+	if agent {
+		if _, e := toolgateway.NormalizeAgentBrowserURL(output.CanonicalURL); e != nil || output.Version != "browser_screenshot_result.v2" || output.SessionID != agentAuthority.BrowserSessionID || output.DocumentEpoch == 0 || envelope.Metadata["agent_browser_session_id"] != output.SessionID || envelope.Metadata["manager_boot_id"] != agentAuthority.ManagerBootID || envelope.Metadata["canonical_url"] != output.CanonicalURL || envelope.Metadata["document_epoch"] != strconv.FormatUint(output.DocumentEpoch, 10) {
+			return fail()
+		}
+	} else if urlErr != nil || pageURL.Scheme+"://"+pageURL.Host != authority.TargetOrigin || output.Version != "browser_screenshot_result.v1" || envelope.Metadata["full_cdp_session_id"] != authority.FullCDPSessionID || envelope.Metadata["target_origin"] != authority.TargetOrigin {
+		return fail()
+	}
+
 	// Legacy completed calls used the turn/payload identity. New calls also
 	// include CallID so a second screenshot after an interaction is distinct.
 	key := supervisorBrowserScreenshotOperationKey(call)
 	relative := fullCDPScreenshotRelativePath(call.RunID, key)
 	if output.Artifact != "workspace:///"+filepath.ToSlash(relative) {
+		if agent {
+			return fail()
+		}
 		legacy := fullCDPScreenshotRelativePath(call.RunID, supervisorToolOperationKey(call.RunID, call.Turn, toolgateway.BrowserScreenshotTool, json.RawMessage(call.PayloadJSON)))
 		if output.Artifact != "workspace:///"+filepath.ToSlash(legacy) {
 			return fail()
 		}
 		relative = legacy
 	}
-	workspaceStore, ok := s.store.(fullCDPWorkspaceInfoStore)
+	workspaceStore, ok := st.(fullCDPWorkspaceInfoStore)
 	if !ok {
 		return fail()
 	}
@@ -128,7 +172,7 @@ func (s *FullCDPProductionService) ReadModelScreenshot(ctx context.Context, chec
 	if err != nil || actual.SHA256 != output.SHA256 || actual.ByteSize != output.Bytes {
 		return fail()
 	}
-	return BrowserModelScreenshot{RunID: run.ID, SessionID: run.SessionID, CallID: callID, CanonicalURL: output.CanonicalURL,
+	return BrowserModelScreenshot{RunID: run.ID, SessionID: run.SessionID, CallID: call.CallID, CanonicalURL: output.CanonicalURL,
 		Image: llm.ImagePart{MediaType: actual.MIMEType, Data: content, SHA256: actual.SHA256, Width: actual.Width, Height: actual.Height}}, nil
 }
 
@@ -173,7 +217,19 @@ func (s *RunSupervisor) supervisorBrowserImages(ctx context.Context, checkpoint 
 			}
 			note := map[string]any{"source_kind": "browser_screenshot", "source_ref": call.CallID, "run_id": call.RunID, "instruction_authorized": false, "untrusted_evidence": true, "vision_capability": vision.State, "pixels_supplied": false}
 			if vision.State == llm.VisionSupported {
-				value, err := s.browserActions.ReadModelScreenshot(ctx, checkpoint, call.CallID)
+				var value BrowserModelScreenshot
+				var err error
+				if toolgateway.IsAgentBrowserPayload(json.RawMessage(call.PayloadJSON)) {
+					if s.agentBrowser == nil {
+						return llm.ChatRequest{}, agentBrowserUnavailable("Agent browser screenshot reader unavailable")
+					}
+					value, err = s.agentBrowser.ReadModelScreenshot(ctx, checkpoint, call.CallID)
+				} else {
+					if s.browserActions == nil {
+						return llm.ChatRequest{}, agentBrowserUnavailable("legacy browser screenshot reader unavailable")
+					}
+					value, err = s.browserActions.ReadModelScreenshot(ctx, checkpoint, call.CallID)
+				}
 				if err != nil {
 					return llm.ChatRequest{}, err
 				}

@@ -139,7 +139,7 @@ func (s *SQLiteStore) ReserveThreadMessageIntent(ctx context.Context, request do
 			return intent, err
 		}
 		content, _ := domain.NormalizeOperatorSteeringContent(redact.String(request.Content))
-		if len(request.Files) != 0 || len(request.Images) != 0 || len(request.Attachments) != 0 || message.RequestedBy != request.RequestedBy || message.ContentSHA256 != domain.OperatorSteeringContentSHA256(content) {
+		if len(request.Files) != 0 || len(request.Images) != 0 || len(request.Attachments) != 0 || message.RequestedBy != request.RequestedBy || message.OriginalContentSHA256 != domain.OperatorSteeringContentSHA256(content) {
 			return intent, apperror.New(apperror.CodeConflict, "Thread message key already belongs to a different legacy message intent")
 		}
 		intent.RunID, intent.MessageID = runID, messageID
@@ -245,13 +245,13 @@ func (s *SQLiteStore) commitThreadMessage(ctx context.Context, request domain.Th
 	if err := validateThreadImagesTx(ctx, tx, threadRecord.WorkspaceID, request.Images); err != nil {
 		return domain.OperatorSteeringEnqueueResult{}, err
 	}
-	if len(request.Files) > 0 || len(request.Attachments) > 0 {
+	if len(request.Files) > 0 {
 		busy, err := operatorSteeringBusyTx(ctx, tx, runID, time.Now().UTC())
 		if err != nil {
 			return domain.OperatorSteeringEnqueueResult{}, err
 		}
 		if busy || (run.Status != domain.RunRunning && run.Status != domain.RunPaused) {
-			return domain.OperatorSteeringEnqueueResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread file references require an idle task without queued messages or approval")
+			return domain.OperatorSteeringEnqueueResult{}, apperror.New(apperror.CodeFailedPrecondition, "Thread project file references require an idle task without queued messages or approval")
 		}
 		for index, file := range request.Files {
 			item := prepared[index]
@@ -273,12 +273,6 @@ func (s *SQLiteStore) commitThreadMessage(ctx context.Context, request domain.Th
 		return domain.OperatorSteeringEnqueueResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE thread_message_intents SET run_id = ?, message_id = ? WHERE operation_key_digest = ?`, run.ID, queued.Message.ID, key); err != nil {
-		return domain.OperatorSteeringEnqueueResult{}, err
-	}
-	if err := saveImageEvidenceTx(ctx, tx, run.ID, run.SessionID, queued.Message.ID, request.Images); err != nil {
-		return domain.OperatorSteeringEnqueueResult{}, err
-	}
-	if err := saveFileAttachmentEvidenceTx(ctx, tx, run.SessionID, queued.Message.ID, request.Attachments); err != nil {
 		return domain.OperatorSteeringEnqueueResult{}, err
 	}
 	return queued, tx.Commit()

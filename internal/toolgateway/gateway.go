@@ -75,6 +75,7 @@ type Gateway struct {
 	mcp                        MCPExecutor
 	webEvidence                WebEvidenceExecutor
 	browserActions             BrowserActionExecutor
+	agentBrowser               AgentBrowserExecutor
 	lifecycleHooks             *hooks.Engine
 	waitGraph                  *waitgraph.Graph
 }
@@ -241,7 +242,7 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	if IsWebEvidenceTool(normalized.Name) && g.webEvidence == nil {
 		return Outcome{}, errors.New("web evidence executor is required")
 	}
-	if IsBrowserActionTool(normalized.Name) && g.browserActions == nil {
+	if IsBrowserActionTool(normalized.Name) && ((!IsAgentBrowserPayload(normalized.Payload) && g.browserActions == nil) || (IsAgentBrowserPayload(normalized.Payload) && g.agentBrowser == nil)) {
 		return Outcome{}, errors.New("browser action executor is required")
 	}
 	if isAgentCodeTool(normalized.Name) && g.agentCode == nil {
@@ -320,7 +321,10 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
 		return g.invokeWebEvidence(ctx, normalized)
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
+		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
+		if IsAgentBrowserPayload(normalized.Payload) {
+			return g.invokeAgentBrowser(ctx, normalized)
+		}
 		return g.invokeBrowserAction(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
@@ -984,7 +988,7 @@ func validateToolArguments(call ToolCall) error {
 			_, _, err := NormalizeMCPToolPayload(call.Payload)
 			return err
 		case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-			BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
+			BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
 				call.LeaseID == "" {
 				return errors.New("browser actions require a fenced root Supervisor")
@@ -1097,6 +1101,7 @@ func safeToolCall(call ToolCall) ToolCall {
 	call.BrowserActionSessionID = ""
 	call.BrowserPermissionSnapshotID = ""
 	call.BrowserPermissionRevision = 0
+	call.AgentBrowserAuthority = nil
 	if len(call.Payload) > 0 {
 		call.Payload = redactRunMutationPayload(call.Name, call.Payload)
 	}

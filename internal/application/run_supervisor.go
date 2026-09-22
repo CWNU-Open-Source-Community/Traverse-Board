@@ -233,6 +233,7 @@ type RunSupervisor struct {
 	webEvidence                           *webevidence.Service
 	webFetchAuthorizationSchedulerEnabled bool
 	browserActions                        *FullCDPProductionService
+	agentBrowser                          *AgentBrowserService
 	standardCodeDelivery                  *StandardCodeDeliveryService
 	drydocks                              *DrydockService
 }
@@ -1030,6 +1031,13 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	}
 
 	for {
+		if s.agentBrowser != nil {
+			browserActionCapabilities, browserActionAuthority, err = s.agentBrowserCapabilities(ctx, turn)
+			if err != nil {
+				return result, err
+			}
+			request.Tools = refreshAgentBrowserModelTools(request.Tools, browserActionCapabilities)
+		}
 		modelRequest := request
 		modelContextLayout := contextLayout
 		if len(toolRounds) == domain.MaxSupervisorToolRounds {

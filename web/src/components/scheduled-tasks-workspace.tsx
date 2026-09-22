@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Download, LoaderCircle, Pause, Play, Plus, RefreshCw,
   Square } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { ScheduledJobCreateRequestView, ScheduledJobView } from "../api/types";
+import type { ScheduledJobCreateRequestView, ScheduledJobObservationRequestView, ScheduledJobView } from "../api/types";
 import { useLocale } from "../lib/locale";
 
 const scheduleListKey = ["scheduled-jobs"] as const;
@@ -52,6 +52,10 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
   const [maxRounds, setMaxRounds] = useState("12");
   const [notification, setNotification] =
     useState<ScheduledJobCreateRequestView["notification"]>("on_change");
+  const pendingCreate = useRef<{ client: CyberAgentClient; intent: string; runID: string;
+    body: ScheduledJobCreateRequestView; key: string } | null>(null);
+  const pendingObservation = useRef<{ client: CyberAgentClient; runID: string; jobID: string;
+    body: ScheduledJobObservationRequestView; key: string } | null>(null);
 
   useEffect(() => {
     if (initialRunID) setRunID(initialRunID);
@@ -68,6 +72,11 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
     enabled: selectedJobID !== "",
     refetchInterval: client.hasScheduledJobWorker ? 5_000 : false,
   });
+  const health = useQuery({
+    queryKey: ["scheduled-jobs-worker-health"],
+    queryFn: ({ signal }) => client.runtimeCapabilities(signal),
+    refetchInterval: 5_000,
+  });
   const selected = detail.data?.snapshot.job ??
     list.data?.items.find((job) => job.id === selectedJobID);
 
@@ -80,6 +89,15 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
   };
   const create = useMutation({
     mutationFn: async () => {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const intent = JSON.stringify([runID.trim(), kind, anchorAt, deadlineAt,
+        intervalMinutes, maxRounds, notification, timezone]);
+      const previous = pendingCreate.current;
+      if (previous?.client === client && previous.intent === intent) {
+        const result = await client.createScheduledJob(previous.runID, previous.body, previous.key);
+        if (pendingCreate.current === previous) pendingCreate.current = null;
+        return result;
+      }
       const anchor = new Date(anchorAt);
       const deadline = new Date(deadlineAt);
       const interval = Number(intervalMinutes);
@@ -93,18 +111,23 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
           interval > 30 * 24 * 60))) {
         throw new Error(t("请填写有效的 Run、时间与轮次上限", "Enter a valid Run, time window, and round limit"));
       }
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const schedule: ScheduledJobCreateRequestView["schedule"] = {
         kind, timezone, anchor_at: anchor.toISOString(), misfire_policy: "run_once",
         ...(kind === "periodic" ? { interval_seconds: interval * 60 } : {}),
       };
-      return client.createScheduledJob(runID.trim(), {
+      const body: ScheduledJobCreateRequestView = {
         version: "scheduled-job.v1", schedule, deadline_at: deadline.toISOString(),
         stop_on_target_terminal: true, max_rounds: rounds, max_model_calls: 0,
         max_elapsed_seconds: elapsedSeconds,
         retry: { max_attempts: 3, initial_backoff_seconds: 5, max_backoff_seconds: 60 },
         notification, execution_mode: "read_only", confirm_repair: false,
-      }, operationKey("create"));
+        observation_consent_version: 1,
+      };
+      const attempt = { client, intent, runID: runID.trim(), body, key: operationKey("create") };
+      pendingCreate.current = attempt;
+      const result = await client.createScheduledJob(attempt.runID, attempt.body, attempt.key);
+      if (pendingCreate.current === attempt) pendingCreate.current = null;
+      return result;
     },
     onSuccess: (result) => refresh(result.job),
   });
@@ -121,12 +144,41 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
     mutationFn: (job: ScheduledJobView) => client.diagnosticBundle(job.owner_run_id),
     onSuccess: (value, job) => downloadBundle(job.owner_run_id, value),
   });
+  const enableObservation = useMutation({
+    mutationFn: async (job: ScheduledJobView) => {
+      const previous = pendingObservation.current;
+      const attempt = previous?.client === client && previous.runID === job.owner_run_id &&
+        previous.jobID === job.id && previous.body.expected_revision === job.revision ? previous : {
+          client, runID: job.owner_run_id, jobID: job.id,
+          body: { version: "scheduled-job-control.v1" as const, expected_revision: job.revision,
+            observation_consent_version: 1 }, key: operationKey("enable-observation"),
+        };
+      pendingObservation.current = attempt;
+      const result = await client.enableScheduledJobObservation(attempt.runID, attempt.jobID,
+        attempt.body, attempt.key);
+      if (pendingObservation.current === attempt) pendingObservation.current = null;
+      return result;
+    },
+    onSuccess: (result) => refresh(result.job),
+  });
 
-  const error = create.error ?? transition.error ?? bundle.error ?? list.error ?? detail.error;
+  const error = create.error ?? transition.error ?? enableObservation.error ?? bundle.error ??
+    list.error ?? detail.error ?? health.error;
   const jobs = list.data?.items ?? [];
-  const workerLabel = client.hasScheduledJobWorker
-    ? t("进程内调度器运行中", "Process-local scheduler running")
-    : t("调度器未随本次启动启用", "Scheduler was not enabled for this launch");
+  const worker = health.data?.scheduled_job_worker;
+  const workerLabel = health.isError
+    ? t("观察器状态暂时无法确认", "Observer status could not be confirmed")
+    : !worker ? t("正在检查观察器状态…", "Checking observer status…")
+      : !worker.enabled ? t("本次启动未启用观察器", "Observer is disabled for this launch")
+        : worker.state === "running" ? worker.selection_scope === "confirmed_read_only"
+          ? t("观察器运行中", "Observer is running") : t("调度器运行中", "Scheduler is running")
+          : worker.state === "ready" ? t("观察器正在启动", "Observer is starting")
+            : t("观察器已停止或正在退出", "Observer is stopped or shutting down");
+  const scopeLabel = worker?.selection_scope === "confirmed_read_only"
+    ? t("仅观察已确认的只读计划", "Observes confirmed read-only schedules")
+    : worker?.selection_scope === "all_jobs"
+      ? t("显式全计划调度（包含旧计划）", "Explicit scheduling of all jobs, including legacy jobs")
+      : worker?.enabled ? t("调度范围尚未确认", "Scheduling scope is unknown") : "";
   const createDisabled = !client.hasScheduledJobControl || create.isPending ||
     runID.trim() === "";
   const counts = useMemo(() => ({
@@ -144,16 +196,22 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
     <section className="utility-workspace scheduled-tasks-workspace">
       <header>
         <CalendarClock aria-hidden="true" size={18} />
-        <div><h1>{t("定时 Run", "Scheduled Runs")}</h1>
-          <small>{workerLabel} · {t("固定并发度 1，不会后台提权", "Concurrency 1; no background authority elevation")}</small>
+        <div><h1>{t("定时观察", "Scheduled observations")}</h1>
+          <small>{workerLabel}{scopeLabel && ` · ${scopeLabel}`}</small>
         </div>
         <button aria-label={t("刷新定时 Run", "Refresh scheduled Runs")}
           className="compact-command" disabled={list.isFetching}
-          onClick={() => void list.refetch()} type="button">
+          onClick={() => { void list.refetch(); void health.refetch(); }} type="button">
           <RefreshCw aria-hidden="true" className={list.isFetching ? "spin" : ""} size={14} />
           {t("刷新", "Refresh")}
         </button>
       </header>
+
+      <p>{t("定时查看任务状态并记录变化，不调用模型。创建后，每次打开应用都会继续已确认的观察计划；退出应用期间暂停观察。",
+        "Check task status and record changes without model calls. Confirmed schedules continue when you reopen the app; observation stops while the app is closed.")}</p>
+      {worker?.selection_scope === "all_jobs" && <p>{t(
+        "当前以显式启动参数调度全部计划，旧计划也可能执行。此页新建的计划仍仅作只读观察。",
+        "This explicitly launched worker schedules all jobs, including legacy jobs. New schedules created here remain read-only observations.")}</p>}
 
       <div className="scheduled-summary" aria-label={t("定时 Run 摘要", "Scheduled Run summary")}>
         <span>{t("全部", "Total")} <strong>{jobs.length}</strong></span>
@@ -164,7 +222,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
 
       <form className="scheduled-create-form" onSubmit={submit}>
         <div className="scheduled-form-heading"><Plus aria-hidden="true" size={15} />
-          <strong>{t("新建有界监控", "Create bounded monitor")}</strong></div>
+          <strong>{t("新建观察计划", "Create an observation schedule")}</strong></div>
         <label>{t("目标 Run ID", "Target Run ID")}
           <input aria-label={t("目标 Run ID", "Target Run ID")} maxLength={256}
             onChange={(event) => setRunID(event.target.value)} placeholder="run-…" value={runID} />
@@ -205,7 +263,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
         <button className="command-button" disabled={createDisabled} type="submit">
           {create.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} />
             : <Plus aria-hidden="true" size={14} />}
-          {t("创建只读计划", "Create read-only schedule")}
+          {t("创建并观察", "Create and observe")}
         </button>
       </form>
 
@@ -223,6 +281,8 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
             <span><strong>{job.id}</strong><span className="status-badge">{job.status}</span></span>
             <small>{job.spec.schedule.kind} · {formatTime(job.next_wake_at, locale)}</small>
             <small>{t("目标", "Target")} {job.owner_run_id}</small>
+            {worker?.selection_scope === "confirmed_read_only" && job.status === "active" && job.observation_consent_version !== 1 &&
+              <small>{t("普通桌面观察尚未确认", "Desktop observation needs confirmation")}</small>}
           </button>)}
           {!list.isLoading && jobs.length === 0 && <div className="utility-empty-state">
             <CalendarClock aria-hidden="true" size={25} />
@@ -242,17 +302,24 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
               <div><dt>{t("最近结果", "Latest result")}</dt><dd>{selected.last_result || selected.last_error_code || "—"}</dd></div>
             </dl>
             <div className="scheduled-task-actions">
+              {selected.observation_consent_version !== 1 &&
+                selected.spec.execution_mode === "read_only" && selected.spec.max_model_calls === 0 &&
+                ["active", "paused"].includes(selected.status) &&
+                <button className="compact-command"
+                  disabled={!client.hasScheduledJobControl || enableObservation.isPending || transition.isPending}
+                  onClick={() => enableObservation.mutate(selected)} type="button">
+                  <Play aria-hidden="true" size={13} />{t("确认普通桌面的自动观察", "Confirm automatic desktop observation")}</button>}
               {selected.status === "active" && <button className="compact-command"
-                disabled={!client.hasScheduledJobControl || transition.isPending}
+                disabled={!client.hasScheduledJobControl || transition.isPending || enableObservation.isPending}
                 onClick={() => transition.mutate({ job: selected, action: "pause" })} type="button">
                 <Pause aria-hidden="true" size={13} />{t("暂停", "Pause")}</button>}
               {selected.status === "paused" && <button className="compact-command"
-                disabled={!client.hasScheduledJobControl || transition.isPending}
+                disabled={!client.hasScheduledJobControl || transition.isPending || enableObservation.isPending}
                 onClick={() => transition.mutate({ job: selected, action: "resume" })} type="button">
                 <Play aria-hidden="true" size={13} />{t("恢复", "Resume")}</button>}
               {!['completed', 'failed', 'cancelled', 'exhausted'].includes(selected.status) &&
                 <button className="compact-command danger"
-                  disabled={!client.hasScheduledJobControl || transition.isPending}
+                  disabled={!client.hasScheduledJobControl || transition.isPending || enableObservation.isPending}
                   onClick={() => transition.mutate({ job: selected, action: "cancel" })} type="button">
                   <Square aria-hidden="true" size={12} />{t("取消", "Cancel")}</button>}
               <button className="compact-command" disabled={bundle.isPending}

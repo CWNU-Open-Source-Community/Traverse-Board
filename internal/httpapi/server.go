@@ -351,6 +351,7 @@ type Config struct {
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	FullCDPSessionController                application.FullCDPSessionController
+	AgentBrowserController                  AgentBrowserController
 	CapabilityReadinessRuntime              *application.CapabilityReadinessRuntime
 	CommandRuntimeAdapters                  []commandruntimeadapter.Identity
 	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
@@ -449,6 +450,7 @@ type API struct {
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	fullCDPSessionController                application.FullCDPSessionController
+	agentBrowserController                  AgentBrowserController
 	capabilityReadiness                     *application.RunCapabilityReadinessService
 	commandRuntimeAdapters                  []commandruntimeadapter.Identity
 	commandActivitySource                   application.ThreadActivityCommandRuntimeSource
@@ -523,7 +525,7 @@ func New(store Store, config Config) (*API, error) {
 				"HTTP API read and control tokens must be distinct")
 		}
 	}
-	if (config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
+	if (config.AgentBrowserController != nil || config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
 		config.BrowserCDPPermissionControlEnabled ||
 		config.FullCDPSessionControlEnabled ||
 		config.RunCreationEnabled || config.WorkspaceImportEnabled || config.StandardCodePresetEnabled ||
@@ -889,6 +891,7 @@ func New(store Store, config Config) (*API, error) {
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		fullCDPSessionController:            config.FullCDPSessionController,
+		agentBrowserController:              config.AgentBrowserController,
 		capabilityReadiness:                 capabilityReadiness,
 		commandRuntimeAdapters:              append([]commandruntimeadapter.Identity(nil), config.CommandRuntimeAdapters...),
 		commandActivitySource:               commandActivitySource,
@@ -1153,6 +1156,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveSessionSteeringCancellation(tracked, request, requestID, sessionID, messageID)
 		return
 	}
+	if sessionID, messageID, matched := matchSessionSteeringRevisionPath(request.URL.Path); matched {
+		a.serveSessionSteeringRevision(tracked, request, requestID, sessionID, messageID)
+		return
+	}
 	if runID, action, matched := matchStandardCodePresetControlPath(request.URL.Path); matched {
 		a.serveStandardCodePresetControl(tracked, request, requestID, runID, action)
 		return
@@ -1289,6 +1296,16 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunExecutionProfileControlPath(request.URL.Path); matched {
 		a.serveRunExecutionProfileControl(tracked, request, requestID, runID)
+		return
+	}
+	if strings.HasSuffix(request.URL.Path, "/agent-browser/screenshot") {
+		if runID, _, matched := matchAgentBrowserPath(strings.TrimSuffix(request.URL.Path, "/screenshot")); matched {
+			a.serveAgentBrowserScreenshot(tracked, request, requestID, runID)
+			return
+		}
+	}
+	if runID, closeSession, matched := matchAgentBrowserPath(request.URL.Path); matched {
+		a.serveAgentBrowser(tracked, request, requestID, runID, closeSession)
 		return
 	}
 	if runID, image, matched := matchFullCDPPreviewPath(request.URL.Path); matched {

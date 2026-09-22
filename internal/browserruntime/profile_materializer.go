@@ -1028,3 +1028,124 @@ func profilePathHasNoIndirection(path string) bool {
 	resolved, err := filepath.EvalSymlinks(path)
 	return err == nil && samePath(path, resolved) && platformProfilePathDirect(path)
 }
+
+// Agent browser profiles use a separate ephemeral namespace and ownership proof.
+type agentBrowserProfile struct {
+	root, path, token string
+	marker            []byte
+}
+
+func prepareAgentBrowserProfile(home string, authority AgentBrowserAuthority) (agentBrowserProfile, error) {
+	if !filepath.IsAbs(home) || filepath.Clean(home) != home || !profilePathHasNoIndirection(home) {
+		return agentBrowserProfile{}, ErrBrowserRuntimeBoundary
+	}
+	info, err := os.Stat(home)
+	if err != nil || !info.IsDir() {
+		return agentBrowserProfile{}, ErrBrowserRuntimeBoundary
+	}
+	root := home
+	for _, name := range []string{"runtime", "agent-browser", "profiles"} {
+		root = filepath.Join(root, name)
+		if !pathWithinRoot(home, root) {
+			return agentBrowserProfile{}, ErrBrowserRuntimeBoundary
+		}
+		if err := os.Mkdir(root, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+			return agentBrowserProfile{}, err
+		}
+		if !profilePathHasNoIndirection(root) {
+			return agentBrowserProfile{}, ErrBrowserRuntimeBoundary
+		}
+	}
+	token := agentBrowserToken()
+	p := agentBrowserProfile{root: root, path: filepath.Join(root, token), token: token}
+	p.marker, _ = json.Marshal(struct{ Version, Token, Authority string }{"agent_browser_profile.v1", token, browserRuntimeFingerprint(authority)})
+	if err := os.Mkdir(p.path, 0700); err != nil {
+		return agentBrowserProfile{}, err
+	}
+	if err := os.WriteFile(filepath.Join(p.path, ".agent-browser-owner.json"), p.marker, 0600); err != nil {
+		return p, err
+	}
+	if err := ensureProfileEnvironmentDirectories(p.path); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+// The marker is checked before rename. An external proof remains if removal is
+// interrupted, so cleanup retry does not depend on a partially deleted marker.
+func (p agentBrowserProfile) cleanup() error {
+	if p.path == "" {
+		return nil
+	}
+	if !profilePathHasNoIndirection(p.root) || !pathWithinRoot(p.root, p.path) || filepath.Base(p.path) != p.token {
+		return ErrBrowserRuntimeBoundary
+	}
+	quarantine := filepath.Join(p.root, "cleanup-"+p.token)
+	proof := filepath.Join(p.root, ".cleanup-"+p.token+".json")
+	if _, err := os.Lstat(p.path); err == nil {
+		if !profilePathHasNoIndirection(p.path) {
+			return ErrBrowserRuntimeBoundary
+		}
+		if err := p.verifyProof(filepath.Join(p.path, ".agent-browser-owner.json")); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(proof, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err == nil {
+			_, err = f.Write(p.marker)
+			syncErr := f.Sync()
+			closeErr := f.Close()
+			if err == nil {
+				err = errors.Join(syncErr, closeErr)
+			}
+		}
+		if err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		if err := p.verifyProof(proof); err != nil {
+			return err
+		}
+		if err := os.Rename(p.path, quarantine); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if _, err := os.Lstat(quarantine); errors.Is(err, os.ErrNotExist) {
+		if err := p.verifyProof(proof); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		return os.Remove(proof)
+	} else if err != nil {
+		return err
+	}
+	if !pathWithinRoot(p.root, quarantine) || !profilePathHasNoIndirection(quarantine) {
+		return ErrBrowserRuntimeBoundary
+	}
+	if err := p.verifyProof(proof); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(quarantine); err != nil {
+		return err
+	}
+	return os.Remove(proof)
+}
+
+func (p agentBrowserProfile) verifyProof(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() != int64(len(p.marker)) || !profilePathHasNoIndirection(path) {
+		return ErrBrowserRuntimeBoundary
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if string(raw) != string(p.marker) {
+		return ErrBrowserRuntimeBoundary
+	}
+	return nil
+}

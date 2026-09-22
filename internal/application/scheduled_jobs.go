@@ -58,6 +58,17 @@ type ScheduledJobStore interface {
 	ReconcileScheduledJobs(context.Context, time.Time, int) (int, error)
 }
 
+type scheduledJobObservationStore interface {
+	CreateScheduledJobWithObservationConsent(context.Context, domain.ScheduledJob,
+		*domain.ScheduledJobAuthorization, domain.ScheduledJobObservationConsent,
+		domain.ScheduledJobOperation) (domain.ScheduledJob, bool, error)
+	EnableScheduledJobObservation(context.Context,
+		domain.ScheduledJobObservationConsent, int64) (domain.ScheduledJob, bool, error)
+	ClaimDueObservationScheduledJob(context.Context, string, time.Time) (
+		domain.ScheduledJob, domain.ScheduledJobLease, bool, error)
+	ReconcileObservationScheduledJobs(context.Context, time.Time, int) (int, error)
+}
+
 // ScheduledJobRoundExecutor is intentionally narrower than RunSupervisor. It
 // receives metadata-only observation facts and a stable operation key. The
 // coordinator validates returned model/tool facts against the persisted mode.
@@ -88,21 +99,31 @@ type ScheduledJobService struct {
 }
 
 type CreateScheduledJobRequest struct {
-	Version              string
-	RunID                string
-	TargetRunID          string
-	Schedule             domain.ScheduledJobSchedule
-	DeadlineAt           time.Time
-	StopOnTargetTerminal bool
-	MaxRounds            int
-	MaxModelCalls        int
-	MaxElapsedSeconds    int64
-	Retry                domain.ScheduledJobRetryPolicy
-	Notification         domain.ScheduledJobNotificationMode
-	ExecutionMode        domain.ScheduledJobExecutionMode
-	ConfirmRepair        bool
-	OperationKey         string
-	RequestedBy          string
+	Version                   string
+	RunID                     string
+	TargetRunID               string
+	Schedule                  domain.ScheduledJobSchedule
+	DeadlineAt                time.Time
+	StopOnTargetTerminal      bool
+	MaxRounds                 int
+	MaxModelCalls             int
+	MaxElapsedSeconds         int64
+	Retry                     domain.ScheduledJobRetryPolicy
+	Notification              domain.ScheduledJobNotificationMode
+	ExecutionMode             domain.ScheduledJobExecutionMode
+	ConfirmRepair             bool
+	ObservationConsentVersion int
+	OperationKey              string
+	RequestedBy               string
+}
+
+type EnableScheduledJobObservationRequest struct {
+	RunID                     string
+	JobID                     string
+	ExpectedRevision          int64
+	ObservationConsentVersion int
+	OperationKey              string
+	RequestedBy               string
 }
 
 type TransitionScheduledJobRequest struct {
@@ -166,6 +187,10 @@ func (s *ScheduledJobService) Create(ctx context.Context,
 		normalized.OperationKey)
 	fingerprint := runmutation.ScheduledJobCreateRequestFingerprint(normalized.RunID,
 		string(specJSON), normalized.RequestedBy, normalized.ConfirmRepair)
+	if normalized.ObservationConsentVersion != 0 {
+		fingerprint = runmutation.Fingerprint("scheduled_job_create_observation_consent.v1",
+			fingerprint, strconv.Itoa(normalized.ObservationConsentVersion))
+	}
 	if replay, found, err := s.loadReplay(ctx, keyDigest, fingerprint,
 		domain.ScheduledJobCreate, normalized.RunID, "", 0,
 		normalized.RequestedBy); err != nil || found {
@@ -239,8 +264,63 @@ func (s *ScheduledJobService) Create(ctx context.Context,
 		Action: domain.ScheduledJobCreate, JobID: job.ID, RunID: run.ID,
 		ExpectedRevision: 0, RequestedBy: normalized.RequestedBy, CreatedAt: now,
 	}
-	stored, replayed, err := s.store.CreateScheduledJob(ctx, job, authorization, operation)
+	var stored domain.ScheduledJob
+	var replayed bool
+	if normalized.ObservationConsentVersion == 0 {
+		stored, replayed, err = s.store.CreateScheduledJob(ctx, job, authorization, operation)
+	} else {
+		observationStore, ok := s.store.(scheduledJobObservationStore)
+		if !ok {
+			return ScheduledJobControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"scheduled job observation store is required")
+		}
+		consent := domain.ScheduledJobObservationConsent{
+			JobID: job.ID, RunID: run.ID,
+			Version:     normalized.ObservationConsentVersion,
+			ConfirmedBy: normalized.RequestedBy, ConfirmedAt: now,
+			OperationKeySHA256: keyDigest, RequestFingerprint: fingerprint,
+		}
+		stored, replayed, err = observationStore.CreateScheduledJobWithObservationConsent(
+			ctx, job, authorization, consent, operation)
+	}
 	return ScheduledJobControlResult{Job: stored, Replayed: replayed},
+		apperror.Normalize(err)
+}
+
+// EnableObservation records durable consent for one exact existing read-only,
+// zero-model job. The operation never changes the job status or revision.
+func (s *ScheduledJobService) EnableObservation(ctx context.Context,
+	request EnableScheduledJobObservationRequest,
+) (ScheduledJobControlResult, error) {
+	if s == nil || s.store == nil || s.clock == nil {
+		return ScheduledJobControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"scheduled job dependencies are required")
+	}
+	normalized, err := normalizeEnableScheduledJobObservationRequest(request)
+	if err != nil {
+		return ScheduledJobControlResult{}, err
+	}
+	observationStore, ok := s.store.(scheduledJobObservationStore)
+	if !ok {
+		return ScheduledJobControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"scheduled job observation store is required")
+	}
+	keyDigest := runmutation.ScheduledJobOperationDigest(normalized.RunID,
+		normalized.OperationKey)
+	fingerprint := runmutation.Fingerprint("scheduled_job_observation_consent_request.v1",
+		normalized.RunID, normalized.JobID,
+		strconv.FormatInt(normalized.ExpectedRevision, 10),
+		strconv.Itoa(normalized.ObservationConsentVersion), normalized.RequestedBy)
+	now := s.clock.Now().UTC()
+	consent := domain.ScheduledJobObservationConsent{
+		JobID: normalized.JobID, RunID: normalized.RunID,
+		Version:     normalized.ObservationConsentVersion,
+		ConfirmedBy: normalized.RequestedBy, ConfirmedAt: now,
+		OperationKeySHA256: keyDigest, RequestFingerprint: fingerprint,
+	}
+	job, replayed, err := observationStore.EnableScheduledJobObservation(ctx,
+		consent, normalized.ExpectedRevision)
+	return ScheduledJobControlResult{Job: job, Replayed: replayed},
 		apperror.Normalize(err)
 }
 
@@ -342,6 +422,20 @@ func (s *ScheduledJobService) List(ctx context.Context, runID string,
 func (s *ScheduledJobService) RunDue(ctx context.Context, ownerID string,
 	now time.Time,
 ) (bool, error) {
+	return s.runDue(ctx, ownerID, now, false)
+}
+
+// RunDueObservation is the ordinary desktop runner. Both reconciliation and
+// claim are restricted in SQLite before a candidate can be mutated.
+func (s *ScheduledJobService) RunDueObservation(ctx context.Context,
+	ownerID string, now time.Time,
+) (bool, error) {
+	return s.runDue(ctx, ownerID, now, true)
+}
+
+func (s *ScheduledJobService) runDue(ctx context.Context, ownerID string,
+	now time.Time, observationOnly bool,
+) (bool, error) {
 	if s == nil || s.store == nil || s.clock == nil || ctx == nil {
 		return false, apperror.New(apperror.CodeFailedPrecondition,
 			"scheduled job worker dependencies are required")
@@ -351,10 +445,25 @@ func (s *ScheduledJobService) RunDue(ctx context.Context, ownerID string,
 		return false, apperror.New(apperror.CodeInvalidArgument,
 			"scheduled job worker owner or time is invalid")
 	}
-	if _, err := s.store.ReconcileScheduledJobs(ctx, now, 64); err != nil {
-		return false, apperror.Normalize(err)
+	var job domain.ScheduledJob
+	var lease domain.ScheduledJobLease
+	var claimed bool
+	var err error
+	if observationOnly {
+		observationStore, ok := s.store.(scheduledJobObservationStore)
+		if !ok {
+			return false, apperror.New(apperror.CodeFailedPrecondition,
+				"scheduled job observation store is required")
+		}
+		if _, err = observationStore.ReconcileObservationScheduledJobs(ctx, now, 64); err == nil {
+			job, lease, claimed, err = observationStore.ClaimDueObservationScheduledJob(
+				ctx, ownerID, now)
+		}
+	} else {
+		if _, err = s.store.ReconcileScheduledJobs(ctx, now, 64); err == nil {
+			job, lease, claimed, err = s.store.ClaimDueScheduledJob(ctx, ownerID, now)
+		}
 	}
-	job, lease, claimed, err := s.store.ClaimDueScheduledJob(ctx, ownerID, now)
 	if err != nil {
 		return false, apperror.Normalize(err)
 	}
@@ -595,7 +704,9 @@ func normalizeCreateScheduledJobRequest(request CreateScheduledJobRequest) (
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	if request.Version != domain.ScheduledJobProtocolVersion ||
 		!validControlIdentity(request.RunID) || request.TargetRunID != request.RunID ||
-		!validControlIdentity(request.RequestedBy) {
+		!validControlIdentity(request.RequestedBy) ||
+		(request.ObservationConsentVersion != 0 &&
+			request.ObservationConsentVersion != domain.ScheduledJobObservationConsentVersion) {
 		return CreateScheduledJobRequest{}, domain.ScheduledJobSpec{},
 			apperror.New(apperror.CodeInvalidArgument,
 				"scheduled job version, owner, explicit target, or requester is invalid")
@@ -623,6 +734,29 @@ func normalizeCreateScheduledJobRequest(request CreateScheduledJobRequest) (
 	}
 	request.OperationKey = key
 	return request, spec, nil
+}
+
+func normalizeEnableScheduledJobObservationRequest(
+	request EnableScheduledJobObservationRequest,
+) (EnableScheduledJobObservationRequest, error) {
+	request.RunID = strings.TrimSpace(request.RunID)
+	request.JobID = strings.TrimSpace(request.JobID)
+	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
+	if !validControlIdentity(request.RunID) || !validControlIdentity(request.JobID) ||
+		!validControlIdentity(request.RequestedBy) || request.ExpectedRevision < 1 ||
+		request.ObservationConsentVersion != domain.ScheduledJobObservationConsentVersion {
+		return EnableScheduledJobObservationRequest{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			"scheduled job observation consent request is invalid")
+	}
+	key, err := domain.NormalizeAgentOperationKey(request.OperationKey)
+	if err != nil || key != request.OperationKey || containsSpaceOrControl(key) {
+		return EnableScheduledJobObservationRequest{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			"scheduled job observation consent idempotency key is invalid")
+	}
+	request.OperationKey = key
+	return request, nil
 }
 
 func normalizeTransitionScheduledJobRequest(request TransitionScheduledJobRequest) (

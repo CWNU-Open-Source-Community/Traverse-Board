@@ -23,7 +23,7 @@ export function V2InspectorHome({ client, onOpenTool, onOpenSettings }: {
     <InspectorRecordBrowser client={client} onOpen={onOpenTool} />
     <details className="v2-inspector-home-utilities"><summary>其他检查工具</summary>
       <div><button onClick={() => onOpenTool("schedule")} type="button">
-      <CalendarClock aria-hidden="true" size={16} />定时任务</button>
+      <CalendarClock aria-hidden="true" size={16} />定时观察</button>
       <button onClick={() => onOpenSettings("about")} type="button">
         <Settings aria-hidden="true" size={16} />连接与诊断</button></div>
     </details>
@@ -40,7 +40,7 @@ export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBa
   onBack: () => void;
   onOpenSettings: (section: V2SettingsSection) => void;
 }) {
-  const title = tool === "schedule" ? "定时任务" : tool === "run" ? "运行诊断" : "会话上下文";
+  const title = tool === "schedule" ? "定时观察" : tool === "run" ? "运行诊断" : "会话上下文";
   return <section className="v2-inspector-resource">
     <header><button onClick={onBack} type="button"><ArrowLeft aria-hidden="true" size={16} />返回 Inspector</button>
       <strong>{title}</strong></header>

@@ -66,11 +66,11 @@ it("prioritizes saved record browsing and keeps auxiliary home destinations avai
     onOpenTool={onOpenTool} onOpenSettings={onOpenSettings} /></QueryClientProvider>);
   expect(screen.getByRole("button", { name: "运行记录" })).toBeVisible();
   expect(screen.getByRole("button", { name: "会话记录" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "定时任务" })).not.toBeVisible();
+  expect(screen.getByRole("button", { name: "定时观察" })).not.toBeVisible();
   expect(screen.getByRole("button", { name: "连接与诊断" })).not.toBeVisible();
   expect(getPage).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("其他检查工具"));
-  fireEvent.click(screen.getByRole("button", { name: "定时任务" }));
+  fireEvent.click(screen.getByRole("button", { name: "定时观察" }));
   expect(onOpenTool).toHaveBeenCalledExactlyOnceWith("schedule");
   fireEvent.click(screen.getByRole("button", { name: "连接与诊断" }));
   expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("about");

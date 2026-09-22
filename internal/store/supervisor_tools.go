@@ -285,6 +285,16 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 					"web evidence supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
+		} else if toolgateway.IsBrowserActionTool(name) && toolgateway.IsAgentBrowserPayload(safe) {
+			a, e := toolgateway.DecodeAgentBrowserAuthority(normalized[index].Authority)
+			if e != nil || a.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument, "Agent browser tool needs exact durable v2 authority")
+			}
+			b, e := json.Marshal(a)
+			if e != nil || len(b) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument, "Agent browser authority invalid")
+			}
+			normalized[index].Authority = b
 		} else if toolgateway.IsBrowserActionTool(name) {
 			authority, authorityErr := toolgateway.DecodeBrowserActionCallAuthority(
 				normalized[index].Authority)
@@ -625,8 +635,13 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		return domain.SupervisorToolCall{}, false, err
 	}
 	if !executionStarted {
-		return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition,
-			"supervisor tool result requires a durable execution start")
+		preflight, preflightErr := validateAgentBrowserPreflightResultTx(ctx, tx, call, result)
+		if preflightErr != nil {
+			return domain.SupervisorToolCall{}, false, preflightErr
+		}
+		if !preflight {
+			return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition, "supervisor tool result requires a durable execution start")
+		}
 	}
 	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result)
 	if err != nil {

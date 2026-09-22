@@ -113,7 +113,7 @@ it("keeps global records directly available and discloses exact diagnostics with
   await user.click(within(nav).getByText("诊断工具"));
   await user.click(within(nav).getByRole("button", { name: "运行诊断与工具" }));
   await user.click(within(nav).getByRole("button", { name: "会话上下文" }));
-  await user.click(within(nav).getByRole("button", { name: "定时任务" }));
+  await user.click(within(nav).getByRole("button", { name: "定时观察" }));
   expect(onOpenTool.mock.calls).toEqual([["run", "run-thread-a"], ["session", "session-thread-a"], ["schedule", "run-thread-a"]]);
   await user.click(screen.getByRole("button", { name: "对话操作" }));
   expect(screen.queryByRole("menuitem", { name: "打开 Inspector" })).not.toBeInTheDocument();

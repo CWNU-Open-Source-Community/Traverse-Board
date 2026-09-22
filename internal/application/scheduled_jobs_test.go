@@ -162,6 +162,125 @@ func TestScheduledJobControlIsIdempotentAndExplicitlyScoped(t *testing.T) {
 	}
 }
 
+func TestScheduledJobObservationConsentCreateAndEnableReplay(t *testing.T) {
+	ctx := context.Background()
+	state, run := newScheduledJobApplicationFixture(t)
+	defer state.Close()
+	now := time.Now().UTC().Add(time.Second).Truncate(time.Millisecond)
+	clock := &scheduledStaticClock{now: now}
+	service := application.NewScheduledJobService(state).WithClock(clock)
+
+	legacyRequest := scheduledReadOnlyRequest(run.ID, now,
+		"scheduled-observation-legacy-create")
+	legacyRequest.MaxModelCalls = 0
+	legacy, err := service.Create(ctx, legacyRequest)
+	if err != nil || legacy.Job.ObservationConsentVersion != 0 {
+		t.Fatalf("legacy=%#v err=%v", legacy, err)
+	}
+	changedCreate := legacyRequest
+	changedCreate.ObservationConsentVersion = domain.ScheduledJobObservationConsentVersion
+	if _, err := service.Create(ctx, changedCreate); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("legacy create replay added consent: code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	stored, err := state.GetScheduledJob(ctx, legacy.Job.ID)
+	if err != nil || stored.ObservationConsentVersion != 0 {
+		t.Fatalf("legacy projection=%#v err=%v", stored, err)
+	}
+
+	enable := application.EnableScheduledJobObservationRequest{
+		RunID: run.ID, JobID: legacy.Job.ID, ExpectedRevision: legacy.Job.Revision,
+		ObservationConsentVersion: domain.ScheduledJobObservationConsentVersion,
+		OperationKey:              "scheduled-observation-enable-existing", RequestedBy: "operator",
+	}
+	wrongRevision := enable
+	wrongRevision.ExpectedRevision++
+	wrongRevision.OperationKey = "scheduled-observation-wrong-revision"
+	if _, err := service.EnableObservation(ctx, wrongRevision); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("wrong revision code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	wrongOwner := enable
+	wrongOwner.RunID = "different-run"
+	wrongOwner.OperationKey = "scheduled-observation-wrong-owner"
+	if _, err := service.EnableObservation(ctx, wrongOwner); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("wrong owner code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	enabled, err := service.EnableObservation(ctx, enable)
+	if err != nil || enabled.Replayed ||
+		enabled.Job.ObservationConsentVersion != domain.ScheduledJobObservationConsentVersion ||
+		enabled.Job.Revision != legacy.Job.Revision {
+		t.Fatalf("enabled=%#v err=%v", enabled, err)
+	}
+	if _, err := service.Transition(ctx, application.TransitionScheduledJobRequest{
+		Version: domain.ScheduledJobControlProtocolVersion, RunID: run.ID,
+		JobID: legacy.Job.ID, Action: domain.ScheduledJobPause,
+		ExpectedRevision: enabled.Job.Revision,
+		OperationKey:     enable.OperationKey, RequestedBy: "operator",
+	}); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("consent key reused by transition: code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	collidingCreate := scheduledReadOnlyRequest(run.ID, now, enable.OperationKey)
+	collidingCreate.MaxModelCalls = 0
+	if _, err := service.Create(ctx, collidingCreate); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("consent key reused by create: code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	paused, err := service.Transition(ctx, application.TransitionScheduledJobRequest{
+		Version: domain.ScheduledJobControlProtocolVersion, RunID: run.ID,
+		JobID: legacy.Job.ID, Action: domain.ScheduledJobPause,
+		ExpectedRevision: enabled.Job.Revision, OperationKey: "scheduled-observation-pause",
+		RequestedBy: "operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := service.EnableObservation(ctx, enable)
+	if err != nil || !replayed.Replayed || replayed.Job.Status != domain.ScheduledJobPaused ||
+		replayed.Job.Revision != paused.Job.Revision {
+		t.Fatalf("paused replay=%#v err=%v", replayed, err)
+	}
+	cancelled, err := service.Transition(ctx, application.TransitionScheduledJobRequest{
+		Version: domain.ScheduledJobControlProtocolVersion, RunID: run.ID,
+		JobID: legacy.Job.ID, Action: domain.ScheduledJobCancel,
+		ExpectedRevision: paused.Job.Revision, OperationKey: "scheduled-observation-cancel",
+		RequestedBy: "operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err = service.EnableObservation(ctx, enable)
+	if err != nil || replayed.Job.Status != domain.ScheduledJobCancelled ||
+		replayed.Job.Revision != cancelled.Job.Revision {
+		t.Fatalf("cancelled replay=%#v err=%v", replayed, err)
+	}
+
+	atomicRequest := scheduledReadOnlyRequest(run.ID, now,
+		"scheduled-observation-create-consented")
+	atomicRequest.MaxModelCalls = 0
+	atomicRequest.ObservationConsentVersion = domain.ScheduledJobObservationConsentVersion
+	atomic, err := service.Create(ctx, atomicRequest)
+	if err != nil || atomic.Job.ObservationConsentVersion !=
+		domain.ScheduledJobObservationConsentVersion {
+		t.Fatalf("atomic create=%#v err=%v", atomic, err)
+	}
+	atomicReplay, err := service.Create(ctx, atomicRequest)
+	if err != nil || !atomicReplay.Replayed || atomicReplay.Job.ID != atomic.Job.ID ||
+		atomicReplay.Job.ObservationConsentVersion != domain.ScheduledJobObservationConsentVersion {
+		t.Fatalf("atomic replay=%#v err=%v", atomicReplay, err)
+	}
+	nonzeroRequest := scheduledReadOnlyRequest(run.ID, now,
+		"scheduled-observation-nonzero-create")
+	nonzero, err := service.Create(ctx, nonzeroRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.EnableObservation(ctx,
+		application.EnableScheduledJobObservationRequest{RunID: run.ID,
+			JobID: nonzero.Job.ID, ExpectedRevision: nonzero.Job.Revision,
+			ObservationConsentVersion: domain.ScheduledJobObservationConsentVersion,
+			OperationKey:              "scheduled-observation-nonzero-enable", RequestedBy: "operator"}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("nonzero model job consent code=%s err=%v", apperror.CodeOf(err), err)
+	}
+}
+
 func TestScheduledReadOnlyPlanSupportsExplicitCyberTarget(t *testing.T) {
 	ctx := context.Background()
 	state, err := store.Open(filepath.Join(t.TempDir(), "scheduled-cyber-plan.db"))

@@ -14,6 +14,8 @@ import (
 const (
 	SessionMessageSubmissionProtocolVersion    = "session_message_submission.v1"
 	SessionSteeringCancellationProtocolVersion = "session_steering_cancellation.v1"
+	SessionSteeringRevisionProtocolVersion     = "session_steering_revision.v1"
+	ThreadQueuedMessagesProtocolVersion        = "thread_queued_messages.v1"
 
 	MaxOperatorSteeringContentBytes  = 16 * 1024
 	MaxOperatorSteeringReasonBytes   = 2 * 1024
@@ -129,21 +131,25 @@ func (r EnqueueOperatorSteeringRequest) Normalize() (EnqueueOperatorSteeringRequ
 }
 
 type OperatorSteeringMessage struct {
-	ID               string
-	RunID            string
-	SessionID        string
-	Sequence         int64
-	Status           OperatorSteeringStatus
-	Prepared         bool
-	Content          string
-	ImageCount       int
-	AttachmentCount  int
-	ContentSHA256    string
-	RequestedBy      string
-	SessionMessageID int64
-	CreatedAt        time.Time
-	CommittedAt      *time.Time
-	CancelledAt      *time.Time
+	ID                    string
+	RunID                 string
+	SessionID             string
+	Sequence              int64
+	Status                OperatorSteeringStatus
+	Prepared              bool
+	Content               string
+	ImageCount            int
+	AttachmentCount       int
+	ContentSHA256         string
+	Revision              int64
+	OriginalContent       string `json:"-"`
+	OriginalContentSHA256 string `json:"-"`
+	RequestedBy           string
+	SessionMessageID      int64
+	CreatedAt             time.Time
+	CommittedAt           *time.Time
+	CancelledAt           *time.Time
+	EditedAt              *time.Time
 }
 
 func (m OperatorSteeringMessage) Validate() error {
@@ -166,6 +172,22 @@ func (m OperatorSteeringMessage) Validate() error {
 	}
 	if m.ContentSHA256 != OperatorSteeringContentSHA256(m.Content) {
 		return errors.New("operator steering content digest does not match")
+	}
+	original, originalErr := NormalizeOperatorSteeringContent(m.OriginalContent)
+	if (originalErr != nil || original != m.OriginalContent) && !(m.OriginalContent == "" &&
+		((m.ImageCount > 0 && m.ImageCount <= MaxThreadMessageImages) ||
+			(m.AttachmentCount > 0 && m.AttachmentCount <= MaxThreadMessageAttachments))) {
+		return errors.New("operator steering original content is not normalized")
+	}
+	if m.Revision < 0 || m.OriginalContentSHA256 != OperatorSteeringContentSHA256(m.OriginalContent) {
+		return errors.New("operator steering original content or revision is invalid")
+	}
+	if m.Revision == 0 {
+		if m.Content != m.OriginalContent || m.ContentSHA256 != m.OriginalContentSHA256 || m.EditedAt != nil {
+			return errors.New("unrevised operator steering must match its original content")
+		}
+	} else if m.EditedAt == nil || m.EditedAt.IsZero() || m.EditedAt.Before(m.CreatedAt) {
+		return errors.New("revised operator steering requires an edit time")
 	}
 	if m.Sequence <= 0 || !m.Status.Valid() || m.CreatedAt.IsZero() {
 		return errors.New("operator steering sequence, status, and creation time are required")

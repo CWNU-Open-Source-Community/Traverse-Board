@@ -235,5 +235,8 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v164 | 将不可变 Full Access 文件自动授权扩展到不覆盖目标的移动 | extend immutable automatic Full Access FileEdit authorization to non-overwriting moves |
 | v165 | 接入 GitHub、HN 与 RSS 来源连接器并保留原工具账本和引用身份 | admit GitHub, HN and RSS source connectors while preserving tool-ledger and citation identity |
 | v166 | 恢复精确历史网页审批失败后 paused Run 的普通续聊，保留原调用与证据 | continue paused Runs after exact historical web-approval failures while retaining original calls and evidence |
+| v167 | 增加只读零模型计划的不可变持久观察同意收据，不回填旧计划 | add immutable durable observation consent receipts for read-only zero-model jobs without backfilling existing jobs |
+| v168 | 保留原消息身份，为待处理消息增加 CAS 修订记录和按消息绑定的附件提交证据 | preserve original message identity with CAS revisions and message-bound attachment delivery evidence |
+| v169 | 增加绑定 Run 权限与 Supervisor 调用账本的 Agent 浏览器动作、敏感意图和截图收据 | add Run-authority-bound Agent browser actions, sensitive intents, and screenshot receipts to the Supervisor call ledger |
 
 </details>

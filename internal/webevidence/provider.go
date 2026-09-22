@@ -27,6 +27,11 @@ type SearchProvider interface {
 	Search(context.Context, string, int, NetworkAuthority) ([]ProviderResult, error)
 }
 
+type FilteredSearchProvider interface {
+	SearchProvider
+	SearchFiltered(context.Context, SearchRequest, NetworkAuthority) ([]ProviderResult, error)
+}
+
 const (
 	SearchPolicyDisabled       = "disabled"
 	SearchPolicyAuto           = "auto"
@@ -85,6 +90,13 @@ type QualifyingSearchProvider interface {
 type ProviderGroundedSearchProvider interface {
 	QualifyingSearchProvider
 	ProviderGroundedSearch() bool
+}
+
+type NativeSearchProvider interface {
+	ProviderGroundedSearchProvider
+	DeclaredCapabilityBinding(context.Context, NetworkAuthority) (string, error)
+	QualificationSnapshot(context.Context, NetworkAuthority) SearchQualificationSnapshot
+	CheckSearchConnection(context.Context, string, int, NetworkAuthority) ([]ProviderResult, error)
 }
 
 const (

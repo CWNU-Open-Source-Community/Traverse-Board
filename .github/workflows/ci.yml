@@ -13,8 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go control plane
+  classify:
+    name: Classify pull request changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Test CI helpers
+        run: python -B -m unittest discover -s scripts/ci -p 'test_*.py' -v
+      - name: Classify the exact change set
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python -B scripts/ci/classify_changes.py
+          --event "$EVENT_NAME"
+          --repo "$GITHUB_WORKSPACE"
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
+          >> "$GITHUB_OUTPUT"
+
+  go-checks:
+    name: Go checks
+    needs: classify
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -59,33 +86,131 @@ jobs:
       - name: Verify Surface tier registry and generated inventory
         run: go run ./cmd/surfacecheck
       - name: Verify Go analyzer compatibility vectors
+        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
-      - name: Run complete Go suite
+      - name: Verify documentation release contracts
+        if: ${{ github.event_name == 'pull_request' && needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' }}
+        run: go test -count=1 ./internal/releasegate ./internal/producte2e
+      - name: Run complete Go suite except sharded Store package
+        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         # The migration-heavy Store package can exceed 30 minutes on a shared
         # Linux runner after a forward schema is added. Shared-runner variance
-        # has pushed the Store package past 45 minutes, so retain a bounded
-        # deadline without turning a slow package into a skip or waiver.
-        run: go test -timeout 60m -count=1 ./...
+        # has pushed the Store package past 45 minutes. It is split below by
+        # compiled test name while this job retains every other package.
+        shell: bash
+        run: |
+          set -euo pipefail
+          module="$(go list -m)"
+          store_package="$module/internal/store"
+          package_file="$RUNNER_TEMP/go-packages.txt"
+          go list ./... > "$package_file"
+          mapfile -t packages < "$package_file"
+          filtered=()
+          store_seen=false
+          for package in "${packages[@]}"; do
+            if [[ "$package" == "$store_package" ]]; then
+              store_seen=true
+            else
+              filtered+=("$package")
+            fi
+          done
+          if [[ "$store_seen" != true || "${#filtered[@]}" -eq 0 ]]; then
+            echo "Exact internal/store package exclusion failed" >&2
+            exit 1
+          fi
+          go test -timeout 60m -count=1 "${filtered[@]}"
       - name: Race-check Workspace Access permission and authority fencing
+        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         run: >-
           go test -race -timeout 15m -count=1
           ./internal/domain ./internal/executionauth ./internal/application
           ./internal/store ./internal/httpapi
           -run 'WorkspaceAccess|RunExecutionPermission|ExecutionPermission|PermissionDrift|SchemaV126|AgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict|CommandRuntimeServiceRunsAndReplaysFencedForegroundCommand'
-      - run: go vet ./...
+      - if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
+        run: go vet ./...
       - name: Install pinned govulncheck
+        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         env:
           GOBIN: ${{ runner.temp }}
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: Scan for reachable Go vulnerabilities
+        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         env:
           GOVULNCHECK: ${{ runner.temp }}/govulncheck
         run: |
           "$GOVULNCHECK" -version
           "$GOVULNCHECK" ./...
 
+  store-tests:
+    name: Store package tests (shard ${{ matrix.shard }})
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
+      - name: Run exact Store shard
+        run: >-
+          python -B scripts/ci/run_store_shard.py
+          --index ${{ matrix.shard }}
+          --count 8
+          --output-dir "$RUNNER_TEMP/store-shard-${{ matrix.shard }}"
+      - name: Upload Store shard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: store-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/store-shard-${{ matrix.shard }}/
+          if-no-files-found: error
+          retention-days: 5
+
+  go:
+    name: Go control plane
+    needs:
+      - classify
+      - go-checks
+      - store-tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every applicable Go gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          GO_CHECKS_RESULT: ${{ needs.go-checks.result }}
+          STORE_TESTS_RESULT: ${{ needs.store-tests.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$CLASSIFY_RESULT" != success || "$GO_CHECKS_RESULT" != success ]]; then
+            echo "Change classification or Go checks did not succeed" >&2
+            exit 1
+          fi
+          if [[ "$EVENT_NAME" == pull_request && "$DOCS_ONLY" == true ]]; then
+            if [[ "$STORE_TESTS_RESULT" != skipped ]]; then
+              echo "Documentation-only Store shards were not skipped as required" >&2
+              exit 1
+            fi
+          elif [[ "$STORE_TESTS_RESULT" != success ]]; then
+            echo "One or more Store shards did not succeed" >&2
+            exit 1
+          fi
+          echo "All applicable Go gates succeeded"
+
   code-intel-lsp:
     name: Real LSP (${{ matrix.os }})
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -140,6 +265,8 @@ jobs:
 
   web:
     name: TypeScript console
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -169,6 +296,8 @@ jobs:
 
   rust:
     name: Rust analyzer fixtures
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -246,6 +375,8 @@ jobs:
 
   desktop-macos:
     name: macOS Desktop shell
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -269,6 +400,11 @@ jobs:
           npm run build
       - name: Test Desktop boundaries
         run: go test -tags "desktop" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+      - name: Verify isolated macOS Keychain persistence
+        env:
+          CGO_ENABLED: '1'
+          TRAVERSE_TEST_KEYCHAIN: '1'
+        run: go test -v -tags keychainintegration -count=1 -timeout=90s ./internal/credential
       - name: Verify POSIX command runtime transport
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntimePlatform(ShellSmoke|CancelReapsOwnedProcessTree)$'
       - name: Build and verify downloadable macOS preview
@@ -283,6 +419,8 @@ jobs:
 
   desktop:
     name: Windows Desktop shell
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: windows-latest
     env:
       TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
@@ -344,6 +482,8 @@ jobs:
 
   ui-evidence-windows:
     name: Real Edge UI evidence (standard user, Windows 2022)
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
     runs-on: windows-2022
     timeout-minutes: 10
     steps:

@@ -120,22 +120,7 @@ func readSupervisorCompactionSnapshot(ctx context.Context, reader supervisorComp
 		return snapshot, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"context compaction requires the running Run's bound Session and Workspace", err)
 	}
-	rows, err := reader.QueryContext(ctx, `SELECT id, session_id, role, content, provenance_version,
-		source_kind, source_ref, content_sha256, instruction_authorized, token_estimate,
-		compacted, created_at FROM session_messages WHERE session_id=? AND compacted=0 ORDER BY id`, snapshot.SessionID)
-	if err != nil {
-		return snapshot, err
-	}
-	for rows.Next() {
-		message, err := scanSessionMessage(rows)
-		if err != nil {
-			_ = rows.Close()
-			return snapshot, err
-		}
-		snapshot.Messages = append(snapshot.Messages, message)
-	}
-	err = rows.Err()
-	_ = rows.Close()
+	snapshot.Messages, err = listSupervisorContextMessages(ctx, reader, snapshot.SessionID)
 	if err != nil {
 		return snapshot, err
 	}

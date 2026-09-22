@@ -183,6 +183,9 @@ describe("V2 model provider catalog", () => {
     await user.click(openAI);
 
     expect(await screen.findByRole("heading", { name: "添加供应商" })).toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeEnabled();
+    expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("供应商 ID")).toHaveValue("official-openai");
     expect(screen.getByLabelText("显示名称")).toHaveValue("OpenAI 官方 API");
     expect(screen.getByLabelText("请求地址")).toHaveValue("https://api.openai.com/v1/responses");

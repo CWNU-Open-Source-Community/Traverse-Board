@@ -88,19 +88,9 @@ func (s *SQLiteStore) CompactSupervisorContextWithStrategy(ctx context.Context,
 		}
 	}
 	if result.Compacted && result.RemovedMessages > 0 {
-		throughID := history[result.RemovedMessages-1].SourceMessageID
-		updated, err := tx.ExecContext(ctx, `UPDATE session_messages SET compacted=1
-			WHERE session_id=? AND compacted=0 AND id<=?`, snapshot.SessionID, throughID)
-		if err != nil {
+		if err := markSupervisorContextMessagesCompacted(ctx, tx, snapshot.SessionID,
+			history, result.RemovedMessages); err != nil {
 			return contextmgr.Result{}, err
-		}
-		count, err := updated.RowsAffected()
-		if err != nil {
-			return contextmgr.Result{}, err
-		}
-		if count != int64(result.RemovedMessages) {
-			return contextmgr.Result{}, apperror.New(apperror.CodeConflict,
-				"Supervisor context compaction history changed")
 		}
 	}
 	if err := tx.Commit(); err != nil {

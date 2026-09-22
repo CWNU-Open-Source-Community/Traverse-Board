@@ -66,7 +66,7 @@ func BrowserActionToolNames() []ToolName {
 func IsBrowserActionTool(name ToolName) bool {
 	switch name {
 	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
+		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
 		return true
 	default:
 		return false
@@ -83,6 +83,9 @@ func BrowserActionToolDefinitions() []ToolDefinition {
 }
 
 func BrowserActionToolDefinition(name ToolName) (ToolDefinition, bool) {
+	if name == BrowserScrollTool || name == BrowserKeyTool {
+		return AgentBrowserToolDefinition(name)
+	}
 	for _, definition := range browserActionDefinitions {
 		if definition.Name == name {
 			definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
@@ -95,6 +98,9 @@ func BrowserActionToolDefinition(name ToolName) (ToolDefinition, bool) {
 func NormalizeBrowserActionPayload(name ToolName, raw json.RawMessage) (
 	json.RawMessage, error,
 ) {
+	if IsAgentBrowserPayload(raw) {
+		return NormalizeAgentBrowserPayload(name, raw)
+	}
 	if !IsBrowserActionTool(name) || len(raw) < 2 || len(raw) > MaxArgumentValueBytes ||
 		!utf8.Valid(raw) {
 		return nil, errors.New("browser action payload must be bounded UTF-8 JSON")

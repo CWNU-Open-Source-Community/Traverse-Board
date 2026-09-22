@@ -75,8 +75,9 @@ const mergeClocks = (...clocks: Readonly<Record<string, number>>[]): Record<stri
   }
   return result;
 };
-const validScope = (scope: DraftScope) => object(scope) && id(scope.workspaceID) &&
-  typeof scope.key === "string" && (/^thread:[\w.-]{1,256}$/u.test(scope.key) || scope.key === `new:${scope.workspaceID}`);
+const validScope = (scope: DraftScope) => object(scope) && typeof scope.key === "string" && (
+  id(scope.workspaceID) && (/^thread:[\w.-]{1,256}$/u.test(scope.key) || scope.key === `new:${scope.workspaceID}`) ||
+  (scope.workspaceID === "" || id(scope.workspaceID)) && /^queue-edit:[\w.-]{1,256}:[\w.-]{1,256}:[\w.-]{1,256}:[\w.-]{1,256}:\d{1,16}$/u.test(scope.key));
 
 export function validDraftSnapshot(value: unknown, workspaceID: string): value is DraftSnapshot {
   return object(value) && typeof value.text === "string" && Array.isArray(value.files) && value.files.length <= 4 &&

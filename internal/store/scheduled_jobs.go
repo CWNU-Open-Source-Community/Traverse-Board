@@ -27,6 +27,8 @@ const scheduledJobSelect = `SELECT id, spec_json, owner_run_id,
 	last_observation_sha256, last_result, last_error_code, stop_reason,
 	active_lease_generation, active_lease_expires_at, created_by, created_at,
 	updated_at, completed_at, active_lease_owner_sha256, active_fence_token_sha256
+	, COALESCE((SELECT consent.version FROM scheduled_job_observation_consents consent
+		WHERE consent.job_id = scheduled_jobs.id), 0)
 	FROM scheduled_jobs `
 
 type scheduledJobRecord struct {
@@ -108,7 +110,22 @@ func (s *SQLiteStore) GetScheduledJobAuthorization(ctx context.Context,
 func (s *SQLiteStore) CreateScheduledJob(ctx context.Context, job domain.ScheduledJob,
 	authorization *domain.ScheduledJobAuthorization, operation domain.ScheduledJobOperation,
 ) (domain.ScheduledJob, bool, error) {
-	if err := validateScheduledJobCreate(job, authorization, operation); err != nil {
+	return s.createScheduledJob(ctx, job, authorization, nil, operation)
+}
+
+func (s *SQLiteStore) CreateScheduledJobWithObservationConsent(ctx context.Context,
+	job domain.ScheduledJob, authorization *domain.ScheduledJobAuthorization,
+	consent domain.ScheduledJobObservationConsent, operation domain.ScheduledJobOperation,
+) (domain.ScheduledJob, bool, error) {
+	return s.createScheduledJob(ctx, job, authorization, &consent, operation)
+}
+
+func (s *SQLiteStore) createScheduledJob(ctx context.Context, job domain.ScheduledJob,
+	authorization *domain.ScheduledJobAuthorization,
+	consent *domain.ScheduledJobObservationConsent,
+	operation domain.ScheduledJobOperation,
+) (domain.ScheduledJob, bool, error) {
+	if err := validateScheduledJobCreate(job, authorization, consent, operation); err != nil {
 		return domain.ScheduledJob{}, false, err
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
@@ -131,6 +148,13 @@ func (s *SQLiteStore) CreateScheduledJob(ctx context.Context, job domain.Schedul
 			return domain.ScheduledJob{}, false, err
 		}
 		return stored.Job, true, nil
+	}
+	if _, found, err := getScheduledJobObservationConsentByOperation(ctx, tx,
+		operation.KeyDigest); err != nil {
+		return domain.ScheduledJob{}, false, err
+	} else if found {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+			"scheduled job operation key was already used for observation consent")
 	}
 	run, mission, err := getCoordinatorRunTx(ctx, tx, job.OwnerRunID)
 	if err != nil {
@@ -173,6 +197,12 @@ func (s *SQLiteStore) CreateScheduledJob(ctx context.Context, job domain.Schedul
 			return domain.ScheduledJob{}, false, err
 		}
 	}
+	if consent != nil {
+		if err := insertScheduledJobObservationConsentTx(ctx, tx, *consent); err != nil {
+			return domain.ScheduledJob{}, false, normalizeScheduledJobWriteError(err)
+		}
+		job.ObservationConsentVersion = consent.Version
+	}
 	if err := insertScheduledJobOperationTx(ctx, tx, operation); err != nil {
 		return domain.ScheduledJob{}, false, normalizeScheduledJobWriteError(err)
 	}
@@ -190,6 +220,78 @@ func (s *SQLiteStore) CreateScheduledJob(ctx context.Context, job domain.Schedul
 		}, job.CreatedAt); err != nil {
 		return domain.ScheduledJob{}, false, err
 	}
+	if err := tx.Commit(); err != nil {
+		return domain.ScheduledJob{}, false, err
+	}
+	return job, false, nil
+}
+
+// EnableScheduledJobObservation inserts one immutable receipt for an exact
+// owner and revision. Replays return the current job projection and never
+// change status, revision, scheduling, retry, or lease state.
+func (s *SQLiteStore) EnableScheduledJobObservation(ctx context.Context,
+	consent domain.ScheduledJobObservationConsent, expectedRevision int64,
+) (domain.ScheduledJob, bool, error) {
+	if err := consent.Validate(); err != nil {
+		return domain.ScheduledJob{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
+			"scheduled job observation consent is invalid", err)
+	}
+	if expectedRevision < 1 {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeInvalidArgument,
+			"scheduled job observation consent revision is invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return domain.ScheduledJob{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if stored, found, err := getScheduledJobObservationConsentByOperation(ctx, tx,
+		consent.OperationKeySHA256); err != nil {
+		return domain.ScheduledJob{}, false, err
+	} else if found {
+		if stored.JobID != consent.JobID || stored.RunID != consent.RunID ||
+			stored.Version != consent.Version || stored.ConfirmedBy != consent.ConfirmedBy ||
+			stored.RequestFingerprint != consent.RequestFingerprint {
+			return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+				"scheduled job observation operation key was already used for different intent")
+		}
+		job, err := getScheduledJob(ctx, tx, stored.JobID)
+		if err != nil {
+			return domain.ScheduledJob{}, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return domain.ScheduledJob{}, false, err
+		}
+		return job.Job, true, nil
+	}
+	if _, found, err := getScheduledJobOperation(ctx, tx, consent.OperationKeySHA256); err != nil {
+		return domain.ScheduledJob{}, false, err
+	} else if found {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+			"scheduled job operation key was already used for different intent")
+	}
+	record, err := getScheduledJob(ctx, tx, consent.JobID)
+	if err != nil {
+		return domain.ScheduledJob{}, false, err
+	}
+	job := record.Job
+	if job.OwnerRunID != consent.RunID || job.Revision != expectedRevision {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+			"scheduled job changed before observation consent")
+	}
+	if job.Status.Terminal() || job.Spec.ExecutionMode != domain.ScheduledJobReadOnly ||
+		job.Spec.MaxModelCalls != 0 {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeFailedPrecondition,
+			"observation consent requires a non-terminal read-only zero-model job")
+	}
+	if job.ObservationConsentVersion != 0 {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+			"scheduled job observation consent already exists")
+	}
+	if err := insertScheduledJobObservationConsentTx(ctx, tx, consent); err != nil {
+		return domain.ScheduledJob{}, false, normalizeScheduledJobWriteError(err)
+	}
+	job.ObservationConsentVersion = consent.Version
 	if err := tx.Commit(); err != nil {
 		return domain.ScheduledJob{}, false, err
 	}
@@ -233,6 +335,13 @@ func (s *SQLiteStore) TransitionScheduledJob(ctx context.Context, jobID string,
 			return domain.ScheduledJob{}, false, err
 		}
 		return stored.Job, true, nil
+	}
+	if _, found, err := getScheduledJobObservationConsentByOperation(ctx, tx,
+		operation.KeyDigest); err != nil {
+		return domain.ScheduledJob{}, false, err
+	} else if found {
+		return domain.ScheduledJob{}, false, apperror.New(apperror.CodeConflict,
+			"scheduled job operation key was already used for observation consent")
 	}
 	record, err := getScheduledJob(ctx, tx, jobID)
 	if err != nil {
@@ -383,6 +492,18 @@ func (s *SQLiteStore) ListScheduledJobNotifications(ctx context.Context,
 func (s *SQLiteStore) ClaimDueScheduledJob(ctx context.Context, ownerID string,
 	now time.Time,
 ) (domain.ScheduledJob, domain.ScheduledJobLease, bool, error) {
+	return s.claimDueScheduledJob(ctx, ownerID, now, false)
+}
+
+func (s *SQLiteStore) ClaimDueObservationScheduledJob(ctx context.Context,
+	ownerID string, now time.Time,
+) (domain.ScheduledJob, domain.ScheduledJobLease, bool, error) {
+	return s.claimDueScheduledJob(ctx, ownerID, now, true)
+}
+
+func (s *SQLiteStore) claimDueScheduledJob(ctx context.Context, ownerID string,
+	now time.Time, observationOnly bool,
+) (domain.ScheduledJob, domain.ScheduledJobLease, bool, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	now = now.UTC()
 	if !domain.ValidAgentID(ownerID) || now.IsZero() {
@@ -395,9 +516,15 @@ func (s *SQLiteStore) ClaimDueScheduledJob(ctx context.Context, ownerID string,
 		return domain.ScheduledJob{}, domain.ScheduledJobLease{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	where := `WHERE status = 'active' AND julianday(next_wake_at) <= julianday(?) `
+	if observationOnly {
+		where += `AND execution_mode = 'read_only'
+		AND CAST(json_extract(spec_json, '$.max_model_calls') AS INTEGER) = 0
+		AND EXISTS (SELECT 1 FROM scheduled_job_observation_consents consent
+			WHERE consent.job_id = scheduled_jobs.id AND consent.version = 1) `
+	}
 	record, err := scanScheduledJob(tx.QueryRowContext(ctx, scheduledJobSelect+
-		`WHERE status = 'active' AND julianday(next_wake_at) <= julianday(?)
-		ORDER BY next_wake_at, id LIMIT 1`, ts(now)))
+		where+`ORDER BY next_wake_at, id LIMIT 1`, ts(now)))
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := tx.Commit(); err != nil {
 			return domain.ScheduledJob{}, domain.ScheduledJobLease{}, false, err
@@ -781,6 +908,18 @@ func (s *SQLiteStore) FailScheduledJobRound(ctx context.Context,
 func (s *SQLiteStore) ReconcileScheduledJobs(ctx context.Context, now time.Time,
 	limit int,
 ) (int, error) {
+	return s.reconcileScheduledJobs(ctx, now, limit, false)
+}
+
+func (s *SQLiteStore) ReconcileObservationScheduledJobs(ctx context.Context,
+	now time.Time, limit int,
+) (int, error) {
+	return s.reconcileScheduledJobs(ctx, now, limit, true)
+}
+
+func (s *SQLiteStore) reconcileScheduledJobs(ctx context.Context, now time.Time,
+	limit int, observationOnly bool,
+) (int, error) {
 	now = now.UTC()
 	if now.IsZero() || limit < 1 || limit > 1024 {
 		return 0, apperror.New(apperror.CodeInvalidArgument,
@@ -791,10 +930,17 @@ func (s *SQLiteStore) ReconcileScheduledJobs(ctx context.Context, now time.Time,
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM scheduled_jobs
+	query := `SELECT id FROM scheduled_jobs
 		WHERE status = 'active' AND active_lease_generation > 0
-		AND julianday(active_lease_expires_at) <= julianday(?)
-		ORDER BY active_lease_expires_at, id LIMIT ?`, ts(now), limit)
+		AND julianday(active_lease_expires_at) <= julianday(?) `
+	if observationOnly {
+		query += `AND execution_mode = 'read_only'
+		AND CAST(json_extract(spec_json, '$.max_model_calls') AS INTEGER) = 0
+		AND EXISTS (SELECT 1 FROM scheduled_job_observation_consents consent
+			WHERE consent.job_id = scheduled_jobs.id AND consent.version = 1) `
+	}
+	query += `ORDER BY active_lease_expires_at, id LIMIT ?`
+	rows, err := tx.QueryContext(ctx, query, ts(now), limit)
 	if err != nil {
 		return 0, err
 	}
@@ -1170,6 +1316,7 @@ func scheduledJobPreclaimStop(job domain.ScheduledJob,
 
 func validateScheduledJobCreate(job domain.ScheduledJob,
 	authorization *domain.ScheduledJobAuthorization,
+	consent *domain.ScheduledJobObservationConsent,
 	operation domain.ScheduledJobOperation,
 ) error {
 	if err := job.Validate(); err != nil {
@@ -1204,6 +1351,18 @@ func validateScheduledJobCreate(job domain.ScheduledJob,
 			authorization.ExpiresAt.After(job.Spec.DeadlineAt) {
 			return apperror.New(apperror.CodeInvalidArgument,
 				"approved repair scheduled job requires an exact bounded authorization")
+		}
+	}
+	if consent != nil {
+		if err := consent.Validate(); err != nil || consent.JobID != job.ID ||
+			consent.RunID != job.OwnerRunID || consent.ConfirmedBy != job.CreatedBy ||
+			consent.ConfirmedAt != job.CreatedAt ||
+			consent.OperationKeySHA256 != operation.KeyDigest ||
+			consent.RequestFingerprint != operation.RequestFingerprint ||
+			job.Spec.ExecutionMode != domain.ScheduledJobReadOnly ||
+			job.Spec.MaxModelCalls != 0 {
+			return apperror.New(apperror.CodeInvalidArgument,
+				"scheduled job observation consent requires an exact read-only zero-model create")
 		}
 	}
 	return nil
@@ -1352,6 +1511,18 @@ func insertScheduledJobOperationTx(ctx context.Context, tx *sql.Tx,
 	return err
 }
 
+func insertScheduledJobObservationConsentTx(ctx context.Context, tx *sql.Tx,
+	consent domain.ScheduledJobObservationConsent,
+) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO scheduled_job_observation_consents
+		(job_id, run_id, version, confirmed_by, confirmed_at,
+		 operation_key_sha256, request_fingerprint)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, consent.JobID, consent.RunID,
+		consent.Version, consent.ConfirmedBy, ts(consent.ConfirmedAt),
+		consent.OperationKeySHA256, consent.RequestFingerprint)
+	return err
+}
+
 func getScheduledJob(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id string) (scheduledJobRecord, error) {
@@ -1371,7 +1542,8 @@ func scanScheduledJob(row scanner) (scheduledJobRecord, error) {
 		&record.Job.LastObservationSHA256, &record.Job.LastResult,
 		&record.Job.LastErrorCode, &stopReason, &record.Job.ActiveLeaseGeneration,
 		&leaseExpires, &record.Job.CreatedBy, &createdAt, &updatedAt, &completed,
-		&record.LeaseOwnerSHA256, &record.FenceTokenSHA256)
+		&record.LeaseOwnerSHA256, &record.FenceTokenSHA256,
+		&record.Job.ObservationConsentVersion)
 	if err != nil {
 		return scheduledJobRecord{}, err
 	}
@@ -1399,6 +1571,27 @@ func scanScheduledJob(row scanner) (scheduledJobRecord, error) {
 		return scheduledJobRecord{}, errors.New("stored scheduled job lease digests are invalid")
 	}
 	return record, nil
+}
+
+func getScheduledJobObservationConsentByOperation(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, keyDigest string) (domain.ScheduledJobObservationConsent, bool, error) {
+	var value domain.ScheduledJobObservationConsent
+	var confirmedAt string
+	err := queryer.QueryRowContext(ctx, `SELECT job_id, run_id, version,
+		confirmed_by, confirmed_at, operation_key_sha256, request_fingerprint
+		FROM scheduled_job_observation_consents WHERE operation_key_sha256 = ?`,
+		keyDigest).Scan(&value.JobID, &value.RunID, &value.Version,
+		&value.ConfirmedBy, &confirmedAt, &value.OperationKeySHA256,
+		&value.RequestFingerprint)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ScheduledJobObservationConsent{}, false, nil
+	}
+	if err != nil {
+		return domain.ScheduledJobObservationConsent{}, false, err
+	}
+	value.ConfirmedAt = parseTS(confirmedAt)
+	return value, true, value.Validate()
 }
 
 func getScheduledJobOperation(ctx context.Context, queryer interface {

@@ -87,6 +87,72 @@
       "retired_identifiers": []
     },
     {
+      "id": "agent-browser-supervisor-ledger",
+      "class": "internal-durable",
+      "owner": "Agent browser, Supervisor tool, and persistence maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/store",
+        "internal/toolgateway"
+      ],
+      "writers": [
+        {
+          "id": "agent-browser-supervisor-ledger-writer",
+          "source": "internal/application",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "agent-browser-supervisor-ledger-reader",
+          "source": "internal/store",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        },
+        {
+          "id": "agent-browser-supervisor-authority-reader",
+          "source": "internal/toolgateway",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite preserves exact Supervisor calls, authority, payloads, approvals, dispatch markers, results, and screenshot receipts; process-local browser sessions and manager boot identities are intentionally invalid after restart.",
+      "compatibility_rule": "Keep durable call and receipt readers for every stored version, reject unknown action payloads, and require fresh runtime authority before any post-restart dispatch.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "agent-browser-actions.v1",
+        "browser_click.v2",
+        "browser_key.v2",
+        "browser_navigate.v2",
+        "browser_screenshot.v2",
+        "browser_screenshot_result.v2",
+        "browser_scroll.v2",
+        "browser_sensitive_intent.v1",
+        "browser_snapshot.v2",
+        "browser_status.v2",
+        "browser_type.v2"
+      ],
+      "retired_identifiers": []
+    },
+    {
       "id": "agent-scheduling-delivery-ledgers",
       "class": "internal-durable",
       "owner": "Agent graph, scheduler, and batch-delivery maintainers",
@@ -498,6 +564,9 @@
         ]
       },
       "active_identifiers": [
+        "agent-browser-runtime.v1",
+        "agent_browser_process.v1",
+        "agent_browser_profile.v1",
         "browser-launch-budget.v1",
         "browser-launch-lease-owner-request.v1",
         "browser-launch-owner.v1",
@@ -657,7 +726,8 @@
       "source_of_truth": [
         "internal/application",
         "internal/domain",
-        "internal/store"
+        "internal/store",
+        "internal/webevidence"
       ],
       "writers": [
         {
@@ -721,6 +791,7 @@
         "finding_validation_request.v1",
         "github-public.v1",
         "hacker-news-public.v1",
+        "lexical_window.v1",
         "macos_portable_compatibility.v1",
         "msix_manifest.v1",
         "msix_manifest.v2",
@@ -730,8 +801,10 @@
         "rss-atom-public.v1",
         "sanitized_host_environment.v1",
         "scheduled-job-worker.v1",
+        "scheduled_job_create_observation_consent.v1",
         "scheduled_job_create_request.v1",
         "scheduled_job_observation.v1",
+        "scheduled_job_observation_consent_request.v1",
         "scheduled_job_operation.v1",
         "scheduled_job_transition_request.v1",
         "script_process.v1",
@@ -783,6 +856,7 @@
         "web_fetch.v1",
         "web_fetch_authorization.v1",
         "web_fetch_continuation.v1",
+        "web_question_excerpt.v1",
         "web_search.v1",
         "windows-two-deliverable-contract.v1",
         "windows_artifact_attestations.v1",
@@ -796,6 +870,7 @@
         "windows_store_readback.v1",
         "work_board.v1",
         "work_item_create.v1",
+        "workbench.prayu.desktop.credentials.v1",
         "workspace-checkpoint-api.v1",
         "workspace-checkpoint-transaction.v1",
         "workspace-checkpoint.v1",
@@ -810,7 +885,8 @@
       "source_of_truth": [
         "internal/credential",
         "internal/modelregistry",
-        "internal/store"
+        "internal/store",
+        "internal/webevidence"
       ],
       "writers": [
         {
@@ -844,6 +920,9 @@
         ]
       },
       "active_identifiers": [
+        "anthropic_native_search.v1",
+        "anthropic_native_search_cache.v1",
+        "anthropic_native_search_negative.v1",
         "model_cancellation_operation.v1",
         "model_cancellation_request.v1",
         "model_context_window.v1",
@@ -1229,6 +1308,8 @@
       },
       "active_identifiers": [
         "agent-code-tools.v1",
+        "agent_browser_close.v1",
+        "agent_browser_status.v1",
         "agent_graph.v1",
         "api.v1",
         "approval_control.v1",
@@ -1308,6 +1389,7 @@
         "session_evidence_inventory.v1",
         "session_message_submission.v1",
         "session_steering_cancellation.v1",
+        "session_steering_revision.v1",
         "skill_package_installation.v1",
         "standard_code_preset.v1",
         "thread.v1",
@@ -1321,6 +1403,7 @@
         "thread_message_submission.v1",
         "thread_model_route.v1",
         "thread_model_route_control.v1",
+        "thread_queued_messages.v1",
         "thread_run_recovery.v1",
         "ui-evidence-artifact.v1",
         "ui-evidence-attempt.v1",
@@ -2284,6 +2367,11 @@
         "llm.item_stream.identity.v1",
         "long_term_memory.v1",
         "note_context.v1",
+        "operator_steering_revision_operation.v1",
+        "operator_steering_revision_request.v1",
+        "queue_edit.v1",
+        "queue_operation.v1",
+        "queue_revision_unchanged.v1",
         "root_action_compatibility.v1",
         "root_inbox_context.v1",
         "root_lifecycle.v1",
@@ -2877,6 +2965,22 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "browser_key.v1",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/toolgateway/agent_browser_actions_test.go"
+      ],
+      "reason": "Agent browser v2 rejects the prior-version payload in an exact negative test; it is not a production Agent browser protocol."
+    },
+    {
+      "identifier": "browser_navigate.v3",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/toolgateway/agent_browser_actions_test.go"
+      ],
+      "reason": "Agent browser v2 rejects the unsupported future-version payload in an exact negative test; it is not a production protocol."
+    },
+    {
       "identifier": "browser_network_containment_evidence.v0",
       "kind": "test-fixture",
       "sources": [
@@ -3437,7 +3541,8 @@
       "identifier": "unknown.v1",
       "kind": "negative-version-fixture",
       "sources": [
-        "internal/analyzer/descriptor_test.go"
+        "internal/analyzer/descriptor_test.go",
+        "web/src/api/queued-messages.test.ts"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },

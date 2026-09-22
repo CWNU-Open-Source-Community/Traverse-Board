@@ -31,7 +31,6 @@ on:
       - 'scripts/release-desktop-darwin.sh'
       - 'scripts/macos-release.py'
       - 'scripts/test_macos_release.py'
-      - 'docs/macos-release.md'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
       - 'scripts/finalize-windows-release.ps1'
@@ -46,12 +45,6 @@ on:
       - 'scripts/standard-code-product-e2e.ps1'
       - 'scripts/verify-portable-zip.ps1'
       - 'scripts/verify-msix.ps1'
-      - 'docs/standard-code-packaged-e2e.md'
-      - 'docs/standard-code-product-e2e.md'
-      - 'docs/standard-code-release-gate.md'
-      - 'docs/adr/0138-standard-code-packaged-e2e-foundation.md'
-      - 'docs/adr/0144-standard-code-release-gate-aggregation.md'
-      - 'docs/convergence/protocol-registry.md'
       - 'packaging/windows/**'
       - 'packaging/macos/**'
       - 'assets/branding/**'
@@ -69,7 +62,6 @@ on:
       - 'analyzers/rust-toolchain.toml'
       - 'internal/analyzer/embedded/**'
       - 'README.md'
-      - 'README.en.md'
   push:
     tags:
       - 'v*'
@@ -80,7 +72,7 @@ permissions:
 
 concurrency:
   group: desktop-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   dependency-boundaries:
@@ -327,6 +319,10 @@ jobs:
 
       - name: Verify fail-closed Standard Code release-gate contract
         run: go test -count=1 ./cmd/releasegate ./internal/releasegate ./internal/producte2e ./internal/packagede2e
+
+      - name: Reject stale-store and foreign-window startup evidence
+        shell: pwsh
+        run: ./scripts/test-standard-code-packaged-readiness.ps1
 
       - name: Build Desktop twice and compare bytes
         shell: pwsh
@@ -641,6 +637,15 @@ jobs:
             build/desktop/standard-code-release-gate.json
             build/desktop/sbom.json
             build/desktop/NOTICE
+
+      - name: Preserve failed packaged validation diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-packaged-validation-${{ github.run_id }}
+          path: build/desktop/standard-code-packaged-e2e.json
+          if-no-files-found: warn
+          retention-days: 5
 
       - name: Upload isolated development MSIX validation artifact
         if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || needs.dependency-boundaries.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}

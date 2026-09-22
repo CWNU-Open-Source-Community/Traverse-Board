@@ -124,9 +124,14 @@ func (windowsBrowserProcessStarter) Available() bool { return true }
 func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	spec BrowserStartSpec,
 ) (browserPlatformProcess, error) {
-	if ctx == nil || ctx.Err() != nil || spec.ProtocolVersion != BrowserStartSpecProtocolVersion ||
+	if ctx == nil || ctx.Err() != nil || (spec.ProtocolVersion != BrowserStartSpecProtocolVersion && spec.ProtocolVersion != agentBrowserProcessVersion) ||
 		spec.Fingerprint != browserRuntimeFingerprint(spec) {
 		return nil, ErrBrowserRuntimeBoundary
+	}
+	if spec.ProtocolVersion == agentBrowserProcessVersion {
+		if err := validateAgentBrowserProcessSpec(spec); err != nil {
+			return nil, err
+		}
 	}
 	executable, err := pinBrowserExecutable(spec.ExecutablePath, spec.ExecutableSHA256)
 	if err != nil {
