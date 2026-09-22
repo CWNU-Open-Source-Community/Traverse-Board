@@ -320,6 +320,10 @@ jobs:
       - name: Verify fail-closed Standard Code release-gate contract
         run: go test -count=1 ./cmd/releasegate ./internal/releasegate ./internal/producte2e ./internal/packagede2e
 
+      - name: Reject stale-store and foreign-window startup evidence
+        shell: pwsh
+        run: ./scripts/test-standard-code-packaged-readiness.ps1
+
       - name: Build Desktop twice and compare bytes
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Version '${{ needs.dependency-boundaries.outputs.version }}' -VerifyReproducible

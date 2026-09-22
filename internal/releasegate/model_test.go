@@ -99,6 +99,53 @@ func TestAggregateFilesRejectsTamperedSecurityAndBootstrapEvidence(t *testing.T)
 	}
 }
 
+func TestAggregateFilesRequiresObservedNativeStartup(t *testing.T) {
+	for id, fields := range map[string][]string{
+		"packaged_default_start": {"native_window_ready", "native_window_responsive"},
+		"packaged_operator_preview_kill_reopen": {
+			"native_window_ready_before_kill", "native_window_responsive_before_kill",
+			"native_window_ready_after_reopen", "native_window_responsive_after_reopen",
+		},
+	} {
+		for _, field := range fields {
+			for _, corruption := range []string{"missing", "false", "wrong_type"} {
+				t.Run(id+"/"+field+"/"+corruption, func(t *testing.T) {
+					paths := writeValidInputs(t)
+					bootstrap := readBootstrapReport(t, paths.BootstrapReport)
+					for i := range bootstrap.Results {
+						result := &bootstrap.Results[i]
+						if result.ID != id {
+							continue
+						}
+						var facts map[string]any
+						if err := json.Unmarshal(result.Facts, &facts); err != nil {
+							t.Fatal(err)
+						}
+						switch corruption {
+						case "missing":
+							delete(facts, field)
+						case "false":
+							facts[field] = false
+						case "wrong_type":
+							facts[field] = "true"
+						}
+						encoded, err := json.Marshal(facts)
+						if err != nil {
+							t.Fatal(err)
+						}
+						result.Facts = encoded
+					}
+					writeJSON(t, paths.BootstrapReport, bootstrap)
+					if _, err := AggregateFiles(paths); err == nil ||
+						!strings.Contains(err.Error(), "native startup evidence") {
+						t.Fatalf("missing/invalid native startup observation accepted: %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func writeValidInputs(t *testing.T) InputPaths {
 	t.Helper()
 	root := t.TempDir()
@@ -159,7 +206,14 @@ func validBootstrap(now time.Time, revision, binarySHA, archiveSHA, fixtureSHA, 
 		"owned_harness_cleanup"}
 	results := make([]bootstrapResult, 0, len(resultIDs))
 	for _, id := range resultIDs {
-		results = append(results, bootstrapResult{ID: id, Status: "pass", Facts: json.RawMessage(`{}`)})
+		facts := json.RawMessage(`{}`)
+		switch id {
+		case "packaged_default_start":
+			facts = json.RawMessage(`{"native_window_ready":true,"native_window_responsive":true}`)
+		case "packaged_operator_preview_kill_reopen":
+			facts = json.RawMessage(`{"native_window_ready_before_kill":true,"native_window_responsive_before_kill":true,"native_window_ready_after_reopen":true,"native_window_responsive_after_reopen":true}`)
+		}
+		results = append(results, bootstrapResult{ID: id, Status: "pass", Facts: facts})
 	}
 	return bootstrapReport{ProtocolVersion: packagede2e.PackagedE2EProtocol,
 		GeneratedAt: now, Issue: IssueNumber, BootstrapStatus: "pass",

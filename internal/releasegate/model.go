@@ -389,6 +389,9 @@ func validateBootstrap(report bootstrapReport) error {
 			len(result.Facts) == 0 || !json.Valid(result.Facts) {
 			return errors.New("release gate bootstrap result set is invalid")
 		}
+		if err := validateNativeStartupFacts(result); err != nil {
+			return err
+		}
 		seen[result.ID] = true
 	}
 	matrix := report.AttackMatrix
@@ -397,6 +400,29 @@ func validateBootstrap(report bootstrapReport) error {
 		matrix.Status != "needs_full_matrix" || matrix.FailurePolicy != "fail_closed_no_waiver" ||
 		!matrix.UnexecutedCasesAreNotPassOrSkip {
 		return errors.New("release gate bootstrap attack matrix state is invalid")
+	}
+	return nil
+}
+
+func validateNativeStartupFacts(result bootstrapResult) error {
+	var required []string
+	switch result.ID {
+	case "packaged_default_start":
+		required = []string{"native_window_ready", "native_window_responsive"}
+	case "packaged_operator_preview_kill_reopen":
+		required = []string{"native_window_ready_before_kill", "native_window_responsive_before_kill",
+			"native_window_ready_after_reopen", "native_window_responsive_after_reopen"}
+	default:
+		return nil
+	}
+	var facts map[string]json.RawMessage
+	if err := json.Unmarshal(result.Facts, &facts); err != nil {
+		return errors.New("release gate bootstrap native startup evidence is invalid")
+	}
+	for _, field := range required {
+		if !bytes.Equal(bytes.TrimSpace(facts[field]), []byte("true")) {
+			return errors.New("release gate bootstrap native startup evidence is incomplete")
+		}
 	}
 	return nil
 }

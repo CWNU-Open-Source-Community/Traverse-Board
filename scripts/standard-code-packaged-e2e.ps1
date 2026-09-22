@@ -37,6 +37,7 @@ if (-not ("StandardCodePackagedE2ENative" -as [type])) {
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 
 public static class StandardCodePackagedE2ENative
 {
@@ -50,6 +51,43 @@ public static class StandardCodePackagedE2ENative
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowTextLength(IntPtr window);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder name, int count);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+        IntPtr wordParameter, IntPtr longParameter, uint flags, uint timeout,
+        out UIntPtr result);
+
+    public static IntPtr[] FindApplicationWindows(int expectedProcessId)
+    {
+        List<IntPtr> result = new List<IntPtr>();
+        EnumWindows(delegate(IntPtr window, IntPtr parameter) {
+            uint processId;
+            GetWindowThreadProcessId(window, out processId);
+            if (processId != (uint)expectedProcessId) { return true; }
+            StringBuilder name = new StringBuilder(256);
+            // desktopWindowsOptions pins this class. An error dialog or
+            // another process's window is not a successfully started shell.
+            if (GetClassName(window, name, name.Capacity) > 0 && name.ToString() == "CyberAgentWorkbench") {
+                result.Add(window);
+            }
+            return true;
+        }, IntPtr.Zero);
+        return result.ToArray();
+    }
+
+    public static bool IsApplicationWindowResponsive(IntPtr window, int expectedProcessId)
+    {
+        uint processId;
+        GetWindowThreadProcessId(window, out processId);
+        if (processId != (uint)expectedProcessId) { return false; }
+        UIntPtr result;
+        // WM_NULL observes the native message loop without performing an action.
+        // SMTO_BLOCK | SMTO_ABORTIFHUNG keeps a stalled shell probe bounded.
+        return SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 3, 250, out result) != IntPtr.Zero;
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool PostMessage(IntPtr window, uint message,
@@ -180,6 +218,8 @@ function Get-SafeFailureCode {
         "Packaged candidate exited during startup" = "candidate_startup_exit"
         "Packaged candidate exited after store startup" = "candidate_post_store_exit"
         "Packaged candidate store startup timed out" = "candidate_startup_timeout"
+        "Packaged candidate application window timed out" = "candidate_window_timeout"
+        "Packaged candidate application window remained unresponsive" = "candidate_window_unresponsive"
         "TCP listener inspection is unavailable" = "listener_inspection_unavailable"
         "Fixture Git inspection failed" = "fixture_git_inspection_failed"
         "Sentinel evidence file remained unreadable" = "sentinel_evidence_unreadable"
@@ -224,6 +264,7 @@ function Start-PackagedCandidate {
         id = $process.Id
         started_at = $process.StartTime.ToUniversalTime()
     })
+    $script:activeCandidate = $process
     return $process
 }
 
@@ -231,24 +272,51 @@ function Wait-CandidateReady {
     param([System.Diagnostics.Process]$Process)
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $storeObserved = $false
+    $windowObserved = $false
     while ([DateTime]::UtcNow -lt $deadline) {
         $Process.Refresh()
         if ($Process.HasExited) { throw "Packaged candidate exited during startup" }
-        if (Test-Path -LiteralPath $script:database -PathType Leaf) {
-            $storeObserved = $true
+        $storeObserved = (Test-Path -LiteralPath $script:database -PathType Leaf) -and
+            [int64](Get-Item -LiteralPath $script:database).Length -gt 0
+        $windows = @([StandardCodePackagedE2ENative]::FindApplicationWindows($Process.Id))
+        $windowObserved = $windowObserved -or $windows.Count -gt 0
+        $responsive = @($windows | Where-Object {
+            [StandardCodePackagedE2ENative]::IsApplicationWindowResponsive($_, $Process.Id)
+        }).Count -gt 0
+        if ($storeObserved -and $responsive) {
             Start-Sleep -Milliseconds 750
             $Process.Refresh()
             if ($Process.HasExited) { throw "Packaged candidate exited after store startup" }
-            break
+            $stillResponsive = @(
+                [StandardCodePackagedE2ENative]::FindApplicationWindows($Process.Id) | Where-Object {
+                    [StandardCodePackagedE2ENative]::IsApplicationWindowResponsive($_, $Process.Id)
+                }
+            ).Count -gt 0
+            if ($stillResponsive -and (Test-Path -LiteralPath $script:database -PathType Leaf) -and
+                [int64](Get-Item -LiteralPath $script:database).Length -gt 0) {
+                return [pscustomobject][ordered]@{
+                    process_alive = $true
+                    store_present = $true
+                    store_nonempty = $true
+                    native_window_ready = $true
+                    native_window_responsive = $true
+                }
+            }
         }
         Start-Sleep -Milliseconds 100
     }
     if (-not $storeObserved) { throw "Packaged candidate store startup timed out" }
-    return [pscustomobject][ordered]@{
-        process_alive = $true
-        store_present = $true
-        store_nonempty = [int64](Get-Item -LiteralPath $script:database).Length -gt 0
-    }
+    if (-not $windowObserved) { throw "Packaged candidate application window timed out" }
+    throw "Packaged candidate application window remained unresponsive"
+}
+
+function Get-SafeCandidateExitCode {
+    if ($null -eq $script:activeCandidate) { return $null }
+    try {
+        $script:activeCandidate.Refresh()
+        if ($script:activeCandidate.HasExited) { return [int]$script:activeCandidate.ExitCode }
+    } catch { }
+    return $null
 }
 
 function Close-PackagedCandidate {
@@ -413,6 +481,7 @@ $fixtureReportPath = Join-Path $harnessRoot "fixture-set.json"
 $script:database = Join-Path $script:isolatedHome "cyberagent.db"
 $script:binary = $null
 $script:startedCandidates = [System.Collections.Generic.List[object]]::new()
+$script:activeCandidate = $null
 
 $manifest = $null
 $metadata = $null
@@ -420,6 +489,7 @@ $fixtureReport = $null
 $zipHash = ""
 $binaryHash = ""
 $bootstrapError = $null
+$bootstrapPhase = "candidate_provenance"
 $environmentNames = @(
     "CYBERAGENT_HOME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
     "AZURE_CLIENT_SECRET", "GOOGLE_APPLICATION_CREDENTIALS", "SSH_AUTH_SOCK",
@@ -464,6 +534,7 @@ try {
         reproducible = $true
     })
 
+    $bootstrapPhase = "fixture_oracle"
     & go run ./cmd/packagede2e --output $repositoriesRoot `
         --report $fixtureReportPath --verify-toolchains | Out-Null
     Assert-E2ECondition ($LASTEXITCODE -eq 0) "fixture_oracle_command"
@@ -484,6 +555,7 @@ try {
         repair_passes_verified = 4
     })
 
+    $bootstrapPhase = "package_extraction"
     $zipName = [string]$manifest.zip_name
     Assert-E2ECondition ([System.IO.Path]::GetFileName($zipName) -ceq $zipName) `
         "portable_zip_name"
@@ -504,6 +576,7 @@ try {
         binary_hash_matches = $true
     })
 
+    $bootstrapPhase = "isolated_environment"
     [System.Environment]::SetEnvironmentVariable("CYBERAGENT_HOME", $script:isolatedHome, "Process")
     [System.Environment]::SetEnvironmentVariable("AWS_ACCESS_KEY_ID", $sentinels[0], "Process")
     [System.Environment]::SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", $sentinels[0], "Process")
@@ -514,11 +587,15 @@ try {
         [System.Environment]::SetEnvironmentVariable($proxyName, $sentinels[4], "Process")
     }
 
+    $bootstrapPhase = "default_launch"
     $default = Start-PackagedCandidate -Arguments @()
+    $bootstrapPhase = "default_readiness"
     $defaultReady = Wait-CandidateReady -Process $default
+    $bootstrapPhase = "default_isolation"
     $listenerCount = Get-ListenerCount -ProcessID $default.Id
     Assert-E2ECondition ($defaultReady.store_nonempty -and $listenerCount -eq 0) `
         "default_start_isolation"
+    $bootstrapPhase = "default_close"
     $defaultClose = Close-PackagedCandidate -Process $default
     $defaultPassed = $defaultClose.stopped
     $default.Dispose()
@@ -526,6 +603,8 @@ try {
         $(if ($defaultPassed) { "pass" } else { "fail" }) ([pscustomobject][ordered]@{
         store_created = $true
         process_alive = $true
+        native_window_ready = $defaultReady.native_window_ready
+        native_window_responsive = $defaultReady.native_window_responsive
         host_tcp_listener_count = $listenerCount
         window_discovered = $defaultClose.window_ready
         close_requested = $defaultClose.close_requested
@@ -536,19 +615,27 @@ try {
     })
     Assert-E2ECondition $defaultPassed "default_owned_cleanup"
 
+    $bootstrapPhase = "preview_launch"
     $preview = Start-PackagedCandidate -Arguments @("--operator-preview")
+    $bootstrapPhase = "preview_readiness"
     $previewReady = Wait-CandidateReady -Process $preview
+    $bootstrapPhase = "preview_isolation"
     $previewListenerCount = Get-ListenerCount -ProcessID $preview.Id
     Assert-E2ECondition ($previewReady.store_nonempty -and $previewListenerCount -eq 0) `
         "operator_preview_start"
+    $bootstrapPhase = "preview_kill"
     $preview.Kill($true)
     $preview.WaitForExit()
     $preview.Dispose()
     $storeBytesAfterKill = [int64](Get-Item -LiteralPath $script:database).Length
 
+    $bootstrapPhase = "reopen_launch"
     $reopened = Start-PackagedCandidate -Arguments @("--operator-preview")
+    $bootstrapPhase = "reopen_readiness"
     $reopenReady = Wait-CandidateReady -Process $reopened
+    $bootstrapPhase = "reopen_isolation"
     $reopenListenerCount = Get-ListenerCount -ProcessID $reopened.Id
+    $bootstrapPhase = "reopen_close"
     $reopenClose = Close-PackagedCandidate -Process $reopened
     Assert-E2ECondition ($reopenReady.store_nonempty -and $storeBytesAfterKill -gt 0 -and
         $reopenListenerCount -eq 0 -and $reopenClose.stopped) "operator_preview_reopen"
@@ -556,14 +643,19 @@ try {
     Add-E2EResult "packaged_operator_preview_kill_reopen" "pass" `
         ([pscustomobject][ordered]@{
             ready_before_kill = $true
+            native_window_ready_before_kill = $previewReady.native_window_ready
+            native_window_responsive_before_kill = $previewReady.native_window_responsive
             store_retained = $true
             reopened = $true
+            native_window_ready_after_reopen = $reopenReady.native_window_ready
+            native_window_responsive_after_reopen = $reopenReady.native_window_responsive
             host_tcp_listener_count = $previewListenerCount + $reopenListenerCount
             graceful_exit_after_reopen = $reopenClose.graceful_exit
             owned_force_cleanup_after_reopen = $reopenClose.force_cleanup_used
             process_stopped_after_reopen = $reopenClose.stopped
         })
 
+    $bootstrapPhase = "fixture_immutability"
     $fixtureStates = foreach ($repositoryReport in $repositoryReports) {
         Get-FixtureState -Root (Join-Path $repositoriesRoot $repositoryReport.id) `
             -Expected $repositoryReport
@@ -579,6 +671,7 @@ try {
         clean_worktrees = $true
     })
 
+    $bootstrapPhase = "sentinel_non_persistence"
     $sentinelPersisted = Test-SentinelPersisted `
         -Roots @($script:isolatedHome, $script:extractRoot, $repositoriesRoot) `
         -Sentinels $sentinels
@@ -590,6 +683,7 @@ try {
             values_redacted = $true
         })
 
+    $bootstrapPhase = "candidate_cleanup"
     $liveOwned = @($script:startedCandidates | Where-Object {
         Test-OwnedCandidateRunning -Candidate $_
     }).Count
@@ -602,6 +696,9 @@ try {
     $bootstrapError = Get-SafeFailureCode -Message $_.Exception.Message
     Add-E2EResult "packaged_bootstrap_completion" "fail" ([pscustomobject][ordered]@{
         failure_code = $bootstrapError
+        phase = $bootstrapPhase
+        launch_ordinal = $script:startedCandidates.Count
+        candidate_exit_code = Get-SafeCandidateExitCode
         detail_redacted = $true
     })
 } finally {
@@ -641,6 +738,7 @@ try {
     $bootstrapError = "harness_cleanup_failed"
     Add-E2EResult "owned_harness_cleanup" "fail" ([pscustomobject][ordered]@{
         failure_code = "harness_cleanup_failed"
+        phase = "harness_cleanup"
         detail_redacted = $true
     })
 }

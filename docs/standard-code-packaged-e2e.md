@@ -72,13 +72,25 @@ Local 和 Docker 用例共享同一个稳定 expected outcome 与 evidence 合�
 
 1. 运行四仓库 fail/repair/pass oracle；
 2. 解压 manifest 指定的确切 ZIP，不使用顶层构建 EXE 代替；
-3. 在独立 `CYBERAGENT_HOME` 中启动默认模式，确认 SQLite store 非空、宿主 EXE
-   没有 TCP listener，尝试隐藏窗口的 `WM_CLOSE`，并保证精确 owned cleanup；
+3. 在独立 `CYBERAGENT_HOME` 中启动默认模式，确认 SQLite store 非空、本次 PID
+   拥有产品窗口类 `CyberAgentWorkbench` 且响应有界 `WM_NULL` 探测，750ms 后复核；
+   确认宿主 EXE 没有 TCP listener，尝试隐藏窗口的 `WM_CLOSE`，并保证精确 owned cleanup；
 4. 启动安全 `--operator-preview`，强杀后复用同一 store 重开，再次保证精确 owned
    cleanup；隐藏启动下未观察到 graceful exit 时会如实记录 force-cleanup fallback；
 5. 证明固定仓库 HEAD/tree/worktree 未变化，注入的 credential/proxy sentinel 未被
    写入 home、固件或 package，且所有本次启动的 candidate 进程都已退出；
 6. 只清理由随机 run ID 精确拥有、且位于仓库 `.tmp` 下的目录。
+
+默认启动、preview 强杀前及重开后的每次启动都必须重新观察本次进程的窗口和响应。
+旧数据库、其他进程的窗口、启动失败弹窗均不能代替此证据。最终发布聚合器也会拒绝
+缺少这些观察值或值非 `true` 的报告；旧报告需要重新验收，不会自动补证。
+这证明 native shell 启动及消息循环响应，不证明 renderer 加载、API 调用或完整用户任务。
+
+bootstrap 主流程失败时记录固定 `phase`、`launch_ordinal`、可读取时的进程退出码，
+以及脱敏 `failure_code`，不记录原始异常、路径或环境值。主流程前的参数/环境初始化
+错误和报告写入错误不能保证有 JSON，仍应检查 CI 控制台。PR 失败时会保留已生成的
+报告。`scripts/test-standard-code-packaged-readiness.ps1` 对旧 store、错误窗口和进程退出
+等反例做定向检查；完整 bootstrap 仍执行实际候选 EXE。
 
 维护者在生成 portable release 后运行：
 
