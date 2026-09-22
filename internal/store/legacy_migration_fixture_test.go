@@ -116,12 +116,14 @@ func migrationTriggerBeforeForTest(name string, version int) string {
 func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
-	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`,
+	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
+	statements = append(statements,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_insert;`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_update_immutable;`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_delete_immutable;`,
 		`DROP INDEX idx_scheduled_job_observation_consents_run;`,
-		`DROP TABLE scheduled_job_observation_consents;`}
+		`DROP TABLE scheduled_job_observation_consents;`)
 	statements = append(statements, removeSchemaV162ForTestStatements()...)
 	statements = append(statements,
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert;`,
@@ -158,8 +160,27 @@ func removeSchemaV157ForTestStatements() []string {
 	for _, name := range []string{"trg_session_message_provenance_insert", "trg_run_execution_handoff_item_insert"} {
 		statements = append(statements, "DROP TRIGGER "+name, migrationTriggerBeforeForTest(name, 157))
 	}
-	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 167;`,
+	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 169;`,
 		`PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
+}
+
+// These inverse fixtures represent pre-v168 text-only messages. Reject modern
+// revision/evidence data before dropping any of it. The caller's existing
+// steering-table rebuild removes the four added columns and restores the old
+// monotonic trigger; its Supervisor rebuild also removes v169 tool additions.
+func removeSchemaV168QueueForTestStatements() []string {
+	return []string{
+		`CREATE TEMP TABLE legacy_fixture_empty_queue_history (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_steering_revisions;`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_message_attachment_evidence;`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_steering_messages
+			WHERE revision<>0 OR edited_at IS NOT NULL OR original_content<>content
+				OR original_content_sha256<>content_sha256;`,
+		`DROP TABLE legacy_fixture_empty_queue_history;`,
+		`DROP TRIGGER trg_operator_steering_update_monotonic;`,
+		`DROP TABLE operator_steering_revisions;`,
+		`DROP TABLE operator_message_attachment_evidence;`,
+	}
 }
 
 // This is a fixture-only inverse to v161. The caller already disables foreign
