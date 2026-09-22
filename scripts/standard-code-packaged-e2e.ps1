@@ -703,6 +703,14 @@ try {
 Write-Output "standard_code_packaged_e2e_written: $output"
 Write-Output "standard_code_packaged_e2e_bootstrap: $(if ($bootstrapFailed) { 'fail' } else { 'pass' })"
 Write-Output "standard_code_packaged_e2e_release_gate: $(if ($bootstrapFailed) { 'fail' } else { 'needs_full_matrix' })"
+foreach ($result in $results) {
+    if ($result.status -ne "fail") { continue }
+    # Only report the fixed case identifier and already-sanitized failure code.
+    # Raw exceptions and synthetic credential values remain out of CI logs.
+    $failureCode = [string]$result.facts.failure_code
+    if ([string]::IsNullOrWhiteSpace($failureCode)) { $failureCode = "case_failed" }
+    Write-Output "standard_code_packaged_e2e_failure: $($result.id) / $failureCode"
+}
 if ($bootstrapFailed) { throw "Standard Code packaged E2E bootstrap failed" }
 
 if ($productReportProvided) {

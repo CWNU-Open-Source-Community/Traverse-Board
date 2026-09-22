@@ -634,6 +634,15 @@ jobs:
             build/desktop/sbom.json
             build/desktop/NOTICE
 
+      - name: Preserve failed packaged validation diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-packaged-validation-${{ github.run_id }}
+          path: build/desktop/standard-code-packaged-e2e.json
+          if-no-files-found: warn
+          retention-days: 5
+
       - name: Upload isolated development MSIX validation artifact
         if: ${{ needs.dependency-boundaries.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || needs.dependency-boundaries.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
