@@ -238,5 +238,7 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v167 | 增加只读零模型计划的不可变持久观察同意收据，不回填旧计划 | add immutable durable observation consent receipts for read-only zero-model jobs without backfilling existing jobs |
 | v168 | 保留原消息身份，为待处理消息增加 CAS 修订记录和按消息绑定的附件提交证据 | preserve original message identity with CAS revisions and message-bound attachment delivery evidence |
 | v169 | 增加绑定 Run 权限与 Supervisor 调用账本的 Agent 浏览器动作、敏感意图和截图收据 | add Run-authority-bound Agent browser actions, sensitive intents, and screenshot receipts to the Supervisor call ledger |
+| v170 | 增加私有 Provider 工具回放与上下文超窗恢复账本，不重建旧工具调用 | add private Provider tool replay and context-limit recovery ledgers without rebuilding existing tool calls |
+| v171 | 增加当前执行段的操作员文字纠正模式、attempt 绑定与不可变 claim | add current-turn operator text steering, attempt binding, and immutable claims |
 
 </details>

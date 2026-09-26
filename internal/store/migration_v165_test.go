@@ -46,6 +46,7 @@ func TestSchemaV165PreservesWebEvidenceAndAdmitsReplayableSourceSearch(t *testin
 	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 164); err != nil {
 		t.Fatal(err)
 	}
+	defer addCurrentSteeringForLegacySeed(t, state)()
 	mission, run := createStructuredToolTestRun(t, ctx, state, "source search migration")
 	now := time.Date(2026, 9, 21, 1, 0, 0, 0, time.UTC)
 	canonical := "https://github.com/OWWZO/ai-agent/issues/1"

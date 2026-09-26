@@ -64,6 +64,7 @@ func TestSchemaV168BackfillsOriginalMessageIdentityAndKeepsRevisionReceiptGuard(
 	if err := state.applyMigration(ctx, plan[167]); err != nil {
 		t.Fatal(err)
 	}
+	defer addCurrentSteeringForLegacySeed(t, state)()
 	for _, id := range []string{"steer-v168-pending", "steer-v168-committed", "steer-v168-cancelled"} {
 		message, err := state.GetOperatorSteering(ctx, id)
 		if err != nil || message.Revision != 0 || message.OriginalContent != content ||
@@ -156,6 +157,7 @@ func TestSchemaV168LegacyCancelledAttachmentNeverEntersModelHistoryOrCompaction(
 	if err := state.applyMigration(ctx, plan[167]); err != nil {
 		t.Fatal(err)
 	}
+	defer addCurrentSteeringForLegacySeed(t, state)()
 	if _, err := state.CancelOperatorSteering(ctx, domain.CancelOperatorSteeringRequest{
 		MessageID: messageID, OperationKey: "cancel-legacy-context-attachment",
 		RequestedBy: "operator", Reason: "withdraw before delivery"}); err != nil {

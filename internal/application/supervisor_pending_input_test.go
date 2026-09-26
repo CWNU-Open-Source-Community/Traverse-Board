@@ -5,11 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 )
 
-func TestSupervisorPendingInstructionsReachModelBeforeOldQueuedAction(t *testing.T) {
+func TestSupervisorNextTurnInstructionWaitsForItsOwnTurn(t *testing.T) {
 	provider := &retrySequenceProvider{}
 	_, st, run, supervisor := newRetrySupervisor(t, provider)
 	ctx := t.Context()
@@ -45,10 +44,9 @@ func TestSupervisorPendingInstructionsReachModelBeforeOldQueuedAction(t *testing
 	request := provider.requests[0]
 	input := request.Messages[len(request.Messages)-1]
 	if input.Role != "user" || !strings.Contains(input.Content, first.Message.Content) ||
-		!strings.Contains(input.Content, correction.Message.Content) ||
-		!strings.Contains(input.Content, correction.Message.ID) ||
-		strings.Contains(input.Content, cancelled.Message.Content) || request.Metadata["pending_user_instructions"] != "1" {
-		t.Fatalf("accepted correction missing or misattributed: role=%s input=%s", input.Role, input.Content)
+		strings.Contains(input.Content, correction.Message.Content) ||
+		strings.Contains(input.Content, cancelled.Message.Content) || request.Metadata["pending_user_instructions"] != "0" {
+		t.Fatalf("next-turn queue entered the current model request: role=%s input=%s", input.Role, input.Content)
 	}
 	stillPending, err := st.GetOperatorSteering(ctx, correction.Message.ID)
 	if err != nil || stillPending.Status != domain.OperatorSteeringPending || stillPending.Prepared {
@@ -66,9 +64,10 @@ func TestSupervisorPendingInstructionsReachModelBeforeOldQueuedAction(t *testing
 	}
 }
 
-func TestSupervisorPendingInstructionsAreNotSilentlyTruncatedToFitWindow(t *testing.T) {
+func TestSupervisorNextTurnQueueDoesNotCrowdCurrentContext(t *testing.T) {
 	provider := &retrySequenceProvider{}
 	_, st, run, supervisor := newRetrySupervisor(t, provider)
+	firstContent := "Instruction 0: " + strings.Repeat("界", 5000)
 	for i := 0; i < 13; i++ {
 		_, err := st.EnqueueOperatorSteering(t.Context(), domain.EnqueueOperatorSteeringRequest{
 			RunID: run.ID, SessionID: run.SessionID,
@@ -78,14 +77,20 @@ func TestSupervisorPendingInstructionsAreNotSilentlyTruncatedToFitWindow(t *test
 			t.Fatal(err)
 		}
 	}
-	if _, err := supervisor.Step(t.Context(), run.ID); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
-		t.Fatalf("expected an explicit context limit instead of partial instructions: %v", err)
+	if _, err := supervisor.Step(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
 	}
-	if len(provider.requests) != 0 {
-		t.Fatal("model received incomplete mandatory instructions")
+	if len(provider.requests) != 1 {
+		t.Fatalf("model calls=%d", len(provider.requests))
+	}
+	input := provider.requests[0].Messages[len(provider.requests[0].Messages)-1]
+	if input.Role != "user" || !strings.Contains(input.Content, firstContent) ||
+		strings.Contains(input.Content, "Instruction 1: ") ||
+		provider.requests[0].Metadata["pending_user_instructions"] != "0" {
+		t.Fatal("next-turn queue was mixed into or truncated within the current model request")
 	}
 	queue, err := st.GetOperatorSteeringQueueSummary(t.Context(), run.ID)
-	if err != nil || queue.Pending+queue.Prepared != 13 || queue.Committed != 0 || queue.Cancelled != 0 {
-		t.Fatalf("context limit lost the accepted queue: %+v err=%v", queue, err)
+	if err != nil || queue.Pending != 12 || queue.Prepared != 0 || queue.Committed != 1 || queue.Cancelled != 0 {
+		t.Fatalf("next-turn queue was consumed out of order: %+v err=%v", queue, err)
 	}
 }

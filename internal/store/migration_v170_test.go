@@ -14,7 +14,9 @@ func TestProviderReplaySchemaV170AddsPrivateLedgersWithoutChangingExistingRows(t
 	ctx := t.Context()
 	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v169.db"))
 	defer st.Close()
-	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 169); err != nil {
+	// Seed pre-v170 tool history through current writers, then restore the exact
+	// v169 schema. Current writers require the v171 steering columns.
+	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 171); err != nil {
 		t.Fatal(err)
 	}
 	f := providerReplayFixtureAtStore(t, st)
@@ -29,6 +31,25 @@ func TestProviderReplaySchemaV170AddsPrivateLedgersWithoutChangingExistingRows(t
 	}
 	if _, _, err := st.RecordSupervisorToolResult(ctx, f.turn.Checkpoint, domain.SupervisorToolResult{CallID: callID, Status: domain.SupervisorToolCompleted, ResultJSON: `{"ok":true}`, CompletedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
+	}
+	restore := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	restore = append(restore, removeSchemaV170AndV171ForTestStatements()...)
+	restore = append(restore, `PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
+	for _, statement := range restore {
+		if _, err := st.db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("restore v169 with %q: %v", statement, err)
+		}
+	}
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 169 {
+		t.Fatalf("restored schema version=%d want=169 err=%v", version, err)
+	}
+	oracle := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v169-oracle.db"))
+	defer oracle.Close()
+	if err := applyMigrationPrefixForTest(ctx, oracle, migrationPlan(), 169); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := legacyFixtureSchema(t, st), legacyFixtureSchema(t, oracle); !reflect.DeepEqual(got, want) {
+		t.Fatal("restored v169 schema differs from the historical migration prefix")
 	}
 	beforeRows := readV165SupervisorCallRows(t, ctx, st, f.turn.Run.ID)
 	rows, err := st.db.QueryContext(ctx, `SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name`)
