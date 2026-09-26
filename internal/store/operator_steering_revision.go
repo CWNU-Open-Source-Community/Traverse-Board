@@ -155,7 +155,9 @@ func (s *SQLiteStore) ReviseOperatorSteering(ctx context.Context,
 		SET content=?,content_sha256=?,revision=?,edited_at=?
 		WHERE id=? AND session_id=? AND status='pending' AND revision=?
 		AND NOT EXISTS(SELECT 1 FROM operator_steering_deliveries delivery
-			WHERE delivery.message_id=operator_steering_messages.id AND delivery.status='prepared')`,
+			WHERE delivery.message_id=operator_steering_messages.id AND delivery.status='prepared')
+		AND NOT EXISTS(SELECT 1 FROM operator_steering_midturn_claims claim
+			WHERE claim.message_id=operator_steering_messages.id)`,
 		normalized.Content, newDigest, receipt.ToRevision, ts(now), message.ID,
 		normalized.SessionID, receipt.FromRevision)
 	if err != nil {

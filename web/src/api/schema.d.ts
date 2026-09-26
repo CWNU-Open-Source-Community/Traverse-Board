@@ -3351,9 +3351,29 @@ export interface paths {
         put?: never;
         /**
          * Submit a Run-bound Session message
-         * @description Creates or replays one redacted durable operator-steering record for the exact Run-bound Session. It does not append Session history early, start or resume the Run, acquire a lease, call a model or tool, or grant a capability.
+         * @description Creates or replays one redacted durable operator message for the exact Run-bound Session. delivery_mode defaults to next_turn for old clients; steer accepts text only and binds the active Supervisor attempt without granting capability. Replays keep their original mode and attempt. Submission does not append Session history early or itself call a model or tool.
          */
         post: operations["submitSessionMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/messages/operations/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe an exact Session message submission
+         * @description Read the accepted status of an original idempotency key without replaying the write or exposing message content. A missing key returns not_received.
+         */
+        get: operations["inspectSessionMessageOperation"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4904,10 +4924,10 @@ export interface components {
             provider_id: string;
             provider_name: string;
             /** @enum {string} */
-            qualification_status: "unavailable" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "trusted_builtin" | "qualification_required" | "verified";
+            qualification_status: "unavailable" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "response_incomplete" | "trusted_builtin" | "qualification_required" | "verified";
             selectable: boolean;
             /** @enum {string} */
-            unavailable_reason: "" | "provider_disabled" | "credential_not_configured" | "invalid_configuration" | "provider_unavailable" | "harness_qualification_required" | "not_configured" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
+            unavailable_reason: "" | "provider_disabled" | "credential_not_configured" | "invalid_configuration" | "provider_unavailable" | "harness_qualification_required" | "not_configured" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "response_incomplete";
             vision_capability?: components["schemas"]["VisionCapability"];
         };
         BatchDeliveriesListView: {
@@ -8281,7 +8301,7 @@ export interface components {
             /** @enum {string} */
             json_strategy: "native" | "prompt" | "none";
             /** @enum {string} */
-            latest_qualification_status: "" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
+            latest_qualification_status: "" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "response_incomplete";
             model: string;
             /** @enum {string} */
             protocol_version: "model_harness.v1";
@@ -8312,7 +8332,7 @@ export interface components {
             /** Format: int64 */
             duration_ms: number;
             /** @enum {string} */
-            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible";
+            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible" | "context_limit" | "output_limit" | "paused" | "refusal";
             harness: components["schemas"]["ModelHarnessAvailabilityView"];
             model: string;
             /** Format: int32 */
@@ -8324,7 +8344,7 @@ export interface components {
             protocol_version: "model_harness_qualification.v1";
             provider: string;
             /** @enum {string} */
-            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
+            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "response_incomplete";
             response_content_returned: boolean;
             retryable: boolean;
             /** @enum {string} */
@@ -8878,7 +8898,7 @@ export interface components {
             /** Format: int64 */
             duration_ms: number;
             /** @enum {string} */
-            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible";
+            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible" | "context_limit" | "output_limit" | "paused" | "refusal";
             model: string;
             model_called: boolean;
             network_request_attempted: boolean;
@@ -8888,7 +8908,7 @@ export interface components {
             protocol_version: "provider_diagnostic.v1";
             provider: string;
             /** @enum {string} */
-            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
+            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported" | "response_incomplete";
             response_content_returned: boolean;
             retryable: boolean;
             /** @enum {string} */
@@ -10287,6 +10307,8 @@ export interface components {
         SessionMessageControlRequestView: {
             content: string;
             /** @enum {string} */
+            delivery_mode?: "next_turn" | "steer";
+            /** @enum {string} */
             version: "session_message_submission.v1";
         };
         SessionMessageControlView: {
@@ -10300,6 +10322,14 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "session_message_submission.v1";
+        };
+        SessionMessageOperationObservationView: {
+            delivery_mode?: string;
+            message_id?: string;
+            message_status?: string;
+            session_id: string;
+            state: string;
+            version: string;
         };
         SessionSteeringCancellationObservationView: {
             capability_grant: boolean;
@@ -11561,6 +11591,7 @@ export interface components {
             content_sha256: string;
             /** Format: date-time */
             created_at: string;
+            delivery_mode: string;
             /** Format: date-time */
             edited_at?: string;
             id: string;
@@ -21020,6 +21051,45 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    inspectSessionMessageOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Original operation key */
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionMessageOperationObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

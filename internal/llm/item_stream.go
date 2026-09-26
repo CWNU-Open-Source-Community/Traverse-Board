@@ -1191,6 +1191,12 @@ func (s *providerStreamEvents) terminalEvent(outcome Outcome, usage *Usage) Stre
 	} else if outcome == OutcomeCancelled {
 		typeName = StreamResponseCancelled
 	}
+	// Failed/cancelled item events are content-free boundaries. A received
+	// accounting receipt stays on ChatChunk.Usage, independently of whether
+	// any public output item can be accepted.
+	if outcome != OutcomeSuccess {
+		usage = nil
+	}
 	s.terminal = true
 	return s.emit(StreamEvent{Type: typeName, Outcome: outcome, Usage: usage})
 }

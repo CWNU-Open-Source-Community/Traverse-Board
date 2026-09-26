@@ -281,8 +281,21 @@ func (p *OpenAIResponsesProvider) prepareRequest(request ChatRequest,
 	if request.Temperature > 0 {
 		wire.Temperature = &request.Temperature
 	}
+	binding := p.DescribeModelHarness(selectedModel).BindingDigest
+	var replayCallIDs map[string]string
 	for index, message := range request.Messages {
-		items, err := openAIResponsesInput(message)
+		var items []any
+		if strings.EqualFold(strings.TrimSpace(message.Role), "assistant") && message.Replay != nil &&
+			message.Replay.matchesSource(p.name, selectedModel, HarnessTransportOpenAIResponses, binding) {
+			items, replayCallIDs, err = openAIResponsesReplayInput(message, message.Replay)
+		} else {
+			resultIDs := map[string]string(nil)
+			if strings.EqualFold(strings.TrimSpace(message.Role), "user") && len(message.ToolResults) > 0 {
+				resultIDs = replayCallIDs
+			}
+			items, err = openAIResponsesInput(message, resultIDs)
+			replayCallIDs = nil
+		}
 		if err != nil {
 			return "", openAIResponsesRequest{}, fmt.Errorf("invalid message at index %d", index)
 		}
@@ -323,7 +336,7 @@ func (p *OpenAIResponsesProvider) usesDeepSeekNativeToolFormat() bool {
 		(endpoint.Port() == "" || endpoint.Port() == "443")
 }
 
-func openAIResponsesInput(message Message) ([]any, error) {
+func openAIResponsesInput(message Message, replayCallIDs map[string]string) ([]any, error) {
 	if err := ValidateMessageImages(message); err != nil {
 		return nil, err
 	}
@@ -365,8 +378,12 @@ func openAIResponsesInput(message Message) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
+			callID := normalized.ToolCallID
+			if wireID := replayCallIDs[callID]; wireID != "" {
+				callID = wireID
+			}
 			items = append(items, map[string]any{"type": "function_call_output",
-				"call_id": normalized.ToolCallID, "output": normalized.Content})
+				"call_id": callID, "output": normalized.Content})
 		}
 		if len(message.Images) > 0 {
 			parts := make([]any, 0, len(message.Images)+1)
@@ -389,11 +406,51 @@ func openAIResponsesInput(message Message) ([]any, error) {
 	}
 }
 
+func openAIResponsesReplayInput(message Message, replay *ProviderReplay) ([]any, map[string]string, error) {
+	if replay == nil || message.Content != replay.AssistantText() {
+		return nil, nil, errors.New("Responses replay text changed")
+	}
+	calls, err := NormalizeToolCalls(message.ToolCalls)
+	if err != nil || replay.ValidateToolCalls(calls) != nil {
+		return nil, nil, errors.New("Responses replay tool batch changed")
+	}
+	items := make([]any, 0, len(replay.parts))
+	callIDs := make(map[string]string, len(replay.calls))
+	for _, part := range replay.parts {
+		switch part.Kind {
+		case "reasoning", "compaction":
+			var item map[string]any
+			if json.Unmarshal(part.Opaque, &item) != nil {
+				return nil, nil, errors.New("Responses replay private item is invalid")
+			}
+			items = append(items, item)
+		case "text":
+			item := map[string]any{"id": part.ID, "type": "message", "status": "completed",
+				"role": "assistant", "content": []map[string]any{{"type": "output_text", "text": part.Text}}}
+			if part.Phase != "" {
+				item["phase"] = part.Phase
+			}
+			items = append(items, item)
+		case "tool":
+			if part.CallIndex < 0 || part.CallIndex >= len(calls) || part.CallIndex >= len(replay.calls) {
+				return nil, nil, errors.New("Responses replay tool position is invalid")
+			}
+			call, bound := calls[part.CallIndex], replay.calls[part.CallIndex]
+			items = append(items, map[string]any{"id": part.ID, "type": "function_call",
+				"status": "completed", "call_id": bound.WireID, "name": call.Name,
+				"arguments": string(call.Arguments)})
+			callIDs[bound.DurableID] = bound.WireID
+		default:
+			return nil, nil, errors.New("Responses replay part is unsupported")
+		}
+	}
+	return items, callIDs, nil
+}
+
 func (p *OpenAIResponsesProvider) normalizeResponse(selectedModel string,
 	response openAIResponsesResponse,
 ) (*ChatResponse, error) {
-	if response.Object != "response" || response.Status != "completed" ||
-		validateStreamIdentity(response.ID, "Responses response") != nil {
+	if response.Object != "response" || validateStreamIdentity(response.ID, "Responses response") != nil {
 		return nil, openAIProtocolError(p.name, "returned an invalid Responses envelope")
 	}
 	if _, err := normalizeOpenAIModel(response.Model); err != nil {
@@ -402,11 +459,28 @@ func (p *OpenAIResponsesProvider) normalizeResponse(selectedModel string,
 	if response.Error != nil {
 		return nil, openAIWireError(p.name, *response.Error)
 	}
+	usage, err := normalizeResponsesUsage(response.Usage)
+	if err != nil {
+		return nil, openAIProtocolError(p.name, "returned invalid Responses usage")
+	}
+	if response.Status == "incomplete" {
+		finishReason := responsesIncompleteFinishReason(response.IncompleteDetails)
+		result := &ChatResponse{ResponseID: response.ID, Usage: usage, Model: selectedModel,
+			Provider: p.name, FinishReason: finishReason}
+		if completionErr := CompletionError(p.name, finishReason); completionErr != nil {
+			return result, completionErr
+		}
+		return nil, openAIProtocolError(p.name, "returned an incomplete response without a supported reason")
+	}
+	if response.Status != "completed" {
+		return nil, openAIProtocolError(p.name, "returned an invalid Responses status")
+	}
 	if len(response.Output) == 0 || len(response.Output) > MaxProviderOutputItems {
 		return nil, openAIProtocolError(p.name, "returned an invalid Responses output list")
 	}
 	var text strings.Builder
 	calls := make([]ToolCall, 0)
+	refused := false
 	itemIDs := make(map[string]struct{}, len(response.Output))
 	for _, item := range response.Output {
 		if validateStreamIdentity(item.ID, "Responses output item") != nil {
@@ -422,11 +496,21 @@ func (p *OpenAIResponsesProvider) normalizeResponse(selectedModel string,
 				return nil, openAIProtocolError(p.name, "returned an invalid Responses message")
 			}
 			for _, part := range item.Content {
-				if part.Type != "output_text" || !utf8.ValidString(part.Text) ||
-					text.Len()+len(part.Text) > MaxModelOutputBytes {
-					return nil, openAIProtocolError(p.name, "returned invalid Responses text")
+				switch part.Type {
+				case "output_text":
+					if !utf8.ValidString(part.Text) || text.Len()+len(part.Text) > MaxModelOutputBytes {
+						return nil, openAIProtocolError(p.name, "returned invalid Responses text")
+					}
+					_, _ = text.WriteString(part.Text)
+				case "refusal":
+					if part.Refusal == "" || !utf8.ValidString(part.Refusal) ||
+						len(part.Refusal) > MaxModelOutputBytes {
+						return nil, openAIProtocolError(p.name, "returned invalid Responses refusal")
+					}
+					refused = true
+				default:
+					return nil, openAIProtocolError(p.name, "returned unsupported Responses message content")
 				}
-				_, _ = text.WriteString(part.Text)
 			}
 		case "function_call":
 			if item.Status != "completed" {
@@ -448,15 +532,105 @@ func (p *OpenAIResponsesProvider) normalizeResponse(selectedModel string,
 	if err != nil {
 		return nil, openAIProtocolError(p.name, "returned invalid Responses function calls")
 	}
+	if refused {
+		if text.Len() != 0 || len(normalizedCalls) != 0 {
+			return nil, openAIProtocolError(p.name, "mixed a Responses refusal with executable output")
+		}
+		result := &ChatResponse{ResponseID: response.ID, Usage: usage, Model: selectedModel,
+			Provider: p.name, FinishReason: FinishReasonRefusal}
+		return result, CompletionError(p.name, FinishReasonRefusal)
+	}
 	if text.Len() == 0 && len(normalizedCalls) == 0 {
 		return nil, openAIProtocolError(p.name, "returned no usable Responses output")
 	}
-	usage, err := normalizeResponsesUsage(response.Usage)
-	if err != nil {
-		return nil, openAIProtocolError(p.name, "returned invalid Responses usage")
+	finishReason := FinishReasonStop
+	if len(normalizedCalls) > 0 {
+		finishReason = FinishReasonToolCalls
 	}
-	return &ChatResponse{ResponseID: response.ID, Text: text.String(),
-		ToolCalls: normalizedCalls, Usage: usage, Model: selectedModel, Provider: p.name}, nil
+	var replay *ProviderReplay
+	if len(normalizedCalls) > 0 {
+		replay, err = p.responsesReplay(selectedModel, response.Output, normalizedCalls)
+		if err != nil {
+			return nil, openAIProtocolError(p.name, "returned invalid replayable Responses output")
+		}
+	}
+	return &ChatResponse{ResponseID: response.ID, Text: text.String(), ToolCalls: normalizedCalls,
+		Usage: usage, Model: selectedModel, Provider: p.name, FinishReason: finishReason,
+		Replay: replay}, nil
+}
+
+func responsesIncompleteFinishReason(details *openAIResponsesIncompleteDetails) FinishReason {
+	if details == nil {
+		return FinishReasonUnknown
+	}
+	switch strings.ToLower(strings.TrimSpace(details.Reason)) {
+	case "max_output_tokens", "max_tokens", "length":
+		return FinishReasonLength
+	case "content_filter", "refusal":
+		return FinishReasonRefusal
+	case "context_length_exceeded", "model_context_window_exceeded":
+		return FinishReasonContextLimit
+	case "pause", "pause_turn":
+		return FinishReasonPause
+	default:
+		return FinishReasonUnknown
+	}
+}
+
+func (p *OpenAIResponsesProvider) responsesReplay(selectedModel string,
+	output []openAIResponsesOutputItem, calls []ToolCall,
+) (*ProviderReplay, error) {
+	parts, err := responsesReplayParts(output)
+	if err != nil {
+		return nil, err
+	}
+	return newProviderReplay(p.name, selectedModel, HarnessTransportOpenAIResponses,
+		p.DescribeModelHarness(selectedModel).BindingDigest, parts, calls)
+}
+
+func responsesReplayParts(output []openAIResponsesOutputItem) ([]providerReplayPart, error) {
+	parts := make([]providerReplayPart, 0, len(output))
+	callIndex := 0
+	for _, item := range output {
+		switch item.Type {
+		case "reasoning", "compaction":
+			opaque := map[string]any{"id": item.ID, "type": item.Type}
+			if item.Status != "" {
+				opaque["status"] = item.Status
+			}
+			if item.EncryptedContent != "" {
+				opaque["encrypted_content"] = item.EncryptedContent
+			}
+			if item.Type == "reasoning" && len(item.Summary) > 0 {
+				var summary any
+				if json.Unmarshal(item.Summary, &summary) != nil {
+					return nil, errors.New("Responses reasoning summary is invalid")
+				}
+				opaque["summary"] = summary
+			}
+			raw, err := json.Marshal(opaque)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, providerReplayPart{Kind: item.Type, ID: item.ID, Opaque: raw})
+		case "message":
+			var text strings.Builder
+			for _, content := range item.Content {
+				if content.Type != "output_text" {
+					return nil, errors.New("Responses replay text content is invalid")
+				}
+				text.WriteString(content.Text)
+			}
+			parts = append(parts, providerReplayPart{Kind: "text", ID: item.ID,
+				Phase: item.Phase, Text: text.String()})
+		case "function_call":
+			parts = append(parts, providerReplayPart{Kind: "tool", ID: item.ID, CallIndex: callIndex})
+			callIndex++
+		default:
+			return nil, errors.New("Responses replay output item is unsupported")
+		}
+	}
+	return parts, nil
 }
 
 func normalizeResponsesUsage(wire *openAIResponsesUsage) (Usage, error) {
@@ -550,29 +724,38 @@ type openAIResponsesUsage struct {
 }
 
 type openAIResponsesContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type    string `json:"type"`
+	Text    string `json:"text"`
+	Refusal string `json:"refusal"`
 }
 
 type openAIResponsesOutputItem struct {
-	ID        string                   `json:"id"`
-	Type      string                   `json:"type"`
-	Status    string                   `json:"status"`
-	Role      string                   `json:"role"`
-	Content   []openAIResponsesContent `json:"content"`
-	CallID    string                   `json:"call_id"`
-	Name      string                   `json:"name"`
-	Arguments string                   `json:"arguments"`
+	ID               string                   `json:"id"`
+	Type             string                   `json:"type"`
+	Status           string                   `json:"status"`
+	Role             string                   `json:"role"`
+	Phase            string                   `json:"phase,omitempty"`
+	Content          []openAIResponsesContent `json:"content"`
+	CallID           string                   `json:"call_id"`
+	Name             string                   `json:"name"`
+	Arguments        string                   `json:"arguments"`
+	EncryptedContent string                   `json:"encrypted_content,omitempty"`
+	Summary          json.RawMessage          `json:"summary,omitempty"`
+}
+
+type openAIResponsesIncompleteDetails struct {
+	Reason string `json:"reason"`
 }
 
 type openAIResponsesResponse struct {
-	ID     string                      `json:"id"`
-	Object string                      `json:"object"`
-	Status string                      `json:"status"`
-	Model  string                      `json:"model"`
-	Output []openAIResponsesOutputItem `json:"output"`
-	Usage  *openAIResponsesUsage       `json:"usage"`
-	Error  *openAIError                `json:"error"`
+	ID                string                            `json:"id"`
+	Object            string                            `json:"object"`
+	Status            string                            `json:"status"`
+	Model             string                            `json:"model"`
+	Output            []openAIResponsesOutputItem       `json:"output"`
+	Usage             *openAIResponsesUsage             `json:"usage"`
+	Error             *openAIError                      `json:"error"`
+	IncompleteDetails *openAIResponsesIncompleteDetails `json:"incomplete_details"`
 }
 
 type openAIResponsesStreamEvent struct {
@@ -581,6 +764,7 @@ type openAIResponsesStreamEvent struct {
 	Item      openAIResponsesOutputItem `json:"item"`
 	ItemID    string                    `json:"item_id"`
 	Delta     string                    `json:"delta"`
+	Refusal   string                    `json:"refusal"`
 	Arguments string                    `json:"arguments"`
 	Name      string                    `json:"name"`
 	Error     *openAIError              `json:"error"`
@@ -597,20 +781,27 @@ type responsesStreamItem struct {
 	finalArguments string
 	text           strings.Builder
 	callCompleted  bool
+	callInvalid    bool
 	completed      bool
+	final          *openAIResponsesOutputItem
 }
 
 type responsesStreamState struct {
-	provider      string
-	selectedModel string
-	responseID    string
-	events        providerStreamEvents
-	items         map[string]*responsesStreamItem
-	toolCalls     []ToolCall
-	started       bool
-	terminal      bool
-	publicItems   int
-	wireEvents    int
+	provider       string
+	selectedModel  string
+	responseID     string
+	events         providerStreamEvents
+	items          map[string]*responsesStreamItem
+	itemOrder      []string
+	toolCalls      []ToolCall
+	binding        string
+	started        bool
+	terminal       bool
+	publicItems    int
+	wireEvents     int
+	pendingToolErr error
+	refused        bool
+	refusalBytes   int
 }
 
 func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error) {
@@ -671,6 +862,23 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			Type: StreamTextDelta, ItemID: event.ItemID, ItemType: StreamItemMessage,
 			ItemStatus: StreamItemInProgress, TextDelta: event.Delta,
 		})}}, false, nil
+	case "response.refusal.delta":
+		_, err := s.activeItem(event.ItemID, StreamItemMessage)
+		if err != nil || event.Delta == "" || !utf8.ValidString(event.Delta) ||
+			s.refusalBytes+len(event.Delta) > MaxModelOutputBytes {
+			return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses refusal delta")
+		}
+		s.refused = true
+		s.refusalBytes += len(event.Delta)
+		return nil, false, nil
+	case "response.refusal.done":
+		if _, err := s.activeItem(event.ItemID, StreamItemMessage); err != nil ||
+			event.Refusal == "" || !utf8.ValidString(event.Refusal) ||
+			len(event.Refusal) > MaxModelOutputBytes {
+			return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses refusal completion")
+		}
+		s.refused = true
+		return nil, false, nil
 	case "response.function_call_arguments.delta":
 		item, err := s.activeItem(event.ItemID, StreamItemToolCall)
 		if err != nil || event.Delta == "" || !utf8.ValidString(event.Delta) ||
@@ -701,7 +909,7 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses completion model")
 		}
 		for _, item := range s.items {
-			if !item.completed {
+			if !item.completed || item.final == nil || item.final.Status != "completed" {
 				return nil, false, openAIProtocolError(s.provider, "completed Responses stream with unfinished items")
 			}
 		}
@@ -713,12 +921,93 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 		if err != nil {
 			return nil, false, openAIProtocolError(s.provider, "returned invalid Responses stream calls")
 		}
+		if s.pendingToolErr != nil {
+			return nil, false, s.pendingToolErr
+		}
+		if s.refused {
+			if len(calls) != 0 || s.hasResponseText() {
+				return nil, false, openAIProtocolError(s.provider,
+					"mixed a Responses refusal with executable output")
+			}
+			s.terminal = true
+			completionErr := CompletionError(s.provider, FinishReasonRefusal)
+			return &ChatChunk{Done: false, Usage: &usage, Model: s.selectedModel, Provider: s.provider,
+				FinishReason: FinishReasonRefusal, Err: completionErr,
+				Events: []StreamEvent{s.events.terminalEvent(OutcomePermanent, &usage)}}, true, nil
+		}
+		output, err := s.completedOutput()
+		if err != nil {
+			return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses items")
+		}
+		if len(event.Response.Output) > 0 {
+			stored, storedErr := json.Marshal(output)
+			terminal, terminalErr := json.Marshal(event.Response.Output)
+			if storedErr != nil || terminalErr != nil || !bytes.Equal(stored, terminal) {
+				return nil, false, openAIProtocolError(s.provider,
+					"Responses terminal output changed after item completion")
+			}
+			output = event.Response.Output
+		}
+		var replay *ProviderReplay
+		if len(calls) > 0 {
+			parts, err := responsesReplayParts(output)
+			if err != nil {
+				return nil, false, openAIProtocolError(s.provider, "returned invalid replayable Responses stream output")
+			}
+			replay, err = newProviderReplay(s.provider, s.selectedModel,
+				HarnessTransportOpenAIResponses, s.binding, parts, calls)
+			if err != nil {
+				return nil, false, openAIProtocolError(s.provider, "returned invalid replayable Responses stream output")
+			}
+		}
+		finishReason := FinishReasonStop
+		if len(calls) > 0 {
+			finishReason = FinishReasonToolCalls
+		}
 		s.terminal = true
 		return &ChatChunk{Done: true, ToolCalls: calls, Usage: &usage,
 			Model: s.selectedModel, Provider: s.provider,
+			FinishReason: finishReason, Replay: replay,
 			Events: []StreamEvent{s.events.terminalEvent(OutcomeSuccess, &usage)}}, true, nil
-	case "response.failed", "response.incomplete", "error":
-		return nil, false, openAIProtocolError(s.provider, "Responses stream failed or was incomplete")
+	case "response.incomplete":
+		if !s.started || s.terminal || event.Response.ID != s.responseID ||
+			event.Response.Object != "response" || event.Response.Status != "incomplete" {
+			return nil, false, openAIProtocolError(s.provider, "returned an invalid incomplete Responses terminal")
+		}
+		usage, err := normalizeResponsesUsage(event.Response.Usage)
+		if err != nil {
+			return nil, false, openAIProtocolError(s.provider, "returned invalid incomplete Responses usage")
+		}
+		finishReason := responsesIncompleteFinishReason(event.Response.IncompleteDetails)
+		completionErr := CompletionError(s.provider, finishReason)
+		if completionErr == nil {
+			return nil, false, openAIProtocolError(s.provider,
+				"returned an incomplete response without a supported reason")
+		}
+		s.terminal = true
+		return &ChatChunk{Done: false, Usage: &usage, Model: s.selectedModel, Provider: s.provider,
+			FinishReason: finishReason, Err: completionErr,
+			Events: []StreamEvent{s.events.terminalEvent(OutcomePermanent, &usage)}}, true, nil
+	case "response.failed":
+		if event.Response.Error == nil {
+			return nil, false, openAIProtocolError(s.provider, "Responses stream failed without a provider error")
+		}
+		providerErr := openAIWireError(s.provider, *event.Response.Error)
+		chunk := &ChatChunk{Done: false, Model: s.selectedModel, Provider: s.provider,
+			FinishReason: FinishReasonUnknown, Err: providerErr}
+		if usage, err := normalizeResponsesUsage(event.Response.Usage); err == nil {
+			chunk.Usage = &usage
+			chunk.Events = []StreamEvent{s.events.terminalEvent(providerErr.Kind, &usage)}
+		} else {
+			chunk.Events = []StreamEvent{s.events.terminalEvent(providerErr.Kind, nil)}
+		}
+		s.terminal = true
+		return chunk, true, nil
+	case "error":
+		if event.Error == nil {
+			return nil, false, openAIProtocolError(s.provider, "Responses stream returned an empty error event")
+		}
+		return nil, false, openAIWireError(s.provider, *event.Error)
 	default:
 		return nil, false, openAIProtocolError(s.provider, "returned an unsupported Responses stream event")
 	}
@@ -766,6 +1055,7 @@ func (s *responsesStreamState) startItem(item openAIResponsesOutputItem) (*ChatC
 		return nil, false, openAIProtocolError(s.provider, "returned an unsupported Responses output item start")
 	}
 	s.items[item.ID] = state
+	s.itemOrder = append(s.itemOrder, item.ID)
 	return &ChatChunk{Events: events}, false, nil
 }
 
@@ -797,12 +1087,17 @@ func (s *responsesStreamState) completeTool(id string, item *responsesStreamItem
 	if err != nil {
 		var value any
 		var syntaxErr *json.SyntaxError
+		message := "returned an invalid completed Responses function"
 		if parseErr := json.Unmarshal([]byte(arguments), &value); errors.As(parseErr, &syntaxErr) &&
 			syntaxErr.Error() == "unexpected end of JSON input" {
-			return nil, false, openAIProtocolError(s.provider,
-				"returned incomplete Responses function arguments; check the model output-token limit")
+			message = "returned incomplete Responses function arguments; check the model output-token limit"
 		}
-		return nil, false, openAIProtocolError(s.provider, "returned an invalid completed Responses function")
+		toolErr := openAIProtocolError(s.provider, message)
+		s.pendingToolErr = toolErr
+		item.callCompleted = true
+		item.callInvalid = true
+		item.finalArguments = arguments
+		return &ChatChunk{}, false, nil
 	}
 	item.callCompleted = true
 	item.finalArguments = string(call.Arguments)
@@ -818,22 +1113,37 @@ func (s *responsesStreamState) completeTool(id string, item *responsesStreamItem
 func (s *responsesStreamState) completeItem(wire openAIResponsesOutputItem) (*ChatChunk, bool, error) {
 	item := s.items[wire.ID]
 	if item == nil || item.completed || wire.Type == "" || wire.Type != item.wireType ||
-		wire.Status != "completed" {
+		(wire.Status != "completed" && wire.Status != "incomplete") {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item completion")
 	}
+	incomplete := wire.Status == "incomplete"
 	chunk := &ChatChunk{}
 	if item.private {
 		item.completed = true
+		copy := wire
+		copy.Content = append([]openAIResponsesContent(nil), wire.Content...)
+		copy.Summary = append(json.RawMessage(nil), wire.Summary...)
+		item.final = &copy
 		return chunk, false, nil
 	}
 	if item.typeName == StreamItemMessage {
 		var completedText strings.Builder
 		for _, part := range wire.Content {
-			if part.Type != "output_text" || !utf8.ValidString(part.Text) ||
-				completedText.Len()+len(part.Text) > MaxModelOutputBytes {
-				return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses text")
+			switch part.Type {
+			case "output_text":
+				if !utf8.ValidString(part.Text) || completedText.Len()+len(part.Text) > MaxModelOutputBytes {
+					return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses text")
+				}
+				_, _ = completedText.WriteString(part.Text)
+			case "refusal":
+				if part.Refusal == "" || !utf8.ValidString(part.Refusal) ||
+					len(part.Refusal) > MaxModelOutputBytes {
+					return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses refusal")
+				}
+				s.refused = true
+			default:
+				return nil, false, openAIProtocolError(s.provider, "returned unsupported Responses message content")
 			}
-			_, _ = completedText.WriteString(part.Text)
 		}
 		if item.text.Len() == 0 && completedText.Len() > 0 {
 			text := completedText.String()
@@ -845,13 +1155,21 @@ func (s *responsesStreamState) completeItem(wire openAIResponsesOutputItem) (*Ch
 		} else if completedText.String() != item.text.String() {
 			return nil, false, openAIProtocolError(s.provider, "Responses text changed at item completion")
 		}
-		chunk.Events = append(chunk.Events, s.events.emit(StreamEvent{Type: StreamOutputItemCompleted,
-			ItemID: wire.ID, ItemType: StreamItemMessage, ItemStatus: StreamItemCompleted}))
+		if !incomplete {
+			chunk.Events = append(chunk.Events, s.events.emit(StreamEvent{Type: StreamOutputItemCompleted,
+				ItemID: wire.ID, ItemType: StreamItemMessage, ItemStatus: StreamItemCompleted}))
+		}
 	} else {
 		if wire.CallID != item.callID || wire.Name != item.name {
 			return nil, false, openAIProtocolError(s.provider, "Responses function identity changed at item completion")
 		}
-		if !item.callCompleted {
+		if incomplete {
+			if item.arguments.Len() != 0 && wire.Arguments != "" &&
+				strings.TrimSpace(wire.Arguments) != strings.TrimSpace(item.arguments.String()) {
+				return nil, false, openAIProtocolError(s.provider,
+					"Responses function arguments changed at incomplete item completion")
+			}
+		} else if !item.callCompleted {
 			completed, _, err := s.completeTool(wire.ID, item, wire.Arguments)
 			if err != nil {
 				return nil, false, err
@@ -861,12 +1179,39 @@ func (s *responsesStreamState) completeItem(wire openAIResponsesOutputItem) (*Ch
 			return nil, false, openAIProtocolError(s.provider,
 				"Responses function arguments changed at item completion")
 		}
-		chunk.Events = append(chunk.Events, s.events.emit(StreamEvent{Type: StreamOutputItemCompleted,
-			ItemID: wire.ID, CallID: item.callID, ItemType: StreamItemToolCall,
-			ItemStatus: StreamItemCompleted, ToolName: item.name}))
+		if !incomplete && !item.callInvalid {
+			chunk.Events = append(chunk.Events, s.events.emit(StreamEvent{Type: StreamOutputItemCompleted,
+				ItemID: wire.ID, CallID: item.callID, ItemType: StreamItemToolCall,
+				ItemStatus: StreamItemCompleted, ToolName: item.name}))
+		}
 	}
 	item.completed = true
+	copy := wire
+	copy.Content = append([]openAIResponsesContent(nil), wire.Content...)
+	copy.Summary = append(json.RawMessage(nil), wire.Summary...)
+	item.final = &copy
 	return chunk, false, nil
+}
+
+func (s *responsesStreamState) hasResponseText() bool {
+	for _, item := range s.items {
+		if item != nil && item.typeName == StreamItemMessage && item.text.Len() != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *responsesStreamState) completedOutput() ([]openAIResponsesOutputItem, error) {
+	output := make([]openAIResponsesOutputItem, 0, len(s.itemOrder))
+	for _, id := range s.itemOrder {
+		item := s.items[id]
+		if item == nil || !item.completed || item.final == nil || item.final.Status != "completed" {
+			return nil, errors.New("Responses output item is unfinished")
+		}
+		output = append(output, *item.final)
+	}
+	return output, nil
 }
 
 func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCloser,
@@ -875,7 +1220,8 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 	defer close(chunks)
 	defer body.Close()
 	state := responsesStreamState{provider: p.name, selectedModel: selectedModel,
-		items: make(map[string]*responsesStreamItem)}
+		binding: p.DescribeModelHarness(selectedModel).BindingDigest,
+		items:   make(map[string]*responsesStreamItem)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
 	dataLines := make([]string, 0, 1)
@@ -906,6 +1252,10 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		if payload == "[DONE]" {
 			if state.terminal {
 				finished = true
+				return false
+			}
+			if state.pendingToolErr != nil {
+				_ = sendFailure(state.pendingToolErr)
 				return false
 			}
 			_ = sendFailure(openAIProtocolError(p.name, "Responses stream ended before completion"))
@@ -949,6 +1299,10 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 	}
 	if scanner.Err() != nil {
 		_ = sendFailure(openAIProtocolError(p.name, "could not read Responses stream"))
+		return
+	}
+	if state.pendingToolErr != nil {
+		_ = sendFailure(state.pendingToolErr)
 		return
 	}
 	_ = sendFailure(openAIProtocolError(p.name, "Responses stream ended before completion"))

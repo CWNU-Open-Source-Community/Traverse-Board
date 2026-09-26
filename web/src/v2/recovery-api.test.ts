@@ -1,5 +1,5 @@
 import { CyberAgentClient } from "../api/client";
-import { inspectV2CreationRequest, inspectV2TurnRequest } from "./recovery-api";
+import { inspectV2CreationRequest, inspectV2SteeringRequest, inspectV2TurnRequest } from "./recovery-api";
 
 const client = () => new CyberAgentClient("read-token", "/api/v1", "control-token");
 const key = "original-operation-key";
@@ -58,4 +58,19 @@ it("rejects an invalid key before any network request", async () => {
   const fetcher = respond(completed);
   await expect(inspectV2TurnRequest(client(), { threadID: "thread-1", operationKey: "short" })).rejects.toThrow();
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("confirms current-task steering only for an exact read-only steer receipt", async () => {
+  const steeringClient = new CyberAgentClient("read-token", "/api/v1", "control-token", { sessionMessageEnabled: true });
+  const receipt = { version: "session_message_submission.v1", session_id: "session-original",
+    state: "received", message_id: "steer-original", message_status: "pending", delivery_mode: "steer" };
+  const fetcher = respond(receipt);
+  await expect(inspectV2SteeringRequest(steeringClient,
+    { sessionID: "session-original", operationKey: key })).resolves.toMatchObject(receipt);
+  expect(fetcher.mock.calls[0][0]).toBe(`/api/v1/sessions/session-original/messages/operations/${key}`);
+  expect(fetcher.mock.calls[0][1]).toMatchObject({ method: "GET", headers: { Authorization: "Bearer read-token" } });
+  expect(fetcher.mock.calls[0][1].body).toBeUndefined();
+  respond({ ...receipt, delivery_mode: "next_turn" });
+  await expect(inspectV2SteeringRequest(steeringClient,
+    { sessionID: "session-original", operationKey: key })).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
 });

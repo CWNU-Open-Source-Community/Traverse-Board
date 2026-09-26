@@ -45,7 +45,7 @@ func (a *App) apiCommand(ctx context.Context, args []string) error {
 	}
 }
 
-func (a *App) apiServeCommand(ctx context.Context, args []string) error {
+func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr error) {
 	fs := newFlagSet("api serve", a.errOut)
 	listenAddress := fs.String("listen", httpapi.DefaultListenAddress, "loopback listen address")
 	uiDirectory := fs.String("ui-dir", "", "optional built Web UI directory")
@@ -359,17 +359,14 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		WithLifecycleHooks(hookEngine)
 	webFetchAuthorizationSchedulerEnabled := controlToken != "" &&
 		*permissionControl && permissionCapabilities.OperatorApprovalEnabled
-	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
-		a.checker).WithDrydock(commandRuntimeDrydocks).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
-		WithExecutionPermissionCapabilities(permissionCapabilities).
-		WithLifecycleHooks(hookEngine).WithWebEvidence(webEvidence).
-		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled)
+	runtimeDependencies := application.RunRuntimeDependencies{
+		ActiveCalls: a.calls, Drydocks: commandRuntimeDrydocks, MCPClient: mcpClient,
+		ExecutionCapabilities: permissionCapabilities, LifecycleHooks: hookEngine,
+		WebEvidence: webEvidence, WebFetchAuthorizationScheduler: webFetchAuthorizationSchedulerEnabled,
+		StandardCodeDelivery: standardCodeDelivery, CodeIntel: a.codeIntel,
+	}
 	if standardCodeDelivery != nil {
 		standardCodeDeliveryController = standardCodeDelivery
-		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
-	}
-	if a.codeIntel != nil {
-		executionControl.WithCodeIntel(a.codeIntel)
 	}
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(a.store,
 		idgen.New("command-runtime-owner"))
@@ -458,7 +455,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		}
 	}
 	if commandRuntime != nil {
-		executionControl.WithCommandRuntime(commandRuntime)
+		runtimeDependencies.CommandRuntime = commandRuntime
 	}
 	var fullCDPSessions *application.FullCDPProductionService
 	if controlToken != "" && *fullCDPDebug && *browserCDPControl &&
@@ -475,7 +472,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 			if err != nil {
 				return err
 			}
-			executionControl.WithBrowserActions(fullCDPSessions)
+			runtimeDependencies.BrowserActions = fullCDPSessions
 			defer func() {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
@@ -486,8 +483,23 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		}
 	}
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
-		executionControl.WithDockerSandboxProposalExecutor(executor)
+		runtimeDependencies.DockerSandbox = executor
 	}
+	var agentBrowserController httpapi.AgentBrowserController
+	if controlToken != "" {
+		agentBrowser := application.NewAgentBrowserService(a.store, application.AgentBrowserOptions{
+			HomePath: a.home, Capabilities: permissionCapabilities, Headless: true,
+		})
+		runtimeDependencies.AgentBrowser = agentBrowser
+		agentBrowserController = agentBrowser
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			defer cancel()
+			resultErr = errors.Join(resultErr, agentBrowser.Shutdown(shutdownCtx))
+		}()
+	}
+	executionControl := application.NewRunExecutionHandoffWithRuntime(a.store, a.router,
+		a.checker, runtimeDependencies)
 	planDeliveryControl := application.NewPlanDeliveryControlService(a.store)
 	approvalControl := application.NewApprovalControlService(a.store,
 		a.newToolGateway().WithAgentCodeWorkspaceResolver(
@@ -683,6 +695,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		StandardCodeDeliveryController:          standardCodeDeliveryController,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
+		AgentBrowserController:                  agentBrowserController,
 		PlanDeliveryController:                  planDeliveryControl,
 		ApprovalController:                      approvalControl,
 		ControlledCommandProposalController:     controlledCommandProposals,

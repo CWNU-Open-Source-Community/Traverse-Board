@@ -52,6 +52,13 @@ type fullCDPBrowserActionBinding struct {
 	browserPermissionRevision int64
 }
 
+func (s *FullCDPProductionService) hasBrowserActionSession(runID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, selected := s.selectedBrowserRuns[runID]
+	return selected || s.latestByRun[runID] != nil
+}
+
 // browserActionBinding proves the complete live authority immediately before
 // advertisement and again before/after every action. It never opens a session:
 // only the exact operator-opened Ready entry can produce a binding.

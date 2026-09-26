@@ -19449,7 +19449,7 @@
       "post": {
         "operationId": "submitSessionMessage",
         "summary": "Submit a Run-bound Session message",
-        "description": "Creates or replays one redacted durable operator-steering record for the exact Run-bound Session. It does not append Session history early, start or resume the Run, acquire a lease, call a model or tool, or grant a capability.",
+        "description": "Creates or replays one redacted durable operator message for the exact Run-bound Session. delivery_mode defaults to next_turn for old clients; steer accepts text only and binds the active Supervisor attempt without granting capability. Replays keep their original mode and attempt. Submission does not append Session history early or itself call a model or tool.",
         "tags": [
           "Control"
         ],
@@ -19566,6 +19566,102 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages/operations/{operation_key}": {
+      "get": {
+        "operationId": "inspectSessionMessageOperation",
+        "summary": "Observe an exact Session message submission",
+        "description": "Read the accepted status of an original idempotency key without replaying the write or exposing message content. A missing key returns not_received.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "description": "Original operation key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionMessageOperationObservationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/sessions/{session_id}/messages/{message_id}/cancel": {
@@ -27709,6 +27805,7 @@
               "rate_limit",
               "capacity",
               "model_unsupported",
+              "response_incomplete",
               "trusted_builtin",
               "qualification_required",
               "verified"
@@ -27732,7 +27829,8 @@
               "network_failed",
               "rate_limit",
               "capacity",
-              "model_unsupported"
+              "model_unsupported",
+              "response_incomplete"
             ],
             "type": "string"
           },
@@ -40931,7 +41029,8 @@
               "network_failed",
               "rate_limit",
               "capacity",
-              "model_unsupported"
+              "model_unsupported",
+              "response_incomplete"
             ],
             "type": "string"
           },
@@ -41064,7 +41163,11 @@
               "rate_limit",
               "capacity",
               "model_not_found",
-              "protocol_incompatible"
+              "protocol_incompatible",
+              "context_limit",
+              "output_limit",
+              "paused",
+              "refusal"
             ],
             "type": "string"
           },
@@ -41112,7 +41215,8 @@
               "network_failed",
               "rate_limit",
               "capacity",
-              "model_unsupported"
+              "model_unsupported",
+              "response_incomplete"
             ],
             "type": "string"
           },
@@ -43376,7 +43480,11 @@
               "rate_limit",
               "capacity",
               "model_not_found",
-              "protocol_incompatible"
+              "protocol_incompatible",
+              "context_limit",
+              "output_limit",
+              "paused",
+              "refusal"
             ],
             "type": "string"
           },
@@ -43418,7 +43526,8 @@
               "network_failed",
               "rate_limit",
               "capacity",
-              "model_unsupported"
+              "model_unsupported",
+              "response_incomplete"
             ],
             "type": "string"
           },
@@ -48908,6 +49017,13 @@
             "maxLength": 16384,
             "type": "string"
           },
+          "delivery_mode": {
+            "enum": [
+              "next_turn",
+              "steer"
+            ],
+            "type": "string"
+          },
           "version": {
             "enum": [
               "session_message_submission.v1"
@@ -48969,6 +49085,39 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionMessageOperationObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery_mode": {
+            "type": "string"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "message_status": {
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id",
+          "state"
         ],
         "type": "object"
       },
@@ -54326,6 +54475,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "delivery_mode": {
+            "type": "string"
+          },
           "edited_at": {
             "format": "date-time",
             "type": "string"
@@ -54364,6 +54516,7 @@
           "id",
           "sequence",
           "status",
+          "delivery_mode",
           "prepared",
           "content",
           "content_sha256",

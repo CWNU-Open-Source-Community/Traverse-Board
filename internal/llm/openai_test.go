@@ -418,22 +418,24 @@ func TestOpenAICompatibleProviderStreamsTextAcrossUTF8TransportSplits(t *testing
 
 func TestOpenAICompatibleProviderRejectsIncompleteStreams(t *testing.T) {
 	tests := []struct {
-		name   string
-		events []string
+		name       string
+		events     []string
+		wantKind   Outcome
+		wantReason ProviderFailureReason
 	}{
 		{name: "missing usage", events: []string{
 			`{"model":"gpt-test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
 			`[DONE]`,
-		}},
+		}, wantKind: OutcomeInvalidResponse, wantReason: ProviderFailureProtocolIncompatible},
 		{name: "truncated finish", events: []string{
 			`{"model":"gpt-test","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"length"}]}`,
 			`{"model":"gpt-test","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
 			`[DONE]`,
-		}},
+		}, wantKind: OutcomePermanent, wantReason: ProviderFailureOutputLimit},
 		{name: "missing done", events: []string{
 			`{"model":"gpt-test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
 			`{"model":"gpt-test","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
-		}},
+		}, wantKind: OutcomeInvalidResponse, wantReason: ProviderFailureProtocolIncompatible},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -455,8 +457,8 @@ func TestOpenAICompatibleProviderRejectsIncompleteStreams(t *testing.T) {
 					got = chunk.Err
 				}
 			}
-			if got == nil || ProviderErrorKind(got) != OutcomeInvalidResponse ||
-				ProviderErrorReason(got) != ProviderFailureProtocolIncompatible {
+			if got == nil || ProviderErrorKind(got) != test.wantKind ||
+				ProviderErrorReason(got) != test.wantReason {
 				t.Fatalf("error = %#v", got)
 			}
 		})

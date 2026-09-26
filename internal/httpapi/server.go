@@ -1152,6 +1152,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveSessionMessageControl(tracked, request, requestID, sessionID)
 		return
 	}
+	if sessionID, operationKey, matched := matchSessionMessageOperationObservationPath(request.URL.Path); matched {
+		a.serveSessionMessageOperationObservation(tracked, request, requestID, sessionID, operationKey)
+		return
+	}
 	if sessionID, messageID, matched := matchSessionSteeringCancellationPath(request.URL.Path); matched {
 		a.serveSessionSteeringCancellation(tracked, request, requestID, sessionID, messageID)
 		return

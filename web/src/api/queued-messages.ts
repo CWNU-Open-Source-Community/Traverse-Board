@@ -5,6 +5,7 @@ import { validImageAttachments, type WorkspaceImageAttachment } from "./image-at
 export interface QueueBinding { threadID: string; runID: string; sessionID: string; workspaceID: string }
 export interface QueuedMessage {
   id: string; sequence: number; status: "pending"; prepared: boolean; content: string;
+  delivery_mode?: "next_turn" | "steer";
   content_sha256: string; content_redacted: boolean; revision: number; created_at: string; edited_at?: string;
   images: WorkspaceImageAttachment[]; attachments: WorkspaceFileAttachment[]; can_edit: boolean; can_cancel: boolean;
 }
@@ -45,7 +46,8 @@ export async function provesQueueRevisionUnchanged(error: unknown, input: QueueR
 }
 export function validQueuedMessage(value: unknown, workspaceID: string): value is QueuedMessage {
   return object(value) && queueIdentity(value.id) && integer(value.sequence) && value.sequence > 0 &&
-    value.status === "pending" && typeof value.prepared === "boolean" && typeof value.content === "string" &&
+    value.status === "pending" && (value.delivery_mode === undefined || value.delivery_mode === "next_turn" || value.delivery_mode === "steer") &&
+    typeof value.prepared === "boolean" && typeof value.content === "string" &&
     new TextEncoder().encode(value.content).byteLength <= 65536 && digest(value.content_sha256) &&
     typeof value.content_redacted === "boolean" && integer(value.revision) && timestamp(value.created_at) &&
     (value.edited_at === undefined || timestamp(value.edited_at)) && typeof value.can_edit === "boolean" &&

@@ -222,16 +222,19 @@ type FullCDPProductionService struct {
 	accept                 fullCDPBrowserAcceptance
 	launch                 fullCDPRuntimeLauncher
 
-	mu              sync.Mutex
-	latestByRun     map[string]*fullCDPSessionEntry
-	openOperations  map[string]fullCDPOperationRecord
-	closeOperations map[string]fullCDPOperationRecord
-	cachePolicy     fullCDPCachePolicy
-	cacheSequence   uint64
-	active          int
-	closed          bool
-	openContext     context.Context
-	cancelOpens     context.CancelFunc
+	mu          sync.Mutex
+	latestByRun map[string]*fullCDPSessionEntry
+	// Keep only target selection, separately from evictable replay records.
+	// Forgetting a closed session must not select another browser in this host.
+	selectedBrowserRuns map[string]struct{}
+	openOperations      map[string]fullCDPOperationRecord
+	closeOperations     map[string]fullCDPOperationRecord
+	cachePolicy         fullCDPCachePolicy
+	cacheSequence       uint64
+	active              int
+	closed              bool
+	openContext         context.Context
+	cancelOpens         context.CancelFunc
 
 	closeAuditMu       sync.RWMutex
 	closeAuditDetached bool
@@ -397,6 +400,10 @@ func (s *FullCDPProductionService) OpenFullCDPSession(ctx context.Context,
 		openDone: make(chan struct{}),
 	}
 	s.latestByRun[request.RunID] = entry
+	if s.selectedBrowserRuns == nil {
+		s.selectedBrowserRuns = make(map[string]struct{})
+	}
+	s.selectedBrowserRuns[request.RunID] = struct{}{}
 	s.openOperations[operationDigest] = fullCDPOperationRecord{
 		requestFingerprint: fingerprint, entry: entry, acceptedAt: now,
 		acceptedSequence: s.nextCacheSequenceLocked()}

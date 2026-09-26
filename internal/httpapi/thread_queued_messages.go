@@ -31,6 +31,7 @@ type ThreadQueuedMessageView struct {
 	ID              string                           `json:"id"`
 	Sequence        int64                            `json:"sequence"`
 	Status          string                           `json:"status"`
+	DeliveryMode    string                           `json:"delivery_mode"`
 	Prepared        bool                             `json:"prepared"`
 	Content         string                           `json:"content"`
 	ContentSHA256   string                           `json:"content_sha256"`
@@ -173,7 +174,7 @@ func (a *API) threadQueuedMessages(request *http.Request, threadID string) (any,
 		changeable := a.sessionSteeringControlEnabled && !message.Prepared &&
 			(snapshot.RunStatus == domain.RunRunning || snapshot.RunStatus == domain.RunPaused)
 		view.Items = append(view.Items, ThreadQueuedMessageView{ID: message.ID, Sequence: message.Sequence,
-			Status: string(message.Status), Prepared: message.Prepared, Content: content,
+			Status: string(message.Status), DeliveryMode: string(message.DeliveryMode), Prepared: message.Prepared, Content: content,
 			ContentSHA256: message.ContentSHA256, ContentRedacted: content != message.Content,
 			Revision: message.Revision, CreatedAt: message.CreatedAt, EditedAt: message.EditedAt,
 			Images: append([]domain.WorkspaceImage{}, queued.Images...), Attachments: append([]domain.WorkspaceFileAttachment{}, queued.Attachments...),

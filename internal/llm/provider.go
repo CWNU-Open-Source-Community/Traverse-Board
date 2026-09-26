@@ -41,11 +41,12 @@ type ModelInfo struct {
 }
 
 type Message struct {
-	Role        string       `json:"role"`
-	Content     string       `json:"content,omitempty"`
-	Images      []ImagePart  `json:"-"`
-	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
-	ToolResults []ToolResult `json:"tool_results,omitempty"`
+	Role        string          `json:"role"`
+	Content     string          `json:"content,omitempty"`
+	Images      []ImagePart     `json:"-"`
+	ToolCalls   []ToolCall      `json:"tool_calls,omitempty"`
+	ToolResults []ToolResult    `json:"tool_results,omitempty"`
+	Replay      *ProviderReplay `json:"-"`
 	// Go-only marker for already leaf-redacted compaction JSON. It cannot be
 	// set through provider/model JSON and becomes invalid if Content changes.
 	contextCompactionContentSHA256 string
@@ -68,25 +69,29 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-	ResponseID string
-	Text       string
-	ToolCalls  []ToolCall
-	Items      []OutputItem
-	Usage      Usage
-	Raw        json.RawMessage
-	Model      string
-	Provider   string
+	ResponseID   string
+	Text         string
+	ToolCalls    []ToolCall
+	Items        []OutputItem
+	Usage        Usage
+	Raw          json.RawMessage
+	Model        string
+	Provider     string
+	FinishReason FinishReason
+	Replay       *ProviderReplay `json:"-"`
 }
 
 type ChatChunk struct {
-	Text      string
-	Done      bool
-	ToolCalls []ToolCall
-	Events    []StreamEvent
-	Usage     *Usage
-	Model     string
-	Provider  string
-	Err       error
+	Text         string
+	Done         bool
+	ToolCalls    []ToolCall
+	Events       []StreamEvent
+	Usage        *Usage
+	Model        string
+	Provider     string
+	FinishReason FinishReason
+	Replay       *ProviderReplay `json:"-"`
+	Err          error
 }
 
 func FinalChatChunk(response *ChatResponse) ChatChunk {
@@ -94,9 +99,67 @@ func FinalChatChunk(response *ChatResponse) ChatChunk {
 		return ChatChunk{Done: true}
 	}
 	usage := response.Usage
-	return ChatChunk{
-		Done: true, ToolCalls: response.ToolCalls, Usage: &usage, Model: response.Model, Provider: response.Provider,
+	completionErr := CompletionError(response.Provider, response.FinishReason)
+	var terminalErr error
+	toolCalls := response.ToolCalls
+	if completionErr != nil {
+		terminalErr = completionErr
+		toolCalls = nil
 	}
+	return ChatChunk{
+		Done: completionErr == nil, ToolCalls: toolCalls, Usage: &usage, Model: response.Model, Provider: response.Provider,
+		FinishReason: response.FinishReason, Replay: response.Replay,
+		Err: terminalErr,
+	}
+}
+
+type FinishReason string
+
+const (
+	FinishReasonStop         FinishReason = "stop"
+	FinishReasonToolCalls    FinishReason = "tool_calls"
+	FinishReasonLength       FinishReason = "length"
+	FinishReasonPause        FinishReason = "pause"
+	FinishReasonRefusal      FinishReason = "refusal"
+	FinishReasonContextLimit FinishReason = "context_limit"
+	FinishReasonUnknown      FinishReason = "unknown"
+)
+
+func (r FinishReason) Valid() bool {
+	switch r {
+	case "", FinishReasonStop, FinishReasonToolCalls, FinishReasonLength, FinishReasonPause,
+		FinishReasonRefusal, FinishReasonContextLimit, FinishReasonUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// CompletionError maps a provider's explicit non-success terminal reason to a
+// stable, non-retryable error while preserving the response and its usage.
+// Empty and unknown reasons remain compatible with legacy provider fixtures.
+func CompletionError(provider string, reason FinishReason) *ProviderError {
+	return reason.Error(provider)
+}
+
+func (r FinishReason) Error(provider string) *ProviderError {
+	var failure ProviderFailureReason
+	var message string
+	switch r {
+	case FinishReasonLength:
+		failure, message = ProviderFailureOutputLimit, "stopped at the output limit"
+	case FinishReasonPause:
+		failure, message = ProviderFailurePaused, "paused before completion"
+	case FinishReasonRefusal:
+		failure, message = ProviderFailureRefusal, "refused the request"
+	case FinishReasonContextLimit:
+		failure, message = ProviderFailureContextLimit, "exceeded the context limit"
+	default:
+		return nil
+	}
+	err := NewProviderError(OutcomePermanent, provider, message, nil)
+	err.Reason = failure
+	return err
 }
 
 type ToolCall struct {

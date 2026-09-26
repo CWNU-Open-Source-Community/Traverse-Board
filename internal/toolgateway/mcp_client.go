@@ -83,22 +83,23 @@ func validMCPIdentity(value string) bool {
 }
 
 type MCPExecutionScope struct {
-	InvocationID          string
-	RunID                 string
-	MissionID             string
-	WorkspaceID           string
-	Surface               domain.ExecutionSurface
-	Phase                 domain.ExecutionPhase
-	Role                  domain.AgentRole
-	PermissionMode        domain.RunExecutionPermissionMode
-	PermissionSnapshotID  string
-	PermissionRevision    int64
-	PermissionGeneration  uint64
-	RunAuthorizationFence uint64
-	LeaseID               string
-	LeaseGeneration       int64
-	RequestedBy           string
-	PolicyDecision        Decision
+	InvocationID           string
+	RunID                  string
+	MissionID              string
+	WorkspaceID            string
+	Surface                domain.ExecutionSurface
+	Phase                  domain.ExecutionPhase
+	Role                   domain.AgentRole
+	PermissionMode         domain.RunExecutionPermissionMode
+	PermissionSnapshotID   string
+	PermissionRevision     int64
+	PermissionGeneration   uint64
+	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
+	LeaseID                string
+	LeaseGeneration        int64
+	RequestedBy            string
+	PolicyDecision         Decision
 }
 
 func (s MCPExecutionScope) Validate() error {
@@ -166,7 +167,8 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 		PermissionRevision:    call.PermissionRevision,
 		PermissionGeneration:  call.PermissionGeneration,
 		RunAuthorizationFence: call.RunAuthorizationFence, LeaseID: call.LeaseID,
-		LeaseGeneration: call.LeaseGeneration, RequestedBy: call.RequestedBy,
+		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		LeaseGeneration:        call.LeaseGeneration, RequestedBy: call.RequestedBy,
 		PolicyDecision: decision}
 	if err := scope.Validate(); err != nil {
 		return Outcome{}, err

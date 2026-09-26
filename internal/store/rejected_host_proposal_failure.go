@@ -102,6 +102,6 @@ func settleRejectedHostProposalFailureTx(ctx context.Context, tx *sql.Tx, run do
 	_, err = recordSupervisorToolResultTx(ctx, tx, run, checkpoint, call, domain.SupervisorToolResult{
 		CallID: call.CallID, Status: domain.SupervisorToolFailed, ResultJSON: string(encoded),
 		ErrorCode: string(apperror.CodePolicyDenied), CompletedAt: time.Now().UTC(),
-	})
+	}, true)
 	return err
 }

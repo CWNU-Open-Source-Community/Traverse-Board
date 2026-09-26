@@ -253,13 +253,13 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDefinition", "transport",
 		[]string{"openai_chat_completions", "openai_responses", "anthropic_messages"})
 	failureReasons := []string{"none", "not_configured", "authentication", "network",
-		"rate_limit", "capacity", "model_not_found", "protocol_incompatible"}
+		"rate_limit", "capacity", "model_not_found", "protocol_incompatible", "context_limit", "output_limit", "paused", "refusal"}
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
 		"failure_reason", failureReasons)
 	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessQualificationView",
 		"failure_reason", failureReasons)
 	qualificationStatuses := []string{"not_configured", "available", "protocol_mismatch",
-		"auth_failed", "network_failed", "rate_limit", "capacity", "model_unsupported"}
+		"auth_failed", "network_failed", "rate_limit", "capacity", "model_unsupported", "response_incomplete"}
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
 		"qualification_status", qualificationStatuses)
 	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessQualificationView",

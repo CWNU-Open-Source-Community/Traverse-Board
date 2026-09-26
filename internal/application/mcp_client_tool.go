@@ -56,36 +56,8 @@ func (e *MCPClientToolExecutor) ExecuteMCP(ctx context.Context,
 	if err := scope.Validate(); err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}
-	run, err := e.store.GetRun(ctx, scope.RunID)
-	if err != nil {
-		return toolgateway.MCPExecutionResult{}, apperror.Normalize(err)
-	}
-	mission, err := e.store.GetMission(ctx, scope.MissionID)
-	if err != nil {
-		return toolgateway.MCPExecutionResult{}, apperror.Normalize(err)
-	}
-	permission, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
-	if err != nil {
-		return toolgateway.MCPExecutionResult{}, apperror.Normalize(err)
-	}
-	lease, found, err := e.store.GetRunExecutionLease(ctx, scope.RunID)
-	if err != nil {
-		return toolgateway.MCPExecutionResult{}, apperror.Normalize(err)
-	}
-	generation, live := e.capabilities.FullAccessGeneration(permission)
-	fenceLive := runAuthorizationFenceCurrent(e.capabilities, scope.RunID,
-		scope.RunAuthorizationFence)
-	if run.ID != scope.RunID || run.MissionID != scope.MissionID || run.Terminal() ||
-		mission.ID != scope.MissionID || mission.WorkspaceID != scope.WorkspaceID ||
-		permission.ID != scope.PermissionSnapshotID ||
-		permission.Revision != scope.PermissionRevision ||
-		permission.Mode != scope.PermissionMode || !live || !fenceLive ||
-		generation != scope.PermissionGeneration ||
-		!found || lease.LeaseID != scope.LeaseID ||
-		lease.Generation != scope.LeaseGeneration || !lease.ActiveAt(time.Now().UTC()) {
-		return toolgateway.MCPExecutionResult{}, apperror.New(
-			apperror.CodeConflict,
-			"MCP execution permission, activation generation, or Run lease is stale")
+	if err := e.recheckExecutionScope(ctx, scope); err != nil {
+		return toolgateway.MCPExecutionResult{}, err
 	}
 	result, err := e.client.Invoke(ctx, mcp.InvokeRequest{
 		RunID: scope.RunID, WorkspaceID: scope.WorkspaceID,
@@ -96,8 +68,64 @@ func (e *MCPClientToolExecutor) ExecuteMCP(ctx context.Context,
 	if err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}
+	// Revocation during transport cannot undo a remote side effect. Reject its
+	// result under stale authority without retrying the invocation.
+	if err := e.recheckExecutionScope(ctx, scope); err != nil {
+		return toolgateway.MCPExecutionResult{}, apperror.Wrap(apperror.CodeOf(apperror.Normalize(err)),
+			"MCP call was dispatched but its authority changed before the result was accepted; do not automatically repeat the action", err)
+	}
 	return toolgateway.MCPExecutionResult{
 		Content: result.Content, IsError: result.IsError, Truncated: result.Truncated,
 		Metadata: map[string]string{"trust": "untrusted", "source": "mcp_client"},
 	}, nil
+}
+
+// mcpRuntimeAuthorityCurrent binds a numeric Run fence to the authority
+// instance that issued it. Historical unfenced calls are supported only by a
+// legacy host with no runtime authority; they are never upgraded on replay.
+func mcpRuntimeAuthorityCurrent(capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	runID string, fence uint64, epoch string,
+) bool {
+	if capabilities.RuntimeAuthority == nil {
+		return fence == 0 && epoch == ""
+	}
+	return epoch != "" && epoch == capabilities.RuntimeAuthority.RuntimeEpoch() &&
+		capabilities.RuntimeAuthority.AllowsRunAuthorizationFence(runID, fence)
+}
+
+func (e *MCPClientToolExecutor) recheckExecutionScope(ctx context.Context,
+	scope toolgateway.MCPExecutionScope,
+) error {
+	run, err := e.store.GetRun(ctx, scope.RunID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	mission, err := e.store.GetMission(ctx, scope.MissionID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	permission, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	lease, found, err := e.store.GetRunExecutionLease(ctx, scope.RunID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	generation, live := e.capabilities.FullAccessGeneration(permission)
+	fenceLive := mcpRuntimeAuthorityCurrent(e.capabilities, scope.RunID,
+		scope.RunAuthorizationFence, scope.PermissionRuntimeEpoch)
+	if run.ID != scope.RunID || run.MissionID != scope.MissionID || run.Terminal() ||
+		mission.ID != scope.MissionID || mission.WorkspaceID != scope.WorkspaceID ||
+		permission.ID != scope.PermissionSnapshotID ||
+		permission.Revision != scope.PermissionRevision ||
+		permission.Mode != scope.PermissionMode || !live || !fenceLive ||
+		generation != scope.PermissionGeneration ||
+		!found || lease.LeaseID != scope.LeaseID ||
+		lease.Generation != scope.LeaseGeneration || !lease.ActiveAt(time.Now().UTC()) {
+		return apperror.New(
+			apperror.CodeConflict,
+			"MCP execution permission, activation generation, or Run lease is stale")
+	}
+	return nil
 }
