@@ -29,13 +29,13 @@ describe("V2Sidebar archive menu", () => {
     await user.click(within(other).getByRole("button", { name: thread.title }));
     expect(onSelectThread).toHaveBeenCalledWith("thread-2");
     expect(within(first).getByRole("button", { name: thread.title })).toBeInTheDocument();
-    expect(screen.getByText(/不含消息正文/)).toHaveTextContent("更早记录可在下方继续加载");
+    expect(screen.getByText(/不含消息正文/)).toHaveTextContent("更早记录可继续加载");
     await user.type(screen.getByRole("searchbox", { name: "搜索对话" }), "missing");
     expect(screen.getByText("已加载的标题中没有匹配项")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早对话" }));
     expect(onLoadMore).toHaveBeenCalledOnce();
   });
-  it("passes the exact selected Thread to the archive confirmation owner and closes the menu", async () => {
+  it("passes the exact selected Thread to the archive confirmation owner", async () => {
     const user = userEvent.setup();
     const onArchive = vi.fn();
     render(<V2Sidebar onArchive={onArchive} onNewConversation={vi.fn()}
@@ -43,13 +43,10 @@ describe("V2Sidebar archive menu", () => {
       searchOpen={false} selectedThreadID={thread.id} threads={[thread]}
       workspaces={[workspace]} />);
 
-    await user.click(screen.getByRole("button", { name: "Permission audit 的操作" }));
-    const menu = screen.getByRole("menu");
-    await user.click(within(menu).getByRole("menuitem", { name: "归档" }));
+    await user.click(screen.getByRole("button", { name: "归档 Permission audit" }));
 
     expect(onArchive).toHaveBeenCalledTimes(1);
     expect(onArchive).toHaveBeenCalledWith(thread);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });
 
@@ -67,7 +64,6 @@ describe("V2 model navigation", () => {
     expect(actions.map((button) => button.textContent)).toEqual([
       expect.stringContaining("新对话"),
       "接入模型",
-      "搜索对话",
     ]);
     await user.click(within(navigation).getByRole("button", { name: "接入模型" }));
     expect(onOpenModels).toHaveBeenCalledOnce();

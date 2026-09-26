@@ -52,14 +52,14 @@ it("preserves an unknown submission across Inspector/settings and confirms only 
   expect(submit).toHaveBeenCalledTimes(2); // Existing bounded automatic confirmation, same intent.
   expect(submit.mock.calls[1]).toEqual(submit.mock.calls[0]);
   const originalCall = submit.mock.calls[0];
-  await user.click(screen.getByRole("button", { name: "Inspector 视图" }));
+  await user.click(screen.getByRole("button", { name: "Inspector" }));
   expect(await screen.findByRole("region", { name: "Inspector records fixture" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重试核对" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "打开设置" }));
+  await user.click(screen.getByRole("button", { name: "设置" }));
   await user.click(screen.getByRole("button", { name: "返回应用" }));
   expect(window.location.hash).toBe(`#/threads/${thread.id}/inspector`);
   expect(screen.getByRole("button", { name: "重试核对" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "对话视图" }));
+  await user.click(screen.getByRole("button", { name: "Inspector" }));
   const draft = await screen.findByRole("textbox", { name: "继续对话" });
   expect(draft).toHaveValue("Original request");
   expect(queryClient.getQueryData(key)).toEqual([original]);

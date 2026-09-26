@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, Microscope, ShieldCheck, PanelTop } from "lucide-react";
+import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, MessagesSquare, Microscope, ShieldCheck, PanelTop } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkCjkAutolinks } from "../../components/remark-cjk-autolinks";
@@ -66,7 +66,7 @@ function Narrative({ client, entries, threadID }: {
 }
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
-  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree }: {
+  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
   client: CyberAgentClient;
   threadID: string;
   workspaces: WorkspaceView[];
@@ -79,6 +79,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   onOpenTool?: (tool: "run" | "session" | "schedule", resourceID?: string) => void;
   onOpenInspectorHome?: () => void;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
+  onExitInspector?: () => void;
 }) {
   const queryClient = useQueryClient();
   const recovery = useV2RecoveryStore();
@@ -443,6 +444,10 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           {view !== "inspector" && <button onClick={() => { setMenuOpen(false); onOpenInspector(menuTriggerRef.current); }}
             role="menuitem" type="button">
             <Microscope aria-hidden="true" size={15} />打开 Inspector</button>}
+          {view === "inspector" && onExitInspector && <button onClick={() => {
+            setMenuOpen(false); menuTriggerRef.current?.focus(); onExitInspector(); }}
+            role="menuitem" type="button">
+            <MessagesSquare aria-hidden="true" size={15} />返回对话视图</button>}
         </div>}
       </div>
     </header>

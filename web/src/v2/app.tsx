@@ -366,8 +366,6 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
 
   return <div className={`v2-shell${sidebarVisible ? " has-sidebar" : " no-sidebar"}`}>
     <V2Titlebar canGoBack={navigation.canGoBack} onBack={surface === "settings" ? returnFromSettings : goBack}
-      view={view} onChangeView={changeView}
-      onNewConversation={startNew} onOpenSettings={openSettings}
       onToggleSidebar={() => setSidebarVisible((visible) => !visible)} sidebarVisible={sidebarVisible} />
     {sidebarVisible && <button aria-label="关闭侧栏" className="v2-sidebar-backdrop"
       onClick={() => setSidebarVisible(false)} type="button" />}
@@ -376,6 +374,8 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
         onSelect={setSettingsSection} section={settingsSection} /> : <V2Sidebar
           onArchive={setArchiveCandidate} onNewConversation={startNew} onOpenModels={() => openModels(newConversation)}
           onOpenSettings={openSettings}
+          onOpenInspector={() => changeView(view === "inspector" ? "conversation" : "inspector")}
+          inspectorActive={view === "inspector"}
           onSearchOpen={setSearchOpen} onSelectThread={openConversation} searchOpen={searchOpen}
           hasMore={threadsQuery.hasNextPage} loading={threadsQuery.isLoading}
           loadingMore={threadsQuery.isFetchingNextPage} loadFailed={threadsQuery.isError}
@@ -452,6 +452,7 @@ function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
             }}
             view={view} onOpenTool={openTool}
             onOpenInspectorHome={() => navigate({ kind: "new", view: "inspector" })}
+            onExitInspector={() => changeView("conversation")}
             draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}
             onManageModels={() => openModels(false)} onOpenInspector={openInspector}
             threadID={selectedThreadID} workspaces={workspaces} />}
