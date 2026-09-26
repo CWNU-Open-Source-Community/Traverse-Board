@@ -15,7 +15,9 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/threadtranscript"
 )
 
 func TestMidTurnCorrectionReachesActualSecondProviderRequestAndHistory(t *testing.T) {
@@ -85,6 +87,24 @@ func TestMidTurnCorrectionReachesActualSecondProviderRequestAndHistory(t *testin
 	if err != nil || len(messages) != 3 || messages[0].Content != request.Content ||
 		messages[1].Content != correction || messages[2].Content != "Corrected answer" {
 		t.Fatalf("history order=%#v err=%v", messages, err)
+	}
+	source, err := st.ListThreadTranscriptSourceBefore(t.Context(), request.ThreadID, 0, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := threadtranscript.Build(request.ThreadID, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modes := map[string]string{}
+	for _, item := range transcript {
+		if item.Kind == runactivity.KindOperatorInput && item.Detail != "" {
+			modes[item.Detail] = item.DeliveryMode
+		}
+	}
+	if modes[request.Content] != string(domain.OperatorSteeringNextTurn) ||
+		modes[correction] != string(domain.OperatorSteeringCurrentTurn) {
+		t.Fatalf("transcript delivery modes=%#v", modes)
 	}
 }
 

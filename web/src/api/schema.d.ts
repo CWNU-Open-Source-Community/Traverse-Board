@@ -11776,6 +11776,7 @@ export interface components {
             canonical_id: string;
             /** Format: date-time */
             created_at: string;
+            delivery_mode?: string;
             detail?: string;
             detail_available?: boolean;
             durable: boolean;

@@ -55228,6 +55228,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "delivery_mode": {
+            "type": "string"
+          },
           "detail": {
             "type": "string"
           },

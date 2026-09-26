@@ -71,16 +71,18 @@ it("reads the complete durable queue and changes one exact message without reord
   const f = fixture(Array.from({ length: 25 }, (_, index) => message(index + 1, index === 0 ? { prepared: true, can_edit: false, can_cancel: false } : {})));
   mount(f.client); const user = userEvent.setup();
   await screen.findByText("待处理 24 条 · 正在处理 1 条");
-  expect(screen.getAllByRole("button", { name: "编辑" })).toHaveLength(25);
-  expect(screen.getAllByRole("button", { name: "编辑" })[0]).toBeDisabled();
-  await user.click(screen.getAllByRole("button", { name: "编辑" })[24]);
+  // The prepared message explains it cannot change and renders no action buttons.
+  expect(screen.getByText("正在处理，无法修改或撤回")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "编辑" })).toHaveLength(24);
+  expect(screen.getAllByRole("button", { name: "撤回" })).toHaveLength(24);
+  await user.click(screen.getAllByRole("button", { name: "编辑" })[23]);
   const input = screen.getByRole("textbox", { name: "编辑消息 25" });
   await user.clear(input); await user.type(input, "最后一条修改后的要求"); await user.click(screen.getByRole("button", { name: "保存修改" }));
   await screen.findByText("修改已保存。");
   expect(f.postControl).toHaveBeenCalledWith("/sessions/session-a/messages/message-25/revise",
     { version: "session_steering_revision.v1", expected_revision: 0, content: "最后一条修改后的要求" }, expect.any(String));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  await user.click(screen.getAllByRole("button", { name: "撤回" })[1]);
+  await user.click(screen.getAllByRole("button", { name: "撤回" })[0]);
   await screen.findByText("消息已撤回。");
   await screen.findByText("待处理 23 条 · 正在处理 1 条");
 });

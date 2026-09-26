@@ -139,14 +139,14 @@ function QueuePanel({ client, running, ...binding }: QueueBinding & { client: Cy
         {message.content_redacted && <p>正文包含已隐藏内容。编辑时请填写完整的新正文。</p>}
       </details>
       <V2ImagePreview client={client} images={message.images} /><V2FileAttachments client={client} attachments={message.attachments} />
-      <div className="v2-queued-message-actions">
+      {!message.prepared && <div className="v2-queued-message-actions">
         <button type="button" disabled={!message.can_edit || !client.hasSessionSteeringControl || !store || !!recoveryError ||
           recoveredIDs.has(message.id) || busy.includes(message.id) || operations.some((operation) => operation.messageID === message.id)} onClick={() => startEdit(message)}>编辑</button>
         <button type="button" disabled={!message.can_cancel || !client.hasSessionSteeringControl || !store || !!recoveryError ||
           busy.includes(message.id) || operations.some((operation) => operation.messageID === message.id)} onClick={() => submit({ ...binding,
           version: "queue_operation.v1", kind: "cancel", operationKey: crypto.randomUUID(), messageID: message.id,
           expectedRevision: message.revision, oldSHA256: message.content_sha256, content: "" })}>撤回</button>
-      </div>
+      </div>}
     </li>)}</ol>
     {document && store && edits.map((edit) => <QueueEditor key={queueEditKey(edit)} edit={edit} document={document} store={store}
       client={client} current={edit.runID === binding.runID && edit.sessionID === binding.sessionID ? items.find((message) => message.id === edit.message.id) : undefined} refresh={refresh}

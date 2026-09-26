@@ -63,6 +63,7 @@ type Source struct {
 	OperatorImageCount      int
 	OperatorAttachmentCount int
 	OperatorStatus          string
+	OperatorDeliveryMode    string
 	// Store-verified queue/Session identity, independent of the current page.
 	OperatorMessageBound bool
 	Sequence             int64
@@ -97,6 +98,7 @@ type Item struct {
 	DurableCallID         string
 	SourceRef             string
 	BoundaryReason        string
+	DeliveryMode          string
 	WebEvidence           *WebEvidencePresentation
 	Provisional           bool
 	Durable               bool
@@ -283,6 +285,7 @@ func projectOperatorMessage(source Source) Item {
 		Source: runactivity.SourceOperator, Title: title, Detail: detail,
 		Status: source.OperatorStatus, Verifiable: true,
 		InstructionAuthorized: instructionAuthorized,
+		DeliveryMode:          source.OperatorDeliveryMode,
 		SourceRef:             source.Event.SubjectID, Durable: true, CreatedAt: source.CreatedAt,
 	}
 }

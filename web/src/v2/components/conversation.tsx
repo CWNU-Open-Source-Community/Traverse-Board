@@ -52,6 +52,8 @@ function Narrative({ client, entries, threadID }: {
           <V2FileAttachments client={client} attachments={entry.attachments ?? []} />{entry.status === "cancelled" &&
           <small className="v2-message-status">已取消，不会继续处理</small>}
           {entry.status === "pending" && <small className="v2-message-status">已接收</small>}
+          {entry.deliveryMode === "steer" && entry.status !== "cancelled" && entry.status !== "pending" &&
+            <small className="v2-message-status">已加入当前任务</small>}
           {entry.provisional && !entry.status && <small className="v2-message-status">正在发送…</small>}</div></li>;
       if (entry.kind === "assistant") return <li aria-live={entry.provisional ? "polite" : undefined}
         className={`v2-assistant-turn${entry.provisional ? " is-provisional" : ""}`} key={entry.id}>
@@ -415,8 +417,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   return <section className={`v2-conversation${view === "inspector" ? " is-inspector" : ""}`}>
     <header className="v2-conversation-header">
       <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong>
-        <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
-          {working && <i />}{stateLabel}</span>
+        {stateLabel !== "等待新消息" && <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
+          {working && <i />}{stateLabel}</span>}
       </div>
       <div className="v2-header-actions">
         <V2ThreadExecutionControl client={client} execution={executionQuery.data}

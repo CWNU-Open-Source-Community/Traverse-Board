@@ -251,7 +251,9 @@ describe("V2Conversation", () => {
     expect(screen.queryByText("正在工作")).not.toBeInTheDocument();
     threadExecution.mockResolvedValue({ ...execution, state: "idle" });
     await userEvent.setup().click(screen.getByRole("button", { name: "刷新执行状态" }));
-    await screen.findByText("等待新消息");
+    // An idle task shows no status pill instead of a persistent "waiting" label.
+    await waitFor(() => expect(screen.queryByText("状态读取失败")).not.toBeInTheDocument());
+    expect(screen.queryByText("等待新消息")).not.toBeInTheDocument();
     expect(composer).not.toHaveAttribute("data-file-reference-unavailable");
   });
 
@@ -437,8 +439,10 @@ describe("V2Conversation", () => {
       state: "idle", queued_messages: 0, capability_grant: false };
     const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
       threadExecution: vi.fn(async () => execution), submitThreadTurn: vi.fn(() => submission.promise) }));
-    await screen.findByText("等待新消息");
-    await userEvent.setup().click(screen.getByRole("button", { name: "发送 thread-a" }));
+    const sendButton = await screen.findByRole("button", { name: "发送 thread-a" });
+    await waitFor(() => expect(screen.queryByText("正在同步状态")).not.toBeInTheDocument());
+    expect(screen.queryByText("等待新消息")).not.toBeInTheDocument();
+    await userEvent.setup().click(sendButton);
     expect(await screen.findByText("正在发送消息")).toBeInTheDocument();
     await act(async () => { view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
       { ...execution, state: "running", execution_id: "accepted-execution" }); });
