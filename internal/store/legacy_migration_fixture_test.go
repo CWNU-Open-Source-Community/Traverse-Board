@@ -65,10 +65,39 @@ func addCurrentInputColumnsForLegacySeed(t testing.TB, state *SQLiteStore) func(
 			}
 		}
 	}
+	// Current queue writers and readers also inspect v168's revision identity.
+	// No backfill here: legacy rows keep an empty original identity, and the
+	// historical monotonic trigger must not observe a fixture UPDATE.
+	for _, statement := range []string{
+		`ALTER TABLE operator_steering_messages ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0);`,
+		`ALTER TABLE operator_steering_messages ADD COLUMN original_content TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE operator_steering_messages ADD COLUMN original_content_sha256 TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE operator_steering_messages ADD COLUMN edited_at TEXT;`,
+	} {
+		if _, err := state.db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	restoreSteering := addCurrentSteeringForLegacySeed(t, state)
 	return func() {
 		t.Helper()
 		restoreSteering()
+		for _, statement := range []string{
+			`CREATE TEMP TABLE legacy_fixture_empty_revision_identity (n INTEGER CHECK(n=0));`,
+			`INSERT INTO legacy_fixture_empty_revision_identity SELECT count(*) FROM operator_steering_messages
+				WHERE revision<>0 OR edited_at IS NOT NULL
+					OR (original_content<>'' AND original_content<>content)
+					OR (original_content_sha256<>'' AND original_content_sha256<>content_sha256);`,
+			`DROP TABLE legacy_fixture_empty_revision_identity;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN revision;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN original_content;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN original_content_sha256;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN edited_at;`,
+		} {
+			if _, err := state.db.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("remove current revision fixture with %q: %v", statement, err)
+			}
+		}
 		for _, table := range tables {
 			for _, field := range table.fields {
 				var nonzero int
@@ -106,20 +135,26 @@ func addCurrentSteeringForLegacySeed(t testing.TB, state *SQLiteStore) func() {
 	}
 	return func() {
 		t.Helper()
-		for _, statement := range []string{
-			`CREATE TEMP TABLE legacy_fixture_empty_steering (n INTEGER CHECK(n=0));`,
-			`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_midturn_claims;`,
-			`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_messages
-				WHERE delivery_mode<>'next_turn' OR target_attempt_id<>'';`,
-			`DROP TABLE legacy_fixture_empty_steering;`,
-			`DROP TABLE operator_steering_midturn_claims;`,
-			`ALTER TABLE operator_steering_messages DROP COLUMN delivery_mode;`,
-			`ALTER TABLE operator_steering_messages DROP COLUMN target_attempt_id;`,
-		} {
+		for _, statement := range removeCurrentSteeringForLegacySeedStatements() {
 			if _, err := state.db.ExecContext(ctx, statement); err != nil {
 				t.Fatalf("remove current steering fixture with %q: %v", statement, err)
 			}
 		}
+	}
+}
+
+// Reject committed corrections or claims, then remove the fixture-only v171
+// steering identity. Shared by every legacy seed that installs it.
+func removeCurrentSteeringForLegacySeedStatements() []string {
+	return []string{
+		`CREATE TEMP TABLE legacy_fixture_empty_steering (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_midturn_claims;`,
+		`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_messages
+			WHERE delivery_mode<>'next_turn' OR target_attempt_id<>'';`,
+		`DROP TABLE legacy_fixture_empty_steering;`,
+		`DROP TABLE operator_steering_midturn_claims;`,
+		`ALTER TABLE operator_steering_messages DROP COLUMN delivery_mode;`,
+		`ALTER TABLE operator_steering_messages DROP COLUMN target_attempt_id;`,
 	}
 }
 
@@ -149,8 +184,10 @@ func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
 	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
-	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
+	// The v168 guards must reject modern queue history before any object or
+	// ledger mutation; a rejected downgrade leaves schema and ledger untouched.
 	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
+	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
 	statements = append(statements,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_insert;`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_update_immutable;`,
