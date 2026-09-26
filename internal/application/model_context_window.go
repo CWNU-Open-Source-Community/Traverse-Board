@@ -98,6 +98,11 @@ func estimateModelRequestTokens(request llm.ChatRequest) int {
 		total = addModelTokens(total, modelMessageFramingTokens)
 		total = addModelTokens(total, contextmgr.EstimateTokens(message.Role))
 		total = addModelTokens(total, contextmgr.EstimateTokens(message.Content))
+		// Opaque continuation state is still part of the provider input. Count
+		// its bytes conservatively without exposing it to public context logs.
+		if message.Replay != nil {
+			total = addModelTokens(total, message.Replay.ContextBytes())
+		}
 		for _, image := range message.Images {
 			total = addModelTokens(total, llm.EstimateImageTokens(image))
 		}

@@ -50,6 +50,54 @@ func (s *ThreadTurnService) Execute(ctx context.Context,
 	return s.executeWithPreparation(ctx, request, nil)
 }
 
+// SubmitCurrentSteering shares the live Thread stop lock with Interrupt.
+// Admission wins before stopping or is rejected; it cannot slip between the
+// stopping flag and the durable Session-message enqueue.
+func (s *ThreadTurnService) SubmitCurrentSteering(ctx context.Context,
+	request SubmitSessionMessageRequest,
+) (SubmitSessionMessageResult, error) {
+	if s == nil || s.threads == nil || s.threads.store == nil {
+		return SubmitSessionMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Thread turn control is required for current-task correction")
+	}
+	reader, ok := s.threads.store.(interface {
+		GetThreadBySession(context.Context, string) (domain.Thread, error)
+	})
+	if !ok {
+		return SubmitSessionMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Thread lookup is required for current-task correction")
+	}
+	submissions, ok := s.threads.store.(SessionMessageSubmissionStore)
+	if !ok {
+		return SubmitSessionMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Session message store is required for current-task correction")
+	}
+	thread, err := reader.GetThreadBySession(ctx, request.SessionID)
+	if err != nil {
+		return SubmitSessionMessageResult{}, apperror.Normalize(err)
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if active := s.activeTurns[thread.ID]; active != nil && active.stopping {
+		observer, ok := s.threads.store.(interface {
+			InspectOperatorSteeringOperation(context.Context, string, string) (domain.OperatorSteeringMessage, bool, error)
+		})
+		if !ok {
+			return SubmitSessionMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"The current task is stopping; keep this draft and send it after stopping completes")
+		}
+		_, found, err := observer.InspectOperatorSteeringOperation(ctx, request.SessionID, request.OperationKey)
+		if err != nil {
+			return SubmitSessionMessageResult{}, err
+		}
+		if !found {
+			return SubmitSessionMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"The current task is stopping; keep this draft and send it after stopping completes")
+		}
+	}
+	return NewSessionMessageSubmissionService(submissions).Submit(ctx, request)
+}
+
 func (s *ThreadTurnService) executeWithPreparation(ctx context.Context, request ExecuteThreadTurnRequest,
 	prepare func(context.Context) error,
 ) (result ExecuteThreadTurnResult, resultErr error) {

@@ -109,14 +109,18 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 		if fs.NArg() != 1 {
 			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
 		}
-		handoff := application.NewRunExecutionHandoffService(a.store, a.router,
-			a.checker).WithActiveCalls(a.calls).
-			WithWebEvidence(a.newWebEvidenceService()).WithWebFetchAuthorizationScheduler(true)
+		runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
+			*enablePermissionControl, *enableFullAccess, *enableDebug), true)
+		if err != nil {
+			return err
+		}
+		defer func() { resultErr = errors.Join(resultErr, runtime.close()) }()
+		dependencies := runtime.dependencies(a)
 		drydocks, err := a.newRunFileDrydockService(ctx, fs.Arg(0))
 		if err != nil {
 			return err
 		}
-		handoff.WithDrydock(drydocks)
+		dependencies.Drydocks = drydocks
 		if _, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx, fs.Arg(0)); err != nil {
 			return err
 		} else if configured {
@@ -124,23 +128,9 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 			if err != nil {
 				return err
 			}
-			handoff.WithStandardCodeDelivery(delivery)
+			dependencies.StandardCodeDelivery = delivery
 		}
-		manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
-			*enablePermissionControl, *enableFullAccess, *enableDebug)
-		if err != nil {
-			return err
-		}
-		if commandRuntime != nil {
-			handoff.WithCommandRuntime(commandRuntime)
-		}
-		handoff.WithExecutionPermissionCapabilities(cliExecutionPermissionCapabilities(
-			*enablePermissionControl, *enableFullAccess, *enableDebug))
-		stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
-		defer func() {
-			resultErr = errors.Join(resultErr, stopReconciler(),
-				shutdownCLICommandRuntime(manager))
-		}()
+		handoff := application.NewRunExecutionHandoffWithRuntime(a.store, a.router, a.checker, dependencies)
 		result, err := application.NewForegroundRunWakeConsumer(a.store, handoff).
 			Consume(ctx, application.ConsumeRunWakeRequest{
 				Version: domain.RunWakeConsumerProtocolVersion, RunID: fs.Arg(0),

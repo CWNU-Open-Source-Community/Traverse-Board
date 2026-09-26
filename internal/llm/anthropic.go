@@ -246,29 +246,41 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned malformed JSON", err)
 	}
 	text := parsed.Text()
-	toolCalls, err := parsed.ToolCalls()
-	if err != nil {
-		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid tool calls", err)
-	}
-	if strings.TrimSpace(text) == "" && len(toolCalls) == 0 {
-		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an empty text response", nil)
+	finishReason := anthropicFinishReason(parsed.StopReason)
+	var toolCalls []ToolCall
+	if CompletionError(p.name, finishReason) == nil {
+		toolCalls, err = parsed.ToolCalls()
+		if err != nil {
+			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid tool calls", err)
+		}
+		if err := validateAnthropicFinishReason(finishReason, strings.TrimSpace(text) != "", len(toolCalls)); err != nil {
+			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an incompatible stop reason", err)
+		}
 	}
 	responseModel := p.responseModel(selectedModel, parsed.ModelOrDefault(selectedModel))
-	return &ChatResponse{
+	result := &ChatResponse{
 		Text:      text,
 		ToolCalls: toolCalls,
 		// Keep the upstream response inside the adapter. Raw model payloads are
 		// not part of the Supervisor contract and must not cross persistence or
 		// activity boundaries.
-		Raw:      nil,
-		Model:    responseModel,
-		Provider: p.name,
+		Raw:          nil,
+		Model:        responseModel,
+		Provider:     p.name,
+		FinishReason: finishReason,
 		Usage: Usage{
 			InputTokens:  parsed.Usage.InputTokens,
 			OutputTokens: parsed.Usage.OutputTokens,
 			TotalTokens:  parsed.Usage.InputTokens + parsed.Usage.OutputTokens,
 		},
-	}, nil
+	}
+	if err := result.Usage.Validate(); err != nil {
+		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid usage", err)
+	}
+	if completionErr := CompletionError(p.name, finishReason); completionErr != nil {
+		return result, completionErr
+	}
+	return result, nil
 }
 
 func (p *AnthropicCompatibleProvider) responseModel(requested, returned string) string {
@@ -297,7 +309,6 @@ func anthropicHTTPError(provider string, statusCode int, retryAfterHeader string
 	// The response body is deliberately ignored. Provider error text may be
 	// persisted by the Supervisor, and a remote endpoint can echo prompts,
 	// tool arguments, credentials, or arbitrary private content in that body.
-	_ = raw
 	kind := OutcomePermanent
 	reason := ProviderFailureProtocolIncompatible
 	switch statusCode {
@@ -319,12 +330,78 @@ func anthropicHTTPError(provider string, statusCode int, retryAfterHeader string
 		kind = OutcomeRetryable
 		reason = ProviderFailureNetwork
 	}
+	if statusCode == http.StatusBadRequest && anthropicContextLimit(raw) {
+		kind, reason = OutcomePermanent, ProviderFailureContextLimit
+	}
 	message := fmt.Sprintf("returned HTTP %d", statusCode)
 	err := NewProviderError(kind, provider, message, nil)
 	err.StatusCode = statusCode
 	err.RetryAfter = parseRetryAfter(retryAfterHeader, time.Now())
 	err.Reason = reason
 	return err
+}
+
+func anthropicContextLimit(raw []byte) bool {
+	if !utf8.Valid(raw) {
+		return false
+	}
+	var envelope struct {
+		Error *struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil || envelope.Error == nil {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(envelope.Error.Code))
+	if code == "context_length_exceeded" || code == "model_context_window_exceeded" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(envelope.Error.Type), "invalid_request_error") &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(envelope.Error.Message)), "prompt is too long:")
+}
+
+func anthropicFinishReason(reason string) FinishReason {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "":
+		return ""
+	case "end_turn", "stop_sequence", "stop":
+		return FinishReasonStop
+	case "tool_use", "tool_calls":
+		return FinishReasonToolCalls
+	case "max_tokens", "max_output_tokens", "length":
+		return FinishReasonLength
+	case "pause_turn", "pause":
+		return FinishReasonPause
+	case "refusal", "content_filter":
+		return FinishReasonRefusal
+	case "model_context_window_exceeded", "context_length_exceeded", "context_limit":
+		return FinishReasonContextLimit
+	default:
+		return FinishReasonUnknown
+	}
+}
+
+func validateAnthropicFinishReason(reason FinishReason, hasText bool, toolCount int) error {
+	switch reason {
+	case FinishReasonStop:
+		if !hasText || toolCount != 0 {
+			return errors.New("stop reason did not contain text only")
+		}
+	case FinishReasonToolCalls:
+		if toolCount == 0 {
+			return errors.New("tool stop reason did not contain calls")
+		}
+	case "", FinishReasonUnknown:
+		if !hasText && toolCount == 0 {
+			return errors.New("legacy stop reason did not contain usable output")
+		}
+	default:
+		return errors.New("stop reason is not successful")
+	}
+	return nil
 }
 
 func parseRetryAfter(value string, now time.Time) time.Duration {
@@ -417,6 +494,10 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 		payload := strings.Join(dataLines, "\n")
 		dataLines = dataLines[:0]
 		if payload == "[DONE]" {
+			if state.pendingToolErr != nil {
+				_ = sendError(state.pendingToolErr)
+				return false
+			}
 			_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name,
 				"stream ended without message_stop", io.ErrUnexpectedEOF))
 			return false
@@ -452,6 +533,10 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 	}
 	if err := scanner.Err(); err != nil {
 		_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name, "stream read failed", err))
+		return
+	}
+	if state.pendingToolErr != nil {
+		_ = sendError(state.pendingToolErr)
 		return
 	}
 	_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name,
@@ -728,6 +813,7 @@ type anthropicStreamEvent struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
 		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage struct {
 		InputTokens  int `json:"input_tokens"`
@@ -749,6 +835,9 @@ type anthropicStreamState struct {
 	toolCalls      []ToolCall
 	messageStarted bool
 	messageStopped bool
+	finishReason   FinishReason
+	hasText        bool
+	pendingToolErr error
 	itemCount      int
 	events         providerStreamEvents
 	responseModel  func(string) string
@@ -799,6 +888,7 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			s.ensureBlockMaps()
 			s.textBlocks[event.Index] = true
 			s.itemCount++
+			s.hasText = true
 			events := []StreamEvent{s.events.emit(StreamEvent{
 				Type: StreamOutputItemStarted, ItemID: itemID, ItemType: StreamItemMessage,
 				ItemStatus: StreamItemInProgress,
@@ -865,6 +955,7 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 				Type: StreamTextDelta, ItemID: itemID, ItemType: StreamItemMessage,
 				ItemStatus: StreamItemInProgress, TextDelta: event.Delta.Text,
 			})}
+			s.hasText = true
 			return &ChatChunk{Text: event.Delta.Text, Events: events}, false, nil
 		}
 		if event.Delta.Type == "input_json_delta" {
@@ -914,7 +1005,11 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			}
 			call, err := NormalizeToolCall(ToolCall{ID: block.id, Name: block.name, Arguments: arguments})
 			if err != nil {
-				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid streamed tool call", err)
+				toolErr := NewProviderError(OutcomeInvalidResponse, provider,
+					"returned an invalid streamed tool call", err)
+				s.pendingToolErr = toolErr
+				delete(s.toolBlocks, event.Index)
+				return nil, false, nil
 			}
 			s.toolCalls = append(s.toolCalls, call)
 			delete(s.toolBlocks, event.Index)
@@ -944,21 +1039,47 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			s.inputTokens = event.Usage.InputTokens
 		}
 		s.outputTokens = event.Usage.OutputTokens
+		if event.Delta.StopReason != "" {
+			reason := anthropicFinishReason(event.Delta.StopReason)
+			if s.finishReason != "" && s.finishReason != reason {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+					"changed stop reason during the stream", nil)
+			}
+			s.finishReason = reason
+		}
 	case "message_stop":
-		if !s.messageStarted || s.messageStopped || len(s.toolBlocks) != 0 ||
-			len(s.textBlocks) != 0 || len(s.privateBlocks) != 0 || s.itemCount == 0 {
-			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "message stopped with unfinished tool blocks", nil)
+		if !s.messageStarted || s.messageStopped || s.itemCount == 0 {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "message stopped outside an active response", nil)
 		}
 		s.messageStopped = true
+		chunk := s.finalChunk()
+		if err := chunk.Usage.Validate(); err != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid stream usage", err)
+		}
+		chunk.FinishReason = s.finishReason
+		if completionErr := CompletionError(provider, s.finishReason); completionErr != nil {
+			chunk.Done = false
+			chunk.ToolCalls = nil
+			chunk.Err = completionErr
+			chunk.Events = []StreamEvent{s.events.terminalEvent(OutcomePermanent, chunk.Usage)}
+			return &chunk, true, nil
+		}
+		if len(s.toolBlocks) != 0 || len(s.textBlocks) != 0 || len(s.privateBlocks) != 0 {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"message stopped with unfinished content blocks", nil)
+		}
+		if s.pendingToolErr != nil {
+			return nil, false, s.pendingToolErr
+		}
 		calls, err := NormalizeToolCalls(s.toolCalls)
 		if err != nil {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid streamed tool calls", err)
 		}
-		chunk := s.finalChunk()
-		chunk.ToolCalls = calls
-		if err := chunk.Usage.Validate(); err != nil {
-			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid stream usage", err)
+		if err := validateAnthropicFinishReason(s.finishReason, s.hasText, len(calls)); err != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned an incompatible stop reason", err)
 		}
+		chunk.ToolCalls = calls
 		chunk.Events = []StreamEvent{s.events.terminalEvent(OutcomeSuccess, chunk.Usage)}
 		return &chunk, true, nil
 	case "error":
@@ -1006,11 +1127,12 @@ type anthropicMessage struct {
 }
 
 type anthropicMessageResponse struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Model   string `json:"model"`
-	Content []struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	Role       string `json:"role"`
+	Model      string `json:"model"`
+	StopReason string `json:"stop_reason"`
+	Content    []struct {
 		Type  string          `json:"type"`
 		Text  string          `json:"text"`
 		ID    string          `json:"id"`

@@ -376,6 +376,20 @@ func (s *SQLiteStore) BindSupervisorTurnInput(ctx context.Context, checkpoint do
 func (s *SQLiteStore) NextSupervisorModelAttempt(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	protocolRepair int, toolRound int,
 ) (int, int, error) {
+	return s.nextSupervisorModelAttempt(ctx, checkpoint, protocolRepair, toolRound, 0)
+}
+
+func (s *SQLiteStore) NextSupervisorModelAttemptForSteering(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, protocolRepair int, toolRound int,
+	steeringSequence int64,
+) (int, int, error) {
+	return s.nextSupervisorModelAttempt(ctx, checkpoint, protocolRepair, toolRound, steeringSequence)
+}
+
+func (s *SQLiteStore) nextSupervisorModelAttempt(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, protocolRepair int, toolRound int,
+	steeringSequence int64,
+) (int, int, error) {
 	if err := checkpoint.Validate(); err != nil {
 		return 0, 0, err
 	}
@@ -409,7 +423,8 @@ func (s *SQLiteStore) NextSupervisorModelAttempt(ctx context.Context, checkpoint
 		events.ModelStartedEvent, "model_gateway", supervisorModelSubjectPrefix(checkpoint)+"%").Scan(&totalCount); err != nil {
 		return 0, 0, err
 	}
-	transportCount, err := supervisorModelPurposeCountTx(ctx, tx, checkpoint, protocolRepair, toolRound)
+	transportCount, err := supervisorModelPurposeCountForSteeringTx(ctx, tx, checkpoint,
+		protocolRepair, toolRound, steeringSequence)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -448,6 +463,9 @@ func (s *SQLiteStore) RecordSupervisorModelStarted(ctx context.Context, checkpoi
 	if err != nil {
 		return false, err
 	}
+	if err := lockRunningRunForSteeringTx(ctx, tx, run.ID); err != nil {
+		return false, err
+	}
 	if attempt.Purpose == "" {
 		if err := commitRootSkillContextTx(ctx, tx, run, current, attempt.Number); err != nil {
 			return false, err
@@ -465,6 +483,14 @@ func (s *SQLiteStore) RecordSupervisorModelStarted(ctx context.Context, checkpoi
 		if err := requireSupervisorModelStartedMatchTx(ctx, tx, run.ID, subject, attempt); err != nil {
 			return false, err
 		}
+		var inputEstimate int
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload_json,'$.input_estimate'),0) FROM run_events
+			WHERE run_id=? AND type=? AND source='model_gateway' AND subject_id=?`, run.ID, events.ModelStartedEvent, subject).Scan(&inputEstimate); err != nil {
+			return false, err
+		}
+		if inputEstimate != attempt.InputEstimate {
+			return false, apperror.New(apperror.CodeConflict, "model start replay changed its request estimate")
+		}
 		if err := tx.Commit(); err != nil {
 			return false, err
 		}
@@ -479,12 +505,16 @@ func (s *SQLiteStore) RecordSupervisorModelStarted(ctx context.Context, checkpoi
 	if attempt.Number != startedCount+1 {
 		return false, apperror.New(apperror.CodeConflict, "model attempt number is not the next durable attempt")
 	}
-	transportCount, err := supervisorModelPurposeCountTx(ctx, tx, checkpoint, attempt.ProtocolRepair, attempt.ToolRound)
+	transportCount, err := supervisorModelPurposeCountForSteeringTx(ctx, tx, checkpoint,
+		attempt.ProtocolRepair, attempt.ToolRound, attempt.SteeringSequence)
 	if err != nil {
 		return false, err
 	}
 	if attempt.Purpose == "" && attempt.TransportNumber() != transportCount+1 {
 		return false, apperror.New(apperror.CodeConflict, "model transport attempt number is not the next durable attempt")
+	}
+	if err := requireSupervisorContextRecoveryReductionTx(ctx, tx, current, attempt); err != nil {
+		return false, err
 	}
 	if attempt.Purpose == llm.ModelPurposeContextCompaction {
 		if err := requireNewSupervisorCompactionSourceTx(ctx, tx, current, attempt); err != nil {
@@ -497,6 +527,16 @@ func (s *SQLiteStore) RecordSupervisorModelStarted(ctx context.Context, checkpoi
 	if attempt.ProtocolRepair == 1 && current.RepairPhase != domain.ProtocolRepairPending {
 		return false, apperror.New(apperror.CodeFailedPrecondition, "protocol repair is not pending")
 	}
+	if attempt.Purpose == "" {
+		sequence, err := midturnSteeringSequenceTx(ctx, tx, run.ID, current.AttemptID)
+		if err != nil {
+			return false, err
+		}
+		if sequence != attempt.SteeringSequence {
+			return false, apperror.New(apperror.CodeConflict,
+				"Current-turn correction arrived before model start; rebuild the request")
+		}
+	}
 	if err := resolveSupersededModelCancellationsTx(ctx, tx, checkpoint, attempt.Number); err != nil {
 		return false, err
 	}
@@ -504,8 +544,12 @@ func (s *SQLiteStore) RecordSupervisorModelStarted(ctx context.Context, checkpoi
 		"turn": checkpoint.NextTurn, "attempt_id": checkpoint.AttemptID,
 		"model_attempt": attempt.Number, "transport_attempt": attempt.TransportNumber(),
 		"max_attempts": attempt.MaxAttempts, "protocol_repair": attempt.ProtocolRepair,
-		"tool_round": attempt.ToolRound,
-		"provider":   attempt.Provider, "model": attempt.Model, "context": attempt.Context,
+		"tool_round":        attempt.ToolRound,
+		"steering_sequence": attempt.SteeringSequence,
+		"provider":          attempt.Provider, "model": attempt.Model, "context": attempt.Context,
+	}
+	if attempt.InputEstimate > 0 {
+		payload["input_estimate"] = attempt.InputEstimate
 	}
 	addSupervisorCompactionIdentity(payload, attempt)
 	addSupervisorMonetaryIdentity(payload, attempt)
@@ -911,7 +955,7 @@ func (s *SQLiteStore) recordSupervisorModelCompleted(ctx context.Context,
 	}
 	return s.recordSupervisorModelTerminal(ctx, checkpoint, attempt, events.ModelCompletedEvent, payload,
 		supervisorModelTerminalOptions{Usage: &response.Usage, ToolCalls: toolCalls,
-			Attribution: attribution})
+			Attribution: attribution, Replay: response.Replay})
 }
 
 func (s *SQLiteStore) RecordSupervisorModelFailed(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt) (domain.SupervisorCheckpoint, error) {
@@ -1037,9 +1081,19 @@ type supervisorModelTerminalOptions struct {
 	RepairEvent               string
 	ToolCalls                 []llm.ToolCall
 	Attribution               *domain.AgentAttribution
+	Replay                    *llm.ProviderReplay
 }
 
 func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, eventType string, payload map[string]any, options supervisorModelTerminalOptions) (domain.SupervisorCheckpoint, error) {
+	if eventType == events.ModelFailedEvent && attempt.FailureReason != "" && attempt.FailureReason != llm.ProviderFailureNone {
+		if !attempt.FailureReason.Valid() {
+			return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "invalid model failure reason")
+		}
+		payload["failure_reason"] = attempt.FailureReason
+	}
+	if options.Replay != nil && (eventType != events.ModelCompletedEvent || options.AccountingOnly || attempt.Purpose != "" || len(options.ToolCalls) == 0) {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "provider replay requires a successful tool response")
+	}
 	if err := checkpoint.Validate(); err != nil {
 		return domain.SupervisorCheckpoint{}, err
 	}
@@ -1114,6 +1168,11 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if (eventType == events.ModelCompletedEvent && completed) || (eventType == events.ModelFailedEvent && failed) {
+		if eventType == events.ModelCompletedEvent && attempt.Purpose == "" && !options.AccountingOnly {
+			if err := requireSupervisorProviderReplayMatchTx(ctx, tx, checkpoint, attempt, options.Replay, options.ToolCalls); err != nil {
+				return domain.SupervisorCheckpoint{}, err
+			}
+		}
 		if attempt.Purpose == llm.ModelPurposeContextCompaction || attempt.SupervisorAttemptID != "" {
 			if err := requireSupervisorCompactionTerminalReplayTx(ctx, tx, run.ID, subject, eventType, payload); err != nil {
 				if options.AccountingOnly && options.Usage != nil && current.AttemptID == checkpoint.AttemptID && current.NextTurn == checkpoint.NextTurn && current.LeaseID == checkpoint.LeaseID && current.LeaseGeneration == checkpoint.LeaseGeneration {
@@ -1252,6 +1311,9 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 			options.ToolCalls, options.Attribution); err != nil {
 			return domain.SupervisorCheckpoint{}, err
 		}
+		if err := insertSupervisorProviderReplayTx(ctx, tx, current, attempt, options.Replay, options.ToolCalls); err != nil {
+			return domain.SupervisorCheckpoint{}, err
+		}
 	}
 	if options.RepairPhase != domain.ProtocolRepairNone {
 		if err := appendSupervisorEventTx(ctx, tx, run, options.RepairEvent, "run_supervisor", checkpoint.AttemptID, map[string]any{
@@ -1312,6 +1374,17 @@ func supervisorModelEventExistsTx(ctx context.Context, tx *sql.Tx, runID string,
 func supervisorModelPurposeCountTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint,
 	protocolRepair int, toolRound int,
 ) (int, error) {
+	return supervisorModelPurposeCountForSteeringTx(ctx, tx, checkpoint, protocolRepair, toolRound, 0)
+}
+
+func supervisorModelPurposeCountForSteeringTx(ctx context.Context, tx *sql.Tx,
+	checkpoint domain.SupervisorCheckpoint, protocolRepair int, toolRound int,
+	steeringSequence int64,
+) (int, error) {
+	recoveredThrough, err := supervisorContextRecoverySourceTx(ctx, tx, checkpoint, protocolRepair, toolRound)
+	if err != nil {
+		return 0, err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT payload_json FROM run_events WHERE run_id = ? AND type = ? AND source = ?
 		AND subject_id LIKE ? ORDER BY sequence`, checkpoint.RunID, events.ModelStartedEvent, "model_gateway",
 		supervisorModelSubjectPrefix(checkpoint)+"%")
@@ -1329,7 +1402,9 @@ func supervisorModelPurposeCountTx(ctx context.Context, tx *sql.Tx, checkpoint d
 		if err != nil {
 			return 0, err
 		}
-		if payload.Purpose == "" && payload.protocolRepair() == protocolRepair && payload.toolRound() == toolRound {
+		if payload.Purpose == "" && payload.protocolRepair() == protocolRepair &&
+			payload.toolRound() == toolRound && payload.SteeringSequence == steeringSequence &&
+			payload.ModelAttempt > recoveredThrough {
 			count++
 		}
 	}
@@ -1346,10 +1421,12 @@ type supervisorModelStartedPayload struct {
 	LeaseID                string                 `json:"lease_id,omitempty"`
 	LeaseGeneration        int64                  `json:"lease_generation,omitempty"`
 	ModelAttempt           int                    `json:"model_attempt"`
+	InputEstimate          int                    `json:"input_estimate,omitempty"`
 	TransportAttempt       *int                   `json:"transport_attempt"`
 	MaxAttempts            int                    `json:"max_attempts"`
 	ProtocolRepair         *int                   `json:"protocol_repair"`
 	ToolRound              *int                   `json:"tool_round"`
+	SteeringSequence       int64                  `json:"steering_sequence,omitempty"`
 	Provider               string                 `json:"provider"`
 	Model                  string                 `json:"model"`
 	Context                *llm.ModelContextAudit `json:"context,omitempty"`
@@ -1381,7 +1458,9 @@ func parseSupervisorModelStartedPayload(payloadJSON string) (supervisorModelStar
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
 		return supervisorModelStartedPayload{}, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid durable model start payload", err)
 	}
-	if payload.ModelAttempt <= 0 || payload.MaxAttempts <= 0 || strings.TrimSpace(payload.Provider) == "" || strings.TrimSpace(payload.Model) == "" {
+	if payload.ModelAttempt <= 0 || payload.MaxAttempts <= 0 || payload.InputEstimate < 0 ||
+		payload.SteeringSequence < 0 || strings.TrimSpace(payload.Provider) == "" ||
+		strings.TrimSpace(payload.Model) == "" {
 		return supervisorModelStartedPayload{}, apperror.New(apperror.CodeFailedPrecondition, "incomplete durable model start payload")
 	}
 	if payload.transportAttempt() <= 0 || payload.transportAttempt() > payload.MaxAttempts ||
@@ -1394,7 +1473,7 @@ func parseSupervisorModelStartedPayload(payloadJSON string) (supervisorModelStar
 			return supervisorModelStartedPayload{}, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid durable model context audit", err)
 		}
 	}
-	identity := llm.ModelAttempt{SupervisorAttemptID: payload.SupervisorAttemptID, Number: payload.ModelAttempt, TransportAttempt: payload.transportAttempt(), MaxAttempts: payload.MaxAttempts, ProtocolRepair: payload.protocolRepair(), ToolRound: payload.toolRound(), Provider: payload.Provider, Model: payload.Model, Purpose: payload.Purpose, CompactionSourceSHA256: payload.CompactionSourceSHA256}
+	identity := llm.ModelAttempt{SupervisorAttemptID: payload.SupervisorAttemptID, Number: payload.ModelAttempt, TransportAttempt: payload.transportAttempt(), MaxAttempts: payload.MaxAttempts, ProtocolRepair: payload.protocolRepair(), ToolRound: payload.toolRound(), SteeringSequence: payload.SteeringSequence, Provider: payload.Provider, Model: payload.Model, Purpose: payload.Purpose, CompactionSourceSHA256: payload.CompactionSourceSHA256}
 	if err := identity.ValidateStarted(); err != nil {
 		return supervisorModelStartedPayload{}, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid durable model purpose", err)
 	}
@@ -1422,7 +1501,7 @@ func requireSupervisorModelStartedMatchTx(ctx context.Context, tx *sql.Tx, runID
 	}
 	if payload.ModelAttempt != attempt.Number || payload.transportAttempt() != attempt.TransportNumber() ||
 		payload.MaxAttempts != attempt.MaxAttempts || payload.protocolRepair() != attempt.ProtocolRepair ||
-		payload.toolRound() != attempt.ToolRound ||
+		payload.toolRound() != attempt.ToolRound || payload.SteeringSequence != attempt.SteeringSequence ||
 		payload.Provider != attempt.Provider || payload.Model != attempt.Model || payload.Purpose != attempt.Purpose || payload.CompactionSourceSHA256 != attempt.CompactionSourceSHA256 || payload.SupervisorAttemptID != attempt.SupervisorAttemptID {
 		return apperror.New(apperror.CodeConflict, "model terminal metadata does not match its durable start event")
 	}
@@ -1677,6 +1756,9 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 	if err := lockRunningRunForSteeringTx(ctx, tx, run.ID); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
+	if err := requireLatestSupervisorModelSteeringCurrentTx(ctx, tx, checkpoint); err != nil {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
+	}
 	requestedAction := action.Kind
 	_, continuationRepair := domain.SupervisorThreadContinueRepairRound(current.RepairReason)
 	_, textToolRepair := domain.SupervisorTextToolRepairRound(current.RepairReason)
@@ -1768,6 +1850,9 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 			userMessage, completedAt); err != nil {
 			return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 		}
+	}
+	if _, err := commitMidTurnSteeringTx(ctx, tx, run, checkpoint, false); err != nil {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
 	if err := saveSupervisorToolContextTx(ctx, tx, run, checkpoint); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err

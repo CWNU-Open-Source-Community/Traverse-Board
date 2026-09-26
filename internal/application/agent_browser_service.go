@@ -420,7 +420,7 @@ func (s *RunSupervisor) agentBrowserCapabilities(ctx context.Context, turn domai
 	return toolgateway.BrowserActionCapabilities{ProtocolVersion: toolgateway.AgentBrowserAuthorityVersion, Generation: a.Generation, Available: true}, b, e
 }
 
-func refreshAgentBrowserModelTools(existing []llm.ToolSpec, c toolgateway.BrowserActionCapabilities) []llm.ToolSpec {
+func refreshBrowserModelTools(existing []llm.ToolSpec, c toolgateway.BrowserActionCapabilities) []llm.ToolSpec {
 	out := make([]llm.ToolSpec, 0, len(existing)+8)
 	for _, tool := range existing {
 		if !toolgateway.IsBrowserActionTool(toolgateway.ToolName(tool.Name)) {
@@ -428,8 +428,14 @@ func refreshAgentBrowserModelTools(existing []llm.ToolSpec, c toolgateway.Browse
 		}
 	}
 	if c.Available {
-		for _, name := range append(toolgateway.BrowserActionToolNames(), toolgateway.BrowserScrollTool, toolgateway.BrowserKeyTool) {
-			d, _ := toolgateway.AgentBrowserToolDefinition(name)
+		names := toolgateway.BrowserActionToolNames()
+		definition := toolgateway.BrowserActionToolDefinition
+		if c.ProtocolVersion == toolgateway.AgentBrowserAuthorityVersion {
+			names = append(names, toolgateway.BrowserScrollTool, toolgateway.BrowserKeyTool)
+			definition = toolgateway.AgentBrowserToolDefinition
+		}
+		for _, name := range names {
+			d, _ := definition(name)
 			out = append(out, llm.ToolSpec{Name: string(name), Description: d.Description, Parameters: d.InputSchema})
 		}
 	}

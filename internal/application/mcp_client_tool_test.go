@@ -134,6 +134,7 @@ func TestMCPExecutorRequiresExactLiveFullAccessAndRunFence(t *testing.T) {
 	}
 	scope.PermissionGeneration = grant.Generation
 	scope.RunAuthorizationFence = fence
+	scope.PermissionRuntimeEpoch = authority.RuntimeEpoch()
 	if _, err := executor.ExecuteMCP(ctx, scope, payload); err != nil || client.calls != 1 {
 		t.Fatalf("live exact Full Access did not reach MCP transport: calls=%d err=%v",
 			client.calls, err)
@@ -170,6 +171,7 @@ func TestMCPExecutorDebugUsesRunFence(t *testing.T) {
 	}
 	scope := exactPermissionMCPScope(runRecord, lease, permission)
 	scope.RunAuthorizationFence = fence
+	scope.PermissionRuntimeEpoch = authority.RuntimeEpoch()
 	payload := toolgateway.MCPToolCallPayload{Version: toolgateway.MCPClientToolProtocolVersion,
 		ServerID: "docs", ToolName: "lookup",
 		CapabilityFingerprint: string(make([]byte, 64)), Arguments: json.RawMessage(`{}`)}

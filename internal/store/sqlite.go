@@ -415,6 +415,8 @@ func migrationPlan() []migration {
 		{Version: 167, Name: "Durable scheduled job observation consent", Statements: scheduledJobObservationConsentStatements},
 		{Version: 168, Name: "Revisable queued messages and commit-bound attachment evidence", Statements: operatorSteeringRevisionStatements},
 		{Version: 169, Name: "Authority-bound Agent browser scroll and key tools", Statements: agentBrowserSupervisorLedgerStatements, DisableForeignKeys: true},
+		{Version: 170, Name: "Private provider replay and bounded context recovery", Statements: supervisorProviderReplayStatements},
+		{Version: 171, Name: "Attempt-bound midturn operator steering", Statements: midTurnSteeringStatements},
 	}
 }
 

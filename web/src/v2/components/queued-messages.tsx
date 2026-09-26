@@ -133,7 +133,7 @@ function QueuePanel({ client, running, ...binding }: QueueBinding & { client: Cy
     {recoveryError && <p role="alert">{recoveryError}</p>}
     {notice && <p role="status">{notice}</p>}
     <ol>{items.map((message) => <li key={message.id}>
-      <div className="v2-queued-message-heading"><strong>消息 {message.sequence}</strong><span>{message.prepared ? "正在处理，无法修改或撤回" : "等待处理"}</span></div>
+      <div className="v2-queued-message-heading"><strong>消息 {message.sequence} · {message.delivery_mode === "steer" ? "更新当前任务" : "下一轮处理"}</strong><span>{message.prepared ? "正在处理，无法修改或撤回" : "等待处理"}</span></div>
       <details><summary><span className="v2-queued-message-preview">{message.content || "附件消息"}</span><span>查看全文</span></summary>
         <pre tabIndex={0}>{message.content || "（没有文字）"}</pre>
         {message.content_redacted && <p>正文包含已隐藏内容。编辑时请填写完整的新正文。</p>}

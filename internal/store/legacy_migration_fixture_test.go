@@ -65,8 +65,10 @@ func addCurrentInputColumnsForLegacySeed(t testing.TB, state *SQLiteStore) func(
 			}
 		}
 	}
+	restoreSteering := addCurrentSteeringForLegacySeed(t, state)
 	return func() {
 		t.Helper()
+		restoreSteering()
 		for _, table := range tables {
 			for _, field := range table.fields {
 				var nonzero int
@@ -87,6 +89,36 @@ func addCurrentInputColumnsForLegacySeed(t testing.TB, state *SQLiteStore) func(
 		}
 		if err := verifySQLiteForeignKeys(ctx, state.db); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+// Current model writers inspect the v171 steering identity even when seeding
+// an older, text-only migration fixture. This temporary schema is never
+// recorded in the migration ledger and is removed before historical checks.
+func addCurrentSteeringForLegacySeed(t testing.TB, state *SQLiteStore) func() {
+	t.Helper()
+	ctx := t.Context()
+	for _, statement := range midTurnSteeringStatements[:3] {
+		if _, err := state.db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("add current steering fixture with %q: %v", statement, err)
+		}
+	}
+	return func() {
+		t.Helper()
+		for _, statement := range []string{
+			`CREATE TEMP TABLE legacy_fixture_empty_steering (n INTEGER CHECK(n=0));`,
+			`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_midturn_claims;`,
+			`INSERT INTO legacy_fixture_empty_steering SELECT count(*) FROM operator_steering_messages
+				WHERE delivery_mode<>'next_turn' OR target_attempt_id<>'';`,
+			`DROP TABLE legacy_fixture_empty_steering;`,
+			`DROP TABLE operator_steering_midturn_claims;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN delivery_mode;`,
+			`ALTER TABLE operator_steering_messages DROP COLUMN target_attempt_id;`,
+		} {
+			if _, err := state.db.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("remove current steering fixture with %q: %v", statement, err)
+			}
 		}
 	}
 }
@@ -117,6 +149,7 @@ func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
 	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
 	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
 	statements = append(statements,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_insert;`,
@@ -160,8 +193,39 @@ func removeSchemaV157ForTestStatements() []string {
 	for _, name := range []string{"trg_session_message_provenance_insert", "trg_run_execution_handoff_item_insert"} {
 		statements = append(statements, "DROP TRIGGER "+name, migrationTriggerBeforeForTest(name, 157))
 	}
-	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 169;`,
+	return append(statements, `DELETE FROM schema_migrations WHERE version BETWEEN 157 AND 171;`,
 		`PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
+}
+
+// A legacy fixture starts from a clean current schema. Reverse only the new
+// private ledgers and steering binding before older fixture ALTER TABLE steps;
+// fail rather than discard modern rows. Production migration history is intact.
+func removeSchemaV170AndV171ForTestStatements() []string {
+	return []string{
+		`CREATE TEMP TABLE legacy_fixture_empty_new_state (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM run_supervisor_provider_replay;`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM run_supervisor_context_recoveries;`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_midturn_claims;`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_messages
+			WHERE delivery_mode<>'next_turn' OR target_attempt_id<>'';`,
+		`DROP TABLE legacy_fixture_empty_new_state;`,
+		`DROP TRIGGER trg_operator_steering_midturn_claim_insert;`,
+		`DROP TRIGGER trg_operator_steering_midturn_claim_immutable;`,
+		`DROP TRIGGER trg_operator_steering_midturn_claim_delete;`,
+		`DROP TRIGGER trg_operator_steering_midturn_binding;`,
+		`DROP TRIGGER trg_operator_steering_nextturn_binding;`,
+		`DROP INDEX idx_operator_steering_midturn_claims_attempt;`,
+		`DROP TABLE operator_steering_midturn_claims;`,
+		`ALTER TABLE operator_steering_messages DROP COLUMN delivery_mode;`,
+		`ALTER TABLE operator_steering_messages DROP COLUMN target_attempt_id;`,
+		`DROP TRIGGER trg_supervisor_provider_replay_source;`,
+		`DROP TRIGGER trg_supervisor_provider_replay_immutable;`,
+		`DROP TRIGGER trg_supervisor_context_recovery_source;`,
+		`DROP TRIGGER trg_supervisor_context_recovery_immutable;`,
+		`DROP TABLE run_supervisor_provider_replay;`,
+		`DROP TABLE run_supervisor_context_recoveries;`,
+		`DELETE FROM schema_migrations WHERE version IN (170,171);`,
+	}
 }
 
 // These inverse fixtures represent pre-v168 text-only messages. Reject modern

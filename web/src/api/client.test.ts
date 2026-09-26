@@ -2625,6 +2625,25 @@ describe("CyberAgentClient", () => {
     }
   });
 
+  it("observes the original Session message with a read-only request and the read bearer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-session-observe",
+      data: { version: "session_message_submission.v1", session_id: "sess-1",
+        state: "received", message_id: "steer-1", message_status: "pending" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      sessionMessageEnabled: true,
+    });
+    const observed = await client.inspectSessionMessageOperation("sess-1", "web-session-observe-0001");
+    expect(observed).toMatchObject({ state: "received", message_id: "steer-1" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/sessions/sess-1/messages/operations/web-session-observe-0001");
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
   it("accepts exact file approval previews for all four edit operations without granting an effect", async () => {
     // Shape captured from the real package.json create proposal; no mutation is performed.
     const preview = { protocol_version: "approval_queue.v1", run_id: "run-20260910064350-a4f973a7ede3",
@@ -4483,6 +4502,22 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", confirm_diagnostic: true };
     await expect(client.diagnoseProvider(request)).resolves.toEqual(diagnostic);
     await expect(client.diagnoseProvider(request)).rejects.toThrow("content-free");
+  });
+
+  it.each(["context_limit", "output_limit", "paused", "refusal"])("accepts typed incomplete provider completion %s", async (reason) => {
+    const diagnostic = {
+      protocol_version: "provider_diagnostic.v1", provider: "openai", model: "model",
+      status: "unreachable", outcome: "permanent", failure_reason: reason,
+      retryable: false, network_request_attempted: true, model_called: true,
+      tool_called: false, response_content_returned: false,
+      qualification_status: "response_incomplete", duration_ms: 4,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "typed-terminal", data: diagnostic,
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", { modelControlEnabled: true });
+    await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
+      model: "model", confirm_diagnostic: true })).resolves.toEqual(diagnostic);
   });
 
   it("rejects contradictory provider diagnostic semantics", async () => {

@@ -880,7 +880,7 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	if standardCode != nil {
 		standardCodeGuidance = standardCode.Guidance()
 	}
-	modelInput, pendingInstructions, err := supervisorInputWithPendingInstructions(ctx, s.store, turn, input)
+	modelInput, pendingInstructions, steeringSequence, err := supervisorInputWithPendingInstructions(ctx, s.store, turn, input)
 	if err != nil {
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
@@ -987,7 +987,7 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		}
 	}
 	refreshStandardCodeSupervisorRequest(&baseRequest, standardCode)
-	request, err = supervisorRequestWithToolRounds(baseRequest, toolRounds)
+	request, err = s.requestWithSupervisorToolRounds(ctx, turn.Checkpoint, baseRequest, toolRounds)
 	if err != nil {
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
@@ -1012,31 +1012,118 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	// tool rounds enough, receipt the oldest completed rounds (one more each
 	// retry) and rebuild from baseRequest so recent rounds stay native.
 	receiptedRounds := 0
-	trySegmentReceipt := func() bool {
-		if receiptedRounds >= len(toolRounds) {
-			return false
+	rebuildToolRequest := func() (llm.ChatRequest, error) {
+		if receiptedRounds == 0 {
+			return s.requestWithSupervisorToolRounds(ctx, turn.Checkpoint, baseRequest, toolRounds)
 		}
-		plan, planErr := supervisorSegmentReceiptPlan(toolRounds, receiptedRounds+1,
+		plan, err := supervisorSegmentReceiptPlan(toolRounds, receiptedRounds,
 			supervisorSegmentReceiptTokenBudget, turn.Checkpoint.AttemptID)
-		if planErr != nil {
-			return false
+		if err != nil {
+			return llm.ChatRequest{}, err
 		}
-		rebuilt, rebuildErr := supervisorRequestWithSegmentReceipt(baseRequest, plan,
+		rebuilt, err := supervisorRequestWithSegmentReceipt(baseRequest, plan,
 			turn.Run.SessionID, turn.Checkpoint.AttemptID)
-		if rebuildErr != nil {
-			return false
+		if err != nil {
+			return llm.ChatRequest{}, err
 		}
-		request, receiptedRounds = rebuilt, receiptedRounds+1
-		return true
+		return s.attachSupervisorProviderReplay(ctx, turn.Checkpoint, rebuilt, plan.NativeRounds)
+	}
+
+	rebuildHistoryRequest := func(compacted bool) error {
+		history, summary, hasSummary, _, err = s.supervisorConversationContext(ctx, &turn)
+		result.Checkpoint = turn.Checkpoint
+		if err == nil {
+			memory, err = supervisorMemoryContextWithinBudget(memoryBudget, threadEndTurn, summary, hasSummary, workItems, notes, inbox.Messages,
+				projectInstructionSections, longTermMemorySections, continuitySections, supervisorGoalContext(turn))
+		}
+		if err == nil {
+			err = requireSupervisorContinuityContext(memory, summary, hasSummary, turn.Mission.ID, turn.Run.Config.ContinuityContextFingerprint)
+		}
+		if err != nil {
+			return err
+		}
+		contextAudit = supervisorModelContextAudit(memory)
+		if compacted {
+			result.ContextCompacted, result.ContextSummaryID = true, summary.ID
+		}
+		baseRequest.Messages, contextLayout = supervisorMessagesWithLayout(history, modelInput, memory,
+			skillContext, externalSkillContext, turn.Mode, threadEndTurn, standardCodeGuidance)
+		baseRequest.Messages, err = s.supervisorMessagesWithImages(ctx, turn, history, baseRequest.Messages, contextLayout)
+		if err != nil {
+			return err
+		}
+		baseRequest.Messages, err = s.supervisorMessagesWithOriginalFiles(ctx, turn, baseRequest.Messages, commandRuntime)
+		if err != nil {
+			return err
+		}
+		if boundaryContext != "" {
+			baseRequest.Messages = append(baseRequest.Messages,
+				toolBoundaryEvidenceMessage(turn.Run.SessionID, turn.Checkpoint.AttemptID, boundaryContext))
+		}
+		supervisorSummaryMetadata(&baseRequest, summary, hasSummary)
+		baseRequest.Metadata["memory_sections"] = fmt.Sprint(len(memory.Sections))
+		baseRequest.Metadata["memory_omitted"] = fmt.Sprint(len(memory.OmittedSources))
+		baseRequest.Metadata["memory_tokens"] = fmt.Sprint(memory.EstimatedTokens)
+		baseRequest.Metadata["selected_notes"] = fmt.Sprint(countContextSources(memory.IncludedSources, "note"))
+		baseRequest.Metadata["long_term_memory_selected"] = fmt.Sprint(countContextSources(memory.IncludedSources, "long_term_memory"))
+		baseRequest.Metadata["project_instruction_items"] = fmt.Sprint(countContextSources(memory.IncludedSources, "project_instruction"))
+		baseRequest.Metadata["continuity_context_items"] = fmt.Sprint(countContextSources(memory.IncludedSources, "continuity_context"))
+		baseRequest.Metadata["pending_user_instructions"] = fmt.Sprint(pendingInstructions)
+		refreshStandardCodeSupervisorRequest(&baseRequest, standardCode)
+		request, err = rebuildToolRequest()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	refreshCurrentSteering := func() error {
+		refreshedInput, count, sequence, err := supervisorInputWithPendingInstructions(ctx, s.store, turn, input)
+		if err != nil {
+			return err
+		}
+		if sequence == steeringSequence && refreshedInput == modelInput {
+			return nil
+		}
+		modelInput, pendingInstructions, steeringSequence = refreshedInput, count, sequence
+		return rebuildHistoryRequest(false)
+	}
+	trySegmentReceipt := func() bool {
+		// A tiny first round can make a single-round receipt larger. Check all
+		// bounded prefixes locally before deciding no useful reduction exists.
+		for count := receiptedRounds + 1; count <= len(toolRounds); count++ {
+			plan, planErr := supervisorSegmentReceiptPlan(toolRounds, count,
+				supervisorSegmentReceiptTokenBudget, turn.Checkpoint.AttemptID)
+			if planErr != nil {
+				return false
+			}
+			rebuilt, rebuildErr := supervisorRequestWithSegmentReceipt(baseRequest, plan,
+				turn.Run.SessionID, turn.Checkpoint.AttemptID)
+			if rebuildErr != nil {
+				return false
+			}
+			rebuilt, rebuildErr = s.attachSupervisorProviderReplay(ctx, turn.Checkpoint, rebuilt, plan.NativeRounds)
+			if rebuildErr != nil {
+				return false
+			}
+			if estimateModelRequestTokens(rebuilt) >= estimateModelRequestTokens(request) {
+				continue
+			}
+			request, receiptedRounds = rebuilt, count
+			return true
+		}
+		return false
 	}
 
 	for {
-		if s.agentBrowser != nil {
-			browserActionCapabilities, browserActionAuthority, err = s.agentBrowserCapabilities(ctx, turn)
+		if err := refreshCurrentSteering(); err != nil {
+			return result, s.recordFailure(ctx, &result, err, 0)
+		}
+		if s.agentBrowser != nil || s.browserActions != nil {
+			browserActionCapabilities, browserActionAuthority, err = s.supervisorBrowserActionCapabilities(ctx, turn, executionPermission)
 			if err != nil {
 				return result, err
 			}
-			request.Tools = refreshAgentBrowserModelTools(request.Tools, browserActionCapabilities)
+			request.Tools = refreshBrowserModelTools(request.Tools, browserActionCapabilities)
 		}
 		modelRequest := request
 		modelContextLayout := contextLayout
@@ -1087,54 +1174,14 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 				failure := s.recordFailure(ctx, &result, compactErr, 0)
 				return result, failure
 			}
-			history, summary, hasSummary, _, err = s.supervisorConversationContext(ctx, &turn)
-			result.Checkpoint = turn.Checkpoint
-			if err == nil {
-				memory, err = supervisorMemoryContextWithinBudget(memoryBudget, threadEndTurn, summary, hasSummary, workItems, notes, inbox.Messages,
-					projectInstructionSections, longTermMemorySections, continuitySections, supervisorGoalContext(turn))
-			}
-			if err == nil {
-				err = requireSupervisorContinuityContext(memory, summary, hasSummary, turn.Mission.ID, turn.Run.Config.ContinuityContextFingerprint)
-			}
-			if err != nil {
-				failure := s.recordFailure(ctx, &result, err, 0)
-				return result, failure
-			}
-			contextAudit = supervisorModelContextAudit(memory)
-			result.ContextCompacted, result.ContextSummaryID = true, summary.ID
-			baseRequest.Messages, contextLayout = supervisorMessagesWithLayout(history, modelInput, memory,
-				skillContext, externalSkillContext, turn.Mode, threadEndTurn, standardCodeGuidance)
-			baseRequest.Messages, err = s.supervisorMessagesWithImages(ctx, turn, history, baseRequest.Messages, contextLayout)
-			if err != nil {
+			if err := rebuildHistoryRequest(true); err != nil {
 				return result, s.recordFailure(ctx, &result, err, 0)
-			}
-			baseRequest.Messages, err = s.supervisorMessagesWithOriginalFiles(ctx, turn, baseRequest.Messages, commandRuntime)
-			if err != nil {
-				return result, s.recordFailure(ctx, &result, err, 0)
-			}
-			if boundaryContext != "" {
-				baseRequest.Messages = append(baseRequest.Messages,
-					toolBoundaryEvidenceMessage(turn.Run.SessionID, turn.Checkpoint.AttemptID, boundaryContext))
-			}
-			supervisorSummaryMetadata(&baseRequest, summary, hasSummary)
-			baseRequest.Metadata["memory_sections"] = fmt.Sprint(len(memory.Sections))
-			baseRequest.Metadata["memory_omitted"] = fmt.Sprint(len(memory.OmittedSources))
-			baseRequest.Metadata["memory_tokens"] = fmt.Sprint(memory.EstimatedTokens)
-			baseRequest.Metadata["selected_notes"] = fmt.Sprint(countContextSources(memory.IncludedSources, "note"))
-			baseRequest.Metadata["long_term_memory_selected"] = fmt.Sprint(countContextSources(memory.IncludedSources, "long_term_memory"))
-			baseRequest.Metadata["project_instruction_items"] = fmt.Sprint(countContextSources(memory.IncludedSources, "project_instruction"))
-			baseRequest.Metadata["continuity_context_items"] = fmt.Sprint(countContextSources(memory.IncludedSources, "continuity_context"))
-			refreshStandardCodeSupervisorRequest(&baseRequest, standardCode)
-			request, err = supervisorRequestWithToolRounds(baseRequest, toolRounds)
-			if err != nil {
-				failure := s.recordFailure(ctx, &result, err, 0)
-				return result, failure
 			}
 			continue
 		}
 		modelRequest = boundedRequest
 		modelCall, err := s.callModelWithRetry(ctx, turn, ref, modelRequest, protocolRepair,
-			len(toolRounds), contextAudit)
+			len(toolRounds), steeringSequence, contextAudit)
 		if modelCall.Checkpoint.RunID != "" {
 			turn.Checkpoint = modelCall.Checkpoint
 			result.Checkpoint = modelCall.Checkpoint
@@ -1152,7 +1199,35 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 				return result, apperror.Normalize(ctx.Err())
 			}
 			if apperror.CodeOf(apperror.Normalize(err)) == apperror.CodeConflict {
+				if current, readErr := supervisorCurrentSteeringSequence(ctx, s.store, turn.Checkpoint); readErr == nil && current != steeringSequence {
+					continue
+				}
 				return result, apperror.Normalize(err)
+			}
+			if modelCall.Attempt.FailureReason == llm.ProviderFailureContextLimit && modelCall.FailureRecorded {
+				if recovery, supported := s.store.(supervisorContextRecoveryStore); supported {
+					claimed, claimErr := recovery.ClaimSupervisorContextRecovery(ctx, turn.Checkpoint, modelCall.Attempt)
+					if claimErr != nil {
+						return result, s.recordFailure(ctx, &result, claimErr, 0)
+					}
+					if claimed {
+						before := estimateModelRequestTokens(request)
+						compacted, compactErr := s.compactSupervisorHistory(ctx, &turn, 1)
+						result.Checkpoint = turn.Checkpoint
+						if compactErr == nil && compacted {
+							compactErr = rebuildHistoryRequest(true)
+						}
+						if compactErr != nil {
+							return result, s.recordFailure(ctx, &result, compactErr, 0)
+						}
+						if estimateModelRequestTokens(request) >= before {
+							trySegmentReceipt()
+						}
+						if estimateModelRequestTokens(request) < before && ctx.Err() == nil {
+							continue
+						}
+					}
+				}
 			}
 			failure := s.recordFailure(ctx, &result, err, modelCall.UnpersistedElapsed)
 			return result, failure
@@ -1184,6 +1259,33 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 			failure := s.recordFailure(ctx, &result, err, failureElapsed)
 			return result, failure
 		}
+		if len(response.ToolCalls) == 0 {
+			currentSteering, readErr := supervisorCurrentSteeringSequence(ctx, s.store, turn.Checkpoint)
+			if readErr != nil {
+				return result, apperror.Normalize(readErr)
+			}
+			if currentSteering != modelCall.Attempt.SteeringSequence {
+				// Charge and retain the actual model response, but do not present an
+				// answer prepared before the newly accepted correction as final.
+				modelCall.Attempt.Outcome = llm.OutcomeSuccess
+				eventCtx, eventCancel := supervisorModelEventContext(ctx)
+				updated, storeErr := s.store.RecordSupervisorModelCompleted(eventCtx,
+					turn.Checkpoint, modelCall.Attempt, *response)
+				eventCancel()
+				if storeErr != nil {
+					return result, s.failReceivedModelOutput(ctx, &result, &turn,
+						modelCall.Attempt, *response, storeErr)
+				}
+				turn.Checkpoint, result.Checkpoint = updated, updated
+				if s.monetary != nil {
+					if settleErr := s.settleModelAccounting(ctx, turn.Checkpoint.RunID,
+						modelCall.Attempt, response.Usage, 0); settleErr != nil {
+						return result, s.recordFailure(ctx, &result, settleErr, 0)
+					}
+				}
+				continue
+			}
+		}
 		var action domain.RootAction
 		var parseErr error
 		repairableRootResponse := false
@@ -1214,6 +1316,12 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 						BrowserActions: supervisorBrowserActionTools{
 							Capabilities: browserActionCapabilities,
 							Authority:    browserActionAuthority}})
+				if parseErr == nil && response.Replay != nil {
+					response.Replay, parseErr = response.Replay.BindToolCalls(preparedCalls)
+					if parseErr != nil {
+						break
+					}
+				}
 				if parseErr == nil {
 					response.ToolCalls = preparedCalls
 				} else {
@@ -1289,7 +1397,7 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 				}
 				baseRequest.Metadata["active_work_items"] = fmt.Sprint(len(workItems))
 				refreshStandardCodeSupervisorRequest(&baseRequest, standardCode)
-				request, storeErr = supervisorRequestWithToolRounds(baseRequest, toolRounds)
+				request, storeErr = rebuildToolRequest()
 				if storeErr != nil {
 					return result, apperror.Normalize(storeErr)
 				}
@@ -1432,6 +1540,11 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 			updatedRun, checkpoint, messages, err = s.store.CompleteSupervisorTurn(ctx, turn.Checkpoint, safeResponse, safeAction, decision, 0)
 		}
 		if err != nil {
+			if apperror.CodeOf(apperror.Normalize(err)) == apperror.CodeConflict {
+				if current, readErr := supervisorCurrentSteeringSequence(ctx, s.store, turn.Checkpoint); readErr == nil && current != modelCall.Attempt.SteeringSequence {
+					continue
+				}
+			}
 			failure := s.recordFailure(ctx, &result, err, 0)
 			return result, failure
 		}
@@ -1860,6 +1973,7 @@ func (s *RunSupervisor) recordFailure(ctx context.Context, result *LifecycleResu
 }
 
 type modelCallResult struct {
+	FailureRecorded    bool
 	Response           *llm.ChatResponse
 	Attempt            llm.ModelAttempt
 	Checkpoint         domain.SupervisorCheckpoint
@@ -1869,12 +1983,21 @@ type modelCallResult struct {
 }
 
 func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.SupervisorTurn, ref llm.ModelRef,
-	request llm.ChatRequest, protocolRepair int, toolRound int,
+	request llm.ChatRequest, protocolRepair int, toolRound int, steeringSequence int64,
 	contextAudit *llm.ModelContextAudit,
 ) (modelCallResult, error) {
 	policy := normalizeModelRetryPolicy(s.retryPolicy)
-	nextGlobalAttempt, nextTransportAttempt, err := s.store.NextSupervisorModelAttempt(ctx,
-		turn.Checkpoint, protocolRepair, toolRound)
+	var nextGlobalAttempt, nextTransportAttempt int
+	var err error
+	if scoped, ok := s.store.(interface {
+		NextSupervisorModelAttemptForSteering(context.Context, domain.SupervisorCheckpoint, int, int, int64) (int, int, error)
+	}); ok {
+		nextGlobalAttempt, nextTransportAttempt, err = scoped.NextSupervisorModelAttemptForSteering(ctx,
+			turn.Checkpoint, protocolRepair, toolRound, steeringSequence)
+	} else {
+		nextGlobalAttempt, nextTransportAttempt, err = s.store.NextSupervisorModelAttempt(ctx,
+			turn.Checkpoint, protocolRepair, toolRound)
+	}
 	if err != nil {
 		return modelCallResult{}, apperror.Normalize(err)
 	}
@@ -1893,14 +2016,29 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 		if err := ctx.Err(); err != nil {
 			return result, apperror.Normalize(err)
 		}
+		if current, readErr := supervisorCurrentSteeringSequence(ctx, s.store, result.Checkpoint); readErr != nil {
+			return result, readErr
+		} else if current != steeringSequence {
+			return result, apperror.New(apperror.CodeConflict,
+				"Current-turn correction arrived before model request; rebuild the request")
+		}
 		if supervisorModelBudgetExhausted(turn.Run.Budget, result.Checkpoint, 0) {
 			return result, apperror.New(apperror.CodeDeadlineExceeded, "supervisor model execution timeout was exhausted during retry")
 		}
 		attempt := llm.ModelAttempt{
 			Number: globalAttempt, TransportAttempt: transportAttempt, MaxAttempts: policy.MaxAttempts,
+			SteeringSequence:    steeringSequence,
+			InputEstimate:       estimateModelRequestTokens(request),
 			SupervisorAttemptID: result.Checkpoint.AttemptID,
 			ProtocolRepair:      protocolRepair, ToolRound: toolRound,
 			Provider: ref.Provider, Model: ref.Model, Context: contextAudit,
+		}
+		// Reopening a claimed recovery cannot spend a new reservation or send
+		// the old input. The store repeats this check atomically at model start.
+		if gate, ok := s.store.(supervisorContextRecoveryInputStore); ok {
+			if err := gate.CheckSupervisorContextRecoveryInput(ctx, result.Checkpoint, attempt); err != nil {
+				return result, supervisorContextWindowFailure(apperror.Normalize(err))
+			}
 		}
 		globalAttempt++
 		lease, err := s.activeCalls.reserve(ctx, result.Checkpoint, attempt, turn.Run.SessionID)
@@ -1913,6 +2051,24 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 				"monetary tracking is unavailable for the configured run budget")
 		}
 		if s.monetary != nil {
+			if prior, ok := s.store.(interface {
+				PriorSupervisorMidTurnSequences(context.Context, domain.SupervisorCheckpoint, int64) ([]int64, error)
+			}); ok && steeringSequence > 0 {
+				sequences, sequenceErr := prior.PriorSupervisorMidTurnSequences(ctx, result.Checkpoint, steeringSequence)
+				if sequenceErr != nil {
+					lease.Abort()
+					return result, apperror.Normalize(sequenceErr)
+				}
+				for _, previous := range sequences {
+					unsent := attempt
+					unsent.SteeringSequence = previous
+					if _, releaseErr := s.monetary.ReleaseModelCall(ctx, turn.Run.ID,
+						domain.MonetaryScopeRoot, unsent); releaseErr != nil {
+						lease.Abort()
+						return result, apperror.Normalize(releaseErr)
+					}
+				}
+			}
 			if _, reserveErr := s.monetary.ReserveModelCall(ctx, turn.Run,
 				domain.MonetaryScopeRoot, attempt, request); reserveErr != nil {
 				lease.Abort()
@@ -1922,6 +2078,17 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 		inserted, err := s.store.RecordSupervisorModelStarted(ctx, result.Checkpoint, attempt)
 		if err != nil {
 			lease.Abort()
+			if s.monetary != nil && apperror.CodeOf(apperror.Normalize(err)) == apperror.CodeConflict {
+				if current, readErr := supervisorCurrentSteeringSequence(ctx, s.store, result.Checkpoint); readErr == nil && current != steeringSequence {
+					releaseCtx, releaseCancel := supervisorModelEventContext(ctx)
+					_, releaseErr := s.monetary.ReleaseModelCall(releaseCtx, turn.Run.ID,
+						domain.MonetaryScopeRoot, attempt)
+					releaseCancel()
+					if releaseErr != nil {
+						return result, errors.Join(err, releaseErr)
+					}
+				}
+			}
 			return result, apperror.Normalize(err)
 		}
 		if !inserted {
@@ -1959,6 +2126,7 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 		}
 		providerErr := llm.NormalizeProviderError(ref.Provider, callErr)
 		attempt.Outcome = providerErr.Kind
+		attempt.FailureReason = providerErr.Reason
 		attempt.ErrorText = providerErr.Error()
 		attempt.RetryAfter = providerErr.RetryAfter
 		attempt.RetryPlanned = providerErr.Kind.Retryable() && transportAttempt < policy.MaxAttempts && ctx.Err() == nil &&
@@ -1978,6 +2146,7 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 			return result, errors.Join(providerApplicationError(providerErr), eventErr)
 		}
 		appErr := providerApplicationError(providerErr)
+		result.FailureRecorded = true
 		if !attempt.RetryPlanned {
 			return result, appErr
 		}
@@ -2007,6 +2176,12 @@ func (s *RunSupervisor) recordInvalidModelAttempt(ctx context.Context, checkpoin
 func providerApplicationError(providerErr *llm.ProviderError) error {
 	if providerErr == nil {
 		return apperror.New(apperror.CodeInternal, "provider failed without an error")
+	}
+	if providerErr.Reason == llm.ProviderFailureContextLimit {
+		return supervisorContextWindowFailure(apperror.Wrap(apperror.CodeResourceExhausted, providerErr.Error(), providerErr))
+	}
+	if providerErr.Reason == llm.ProviderFailureOutputLimit {
+		return apperror.Wrap(apperror.CodeResourceExhausted, providerErr.Error(), providerErr)
 	}
 	code := apperror.CodeFailedPrecondition
 	switch providerErr.Kind {

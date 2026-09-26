@@ -62,6 +62,25 @@ export async function inspectV2TurnRequest(client: CyberAgentClient,
   return parseObservation(await client.inspectThreadTurnRequest(input.threadID, input.operationKey, input.signal), "turn", input.threadID);
 }
 
+export async function inspectV2SteeringRequest(client: CyberAgentClient,
+  input: { sessionID?: string; operationKey: string; signal?: AbortSignal }): Promise<{
+    state: "not_received" | "received"; message_id?: string; message_status?: "pending" | "committed" | "cancelled";
+  }> {
+  if (!identity(input.sessionID)) throw new APIRequestError("The original Session could not be verified", "INVALID_RESPONSE", 502);
+  const value = await client.inspectSessionMessageOperation(input.sessionID, input.operationKey, input.signal);
+  if (!record(value) || value.version !== "session_message_submission.v1" || value.session_id !== input.sessionID ||
+    !["not_received", "received"].includes(String(value.state)) ||
+    Object.keys(value).some((key) => !["version", "session_id", "state", "message_id", "message_status", "delivery_mode"].includes(key)) ||
+    (value.state === "received" && (!identity(value.message_id) ||
+      !["pending", "committed", "cancelled"].includes(String(value.message_status)) || value.delivery_mode !== "steer")) ||
+    (value.state === "not_received" && (value.message_id !== undefined || value.message_status !== undefined ||
+      value.delivery_mode !== undefined))) {
+    throw new APIRequestError("The original Session message status could not be verified", "INVALID_RESPONSE", 502);
+  }
+  return value as { state: "not_received" | "received"; message_id?: string;
+    message_status?: "pending" | "committed" | "cancelled" };
+}
+
 export async function inspectV2CreationRequest(client: CyberAgentClient,
   input: { operationKey: string; workspaceID: string; signal?: AbortSignal }): Promise<ThreadRequestObservation> {
   return parseObservation(await client.inspectThreadCreationRequest(input.workspaceID, input.operationKey, input.signal), "creation", input.workspaceID);

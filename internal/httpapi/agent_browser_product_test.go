@@ -157,8 +157,9 @@ func TestAgentBrowserHTTPProductApprovalAndScreenshot(t *testing.T) {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "fixture"})
 	router.RegisterProvider(provider)
 	checker := policy.NewDefaultChecker()
-	supervisor := application.NewRunSupervisor(st, router, checker).WithExecutionPermissionCapabilities(caps).WithAgentBrowser(browser)
-	execution := application.NewRunExecutionHandoffService(st, router, checker).WithExecutionPermissionCapabilities(caps).WithAgentBrowser(browser)
+	dependencies := application.RunRuntimeDependencies{ExecutionCapabilities: caps, AgentBrowser: browser}
+	supervisor := application.NewRunSupervisorWithRuntime(st, router, checker, dependencies)
+	execution := application.NewRunExecutionHandoffWithRuntime(st, router, checker, dependencies)
 	lifecycle := application.NewRunLifecycleControlService(st)
 	threads := application.NewThreadTurnServiceWithExecutionCapabilities(st, lifecycle, execution, caps)
 	controller := application.NewApprovalControlService(st, toolgateway.New(st, checker), checker)

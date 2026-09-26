@@ -3667,7 +3667,8 @@ CREATE TABLE operator_steering_messages (
 		session_message_id INTEGER UNIQUE,
 		created_at TEXT NOT NULL,
 		committed_at TEXT,
-		cancelled_at TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0), original_content TEXT NOT NULL DEFAULT '', original_content_sha256 TEXT NOT NULL DEFAULT '', edited_at TEXT,
+		cancelled_at TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0), original_content TEXT NOT NULL DEFAULT '', original_content_sha256 TEXT NOT NULL DEFAULT '', edited_at TEXT, delivery_mode TEXT NOT NULL DEFAULT 'next_turn'
+		CHECK(delivery_mode IN ('next_turn','steer')), target_attempt_id TEXT NOT NULL DEFAULT '',
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_message_id) REFERENCES session_messages(id) ON DELETE RESTRICT,
@@ -3686,6 +3687,14 @@ CREATE TABLE operator_steering_messages (
 				AND committed_at IS NOT NULL AND cancelled_at IS NULL)
 			OR (status = 'cancelled' AND session_message_id IS NULL
 				AND committed_at IS NULL AND cancelled_at IS NOT NULL))
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE operator_steering_midturn_claims (
+		message_id TEXT PRIMARY KEY REFERENCES operator_steering_messages(id) ON DELETE RESTRICT,
+		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+		attempt_id TEXT NOT NULL,
+		claimed_at TEXT NOT NULL,
+		CHECK(length(attempt_id) BETWEEN 1 AND 256 AND attempt_id=trim(attempt_id))
 	);
 -- traverse-board-clean-install-object-boundary --
 CREATE TABLE operator_steering_operations (
@@ -5905,6 +5914,33 @@ CREATE TABLE run_supervisor_checkpoints (
 			OR (lease_id <> '' AND lease_generation > 0))), pending_image_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_image_count BETWEEN 0 AND 4), pending_attachment_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_attachment_count BETWEEN 0 AND 4),
 		FOREIGN KEY(run_id) REFERENCES runs(id),
 		CHECK(next_turn > 0)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_context_recoveries (
+		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+		turn INTEGER NOT NULL CHECK(turn > 0), attempt_id TEXT NOT NULL,
+		tool_round INTEGER NOT NULL CHECK(tool_round BETWEEN 0 AND 4),
+		protocol_repair INTEGER NOT NULL CHECK(protocol_repair BETWEEN 0 AND 1),
+		model_attempt INTEGER NOT NULL CHECK(model_attempt > 0),
+		original_input_tokens INTEGER NOT NULL CHECK(original_input_tokens > 0),
+		provider TEXT NOT NULL CHECK(length(provider) > 0),
+		model TEXT NOT NULL CHECK(length(model) > 0), created_at TEXT NOT NULL,
+		PRIMARY KEY(run_id, turn, attempt_id, tool_round, protocol_repair)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_provider_replay (
+		run_id TEXT NOT NULL, turn INTEGER NOT NULL CHECK(turn > 0),
+		attempt_id TEXT NOT NULL, round INTEGER NOT NULL CHECK(round BETWEEN 1 AND 4),
+		model_attempt INTEGER NOT NULL CHECK(model_attempt > 0),
+		provider TEXT NOT NULL CHECK(length(provider) > 0),
+		model TEXT NOT NULL CHECK(length(model) > 0),
+		replay_blob BLOB NOT NULL CHECK(length(replay_blob) BETWEEN 1 AND 8388608),
+		replay_sha256 TEXT NOT NULL CHECK(length(replay_sha256) = 64),
+		created_at TEXT NOT NULL,
+		PRIMARY KEY(run_id, turn, attempt_id, round),
+		UNIQUE(run_id, turn, attempt_id, model_attempt),
+		FOREIGN KEY(run_id, turn, attempt_id, round)
+			REFERENCES run_supervisor_tool_rounds(run_id, turn, attempt_id, round) ON DELETE CASCADE
 	);
 -- traverse-board-clean-install-object-boundary --
 CREATE TABLE run_supervisor_tool_call_agents (
@@ -13487,6 +13523,9 @@ CREATE INDEX idx_operator_steering_cancellations_run_created
 CREATE INDEX idx_operator_steering_deliveries_run_turn
 		ON operator_steering_deliveries(run_id, turn, prepared_at);
 -- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_operator_steering_midturn_claims_attempt
+		ON operator_steering_midturn_claims(run_id,attempt_id);
+-- traverse-board-clean-install-object-boundary --
 CREATE UNIQUE INDEX idx_operator_steering_one_committed
 		ON operator_steering_deliveries(message_id) WHERE status = 'committed';
 -- traverse-board-clean-install-object-boundary --
@@ -16968,6 +17007,39 @@ CREATE TRIGGER trg_operator_steering_insert_binding
 		BEGIN
 			SELECT RAISE(ABORT, 'operator steering Run binding is invalid');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_midturn_binding
+		BEFORE INSERT ON operator_steering_messages
+		WHEN NEW.delivery_mode='steer' AND (NEW.target_attempt_id='' OR NOT EXISTS (
+			SELECT 1 FROM run_supervisor_checkpoints checkpoint
+			JOIN runs run ON run.id=checkpoint.run_id
+			WHERE run.id=NEW.run_id AND run.session_id=NEW.session_id
+			AND run.status='running' AND checkpoint.phase='turn_started'
+			AND checkpoint.attempt_id=NEW.target_attempt_id))
+		BEGIN SELECT RAISE(ABORT,'midturn steering admission binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_midturn_claim_delete
+		BEFORE DELETE ON operator_steering_midturn_claims
+		BEGIN SELECT RAISE(ABORT,'midturn steering claim cannot be deleted'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_midturn_claim_immutable
+		BEFORE UPDATE ON operator_steering_midturn_claims
+		BEGIN SELECT RAISE(ABORT,'midturn steering claim is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_midturn_claim_insert
+		BEFORE INSERT ON operator_steering_midturn_claims
+		WHEN NOT EXISTS (SELECT 1 FROM operator_steering_messages message
+			JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id=message.run_id
+			WHERE message.id=NEW.message_id AND message.run_id=NEW.run_id
+			AND message.delivery_mode='steer' AND message.target_attempt_id=NEW.attempt_id
+			AND message.status='pending' AND checkpoint.phase='turn_started'
+			AND checkpoint.attempt_id=NEW.attempt_id)
+		BEGIN SELECT RAISE(ABORT,'midturn steering claim binding is invalid'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_operator_steering_nextturn_binding
+		BEFORE INSERT ON operator_steering_messages
+		WHEN NEW.delivery_mode='next_turn' AND NEW.target_attempt_id!=''
+		BEGIN SELECT RAISE(ABORT,'next-turn message cannot target a Supervisor attempt'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_operator_steering_operation_delete_immutable
 		BEFORE DELETE ON operator_steering_operations BEGIN
@@ -25263,6 +25335,41 @@ CREATE TRIGGER trg_structured_tool_operation_work_item_target
 		BEGIN
 			SELECT RAISE(ABORT, 'structured tool WorkItem target mismatch');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_context_recovery_immutable BEFORE UPDATE ON run_supervisor_context_recoveries
+	BEGIN SELECT RAISE(ABORT, 'context recovery claim is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_context_recovery_source BEFORE INSERT ON run_supervisor_context_recoveries
+	WHEN NOT EXISTS (SELECT 1 FROM run_events e WHERE e.run_id=NEW.run_id
+		AND e.type='model.failed' AND e.source='model_gateway'
+		AND e.subject_id=NEW.attempt_id||'/model/'||NEW.model_attempt
+		AND json_extract(e.payload_json,'$.turn')=NEW.turn
+		AND json_extract(e.payload_json,'$.attempt_id')=NEW.attempt_id
+		AND json_extract(e.payload_json,'$.tool_round')=NEW.tool_round
+		AND json_extract(e.payload_json,'$.protocol_repair')=NEW.protocol_repair
+		AND json_extract(e.payload_json,'$.provider')=NEW.provider
+		AND json_extract(e.payload_json,'$.model')=NEW.model
+		AND json_extract(e.payload_json,'$.outcome')='permanent'
+		AND json_extract(e.payload_json,'$.failure_reason')='context_limit')
+	OR NOT EXISTS (SELECT 1 FROM run_events e WHERE e.run_id=NEW.run_id
+		AND e.type='model.started' AND e.source='model_gateway'
+		AND e.subject_id=NEW.attempt_id||'/model/'||NEW.model_attempt
+		AND json_extract(e.payload_json,'$.input_estimate')=NEW.original_input_tokens)
+	BEGIN SELECT RAISE(ABORT, 'context recovery requires a typed context limit failure'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_provider_replay_immutable BEFORE UPDATE ON run_supervisor_provider_replay
+	BEGIN SELECT RAISE(ABORT, 'provider replay is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_provider_replay_source BEFORE INSERT ON run_supervisor_provider_replay
+	WHEN NOT EXISTS (SELECT 1 FROM run_supervisor_tool_rounds r JOIN run_events e ON e.run_id=r.run_id
+		WHERE r.run_id=NEW.run_id AND r.turn=NEW.turn AND r.attempt_id=NEW.attempt_id
+		AND r.round=NEW.round AND r.model_attempt=NEW.model_attempt
+		AND e.type='model.completed' AND e.source='model_gateway'
+		AND e.subject_id=NEW.attempt_id||'/model/'||NEW.model_attempt
+		AND json_extract(e.payload_json,'$.provider')=NEW.provider
+		AND json_extract(e.payload_json,'$.model')=NEW.model
+		AND json_extract(e.payload_json,'$.outcome')='success')
+	BEGIN SELECT RAISE(ABORT, 'provider replay requires its successful tool round'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_supervisor_tool_call_agent_immutable
 		BEFORE UPDATE ON run_supervisor_tool_call_agents
