@@ -431,7 +431,7 @@ describe("V2Conversation", () => {
     await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
     expect(await screen.findByText("正在发送消息")).toBeInTheDocument();
     expect(screen.queryByText("正在工作")).not.toBeInTheDocument();
-    expect(screen.getByText("消息将在下一轮处理；受理不代表已经执行。")).toBeInTheDocument();
+    expect(screen.getByText(/消息将在下一轮处理；受理不代表已经执行。/)).toBeInTheDocument();
     expect(screen.queryByText(/停止会取消/u)).not.toBeInTheDocument();
 
     const completed = detail("thread-a").thread;

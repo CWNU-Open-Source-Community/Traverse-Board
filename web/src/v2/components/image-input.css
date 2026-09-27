@@ -27,7 +27,6 @@
 .v2-image-viewer-notice { flex-basis:100%; margin:3px 0; text-align:center; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
 .v2-image-dialog :focus-visible, .v2-image-thumb:focus-visible, .v2-image-remove:focus-visible { outline:2px solid var(--v2-accent, #376ac8); outline-offset:2px; }
 .v2-composer-surface > .v2-image-list { padding:12px 18px 0; }
-.v2-image-capability { font-size:13px; line-height:1.5; margin:6px 0; color:var(--v2-muted, #686e75); }
 @media (max-width:600px) {
   .v2-image-overlay { padding:8px; }
   .v2-image-dialog { height:calc(100dvh - 16px); border-radius:10px; }

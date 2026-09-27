@@ -561,10 +561,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
         workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive} />}
       {reconciling ? <p className="v2-composer-caption" role="status">正在核对上次提交，避免重复执行。可以继续编辑，核对完成后再发送。</p>
-        : executionQuery.data?.state === "stopping" ? <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>
-        : working && <p className="v2-composer-caption">{deliveryMode === "steer"
-          ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
-          : "消息将在下一轮处理；受理不代表已经执行。"}</p>}
+        : executionQuery.data?.state === "stopping" && <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>}
       {working && draft && onDraftChange && submissions.some(({ input, pending }) =>
         pending && input.content === draft.trim()) && <button className="v2-composer-chip"
         onClick={() => onDraftChange("")} type="button">编写下一条</button>}
@@ -603,7 +600,11 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         placeholder="输入消息…" runActive={runActive}
         runID={currentRun.id} threadID={threadID} workspaceID={detail.thread.workspace_id ?? ""}
         workspaces={workspaces} />
-      <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · Enter 发送，Shift + Enter 换行</small>
+      <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · {working
+        ? deliveryMode === "steer"
+          ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
+          : "消息将在下一轮处理；受理不代表已经执行。"
+        : "Enter 发送，Shift + Enter 换行"}</small>
       </div>
     </div>
   </section>;
