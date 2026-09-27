@@ -164,9 +164,21 @@ describe("V2Conversation", () => {
     await act(async () => { view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
       { ...execution, state: "idle", execution_id: undefined }); });
     expect(screen.getByRole("combobox", { name: "发送方式" })).toHaveValue("steer");
+    // The invalid mode is explained before sending, and sending stays blocked.
+    expect(await screen.findByText(/当前任务已停止或不再运行/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
     expect(submitSessionMessage).not.toHaveBeenCalled();
     expect(submitThreadTurn).not.toHaveBeenCalled();
+    // Switching back to next-turn clears the hint; the selector hides again
+    // because no running task can accept a correction.
+    await user.click(screen.getByRole("button", { name: "切换为下一轮处理" }));
+    expect(screen.queryByText(/当前任务已停止或不再运行/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "发送方式" })).not.toBeInTheDocument();
+    // The retained draft now goes out as a regular next-turn message.
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    await waitFor(() => expect(submitThreadTurn).toHaveBeenCalledWith("thread-a",
+      expect.objectContaining({ content: "pending-thread-a" }), expect.any(String)));
+    expect(submitSessionMessage).not.toHaveBeenCalled();
   });
   it("explains unavailable execution observation while retaining readable work history", async () => {
     const threadExecution = vi.fn();

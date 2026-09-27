@@ -582,6 +582,10 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
 	      <option value="steer">更新当前任务（仅文字）</option>
 	    </select>
 	  </label>}
+	  {deliveryMode === "steer" && !canSteer && <p className="v2-composer-caption" role="alert">
+	    当前任务已停止或不再运行，不能更新当前任务；纠正草稿会保留。
+	    <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
+	  </p>}
       <V2Composer client={client} disabled={!client.hasThreadControl ||
         detail.thread.status !== "active"}
         submitDisabled={reconciling || executionQuery.data?.state === "stopping" ||
