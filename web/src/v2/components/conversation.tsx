@@ -251,14 +251,17 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   // latest durable user entry. A draft identical to any of these is leftover
   // from a sent message, so the composer offers to clear it before the user
   // accidentally appends a new request to already-submitted text.
+  const submissionWorkspaceID = detailQuery.data?.thread.workspace_id ?? "";
   const submittedContents = useMemo(() => {
     const contents = new Set<string>();
     for (const { input, pending } of submissions) if (pending) contents.add(input.content);
-    if (confirmedSubmission) contents.add(confirmedSubmission.content);
+    // A request can settle after this component has switched to another Thread.
+    if (confirmedSubmission?.threadID === threadID &&
+      confirmedSubmission.workspaceID === submissionWorkspaceID) contents.add(confirmedSubmission.content);
     const lastUserEntry = durableNarrative.findLast((entry) => entry.kind === "user");
     if (lastUserEntry?.kind === "user") contents.add(lastUserEntry.text);
     return contents;
-  }, [submissions, confirmedSubmission, durableNarrative]);
+  }, [submissions, confirmedSubmission, durableNarrative, threadID, submissionWorkspaceID]);
   const failedSubmissions = submissions.filter(({ pending, error }) => !pending && error);
   const submissionNotices = failedSubmissions.filter(({ error }) => !(error instanceof APIRequestError &&
     error.turnFailed && narrativeRepresentsFailedSubmission(durableNarrative, threadID, error.turnFailure)));

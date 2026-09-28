@@ -475,6 +475,34 @@ describe("V2Conversation", () => {
     expect(onDraftChange).toHaveBeenCalledWith("");
   });
 
+  it("does not offer another Thread's unsent draft for clearing after a late confirmation", async () => {
+    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const onDraftChange = vi.fn();
+    const client = baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async (threadID: string) => ({ version: "thread_execution.v1", thread_id: threadID,
+        state: "running", queued_messages: 0, capability_grant: false } as ThreadExecutionView)),
+      submitThreadTurn: vi.fn(() => submission.promise) });
+    const view = renderConversation(client, "thread-a", undefined,
+      { draft: "pending-thread-a", onDraftChange });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "发送 thread-a" }));
+
+    view.rerenderThread("thread-b");
+    await screen.findByText("Title thread-b");
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+    await act(async () => {
+      submission.resolve({ steering: { id: "steering-a" } } as Awaited<
+        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+      await submission.promise;
+    });
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+    expect(onDraftChange).not.toHaveBeenCalled();
+
+    // The same text remains a confirmed submission in A, where it was sent.
+    view.rerenderThread("thread-a");
+    expect(await screen.findByRole("button", { name: "编写下一条" })).toBeInTheDocument();
+  });
+
   it("offers the next-message chip when the draft repeats the latest sent transcript message", async () => {
     const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
       state: "running", queued_messages: 0, capability_grant: false };
