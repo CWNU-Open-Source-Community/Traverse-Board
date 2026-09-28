@@ -390,7 +390,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       { text: draft ?? content, files: files ?? [], images: images ?? [], attachments });
     const operationKey = `v2-thread-turn-${globalThis.crypto.randomUUID()}`;
     const input: V2TurnInput = { threadID, workspaceID: detail.thread.workspace_id ?? "", content,
-	  ...(deliveryMode === "steer" ? { deliveryMode: "steer" as const, sessionID: currentRun.session_id } : {}),
+      ...(deliveryMode === "steer" ? { deliveryMode: "steer" as const, sessionID: currentRun.session_id } : {}),
       ...(draft !== undefined ? { draft } : {}),
       operationKey, createdAt: new Date().toISOString(), ...(files?.length ? { files } : {}),
       ...(images?.length ? { images } : {}),
@@ -574,7 +574,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       {managedDraft && <V2DraftConflict key={threadID} client={client} workspaceID={detail.thread.workspace_id ?? ""}
         state={managedDraft.state} onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       {currentRun.status === "paused" && <V2PausedThreadControl client={client} threadID={threadID} runID={currentRun.id} />}
-      {executionQuery.data?.state === "stop_failed" && <p role="alert">
+      {executionQuery.data?.state === "stop_failed" && <p className="v2-composer-caption" role="alert">
         停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。
       </p>}
       {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
@@ -591,16 +591,16 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         aria-expanded={inspectorComposerOpen} onClick={() => setInspectorComposerOpen((open) => !open)} type="button">
         {inspectorComposerOpen ? "收起消息编辑器" : draft ? "继续编辑草稿" : "补充消息"}</button>}
       <div className="v2-shared-composer" ref={composerContainerRef} data-thread-id={threadID} hidden={view === "inspector" && !inspectorComposerOpen}>
-	  {(canSteer || deliveryMode === "steer") && <label className="v2-composer-caption">发送方式
-	    <select aria-label="发送方式" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "next_turn" | "steer")}>
-	      <option value="next_turn">下一轮处理</option>
-	      <option value="steer">更新当前任务（仅文字）</option>
-	    </select>
-	  </label>}
-	  {deliveryMode === "steer" && !canSteer && <p className="v2-composer-caption" role="alert">
-	    {steerUnavailable}，不能更新当前任务；纠正草稿会保留。
-	    <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
-	  </p>}
+      {(canSteer || deliveryMode === "steer") && <label className="v2-composer-caption">发送方式
+        <select aria-label="发送方式" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "next_turn" | "steer")}>
+          <option value="next_turn">下一轮处理</option>
+          <option value="steer">更新当前任务（仅文字）</option>
+        </select>
+      </label>}
+      {deliveryMode === "steer" && !canSteer && <p className="v2-composer-caption" role="alert">
+        {steerUnavailable}，不能更新当前任务；纠正草稿会保留。
+        <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
+      </p>}
       <V2Composer client={client} disabled={!client.hasThreadControl ||
         detail.thread.status !== "active"}
         submitDisabled={reconciling || executionQuery.data?.state === "stopping" ||
