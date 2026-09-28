@@ -1709,6 +1709,14 @@ describe("CyberAgentClient", () => {
         stale: false, citeable: true, untrusted: true, instruction_authorized: false,
       },
     };
+    const operatorItem = {
+      version: "thread_transcript.v1", id: "event-op-1", canonical_id: "item-op-1",
+      run_id: "run-created", run_ordinal: 1, sequence: 11, activity_type: "message",
+      stage: "result", kind: "operator_input", source: "operator", title: "用户消息",
+      status: "committed", verifiable: true, instruction_authorized: false,
+      delivery_mode: "steer", provisional: false,
+      durable: true, created_at: "2026-08-24T00:02:00Z",
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-transcript", data: [transcriptItem],
@@ -1729,6 +1737,20 @@ describe("CyberAgentClient", () => {
           ...evidenceItem.web_evidence, url: "javascript:alert(1)",
         } }],
         page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-steer", data: [operatorItem],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-bad-mode",
+        data: [{ ...operatorItem, delivery_mode: "queued" }],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-mode-source",
+        data: [{ ...operatorItem, source: "harness" }],
+        page: { limit: 100 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
@@ -1741,6 +1763,13 @@ describe("CyberAgentClient", () => {
       .rejects.toThrow("transcript item is invalid");
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .rejects.toThrow("Thread Web evidence is invalid");
+    // Operator steering messages carry a bounded delivery_mode on the operator source only.
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .resolves.toMatchObject({ items: [operatorItem] });
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("transcript provenance is invalid");
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("transcript provenance is invalid");
   });
 
   it("lazily reads only the strict safe Thread command activity projection", async () => {

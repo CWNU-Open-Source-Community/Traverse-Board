@@ -671,7 +671,7 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     "instruction_authorized", "kind", "provisional", "run_id",
     "run_ordinal", "sequence", "source", "stage", "title", "verifiable", "version"];
   const optional = ["activity_detail_ref", "activity_summary", "attempt_id", "boundary_reason", "detail",
-    "detail_available", "durable_call_id",
+    "detail_available", "delivery_mode", "durable_call_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
     "stream_response_id", "tool_name", "tool_round", "web_evidence", "images", "attachments"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
@@ -707,6 +707,8 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     (value.stream_item_id !== undefined && value.canonical_id !== value.stream_item_id) ||
     ((value.detail_available === true) !== (value.activity_detail_ref !== undefined)) ||
     (value.detail_available === true && value.activity_detail_ref !== value.durable_call_id) ||
+    (value.delivery_mode !== undefined &&
+      (!["next_turn", "steer"].includes(String(value.delivery_mode)) || value.source !== "operator")) ||
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
