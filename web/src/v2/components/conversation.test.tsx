@@ -99,14 +99,15 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function renderConversation(client: CyberAgentClient, initialThreadID = "thread-a", extras?: ReactNode) {
+function renderConversation(client: CyberAgentClient, initialThreadID = "thread-a", extras?: ReactNode,
+  draftProps?: { draft: string; onDraftChange: (content: string, expected?: string) => void }) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
   } });
   const props = (threadID: string) => <QueryClientProvider client={queryClient}>
     {extras}
     <V2Conversation client={client} onArchive={vi.fn()} onManageModels={vi.fn()}
-      onOpenInspector={vi.fn()} threadID={threadID} workspaces={workspaces} />
+      onOpenInspector={vi.fn()} threadID={threadID} workspaces={workspaces} {...draftProps} />
   </QueryClientProvider>;
   const view = render(props(initialThreadID));
   return { ...view, queryClient,
@@ -443,6 +444,51 @@ describe("V2Conversation", () => {
     await waitFor(() => expect(screen.queryByText("正在发送消息")).not.toBeInTheDocument());
     expect(view.queryClient.getQueryData<ThreadDetailView>(v2QueryKeys.thread("thread-a"))?.thread)
       .toEqual(completed);
+  });
+
+  it("keeps the next-message chip after the matching submission resolves", async () => {
+    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", queued_messages: 0, capability_grant: false };
+    const onDraftChange = vi.fn();
+    const user = userEvent.setup();
+    renderConversation(baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async () => execution), submitThreadTurn: vi.fn(() => submission.promise) }),
+      "thread-a", undefined, { draft: "pending-thread-a", onDraftChange });
+
+    await screen.findByText("Title thread-a");
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    expect(await screen.findByRole("button", { name: "编写下一条" })).toBeInTheDocument();
+
+    await act(async () => {
+      submission.resolve({ steering: { id: "steering-a" } } as Awaited<
+        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+      await submission.promise;
+    });
+    // The settled mutation leaves the cache, but the leftover draft still
+    // matches the accepted payload, so the chip stays available.
+    const chip = await screen.findByRole("button", { name: "编写下一条" });
+
+    await user.click(chip);
+    expect(onDraftChange).toHaveBeenCalledWith("");
+  });
+
+  it("offers the next-message chip when the draft repeats the latest sent transcript message", async () => {
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", queued_messages: 0, capability_grant: false };
+    const operatorItem: ThreadTranscriptItemView = { ...transcriptItem("operator-1", "已经发送的内容", 1),
+      source: "operator" };
+    const onDraftChange = vi.fn();
+    renderConversation(baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async () => execution),
+      getPage: vi.fn(() => Promise.resolve(page([operatorItem]))) } as Partial<CyberAgentClient>),
+      "thread-a", undefined, { draft: "已经发送的内容", onDraftChange });
+
+    const chip = await screen.findByRole("button", { name: "编写下一条" });
+    await userEvent.setup().click(chip);
+    expect(onDraftChange).toHaveBeenCalledWith("");
   });
 
   it("shows confirmed Agent activity and stopping while the submission response is still pending", async () => {

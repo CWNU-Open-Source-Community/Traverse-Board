@@ -247,6 +247,18 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   }, [durableNarrative, optimistic, transcriptItems]);
   const visibleNarrative = useMemo(() => narrative.filter((entry) =>
     !recoveryRepresentsNotice(entry, detailQuery.data?.recovery)), [narrative, detailQuery.data?.recovery]);
+  // Contents the user already submitted: in-flight, just confirmed, or the
+  // latest durable user entry. A draft identical to any of these is leftover
+  // from a sent message, so the composer offers to clear it before the user
+  // accidentally appends a new request to already-submitted text.
+  const submittedContents = useMemo(() => {
+    const contents = new Set<string>();
+    for (const { input, pending } of submissions) if (pending) contents.add(input.content);
+    if (confirmedSubmission) contents.add(confirmedSubmission.content);
+    const lastUserEntry = durableNarrative.findLast((entry) => entry.kind === "user");
+    if (lastUserEntry?.kind === "user") contents.add(lastUserEntry.text);
+    return contents;
+  }, [submissions, confirmedSubmission, durableNarrative]);
   const failedSubmissions = submissions.filter(({ pending, error }) => !pending && error);
   const submissionNotices = failedSubmissions.filter(({ error }) => !(error instanceof APIRequestError &&
     error.turnFailed && narrativeRepresentsFailedSubmission(durableNarrative, threadID, error.turnFailure)));
@@ -383,13 +395,16 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       ...(replaced ? { replacesOperationKey: replaced } : {}) };
     try {
       await turn.mutateAsync(input);
+      // Remember the accepted payload: once the settled mutation leaves the
+      // cache, a matching leftover draft is still recognized as submitted.
+      setConfirmedSubmission(input);
     } catch (error) {
       // The client validates this sealed reference against this request's Thread.
       // Its input was committed even though execution failed. Let the Composer
       // retire only this submitted draft/files; the failed mutation and durable
       // explanation stay visible. Original-key confirmations use the path above.
       if (error instanceof APIRequestError && error.turnFailed === true &&
-        error.turnFailure?.thread_id === input.threadID) return;
+        error.turnFailure?.thread_id === input.threadID) { setConfirmedSubmission(input); return; }
       throw new V2SubmissionError(input, error);
     }
   };
@@ -562,9 +577,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive} />}
       {reconciling ? <p className="v2-composer-caption" role="status">正在核对上次提交，避免重复执行。可以继续编辑，核对完成后再发送。</p>
         : executionQuery.data?.state === "stopping" && <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>}
-      {working && draft && onDraftChange && submissions.some(({ input, pending }) =>
-        pending && input.content === draft.trim()) && <button className="v2-composer-chip"
-        onClick={() => onDraftChange("")} type="button">编写下一条</button>}
+      {working && draft && onDraftChange && submittedContents.has(draft.trim()) &&
+        <button className="v2-composer-chip" onClick={() => onDraftChange("")} type="button">编写下一条</button>}
       {detail.recovery && <V2ThreadRunRecovery recovery={detail.recovery}
         approvalSaved={narrative.some((entry) => recoveryRepresentsNotice(entry, detail.recovery))} />}
       {executionQuery.data?.state === "idle" && executionQuery.data.last_turn_interrupted &&
