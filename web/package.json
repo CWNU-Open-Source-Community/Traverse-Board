@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check:api": "npm run generate:api && git diff --exit-code -- src/api/schema.d.ts",
+    "check:api": "npm run generate:api && git diff --exit-code -- src/api/schema.d.ts && node scripts/check-transcript-keys.mjs",
     "preview": "vite preview",
     "generate:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts",
     "typecheck": "tsc -b --pretty false",
