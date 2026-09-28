@@ -348,6 +348,10 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     (executionQuery.data?.state === "running" || executionQuery.data?.state === "stopping"));
   const canSteer = executionQuery.data?.state === "running" ||
     (!executionQuery.data && detail.active_run?.status === "running");
+  // A paused run is not gone: steer stays unavailable, but the explanation
+  // names the pause so the operator does not think the task ended.
+  const steerUnavailable = currentRun.status === "paused" ? "当前任务已暂停"
+    : "当前任务已停止或不再运行";
   const activityLabel = threadActivityLabel({ threadID, execution: executionQuery.data,
     readable: client.hasThreadExecutionRead === true, error: executionQuery.isError });
   const fileReferenceUnavailableReason = currentRun.status === "waiting_approval"
@@ -361,7 +365,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
 
   const send = async (content: string, files?: V2FileReference[], images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => {
     if (deliveryMode === "steer" && !canSteer) {
-      throw new Error("当前任务已停止或不再运行。纠正草稿已保留；请选择“下一轮处理”发送。");
+      throw new Error(`${steerUnavailable}。纠正草稿已保留；请选择“下一轮处理”发送。`);
     }
     if (deliveryMode === "steer" && (files?.length || images?.length || attachments?.length)) {
       throw new Error("更新当前任务目前只支持文字。附件和引用已保留，请选择“下一轮处理”发送完整消息。");
@@ -594,7 +598,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
 	    </select>
 	  </label>}
 	  {deliveryMode === "steer" && !canSteer && <p className="v2-composer-caption" role="alert">
-	    当前任务已停止或不再运行，不能更新当前任务；纠正草稿会保留。
+	    {steerUnavailable}，不能更新当前任务；纠正草稿会保留。
 	    <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
 	  </p>}
       <V2Composer client={client} disabled={!client.hasThreadControl ||

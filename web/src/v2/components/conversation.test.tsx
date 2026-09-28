@@ -491,6 +491,31 @@ describe("V2Conversation", () => {
     expect(onDraftChange).toHaveBeenCalledWith("");
   });
 
+  it("explains an unavailable correction as paused when the run is paused", async () => {
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", execution_id: "execution-a", queued_messages: 0, capability_grant: false };
+    const pausedDetail: ThreadDetailView = { ...detail("thread-a"),
+      active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "paused" } } as ThreadDetailView;
+    const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
+      get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
+        active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      threadExecution: vi.fn(() => Promise.resolve(execution)),
+    } as Partial<CyberAgentClient>));
+    const user = userEvent.setup();
+    await screen.findByRole("combobox", { name: "发送方式" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
+    await act(async () => {
+      view.queryClient.setQueryData(v2QueryKeys.thread("thread-a"), pausedDetail);
+      view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
+        { ...execution, state: "idle", execution_id: undefined });
+    });
+    // The pause is named explicitly instead of implying the task ended.
+    expect(await screen.findByText(/当前任务已暂停，不能更新当前任务/)).toBeInTheDocument();
+    expect(screen.queryByText(/当前任务已停止或不再运行/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "切换为下一轮处理" }));
+    expect(screen.queryByText(/当前任务已暂停，不能更新当前任务/)).not.toBeInTheDocument();
+  });
+
   it("shows confirmed Agent activity and stopping while the submission response is still pending", async () => {
     const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
     const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
