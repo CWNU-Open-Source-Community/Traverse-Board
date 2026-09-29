@@ -934,6 +934,9 @@ func recoverableWebFetchApprovalActions(value domain.WebFetchAuthorization) []ap
 }
 
 func (a *API) routeSessions(request *http.Request, segments []string) (any, *Page, error) {
+	if len(segments) == 6 && segments[2] == "messages" && segments[4] == "promotions" {
+		return a.sessionSteeringPromotionObservation(request, segments[1], segments[3], segments[5])
+	}
 	if len(segments) == 6 && segments[2] == "messages" && segments[4] == "revisions" {
 		return a.sessionSteeringRevisionObservation(request, segments[1], segments[3], segments[5])
 	}

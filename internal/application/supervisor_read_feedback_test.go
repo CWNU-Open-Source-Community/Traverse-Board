@@ -1,0 +1,97 @@
+package application
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/llm"
+)
+
+func TestWorkspaceReadFeedbackUsesObservedLinesNotCallCounts(t *testing.T) {
+	initial := recordedWorkspacePages(t)[2]
+	alter := func(from, to int, changes map[string]any) domain.SupervisorToolCall {
+		copy := initial
+		copy.CallID += "-later"
+		var e supervisorToolResultEnvelope
+		_ = json.Unmarshal([]byte(copy.ResultJSON), &e)
+		var page map[string]any
+		_ = json.Unmarshal([]byte(e.Stdout), &page)
+		lines := strings.Split(page["content"].(string), "\n")
+		page["content"] = strings.Join(lines[from-1:to], "\n")
+		page["start_line"], page["end_line"] = from, to
+		for key, value := range changes {
+			page[key] = value
+			if text, ok := value.(string); ok {
+				e.Metadata[key] = text
+			}
+		}
+		body, _ := json.Marshal(page)
+		e.Stdout = string(body)
+		raw, err := marshalSupervisorToolResultEnvelope(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		copy.ResultJSON = string(raw)
+		return copy
+	}
+	for _, tc := range []struct {
+		name     string
+		call     domain.SupervisorToolCall
+		repeated int
+	}{
+		{"exact_read", alter(1, 60, nil), 1},
+		{"subset_read", alter(1, 10, nil), 1},
+		{"nested_read", alter(20, 40, nil), 1},
+		{"changed_file", alter(1, 10, map[string]any{"content_sha256": strings.Repeat("d", 64)}), 0},
+		{"other_workspace", alter(1, 10, map[string]any{"workspace_id": "other"}), 0},
+		{"other_root", alter(1, 10, map[string]any{"root_fingerprint": strings.Repeat("e", 64)}), 0},
+		{"different_body", alter(1, 1, map[string]any{"content": "different observed line"}), 0},
+		{"redacted_body", alter(1, 10, map[string]any{"redaction_count": 1}), 0},
+		{"incomplete_page", alter(1, 10, map[string]any{"content": "one line only"}), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := tc.call.ResultJSON
+			rounds := []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{tc.call}}}
+			if got := repeatedWorkspaceReadCount([]domain.SupervisorToolCall{initial}, rounds); got != tc.repeated {
+				t.Fatalf("repeats=%d want=%d", got, tc.repeated)
+			}
+			if tc.call.ResultJSON != before {
+				t.Fatal("feedback mutated the sealed receipt")
+			}
+		})
+	}
+	// A genuine newly seen part is progress even with the same file hash.
+	first, next := alter(1, 10, nil), alter(8, 20, nil)
+	if repeatedWorkspaceReadCount([]domain.SupervisorToolCall{first}, []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{next}}}) != 0 {
+		t.Fatal("new visible lines were treated as a duplicate")
+	}
+	for _, status := range []domain.SupervisorToolCallStatus{domain.SupervisorToolPending, domain.SupervisorToolFailed, domain.SupervisorToolDenied, domain.SupervisorToolCallStatus("not_dispatched")} {
+		invalid := initial
+		invalid.Status = status
+		if repeatedWorkspaceReadCount([]domain.SupervisorToolCall{initial}, []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{invalid}}}) != 0 {
+			t.Fatalf("%s counted as an observation", status)
+		}
+	}
+}
+
+func TestWorkspaceReadFeedbackPreservesNativePairsAndBoundary(t *testing.T) {
+	calls := recordedWorkspacePages(t)
+	rounds := []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{calls[1], calls[1]}}}
+	request := llm.ChatRequest{Tools: []llm.ToolSpec{{Name: "workspace_read"}}, Messages: []llm.Message{{Role: "user", Content: "Only read and explain; do not edit."}}}
+	s := &RunSupervisor{}
+	got, err := s.workspaceReadFeedbackRequest(t.Context(), domain.SupervisorCheckpoint{}, request, rounds)
+	if err != nil || len(got.Messages) != 2 || !strings.Contains(got.Messages[1].Content, "1 workspace_read") {
+		t.Fatalf("feedback=%+v err=%v", got, err)
+	}
+	if !reflect.DeepEqual(got.Tools, request.Tools) || !reflect.DeepEqual(got.Messages[:1], request.Messages) || len(request.Messages) != 1 {
+		t.Fatal("advice changed input or tools")
+	}
+	request.Tools = nil
+	got, err = s.workspaceReadFeedbackRequest(t.Context(), domain.SupervisorCheckpoint{}, request, rounds)
+	if err != nil || !reflect.DeepEqual(request, got) {
+		t.Fatal("tool-free boundary was given conflicting tool advice")
+	}
+}

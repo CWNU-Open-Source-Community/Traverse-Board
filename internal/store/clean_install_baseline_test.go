@@ -173,7 +173,7 @@ func TestCleanInstallBaselineMatchesRepresentativeLegacyUpgrades(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, version := range []int{1, 97, 128, 132} {
+	for _, version := range []int{1, 97, 128, 132, 171} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), fmt.Sprintf("legacy-v%d.db", version))
 			legacy := openUnmigratedSQLiteStore(t, path)

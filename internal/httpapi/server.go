@@ -1160,6 +1160,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveSessionSteeringCancellation(tracked, request, requestID, sessionID, messageID)
 		return
 	}
+	if sessionID, messageID, matched := matchSessionSteeringPromotionPath(request.URL.Path); matched {
+		a.serveSessionSteeringPromotion(tracked, request, requestID, sessionID, messageID)
+		return
+	}
 	if sessionID, messageID, matched := matchSessionSteeringRevisionPath(request.URL.Path); matched {
 		a.serveSessionSteeringRevision(tracked, request, requestID, sessionID, messageID)
 		return

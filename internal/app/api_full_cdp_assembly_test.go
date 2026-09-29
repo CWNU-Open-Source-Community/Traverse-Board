@@ -17,8 +17,8 @@ func TestAPIFullCDPAssemblyProvidesSharedRevocationAuthority(t *testing.T) {
 	if err := capabilities.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if capabilities.RuntimeAuthority == nil || capabilities.FullAccessRequiresRuntimeGrant {
-		t.Fatal("API lost its shared fence or changed the explicit startup permission gates")
+	if capabilities.RuntimeAuthority == nil || !capabilities.FullAccessRequiresRuntimeGrant {
+		t.Fatal("API lost its shared fence or per-Run Full Access activation")
 	}
 	// Copies supplied to sibling services must fence the same Run. Creating a
 	// separate API process must neither reuse this authority nor activate grants.

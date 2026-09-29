@@ -1196,6 +1196,8 @@ type ThreadTranscriptItemView struct {
 	SourceRef             string                           `json:"source_ref,omitempty"`
 	BoundaryReason        string                           `json:"boundary_reason,omitempty"`
 	DeliveryMode          string                           `json:"delivery_mode,omitempty"`
+	PromotedToMessageID   string                           `json:"promoted_to_message_id,omitempty"`
+	PromotedFromMessageID string                           `json:"promoted_from_message_id,omitempty"`
 	ActivityDetailRef     string                           `json:"activity_detail_ref,omitempty"`
 	DetailAvailable       bool                             `json:"detail_available,omitempty"`
 	ActivitySummary       *ThreadActivitySummaryView       `json:"activity_summary,omitempty"`
@@ -1937,8 +1939,9 @@ func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemV
 		StreamItemID: value.StreamItemID, StreamCallID: value.StreamCallID,
 		DurableCallID: value.DurableCallID, SourceRef: value.SourceRef,
 		BoundaryReason: value.BoundaryReason, DeliveryMode: value.DeliveryMode,
+		PromotedToMessageID: value.PromotedToMessageID, PromotedFromMessageID: value.PromotedFromMessageID,
 		Provisional: value.Provisional,
-		Durable: value.Durable, CreatedAt: value.CreatedAt,
+		Durable:     value.Durable, CreatedAt: value.CreatedAt,
 	}
 	if application.SupportsThreadActivityDetail(value.ToolName) &&
 		value.DurableCallID != "" {

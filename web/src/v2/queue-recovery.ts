@@ -4,8 +4,9 @@ import type { V2RecoveryStore } from "./recovery-storage";
 
 export interface QueueEdit extends QueueBinding { version: "queue_edit.v1"; message: QueuedMessage }
 export interface QueueOperation extends QueueBinding {
-  version: "queue_operation.v1"; kind: "revise" | "cancel"; operationKey: string;
+  version: "queue_operation.v1"; kind: "revise" | "cancel" | "promote"; operationKey: string;
   messageID: string; expectedRevision: number; oldSHA256: string; content: string; draftRef?: DraftRef;
+  expectedAttemptID?: string; expectedExecutionID?: string;
 }
 export const queueEditScope = (edit: QueueEdit): DraftScope => ({ workspaceID: edit.workspaceID,
   key: `queue-edit:${edit.threadID}:${edit.runID}:${edit.sessionID}:${edit.message.id}:${edit.message.revision}` });
@@ -56,10 +57,11 @@ export function readQueueOperations(store: V2RecoveryStore, binding: QueueBindin
   const entries = store.entries<unknown>(prefix); store.assertReadable(prefix);
   return entries.flatMap(([key, value]) => {
     if (!object(value) || value.version !== "queue_operation.v1" || !(previousRuns ? threadBindingMatches(value, binding) : bindingMatches(value, binding)) ||
-      !["revise", "cancel"].includes(String(value.kind)) || !queueIdentity(value.operationKey) || !queueIdentity(value.messageID) ||
+      !["revise", "cancel", "promote"].includes(String(value.kind)) || !queueIdentity(value.operationKey) || !queueIdentity(value.messageID) ||
       !Number.isSafeInteger(value.expectedRevision) || Number(value.expectedRevision) < 0 || typeof value.oldSHA256 !== "string" ||
       !/^[a-f0-9]{64}$/u.test(value.oldSHA256) || typeof value.content !== "string" ||
-      new TextEncoder().encode(value.content).byteLength > 16384 || value.kind === "revise" &&
+      new TextEncoder().encode(value.content).byteLength > 16384 || value.kind === "promote" &&
+      (!queueIdentity(value.expectedAttemptID) || !queueIdentity(value.expectedExecutionID)) || value.kind === "revise" &&
       (!object(value.draftRef) || !queueIdentity(value.draftRef.branchID) || !Number.isSafeInteger(value.draftRef.seq) || Number(value.draftRef.seq) < 1)) return invalid(store, key);
     const operation = value as unknown as QueueOperation;
     if (key !== queueOperationKey(operation)) return invalid(store, key);

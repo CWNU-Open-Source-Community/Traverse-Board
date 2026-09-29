@@ -411,6 +411,10 @@
         "operator_steering_delivery_mode.v1",
         "operator_steering_image_request.v1",
         "operator_steering_operation.v1",
+        "operator_steering_promotion_cancel.v1",
+        "operator_steering_promotion_enqueue.v1",
+        "operator_steering_promotion_operation.v1",
+        "operator_steering_promotion_request.v1",
         "operator_steering_request.v1",
         "run_browser_cdp_permission_change_request.v1",
         "run_browser_cdp_permission_operation.v1",
@@ -1391,6 +1395,7 @@
         "session_evidence_inventory.v1",
         "session_message_submission.v1",
         "session_steering_cancellation.v1",
+        "session_steering_promotion.v1",
         "session_steering_revision.v1",
         "skill_package_installation.v1",
         "standard_code_preset.v1",
@@ -2385,6 +2390,7 @@
         "run_lifecycle_operation.v1",
         "run_lifecycle_request.v1",
         "run_progress_guard.v1",
+        "sealed_tool_progress.v1",
         "session_archive.v1",
         "session_continuity_node.v1",
         "session_evidence_attachment_operation.v1",
@@ -3227,6 +3233,16 @@
         "internal/httpapi/session_message_control_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "pelicanRide.items.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/testdata/workspace-coverage-phase3-boundary.json",
+        "internal/application/testdata/workspace-coverage-phase3.json",
+        "internal/application/testdata/workspace-read-pages.json"
+      ],
+      "reason": "Application storage key inside captured synthetic workspace content; not a Traverse runtime protocol or authority source."
     },
     {
       "identifier": "plan_delivery.v2",

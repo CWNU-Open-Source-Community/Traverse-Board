@@ -30,6 +30,8 @@ export type NarrativeEntry =
       attachments?: WorkspaceFileAttachment[];
       status?: string;
       deliveryMode?: string;
+      promotedToMessageID?: string;
+      promotedFromMessageID?: string;
       createdAt: string;
       provisional: boolean;
     }
@@ -236,7 +238,8 @@ export function projectThreadNarrative(
       // event's status title as if the user had typed it.
       const text = images?.length || attachments?.length ? item.detail?.trim() ?? "" : normalizedText(item);
       if (text || images?.length || attachments?.length) result.push({ id: item.id, kind: "user", text, images, attachments,
-        status: item.status, deliveryMode: item.delivery_mode, createdAt: item.created_at, provisional: item.provisional });
+        status: item.status, deliveryMode: item.delivery_mode, promotedToMessageID: item.promoted_to_message_id,
+        promotedFromMessageID: item.promoted_from_message_id, createdAt: item.created_at, provisional: item.provisional });
       continue;
     }
 

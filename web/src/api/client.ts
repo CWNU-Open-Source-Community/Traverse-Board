@@ -671,7 +671,7 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     "instruction_authorized", "kind", "provisional", "run_id",
     "run_ordinal", "sequence", "source", "stage", "title", "verifiable", "version"];
   const optional = ["activity_detail_ref", "activity_summary", "attempt_id", "boundary_reason", "detail",
-    "detail_available", "delivery_mode", "durable_call_id",
+    "detail_available", "delivery_mode", "durable_call_id", "promoted_to_message_id", "promoted_from_message_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
     "stream_response_id", "tool_name", "tool_round", "web_evidence", "images", "attachments"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
@@ -691,7 +691,7 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     throw new APIRequestError("Thread transcript item is invalid", "INVALID_RESPONSE", 502);
   }
   for (const field of ["activity_detail_ref", "attempt_id", "boundary_reason", "durable_call_id", "source_ref", "status",
-    "stream_call_id", "stream_item_id", "stream_response_id", "tool_name"]) {
+    "stream_call_id", "stream_item_id", "stream_response_id", "tool_name", "promoted_to_message_id", "promoted_from_message_id"]) {
     if (value[field] !== undefined && !boundedIdentity(value[field])) {
       throw new APIRequestError("Thread transcript identity is invalid", "INVALID_RESPONSE", 502);
     }
@@ -709,6 +709,10 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     (value.detail_available === true && value.activity_detail_ref !== value.durable_call_id) ||
     (value.delivery_mode !== undefined &&
       (!["next_turn", "steer"].includes(String(value.delivery_mode)) || value.source !== "operator")) ||
+    (value.promoted_to_message_id !== undefined && (value.source !== "operator" || value.status !== "cancelled" ||
+      value.instruction_authorized !== false || value.delivery_mode !== "next_turn" || value.promoted_to_message_id === value.source_ref)) ||
+    (value.promoted_from_message_id !== undefined && (value.source !== "operator" || value.delivery_mode !== "steer" ||
+      value.promoted_from_message_id === value.source_ref || value.promoted_to_message_id !== undefined)) ||
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);

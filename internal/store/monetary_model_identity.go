@@ -15,6 +15,7 @@ import (
 
 type monetaryModelEvidence struct {
 	Sent        bool
+	NotSent     bool
 	EventType   string
 	PayloadJSON string
 }
@@ -79,19 +80,36 @@ func monetaryModelEvidenceTx(ctx context.Context, tx *sql.Tx, runID, reservation
 			return result, err
 		}
 		var terminal struct {
-			ModelAttempt           int    `json:"model_attempt"`
-			Provider               string `json:"provider"`
-			Model                  string `json:"model"`
-			Purpose                string `json:"purpose"`
-			SupervisorAttemptID    string `json:"supervisor_attempt_id"`
-			CompactionSourceSHA256 string `json:"compaction_source_sha256"`
-			MonetaryAttemptNumber  int64  `json:"monetary_attempt_number"`
+			ModelAttempt           int         `json:"model_attempt"`
+			Provider               string      `json:"provider"`
+			Model                  string      `json:"model"`
+			Purpose                string      `json:"purpose"`
+			SupervisorAttemptID    string      `json:"supervisor_attempt_id"`
+			CompactionSourceSHA256 string      `json:"compaction_source_sha256"`
+			MonetaryAttemptNumber  int64       `json:"monetary_attempt_number"`
+			Dispatch               string      `json:"dispatch"`
+			Outcome                llm.Outcome `json:"outcome"`
+			Usage                  *llm.Usage  `json:"usage"`
+			UsageUnknown           bool        `json:"usage_unknown"`
+			ToolCount              int         `json:"tool_call_count"`
+			StreamEvents           int         `json:"stream_events"`
+			StreamBytes            int         `json:"stream_bytes"`
+			RetryPlanned           bool        `json:"retry_planned"`
 		}
 		if e := json.Unmarshal([]byte(result.PayloadJSON), &terminal); e != nil {
 			return result, e
 		}
 		if terminal.ModelAttempt != start.ModelAttempt || terminal.Provider != start.Provider || terminal.Model != start.Model || terminal.Purpose != start.Purpose || terminal.SupervisorAttemptID != start.SupervisorAttemptID || terminal.CompactionSourceSHA256 != start.CompactionSourceSHA256 || terminal.MonetaryAttemptNumber != start.MonetaryAttemptNumber {
 			return result, apperror.New(apperror.CodeFailedPrecondition, "monetary terminal identity differs from its original start")
+		}
+		if terminal.Dispatch == "not_sent" {
+			bound := terminal.SupervisorAttemptID != "" || (terminal.Purpose == llm.ModelPurposeContextCompaction && terminal.MonetaryAttemptNumber >= 1<<62)
+			if result.EventType != events.ModelFailedEvent || !bound || terminal.Outcome != llm.OutcomePermanent ||
+				terminal.Usage == nil || *terminal.Usage != (llm.Usage{}) || terminal.UsageUnknown || terminal.ToolCount != 0 ||
+				terminal.StreamEvents != 0 || terminal.StreamBytes != 0 || terminal.RetryPlanned {
+				return result, apperror.New(apperror.CodeFailedPrecondition, "invalid not-dispatched model accounting evidence")
+			}
+			result.Sent, result.NotSent = false, true
 		}
 		return result, nil
 	}

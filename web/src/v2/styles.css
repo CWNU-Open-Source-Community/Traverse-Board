@@ -400,9 +400,11 @@
 .v2-conversation,
 .v2-new-conversation {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--v2-toolbar-height) minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
+  min-width: 0;
 }
 .v2-conversation-header,
 .v2-new-conversation > header {
@@ -745,6 +747,7 @@
 
 .v2-composer-dock {
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--v2-main-surface) 94%, transparent) 27%);
+  min-width: 0;
   padding: 11px 20px 13px;
   position: relative;
   z-index: 30;

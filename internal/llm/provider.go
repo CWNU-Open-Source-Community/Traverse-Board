@@ -59,13 +59,14 @@ type ToolSpec struct {
 }
 
 type ChatRequest struct {
-	Model       string
-	Messages    []Message
-	Tools       []ToolSpec
-	Temperature float64
-	MaxTokens   int
-	JSONMode    bool
-	Metadata    map[string]string
+	Model         string
+	Messages      []Message
+	Tools         []ToolSpec
+	Temperature   float64
+	MaxTokens     int
+	JSONMode      bool
+	Metadata      map[string]string
+	preparedModel *preparedModelRequest
 }
 
 type ChatResponse struct {

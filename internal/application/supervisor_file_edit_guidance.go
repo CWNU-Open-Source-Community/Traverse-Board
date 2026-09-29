@@ -1,0 +1,47 @@
+package application
+
+import (
+	"encoding/json"
+
+	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/toolgateway"
+)
+
+// Project the same Go-issued snapshot used to advertise tools into actual
+// provider messages. ChatRequest.Metadata is internal and cannot teach a model
+// whether preparing a proposal or applying it requires operator review.
+func supervisorFileEditGuidance(request llm.ChatRequest, snapshot toolgateway.AgentCodeCapabilitySnapshot) llm.ChatRequest {
+	offered := map[string]bool{}
+	for _, tool := range request.Tools {
+		offered[tool.Name] = true
+	}
+	if !offered[string(toolgateway.WorkspaceChangeTool)] {
+		return request
+	}
+	view := struct {
+		PermissionMode string `json:"permission_mode"`
+		Change         string `json:"workspace_change"`
+		Apply          string `json:"workspace_apply,omitempty"`
+	}{PermissionMode: snapshot.PermissionMode}
+	for _, tool := range snapshot.Tools {
+		if !tool.Available || !offered[string(tool.Name)] {
+			continue
+		}
+		switch tool.Name {
+		case toolgateway.WorkspaceChangeTool:
+			view.Change = tool.Approval
+		case toolgateway.WorkspaceApplyTool:
+			view.Apply = tool.Approval
+		}
+	}
+	if view.Change == "" {
+		return request
+	}
+	encoded, _ := json.Marshal(view)
+	text := "Go-issued file-edit capability snapshot advertised for this segment/request: " + string(encoded) + ". This describes eligibility when the tools were advertised, not an approval or a guarantee that authority remains live. Go rechecks the current scope, permission, lease and file hashes at execution; a newer denial takes precedence over this snapshot. If the user requested a file change, workspace_change can prepare its proposal before per-file review exists; the proposal itself does not write bytes. Do not ask the user to approve a proposal you have not prepared. Read the resulting apply_authorized and review_required flags, and use its apply_arguments only when authorized. Historical failed or unknown effects describe those earlier calls; they establish neither current permission nor revocation. They do not by themselves prevent preparing a new proposal. Read-only tasks still require no edits."
+	if view.PermissionMode == "full_access" && view.Change == "create_replace_automatic_other_changes_reviewed" {
+		text += " In this advertised Full Access snapshot, eligible new create/replace proposals can receive recorded automatic authorization while the runtime authority remains current. Obtain that result through workspace_change; do not infer that an operator review is missing merely because no new proposal has been made."
+	}
+	request.Messages = append(request.Messages, llm.Message{Role: "system", Content: text})
+	return request
+}

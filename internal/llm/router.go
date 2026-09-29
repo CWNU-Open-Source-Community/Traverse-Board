@@ -27,6 +27,7 @@ type Router struct {
 	contextWindows map[string]ContextWindow
 	qualifications map[string]HarnessQualification
 	defaultRef     ModelRef
+	generation     *routerGeneration
 }
 
 func NewRouter(defaultRef ModelRef) *Router {
@@ -36,6 +37,7 @@ func NewRouter(defaultRef ModelRef) *Router {
 		contextWindows: map[string]ContextWindow{},
 		qualifications: map[string]HarnessQualification{},
 		defaultRef:     defaultRef,
+		generation:     &routerGeneration{},
 	}
 }
 
@@ -57,6 +59,7 @@ func (r *Router) RegisterProvider(provider Provider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.providers[provider.Name()] = provider
+	r.generation = &routerGeneration{}
 }
 
 // ReplaceConfiguration atomically installs a complete Router generation.
@@ -95,6 +98,7 @@ func (r *Router) ReplaceConfiguration(next *Router) error {
 	r.contextWindows = contextWindows
 	r.qualifications = qualifications
 	r.defaultRef = defaultRef
+	r.generation = &routerGeneration{}
 	r.mu.Unlock()
 	return nil
 }
@@ -116,6 +120,7 @@ func (r *Router) SetContextWindow(ref ModelRef, window ContextWindow) error {
 		r.contextWindows = make(map[string]ContextWindow)
 	}
 	r.contextWindows[key] = window
+	r.generation = &routerGeneration{}
 	return nil
 }
 
@@ -123,17 +128,9 @@ func (r *Router) ContextWindow(ref ModelRef) ContextWindow {
 	if r == nil {
 		return DefaultContextWindow()
 	}
-	key, ok := contextWindowKey(ref)
-	if !ok {
-		return DefaultContextWindow()
-	}
 	r.mu.RLock()
-	window, found := r.contextWindows[key]
-	r.mu.RUnlock()
-	if !found || window.Validate() != nil {
-		return DefaultContextWindow()
-	}
-	return window
+	defer r.mu.RUnlock()
+	return r.contextWindowLocked(ref, r.providers[ref.Provider])
 }
 
 func (r *Router) ProviderNames() []string {
@@ -245,20 +242,23 @@ func (r *Router) ClearHarnessQualification(ref ModelRef) {
 	}
 	r.mu.Lock()
 	delete(r.qualifications, ref.Provider+"\x00"+ref.Model)
+	r.generation = &routerGeneration{}
 	r.mu.Unlock()
 }
 
 func (r *Router) PrepareHarnessRequest(ref ModelRef, workload HarnessWorkload,
 	request ChatRequest,
 ) (ChatRequest, ModelHarness, error) {
-	profile, err := r.HarnessProfile(ref)
+	request, err := r.PrepareModelRequest(ref, request)
 	if err != nil {
 		return ChatRequest{}, ModelHarness{}, err
 	}
+	profile := request.preparedModel.profile
 	prepared, err := prepareHarnessRequest(profile, workload, request)
 	if err != nil {
 		return ChatRequest{}, profile, err
 	}
+	prepared.preparedModel.workload = workload
 	return prepared, profile, nil
 }
 
@@ -268,15 +268,21 @@ func (r *Router) Chat(ctx context.Context, route string, req ChatRequest) (*Chat
 	if !routed {
 		ref = r.defaultRef
 	}
-	provider, registered := r.providers[ref.Provider]
+	provider, registered, policyErr := r.providerForRequestLocked(ref, req)
 	r.mu.RUnlock()
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	return chatWithProvider(ctx, ref, provider, registered, req)
 }
 
 func (r *Router) ChatModelRef(ctx context.Context, ref ModelRef, req ChatRequest) (*ChatResponse, error) {
 	r.mu.RLock()
-	provider, ok := r.providers[ref.Provider]
+	provider, ok, policyErr := r.providerForRequestLocked(ref, req)
 	r.mu.RUnlock()
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	return chatWithProvider(ctx, ref, provider, ok, req)
 }
 
@@ -314,15 +320,21 @@ func (r *Router) StreamChat(ctx context.Context, route string, req ChatRequest) 
 	if !routed {
 		ref = r.defaultRef
 	}
-	provider, registered := r.providers[ref.Provider]
+	provider, registered, policyErr := r.providerForRequestLocked(ref, req)
 	r.mu.RUnlock()
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	return streamWithProvider(ctx, ref, provider, registered, req)
 }
 
 func (r *Router) StreamChatModelRef(ctx context.Context, ref ModelRef, req ChatRequest) (<-chan ChatChunk, error) {
 	r.mu.RLock()
-	provider, ok := r.providers[ref.Provider]
+	provider, ok, policyErr := r.providerForRequestLocked(ref, req)
 	r.mu.RUnlock()
+	if policyErr != nil {
+		return nil, policyErr
+	}
 	return streamWithProvider(ctx, ref, provider, ok, req)
 }
 

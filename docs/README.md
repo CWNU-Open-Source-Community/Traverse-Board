@@ -17,6 +17,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [Pre-1.0 产品收敛](convergence/README.md) | Surface tier、协议冻结等级、Durable Operation 边界、规范词汇与有界后续 Issue |
 | [SQLite 全新安装基线](schema-baseline.md) | 严格空库准入、事务化 latest-schema 建库、备份/旧二进制回滚与失败恢复 |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
+| [内置技能 / Built-in Skills](builtin-skills.md) | 按任务分类、模型发现与读取、精确版本恢复、前端视觉技能及验收边界 |
 | [Web Evidence / Web 证据](web-evidence.md) | 原生搜索、显式网页后端、来源连接器、快照引用与故障排查 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |

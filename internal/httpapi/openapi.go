@@ -884,6 +884,13 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Parameters: []openAPIParameter{sessionID, messageID,
 				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
 					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
+		{Path: SessionSteeringPromotionObservationPathTemplate, OperationID: "inspectSessionSteeringPromotion",
+			Summary: "Observe an exact queue promotion or rejection receipt", Tag: "Sessions",
+			Description: "Returns the immutable success or rejection receipt, or current source status from one read transaction. An absent receipt and process-local execution state never prove an in-flight request cannot commit. Never resubmits a promotion. An explicit retry can seal a rejection that fences any delayed original POST.",
+			DataType:    reflect.TypeOf(SessionSteeringPromotionObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: SessionSteeringCancellationObservationPathTemplate, OperationID: "inspectSessionSteeringCancellation",
 			Summary: "Observe one exact message cancellation receipt", Tag: "Sessions",
 			Description: "Read-only confirmation bound to the original operation key and HTTP operator. If absent, returns the current message status from the same transaction; another cancellation is never reported as this operation's success.",
@@ -1622,6 +1629,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Parameters: []openAPIParameter{sessionID, messageID,
 				{Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string",
 					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
+		{Path: SessionSteeringPromotionPathTemplate, Method: http.MethodPost,
+			OperationID: "promoteSessionSteering", Summary: "Guide the current task with one queued text message", Tag: "Control",
+			Description: "Atomically cancels one exact unprepared next-turn revision, enqueues its text as steering for the captured live execution and attempt, and seals a receipt linking both messages. Attachments are rejected without changing the queue. Replays the original receipt after execution ends; never starts another execution or grants capabilities.",
+			DataType:    reflect.TypeOf(SessionSteeringPromotionView{}), RequestType: reflect.TypeOf(SessionSteeringPromotionRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusAccepted,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: RunLifecycleControlPathTemplate, Method: http.MethodPost,
 			OperationID: "controlRunLifecycle", Summary: "Start, pause, or resume a Run",
 			Tag:         "Control",
@@ -2098,6 +2113,9 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 			return openAPIOperation{}, fmt.Errorf("OpenAPI path %q has no response DTO", spec.Path)
 		}
 		dataSchema := registry.ref(spec.DataType)
+		if spec.Path == SessionSteeringPromotionPathTemplate {
+			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(SessionSteeringPromotionRejectionView{}))}}
+		}
 		if spec.Collection {
 			dataSchema = map[string]any{"type": "array", "items": dataSchema}
 		}
@@ -3416,6 +3434,11 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadQueuedMessagesView.version":                         {domain.ThreadQueuedMessagesProtocolVersion},
 	"ThreadQueuedMessageView.status":                           {string(domain.OperatorSteeringPending)},
 	"SessionSteeringRevisionRequestView.version":               {domain.SessionSteeringRevisionProtocolVersion},
+	"SessionSteeringPromotionRequestView.version":              {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionView.version":                     {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionObservationView.version":          {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionObservationView.state":            {"absent", "sealed", "rejected"},
+	"SessionSteeringPromotionRejectionView.version":            {domain.SessionSteeringPromotionProtocolVersion},
 	"SessionSteeringRevisionView.version":                      {domain.SessionSteeringRevisionProtocolVersion},
 	"SessionSteeringRevisionObservationView.version":           {domain.SessionSteeringRevisionProtocolVersion},
 	"SessionSteeringRevisionObservationView.state":             {"absent", "sealed"},

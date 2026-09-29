@@ -120,6 +120,8 @@ func saveSupervisorToolContextTx(ctx context.Context, tx *sql.Tx, run domain.Run
 		ErrorCode     string                          `json:"error_code,omitempty"`
 		OutputExcerpt string                          `json:"output_excerpt,omitempty"`
 		ErrorExcerpt  string                          `json:"error_excerpt,omitempty"`
+		Effect        *domain.SupervisorToolEffect
+		Original      domain.HistoryReadRequest
 	}
 	var facts []toolFact
 	for rows.Next() {
@@ -134,6 +136,10 @@ func saveSupervisorToolContextTx(ctx context.Context, tx *sql.Tx, run domain.Run
 			return apperror.New(apperror.CodeFailedPrecondition, "Supervisor context evidence requires recorded terminal tool results")
 		}
 		fact.ResultSHA256 = session.ContentSHA256(raw)
+		call := domain.SupervisorToolCall{RunID: run.ID, Turn: checkpoint.NextTurn, AttemptID: checkpoint.AttemptID,
+			CallID: fact.CallID, ToolName: fact.Tool, Status: fact.Status, ResultJSON: raw, ErrorCode: fact.ErrorCode}
+		fact.Effect = domain.ObservedSupervisorToolEffect(call)
+		fact.Original = domain.SupervisorToolResultReference(call)
 		var envelope struct {
 			Stdout string `json:"stdout"`
 			Stderr string `json:"stderr"`
@@ -171,6 +177,12 @@ func saveSupervisorToolContextTx(ctx context.Context, tx *sql.Tx, run domain.Run
 			" tool=" + fact.Tool + " status=" + string(fact.Status))
 		if fact.ErrorCode != "" {
 			content.WriteString(" error_code=" + fact.ErrorCode)
+		}
+		if fact.Effect != nil {
+			encoded, _ := json.Marshal(fact.Effect)
+			original, _ := json.Marshal(fact.Original)
+			content.WriteString("\nhistorical observation (no current authority or filesystem guarantee): " + string(encoded) + " original_result=" + string(original))
+			continue
 		}
 		if fact.ErrorExcerpt != "" {
 			content.WriteString("\nstderr excerpt: " + fact.ErrorExcerpt)

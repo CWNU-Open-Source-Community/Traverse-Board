@@ -22,12 +22,13 @@ func (l modelContextLayout) shifted(offset int) modelContextLayout {
 }
 
 type modelContextPlan struct {
-	WindowTokens       int
-	InputLimitTokens   int
-	EstimatedInput     int
-	OutputLimitTokens  int
-	HistoryOmitted     int
-	SafetyMarginTokens int
+	WindowTokens        int
+	InputLimitTokens    int
+	EstimatedInput      int
+	OutputLimitTokens   int
+	OutputReserveTokens int
+	HistoryOmitted      int
+	SafetyMarginTokens  int
 }
 
 func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWindow,
@@ -45,14 +46,13 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	}
 	request.Messages = append([]llm.Message(nil), request.Messages...)
 	request.Tools = append([]llm.ToolSpec(nil), request.Tools...)
-	// Native tool arguments can contain whole files. An unspecified output
-	// allowance must not silently inherit the short plain-text reply default.
-	// Use only the existing conservative cap, reserving it from input below.
-	if request.MaxTokens <= 0 && len(request.Tools) > 0 {
-		request.MaxTokens = window.MaxOutputTokens
+	// Planning always reserves output space. Optional wire limits stay omitted
+	// unless the caller explicitly bounded the request (including cost budgets).
+	outputReserve := request.PlannedOutputTokens(window)
+	if request.MaxTokens > 0 || !request.AllowsDefaultOutput() {
+		request.MaxTokens = outputReserve
 	}
-	request.MaxTokens = window.OutputLimit(request.MaxTokens)
-	inputLimit, err := window.InputLimit(request.MaxTokens)
+	inputLimit, err := window.InputLimit(outputReserve)
 	if err != nil {
 		return llm.ChatRequest{}, modelContextPlan{}, apperror.Wrap(
 			apperror.CodeFailedPrecondition, "model context input limit is invalid", err)
@@ -74,7 +74,8 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	plan := modelContextPlan{
 		WindowTokens: window.WindowTokens, InputLimitTokens: inputLimit,
 		EstimatedInput: estimated, OutputLimitTokens: request.MaxTokens,
-		HistoryOmitted: omitted, SafetyMarginTokens: window.SafetyMarginTokens,
+		OutputReserveTokens: outputReserve,
+		HistoryOmitted:      omitted, SafetyMarginTokens: window.SafetyMarginTokens,
 	}
 	metadata := make(map[string]string, len(request.Metadata)+8)
 	for key, value := range request.Metadata {
@@ -86,6 +87,11 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	metadata["context_input_limit"] = strconv.Itoa(plan.InputLimitTokens)
 	metadata["context_input_estimate"] = strconv.Itoa(plan.EstimatedInput)
 	metadata["context_output_limit"] = strconv.Itoa(plan.OutputLimitTokens)
+	metadata["context_output_reserve"] = strconv.Itoa(plan.OutputReserveTokens)
+	metadata["context_output_mode"] = "explicit"
+	if request.MaxTokens == 0 {
+		metadata["context_output_mode"] = "provider_default"
+	}
 	metadata["context_safety_margin"] = strconv.Itoa(plan.SafetyMarginTokens)
 	metadata["context_history_omitted"] = strconv.Itoa(plan.HistoryOmitted)
 	request.Metadata = metadata

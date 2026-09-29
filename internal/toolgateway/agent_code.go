@@ -276,7 +276,7 @@ var agentCodeDefinitions = []ToolDefinition{
 		Description: "List one directory inside the already selected workspace with stable keyset pagination. Use path '.' for its root or a slash-separated relative path such as 'src'; never pass an absolute host path. Hidden and ignored entries stay excluded by Go policy.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","path","limit"],"properties":{"version":{"const":"agent-code-tools.v1"},"path":{"type":"string","maxLength":512},"cursor":{"type":"string","maxLength":8192},"limit":{"type":"integer","minimum":1,"maximum":200}}}`)},
 	{Name: WorkspaceReadTool, Class: ClassWorkspaceRead, Approval: ApprovalAutomatic,
-		Description: "Read a bounded UTF-8 line range from a slash-separated workspace-relative path such as 'src/main.js', never an absolute host path. Return encoding, newline, exact content hash, redaction, and root provenance diagnostics.",
+		Description: "Read a bounded UTF-8 line range from a slash-separated workspace-relative path such as 'src/main.js', never an absolute host path. Return the requested content, whole-file content_sha256, line range, encoding, newline, redaction, and root provenance. Reuse visible observed text and this file hash for bounded propose_patch replacements; reread when needed text is absent, redacted, or the mutation reports a conflict.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","path","start_line","end_line"],"properties":{"version":{"const":"agent-code-tools.v1"},"path":{"type":"string","minLength":1,"maxLength":512},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}}}`)},
 	{Name: WorkspaceGlobTool, Class: ClassWorkspaceRead, Approval: ApprovalAutomatic,
 		Description: "Find workspace files by a bounded slash-separated glob with stable sorting and pagination.",
@@ -291,11 +291,11 @@ var agentCodeDefinitions = []ToolDefinition{
 		Description: "Read one immutable sanitized GitHub PR evidence graph only when it is bound to this exact Run. This grants no network or write-back authority.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","evidence_id"],"properties":{"version":{"const":"agent-code-tools.v1"},"evidence_id":{"type":"string","minLength":1,"maxLength":256}}}`)},
 	{Name: WorkspaceChangeTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
-		Description: "Prepare one exact-hash patch, new file, move, or reversal proposal. In a live confirmed Full Access Run, a new create, replace, non-overwriting move, or reversal that resolves to create/replace may receive recorded automatic authorization; then call workspace_apply to write it. Direct deletes and reversals that resolve to delete require operator review. All paths are workspace-relative. For create, expected_sha256 is 'missing' and content is UTF-8. A move requires an existing destination parent and destination_expected_sha256 'missing'. propose_revert uses exact source_run_id, source_edit_id, path and applied source hash. This tool itself does not write the file; a reversed creation requires separately confirmed workspace_delete apply.",
-		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose_patch","create","move","propose_revert"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":7,"maxLength":64},"content":{"type":"string","maxLength":65536},"destination_path":{"type":"string","minLength":1,"maxLength":512},"destination_expected_sha256":{"type":"string","minLength":7,"maxLength":64},"replacements":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["old_text","new_text","expected_occurrences"],"properties":{"old_text":{"type":"string","minLength":1,"maxLength":32768},"new_text":{"type":"string","maxLength":32768},"expected_occurrences":{"type":"integer","minimum":1,"maximum":1024}}}},"source_run_id":{"type":"string","minLength":1,"maxLength":256},"source_edit_id":{"type":"string","minLength":1,"maxLength":256}},"oneOf":[{"properties":{"action":{"const":"propose_revert"}},"required":["source_run_id","source_edit_id"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}}]},{"properties":{"action":{"enum":["propose_patch","create","move"]}},"allOf":[{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]}]}`)},
+		Description: "Prepare one exact-hash patch, new file, move, or reversal proposal. In a live confirmed Full Access Run, a new create, replace, non-overwriting move, or reversal that resolves to create/replace may receive recorded automatic authorization; then call workspace_apply to write it. Direct deletes and reversals that resolve to delete require operator review. All paths are workspace-relative. For an existing file, use action replace with content for a complete rewrite, or action propose_patch with replacements [{old_text, new_text, expected_occurrences}] for a targeted change. Both require expected_sha256 from its observed workspace_read content_sha256; a result receipt or page hash is not a file hash. Empty replacement content is allowed. Match exact observed text including whitespace; replacements run in order. Retained complete read pages can be reused; the backend checks the current full-file hash and rejects conflicts before preparing an edit. Refresh affected lines after a conflict, not just because a tool segment ended. For create, expected_sha256 is 'missing' and content is UTF-8. A move requires an existing destination parent and destination_expected_sha256 'missing'. propose_revert uses exact source_run_id, source_edit_id, path and applied source hash. This tool itself does not write the file. Non-delete proposals return exact apply_arguments to pass directly to workspace_apply; apply_authorized states whether current authorization is recorded. A reversed creation requires separately confirmed workspace_delete apply.",
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose_patch","replace","create","move","propose_revert"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":7,"maxLength":64,"pattern":"^(missing|[0-9a-f]{64})$"},"content":{"type":"string","maxLength":65536,"description":"Required for create or replace (UTF-8; empty is allowed). Replace an existing file only with its exact workspace_read content_sha256. Patch uses replacements instead of content."},"destination_path":{"type":"string","minLength":1,"maxLength":512},"destination_expected_sha256":{"type":"string","minLength":7,"maxLength":64},"replacements":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["old_text","new_text","expected_occurrences"],"properties":{"old_text":{"type":"string","minLength":1,"maxLength":32768},"new_text":{"type":"string","maxLength":32768},"expected_occurrences":{"type":"integer","minimum":1,"maximum":1024}}},"description":"Required for propose_patch. Apply in order to exact observed text. Use the whole-file content_sha256 from workspace_read as expected_sha256; a page hash or result receipt hash is not a file hash."},"source_run_id":{"type":"string","minLength":1,"maxLength":256},"source_edit_id":{"type":"string","minLength":1,"maxLength":256}},"oneOf":[{"properties":{"action":{"const":"replace"},"expected_sha256":{"pattern":"^[0-9a-f]{64}$"}},"required":["content"],"allOf":[{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}},{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]},{"properties":{"action":{"const":"propose_patch"},"expected_sha256":{"pattern":"^[0-9a-f]{64}$"}},"required":["replacements"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]},{"properties":{"action":{"const":"create"},"expected_sha256":{"const":"missing"}},"required":["content"],"allOf":[{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}},{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]},{"properties":{"action":{"const":"move"},"expected_sha256":{"pattern":"^[0-9a-f]{64}$"},"destination_expected_sha256":{"const":"missing"}},"required":["destination_path","destination_expected_sha256"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["replacements"]}},{"not":{"required":["source_run_id"]}},{"not":{"required":["source_edit_id"]}}]},{"properties":{"action":{"const":"propose_revert"}},"required":["source_run_id","source_edit_id"],"allOf":[{"not":{"required":["content"]}},{"not":{"required":["destination_path"]}},{"not":{"required":["destination_expected_sha256"]}},{"not":{"required":["replacements"]}}]}]}`)},
 	{Name: WorkspaceApplyTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
-		Description: "Apply one exact-hash patch, create, or non-overwriting move proposal with a durable compare-and-swap receipt. The proposal must have operator approval or a current recorded Full Access automatic authorization for create/replace/move; use the returned apply_authorized field to determine whether it can be applied now.",
-		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","edit_id","expected_action","expected_original_sha256","expected_proposed_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"edit_id":{"type":"string","minLength":1,"maxLength":256},"expected_action":{"enum":["propose_patch","create","move"]},"expected_original_sha256":{"type":"string","minLength":7,"maxLength":64},"expected_proposed_sha256":{"type":"string","minLength":7,"maxLength":64}}}`)},
+		Description: "Apply one exact-hash patch, create, or non-overwriting move proposal with a durable compare-and-swap receipt. The proposal must have operator approval or a current recorded Full Access automatic authorization for create/replace/move; use the returned apply_authorized field to determine whether it can be applied now. Pass the proposal apply_arguments directly; expected_action replace and the legacy propose_patch alias both mean an existing-file replacement.",
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","edit_id","expected_action","expected_original_sha256","expected_proposed_sha256"],"properties":{"version":{"const":"agent-code-tools.v1"},"edit_id":{"type":"string","minLength":1,"maxLength":256},"expected_action":{"enum":["propose_patch","replace","create","move"]},"expected_original_sha256":{"type":"string","minLength":7,"maxLength":64},"expected_proposed_sha256":{"type":"string","minLength":7,"maxLength":64}}}`)},
 	{Name: WorkspaceDeleteTool, Class: ClassWorkspaceWrite, Approval: ApprovalPerCall,
 		Description: "Separately propose or apply deletion of one exact path and hash. The confirmation path must exactly repeat the target.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action","path","expected_sha256","confirm_path"],"properties":{"version":{"const":"agent-code-tools.v1"},"action":{"enum":["propose","apply"]},"path":{"type":"string","minLength":1,"maxLength":512},"expected_sha256":{"type":"string","minLength":64,"maxLength":64},"confirm_path":{"type":"string","minLength":1,"maxLength":512},"edit_id":{"type":"string","maxLength":256}}}`)},
@@ -367,6 +367,20 @@ type WorkspaceChangePayload struct {
 	Replacements              []WorkspaceReplacement `json:"replacements,omitempty"`
 	SourceRunID               string                 `json:"source_run_id,omitempty"`
 	SourceEditID              string                 `json:"source_edit_id,omitempty"`
+}
+
+// Whole-file actions require a present content field even for an empty file.
+// Keep that distinction when normalized arguments are stored and replayed.
+func (value WorkspaceChangePayload) MarshalJSON() ([]byte, error) {
+	type payload WorkspaceChangePayload
+	var content *string
+	if value.Action == "create" || value.Action == "replace" || value.Content != "" {
+		content = &value.Content
+	}
+	return json.Marshal(struct {
+		payload
+		Content *string `json:"content,omitempty"`
+	}{payload(value), content})
 }
 
 type WorkspaceApplyPayload struct {
@@ -456,14 +470,27 @@ func NormalizeAgentCodePayload(name ToolName, payload json.RawMessage) (json.Raw
 			return nil, err
 		}
 		for field := range fields {
-			if value.Action == "propose_revert" {
-				switch field {
-				case "version", "action", "path", "expected_sha256", "source_run_id", "source_edit_id":
-				default:
-					return nil, errors.New("workspace revert accepts source identities and expectations only")
-				}
-			} else if field == "source_run_id" || field == "source_edit_id" {
-				return nil, errors.New("workspace source identities require the revert action")
+			allowed := false
+			switch field {
+			case "version", "action", "path", "expected_sha256":
+				allowed = true
+			case "content":
+				allowed = value.Action == "create" || value.Action == "replace"
+			case "replacements":
+				allowed = value.Action == "propose_patch"
+			case "destination_path", "destination_expected_sha256":
+				allowed = value.Action == "move"
+			case "source_run_id", "source_edit_id":
+				allowed = value.Action == "propose_revert"
+			}
+			if !allowed {
+				return nil, fmt.Errorf("workspace %s action does not accept field %s", value.Action, field)
+			}
+		}
+		if value.Action == "create" || value.Action == "replace" {
+			var content *string
+			if raw, present := fields["content"]; !present || json.Unmarshal(raw, &content) != nil || content == nil {
+				return nil, fmt.Errorf("workspace %s requires content as a string; empty content is allowed", value.Action)
 			}
 		}
 		if err := normalizeWorkspaceChangePayload(&value); err != nil {
@@ -475,7 +502,7 @@ func NormalizeAgentCodePayload(name ToolName, payload json.RawMessage) (json.Raw
 		if err := decodeStrictAgentCodePayload(payload, &value); err != nil {
 			return nil, err
 		}
-		validAction := value.ExpectedAction == "propose_patch" ||
+		validAction := value.ExpectedAction == "propose_patch" || value.ExpectedAction == "replace" ||
 			value.ExpectedAction == "create" || value.ExpectedAction == "move"
 		validOriginalHash := validAgentCodeDigest(value.ExpectedOriginalSHA256, false)
 		validProposedHash := validAgentCodeDigest(value.ExpectedProposedSHA256, false)
@@ -574,13 +601,17 @@ func normalizeWorkspaceChangePayload(value *WorkspaceChangePayload) error {
 				return fmt.Errorf("workspace patch replacements[%d] contains credential-shaped text that cannot be persisted", index)
 			}
 		}
-	case "create":
-		if value.ExpectedSHA256 != "missing" || value.DestinationPath != "" ||
+	case "create", "replace":
+		validSource := value.ExpectedSHA256 == "missing"
+		if value.Action == "replace" {
+			validSource = validAgentCodeDigest(value.ExpectedSHA256, false)
+		}
+		if !validSource || value.DestinationPath != "" ||
 			value.DestinationExpectedSHA256 != "" || len(value.Replacements) != 0 ||
 			!validAgentCodeContent(value.Content, MaxAgentCodeCreateBytes, true) ||
 			len([]byte(value.Content)) > MaxAgentCodeCreateBytes ||
 			containsRedactableAgentCodeText(value.Content) {
-			return errors.New("workspace create payload is invalid")
+			return fmt.Errorf("workspace %s payload is invalid", value.Action)
 		}
 	case "move":
 		if value.ExpectedSHA256 == "missing" || value.Content != "" || len(value.Replacements) != 0 ||

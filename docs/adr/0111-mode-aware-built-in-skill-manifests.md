@@ -6,6 +6,8 @@ Date: 2026-08-18
 
 Accepted. ADR 0113 subsequently extends the same metadata model to the
 schema-v111 external-package installation ledger.
+ADR 0160 subsequently adds a fenced model read path for embedded skills; the
+operator-only product-path statements below describe the state of this decision.
 
 ## 背景 / Context
 

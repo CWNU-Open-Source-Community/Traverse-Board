@@ -388,6 +388,15 @@ func (s *SQLiteStore) ListThreadQueuedMessages(ctx context.Context, threadID str
 		}
 		return snapshot, tx.Commit()
 	}
+	if snapshot.RunStatus == domain.RunRunning {
+		err := tx.QueryRowContext(ctx, `SELECT checkpoint.attempt_id FROM run_supervisor_checkpoints checkpoint
+			WHERE checkpoint.run_id=? AND checkpoint.phase='turn_started' AND EXISTS
+			(SELECT 1 FROM run_execution_leases lease WHERE lease.run_id=checkpoint.run_id
+			AND lease.status='active' AND julianday(lease.expires_at)>julianday(?))`, snapshot.RunID, ts(time.Now().UTC())).Scan(&snapshot.CurrentAttemptID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return snapshot, err
+		}
+	}
 	rows, err := tx.QueryContext(ctx, operatorSteeringSelect+` WHERE message.run_id=?
 		AND message.status='pending' ORDER BY message.sequence`, snapshot.RunID)
 	if err != nil {

@@ -19,6 +19,27 @@ type supervisorCompactionFailureUsageStore interface {
 		llm.ModelAttempt, llm.Usage) (domain.SupervisorCheckpoint, error)
 }
 
+type supervisorModelNotDispatchedStore interface {
+	RecordSupervisorModelNotDispatched(context.Context, domain.SupervisorCheckpoint, llm.ModelAttempt) (domain.SupervisorCheckpoint, error)
+}
+
+func (s *RunSupervisor) recordUnsentModelAccounting(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+	attempt llm.ModelAttempt,
+) (domain.SupervisorCheckpoint, error) {
+	eventCtx, cancel := supervisorModelEventContext(ctx)
+	defer cancel()
+	writer, ok := s.store.(supervisorModelNotDispatchedStore)
+	if !ok {
+		return domain.SupervisorCheckpoint{}, errors.New("model store cannot persist a not-dispatched receipt")
+	}
+	updated, err := writer.RecordSupervisorModelNotDispatched(eventCtx, checkpoint, attempt)
+	if err != nil {
+		return updated, err
+	}
+	_, err = s.monetary.ReleaseModelCall(eventCtx, checkpoint.RunID, domain.MonetaryScopeRoot, attempt)
+	return updated, err
+}
+
 func sameModelAccountingEpoch(current, expected domain.SupervisorCheckpoint) bool {
 	return current.RunID == expected.RunID && current.AttemptID == expected.AttemptID &&
 		current.NextTurn == expected.NextTurn && current.LeaseID == expected.LeaseID &&

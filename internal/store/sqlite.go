@@ -417,6 +417,8 @@ func migrationPlan() []migration {
 		{Version: 169, Name: "Authority-bound Agent browser scroll and key tools", Statements: agentBrowserSupervisorLedgerStatements, DisableForeignKeys: true},
 		{Version: 170, Name: "Private provider replay and bounded context recovery", Statements: supervisorProviderReplayStatements},
 		{Version: 171, Name: "Attempt-bound midturn operator steering", Statements: midTurnSteeringStatements},
+		{Version: 172, Name: "Atomic queued message promotion to current task", Statements: operatorSteeringPromotionStatements},
+		{Version: 173, Name: "Fenced on-demand embedded Skill reads", Statements: builtinSkillReadStatements, DisableForeignKeys: true},
 	}
 }
 

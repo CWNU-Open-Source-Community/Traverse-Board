@@ -129,7 +129,7 @@ func TestSupervisorSegmentReceiptWithdrawsOldestRoundsAndKeepsRecentNative(t *te
 	if referenced := segmentReceiptReferencedCallIDs(rebuilt.Messages); referenced["call-1-1"] || referenced["call-2-1"] {
 		t.Fatal("a receipted round reappeared as a native tool call or result pair")
 	}
-	if !strings.Contains(rebuilt.Messages[2].Content, "NOT evidence that its operation ran or succeeded") {
+	if !strings.Contains(rebuilt.Messages[2].Content, "Only omitted or unknown outcomes require history_read before inferring success") {
 		t.Fatal("receipt lost its omission warning")
 	}
 	if rebuilt.Metadata["context_segment_receipted_rounds"] != "2" ||

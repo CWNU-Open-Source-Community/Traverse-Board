@@ -240,12 +240,18 @@ func removeSchemaV157ForTestStatements() []string {
 func removeSchemaV170AndV171ForTestStatements() []string {
 	return []string{
 		`CREATE TEMP TABLE legacy_fixture_empty_new_state (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_promotions;`,
+		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_promotion_rejections;`,
 		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM run_supervisor_provider_replay;`,
 		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM run_supervisor_context_recoveries;`,
 		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_midturn_claims;`,
 		`INSERT INTO legacy_fixture_empty_new_state SELECT count(*) FROM operator_steering_messages
 			WHERE delivery_mode<>'next_turn' OR target_attempt_id<>'';`,
 		`DROP TABLE legacy_fixture_empty_new_state;`,
+		`DROP TRIGGER trg_operator_steering_promotion_binding;`,
+		`DROP TRIGGER trg_operator_steering_promotion_rejection_binding;`,
+		`DROP TABLE operator_steering_promotions;`,
+		`DROP TABLE operator_steering_promotion_rejections;`,
 		`DROP TRIGGER trg_operator_steering_midturn_claim_insert;`,
 		`DROP TRIGGER trg_operator_steering_midturn_claim_immutable;`,
 		`DROP TRIGGER trg_operator_steering_midturn_claim_delete;`,
@@ -261,7 +267,7 @@ func removeSchemaV170AndV171ForTestStatements() []string {
 		`DROP TRIGGER trg_supervisor_context_recovery_immutable;`,
 		`DROP TABLE run_supervisor_provider_replay;`,
 		`DROP TABLE run_supervisor_context_recoveries;`,
-		`DELETE FROM schema_migrations WHERE version IN (170,171);`,
+		`DELETE FROM schema_migrations WHERE version IN (170,171,172);`,
 	}
 }
 

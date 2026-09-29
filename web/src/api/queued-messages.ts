@@ -12,7 +12,23 @@ export interface QueuedMessage {
 export interface QueuedMessages {
   version: "thread_queued_messages.v1"; thread_id: string; run_id: string; session_id: string;
   pending: number; prepared: number; items: QueuedMessage[]; capability_grant: false;
+  current_attempt_id?: string; execution_id?: string;
 }
+export interface QueuePromotionInput extends QueueRevisionInput { expectedAttemptID: string; expectedExecutionID: string }
+export interface QueuePromotion {
+  rejected?: false;
+  version: "session_steering_promotion.v1"; run_id: string; session_id: string; message_id: string;
+  receipt: { id: string; replacement_message_id: string; expected_revision: number; content_sha256: string;
+    target_attempt_id: string; execution_id: string; cancellation_id: string; created_at: string };
+  replayed: boolean; execution_started: false; model_called: false; tool_called: false; capability_grant: false;
+}
+export interface QueuePromotionRejection {
+  version: "session_steering_promotion.v1"; run_id: string; session_id: string; message_id: string;
+  receipt: { id: string; expected_revision: number; content_sha256: string; target_attempt_id: string; execution_id: string; created_at: string };
+  rejected: true; replayed: boolean; execution_started: false; model_called: false; tool_called: false; capability_grant: false;
+}
+export type QueuePromotionObservation = { state: "sealed"; promotion: QueuePromotion } | { state: "rejected" } |
+  { state: "absent"; message: QueueObservedMessage; executionObserved: boolean; executionID?: string };
 export interface QueueRevision {
   version: "session_steering_revision.v1"; run_id: string; session_id: string; message_id: string;
   receipt: { id: string; from_revision: number; to_revision: number; old_content_sha256: string; new_content_sha256: string; created_at: string };
@@ -58,6 +74,8 @@ export function validQueuedMessage(value: unknown, workspaceID: string): value i
 export function parseQueuedMessages(value: unknown, binding: QueueBinding): QueuedMessages {
   if (!object(value) || value.version !== "thread_queued_messages.v1" || value.thread_id !== binding.threadID ||
     value.run_id !== binding.runID || value.session_id !== binding.sessionID || value.capability_grant !== false ||
+    !((value.current_attempt_id === undefined && value.execution_id === undefined) ||
+      queueIdentity(value.current_attempt_id) && queueIdentity(value.execution_id)) ||
     !integer(value.pending) || !integer(value.prepared) || !Array.isArray(value.items) || value.items.length > 64 ||
     !value.items.every((item) => validQueuedMessage(item, binding.workspaceID)) ||
     new Set(value.items.map((item) => item.id)).size !== value.items.length ||
@@ -109,4 +127,48 @@ export async function inspectQueueCancellation(client: CyberAgentClient, input: 
   if (value.state !== "sealed" || !object(value.receipt) || value.receipt.run_id !== input.runID || value.receipt.session_id !== input.sessionID ||
     value.receipt.message_id !== input.messageID || value.receipt.kind !== "operator" || !queueIdentity(value.receipt.cancellation_id) || !timestamp(value.receipt.created_at)) throw invalid();
   return { state: "sealed" };
+}
+
+export function parseQueuePromotion(value: unknown, input: QueuePromotionInput): QueuePromotion {
+  if (!queueIdentity(input.expectedAttemptID) || !queueIdentity(input.expectedExecutionID) || !digest(input.oldSHA256) ||
+    !object(value) || value.rejected !== undefined && value.rejected !== false || value.version !== "session_steering_promotion.v1" || value.run_id !== input.runID ||
+    value.session_id !== input.sessionID || value.message_id !== input.messageID || value.execution_started !== false ||
+    value.model_called !== false || value.tool_called !== false || value.capability_grant !== false || typeof value.replayed !== "boolean" ||
+    !object(value.receipt) || !queueIdentity(value.receipt.id) || !queueIdentity(value.receipt.replacement_message_id) ||
+    value.receipt.replacement_message_id === input.messageID || value.receipt.expected_revision !== input.expectedRevision ||
+    value.receipt.content_sha256 !== input.oldSHA256 || value.receipt.target_attempt_id !== input.expectedAttemptID ||
+    value.receipt.execution_id !== input.expectedExecutionID || !queueIdentity(value.receipt.cancellation_id) || !timestamp(value.receipt.created_at)) throw invalid();
+  return value as unknown as QueuePromotion;
+}
+export async function promoteQueuedMessage(client: CyberAgentClient, input: QueuePromotionInput) {
+  if (!client.hasSessionSteeringControl) throw new Error("当前连接没有引导当前任务的权限。");
+  if (!queueIdentity(input.expectedAttemptID) || !queueIdentity(input.expectedExecutionID) || !digest(input.oldSHA256) || !integer(input.expectedRevision)) throw invalid();
+  const value = await client.postControl<unknown>(
+    `/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/promote`,
+    { version: "session_steering_promotion.v1", expected_revision: input.expectedRevision,
+      expected_content_sha256: input.oldSHA256, expected_attempt_id: input.expectedAttemptID,
+      expected_execution_id: input.expectedExecutionID }, input.operationKey);
+  return object(value) && value.rejected===true ? parseQueuePromotionRejection(value,input) : parseQueuePromotion(value,input);
+}
+export async function inspectQueuePromotion(client: CyberAgentClient, input: QueuePromotionInput): Promise<QueuePromotionObservation> {
+  const value = await client.get<unknown>(`/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/promotions/${encodeURIComponent(input.operationKey)}`);
+  if (!object(value) || value.version !== "session_steering_promotion.v1" || value.session_id !== input.sessionID ||
+    value.message_id !== input.messageID || value.capability_grant !== false || typeof value.execution_observed !== "boolean" ||
+    value.execution_id !== undefined && (!value.execution_observed || !queueIdentity(value.execution_id))) throw invalid();
+  if (value.state === "sealed" && value.message === undefined && value.rejection===undefined) return { state: "sealed", promotion: parseQueuePromotion(value.promotion, input) };
+  if (value.state === "rejected" && value.message===undefined && value.promotion===undefined) { parseQueuePromotionRejection(value.rejection,input); return {state:"rejected"}; }
+  if (value.state !== "absent" || value.promotion !== undefined || value.rejection!==undefined) throw invalid();
+  const message = parseObservedMessage(value.message, input);
+  if (message.revision < input.expectedRevision) throw invalid();
+  return { state: "absent", message, executionObserved: value.execution_observed, executionID: value.execution_id as string | undefined };
+}
+
+export function parseQueuePromotionRejection(value: unknown, input: QueuePromotionInput): QueuePromotionRejection {
+  if (!queueIdentity(input.expectedAttemptID) || !queueIdentity(input.expectedExecutionID) || !digest(input.oldSHA256) || !object(value) ||
+    value.version!=="session_steering_promotion.v1" || value.rejected!==true || value.run_id!==input.runID || value.session_id!==input.sessionID ||
+    value.message_id!==input.messageID || typeof value.replayed!=="boolean" || value.execution_started!==false || value.model_called!==false ||
+    value.tool_called!==false || value.capability_grant!==false || !object(value.receipt) || !queueIdentity(value.receipt.id) ||
+    value.receipt.expected_revision!==input.expectedRevision || value.receipt.content_sha256!==input.oldSHA256 || value.receipt.target_attempt_id!==input.expectedAttemptID ||
+    value.receipt.execution_id!==input.expectedExecutionID || !timestamp(value.receipt.created_at) || value.receipt.replacement_message_id!==undefined || value.receipt.cancellation_id!==undefined) throw invalid();
+  return value as unknown as QueuePromotionRejection;
 }

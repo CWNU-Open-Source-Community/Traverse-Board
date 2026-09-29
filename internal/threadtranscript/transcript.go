@@ -64,6 +64,8 @@ type Source struct {
 	OperatorAttachmentCount int
 	OperatorStatus          string
 	OperatorDeliveryMode    string
+	PromotedToMessageID     string
+	PromotedFromMessageID   string
 	// Store-verified queue/Session identity, independent of the current page.
 	OperatorMessageBound bool
 	Sequence             int64
@@ -99,6 +101,8 @@ type Item struct {
 	SourceRef             string
 	BoundaryReason        string
 	DeliveryMode          string
+	PromotedToMessageID   string
+	PromotedFromMessageID string
 	WebEvidence           *WebEvidencePresentation
 	Provisional           bool
 	Durable               bool
@@ -271,6 +275,9 @@ func projectOperatorMessage(source Source) Item {
 	instructionAuthorized := true
 	if source.OperatorStatus == "cancelled" {
 		title = "用户消息已取消"
+		if source.PromotedToMessageID != "" {
+			title = "用户消息已转为当前任务纠正"
+		}
 		stage = StageBlocked
 		instructionAuthorized = false
 	} else if source.OperatorStatus == "committed" {
@@ -286,7 +293,8 @@ func projectOperatorMessage(source Source) Item {
 		Status: source.OperatorStatus, Verifiable: true,
 		InstructionAuthorized: instructionAuthorized,
 		DeliveryMode:          source.OperatorDeliveryMode,
-		SourceRef:             source.Event.SubjectID, Durable: true, CreatedAt: source.CreatedAt,
+		PromotedToMessageID:   source.PromotedToMessageID, PromotedFromMessageID: source.PromotedFromMessageID,
+		SourceRef: source.Event.SubjectID, Durable: true, CreatedAt: source.CreatedAt,
 	}
 }
 

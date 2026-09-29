@@ -182,8 +182,12 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		metadata["evidence_id"] = result.ID
 		metadata["trust"] = "untrusted_remote_data"
 	case toolgateway.WorkspaceChangeTool:
+		canonical, err := toolgateway.NormalizeAgentCodePayload(name, payload)
+		if err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "invalid workspace change arguments", err)
+		}
 		var input toolgateway.WorkspaceChangePayload
-		if err := json.Unmarshal(payload, &input); err != nil {
+		if err := json.Unmarshal(canonical, &input); err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
 		}
 		result, replayed, err := e.propose(ctx, scope, input)
@@ -199,8 +203,12 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		return toolgateway.AgentCodeExecutionResult{JSON: string(encoded),
 			Metadata: metadata, Replayed: replayed}, err
 	case toolgateway.WorkspaceApplyTool:
+		canonical, err := toolgateway.NormalizeAgentCodePayload(name, payload)
+		if err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "invalid workspace apply arguments", err)
+		}
 		var input toolgateway.WorkspaceApplyPayload
-		if err := json.Unmarshal(payload, &input); err != nil {
+		if err := json.Unmarshal(canonical, &input); err != nil {
 			return toolgateway.AgentCodeExecutionResult{}, err
 		}
 		result, err := e.applyChange(ctx, scope, input)
@@ -416,6 +424,14 @@ func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 			proposedText = strings.ReplaceAll(proposedText, replacement.OldText,
 				replacement.NewText)
 		}
+	case "replace":
+		if _, _, err := workspace.AgentCodeResolveWritePath(scope.WorkspaceRoot, input.Path, false); err != nil {
+			return fileedit.Edit{}, false, err
+		}
+		// saveProposal replays an existing exact proposal before reading current
+		// bytes. A new proposal still binds Manager.PrepareProposal to the exact
+		// original hash, and apply performs the ordinary second CAS check.
+		proposedText = input.Content
 	case "create":
 		operation = fileedit.OperationCreate
 		if _, _, err := workspace.AgentCodeResolveCreatePath(scope.WorkspaceRoot,
@@ -627,24 +643,31 @@ func (e *AgentCodeToolExecutor) agentCodeEditResult(ctx context.Context,
 	if reader, ok := e.store.(interface {
 		GetFileEditAutoAuthorization(context.Context, string) (fileedit.AutoAuthorization, bool, error)
 	}); ok {
-		if source, found, err := reader.GetFileEditAutoAuthorization(ctx, edit.ID); err == nil && found {
-			automatic = true
-			authorized = edit.Status == fileedit.StatusApproved &&
-				source.RunID == scope.RunID &&
-				source.PermissionSnapshotID == scope.PermissionSnapshotID &&
-				source.RuntimeEpoch == scope.PermissionRuntimeEpoch &&
-				source.RuntimeGeneration == scope.PermissionGeneration &&
-				source.CapabilityGeneration == scope.CapabilityGeneration
+		if source, found, err := reader.GetFileEditAutoAuthorization(ctx, edit.ID); err == nil {
+			if found {
+				automatic = true
+				authorized = edit.Status == fileedit.StatusApproved &&
+					source.RunID == scope.RunID &&
+					source.PermissionSnapshotID == scope.PermissionSnapshotID &&
+					source.RuntimeEpoch == scope.PermissionRuntimeEpoch &&
+					source.RuntimeGeneration == scope.PermissionGeneration &&
+					source.CapabilityGeneration == scope.CapabilityGeneration
+			} else {
+				// ExecuteAgentCode verified the current execution scope. Only a
+				// confirmed absence of automatic authority permits the approved
+				// manual projection; failed reads and expired automatic sources do not.
+				authorized = edit.Status == fileedit.StatusApproved && !agentCodeEditBindingMismatch(edit, scope)
+			}
 		}
 	}
-	return map[string]any{"version": toolgateway.AgentCodeRegistryVersion,
+	result := map[string]any{"version": toolgateway.AgentCodeRegistryVersion,
 		"edit_id": edit.ID, "operation": edit.Operation, "path": edit.Path,
 		"destination_path": edit.DestinationPath, "status": edit.Status,
 		"diff": edit.Diff, "original_sha256": edit.OriginalHash,
 		"proposed_sha256":             edit.ProposedHash,
 		"destination_original_sha256": edit.DestinationOriginalHash,
 		"destination_proposed_sha256": edit.DestinationProposedHash,
-		"review_required":             !automatic, "apply_authorized": authorized,
+		"review_required":             !automatic && !authorized, "apply_authorized": authorized,
 		"authorization_source": func() string {
 			if automatic {
 				return "full_access_automatic"
@@ -652,6 +675,11 @@ func (e *AgentCodeToolExecutor) agentCodeEditResult(ctx context.Context,
 			return "operator_review"
 		}(),
 		"delete_confirmation_required": deleteConfirmation}
+	if edit.Operation == fileedit.OperationCreate || edit.Operation == fileedit.OperationReplace || edit.Operation == fileedit.OperationMove {
+		result["apply_arguments"] = toolgateway.WorkspaceApplyPayload{Version: toolgateway.AgentCodeRegistryVersion,
+			EditID: edit.ID, ExpectedAction: edit.Operation, ExpectedOriginalSHA256: edit.OriginalHash, ExpectedProposedSHA256: edit.ProposedHash}
+	}
+	return result
 }
 
 func agentCodeApplyResult(result ApplyFileEditResult) map[string]any {

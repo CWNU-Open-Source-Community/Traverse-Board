@@ -91,7 +91,7 @@ func TestBuiltinRegistryRetainsArchivedPinnedContext(t *testing.T) {
 	}
 	if assembly.Items[0].Version != "1.0.0" ||
 		!strings.Contains(assembly.Items[0].Content, "Metadata placeholder") ||
-		registry.List(domain.ProfileCode)[0].Version != "1.2.0" {
+		registry.List(domain.ProfileCode)[0].Version != "1.3.0" {
 		t.Fatalf("archived Skill delivery drifted: %#v", assembly)
 	}
 	if _, found := registry.version("code", "1.1.0"); !found {

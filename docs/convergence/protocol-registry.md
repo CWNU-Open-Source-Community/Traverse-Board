@@ -11,7 +11,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 43 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 47 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
@@ -23,7 +23,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 40 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 108 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 109 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
@@ -36,7 +36,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
-| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 49 | true |
+| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 50 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
 | [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
@@ -260,7 +260,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>43 active identifiers</summary>
+<details><summary>47 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -277,6 +277,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `operator_steering_delivery_mode.v1`
 - `operator_steering_image_request.v1`
 - `operator_steering_operation.v1`
+- `operator_steering_promotion_cancel.v1`
+- `operator_steering_promotion_enqueue.v1`
+- `operator_steering_promotion_operation.v1`
+- `operator_steering_promotion_request.v1`
 - `operator_steering_request.v1`
 - `run_browser_cdp_permission_change_request.v1`
 - `run_browser_cdp_permission_operation.v1`
@@ -836,7 +840,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>108 active identifiers</summary>
+<details><summary>109 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -920,6 +924,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `session_evidence_inventory.v1`
 - `session_message_submission.v1`
 - `session_steering_cancellation.v1`
+- `session_steering_promotion.v1`
 - `session_steering_revision.v1`
 - `skill_package_installation.v1`
 - `standard_code_preset.v1`
@@ -1485,7 +1490,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3`, active) at `internal/store`
   - `thread-local-recovery-reader` (`v1`, active) at `web/src/v2`
 
-<details><summary>49 active identifiers</summary>
+<details><summary>50 active identifiers</summary>
 
 - `context_memory.v1`
 - `continuity_context.v1`
@@ -1514,6 +1519,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_lifecycle_operation.v1`
 - `run_lifecycle_request.v1`
 - `run_progress_guard.v1`
+- `sealed_tool_progress.v1`
 - `session_archive.v1`
 - `session_continuity_node.v1`
 - `session_evidence_attachment_operation.v1`
@@ -1749,6 +1755,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `next.good.v4` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ok.v1` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `other.v1` | `negative-version-fixture` | `internal/application/session_message_submission_test.go`, `internal/httpapi/session_message_control_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `pelicanRide.items.v1` | `test-fixture` | `internal/application/testdata/workspace-coverage-phase3-boundary.json`, `internal/application/testdata/workspace-coverage-phase3.json`, `internal/application/testdata/workspace-read-pages.json` | Application storage key inside captured synthetic workspace content; not a Traverse runtime protocol or authority source. |
 | `plan_delivery.v2` | `test-fixture` | `internal/domain/plan_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `project_config.v9` | `negative-version-fixture` | `internal/projectconfig/projectconfig_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `protocol_registry_example.v1` | `compatibility-example` | `internal/protocolregistry/registry_test.go`, `internal/protocolregistry/testdata/compatibility_v1.json` | Old v1 compatibility fixture retained to prove dual-read behavior. |

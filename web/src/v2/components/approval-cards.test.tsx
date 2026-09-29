@@ -28,7 +28,7 @@ function pending(overrides: Partial<ApprovalQueueItemView> = {}): ApprovalQueueI
   };
 }
 
-function renderCards(item: ApprovalQueueItemView, previewOverrides = {}) {
+function renderCards(item: ApprovalQueueItemView, previewOverrides = {}, onReviewFile = vi.fn()) {
   const approvalQueue = vi.fn().mockResolvedValue({
     protocol_version: "approval_queue.v1", run_id: "run-1", items: [item],
     truncated: false, process_execution_enabled: false,
@@ -59,12 +59,35 @@ function renderCards(item: ApprovalQueueItemView, previewOverrides = {}) {
     queries: { retry: false }, mutations: { retry: false },
   } });
   render(<QueryClientProvider client={queryClient}>
-    <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
+    <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" onReviewFile={onReviewFile} />
   </QueryClientProvider>);
-  return { decideApproval, approvalPreview };
+  return { decideApproval, approvalPreview, onReviewFile };
 }
 
 describe("V2ApprovalCards", () => {
+  it("navigates to the same file proposal from the keyboard without deciding approval", async () => {
+    const item = pending({ tool_name: "create_file", action_class: "workspace_write", proposal_id: "exact-edit",
+      workspace_id: "original-workspace", allowed_actions: ["deny"], canonical_url: undefined, exact_target: undefined });
+    const { onReviewFile, decideApproval } = renderCards(item, { effect: "file_review_required", source_current: false,
+      fields: [{ name: "path", value: "same.txt" }] });
+    const button = await screen.findByRole("button", { name: "审阅文件提案" });
+    button.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onReviewFile).toHaveBeenCalledWith({ runID: "run-1", editID: "exact-edit", workspaceID: "original-workspace" }, button);
+    expect(screen.queryByRole("button", { name: "仅批准一次" })).not.toBeInTheDocument();
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it.each([{ run_id: "different-run" }, { approval_id: "different-approval" }, { proposal_id: "different-edit" },
+    { workspace_id: "different-workspace" }])("does not navigate from a mismatched file preview %j", async (mismatch) => {
+    const item = pending({ tool_name: "create_file", action_class: "workspace_write", proposal_id: "exact-edit",
+      workspace_id: "original-workspace", allowed_actions: [], canonical_url: undefined, exact_target: undefined });
+    const { onReviewFile, decideApproval } = renderCards(item, { effect: "file_review_required", ...mismatch });
+    await screen.findByText("无法核对操作内容，暂不能批准。");
+    expect(screen.queryByRole("button", { name: "审阅文件提案" })).not.toBeInTheDocument();
+    expect(onReviewFile).not.toHaveBeenCalled(); expect(decideApproval).not.toHaveBeenCalled();
+  });
+
   it("approves a browser action through the strict client and accepts same-checkpoint continuation", async () => {
     const item = pending({ tool_name: "agent_browser_sensitive", action_class: "browser_external_write", mode: "per_call",
       allowed_actions: ["approve_once", "deny"], canonical_url: undefined, exact_target: undefined });

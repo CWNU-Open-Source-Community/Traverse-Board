@@ -606,8 +606,11 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 		}
 	}
 	maxTokens := req.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 1024
+	if maxTokens < 0 || maxTokens > 1_000_000 {
+		return anthropicMessageRequest{}, errors.New("max tokens is outside the provider request limit")
+	}
+	if maxTokens == 0 {
+		maxTokens = req.PlannedOutputTokens(p.ModelContextWindow(selectedModel))
 	}
 	out := anthropicMessageRequest{
 		Model:     model,
