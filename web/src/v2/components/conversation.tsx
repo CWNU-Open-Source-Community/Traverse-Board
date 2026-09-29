@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, Microscope, ShieldCheck, PanelTop } from "lucide-react";
+import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, MessagesSquare, Microscope, ShieldCheck, PanelTop } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkCjkAutolinks } from "../../components/remark-cjk-autolinks";
@@ -27,7 +27,7 @@ import { V2TaskReview } from "./task-review";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
 import { useV2ThreadSubmissions, useV2ThreadTurn, V2SubmissionError, V2RecoveredSubmissionError, removeV2Submission, v2TurnFailed, v2TurnOutcomeKnown, v2TurnWasNotQueued, type V2TurnInput } from "../use-thread-turn";
-import { inspectV2TurnRequest } from "../recovery-api";
+import { inspectV2SteeringRequest, inspectV2TurnRequest } from "../recovery-api";
 import { useV2RecoveryStore } from "../recovery-storage";
 import { settleRecoveryTurn } from "../recovery-session";
 import { assertV2DraftVersion, useV2DraftDocument } from "../draft-context";
@@ -52,6 +52,8 @@ function Narrative({ client, entries, threadID }: {
           <V2FileAttachments client={client} attachments={entry.attachments ?? []} />{entry.status === "cancelled" &&
           <small className="v2-message-status">已取消，不会继续处理</small>}
           {entry.status === "pending" && <small className="v2-message-status">已接收</small>}
+          {entry.deliveryMode === "steer" && entry.status !== "cancelled" && entry.status !== "pending" &&
+            <small className="v2-message-status">已加入当前任务</small>}
           {entry.provisional && !entry.status && <small className="v2-message-status">正在发送…</small>}</div></li>;
       if (entry.kind === "assistant") return <li aria-live={entry.provisional ? "polite" : undefined}
         className={`v2-assistant-turn${entry.provisional ? " is-provisional" : ""}`} key={entry.id}>
@@ -64,7 +66,7 @@ function Narrative({ client, entries, threadID }: {
 }
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
-  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree }: {
+  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
   client: CyberAgentClient;
   threadID: string;
   workspaces: WorkspaceView[];
@@ -77,6 +79,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   onOpenTool?: (tool: "run" | "session" | "schedule", resourceID?: string) => void;
   onOpenInspectorHome?: () => void;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
+  onExitInspector?: () => void;
 }) {
   const queryClient = useQueryClient();
   const recovery = useV2RecoveryStore();
@@ -93,6 +96,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const composerContainerRef = useRef<HTMLDivElement>(null);
   const [composerFocusRequest, setComposerFocusRequest] = useState<{ threadID: string } | null>(null);
   const [confirmedSubmission, setConfirmedSubmission] = useState<V2TurnInput | null>(null);
+  const [deliveryMode, setDeliveryMode] = useState<"next_turn" | "steer">("next_turn");
   const reviewTrigger = useRef<HTMLButtonElement>(null);
   const turn = useV2ThreadTurn(client);
   const submissions = useV2ThreadSubmissions(threadID);
@@ -113,14 +117,17 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     }
     setChecking((current) => [...current, input.operationKey]);
     try {
-      const result = await inspectV2TurnRequest(client, input);
+      const result = input.deliveryMode === "steer"
+        ? await inspectV2SteeringRequest(client, input)
+        : await inspectV2TurnRequest(client, input);
       if (result.state === "not_received" || (result.state === "received" && !result.message_id)) {
         setObservations((current) => ({ ...current, [input.operationKey]: result.state === "not_received"
           ? "服务端暂未找到原提交。可以继续核对，或主动发送原消息；不会自动重发。"
           : "原提交已登记，但消息尚未入队。可以继续核对，或主动继续提交原消息。" }));
         return "unresolved";
       }
-      const accepted = result.state !== "rejected";
+      const accepted = result.state !== "rejected" &&
+        !(input.deliveryMode === "steer" && result.message_status === "cancelled");
       settleRecoveryTurn(recovery, input, accepted);
       if (accepted && !input.draftVersion) queryClient.setQueryData<V2FileReference[]>(v2FileReferenceKey(input.workspaceID, input.threadID),
         (current) => current?.filter(({ id }) => !input.files?.some((file) => file.id === id)));
@@ -240,6 +247,21 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   }, [durableNarrative, optimistic, transcriptItems]);
   const visibleNarrative = useMemo(() => narrative.filter((entry) =>
     !recoveryRepresentsNotice(entry, detailQuery.data?.recovery)), [narrative, detailQuery.data?.recovery]);
+  // Contents the user already submitted: in-flight, just confirmed, or the
+  // latest durable user entry. A draft identical to any of these is leftover
+  // from a sent message, so the composer offers to clear it before the user
+  // accidentally appends a new request to already-submitted text.
+  const submissionWorkspaceID = detailQuery.data?.thread.workspace_id ?? "";
+  const submittedContents = useMemo(() => {
+    const contents = new Set<string>();
+    for (const { input, pending } of submissions) if (pending) contents.add(input.content);
+    // A request can settle after this component has switched to another Thread.
+    if (confirmedSubmission?.threadID === threadID &&
+      confirmedSubmission.workspaceID === submissionWorkspaceID) contents.add(confirmedSubmission.content);
+    const lastUserEntry = durableNarrative.findLast((entry) => entry.kind === "user");
+    if (lastUserEntry?.kind === "user") contents.add(lastUserEntry.text);
+    return contents;
+  }, [submissions, confirmedSubmission, durableNarrative, threadID, submissionWorkspaceID]);
   const failedSubmissions = submissions.filter(({ pending, error }) => !pending && error);
   const submissionNotices = failedSubmissions.filter(({ error }) => !(error instanceof APIRequestError &&
     error.turnFailed && narrativeRepresentsFailedSubmission(durableNarrative, threadID, error.turnFailure)));
@@ -273,6 +295,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     setContextOpen(false);
     setComposerFocusRequest(null);
     olderScrollAnchorRef.current = null;
+    setDeliveryMode("next_turn");
   }, [threadID, view]);
   useEffect(() => {
     if (!composerFocusRequest || composerFocusRequest.threadID !== threadID || reviewOpen || previewOpen || contextOpen ||
@@ -326,6 +349,12 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     (publicStream.status === "live" || publicStream.status === "finalizing");
   const working = turnSubmitting || modelActive || (!executionQuery.isError &&
     (executionQuery.data?.state === "running" || executionQuery.data?.state === "stopping"));
+  const canSteer = executionQuery.data?.state === "running" ||
+    (!executionQuery.data && detail.active_run?.status === "running");
+  // A paused run is not gone: steer stays unavailable, but the explanation
+  // names the pause so the operator does not think the task ended.
+  const steerUnavailable = currentRun.status === "paused" ? "当前任务已暂停"
+    : "当前任务已停止或不再运行";
   const activityLabel = threadActivityLabel({ threadID, execution: executionQuery.data,
     readable: client.hasThreadExecutionRead === true, error: executionQuery.isError });
   const fileReferenceUnavailableReason = currentRun.status === "waiting_approval"
@@ -338,17 +367,23 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         : undefined;
 
   const send = async (content: string, files?: V2FileReference[], images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => {
-    const fingerprint = JSON.stringify([content, files ?? [], imageIdentities(images), fileAttachmentIdentities(attachments)]);
+    if (deliveryMode === "steer" && !canSteer) {
+      throw new Error(`${steerUnavailable}。纠正草稿已保留；请选择“下一轮处理”发送。`);
+    }
+    if (deliveryMode === "steer" && (files?.length || images?.length || attachments?.length)) {
+      throw new Error("更新当前任务目前只支持文字。附件和引用已保留，请选择“下一轮处理”发送完整消息。");
+    }
+    const fingerprint = JSON.stringify([deliveryMode, content, files ?? [], imageIdentities(images), fileAttachmentIdentities(attachments)]);
     let replaced = submissions.findLast(({ error }) => v2TurnOutcomeKnown(error))?.input.operationKey;
     // The user's new request waits for unknown earlier submissions to settle.
     // Confirmation uses the original payload and key, never the edited draft.
     for (const { input } of submissions.filter(({ error }) => error && !v2TurnOutcomeKnown(error))) {
       const outcome = await confirmSubmission(input);
-      if (outcome === "accepted" && JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) return;
+      if (outcome === "accepted" && JSON.stringify([input.deliveryMode ?? "next_turn", input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) return;
       if (outcome === "rejected") replaced = input.operationKey;
       if (outcome === "unresolved") {
         if (recovery) {
-          if (JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) { await turn.mutateAsync(input); return; }
+          if (JSON.stringify([input.deliveryMode ?? "next_turn", input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) { await turn.mutateAsync(input); return; }
           throw new V2SubmissionError(input, new Error("原提交尚未确认。新草稿已保留，请先核对或继续提交原消息。"));
         }
         replaced = input.operationKey;
@@ -358,6 +393,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       { text: draft ?? content, files: files ?? [], images: images ?? [], attachments });
     const operationKey = `v2-thread-turn-${globalThis.crypto.randomUUID()}`;
     const input: V2TurnInput = { threadID, workspaceID: detail.thread.workspace_id ?? "", content,
+      ...(deliveryMode === "steer" ? { deliveryMode: "steer" as const, sessionID: currentRun.session_id } : {}),
       ...(draft !== undefined ? { draft } : {}),
       operationKey, createdAt: new Date().toISOString(), ...(files?.length ? { files } : {}),
       ...(images?.length ? { images } : {}),
@@ -366,13 +402,16 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       ...(replaced ? { replacesOperationKey: replaced } : {}) };
     try {
       await turn.mutateAsync(input);
+      // Remember the accepted payload: once the settled mutation leaves the
+      // cache, a matching leftover draft is still recognized as submitted.
+      setConfirmedSubmission(input);
     } catch (error) {
       // The client validates this sealed reference against this request's Thread.
       // Its input was committed even though execution failed. Let the Composer
       // retire only this submitted draft/files; the failed mutation and durable
       // explanation stay visible. Original-key confirmations use the path above.
       if (error instanceof APIRequestError && error.turnFailed === true &&
-        error.turnFailure?.thread_id === input.threadID) return;
+        error.turnFailure?.thread_id === input.threadID) { setConfirmedSubmission(input); return; }
       throw new V2SubmissionError(input, error);
     }
   };
@@ -401,8 +440,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   return <section className={`v2-conversation${view === "inspector" ? " is-inspector" : ""}`}>
     <header className="v2-conversation-header">
       <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong>
-        <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
-          {working && <i />}{stateLabel}</span>
+        {stateLabel !== "等待新消息" && <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
+          {working && <i />}{stateLabel}</span>}
       </div>
       <div className="v2-header-actions">
         <V2ThreadExecutionControl client={client} execution={executionQuery.data}
@@ -427,6 +466,10 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           {view !== "inspector" && <button onClick={() => { setMenuOpen(false); onOpenInspector(menuTriggerRef.current); }}
             role="menuitem" type="button">
             <Microscope aria-hidden="true" size={15} />打开 Inspector</button>}
+          {view === "inspector" && onExitInspector && <button onClick={() => {
+            setMenuOpen(false); menuTriggerRef.current?.focus(); onExitInspector(); }}
+            role="menuitem" type="button">
+            <MessagesSquare aria-hidden="true" size={15} />返回对话视图</button>}
         </div>}
       </div>
     </header>
@@ -534,17 +577,15 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       {managedDraft && <V2DraftConflict key={threadID} client={client} workspaceID={detail.thread.workspace_id ?? ""}
         state={managedDraft.state} onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       {currentRun.status === "paused" && <V2PausedThreadControl client={client} threadID={threadID} runID={currentRun.id} />}
-      {executionQuery.data?.state === "stop_failed" && <p role="alert">
+      {executionQuery.data?.state === "stop_failed" && <p className="v2-composer-caption" role="alert">
         停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。
       </p>}
       {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
         workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive} />}
       {reconciling ? <p className="v2-composer-caption" role="status">正在核对上次提交，避免重复执行。可以继续编辑，核对完成后再发送。</p>
-        : executionQuery.data?.state === "stopping" ? <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>
-        : working && <p className="v2-composer-caption">可以补充要求，已受理的消息会提供给下一次模型调用；受理不代表已执行，停止后仍会保留。</p>}
-      {working && draft && onDraftChange && submissions.some(({ input, pending }) =>
-        pending && input.content === draft.trim()) && <button className="v2-composer-chip"
-        onClick={() => onDraftChange("")} type="button">编写下一条</button>}
+        : executionQuery.data?.state === "stopping" && <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>}
+      {working && draft && onDraftChange && submittedContents.has(draft.trim()) &&
+        <button className="v2-composer-chip" onClick={() => onDraftChange("")} type="button">编写下一条</button>}
       {detail.recovery && <V2ThreadRunRecovery recovery={detail.recovery}
         approvalSaved={narrative.some((entry) => recoveryRepresentsNotice(entry, detail.recovery))} />}
       {executionQuery.data?.state === "idle" && executionQuery.data.last_turn_interrupted &&
@@ -553,6 +594,16 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         aria-expanded={inspectorComposerOpen} onClick={() => setInspectorComposerOpen((open) => !open)} type="button">
         {inspectorComposerOpen ? "收起消息编辑器" : draft ? "继续编辑草稿" : "补充消息"}</button>}
       <div className="v2-shared-composer" ref={composerContainerRef} data-thread-id={threadID} hidden={view === "inspector" && !inspectorComposerOpen}>
+      {(canSteer || deliveryMode === "steer") && <label className="v2-composer-caption">发送方式
+        <select aria-label="发送方式" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "next_turn" | "steer")}>
+          <option value="next_turn">下一轮处理</option>
+          <option value="steer">更新当前任务（仅文字）</option>
+        </select>
+      </label>}
+      {deliveryMode === "steer" && !canSteer && <p className="v2-composer-caption" role="alert">
+        {steerUnavailable}，不能更新当前任务；纠正草稿会保留。
+        <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
+      </p>}
       <V2Composer client={client} disabled={!client.hasThreadControl ||
         detail.thread.status !== "active"}
         submitDisabled={reconciling || executionQuery.data?.state === "stopping" ||
@@ -570,7 +621,11 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         placeholder="输入消息…" runActive={runActive}
         runID={currentRun.id} threadID={threadID} workspaceID={detail.thread.workspace_id ?? ""}
         workspaces={workspaces} />
-      <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · Enter 发送，Shift + Enter 换行</small>
+      <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · {working
+        ? deliveryMode === "steer"
+          ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
+          : "消息将在下一轮处理；受理不代表已经执行。"
+        : "Enter 发送，Shift + Enter 换行"}</small>
       </div>
     </div>
   </section>;

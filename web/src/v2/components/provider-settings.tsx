@@ -478,13 +478,13 @@ function harnessStatusLabel(status: string): string {
     incompatible: "协议不兼容", available: "可用", not_configured: "尚未配置",
     protocol_mismatch: "协议不匹配", auth_failed: "API Key 验证失败",
     network_failed: "网络连接失败", rate_limit: "供应商限流", capacity: "供应商额度或容量不足",
-    model_unsupported: "模型不受支持" } as Record<string, string>)[status] ?? status;
+    model_unsupported: "模型不受支持", response_incomplete: "响应未完成" } as Record<string, string>)[status] ?? status;
 }
 
 function harnessFailureLabel(reason: string): string {
   return ({ none: "无", not_configured: "尚未配置", authentication: "API Key 验证失败",
     network: "网络连接失败", rate_limit: "供应商限流", capacity: "供应商额度或容量不足，请检查账单或服务状态",
-    model_not_found: "模型不存在", protocol_incompatible: "协议不兼容" } as Record<string, string>)[reason]
+    model_not_found: "模型不存在", protocol_incompatible: "协议不兼容", context_limit: "输入超出上下文窗口", output_limit: "输出达到长度上限", paused: "模型暂停", refusal: "模型拒绝请求" } as Record<string, string>)[reason]
     ?? reason;
 }
 

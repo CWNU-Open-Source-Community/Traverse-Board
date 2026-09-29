@@ -584,7 +584,11 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
-	if s != nil && s.agentBrowser != nil && turn.Agent.Role == domain.AgentRoleRoot {
+	// An operator-opened session owns this Run's browser target even after it
+	// closes or loses authority. Never reinterpret its refs as ordinary browser
+	// refs, or silently move a rejected action to another browser backend.
+	if s != nil && s.agentBrowser != nil && turn.Agent.Role == domain.AgentRoleRoot &&
+		(s.browserActions == nil || !s.browserActions.hasBrowserActionSession(turn.Run.ID)) {
 		return s.agentBrowserCapabilities(ctx, turn)
 	}
 	if s == nil || s.browserActions == nil || turn.Agent.Role != domain.AgentRoleRoot ||
@@ -644,7 +648,13 @@ func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
 		return supervisorMCPTools{}, nil
 	}
 	fence := uint64(0)
+	runtimeEpoch := ""
 	if s.executionCapabilities.RuntimeAuthority != nil {
+		runtimeEpoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		if runtimeEpoch == "" {
+			return supervisorMCPTools{}, apperror.New(apperror.CodeFailedPrecondition,
+				"MCP runtime identity is unavailable")
+		}
 		issuedFence, fenceErr := s.executionCapabilities.RuntimeAuthority.
 			IssueRunAuthorizationFence(turn.Run.ID)
 		if fenceErr != nil {
@@ -666,7 +676,7 @@ func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
 		WorkspaceID:          turn.Mission.WorkspaceID,
 		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
 		PermissionMode: permission.Mode, PermissionGeneration: generation,
-		RunAuthorizationFence: fence,
+		RunAuthorizationFence: fence, PermissionRuntimeEpoch: runtimeEpoch,
 	})
 	if err != nil {
 		return supervisorMCPTools{}, err
@@ -892,6 +902,17 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 				}
 				continue
 			}
+			if fence, ok := s.store.(interface {
+				SupersedeSupervisorToolIfSteeringChanged(context.Context, domain.SupervisorCheckpoint, string) (bool, error)
+			}); ok {
+				superseded, err := fence.SupersedeSupervisorToolIfSteeringChanged(ctx, turn.Checkpoint, call.CallID)
+				if err != nil {
+					return rounds, false, apperror.Normalize(err)
+				}
+				if superseded {
+					continue
+				}
+			}
 			decision := standardCodeCallDecision{Allowed: true}
 			var err error
 			if completion != nil {
@@ -919,7 +940,17 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 			fresh := true
 			if !browserPreflightStopped {
 				var startedErr error
-				fresh, startedErr = s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint, call.CallID)
+				if fence, ok := s.store.(interface {
+					RecordSupervisorToolExecutionStartedWithSteering(context.Context, domain.SupervisorCheckpoint, string) (bool, bool, error)
+				}); ok {
+					var superseded bool
+					fresh, superseded, startedErr = fence.RecordSupervisorToolExecutionStartedWithSteering(ctx, turn.Checkpoint, call.CallID)
+					if superseded {
+						continue
+					}
+				} else {
+					fresh, startedErr = s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint, call.CallID)
+				}
 				if startedErr != nil {
 					return rounds, false, apperror.Normalize(startedErr)
 				}
@@ -1092,8 +1123,8 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
 		generation, live := s.executionCapabilities.FullAccessGeneration(permission)
 		fenceLive := authorityErr == nil &&
-			runAuthorizationFenceCurrent(s.executionCapabilities,
-				turn.Run.ID, authority.RunAuthorizationFence)
+			mcpRuntimeAuthorityCurrent(s.executionCapabilities,
+				turn.Run.ID, authority.RunAuthorizationFence, authority.PermissionRuntimeEpoch)
 		if authorityErr != nil || permissionErr != nil ||
 			authority.RunID != turn.Run.ID || authority.MissionID != turn.Mission.ID ||
 			authority.WorkspaceID != turn.Mission.WorkspaceID ||
@@ -1114,6 +1145,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.PermissionSnapshotID = permission.ID
 		toolCall.PermissionRevision = permission.Revision
 		toolCall.PermissionGeneration = generation
+		toolCall.PermissionRuntimeEpoch = authority.PermissionRuntimeEpoch
 		toolCall.RunAuthorizationFence = authority.RunAuthorizationFence
 	}
 	if toolgateway.IsWebEvidenceTool(name) {

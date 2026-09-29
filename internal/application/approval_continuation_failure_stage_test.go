@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,5 +151,104 @@ func TestApprovalContinuationSealsExactModelFailureStageBeforeClosingInput(t *te
 				t.Fatalf("exact paused failure recovery changed execution: %#v calls=%d err=%v", recovered, len(provider.Requests()), err)
 			}
 		})
+	}
+}
+
+func TestApprovalContinuationFailureCommitsAcceptedMidTurnCorrection(t *testing.T) {
+	st, run, _, input := toolBoundaryFixture(t, domain.Budget{MaxTurns: 8, MaxToolCalls: 20})
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	provider := &boundaryJourneyProvider{}
+	provider.respond = func(ctx context.Context, request llm.ChatRequest, index int) (*llm.ChatResponse, error) {
+		switch index {
+		case 1:
+			return boundaryPropose("proposal"), nil
+		case 2:
+			return textResponse(rootActionResponse(domain.RootActionWait, "Review", "", "operator review")), nil
+		case 3:
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return textResponse(rootActionResponse(domain.RootActionFinish, "Stale completion", "done", "")), nil
+		case 4:
+			return textResponse(" \t\n"), nil
+		default:
+			return nil, fmt.Errorf("unexpected model call %d", index)
+		}
+	}
+	turns := toolBoundaryService(st, st, provider)
+	if _, err := turns.Execute(t.Context(), input); err != nil {
+		t.Fatal(err)
+	}
+	edit := approveBoundaryEdit(t, st, run)
+	request := application.ApprovalContinuationRequest{RunID: run.ID, Kind: "file_edit", ProposalID: edit.ID}
+	done := make(chan application.ApprovalContinuationResult, 1)
+	go func() { done <- turns.ResumeApproval(context.Background(), request) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("approval continuation did not reach provider")
+	}
+	correction := "Stop further edits; explain the approved proposal before doing anything else"
+	accepted, err := st.EnqueueOperatorSteering(t.Context(), domain.EnqueueOperatorSteeringRequest{
+		RunID: run.ID, SessionID: run.SessionID, Content: correction,
+		OperationKey: "midturn-approval-failure-0001", RequestedBy: "test_operator",
+		DeliveryMode: domain.OperatorSteeringCurrentTurn,
+	})
+	if err != nil || accepted.Message.ID == "" {
+		t.Fatalf("correction admission=%#v err=%v", accepted, err)
+	}
+	releaseOnce.Do(func() { close(release) })
+	var result application.ApprovalContinuationResult
+	select {
+	case result = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("failed continuation did not settle")
+	}
+	if result.State != "failed" || result.ErrorCode != "FAILED_PRECONDITION" {
+		t.Fatalf("continuation=%#v", result)
+	}
+	requests := provider.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("provider requests=%d", len(requests))
+	}
+	correctedRequest := false
+	for _, message := range requests[3].Messages {
+		correctedRequest = correctedRequest || strings.Contains(message.Content, correction)
+	}
+	if !correctedRequest {
+		t.Fatalf("accepted correction missing from actual continuation: %#v", requests[3].Messages)
+	}
+	stored, err := st.GetOperatorSteering(t.Context(), accepted.Message.ID)
+	if err != nil || stored.Status != domain.OperatorSteeringCommitted || stored.SessionMessageID == 0 {
+		t.Fatalf("failed continuation orphaned correction: %#v err=%v", stored, err)
+	}
+	checkpoint, found, err := st.GetSupervisorCheckpoint(t.Context(), run.ID)
+	if err != nil || !found || checkpoint.Phase != domain.SupervisorIdle || checkpoint.AttemptID != "" {
+		t.Fatalf("failed continuation did not close attempt: %#v found=%t err=%v", checkpoint, found, err)
+	}
+	messages, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	correctionIndex, failureIndex := -1, -1
+	for i, message := range messages {
+		if message.Content == correction {
+			correctionIndex = i
+		}
+		if strings.Contains(message.Content, "This failed continuation did not complete their requested work") {
+			failureIndex = i
+		}
+	}
+	if correctionIndex < 0 || failureIndex <= correctionIndex {
+		t.Fatalf("correction and failure caveat are not ordered in history: %#v", messages)
+	}
+	replayed := turns.ResumeApproval(t.Context(), request)
+	if !replayed.Replayed || replayed.HandoffID != result.HandoffID || len(provider.Requests()) != 4 {
+		t.Fatalf("replay changed failed continuation: %#v calls=%d", replayed, len(provider.Requests()))
 	}
 }

@@ -25,8 +25,10 @@ const operatorSteeringSelect = `SELECT message.id, message.run_id, message.sessi
 	message.revision, message.original_content, message.original_content_sha256,
 	message.requested_by, message.session_message_id, message.created_at,
 	message.committed_at, message.cancelled_at, message.edited_at,
-	EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
-		WHERE delivery.message_id = message.id AND delivery.status = 'prepared'),message.image_count,message.attachment_count
+	message.status='pending' AND (EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
+		WHERE delivery.message_id = message.id AND delivery.status = 'prepared') OR
+		EXISTS (SELECT 1 FROM operator_steering_midturn_claims claim WHERE claim.message_id=message.id)),
+		message.image_count,message.attachment_count,message.delivery_mode,message.target_attempt_id
 	FROM operator_steering_messages message`
 
 const operatorSteeringCancellationSelect = `SELECT id, message_id, run_id, kind,
@@ -37,6 +39,47 @@ func (s *SQLiteStore) EnqueueOperatorSteering(ctx context.Context,
 ) (domain.OperatorSteeringEnqueueResult, error) {
 	result, _, err := s.enqueueOperatorSteering(ctx, request, false)
 	return result, err
+}
+
+// InspectOperatorSteeringOperation reads an exact original submission without
+// replaying its write. A missing key is distinct from an accepted pending one.
+func (s *SQLiteStore) InspectOperatorSteeringOperation(ctx context.Context,
+	sessionID, operationKey string,
+) (domain.OperatorSteeringMessage, bool, error) {
+	if !domain.ValidAgentID(sessionID) {
+		return domain.OperatorSteeringMessage{}, false,
+			apperror.New(apperror.CodeInvalidArgument, "Session message observation identity is invalid")
+	}
+	key, err := domain.NormalizeAgentOperationKey(operationKey)
+	if err != nil || strings.IndexFunc(key, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return domain.OperatorSteeringMessage{}, false,
+			apperror.New(apperror.CodeInvalidArgument, "Session message observation key is invalid")
+	}
+	var runID string
+	if err := s.db.QueryRowContext(ctx, `SELECT id FROM runs WHERE session_id=?`, sessionID).Scan(&runID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.OperatorSteeringMessage{}, false,
+				apperror.New(apperror.CodeNotFound, "Run-bound Session was not found")
+		}
+		return domain.OperatorSteeringMessage{}, false, err
+	}
+	keyDigest := runmutation.Fingerprint("operator_steering_operation.v1", runID, key)
+	var messageID string
+	err = s.db.QueryRowContext(ctx, `SELECT operation.message_id FROM operator_steering_operations operation
+		JOIN operator_steering_messages message ON message.id=operation.message_id
+		WHERE operation.operation_key_digest=? AND operation.run_id=? AND message.session_id=?`,
+		keyDigest, runID, sessionID).Scan(&messageID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.OperatorSteeringMessage{}, false, nil
+	}
+	if err != nil {
+		return domain.OperatorSteeringMessage{}, false, err
+	}
+	message, err := s.GetOperatorSteering(ctx, messageID)
+	if err != nil {
+		return domain.OperatorSteeringMessage{}, false, err
+	}
+	return message, true, nil
 }
 
 func (s *SQLiteStore) EnqueueOperatorSteeringIfBusy(ctx context.Context,
@@ -87,6 +130,10 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 		normalized.OperationKey)
 	fingerprint := runmutation.Fingerprint("operator_steering_request.v1", normalized.RunID,
 		normalized.SessionID, contentDigest, normalized.RequestedBy)
+	if normalized.DeliveryMode == domain.OperatorSteeringCurrentTurn {
+		fingerprint = runmutation.Fingerprint("operator_steering_delivery_mode.v1", fingerprint,
+			string(normalized.DeliveryMode))
+	}
 	if len(normalized.Images) > 0 {
 		raw, _ := json.Marshal(normalized.Images)
 		fingerprint = runmutation.Fingerprint("operator_steering_image_request.v1", fingerprint, string(raw))
@@ -135,6 +182,12 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 		return domain.OperatorSteeringEnqueueResult{}, false,
 			apperror.New(apperror.CodeConflict, "operator steering Run and Session binding changed")
 	}
+	if normalized.DeliveryMode == domain.OperatorSteeringCurrentTurn &&
+		(len(normalized.Images) > 0 || len(normalized.Attachments) > 0) {
+		return domain.OperatorSteeringEnqueueResult{}, false,
+			apperror.New(apperror.CodeFailedPrecondition,
+				"Updating the current task supports text only; attachments remain in the draft")
+	}
 	if len(normalized.Images) > 0 || len(normalized.Attachments) > 0 {
 		var workspaceID string
 		if err := tx.QueryRowContext(ctx, `SELECT t.workspace_id FROM threads t JOIN thread_runs tr ON tr.thread_id=t.id WHERE tr.run_id=?`, run.ID).Scan(&workspaceID); err != nil {
@@ -151,6 +204,34 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 		return domain.OperatorSteeringEnqueueResult{}, false,
 			apperror.New(apperror.CodeFailedPrecondition,
 				fmt.Sprintf("run %s cannot accept operator steering while %s", run.ID, run.Status))
+	}
+	targetAttemptID := ""
+	if normalized.DeliveryMode == domain.OperatorSteeringCurrentTurn {
+		if run.Status != domain.RunRunning {
+			return domain.OperatorSteeringEnqueueResult{}, false,
+				apperror.New(apperror.CodeFailedPrecondition,
+					"The current task is not executing; keep this draft and use next turn")
+		}
+		var phase string
+		if err := tx.QueryRowContext(ctx, `SELECT phase,attempt_id FROM run_supervisor_checkpoints
+			WHERE run_id=?`, run.ID).Scan(&phase, &targetAttemptID); err != nil {
+			return domain.OperatorSteeringEnqueueResult{}, false,
+				apperror.New(apperror.CodeFailedPrecondition,
+					"The current task has no active model turn; keep this draft")
+		}
+		if phase != string(domain.SupervisorTurnStarted) || !domain.ValidAgentID(targetAttemptID) {
+			return domain.OperatorSteeringEnqueueResult{}, false,
+				apperror.New(apperror.CodeFailedPrecondition,
+					"The current model turn has ended; keep this draft")
+		}
+		var live int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
+			WHERE run_id=? AND status='active' AND julianday(expires_at)>julianday(?)`,
+			run.ID, ts(time.Now().UTC())).Scan(&live); err != nil || live != 1 {
+			return domain.OperatorSteeringEnqueueResult{}, false,
+				apperror.New(apperror.CodeFailedPrecondition,
+					"The current execution is no longer owned; keep this draft")
+		}
 	}
 	if onlyIfBusy {
 		busy, err := operatorSteeringBusyTx(ctx, tx, run.ID, time.Now().UTC())
@@ -182,6 +263,7 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 	message := domain.OperatorSteeringMessage{
 		ID: idgen.New("steer"), RunID: run.ID, SessionID: run.SessionID, Sequence: sequence,
 		Status: domain.OperatorSteeringPending, Content: normalized.Content, ImageCount: len(normalized.Images), AttachmentCount: len(normalized.Attachments),
+		DeliveryMode: normalized.DeliveryMode, TargetAttemptID: targetAttemptID,
 		ContentSHA256: contentDigest, OriginalContent: normalized.Content,
 		OriginalContentSHA256: contentDigest, RequestedBy: normalized.RequestedBy, CreatedAt: now,
 	}
@@ -192,11 +274,12 @@ func enqueueOperatorSteeringTx(ctx context.Context, tx *sql.Tx,
 	if _, err := tx.ExecContext(ctx, `INSERT INTO operator_steering_messages
 		(id, run_id, session_id, sequence, status, content, content_sha256, requested_by,
 		 session_message_id, created_at, committed_at, cancelled_at,image_count,attachment_count,
-		 revision,original_content,original_content_sha256,edited_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL,?,?,0,?,?,NULL)`, message.ID, message.RunID,
+		 revision,original_content,original_content_sha256,edited_at,delivery_mode,target_attempt_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL,?,?,0,?,?,NULL,?,?)`, message.ID, message.RunID,
 		message.SessionID, message.Sequence, message.Status, message.Content,
 		message.ContentSHA256, message.RequestedBy, ts(message.CreatedAt), message.ImageCount,
-		message.AttachmentCount, message.OriginalContent, message.OriginalContentSHA256); err != nil {
+		message.AttachmentCount, message.OriginalContent, message.OriginalContentSHA256,
+		message.DeliveryMode, message.TargetAttemptID); err != nil {
 		return domain.OperatorSteeringEnqueueResult{}, false, err
 	}
 	for index, ref := range normalized.Attachments {
@@ -314,8 +397,10 @@ func (s *SQLiteStore) CancelOperatorSteering(ctx context.Context,
 				fmt.Sprintf("operator steering %s is already %s", message.ID, message.Status))
 	}
 	var prepared int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM operator_steering_deliveries
-		WHERE message_id = ? AND status = 'prepared'`, message.ID).Scan(&prepared); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT
+		(SELECT COUNT(*) FROM operator_steering_deliveries WHERE message_id=? AND status='prepared') +
+		(SELECT COUNT(*) FROM operator_steering_midturn_claims WHERE message_id=?)`,
+		message.ID, message.ID).Scan(&prepared); err != nil {
 		return domain.OperatorSteeringCancellationResult{}, err
 	}
 	if prepared != 0 {
@@ -352,7 +437,9 @@ func (s *SQLiteStore) CancelOperatorSteering(ctx context.Context,
 		SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'pending'
 			AND NOT EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
 				WHERE delivery.message_id = operator_steering_messages.id
-					AND delivery.status = 'prepared')`, ts(now), message.ID)
+					AND delivery.status = 'prepared')
+			AND NOT EXISTS (SELECT 1 FROM operator_steering_midturn_claims claim
+				WHERE claim.message_id=operator_steering_messages.id)`, ts(now), message.ID)
 	if err != nil {
 		return domain.OperatorSteeringCancellationResult{}, err
 	}
@@ -477,8 +564,10 @@ func (s *SQLiteStore) ListOperatorSteering(ctx context.Context, runID string,
 		message.content_sha256,message.revision,message.original_content,message.original_content_sha256,
 		message.requested_by, message.session_message_id,
 		message.created_at, message.committed_at, message.cancelled_at,message.edited_at,
-		EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
-			WHERE delivery.message_id = message.id AND delivery.status = 'prepared'), message.image_count,message.attachment_count
+		message.status='pending' AND (EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
+		WHERE delivery.message_id = message.id AND delivery.status = 'prepared') OR
+		EXISTS (SELECT 1 FROM operator_steering_midturn_claims claim WHERE claim.message_id=message.id)),
+		message.image_count,message.attachment_count,message.delivery_mode,message.target_attempt_id
 		FROM (SELECT * FROM operator_steering_messages WHERE run_id = ?
 			ORDER BY sequence DESC LIMIT ?) message ORDER BY message.sequence`, runID, limit)
 	if err != nil {
@@ -554,6 +643,7 @@ func selectOperatorSteeringForTurnTx(ctx context.Context, tx *sql.Tx, runID stri
 	preferredMessageID string,
 ) (domain.OperatorSteeringMessage, bool, error) {
 	query := operatorSteeringSelect + ` WHERE message.run_id = ? AND message.status = 'pending'
+		AND message.delivery_mode='next_turn'
 		AND NOT EXISTS (SELECT 1 FROM operator_steering_deliveries delivery
 			WHERE delivery.message_id = message.id AND delivery.status = 'prepared')`
 	args := []any{runID}
@@ -714,6 +804,7 @@ func pendingOperatorSteeringAfterCurrentTx(ctx context.Context, tx *sql.Tx,
 	var count int
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM operator_steering_messages message
 		WHERE message.run_id = ? AND message.status = 'pending'
+			AND message.delivery_mode='next_turn'
 			AND message.id != COALESCE((SELECT delivery.message_id
 				FROM operator_steering_deliveries delivery
 				WHERE delivery.run_id = ? AND delivery.attempt_id = ?
@@ -934,7 +1025,8 @@ func getOperatorSteeringMessageRow(row operatorSteeringRow) (domain.OperatorStee
 		&message.Status, &message.Content, &message.ContentSHA256, &message.Revision,
 		&message.OriginalContent, &message.OriginalContentSHA256, &message.RequestedBy,
 		&sessionMessageID, &createdAt, &committedAt, &cancelledAt, &editedAt,
-		&message.Prepared, &message.ImageCount, &message.AttachmentCount); err != nil {
+		&message.Prepared, &message.ImageCount, &message.AttachmentCount,
+		&message.DeliveryMode, &message.TargetAttemptID); err != nil {
 		return domain.OperatorSteeringMessage{}, err
 	}
 	message.SessionMessageID = sessionMessageID.Int64

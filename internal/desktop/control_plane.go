@@ -492,19 +492,15 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		WithLifecycleHooks(hookEngine)
 	webFetchAuthorizationSchedulerEnabled :=
 		webFetchAuthorizationReconcilerEnabled(config)
-	executionControl := application.NewRunExecutionHandoffService(stateStore,
-		models.Router(), checker).WithDrydock(commandRuntimeDrydocks).WithActiveCalls(
-		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
-		WithWebEvidence(webEvidence).
-		WithWebFetchAuthorizationScheduler(webFetchAuthorizationSchedulerEnabled).
-		WithExecutionPermissionCapabilities(config.ExecutionPermissionCapabilities).
-		WithLifecycleHooks(hookEngine)
+	runtimeDependencies := application.RunRuntimeDependencies{
+		ActiveCalls: application.NewActiveCallRegistry(), Drydocks: commandRuntimeDrydocks,
+		MCPClient: mcpClient, WebEvidence: webEvidence, LifecycleHooks: hookEngine,
+		WebFetchAuthorizationScheduler: webFetchAuthorizationSchedulerEnabled,
+		ExecutionCapabilities:          config.ExecutionPermissionCapabilities,
+		StandardCodeDelivery:           standardCodeDelivery, CodeIntel: codeIntelManager,
+	}
 	if standardCodeDelivery != nil {
 		standardCodeDeliveryController = standardCodeDelivery
-		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
-	}
-	if codeIntelManager != nil {
-		executionControl.WithCodeIntel(codeIntelManager)
 	}
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
 		idgen.New("command-runtime-owner"))
@@ -617,7 +613,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 	}
 	if commandRuntime != nil {
-		executionControl.WithCommandRuntime(commandRuntime)
+		runtimeDependencies.CommandRuntime = commandRuntime
 	}
 	uiEvidence, err := application.NewUIEvidenceReadService(stateStore)
 	if err != nil {
@@ -689,7 +685,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		// The Supervisor may act only through an operator-opened, ready session.
 		// WithBrowserActions advertises no Open/Close tool and revalidates the
 		// execution permission, browser permission, and runtime fence per action.
-		executionControl.WithBrowserActions(fullCDPSessions)
+		runtimeDependencies.BrowserActions = fullCDPSessions
 	}
 	// The ordinary Agent browser starts only when an authorized model navigates.
 	// It uses a separate profile and service from the operator's Full CDP session.
@@ -699,7 +695,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		agentBrowser = application.NewAgentBrowserService(stateStore, application.AgentBrowserOptions{
 			HomePath: home, Capabilities: config.ExecutionPermissionCapabilities,
 			Headless: true})
-		executionControl.WithAgentBrowser(agentBrowser)
+		runtimeDependencies.AgentBrowser = agentBrowser
 		agentBrowserController = agentBrowser
 	}
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
@@ -708,7 +704,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
-	executionControl.WithDockerSandboxProposalExecutor(dockerProposalExecutor)
+	runtimeDependencies.DockerSandbox = dockerProposalExecutor
+	executionControl := application.NewRunExecutionHandoffWithRuntime(stateStore,
+		models.Router(), checker, runtimeDependencies)
 	planDeliveryControl := application.NewPlanDeliveryControlService(stateStore)
 	approvalGateway := toolgateway.New(stateStore, checker).
 		WithDockerSandboxProposalExecutor(dockerProposalExecutor).

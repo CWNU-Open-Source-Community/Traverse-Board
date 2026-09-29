@@ -1423,25 +1423,19 @@ func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr e
 	if fs.NArg() != 1 {
 		return errors.New("usage: cyberagent run step <run-id> [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
 	}
-	supervisor := a.newRunSupervisor()
-	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
-		return err
-	}
-	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
-		*enablePermissionControl, *enableFullAccess, *enableDebug)
+	runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
+		*enablePermissionControl, *enableFullAccess, *enableDebug), true)
 	if err != nil {
 		return err
 	}
-	if commandRuntime != nil {
-		supervisor.WithCommandRuntime(commandRuntime)
-	}
-	supervisor.WithExecutionPermissionCapabilities(cliExecutionPermissionCapabilities(
-		*enablePermissionControl, *enableFullAccess, *enableDebug))
-	stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
 	defer func() {
-		resultErr = errors.Join(resultErr, stopReconciler(),
-			shutdownCLICommandRuntime(manager))
+		resultErr = errors.Join(resultErr, runtime.close())
 	}()
+	supervisor := application.NewRunSupervisorWithRuntime(a.store, a.router, a.checker,
+		runtime.dependencies(a))
+	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
+		return err
+	}
 	result, err := supervisor.Step(ctx, fs.Arg(0))
 	if err != nil {
 		return err
@@ -1504,25 +1498,19 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultEr
 	if fs.NArg() != 1 || *maxSteps <= 0 {
 		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
 	}
-	supervisor := a.newRunSupervisor()
-	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
-		return err
-	}
-	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
-		*enablePermissionControl, *enableFullAccess, *enableDebug)
+	runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
+		*enablePermissionControl, *enableFullAccess, *enableDebug), true)
 	if err != nil {
 		return err
 	}
-	if commandRuntime != nil {
-		supervisor.WithCommandRuntime(commandRuntime)
-	}
-	supervisor.WithExecutionPermissionCapabilities(cliExecutionPermissionCapabilities(
-		*enablePermissionControl, *enableFullAccess, *enableDebug))
-	stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
 	defer func() {
-		resultErr = errors.Join(resultErr, stopReconciler(),
-			shutdownCLICommandRuntime(manager))
+		resultErr = errors.Join(resultErr, runtime.close())
 	}()
+	supervisor := application.NewRunSupervisorWithRuntime(a.store, a.router, a.checker,
+		runtime.dependencies(a))
+	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
+		return err
+	}
 	result, err := supervisor.Execute(ctx, fs.Arg(0), *maxSteps)
 	for _, step := range result.Steps {
 		fmt.Fprintf(a.out, "turn %d\t%s\t%s/%s\tattempts=%d\trepairs=%d\ttool_rounds=%d\ttool_calls=%d\tstream_events=%d\ttokens=%d\tnext=%d\n",
@@ -1555,15 +1543,20 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultEr
 func (a *App) newCLICommandRuntime(ctx context.Context,
 	enablePermissionControl bool, enableFullAccess bool, enableDebug bool,
 ) (*runner.CommandRuntimeManager, *application.CommandRuntimeService, error) {
-	if !enablePermissionControl && !enableFullAccess && !enableDebug {
+	return a.newCLICommandRuntimeWithCapabilities(ctx, cliExecutionPermissionCapabilities(
+		enablePermissionControl, enableFullAccess, enableDebug))
+}
+
+func (a *App) newCLICommandRuntimeWithCapabilities(ctx context.Context,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) (*runner.CommandRuntimeManager, *application.CommandRuntimeService, error) {
+	if !capabilities.OperatorApprovalEnabled && !capabilities.DangerFullAccessEnabled && !capabilities.DebugMaximumAccessEnabled {
 		return nil, nil, nil
 	}
-	if !enablePermissionControl || !enableFullAccess {
+	if !capabilities.OperatorApprovalEnabled || !capabilities.DangerFullAccessEnabled {
 		return nil, nil, apperror.New(apperror.CodeInvalidArgument,
 			"command runtime requires both --enable-permission-control and --enable-danger-full-access")
 	}
-	capabilities := cliExecutionPermissionCapabilities(enablePermissionControl,
-		enableFullAccess, enableDebug)
 	if err := capabilities.Validate(); err != nil {
 		return nil, nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"command runtime startup capability is invalid", err)
@@ -1593,6 +1586,7 @@ func cliExecutionPermissionCapabilities(enablePermissionControl bool,
 		OperatorApprovalEnabled:   enablePermissionControl,
 		DangerFullAccessEnabled:   enableFullAccess,
 		DebugMaximumAccessEnabled: enableDebug,
+		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 }
 

@@ -76,6 +76,68 @@ func TestSessionMessageControlQueuesRedactedMetadataWithoutStartingExecution(t *
 	assertAPIError(t, changed, http.StatusConflict, string(apperror.CodeConflict))
 }
 
+func TestSessionMessageOperationObservationUsesReadBearerAndExactOriginalKey(t *testing.T) {
+	fixture := newAPIFixture(t)
+	path := "/api/v1/sessions/" + fixture.run.SessionID + "/messages"
+	key := "http-session-observe-original-0001"
+	accepted := performControlPathRequest(t, fixture.api, path, key,
+		strings.NewReader(`{"version":"session_message_submission.v1","content":"private correction"}`))
+	var submitted SessionMessageControlView
+	decodeDataStatus(t, accepted, http.StatusAccepted, &submitted)
+	observePath := path + "/operations/" + key
+	observed := fixture.request(t, http.MethodGet, observePath, testAccessToken,
+		"127.0.0.1:8765", "127.0.0.1:45000", nil)
+	var view SessionMessageOperationObservationView
+	decodeDataStatus(t, observed, http.StatusOK, &view)
+	if view.State != "received" || view.MessageID != submitted.Steering.ID ||
+		view.MessageStatus != string(domain.OperatorSteeringPending) ||
+		view.DeliveryMode != string(domain.OperatorSteeringNextTurn) ||
+		strings.Contains(observed.Body.String(), "private correction") ||
+		strings.Contains(observed.Body.String(), key) {
+		t.Fatalf("operation observation=%#v body=%s", view, observed.Body.String())
+	}
+	missing := fixture.request(t, http.MethodGet, path+"/operations/http-session-observe-missing-0001",
+		testAccessToken, "127.0.0.1:8765", "127.0.0.1:45000", nil)
+	view = SessionMessageOperationObservationView{}
+	decodeDataStatus(t, missing, http.StatusOK, &view)
+	if view.State != "not_received" || view.MessageID != "" || view.MessageStatus != "" || view.DeliveryMode != "" {
+		t.Fatalf("missing operation=%#v", view)
+	}
+	unauthorized := fixture.request(t, http.MethodGet, observePath, testControlToken,
+		"127.0.0.1:8765", "127.0.0.1:45000", nil)
+	assertAPIError(t, unauthorized, http.StatusUnauthorized, string(apperror.CodePolicyDenied))
+}
+
+func TestSessionMessageControlAcceptsExplicitCurrentTurnModeAndObservesIt(t *testing.T) {
+	fixture := newAPIFixture(t)
+	path := "/api/v1/sessions/" + fixture.run.SessionID + "/messages"
+	key := "http-session-steer-current-0001"
+	body := `{"version":"session_message_submission.v1","content":"Correct the current task",` +
+		`"delivery_mode":"steer"}`
+	response := performControlPathRequest(t, fixture.api, path, key, strings.NewReader(body))
+	var submitted SessionMessageControlView
+	decodeDataStatus(t, response, http.StatusAccepted, &submitted)
+	stored, err := fixture.store.GetOperatorSteering(t.Context(), submitted.Steering.ID)
+	if err != nil || stored.DeliveryMode != domain.OperatorSteeringCurrentTurn ||
+		stored.TargetAttemptID != fixture.checkpoint.AttemptID || stored.Status != domain.OperatorSteeringPending {
+		t.Fatalf("current-turn HTTP admission=%#v err=%v", stored, err)
+	}
+	observed := fixture.request(t, http.MethodGet, path+"/operations/"+key,
+		testAccessToken, "127.0.0.1:8765", "127.0.0.1:45000", nil)
+	var view SessionMessageOperationObservationView
+	decodeDataStatus(t, observed, http.StatusOK, &view)
+	if view.State != "received" || view.MessageID != stored.ID || view.DeliveryMode != "steer" ||
+		strings.Contains(observed.Body.String(), stored.Content) {
+		t.Fatalf("current-turn observation=%#v body=%s", view, observed.Body.String())
+	}
+	replayed := performControlPathRequest(t, fixture.api, path, key, strings.NewReader(body))
+	var replayView SessionMessageControlView
+	decodeDataStatus(t, replayed, http.StatusAccepted, &replayView)
+	if !replayView.Replayed || replayView.Steering.ID != stored.ID {
+		t.Fatalf("current-turn HTTP replay=%#v", replayView)
+	}
+}
+
 func TestSessionMessageControlCapabilityAndBearerAreIndependent(t *testing.T) {
 	fixture := newAPIFixture(t)
 	requestPath := "/api/v1/sessions/" + fixture.run.SessionID + "/messages"

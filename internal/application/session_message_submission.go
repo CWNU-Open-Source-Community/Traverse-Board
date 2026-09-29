@@ -26,6 +26,7 @@ type SubmitSessionMessageRequest struct {
 	Content      string
 	OperationKey string
 	RequestedBy  string
+	DeliveryMode domain.OperatorSteeringDeliveryMode
 }
 
 type SubmitSessionMessageResult struct {
@@ -98,6 +99,7 @@ func (s *SessionMessageSubmissionService) Submit(ctx context.Context,
 		domain.EnqueueOperatorSteeringRequest{
 			RunID: run.ID, SessionID: linkedSession.ID, Content: content,
 			OperationKey: operationKey, RequestedBy: requestedBy,
+			DeliveryMode: request.DeliveryMode,
 		})
 	if err != nil {
 		return SubmitSessionMessageResult{}, apperror.Normalize(err)

@@ -423,13 +423,6 @@ func (p *OpenAICompatibleProvider) normalizeResponse(defaultModel string, respon
 	if !utf8.ValidString(text) || len(text) > MaxModelOutputBytes {
 		return nil, openAIProtocolError(p.name, "returned invalid response text")
 	}
-	calls, err := normalizeOpenAIToolCalls(choice.Message.ToolCalls)
-	if err != nil {
-		return nil, openAIProtocolError(p.name, "returned invalid tool calls")
-	}
-	if err := validateOpenAIFinishReason(choice.FinishReason, text != "", len(calls)); err != nil {
-		return nil, openAIProtocolError(p.name, "returned an incompatible finish reason")
-	}
 	if response.Usage == nil {
 		return nil, openAIProtocolError(p.name, "omitted token usage")
 	}
@@ -440,13 +433,28 @@ func (p *OpenAICompatibleProvider) normalizeResponse(defaultModel string, respon
 	if _, err := normalizeOpenAIModel(response.Model); err != nil {
 		return nil, openAIProtocolError(p.name, "returned an invalid model identity")
 	}
-	return &ChatResponse{
+	finishReason := openAIFinishReason(choice.FinishReason)
+	var calls []ToolCall
+	if CompletionError(p.name, finishReason) == nil {
+		calls, err = normalizeOpenAIToolCalls(choice.Message.ToolCalls)
+		if err != nil {
+			return nil, openAIProtocolError(p.name, "returned invalid tool calls")
+		}
+		if err := validateOpenAIFinishReason(finishReason, text != "", len(calls)); err != nil {
+			return nil, openAIProtocolError(p.name, "returned an incompatible finish reason")
+		}
+	}
+	result := &ChatResponse{
 		Text: text, ToolCalls: calls, Usage: usage, Raw: nil,
 		// OpenAI may resolve a stable alias to a dated snapshot in the wire
 		// response. Keep the selected Router identity stable while still
 		// requiring a valid upstream identity above.
-		Model: defaultModel, Provider: p.name,
-	}, nil
+		Model: defaultModel, Provider: p.name, FinishReason: finishReason,
+	}
+	if completionErr := CompletionError(p.name, finishReason); completionErr != nil {
+		return result, completionErr
+	}
+	return result, nil
 }
 
 func normalizeOpenAIToolCalls(wire []openAIToolCall) ([]ToolCall, error) {
@@ -484,18 +492,43 @@ func normalizeOpenAIUsage(wire openAIUsage) (Usage, error) {
 	return usage, usage.Validate()
 }
 
-func validateOpenAIFinishReason(reason string, hasText bool, toolCount int) error {
-	switch strings.TrimSpace(reason) {
-	case "stop":
+func openAIFinishReason(reason string) FinishReason {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "":
+		return ""
+	case "stop", "end_turn":
+		return FinishReasonStop
+	case "tool_calls", "tool_use":
+		return FinishReasonToolCalls
+	case "length", "max_tokens", "max_output_tokens":
+		return FinishReasonLength
+	case "pause", "pause_turn":
+		return FinishReasonPause
+	case "refusal", "content_filter":
+		return FinishReasonRefusal
+	case "context_limit", "context_length_exceeded", "model_context_window_exceeded":
+		return FinishReasonContextLimit
+	default:
+		return FinishReasonUnknown
+	}
+}
+
+func validateOpenAIFinishReason(reason FinishReason, hasText bool, toolCount int) error {
+	switch reason {
+	case FinishReasonStop:
 		if toolCount != 0 || !hasText {
 			return errors.New("stop finish did not contain text")
 		}
-	case "tool_calls":
+	case FinishReasonToolCalls:
 		if toolCount == 0 {
 			return errors.New("tool finish did not contain calls")
 		}
+	case "", FinishReasonUnknown:
+		if !hasText && toolCount == 0 {
+			return errors.New("legacy finish did not contain usable output")
+		}
 	default:
-		return errors.New("finish reason is unsupported or incomplete")
+		return errors.New("finish reason is not successful")
 	}
 	return nil
 }
@@ -626,7 +659,11 @@ func openAIHTTPError(provider string, statusCode int, retryAfter string, raw []b
 	// for authentication and throttling responses.
 	wireReason := ProviderFailureNone
 	if utf8.Valid(raw) && json.Unmarshal(raw, &envelope) == nil && envelope.Error != nil {
-		wireReason = classifyOpenAIWireError(*envelope.Error)
+		if statusCode == http.StatusBadRequest && isOpenAIContextLimit(*envelope.Error) {
+			wireReason = ProviderFailureContextLimit
+		} else {
+			wireReason = classifyOpenAIWireError(*envelope.Error)
+		}
 	}
 	if statusCode == http.StatusNotFound {
 		// A bare 404 normally means the configured Chat Completions path is
@@ -696,6 +733,12 @@ func classifyOpenAIWireError(wire openAIError) ProviderFailureReason {
 		}
 	}
 	return ProviderFailureNone
+}
+
+func isOpenAIContextLimit(wire openAIError) bool {
+	var code string
+	return len(wire.Code) > 0 && json.Unmarshal(wire.Code, &code) == nil &&
+		strings.EqualFold(strings.TrimSpace(code), "context_length_exceeded")
 }
 
 type openAIChatRequest struct {
@@ -1029,6 +1072,13 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 	if !s.responseModel {
 		return ChatChunk{}, openAIProtocolError(s.provider, "stream omitted its model identity")
 	}
+	finishReason := openAIFinishReason(s.finishReason)
+	usage := *s.usage
+	if completionErr := CompletionError(s.provider, finishReason); completionErr != nil {
+		return ChatChunk{Done: false, Usage: &usage, Model: s.model, Provider: s.provider,
+			FinishReason: finishReason, Err: completionErr,
+			Events: []StreamEvent{s.events.terminalEvent(OutcomePermanent, &usage)}}, nil
+	}
 	indices := make([]int, 0, len(s.tools))
 	for index := range s.tools {
 		indices = append(indices, index)
@@ -1052,10 +1102,9 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 	if err != nil {
 		return ChatChunk{}, openAIProtocolError(s.provider, "stream returned invalid tool calls")
 	}
-	if err := validateOpenAIFinishReason(s.finishReason, s.hasTextDelta, len(calls)); err != nil {
+	if err := validateOpenAIFinishReason(finishReason, s.hasTextDelta, len(calls)); err != nil {
 		return ChatChunk{}, openAIProtocolError(s.provider, "stream returned an incompatible finish reason")
 	}
-	usage := *s.usage
 	events := make([]StreamEvent, 0, 3+len(calls)*2)
 	if s.textItemSeen {
 		events = append(events, s.events.emit(StreamEvent{
@@ -1087,7 +1136,7 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 	}
 	events = append(events, s.events.terminalEvent(OutcomeSuccess, &usage))
 	return ChatChunk{Done: true, ToolCalls: calls, Events: events, Usage: &usage,
-		Model: s.model, Provider: s.provider}, nil
+		Model: s.model, Provider: s.provider, FinishReason: finishReason}, nil
 }
 
 func (s *openAIStreamState) ensureStreamStarted() []StreamEvent {

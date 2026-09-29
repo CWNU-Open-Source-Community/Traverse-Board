@@ -133,20 +133,20 @@ function QueuePanel({ client, running, ...binding }: QueueBinding & { client: Cy
     {recoveryError && <p role="alert">{recoveryError}</p>}
     {notice && <p role="status">{notice}</p>}
     <ol>{items.map((message) => <li key={message.id}>
-      <div className="v2-queued-message-heading"><strong>消息 {message.sequence}</strong><span>{message.prepared ? "正在处理，无法修改或撤回" : "等待处理"}</span></div>
+      <div className="v2-queued-message-heading"><strong>消息 {message.sequence} · {message.delivery_mode === "steer" ? "更新当前任务" : "下一轮处理"}</strong><span>{message.prepared ? "正在处理，无法修改或撤回" : "等待处理"}</span></div>
       <details><summary><span className="v2-queued-message-preview">{message.content || "附件消息"}</span><span>查看全文</span></summary>
         <pre tabIndex={0}>{message.content || "（没有文字）"}</pre>
         {message.content_redacted && <p>正文包含已隐藏内容。编辑时请填写完整的新正文。</p>}
       </details>
       <V2ImagePreview client={client} images={message.images} /><V2FileAttachments client={client} attachments={message.attachments} />
-      <div className="v2-queued-message-actions">
+      {!message.prepared && <div className="v2-queued-message-actions">
         <button type="button" disabled={!message.can_edit || !client.hasSessionSteeringControl || !store || !!recoveryError ||
           recoveredIDs.has(message.id) || busy.includes(message.id) || operations.some((operation) => operation.messageID === message.id)} onClick={() => startEdit(message)}>编辑</button>
         <button type="button" disabled={!message.can_cancel || !client.hasSessionSteeringControl || !store || !!recoveryError ||
           busy.includes(message.id) || operations.some((operation) => operation.messageID === message.id)} onClick={() => submit({ ...binding,
           version: "queue_operation.v1", kind: "cancel", operationKey: crypto.randomUUID(), messageID: message.id,
           expectedRevision: message.revision, oldSHA256: message.content_sha256, content: "" })}>撤回</button>
-      </div>
+      </div>}
     </li>)}</ol>
     {document && store && edits.map((edit) => <QueueEditor key={queueEditKey(edit)} edit={edit} document={document} store={store}
       client={client} current={edit.runID === binding.runID && edit.sessionID === binding.sessionID ? items.find((message) => message.id === edit.message.id) : undefined} refresh={refresh}

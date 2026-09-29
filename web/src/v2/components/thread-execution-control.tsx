@@ -56,9 +56,9 @@ export function V2PausedThreadControl({ client, threadID, runID }: {
         `v2-resume-${globalThis.crypto.randomUUID()}`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(threadID) }),
   });
-  return <div className="v2-paused-thread" role="status">本轮已暂停，可发送新消息继续。
+  return <div className="v2-paused-thread" role="status">本轮已暂停。发送新消息会恢复任务并继续处理；也可以仅解除暂停。
     {client.hasRunLifecycle && <button disabled={resume.isPending} onClick={() => resume.mutate()}
-      title="仅解除暂停，不会重试失败工具；发送新消息才会继续处理要求" type="button">
+      title="仅恢复运行，不会重试失败的操作；未处理的要求仍等新消息继续" type="button">
       {resume.isPending ? "正在解除…" : "解除暂停"}</button>}
     {resume.isError && <p role="alert">解除暂停未确认，可重试：{resume.error.message}</p>}
   </div>;

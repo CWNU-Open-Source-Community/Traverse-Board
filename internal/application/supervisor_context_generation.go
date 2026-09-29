@@ -163,14 +163,17 @@ func (g *supervisorSummaryGenerator) Generate(ctx context.Context, input context
 			callErr = llm.NewProviderError(llm.OutcomeInvalidResponse, ref.Provider, "empty summary model response", nil)
 		}
 		failure := llm.NormalizeProviderError(ref.Provider, callErr)
-		attempt.Outcome, attempt.ErrorText = failure.Kind, failure.Error()
-		updated, persistErr := s.store.RecordSupervisorModelFailed(eventCtx, turn.Checkpoint, attempt)
+		attempt.Outcome, attempt.ErrorText, attempt.FailureReason = failure.Kind, failure.Error(), failure.Reason
+		var receivedUsage *llm.Usage
+		if response != nil && response.Usage.Validate() == nil {
+			receivedUsage = &response.Usage
+		}
+		updated, persistErr := s.recordFailedModelAccounting(eventCtx, turn.Checkpoint, attempt, receivedUsage, 0)
 		if updated.RunID != "" {
 			turn.Checkpoint = updated
 		}
-		_, moneyErr := monetary.SettleUnknownModelCall(eventCtx, turn.Run.ID, domain.MonetaryScopeRoot, attempt)
-		if persistErr != nil || moneyErr != nil || cancelled != nil || ctx.Err() != nil || failure.Kind == llm.OutcomeCancelled {
-			return result, errors.Join(contextmgr.ErrSummaryGenerationAborted, callErr, persistErr, moneyErr, cancelled, ctx.Err())
+		if persistErr != nil || cancelled != nil || ctx.Err() != nil || failure.Kind == llm.OutcomeCancelled {
+			return result, errors.Join(contextmgr.ErrSummaryGenerationAborted, callErr, persistErr, cancelled, ctx.Err())
 		}
 		return result, fmt.Errorf("generation_provider_failure: %w", callErr)
 	}

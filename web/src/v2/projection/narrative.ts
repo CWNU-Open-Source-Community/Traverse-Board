@@ -29,6 +29,7 @@ export type NarrativeEntry =
       images?: WorkspaceImageAttachment[];
       attachments?: WorkspaceFileAttachment[];
       status?: string;
+      deliveryMode?: string;
       createdAt: string;
       provisional: boolean;
     }
@@ -235,7 +236,7 @@ export function projectThreadNarrative(
       // event's status title as if the user had typed it.
       const text = images?.length || attachments?.length ? item.detail?.trim() ?? "" : normalizedText(item);
       if (text || images?.length || attachments?.length) result.push({ id: item.id, kind: "user", text, images, attachments,
-        status: item.status, createdAt: item.created_at, provisional: item.provisional });
+        status: item.status, deliveryMode: item.delivery_mode, createdAt: item.created_at, provisional: item.provisional });
       continue;
     }
 

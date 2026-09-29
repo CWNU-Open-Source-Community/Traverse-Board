@@ -349,55 +349,117 @@ func supervisorToolDurableCallIDs(calls []llm.ToolCall) []string {
 func (s *SQLiteStore) RecordSupervisorToolExecutionStarted(ctx context.Context,
 	checkpoint domain.SupervisorCheckpoint, callID string,
 ) (bool, error) {
+	fresh, _, err := s.recordSupervisorToolExecutionStarted(ctx, checkpoint, callID, false, true)
+	return fresh, err
+}
+
+// RecordSupervisorToolExecutionStartedWithSteering serializes the execution
+// start against correction admission. A superseded call receives a terminal
+// not-dispatched result without an execution-start or execution-completed event.
+func (s *SQLiteStore) RecordSupervisorToolExecutionStartedWithSteering(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, callID string,
+) (bool, bool, error) {
+	return s.recordSupervisorToolExecutionStarted(ctx, checkpoint, callID, true, true)
+}
+
+func (s *SQLiteStore) SupersedeSupervisorToolIfSteeringChanged(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, callID string,
+) (bool, error) {
+	_, superseded, err := s.recordSupervisorToolExecutionStarted(ctx, checkpoint, callID, true, false)
+	return superseded, err
+}
+
+func (s *SQLiteStore) recordSupervisorToolExecutionStarted(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, callID string, steeringFence bool, start bool,
+) (bool, bool, error) {
 	if err := checkpoint.Validate(); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if checkpoint.Phase != domain.SupervisorTurnStarted {
-		return false, apperror.New(apperror.CodeFailedPrecondition,
+		return false, false, apperror.New(apperror.CodeFailedPrecondition,
 			"only a started supervisor turn can execute a tool")
 	}
 	callID = strings.TrimSpace(callID)
 	if callID == "" || len([]rune(callID)) > domain.MaxSupervisorToolIdentityRunes {
-		return false, apperror.New(apperror.CodeInvalidArgument, "supervisor tool call id is invalid")
+		return false, false, apperror.New(apperror.CodeInvalidArgument, "supervisor tool call id is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	run, current, err := requireActiveSupervisorAttemptTx(ctx, tx, checkpoint)
 	if err != nil {
-		return false, err
+		return false, false, err
+	}
+	if err := lockRunningRunForSteeringTx(ctx, tx, run.ID); err != nil {
+		return false, false, err
 	}
 	call, err := getSupervisorToolCallTx(ctx, tx, current, callID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	exists, err := supervisorModelEventExistsTx(ctx, tx, run.ID,
 		events.SupervisorToolExecutionStartedEvent, call.CallID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if exists {
 		if err := tx.Commit(); err != nil {
-			return false, err
+			return false, false, err
 		}
-		return false, nil
+		return false, false, nil
 	}
 	if call.Status != domain.SupervisorToolPending {
-		return false, apperror.New(apperror.CodeConflict,
+		return false, false, apperror.New(apperror.CodeConflict,
 			"only a pending supervisor tool can begin execution")
+	}
+	if steeringFence {
+		var payloadJSON string
+		if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM run_events
+			WHERE run_id=? AND type=? AND source='model_gateway' AND subject_id=?`,
+			run.ID, events.ModelStartedEvent,
+			supervisorModelSubject(current, call.ModelAttempt)).Scan(&payloadJSON); err != nil {
+			return false, false, err
+		}
+		payload, err := parseSupervisorModelStartedPayload(payloadJSON)
+		if err != nil {
+			return false, false, err
+		}
+		sequence, err := midturnSteeringSequenceTx(ctx, tx, run.ID, current.AttemptID)
+		if err != nil {
+			return false, false, err
+		}
+		if payload.SteeringSequence != sequence {
+			result := domain.SupervisorToolResult{CallID: call.CallID,
+				Status: domain.SupervisorToolDenied, ErrorCode: "steering_superseded",
+				ResultJSON:  fmt.Sprintf(`{"version":"supervisor_tool_result.v1","tool":%q,"status":"denied","outcome":"not_dispatched","reason":"steering_superseded"}`, call.ToolName),
+				CompletedAt: time.Now().UTC()}
+			if _, err := recordSupervisorToolResultTx(ctx, tx, run, current, call, result, false); err != nil {
+				return false, false, err
+			}
+			if err := tx.Commit(); err != nil {
+				return false, false, err
+			}
+			return false, true, nil
+		}
+	}
+	if !start {
+		if err := tx.Commit(); err != nil {
+			return false, false, err
+		}
+		return false, false, nil
 	}
 	if err := appendSupervisorEventTx(ctx, tx, run,
 		events.SupervisorToolExecutionStartedEvent, "run_supervisor", call.CallID,
 		supervisorToolStreamEventPayload(call, domain.SupervisorToolPending,
 			llm.StreamToolExecutionStarted)); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return true, nil
+	return true, false, nil
 }
 
 func supervisorToolStreamEventPayload(call domain.SupervisorToolCall,
@@ -643,7 +705,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 			return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition, "supervisor tool result requires a durable execution start")
 		}
 	}
-	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result)
+	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result, true)
 	if err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
@@ -654,7 +716,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 }
 
 func recordSupervisorToolResultTx(ctx context.Context, tx *sql.Tx, run domain.Run, current domain.SupervisorCheckpoint,
-	call domain.SupervisorToolCall, result domain.SupervisorToolResult,
+	call domain.SupervisorToolCall, result domain.SupervisorToolResult, dispatched bool,
 ) (domain.SupervisorToolCall, error) {
 	completedAt := result.CompletedAt.UTC()
 	update, err := tx.ExecContext(ctx, `UPDATE run_supervisor_tool_calls
@@ -677,16 +739,22 @@ func recordSupervisorToolResultTx(ctx context.Context, tx *sql.Tx, run domain.Ru
 	call.ResultJSON = result.ResultJSON
 	call.ErrorCode = result.ErrorCode
 	call.CompletedAt = &completedAt
-	if err := appendSupervisorEventTx(ctx, tx, run,
-		events.SupervisorToolExecutionCompletedEvent, "run_supervisor", call.CallID,
-		supervisorToolStreamEventPayload(call, call.Status,
-			llm.StreamToolExecutionCompleted)); err != nil {
-		return domain.SupervisorToolCall{}, err
+	if dispatched {
+		if err := appendSupervisorEventTx(ctx, tx, run,
+			events.SupervisorToolExecutionCompletedEvent, "run_supervisor", call.CallID,
+			supervisorToolStreamEventPayload(call, call.Status,
+				llm.StreamToolExecutionCompleted)); err != nil {
+			return domain.SupervisorToolCall{}, err
+		}
 	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.SupervisorToolResultEvent, "run_supervisor",
 		call.CallID, func() map[string]any {
 			payload := supervisorToolStreamEventPayload(call, call.Status, "")
 			payload["error_code"] = call.ErrorCode
+			if !dispatched {
+				payload["outcome"] = "not_dispatched"
+				payload["reason"] = "steering_superseded"
+			}
 			return payload
 		}()); err != nil {
 		return domain.SupervisorToolCall{}, err

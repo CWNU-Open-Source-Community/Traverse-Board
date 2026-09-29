@@ -14,6 +14,11 @@ type supervisorModelFailureUsageStore interface {
 		llm.ModelAttempt, llm.Usage, int) (domain.SupervisorCheckpoint, error)
 }
 
+type supervisorCompactionFailureUsageStore interface {
+	RecordSupervisorCompactionFailedWithUsage(context.Context, domain.SupervisorCheckpoint,
+		llm.ModelAttempt, llm.Usage) (domain.SupervisorCheckpoint, error)
+}
+
 func sameModelAccountingEpoch(current, expected domain.SupervisorCheckpoint) bool {
 	return current.RunID == expected.RunID && current.AttemptID == expected.AttemptID &&
 		current.NextTurn == expected.NextTurn && current.LeaseID == expected.LeaseID &&
@@ -64,7 +69,9 @@ func (s *RunSupervisor) recordFailedModelAccounting(ctx context.Context,
 	var updated domain.SupervisorCheckpoint
 	var err error
 	if usage != nil {
-		if accounting, ok := s.store.(supervisorModelFailureUsageStore); ok {
+		if auxiliary, ok := s.store.(supervisorCompactionFailureUsageStore); ok && attempt.Purpose == llm.ModelPurposeContextCompaction {
+			updated, err = auxiliary.RecordSupervisorCompactionFailedWithUsage(eventCtx, checkpoint, attempt, *usage)
+		} else if accounting, ok := s.store.(supervisorModelFailureUsageStore); ok && attempt.Purpose == "" {
 			updated, err = accounting.RecordSupervisorModelFailedWithUsage(eventCtx, checkpoint,
 				attempt, *usage, toolCount)
 		} else {

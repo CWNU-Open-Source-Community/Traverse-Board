@@ -408,6 +408,7 @@
         "once_command_spec.v1",
         "operator_steering_cancellation_operation.v1",
         "operator_steering_cancellation_request.v1",
+        "operator_steering_delivery_mode.v1",
         "operator_steering_image_request.v1",
         "operator_steering_operation.v1",
         "operator_steering_request.v1",
@@ -940,7 +941,8 @@
         "provider_native_search_tool.v1",
         "provider_registry_reload.v1",
         "provider_request_runtime.v1",
-        "supervisor_model_cost.v1"
+        "supervisor_model_cost.v1",
+        "supervisor_model_cost_steering.v1"
       ],
       "retired_identifiers": []
     },

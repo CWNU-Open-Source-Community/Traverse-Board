@@ -188,6 +188,34 @@ func (s *SQLiteStore) RecordSupervisorCompactionCompleted(ctx context.Context, c
 	return current, sequence, err
 }
 
+// A truncated/refused summary is a failed receipt with known usage. Its text
+// cannot be used as a handoff or impersonate an ordinary root model call.
+func (s *SQLiteStore) RecordSupervisorCompactionFailedWithUsage(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+	attempt llm.ModelAttempt, usage llm.Usage,
+) (domain.SupervisorCheckpoint, error) {
+	attempt = sanitizeModelAttempt(attempt)
+	if attempt.Purpose != llm.ModelPurposeContextCompaction || attempt.ValidateFailed() != nil {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "invalid failed compaction model attempt")
+	}
+	if _, _, _, err := supervisorUsage(usage); err != nil {
+		return domain.SupervisorCheckpoint{}, err
+	}
+	elapsed, err := supervisorModelElapsedMillis(attempt.Elapsed)
+	if err != nil {
+		return domain.SupervisorCheckpoint{}, err
+	}
+	payload := map[string]any{"turn": checkpoint.NextTurn, "attempt_id": checkpoint.AttemptID,
+		"model_attempt": attempt.Number, "transport_attempt": attempt.TransportNumber(), "max_attempts": attempt.MaxAttempts,
+		"protocol_repair": 0, "tool_round": 0, "provider": attempt.Provider, "model": attempt.Model,
+		"outcome": attempt.Outcome, "error": attempt.ErrorText, "elapsed_millis": elapsed,
+		"retry_after_millis": attempt.RetryAfter.Milliseconds(), "retry_planned": attempt.RetryPlanned,
+		"stream_events": attempt.StreamEvents, "stream_bytes": attempt.StreamBytes,
+		"usage": usage, "tool_call_count": 0, "usage_unknown": supervisorModelUsageUnknown(usage)}
+	addSupervisorCompactionIdentity(payload, attempt)
+	return s.recordSupervisorModelTerminal(ctx, checkpoint, attempt, events.ModelFailedEvent, payload,
+		supervisorModelTerminalOptions{Usage: &usage})
+}
+
 func requireSupervisorCompactionTerminalReplayTx(ctx context.Context, tx *sql.Tx, runID, subject, eventType string, expected map[string]any) error {
 	var encoded string
 	if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM run_events WHERE run_id=? AND source='model_gateway' AND subject_id=? AND type=?`, runID, subject, eventType).Scan(&encoded); err != nil {

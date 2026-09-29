@@ -99,14 +99,15 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function renderConversation(client: CyberAgentClient, initialThreadID = "thread-a", extras?: ReactNode) {
+function renderConversation(client: CyberAgentClient, initialThreadID = "thread-a", extras?: ReactNode,
+  draftProps?: { draft: string; onDraftChange: (content: string, expected?: string) => void }) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
   } });
   const props = (threadID: string) => <QueryClientProvider client={queryClient}>
     {extras}
     <V2Conversation client={client} onArchive={vi.fn()} onManageModels={vi.fn()}
-      onOpenInspector={vi.fn()} threadID={threadID} workspaces={workspaces} />
+      onOpenInspector={vi.fn()} threadID={threadID} workspaces={workspaces} {...draftProps} />
   </QueryClientProvider>;
   const view = render(props(initialThreadID));
   return { ...view, queryClient,
@@ -128,6 +129,58 @@ function baseClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient
 }
 
 describe("V2Conversation", () => {
+  it("sends an explicit current-task correction through the Session endpoint", async () => {
+    const submitSessionMessage = vi.fn(() => Promise.resolve({ steering: { id: "steer-current" } } as Awaited<
+      ReturnType<CyberAgentClient["submitSessionMessage"]>>));
+    const submitThreadTurn = vi.fn();
+    const client = baseClient({
+      get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
+        active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      submitSessionMessage, submitThreadTurn,
+    } as Partial<CyberAgentClient>);
+    renderConversation(client);
+    const user = userEvent.setup();
+    await screen.findByRole("combobox", { name: "发送方式" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    await waitFor(() => expect(submitSessionMessage).toHaveBeenCalledWith("sess-thread-a",
+      { version: "session_message_submission.v1", content: "pending-thread-a", delivery_mode: "steer" },
+      expect.any(String)));
+    expect(submitThreadTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit correction draft when the task ends before sending", async () => {
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", execution_id: "execution-a", queued_messages: 0, capability_grant: false };
+    const submitSessionMessage = vi.fn();
+    const submitThreadTurn = vi.fn();
+    const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
+      get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
+        active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      threadExecution: vi.fn(() => Promise.resolve(execution)), submitSessionMessage, submitThreadTurn,
+    } as Partial<CyberAgentClient>));
+    const user = userEvent.setup();
+    await screen.findByRole("combobox", { name: "发送方式" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
+    await act(async () => { view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
+      { ...execution, state: "idle", execution_id: undefined }); });
+    expect(screen.getByRole("combobox", { name: "发送方式" })).toHaveValue("steer");
+    // The invalid mode is explained before sending, and sending stays blocked.
+    expect(await screen.findByText(/当前任务已停止或不再运行/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    expect(submitSessionMessage).not.toHaveBeenCalled();
+    expect(submitThreadTurn).not.toHaveBeenCalled();
+    // Switching back to next-turn clears the hint; the selector hides again
+    // because no running task can accept a correction.
+    await user.click(screen.getByRole("button", { name: "切换为下一轮处理" }));
+    expect(screen.queryByText(/当前任务已停止或不再运行/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "发送方式" })).not.toBeInTheDocument();
+    // The retained draft now goes out as a regular next-turn message.
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    await waitFor(() => expect(submitThreadTurn).toHaveBeenCalledWith("thread-a",
+      expect.objectContaining({ content: "pending-thread-a" }), expect.any(String)));
+    expect(submitSessionMessage).not.toHaveBeenCalled();
+  });
   it("explains unavailable execution observation while retaining readable work history", async () => {
     const threadExecution = vi.fn();
     renderConversation(baseClient({ hasThreadExecutionRead: false, threadExecution,
@@ -211,7 +264,9 @@ describe("V2Conversation", () => {
     expect(screen.queryByText("正在工作")).not.toBeInTheDocument();
     threadExecution.mockResolvedValue({ ...execution, state: "idle" });
     await userEvent.setup().click(screen.getByRole("button", { name: "刷新执行状态" }));
-    await screen.findByText("等待新消息");
+    // An idle task shows no status pill instead of a persistent "waiting" label.
+    await waitFor(() => expect(screen.queryByText("状态读取失败")).not.toBeInTheDocument());
+    expect(screen.queryByText("等待新消息")).not.toBeInTheDocument();
     expect(composer).not.toHaveAttribute("data-file-reference-unavailable");
   });
 
@@ -377,7 +432,7 @@ describe("V2Conversation", () => {
     await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
     expect(await screen.findByText("正在发送消息")).toBeInTheDocument();
     expect(screen.queryByText("正在工作")).not.toBeInTheDocument();
-    expect(screen.getByText("可以补充要求，已受理的消息会提供给下一次模型调用；受理不代表已执行，停止后仍会保留。")).toBeInTheDocument();
+    expect(screen.getByText(/消息将在下一轮处理；受理不代表已经执行。/)).toBeInTheDocument();
     expect(screen.queryByText(/停止会取消/u)).not.toBeInTheDocument();
 
     const completed = detail("thread-a").thread;
@@ -391,14 +446,114 @@ describe("V2Conversation", () => {
       .toEqual(completed);
   });
 
+  it("keeps the next-message chip after the matching submission resolves", async () => {
+    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", queued_messages: 0, capability_grant: false };
+    const onDraftChange = vi.fn();
+    const user = userEvent.setup();
+    renderConversation(baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async () => execution), submitThreadTurn: vi.fn(() => submission.promise) }),
+      "thread-a", undefined, { draft: "pending-thread-a", onDraftChange });
+
+    await screen.findByText("Title thread-a");
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
+    expect(await screen.findByRole("button", { name: "编写下一条" })).toBeInTheDocument();
+
+    await act(async () => {
+      submission.resolve({ steering: { id: "steering-a" } } as Awaited<
+        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+      await submission.promise;
+    });
+    // The settled mutation leaves the cache, but the leftover draft still
+    // matches the accepted payload, so the chip stays available.
+    const chip = await screen.findByRole("button", { name: "编写下一条" });
+
+    await user.click(chip);
+    expect(onDraftChange).toHaveBeenCalledWith("");
+  });
+
+  it("does not offer another Thread's unsent draft for clearing after a late confirmation", async () => {
+    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const onDraftChange = vi.fn();
+    const client = baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async (threadID: string) => ({ version: "thread_execution.v1", thread_id: threadID,
+        state: "running", queued_messages: 0, capability_grant: false } as ThreadExecutionView)),
+      submitThreadTurn: vi.fn(() => submission.promise) });
+    const view = renderConversation(client, "thread-a", undefined,
+      { draft: "pending-thread-a", onDraftChange });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "发送 thread-a" }));
+
+    view.rerenderThread("thread-b");
+    await screen.findByText("Title thread-b");
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+    await act(async () => {
+      submission.resolve({ steering: { id: "steering-a" } } as Awaited<
+        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+      await submission.promise;
+    });
+    expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
+    expect(onDraftChange).not.toHaveBeenCalled();
+
+    // The same text remains a confirmed submission in A, where it was sent.
+    view.rerenderThread("thread-a");
+    expect(await screen.findByRole("button", { name: "编写下一条" })).toBeInTheDocument();
+  });
+
+  it("offers the next-message chip when the draft repeats the latest sent transcript message", async () => {
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", queued_messages: 0, capability_grant: false };
+    const operatorItem: ThreadTranscriptItemView = { ...transcriptItem("operator-1", "已经发送的内容", 1),
+      source: "operator" };
+    const onDraftChange = vi.fn();
+    renderConversation(baseClient({ hasThreadExecutionRead: true,
+      threadExecution: vi.fn(async () => execution),
+      getPage: vi.fn(() => Promise.resolve(page([operatorItem]))) } as Partial<CyberAgentClient>),
+      "thread-a", undefined, { draft: "已经发送的内容", onDraftChange });
+
+    const chip = await screen.findByRole("button", { name: "编写下一条" });
+    await userEvent.setup().click(chip);
+    expect(onDraftChange).toHaveBeenCalledWith("");
+  });
+
+  it("explains an unavailable correction as paused when the run is paused", async () => {
+    const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
+      state: "running", execution_id: "execution-a", queued_messages: 0, capability_grant: false };
+    const pausedDetail: ThreadDetailView = { ...detail("thread-a"),
+      active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "paused" } } as ThreadDetailView;
+    const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
+      get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
+        active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      threadExecution: vi.fn(() => Promise.resolve(execution)),
+    } as Partial<CyberAgentClient>));
+    const user = userEvent.setup();
+    await screen.findByRole("combobox", { name: "发送方式" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
+    await act(async () => {
+      view.queryClient.setQueryData(v2QueryKeys.thread("thread-a"), pausedDetail);
+      view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
+        { ...execution, state: "idle", execution_id: undefined });
+    });
+    // The pause is named explicitly instead of implying the task ended.
+    expect(await screen.findByText(/当前任务已暂停，不能更新当前任务/)).toBeInTheDocument();
+    expect(screen.queryByText(/当前任务已停止或不再运行/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "切换为下一轮处理" }));
+    expect(screen.queryByText(/当前任务已暂停，不能更新当前任务/)).not.toBeInTheDocument();
+  });
+
   it("shows confirmed Agent activity and stopping while the submission response is still pending", async () => {
     const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
     const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
       state: "idle", queued_messages: 0, capability_grant: false };
     const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
       threadExecution: vi.fn(async () => execution), submitThreadTurn: vi.fn(() => submission.promise) }));
-    await screen.findByText("等待新消息");
-    await userEvent.setup().click(screen.getByRole("button", { name: "发送 thread-a" }));
+    const sendButton = await screen.findByRole("button", { name: "发送 thread-a" });
+    await waitFor(() => expect(screen.queryByText("正在同步状态")).not.toBeInTheDocument());
+    expect(screen.queryByText("等待新消息")).not.toBeInTheDocument();
+    await userEvent.setup().click(sendButton);
     expect(await screen.findByText("正在发送消息")).toBeInTheDocument();
     await act(async () => { view.queryClient.setQueryData(v2QueryKeys.execution("thread-a"),
       { ...execution, state: "running", execution_id: "accepted-execution" }); });

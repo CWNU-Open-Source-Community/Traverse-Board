@@ -11,13 +11,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 42 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 43 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
 | [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 110 | true |
-| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 21 | true |
+| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 22 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
@@ -260,7 +260,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>42 active identifiers</summary>
+<details><summary>43 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -274,6 +274,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `once_command_spec.v1`
 - `operator_steering_cancellation_operation.v1`
 - `operator_steering_cancellation_request.v1`
+- `operator_steering_delivery_mode.v1`
 - `operator_steering_image_request.v1`
 - `operator_steering_operation.v1`
 - `operator_steering_request.v1`
@@ -604,7 +605,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `credential-provider-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>21 active identifiers</summary>
+<details><summary>22 active identifiers</summary>
 
 - `anthropic_native_search.v1`
 - `anthropic_native_search_cache.v1`
@@ -627,6 +628,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `provider_registry_reload.v1`
 - `provider_request_runtime.v1`
 - `supervisor_model_cost.v1`
+- `supervisor_model_cost_steering.v1`
 
 </details>
 

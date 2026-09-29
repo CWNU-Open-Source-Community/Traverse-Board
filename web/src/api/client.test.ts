@@ -1709,6 +1709,14 @@ describe("CyberAgentClient", () => {
         stale: false, citeable: true, untrusted: true, instruction_authorized: false,
       },
     };
+    const operatorItem = {
+      version: "thread_transcript.v1", id: "event-op-1", canonical_id: "item-op-1",
+      run_id: "run-created", run_ordinal: 1, sequence: 11, activity_type: "message",
+      stage: "result", kind: "operator_input", source: "operator", title: "用户消息",
+      status: "committed", verifiable: true, instruction_authorized: false,
+      delivery_mode: "steer", provisional: false,
+      durable: true, created_at: "2026-08-24T00:02:00Z",
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-transcript", data: [transcriptItem],
@@ -1729,6 +1737,20 @@ describe("CyberAgentClient", () => {
           ...evidenceItem.web_evidence, url: "javascript:alert(1)",
         } }],
         page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-steer", data: [operatorItem],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-bad-mode",
+        data: [{ ...operatorItem, delivery_mode: "queued" }],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-mode-source",
+        data: [{ ...operatorItem, source: "harness" }],
+        page: { limit: 100 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
@@ -1741,6 +1763,13 @@ describe("CyberAgentClient", () => {
       .rejects.toThrow("transcript item is invalid");
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .rejects.toThrow("Thread Web evidence is invalid");
+    // Operator steering messages carry a bounded delivery_mode on the operator source only.
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .resolves.toMatchObject({ items: [operatorItem] });
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("transcript provenance is invalid");
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("transcript provenance is invalid");
   });
 
   it("lazily reads only the strict safe Thread command activity projection", async () => {
@@ -2623,6 +2652,25 @@ describe("CyberAgentClient", () => {
       fetchMock.mockResolvedValueOnce(respond({ ...preview, ...drift }));
       await expect(client.approvalPreview("run-1", "approval-1")).rejects.toThrow();
     }
+  });
+
+  it("observes the original Session message with a read-only request and the read bearer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-session-observe",
+      data: { version: "session_message_submission.v1", session_id: "sess-1",
+        state: "received", message_id: "steer-1", message_status: "pending" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      sessionMessageEnabled: true,
+    });
+    const observed = await client.inspectSessionMessageOperation("sess-1", "web-session-observe-0001");
+    expect(observed).toMatchObject({ state: "received", message_id: "steer-1" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/sessions/sess-1/messages/operations/web-session-observe-0001");
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
   });
 
   it("accepts exact file approval previews for all four edit operations without granting an effect", async () => {
@@ -4483,6 +4531,22 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", confirm_diagnostic: true };
     await expect(client.diagnoseProvider(request)).resolves.toEqual(diagnostic);
     await expect(client.diagnoseProvider(request)).rejects.toThrow("content-free");
+  });
+
+  it.each(["context_limit", "output_limit", "paused", "refusal"])("accepts typed incomplete provider completion %s", async (reason) => {
+    const diagnostic = {
+      protocol_version: "provider_diagnostic.v1", provider: "openai", model: "model",
+      status: "unreachable", outcome: "permanent", failure_reason: reason,
+      retryable: false, network_request_attempted: true, model_called: true,
+      tool_called: false, response_content_returned: false,
+      qualification_status: "response_incomplete", duration_ms: 4,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "typed-terminal", data: diagnostic,
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", { modelControlEnabled: true });
+    await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
+      model: "model", confirm_diagnostic: true })).resolves.toEqual(diagnostic);
   });
 
   it("rejects contradictory provider diagnostic semantics", async () => {

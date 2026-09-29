@@ -298,7 +298,12 @@ func chatWithProvider(ctx context.Context, ref ModelRef, provider Provider, regi
 	}
 	response, err := provider.Chat(ctx, req)
 	if err != nil {
-		return nil, NormalizeProviderError(ref.Provider, err)
+		return response, NormalizeProviderError(ref.Provider, err)
+	}
+	if response != nil {
+		if terminalErr := CompletionError(ref.Provider, response.FinishReason); terminalErr != nil {
+			return response, terminalErr
+		}
 	}
 	return response, nil
 }
@@ -382,6 +387,7 @@ func ParseModelRef(value string) (ModelRef, error) {
 func redactRequest(req ChatRequest) (ChatRequest, error) {
 	req.Messages = append([]Message(nil), req.Messages...)
 	for i := range req.Messages {
+		req.Messages[i].Replay = req.Messages[i].Replay.Clone()
 		// Image bytes are inert operator evidence, not text for the redactor.
 		// Copy before handing them to a Provider; omit them from JSON logs.
 		req.Messages[i].Images = append([]ImagePart(nil), req.Messages[i].Images...)

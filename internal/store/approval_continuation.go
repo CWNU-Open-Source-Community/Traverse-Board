@@ -477,7 +477,14 @@ func (s *SQLiteStore) CloseFailedApprovalContinuation(ctx context.Context, hando
 	if run.Terminal() {
 		return nil
 	}
+	corrections, err := commitMidTurnSteeringTx(ctx, tx, run, cp, true)
+	if err != nil {
+		return err
+	}
 	text := fmt.Sprintf("System-recorded approval continuation failure. Handoff %s, attempt %s, turn %d: %s. The original review remains saved. Completed tool records remain evidence; no unknown operation has been retried. Send a new message to continue.", handoffID, cp.AttemptID, cp.NextTurn, handoff.Result.ErrorCode)
+	if corrections > 0 {
+		text += fmt.Sprintf(" Accepted current-turn corrections: %d. This failed continuation did not complete their requested work.", corrections)
+	}
 	if _, err := saveSessionMessageTx(ctx, tx, session.NewEvidenceMessage(run.SessionID, session.SourceToolResult, handoffID, text)); err != nil {
 		return err
 	}
@@ -486,7 +493,6 @@ func (s *SQLiteStore) CloseFailedApprovalContinuation(ctx context.Context, hando
 	cp.AttemptID = ""
 	cp.PendingInput = ""
 	cp.PendingImageCount = 0
-	cp.PendingAttachmentCount = 0
 	cp.PendingAttachmentCount = 0
 	cp.LastError = ""
 	cp.RepairReason = ""

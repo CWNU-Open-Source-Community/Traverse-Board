@@ -14,14 +14,15 @@ const (
 	// Qualification status taxonomy: the stable, redacted per-provider/model
 	// endpoint classification shown to operators. Unknown means the status
 	// has never been observed and is treated as not yet configured.
-	QualificationStatusNotConfigured    = "not_configured"
-	QualificationStatusAvailable        = "available"
-	QualificationStatusProtocolMismatch = "protocol_mismatch"
-	QualificationStatusAuthFailed       = "auth_failed"
-	QualificationStatusNetworkFailed    = "network_failed"
-	QualificationStatusRateLimit        = "rate_limit"
-	QualificationStatusCapacity         = "capacity"
-	QualificationStatusModelUnsupported = "model_unsupported"
+	QualificationStatusNotConfigured      = "not_configured"
+	QualificationStatusAvailable          = "available"
+	QualificationStatusProtocolMismatch   = "protocol_mismatch"
+	QualificationStatusAuthFailed         = "auth_failed"
+	QualificationStatusNetworkFailed      = "network_failed"
+	QualificationStatusRateLimit          = "rate_limit"
+	QualificationStatusCapacity           = "capacity"
+	QualificationStatusModelUnsupported   = "model_unsupported"
+	QualificationStatusResponseIncomplete = "response_incomplete"
 
 	qualificationStatusSourceDiagnostic   = "diagnostic"
 	qualificationStatusSourceHarness      = "harness_qualification"
@@ -36,6 +37,8 @@ func QualificationStatusFor(outcome llm.Outcome, reason llm.ProviderFailureReaso
 		return QualificationStatusAvailable
 	}
 	switch reason {
+	case llm.ProviderFailureContextLimit, llm.ProviderFailureOutputLimit, llm.ProviderFailurePaused, llm.ProviderFailureRefusal:
+		return QualificationStatusResponseIncomplete
 	case llm.ProviderFailureAuthentication:
 		return QualificationStatusAuthFailed
 	case llm.ProviderFailureNetwork:
@@ -198,7 +201,7 @@ func validQualificationStatus(status string) bool {
 	case QualificationStatusNotConfigured, QualificationStatusAvailable,
 		QualificationStatusProtocolMismatch, QualificationStatusAuthFailed,
 		QualificationStatusNetworkFailed, QualificationStatusRateLimit,
-		QualificationStatusCapacity, QualificationStatusModelUnsupported:
+		QualificationStatusCapacity, QualificationStatusModelUnsupported, QualificationStatusResponseIncomplete:
 		return true
 	default:
 		return false

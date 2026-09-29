@@ -671,7 +671,7 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 		return apperror.Normalize(err)
 	}
 	fanoutAttempt := llm.ModelAttempt{
-		Number: readOnlyFanoutMonetaryAttemptNumber(execution.ID, shard.Ordinal),
+		Number:   readOnlyFanoutMonetaryAttemptNumber(execution.ID, shard.Ordinal),
 		Provider: modelRef.Provider, Model: modelRef.Model,
 	}
 	if s.monetary != nil {
@@ -695,6 +695,10 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 	cancelCall()
 	if callErr != nil {
 		providerErr := llm.NormalizeProviderError(modelRef.Provider, callErr)
+		var receivedUsage *llm.Usage
+		if response != nil && response.Usage.Validate() == nil {
+			receivedUsage = &response.Usage
+		}
 		status := domain.ReadOnlyFanoutExecutionShardFailed
 		code := string(providerErr.Kind)
 		if ctx.Err() != nil || errors.Is(callErr, context.Canceled) {
@@ -704,7 +708,7 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 			code = "deadline_exceeded"
 		}
 		persistErr := s.failReadOnlyFanoutShard(ctx, lease, execution.ID,
-			started, modelRef, nil, elapsed, status, code, providerErr.Error())
+			started, modelRef, receivedUsage, elapsed, status, code, providerErr.Error())
 		return errors.Join(providerApplicationError(providerErr), persistErr)
 	}
 	if response == nil {
@@ -894,6 +898,7 @@ func normalizeReadOnlyFanoutExecutionDecision(decision policy.Decision) policy.D
 	}
 	return decision
 }
+
 // ListReadOnlyFanoutExecutions projects one plan's execution history.
 func (s *ReadOnlyFanoutExecutionService) ListReadOnlyFanoutExecutions(ctx context.Context,
 	planID string, limit int,

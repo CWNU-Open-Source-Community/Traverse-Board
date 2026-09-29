@@ -169,3 +169,24 @@ it("recovers an unknown image-only request and clears only original image identi
   expect(restored.result.current!.read(recoveryTurnKey(input), null)).toBeNull();
   expect([...Array(localStorage.length)].map((_, index) => localStorage.getItem(localStorage.key(index)!)).join("")).not.toContain("base64");
 });
+
+it("merges the image capability and local draft hints into one caption line", async () => {
+  const client = fixture();
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(<QueryClientProvider client={queries}>
+    <V2RecoveryProvider client={{ baseURL: "/api/v1" }} scopeID="composer-caption-merge">
+      <V2Composer client={client} workspaceID={image.workspace_id}
+        workspaces={[]} threadID="" onWorkspaceChange={() => {}} onSubmit={vi.fn(async () => {})} />
+    </V2RecoveryProvider>
+  </QueryClientProvider>);
+  const input = screen.getByRole("textbox", { name: "开始新对话" });
+  const file = new File(["caption merge bytes"], "合并提示.png", { type: "image/png" });
+  fireEvent.paste(input, { clipboardData: { files: [file] } });
+  await screen.findByRole("button", { name: "移除图片 布局.png" });
+  fireEvent.change(input, { target: { value: "看图说话" } });
+  const caption = await screen.findByText(/将发送原始图片/);
+  expect(caption).toHaveTextContent("草稿与附件保存在此设备");
+  const hintLines = screen.getAllByRole("status").filter((el) =>
+    el.classList.contains("v2-composer-caption") && /图片|草稿/.test(el.textContent ?? ""));
+  expect(hintLines).toHaveLength(1);
+});

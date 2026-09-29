@@ -124,7 +124,7 @@ func settleFileApplyBeforeBoundaryFailureTx(ctx context.Context, tx *sql.Tx, run
 	_, err = recordSupervisorToolResultTx(ctx, tx, run, cp, call, domain.SupervisorToolResult{
 		CallID: call.CallID, Status: domain.SupervisorToolFailed, ResultJSON: string(encoded),
 		ErrorCode: string(apperror.CodeInternal), CompletedAt: time.Now().UTC(),
-	})
+	}, true)
 	return err
 }
 

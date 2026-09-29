@@ -16,15 +16,18 @@ const SupervisorCallAuthorityVersion = 1
 // scope and revocation facts; server credentials and tool arguments never
 // belong in this envelope.
 type SupervisorCallAuthority struct {
-	Version               int                               `json:"version"`
-	RunID                 string                            `json:"run_id"`
-	MissionID             string                            `json:"mission_id"`
-	WorkspaceID           string                            `json:"workspace_id"`
-	PermissionSnapshotID  string                            `json:"permission_snapshot_id"`
-	PermissionRevision    int64                             `json:"permission_revision"`
-	PermissionMode        domain.RunExecutionPermissionMode `json:"permission_mode"`
-	PermissionGeneration  uint64                            `json:"permission_generation"`
-	RunAuthorizationFence uint64                            `json:"run_authorization_fence"`
+	Version              int                               `json:"version"`
+	RunID                string                            `json:"run_id"`
+	MissionID            string                            `json:"mission_id"`
+	WorkspaceID          string                            `json:"workspace_id"`
+	PermissionSnapshotID string                            `json:"permission_snapshot_id"`
+	PermissionRevision   int64                             `json:"permission_revision"`
+	PermissionMode       domain.RunExecutionPermissionMode `json:"permission_mode"`
+	PermissionGeneration uint64                            `json:"permission_generation"`
+	// Optional for decoding historical records. Runtime-backed hosts require
+	// their exact process epoch before dispatch; decoding never renews authority.
+	PermissionRuntimeEpoch string `json:"permission_runtime_epoch,omitempty"`
+	RunAuthorizationFence  uint64 `json:"run_authorization_fence"`
 }
 
 func (a SupervisorCallAuthority) Validate() error {

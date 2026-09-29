@@ -353,7 +353,7 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			current.status AS run_status, 0 AS sequence, '' AS event_id,
 			'' AS event_version, current.mission_id, '' AS event_type,
 			'' AS event_source, '' AS subject_id, '' AS payload_json,
-			'' AS operator_content, '' AS operator_status, 0 AS operator_message_bound,0 AS operator_image_count,0 AS operator_attachment_count, binding.created_at
+			'' AS operator_content, '' AS operator_status, 0 AS operator_message_bound,0 AS operator_image_count,0 AS operator_attachment_count, '' AS operator_delivery_mode, binding.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
 		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
@@ -377,6 +377,7 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			EXISTS (SELECT 1 FROM bound_operator_messages bound
 				WHERE bound.queued_event_id = event.event_id OR bound.session_event_id = event.event_id),
 			COALESCE(steering.image_count,0),COALESCE(steering.attachment_count,0),
+			COALESCE(steering.delivery_mode, ''),
 			event.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
@@ -387,7 +388,7 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 	SELECT ordinal, run_id, session_id, predecessor_run_id,
 		predecessor_run_status, run_status, sequence, event_id, event_version,
 		mission_id, event_type, event_source, subject_id, payload_json, created_at
-		, operator_content, operator_status, operator_message_bound,operator_image_count,operator_attachment_count
+		, operator_content, operator_status, operator_message_bound,operator_image_count,operator_attachment_count, operator_delivery_mode
 	FROM transcript WHERE thread_id = ?`
 	args := []any{threadID, threadID}
 	if beforeOrdinal > 0 {
@@ -410,7 +411,8 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			&item.PredecessorRunID, &item.PredecessorRunStatus, &item.RunStatus,
 			&item.Sequence, &eventID, &eventVersion, &missionID, &eventType,
 			&eventSource, &subjectID, &payloadJSON, &created, &item.OperatorContent,
-			&item.OperatorStatus, &item.OperatorMessageBound, &item.OperatorImageCount, &item.OperatorAttachmentCount); err != nil {
+			&item.OperatorStatus, &item.OperatorMessageBound, &item.OperatorImageCount, &item.OperatorAttachmentCount,
+			&item.OperatorDeliveryMode); err != nil {
 			return nil, err
 		}
 		item.CreatedAt = parseTS(created)

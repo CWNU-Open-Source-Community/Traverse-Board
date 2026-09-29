@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, ArrowLeft, Box, Cpu, Folder, MessagesSquare, MoreHorizontal, RefreshCw,
+import { Archive, ArchiveRestore, ArrowLeft, Box, Cpu, Folder, MessagesSquare, RefreshCw,
   Info, Keyboard, PackageSearch, Palette, PlugZap, Search, Settings, ShieldCheck, SquarePen, X } from "lucide-react";
 import type { ThreadView, WorkspaceView } from "../../api/types";
 
@@ -10,6 +10,7 @@ export type V2SettingsSection = "general" | "permissions" | "appearance" | "voic
 
 export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, onSearchOpen,
   onNewConversation, onOpenModels, onSelectThread, onOpenSettings, onArchive,
+  onOpenInspector, inspectorActive = false,
   hasMore = false, loading = false, loadingMore = false, loadFailed = false, onLoadMore, onRefresh }: {
   threads: ThreadView[];
   workspaces: WorkspaceView[];
@@ -21,11 +22,12 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
   onSelectThread: (threadID: string) => void;
   onOpenSettings: () => void;
   onArchive: (thread: ThreadView) => void;
+  onOpenInspector?: () => void;
+  inspectorActive?: boolean;
   hasMore?: boolean; loading?: boolean; loadingMore?: boolean; loadFailed?: boolean;
   onLoadMore?: () => void; onRefresh?: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [menuThreadID, setMenuThreadID] = useState("");
   const normalized = search.trim().toLocaleLowerCase();
   const visible = useMemo(() => threads.filter((thread) => !normalized ||
     thread.title.toLocaleLowerCase().includes(normalized)), [normalized, threads]);
@@ -58,23 +60,22 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
         <span>新对话</span></button>
       <button onClick={onOpenModels} type="button"><Cpu aria-hidden="true" size={16} />
         <span>接入模型</span></button>
-      <button onClick={() => onSearchOpen(true)} type="button"><Search aria-hidden="true" size={16} />
-        <span>搜索对话</span></button>
     </nav>
     {searchOpen && <label className="v2-sidebar-search"><Search aria-hidden="true" size={15} />
       <input aria-label="搜索对话" autoFocus onChange={(event) => setSearch(event.target.value)}
         placeholder="搜索已加载的对话标题…" type="search" value={search} /></label>}
-    {searchOpen && <p className="v2-history-scope">搜索{threads.length}条已加载的未归档对话标题，不含消息正文。
-      {loading ? "正在读取列表。" : loadFailed ? "本次加载未完成，请重试。"
-        : hasMore ? "更早记录可在下方继续加载。" : "当前列表已加载完毕。"}归档对话请到设置查看。</p>}
+    {searchOpen && <p className="v2-history-scope">搜索{threads.length}条已加载标题，不含消息正文
+      {loading ? "；正在读取" : loadFailed ? "；本次加载未完成，请重试"
+        : hasMore ? "；更早记录可继续加载" : ""}。归档对话在设置中查看。</p>}
     <div className="v2-thread-scroll">
       {loading && <p className="v2-history-scope" role="status">正在加载对话…</p>}
       {!loading && !loadFailed && grouped.length === 0 && <div className="v2-sidebar-empty"><MessagesSquare size={16} />
         {normalized ? "已加载的标题中没有匹配项" : "暂无对话"}</div>}
       {grouped.map(([workspaceID, workspaceThreads]) => {
         const name = workspaceID ? workspaceNames.get(workspaceID) ?? "工作区" : "本地任务";
+        const shortID = workspaceID.length > 16 ? `…${workspaceID.slice(-6)}` : workspaceID;
         const label = workspaceID && (duplicateNames.has(name) || !workspaceNames.has(workspaceID))
-          ? `${name} · ${workspaceID}` : name;
+          ? `${name} · ${shortID}` : name;
         return <section aria-label={`项目 ${label}`} className="v2-thread-group" key={workspaceID}>
         <header title={workspaceID || name}><Folder aria-hidden="true" size={15} /><span>{label}</span></header>
         {workspaceThreads.map((thread) => <div className={`v2-thread-row-shell${selectedThreadID === thread.id
@@ -82,15 +83,10 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
           <button className="v2-thread-row" onClick={() => onSelectThread(thread.id)} type="button">
             <span>{thread.title}</span><i className={`state-${thread.composer_state}`} />
           </button>
-          <button aria-expanded={menuThreadID === thread.id} aria-haspopup="menu"
-            aria-label={`${thread.title} 的操作`} className="v2-thread-more"
-            onClick={() => setMenuThreadID((current) => current === thread.id ? "" : thread.id)} type="button">
-            <MoreHorizontal aria-hidden="true" size={15} />
+          <button aria-label={`归档 ${thread.title}`} className="v2-thread-more"
+            onClick={() => onArchive(thread)} title="归档此对话" type="button">
+            <Archive aria-hidden="true" size={15} />
           </button>
-          {menuThreadID === thread.id && <div className="v2-thread-row-menu" role="menu">
-            <button onClick={() => { setMenuThreadID(""); onArchive(thread); }} role="menuitem" type="button">
-              <Archive aria-hidden="true" size={14} />归档</button>
-          </div>}
         </div>)}
       </section>; })}
       {loadFailed && <p className="v2-history-scope" role="alert">对话列表加载失败，已有记录仍可打开。
@@ -99,6 +95,8 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
         onClick={onLoadMore} type="button">{loadingMore ? "正在加载更早对话…" : "加载更早对话"}</button>}
     </div>
     <div className="v2-sidebar-footer">
+      {onOpenInspector && <button aria-pressed={inspectorActive} onClick={onOpenInspector} type="button">
+        <Box aria-hidden="true" size={16} />Inspector</button>}
       <button onClick={onOpenSettings} type="button"><Settings aria-hidden="true" size={16} />设置</button>
     </div>
   </aside>;

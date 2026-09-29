@@ -128,26 +128,8 @@ func executeContextWithConfig(ctx context.Context, args []string, out io.Writer,
 }
 
 func (a *App) newRunSupervisor() *application.RunSupervisor {
-	supervisor := application.NewRunSupervisor(a.store, a.router, a.checker).
-		WithActiveCalls(a.calls).
-		WithWebFetchAuthorizationScheduler(true).
-		WithMonetaryBudget(application.NewMonetaryBudgetService(a.store))
-	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
-		supervisor.WithDockerSandboxProposalExecutor(executor)
-	}
-	if client := a.newMCPClientManager(); client != nil {
-		supervisor.WithMCPClient(client)
-	}
-	if engine := a.newLifecycleHookEngine(); engine != nil {
-		supervisor.WithLifecycleHooks(engine)
-	}
-	if a.codeIntel != nil {
-		supervisor.WithCodeIntel(a.codeIntel)
-	}
-	if service := a.newWebEvidenceService(); service != nil {
-		supervisor.WithWebEvidence(service)
-	}
-	return supervisor
+	return application.NewRunSupervisorWithRuntime(a.store, a.router, a.checker,
+		a.runRuntimeDependencies())
 }
 
 func (a *App) newToolGateway() *toolgateway.Gateway {
@@ -386,8 +368,8 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent debug query --run <run-id> [bounded filters] [--json]")
 	fmt.Fprintln(a.out, "  cyberagent doctor browser-readiness --product <edge|chrome|chromium> [--json]")
 	fmt.Fprintln(a.out, "  cyberagent workspace init|list|show|tree|read|checkpoint")
-	fmt.Fprintln(a.out, "  cyberagent script new|run")
-	fmt.Fprintln(a.out, "  cyberagent ctf init|analyze|writeup")
+	fmt.Fprintln(a.out, "  cyberagent script new|run  (new writes a local template; use thread create/run execute for agent work)")
+	fmt.Fprintln(a.out, "  cyberagent ctf init|analyze|writeup  (analyze writes a worksheet; it does not perform analysis)")
 	fmt.Fprintln(a.out, "  cyberagent learn ask")
 	fmt.Fprintln(a.out, "  cyberagent provider list|test|qualify")
 	fmt.Fprintln(a.out, "  cyberagent model list|set")
@@ -653,9 +635,6 @@ func (a *App) scriptNew(ctx context.Context, args []string) error {
 	if err := a.store.SaveTask(ctx, task); err != nil {
 		return err
 	}
-	if err := a.kernel.Step(ctx, task.ID); err != nil {
-		return err
-	}
 	scriptPath := mgr.ScriptPath(rec, task, scriptExt(*language))
 	if err := os.WriteFile(scriptPath, []byte(scriptTemplate(goal, *language)), 0o644); err != nil {
 		return err
@@ -674,8 +653,8 @@ func (a *App) scriptNew(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "script task %s completed\nworkspace: %s\nscript: %s\nscript_relative: %s\n",
-		task.ID, rec.RootPath, scriptPath, filepath.ToSlash(relativeScriptPath))
+	fmt.Fprintf(a.out, "script template created\nlegacy_task: %s\nworkspace: %s\nscript: %s\nscript_relative: %s\nstatus: template_only\nmodel_calls: 0\nnext: cyberagent thread create %q --workspace %s --profile script\n",
+		task.ID, rec.RootPath, scriptPath, filepath.ToSlash(relativeScriptPath), goal, rec.Name)
 	return nil
 }
 
@@ -797,7 +776,54 @@ func (a *App) ctfInit(ctx context.Context, args []string) error {
 }
 
 func (a *App) ctfAnalyze(ctx context.Context, args []string) error {
-	return a.ctfStep(ctx, args, "analyze")
+	if err := a.ensureStore(); err != nil {
+		return err
+	}
+	fs := newFlagSet("ctf analyze", a.errOut)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: cyberagent ctf analyze <workspace>")
+	}
+	rec, err := a.store.GetWorkspaceByName(ctx, workspace.Slug(fs.Arg(0)))
+	if err != nil {
+		return err
+	}
+	task := agent.Task{
+		ID:          agent.NewID("task"),
+		Kind:        agent.TaskCTF,
+		Goal:        "analyze CTF workspace " + rec.Name,
+		WorkspaceID: rec.ID,
+		Mode:        "analysis-template",
+		Status:      agent.StatusPending,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := a.store.SaveTask(ctx, task); err != nil {
+		return err
+	}
+	analysisPath := filepath.Join(rec.RootPath, "outputs", "analysis-"+task.ID+".md")
+	if err := os.WriteFile(analysisPath, []byte(ctfAnalysisTemplate(rec.Name)), 0o644); err != nil {
+		return err
+	}
+	if err := a.store.SaveArtifact(ctx, store.ArtifactRecord{
+		ID:          agent.NewID("artifact"),
+		WorkspaceID: rec.ID,
+		TaskID:      task.ID,
+		Path:        analysisPath,
+		Kind:        "analysis_template",
+		CreatedAt:   time.Now().UTC(),
+	}); err != nil {
+		return err
+	}
+	relativeAnalysisPath, err := filepath.Rel(rec.RootPath, analysisPath)
+	if err != nil {
+		return err
+	}
+	goal := "Analyze CTF workspace " + rec.Name
+	fmt.Fprintf(a.out, "ctf analysis template created\nlegacy_task: %s\nworkspace: %s\nanalysis: %s\nanalysis_relative: %s\nstatus: template_only\nmodel_calls: 0\nnext: cyberagent thread create %q --workspace %s --profile code\n",
+		task.ID, rec.RootPath, analysisPath, filepath.ToSlash(relativeAnalysisPath), goal, rec.Name)
+	return nil
 }
 
 func (a *App) ctfWriteup(ctx context.Context, args []string) error {
@@ -822,40 +848,6 @@ func (a *App) ctfWriteup(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.out, "writeup scaffold: %s\n", path)
-	return nil
-}
-
-func (a *App) ctfStep(ctx context.Context, args []string, action string) error {
-	if err := a.ensureStore(); err != nil {
-		return err
-	}
-	fs := newFlagSet("ctf "+action, a.errOut)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: cyberagent ctf %s <workspace>", action)
-	}
-	rec, err := a.store.GetWorkspaceByName(ctx, workspace.Slug(fs.Arg(0)))
-	if err != nil {
-		return err
-	}
-	task := agent.Task{
-		ID:          agent.NewID("task"),
-		Kind:        agent.TaskCTF,
-		Goal:        action + " CTF workspace " + rec.Name,
-		WorkspaceID: rec.ID,
-		Mode:        action,
-		Status:      agent.StatusPending,
-		CreatedAt:   time.Now().UTC(),
-	}
-	if err := a.store.SaveTask(ctx, task); err != nil {
-		return err
-	}
-	if err := a.kernel.Step(ctx, task.ID); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "ctf %s task %s completed\n", action, task.ID)
 	return nil
 }
 
@@ -1091,14 +1083,18 @@ func scriptExt(language string) string {
 func scriptTemplate(goal string, language string) string {
 	switch strings.ToLower(language) {
 	case "bash", "sh":
-		return "#!/usr/bin/env bash\nset -euo pipefail\n\n# Goal: " + sanitizeLine(goal) + "\necho \"mock script scaffold\"\n"
+		return "#!/usr/bin/env bash\nset -euo pipefail\n\n# Template goal: " + sanitizeLine(goal) + "\necho \"local script template\"\n"
 	case "go":
-		return "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// Goal: " + sanitizeLine(goal) + "\n\tfmt.Println(\"mock script scaffold\")\n}\n"
+		return "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// Template goal: " + sanitizeLine(goal) + "\n\tfmt.Println(\"local script template\")\n}\n"
 	case "node", "javascript", "js":
-		return "// Goal: " + sanitizeLine(goal) + "\nconsole.log(\"mock script scaffold\");\n"
+		return "// Template goal: " + sanitizeLine(goal) + "\nconsole.log(\"local script template\");\n"
 	default:
-		return "#!/usr/bin/env python3\n\"\"\"Mock script scaffold generated by Traverse Board.\"\"\"\n\nGOAL = " + fmt.Sprintf("%q", goal) + "\n\nif __name__ == \"__main__\":\n    print(\"mock script scaffold\")\n    print(f\"goal: {GOAL}\")\n"
+		return "#!/usr/bin/env python3\n\"\"\"Local script template generated by Traverse Board; no task has been performed.\"\"\"\n\nGOAL = " + fmt.Sprintf("%q", goal) + "\n\nif __name__ == \"__main__\":\n    print(\"local script template\")\n    print(f\"goal: {GOAL}\")\n"
 	}
+}
+
+func ctfAnalysisTemplate(workspaceName string) string {
+	return fmt.Sprintf("# %s Analysis Worksheet\n\nStatus: analysis not started. This local worksheet was created without a model call.\n\n## Scope\n\n- Authorized target:\n- Category:\n- Constraints:\n\n## Observations\n\n- Add evidence from attachments/ and logs/.\n\n## Hypotheses and checks\n\n- [ ] Record a hypothesis and the evidence that supports or rejects it.\n\n## Findings\n\n- Record validated findings here.\n", workspaceName)
 }
 
 func sanitizeLine(value string) string {

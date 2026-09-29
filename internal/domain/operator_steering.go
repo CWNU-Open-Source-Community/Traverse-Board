@@ -27,6 +27,17 @@ const (
 
 type OperatorSteeringStatus string
 
+type OperatorSteeringDeliveryMode string
+
+const (
+	OperatorSteeringNextTurn    OperatorSteeringDeliveryMode = "next_turn"
+	OperatorSteeringCurrentTurn OperatorSteeringDeliveryMode = "steer"
+)
+
+func (m OperatorSteeringDeliveryMode) Valid() bool {
+	return m == OperatorSteeringNextTurn || m == OperatorSteeringCurrentTurn
+}
+
 const (
 	OperatorSteeringPending   OperatorSteeringStatus = "pending"
 	OperatorSteeringCommitted OperatorSteeringStatus = "committed"
@@ -58,6 +69,7 @@ type EnqueueOperatorSteeringRequest struct {
 	Content      string
 	OperationKey string
 	RequestedBy  string
+	DeliveryMode OperatorSteeringDeliveryMode
 	Images       []ImageReference
 	Attachments  []FileAttachmentReference
 }
@@ -107,6 +119,12 @@ func (r CancelOperatorSteeringRequest) Normalize() (CancelOperatorSteeringReques
 }
 
 func (r EnqueueOperatorSteeringRequest) Normalize() (EnqueueOperatorSteeringRequest, error) {
+	if r.DeliveryMode == "" {
+		r.DeliveryMode = OperatorSteeringNextTurn
+	}
+	if !r.DeliveryMode.Valid() {
+		return EnqueueOperatorSteeringRequest{}, errors.New("operator steering delivery mode is invalid")
+	}
 	r.RunID = strings.TrimSpace(r.RunID)
 	r.SessionID = strings.TrimSpace(r.SessionID)
 	r.RequestedBy = strings.TrimSpace(r.RequestedBy)
@@ -136,6 +154,8 @@ type OperatorSteeringMessage struct {
 	SessionID             string
 	Sequence              int64
 	Status                OperatorSteeringStatus
+	DeliveryMode          OperatorSteeringDeliveryMode
+	TargetAttemptID       string
 	Prepared              bool
 	Content               string
 	ImageCount            int
@@ -153,6 +173,13 @@ type OperatorSteeringMessage struct {
 }
 
 func (m OperatorSteeringMessage) Validate() error {
+	if m.DeliveryMode == "" {
+		m.DeliveryMode = OperatorSteeringNextTurn
+	}
+	if !m.DeliveryMode.Valid() || (m.DeliveryMode == OperatorSteeringCurrentTurn && !ValidAgentID(m.TargetAttemptID)) ||
+		(m.DeliveryMode == OperatorSteeringNextTurn && m.TargetAttemptID != "") {
+		return errors.New("operator steering delivery binding is invalid")
+	}
 	for label, value := range map[string]string{
 		"id": m.ID, "Run id": m.RunID, "Session id": m.SessionID, "requester": m.RequestedBy,
 	} {

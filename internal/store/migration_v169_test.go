@@ -24,6 +24,7 @@ func TestAgentBrowserSchemaV169PreservesV168RowsAndStoresTypedActions(t *testing
 	if e := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 168); e != nil {
 		t.Fatal(e)
 	}
+	defer addCurrentSteeringForLegacySeed(t, st)()
 	_, run := createStructuredToolTestRun(t, ctx, st, "Agent browser migration")
 	if _, e := application.NewRunService(st).Start(ctx, run.ID); e != nil {
 		t.Fatal(e)

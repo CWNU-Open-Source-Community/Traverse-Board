@@ -55,6 +55,10 @@ const (
 	ProviderFailureCapacity             ProviderFailureReason = "capacity"
 	ProviderFailureModelNotFound        ProviderFailureReason = "model_not_found"
 	ProviderFailureProtocolIncompatible ProviderFailureReason = "protocol_incompatible"
+	ProviderFailureContextLimit         ProviderFailureReason = "context_limit"
+	ProviderFailureOutputLimit          ProviderFailureReason = "output_limit"
+	ProviderFailurePaused               ProviderFailureReason = "paused"
+	ProviderFailureRefusal              ProviderFailureReason = "refusal"
 )
 
 func (r ProviderFailureReason) Valid() bool {
@@ -62,7 +66,9 @@ func (r ProviderFailureReason) Valid() bool {
 	case ProviderFailureNone, ProviderFailureNotConfigured,
 		ProviderFailureAuthentication, ProviderFailureNetwork,
 		ProviderFailureRateLimit, ProviderFailureCapacity,
-		ProviderFailureModelNotFound, ProviderFailureProtocolIncompatible:
+		ProviderFailureModelNotFound, ProviderFailureProtocolIncompatible,
+		ProviderFailureContextLimit, ProviderFailureOutputLimit,
+		ProviderFailurePaused, ProviderFailureRefusal:
 		return true
 	default:
 		return false
@@ -222,15 +228,18 @@ type ModelAttempt struct {
 	MaxAttempts            int
 	ProtocolRepair         int
 	ToolRound              int
+	SteeringSequence       int64
 	Provider               string
 	Model                  string
 	Outcome                Outcome
+	FailureReason          ProviderFailureReason
 	ErrorText              string
 	RetryAfter             time.Duration
 	Elapsed                time.Duration
 	RetryPlanned           bool
 	StreamEvents           int
 	StreamBytes            int
+	InputEstimate          int
 	Context                *ModelContextAudit
 }
 
@@ -243,6 +252,15 @@ func (a ModelAttempt) MonetaryAttemptNumber() int64 {
 		if a.SupervisorAttemptID != "" {
 			if !validSupervisorMonetaryIdentity(a.SupervisorAttemptID) || a.Number <= 0 {
 				return 0
+			}
+			if a.SteeringSequence < 0 {
+				return 0
+			}
+			if a.SteeringSequence > 0 {
+				digest := sha256.Sum256([]byte("supervisor_model_cost_steering.v1\x00" +
+					a.SupervisorAttemptID + "\x00" + strconv.Itoa(a.Number) + "\x00" +
+					strconv.FormatInt(a.SteeringSequence, 10)))
+				return int64(binary.BigEndian.Uint64(digest[:8])&((1<<61)-1) | (1 << 61))
 			}
 			digest := sha256.Sum256([]byte("supervisor_model_cost.v1\x00" + a.SupervisorAttemptID + "\x00" + strconv.Itoa(a.Number)))
 			return int64(binary.BigEndian.Uint64(digest[:8])&((1<<61)-1) | (1 << 61))
@@ -346,6 +364,9 @@ func (a ModelAttempt) ValidateStarted() error {
 	if a.ToolRound < 0 || a.ToolRound > 4 {
 		return errors.New("model tool round must be between zero and four")
 	}
+	if a.SteeringSequence < 0 {
+		return errors.New("model steering sequence cannot be negative")
+	}
 	if strings.TrimSpace(a.Provider) == "" || strings.TrimSpace(a.Model) == "" {
 		return errors.New("model attempt provider and model are required")
 	}
@@ -354,6 +375,12 @@ func (a ModelAttempt) ValidateStarted() error {
 	}
 	if a.StreamEvents < 0 || a.StreamBytes < 0 {
 		return errors.New("model stream counters cannot be negative")
+	}
+	if a.InputEstimate < 0 {
+		return errors.New("model input estimate cannot be negative")
+	}
+	if a.FailureReason != "" && !a.FailureReason.Valid() {
+		return errors.New("model attempt failure reason is invalid")
 	}
 	if a.Context != nil {
 		if err := a.Context.Validate(); err != nil {
@@ -376,6 +403,9 @@ func (a ModelAttempt) ValidateCompleted() error {
 	}
 	if a.Outcome != OutcomeSuccess {
 		return errors.New("completed model attempt requires success outcome")
+	}
+	if a.FailureReason != "" && a.FailureReason != ProviderFailureNone {
+		return errors.New("completed model attempt cannot carry a failure reason")
 	}
 	return nil
 }

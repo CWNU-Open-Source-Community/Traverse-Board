@@ -23,6 +23,9 @@ export function validRecoveryTurn(value: unknown): value is V2TurnInput {
   if (!value || typeof value !== "object") return false;
   const input = value as V2TurnInput;
   return identity(input.threadID) && identity(input.workspaceID) && identity(input.operationKey) &&
+	(input.deliveryMode === undefined || (input.deliveryMode === "steer" && identity(input.sessionID) &&
+		!input.files?.length && !input.images?.length && !input.attachments?.length)) &&
+	(input.deliveryMode === "steer" || input.sessionID === undefined) &&
     typeof input.content === "string" && (input.content.trim().length > 0 || (input.images?.length ?? 0) > 0 || (input.attachments?.length ?? 0) > 0) &&
     new TextEncoder().encode(input.content).byteLength <= 16384 &&
     typeof input.createdAt === "string" && Number.isFinite(Date.parse(input.createdAt)) &&

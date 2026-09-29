@@ -12,7 +12,8 @@ func TestSupervisorCallAuthorityCodecIsClosedAndCanonical(t *testing.T) {
 		RunID: "run-mcp", MissionID: "mission-mcp", WorkspaceID: "workspace-mcp",
 		PermissionSnapshotID: "permission-mcp", PermissionRevision: 2,
 		PermissionMode:       domain.RunExecutionPermissionFullAccess,
-		PermissionGeneration: 3, RunAuthorizationFence: 4}
+		PermissionGeneration: 3, RunAuthorizationFence: 4,
+		PermissionRuntimeEpoch: "current-process-epoch"}
 	encoded, err := EncodeSupervisorCallAuthority(authority)
 	if err != nil {
 		t.Fatal(err)
@@ -30,5 +31,17 @@ func TestSupervisorCallAuthorityCodecIsClosedAndCanonical(t *testing.T) {
 		if _, err := DecodeSupervisorCallAuthority(raw); err == nil {
 			t.Fatalf("malformed authority was accepted: %s", raw)
 		}
+	}
+}
+
+func TestSupervisorCallAuthorityDecodesLegacyWithoutRenewingEpoch(t *testing.T) {
+	raw := json.RawMessage(`{"version":1,"run_id":"run-mcp","mission_id":"mission-mcp","workspace_id":"workspace-mcp","permission_snapshot_id":"permission-mcp","permission_revision":2,"permission_mode":"full_access","permission_generation":0,"run_authorization_fence":0}`)
+	authority, err := DecodeSupervisorCallAuthority(raw)
+	if err != nil || authority.PermissionRuntimeEpoch != "" || authority.RunAuthorizationFence != 0 {
+		t.Fatalf("legacy authority was rejected or renewed: %#v, %v", authority, err)
+	}
+	encoded, err := EncodeSupervisorCallAuthority(authority)
+	if err != nil || string(encoded) != string(raw) {
+		t.Fatalf("legacy authority changed on round trip: %s, %v", encoded, err)
 	}
 }

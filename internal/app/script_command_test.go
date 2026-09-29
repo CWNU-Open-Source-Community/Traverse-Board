@@ -1,10 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"cyberagent-workbench/internal/agent"
+	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/store"
 )
 
 func TestScriptNewPrintsWorkspaceRelativeRunPath(t *testing.T) {
@@ -13,8 +20,103 @@ func TestScriptNewPrintsWorkspaceRelativeRunPath(t *testing.T) {
 	stdout, stderr, code := executeTestCommand(t,
 		"script", "new", "relative path", "--workspace", "demo", "--language", "python",
 	)
-	if code != 0 || !strings.Contains(stdout, "script_relative: scripts/") || !strings.Contains(stdout, ".py") {
+	if code != 0 || !strings.Contains(stdout, "script template created") ||
+		!strings.Contains(stdout, "script_relative: scripts/") || !strings.Contains(stdout, ".py") ||
+		!strings.Contains(stdout, "status: template_only") || !strings.Contains(stdout, "model_calls: 0") ||
+		!strings.Contains(stdout, "next: cyberagent thread create") || strings.Contains(stdout, "completed") {
 		t.Fatalf("script new did not expose a runnable relative path: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+}
+
+func TestLegacyTemplateCommandsDoNotCallModelOrClaimCompletion(t *testing.T) {
+	home := t.TempDir()
+	st, err := store.Open(filepath.Join(home, "template-command.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	provider := &cliApprovalProvider{responses: []*llm.ChatResponse{{
+		Text: "MODEL OUTPUT MUST NOT BE USED", Provider: "cli-approval-test", Model: "model",
+	}}}
+	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+	router.RegisterProvider(provider)
+	var out, errOut bytes.Buffer
+	checker := policy.NewDefaultChecker()
+	a := &App{home: home, out: &out, errOut: &errOut, store: st, router: router,
+		checker: checker, kernel: agent.NewKernel(st, router, checker)}
+
+	if err := a.dispatch(t.Context(), []string{
+		"script", "new", "Create a Python add function", "--workspace", "audit", "--language", "python",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertTemplateOnlyOutput(t, out.String())
+	if provider.requestCount() != 0 {
+		t.Fatalf("script template called the model %d times", provider.requestCount())
+	}
+	scriptFiles, err := filepath.Glob(filepath.Join(home, "workspaces", "audit", "scripts", "*.py"))
+	if err != nil || len(scriptFiles) != 1 {
+		t.Fatalf("script files=%v err=%v", scriptFiles, err)
+	}
+	script, err := os.ReadFile(scriptFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "Local script template") ||
+		strings.Contains(string(script), "MODEL OUTPUT MUST NOT BE USED") {
+		t.Fatalf("unexpected script template: %q", script)
+	}
+	assertLegacyTaskPending(t, st, out.String())
+
+	out.Reset()
+	if err := a.dispatch(t.Context(), []string{"ctf", "init", "challenge", "--category", "web"}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := a.dispatch(t.Context(), []string{"ctf", "analyze", "challenge"}); err != nil {
+		t.Fatal(err)
+	}
+	assertTemplateOnlyOutput(t, out.String())
+	if !strings.Contains(out.String(), "ctf analysis template created") || provider.requestCount() != 0 {
+		t.Fatalf("unexpected CTF template output or model calls=%d: %s", provider.requestCount(), out.String())
+	}
+	analysisFiles, err := filepath.Glob(filepath.Join(home, "workspaces", "challenge", "outputs", "analysis-*.md"))
+	if err != nil || len(analysisFiles) != 1 {
+		t.Fatalf("analysis files=%v err=%v", analysisFiles, err)
+	}
+	analysis, err := os.ReadFile(analysisFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(analysis), "Status: analysis not started") ||
+		strings.Contains(string(analysis), "MODEL OUTPUT MUST NOT BE USED") {
+		t.Fatalf("unexpected analysis template: %q", analysis)
+	}
+	assertLegacyTaskPending(t, st, out.String())
+}
+
+func assertTemplateOnlyOutput(t *testing.T, output string) {
+	t.Helper()
+	if !strings.Contains(output, "status: template_only") ||
+		!strings.Contains(output, "model_calls: 0") ||
+		!strings.Contains(output, "next: cyberagent thread create") ||
+		strings.Contains(output, "completed") {
+		t.Fatalf("command did not report template-only semantics: %s", output)
+	}
+}
+
+func assertLegacyTaskPending(t *testing.T, st *store.SQLiteStore, output string) {
+	t.Helper()
+	taskID := regexp.MustCompile(`task-[0-9]{14}-[a-f0-9]{12}`).FindString(output)
+	if taskID == "" {
+		t.Fatalf("legacy task id missing: %s", output)
+	}
+	task, err := st.GetTask(t.Context(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != agent.StatusPending {
+		t.Fatalf("template task status=%q want=%q", task.Status, agent.StatusPending)
 	}
 }
 

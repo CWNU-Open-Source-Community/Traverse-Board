@@ -671,7 +671,7 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     "instruction_authorized", "kind", "provisional", "run_id",
     "run_ordinal", "sequence", "source", "stage", "title", "verifiable", "version"];
   const optional = ["activity_detail_ref", "activity_summary", "attempt_id", "boundary_reason", "detail",
-    "detail_available", "durable_call_id",
+    "detail_available", "delivery_mode", "durable_call_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
     "stream_response_id", "tool_name", "tool_round", "web_evidence", "images", "attachments"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
@@ -707,6 +707,8 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     (value.stream_item_id !== undefined && value.canonical_id !== value.stream_item_id) ||
     ((value.detail_available === true) !== (value.activity_detail_ref !== undefined)) ||
     (value.detail_available === true && value.activity_detail_ref !== value.durable_call_id) ||
+    (value.delivery_mode !== undefined &&
+      (!["next_turn", "steer"].includes(String(value.delivery_mode)) || value.source !== "operator")) ||
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
@@ -2013,11 +2015,11 @@ const availableRouteCredentialStatuses = ["not_required", "configured", "not_con
   "invalid_configuration", "disabled", "unavailable"] as const;
 const availableRouteQualificationStatuses = ["unavailable", "not_configured", "available",
   "protocol_mismatch", "auth_failed", "network_failed", "rate_limit", "capacity",
-  "model_unsupported", "trusted_builtin", "qualification_required", "verified"] as const;
+  "model_unsupported", "response_incomplete", "trusted_builtin", "qualification_required", "verified"] as const;
 const unavailableRouteReasons = ["", "provider_disabled", "credential_not_configured",
   "invalid_configuration", "provider_unavailable", "harness_qualification_required",
   "not_configured", "protocol_mismatch", "auth_failed", "network_failed", "rate_limit",
-  "capacity", "model_unsupported"] as const;
+  "capacity", "model_unsupported", "response_incomplete"] as const;
 
 function validVisionCapability(value: unknown): boolean {
   return hasExactKeys(value, ["state", "source"]) &&
@@ -2275,7 +2277,7 @@ function parseProviderDiagnostic(value: unknown, request: ProviderDiagnosticRequ
 function providerFailureReasonValid(value: unknown): boolean {
   return typeof value === "string" &&
     ["none", "not_configured", "authentication", "network", "rate_limit", "capacity",
-      "model_not_found", "protocol_incompatible"].includes(value);
+      "model_not_found", "protocol_incompatible", "context_limit", "output_limit", "paused", "refusal"].includes(value);
 }
 
 // qualificationStatusValid accepts the closed per-endpoint qualification
@@ -2285,7 +2287,7 @@ function providerFailureReasonValid(value: unknown): boolean {
 function qualificationStatusValid(value: unknown): boolean {
   return typeof value === "string" &&
     ["", "not_configured", "available", "protocol_mismatch", "auth_failed",
-      "network_failed", "rate_limit", "capacity", "model_unsupported"].includes(value);
+      "network_failed", "rate_limit", "capacity", "model_unsupported", "response_incomplete"].includes(value);
 }
 
 function providerOutcomeValid(value: unknown): boolean {
@@ -7974,6 +7976,17 @@ export class CyberAgentClient {
       `/sessions/${encodeURIComponent(sessionID)}/messages`, body, idempotencyKey, signal,
     );
     return parseSessionMessageControl(result, sessionID);
+  }
+
+  async inspectSessionMessageOperation(sessionID: string, operationKey: string,
+    signal?: AbortSignal): Promise<unknown> {
+    if (!this.hasSessionMessages || !boundedIdentity(sessionID) || sessionID.trim() !== sessionID ||
+      operationKey.length < 16 || operationKey.length > 256 || /[\s\u0000-\u001f\u007f]/u.test(operationKey)) {
+      throw new Error("A Run-local Session and normalized original operation key are required");
+    }
+    return (await this.request<unknown>(
+      `/sessions/${encodeURIComponent(sessionID)}/messages/operations/${encodeURIComponent(operationKey)}`,
+      {}, signal)).data;
   }
 
   async archiveSession(sessionID: string, body: SessionArchiveControlRequestView,

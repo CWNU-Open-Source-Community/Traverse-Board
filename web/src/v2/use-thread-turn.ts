@@ -19,6 +19,8 @@ export interface V2TurnInput {
   draftVersion?: V2DraftVersion;
   operationKey: string;
   createdAt: string;
+  deliveryMode?: "steer";
+  sessionID?: string;
   files?: V2FileReference[];
   images?: WorkspaceImageAttachment[];
   attachments?: WorkspaceFileAttachment[];
@@ -111,6 +113,15 @@ export function useV2ThreadTurn(client: CyberAgentClient) {
         if (previous && JSON.stringify(previous) !== JSON.stringify(input)) throw new Error("原提交标识已经绑定其他内容，未发送消息。");
         // Persist before touching the network, including the first Thread turn.
         recovery.write(recoveryTurnKey(input), input);
+      }
+      if (input.deliveryMode === "steer") {
+        if (!input.sessionID || input.files?.length || input.images?.length || input.attachments?.length) {
+          throw new Error("更新当前任务仅支持文字；附件和引用仍保留在草稿中。");
+        }
+        return client.submitSessionMessage(input.sessionID, {
+          version: "session_message_submission.v1", content: input.content,
+          delivery_mode: "steer",
+        }, input.operationKey);
       }
       return client.submitThreadTurn(input.threadID, {
         version: "thread_message_submission.v1", content: input.content,

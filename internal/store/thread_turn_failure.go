@@ -222,6 +222,13 @@ func (s *SQLiteStore) EndFailedThreadTurn(ctx context.Context, threadID, runID, 
 	if _, _, err := commitOperatorSteeringDeliveryTx(ctx, tx, run, checkpoint, original, time.Now().UTC()); err != nil {
 		return empty, false, err
 	}
+	corrections, err := commitMidTurnSteeringTx(ctx, tx, run, checkpoint, true)
+	if err != nil {
+		return empty, false, err
+	}
+	if corrections > 0 {
+		outcome += fmt.Sprintf("Accepted current-turn corrections: %d. This failed execution did not complete their requested work.\n", corrections)
+	}
 	control, err := saveSessionMessageTx(ctx, tx, session.NewEvidenceMessage(run.SessionID, session.SourceToolResult, handoffID, outcome))
 	if err != nil {
 		return empty, false, err

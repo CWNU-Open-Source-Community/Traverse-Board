@@ -44,6 +44,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       rate_limit: ["达到速率限制", "rate limited"],
       capacity: ["容量不足", "capacity unavailable"],
       model_unsupported: ["模型不支持", "model unsupported"],
+      response_incomplete: ["响应未完成", "response incomplete"],
     };
     const label = labels[status];
     return label ? t(label[0], label[1]) : status;
@@ -57,6 +58,10 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       capacity: ["Provider 容量不足", "Provider capacity unavailable"],
       model_not_found: ["模型不存在", "model not found"],
       protocol_incompatible: ["协议不兼容", "protocol incompatible"],
+      context_limit: ["输入超出上下文窗口", "input exceeds context window"],
+      output_limit: ["输出达到长度上限", "output limit reached"],
+      paused: ["模型暂停", "model paused"],
+      refusal: ["模型拒绝请求", "model refused the request"],
     };
     const label = labels[reason];
     return label ? t(label[0], label[1]) : reason;

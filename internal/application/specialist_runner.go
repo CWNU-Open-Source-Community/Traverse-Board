@@ -505,9 +505,9 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 		if r.monetary != nil {
 			if _, settleErr := r.monetary.SettleModelCall(ctx, ref.RunID,
 				domain.MonetaryScopeSpecialist, modelCall.Attempt, llm.Usage{
-					InputTokens: int(charged.Usage.InputTokens),
+					InputTokens:  int(charged.Usage.InputTokens),
 					OutputTokens: int(charged.Usage.OutputTokens),
-					TotalTokens: int(charged.Usage.TotalTokens),
+					TotalTokens:  int(charged.Usage.TotalTokens),
 				}, len(response.ToolCalls)); settleErr != nil {
 				return r.failAttempt(ctx, result, ref, settleErr)
 			}
@@ -761,9 +761,11 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 		}
 		providerErr := llm.NormalizeProviderError(modelRef.Provider, callErr)
 		attempt.Outcome = providerErr.Kind
+		attempt.FailureReason = providerErr.Reason
 		attempt.ErrorText = providerErr.Error()
 		attempt.RetryAfter = providerErr.RetryAfter
 		attempt.RetryPlanned = providerErr.Kind.Retryable() &&
+			streamed.Usage == nil &&
 			transportAttempt < retryPolicy.MaxAttempts &&
 			ctx.Err() == nil &&
 			!specialistModelBudgetExhausted(run.Budget, consumedMillis,
@@ -772,14 +774,22 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 			retryPolicy.allowsRetryAfter(providerErr)
 		result.Attempt = attempt
 		eventCtx, cancelEvent := specialistEventContext(ctx)
-		_, storeErr := r.store.RecordSpecialistModelFailed(eventCtx, ref, attempt, nil)
+		_, storeErr := r.store.RecordSpecialistModelFailed(eventCtx, ref, attempt, streamed.Usage)
 		cancelEvent()
 		if storeErr != nil {
 			return result, errors.Join(providerApplicationError(providerErr), storeErr)
 		}
 		if r.monetary != nil {
-			_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
-				domain.MonetaryScopeSpecialist, attempt)
+			if streamed.Usage != nil {
+				_, moneyErr := r.monetary.SettleModelCall(ctx, ref.RunID,
+					domain.MonetaryScopeSpecialist, attempt, *streamed.Usage, 0)
+				if moneyErr != nil {
+					return result, errors.Join(providerApplicationError(providerErr), moneyErr)
+				}
+			} else {
+				_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
+					domain.MonetaryScopeSpecialist, attempt)
+			}
 		}
 		if !attempt.RetryPlanned {
 			return result, providerApplicationError(providerErr)
@@ -793,6 +803,7 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 
 type specialistStreamResult struct {
 	Response *llm.ChatResponse
+	Usage    *llm.Usage
 	Events   int
 	Bytes    int
 }
@@ -806,6 +817,10 @@ func streamSpecialistModel(ctx context.Context, router *llm.Router, ref llm.Mode
 	}
 	var output bytes.Buffer
 	result := specialistStreamResult{}
+	stream, err := llm.NewItemStreamAccumulator(llm.StableStreamID("response", "specialist", ref.Provider, ref.Model), ref.Provider, ref.Model)
+	if err != nil {
+		return result, err
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -816,6 +831,19 @@ func streamSpecialistModel(ctx context.Context, router *llm.Router, ref llm.Mode
 					ref.Provider, "stream closed before a final chunk", nil)
 			}
 			result.Events++
+			normalized, _, streamErr := stream.Consume(chunk)
+			if streamErr != nil {
+				return result, llm.NewProviderError(llm.OutcomeInvalidResponse, ref.Provider, "returned an invalid Specialist item stream", streamErr)
+			}
+			chunk = normalized
+			if chunk.Err != nil && llm.NormalizeProviderError(ref.Provider, chunk.Err).Kind != llm.OutcomeInvalidResponse {
+				result.Usage = validatedFailedStreamUsage(chunk)
+			}
+			if chunk.Err != nil && llm.CompletionError(ref.Provider, chunk.FinishReason) != nil &&
+				chunk.Usage != nil && chunk.Usage.Validate() == nil {
+				usage := *chunk.Usage
+				result.Usage = &usage
+			}
 			if result.Events > maxSpecialistStreamChunks {
 				return result, llm.NewProviderError(llm.OutcomeInvalidResponse,
 					ref.Provider, "Specialist stream exceeded its chunk limit", nil)
@@ -863,7 +891,7 @@ func streamSpecialistModel(ctx context.Context, router *llm.Router, ref llm.Mode
 			}
 			result.Response = &llm.ChatResponse{
 				Text: output.String(), ToolCalls: toolCalls, Usage: *chunk.Usage,
-				Provider: provider, Model: model,
+				Provider: provider, Model: model, FinishReason: chunk.FinishReason,
 			}
 			return result, nil
 		}

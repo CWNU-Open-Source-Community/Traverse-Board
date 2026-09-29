@@ -153,6 +153,11 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
     pendingSubmissions.some(({ input }) => JSON.stringify([input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint);
   const ready = !disabled && !submitDisabled && !managedDraft?.state.conflict && !managedDraft?.state.error && !images.uploading && !attachments.uploading && !attachments.pending && !nativeClipboard.pending && !nativeClipboard.busy && !importStatus.busy && (!images.images.length || imageCapability.allowed) && !sameMessagePending && Boolean(workspaceID) && (byteLength > 0 || images.images.length > 0 || attachments.attachments.length > 0) &&
     byteLength <= maximumContentBytes && !(fileReferenceUnavailableReason && references.files.length > 0);
+  // Low-priority hints share a single caption line instead of stacking.
+  const draftSavedLocally = Boolean(recovery) && !persistenceWarning &&
+    (!managedDraft || managedDraft.state.persisted && !managedDraft.state.error) &&
+    (content || references.files.length > 0 || images.images.length > 0 || attachments.attachments.length > 0);
+  const showImageCapability = images.images.length > 0;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -320,15 +325,17 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
         {" 已选引用与草稿会保留；先移除项目文件引用，即可发送补充文字和上传附件。"}</p>}
     {byteLength > maximumContentBytes && <p className="v2-composer-error">消息不能超过 16 KiB</p>}
     {images.uploading && <p className="v2-composer-caption" role="status">正在保存图片，完成后可发送…</p>}
-    {images.images.length > 0 && <p className="v2-image-capability" role="status">{imageCapability.hint}
-      {!imageCapability.allowed && onManageModels && <button className="v2-composer-chip" type="button"
-        onClick={() => onManageModels(false)}>模型设置</button>}</p>}
+    {(showImageCapability || draftSavedLocally) && <p className="v2-composer-caption" role="status">
+      {showImageCapability && <>{imageCapability.hint}
+        {!imageCapability.allowed && onManageModels && <button className="v2-composer-chip" type="button"
+          onClick={() => onManageModels(false)}>模型设置</button>}</>}
+      {showImageCapability && draftSavedLocally && " · "}
+      {draftSavedLocally && "草稿与附件保存在此设备"}
+    </p>}
     {images.error && <p className="v2-composer-error" role="alert">{images.error}</p>}
     {attachments.notice}
     {nativeClipboard.notice}
     {(attachments.error || importStatus.error) && <p className="v2-composer-error" role="alert">{attachments.error || importStatus.error}</p>}
-    {recovery && !persistenceWarning && (!managedDraft || managedDraft.state.persisted && !managedDraft.state.error) && (content || references.files.length > 0 || images.images.length > 0 || attachments.attachments.length > 0) &&
-      <p className="v2-composer-caption" role="status">草稿与附件保存在此设备</p>}
     {error && !presentedSubmissionErrors.some((input) => input.threadID === threadID &&
       input.workspaceID === workspaceID && input.operationKey === error.operationKey) &&
       <p className="v2-composer-error" role="alert">{error.message}</p>}

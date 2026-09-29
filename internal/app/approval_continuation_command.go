@@ -41,26 +41,14 @@ func (a *App) newCLIApprovalExecution(ctx context.Context, runID string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	var runtime *application.CommandRuntimeService
-	closeRuntime := func() error { return nil }
-	if matrix.SandboxedCommandRuntime {
-		commandManager, commandRuntime, runtimeErr := a.newCLICommandRuntime(ctx, true, true, false)
-		if runtimeErr != nil {
-			return nil, nil, runtimeErr
-		}
-		runtime = commandRuntime
-		stop := a.startCLICommandRuntimeReconciler(ctx, runtime)
-		closeRuntime = func() error {
-			return errors.Join(stop(), shutdownCLICommandRuntime(commandManager))
-		}
+	runtime, err := a.newCLIExecutionRuntime(ctx,
+		cliExecutionPermissionCapabilities(true, true, false), matrix.SandboxedCommandRuntime)
+	if err != nil {
+		return nil, nil, err
 	}
-	handoff := application.NewRunExecutionHandoffService(a.store, a.router, a.checker).
-		WithActiveCalls(a.calls).WithDrydock(drydocks).
-		WithWebEvidence(a.newWebEvidenceService()).WithWebFetchAuthorizationScheduler(true).
-		WithExecutionPermissionCapabilities(cliExecutionPermissionCapabilities(true, true, false))
-	if runtime != nil {
-		handoff.WithCommandRuntime(runtime)
-	}
+	closeRuntime := runtime.close
+	dependencies := runtime.dependencies(a)
+	dependencies.Drydocks = drydocks
 	if _, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx, runID); err != nil {
 		return nil, nil, errors.Join(err, closeRuntime())
 	} else if configured {
@@ -68,17 +56,9 @@ func (a *App) newCLIApprovalExecution(ctx context.Context, runID string) (
 		if err != nil {
 			return nil, nil, errors.Join(err, closeRuntime())
 		}
-		handoff.WithStandardCodeDelivery(delivery)
+		dependencies.StandardCodeDelivery = delivery
 	}
-	if client := a.newMCPClientManager(); client != nil {
-		handoff.WithMCPClient(client)
-	}
-	if engine := a.newLifecycleHookEngine(); engine != nil {
-		handoff.WithLifecycleHooks(engine)
-	}
-	if a.codeIntel != nil {
-		handoff.WithCodeIntel(a.codeIntel)
-	}
+	handoff := application.NewRunExecutionHandoffWithRuntime(a.store, a.router, a.checker, dependencies)
 	return handoff, closeRuntime, nil
 }
 

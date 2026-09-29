@@ -26,6 +26,7 @@ type ordinaryMoneyLifecycleProvider struct {
 	text    string
 	usage   llm.Usage
 	unknown bool
+	finish  llm.FinishReason
 }
 
 func (*ordinaryMoneyLifecycleProvider) Name() string { return "usage-test" }
@@ -49,7 +50,7 @@ func (p *ordinaryMoneyLifecycleProvider) StreamChat(_ context.Context, _ llm.Cha
 	if !p.unknown {
 		chunks <- llm.ChatChunk{Text: p.text}
 		chunks <- llm.FinalChatChunk(&llm.ChatResponse{
-			Text: p.text, Provider: p.Name(), Model: "model", Usage: p.usage,
+			Text: p.text, Provider: p.Name(), Model: "model", Usage: p.usage, FinishReason: p.finish,
 		})
 	}
 	close(chunks)
@@ -116,6 +117,35 @@ func TestOrdinaryModelProtocolFailureSettlesKnownMonetaryUsage(t *testing.T) {
 	}
 	assertOrdinaryMoneyNoAssistant(t, st, run)
 	t.Logf("protocol_failure provider_calls=1 known_tokens=5 settled_micros=8 reserve=%d", usage.ReservedMicros)
+}
+
+func TestOrdinaryModelIncompleteTerminalSettlesUsageWithoutSuccess(t *testing.T) {
+	for _, finish := range []llm.FinishReason{llm.FinishReasonLength, llm.FinishReasonPause, llm.FinishReasonRefusal} {
+		t.Run(string(finish), func(t *testing.T) {
+			p := &ordinaryMoneyLifecycleProvider{finish: finish,
+				text:  `{"version":"root_lifecycle.v1","action":"continue","message":"Do not accept this incomplete response"}`,
+				usage: llm.Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}}
+			_, st, run, supervisor := newOrdinaryMoneyLifecycleFixture(t, p)
+			if _, err := supervisor.Step(t.Context(), run.ID); err == nil {
+				t.Fatal("incomplete response completed")
+			}
+			usage := readOrdinaryMoneyUsage(t, st, run.ID)
+			cp, found, err := st.GetSupervisorCheckpoint(t.Context(), run.ID)
+			if err != nil || !found || cp.TotalTokens != 5 || usage.SettledMicros != 8 || p.calls.Load() != 1 {
+				t.Fatalf("lost incomplete usage: checkpoint=%+v money=%+v calls=%d err=%v", cp, usage, p.calls.Load(), err)
+			}
+			assertOrdinaryMoneyNoAssistant(t, st, run)
+			ledger, err := st.ListRunEvents(t.Context(), run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range ledger {
+				if event.Type == events.ModelCompletedEvent {
+					t.Fatal("incomplete response emitted model.completed")
+				}
+			}
+		})
+	}
 }
 
 func TestOrdinaryModelCancelledUnknownReservationSurvivesReopen(t *testing.T) {

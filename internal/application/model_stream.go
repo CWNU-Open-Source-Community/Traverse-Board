@@ -86,7 +86,7 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 					return
 				}
 				a.observeUsage(chunk)
-				if chunk.Done {
+				if chunk.Done || chunk.Err != nil {
 					result.Usage, result.ToolCallCount = a.observedUsage, a.observedToolCalls
 					return
 				}
@@ -152,6 +152,9 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 		}
 		chunk = normalized
 		a.observeUsage(chunk)
+		if usage := validatedFailedStreamUsage(chunk); usage != nil {
+			a.observedUsage, a.observedToolCalls = usage, len(chunk.ToolCalls)
+		}
 		if err := a.acceptStreamEvents(itemEvents); err != nil {
 			return a.result(nil), err
 		}
@@ -216,6 +219,7 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 		response := &llm.ChatResponse{
 			ResponseID: a.stream.ResponseID(), Text: a.output.String(), ToolCalls: toolCalls,
 			Items: a.stream.Items(), Usage: *chunk.Usage, Provider: provider, Model: model,
+			FinishReason: chunk.FinishReason, Replay: chunk.Replay.Clone(),
 		}
 		return a.result(response), nil
 	}
@@ -324,7 +328,8 @@ func (a *modelStreamAggregator) flush(done bool) error {
 }
 
 func (a *modelStreamAggregator) observeUsage(chunk llm.ChatChunk) {
-	if chunk.Done && chunk.Usage != nil && chunk.Usage.Validate() == nil {
+	terminal := chunk.Done || (chunk.Err != nil && llm.CompletionError(a.ref.Provider, chunk.FinishReason) != nil)
+	if terminal && chunk.Usage != nil && chunk.Usage.Validate() == nil {
 		usage := *chunk.Usage
 		a.observedUsage = &usage
 		a.observedToolCalls = len(chunk.ToolCalls)
@@ -334,6 +339,22 @@ func (a *modelStreamAggregator) observeUsage(chunk llm.ChatChunk) {
 func (a *modelStreamAggregator) result(response *llm.ChatResponse) modelStreamResult {
 	return modelStreamResult{Response: response, Events: a.events, Bytes: a.durableBytes,
 		Usage: a.observedUsage, ToolCallCount: a.observedToolCalls}
+}
+
+// Call only after ItemStreamAccumulator.Consume has validated the terminal.
+// A provider's response.failed receipt can have known usage without a content
+// finish reason, unlike a transport error that never returned a receipt.
+func validatedFailedStreamUsage(chunk llm.ChatChunk) *llm.Usage {
+	if chunk.Err == nil || chunk.Usage == nil || chunk.Usage.Validate() != nil {
+		return nil
+	}
+	for _, event := range chunk.Events {
+		if event.Type == llm.StreamResponseFailed {
+			usage := *chunk.Usage
+			return &usage
+		}
+	}
+	return nil
 }
 
 func modelStreamFailure(primary error, persistence error) error {

@@ -66,6 +66,13 @@ func TestBuildProjectsPendingAndCancelledComposerInputWithoutDuplicatingCommitte
 		items[0].Title != "用户消息已取消" || items[0].Detail != "continue safely" {
 		t.Fatalf("cancelled Composer projection is wrong: items=%#v err=%v", items, err)
 	}
+	queued.OperatorStatus = "pending"
+	queued.OperatorDeliveryMode = "steer"
+	items, err = Build("thread-1", []Source{queued})
+	if err != nil || len(items) != 1 || items[0].DeliveryMode != "steer" {
+		t.Fatalf("steering delivery mode was not projected: items=%#v err=%v", items, err)
+	}
+	queued.OperatorDeliveryMode = ""
 	queued.OperatorStatus = "committed"
 	items, err = Build("thread-1", []Source{queued})
 	if err != nil || len(items) != 0 {
