@@ -245,22 +245,56 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned malformed JSON", err)
 	}
-	text := parsed.Text()
 	finishReason := anthropicFinishReason(parsed.StopReason)
+	native := anthropicReplayBuilder{responseID: parsed.ID}
+	var text strings.Builder
+	var textParts []string
+	for index, rawBlock := range parsed.Content {
+		if native.startBlock(index, rawBlock) != nil || native.endBlock(index) != nil {
+			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an unsupported native content block", nil)
+		}
+		if block := native.blocks[index].block; block.Type == "text" {
+			text.WriteString(*block.Text)
+			if strings.TrimSpace(*block.Text) != "" {
+				textParts = append(textParts, *block.Text)
+			}
+		}
+	}
 	var toolCalls []ToolCall
 	if CompletionError(p.name, finishReason) == nil {
-		toolCalls, err = parsed.ToolCalls()
+		for _, pending := range native.blocks {
+			block := pending.block
+			if block.Type == "tool_use" {
+				toolCalls = append(toolCalls, ToolCall{ID: block.ID, Name: block.Name, Arguments: append(json.RawMessage(nil), block.Input...)})
+			}
+		}
+		toolCalls, err = NormalizeToolCalls(toolCalls)
 		if err != nil {
 			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid tool calls", err)
 		}
-		if err := validateAnthropicFinishReason(finishReason, strings.TrimSpace(text) != "", len(toolCalls)); err != nil {
+		if err := validateAnthropicFinishReason(finishReason, strings.TrimSpace(text.String()) != "", len(toolCalls)); err != nil {
 			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an incompatible stop reason", err)
 		}
 	}
 	responseModel := p.responseModel(selectedModel, parsed.ModelOrDefault(selectedModel))
+	var replay *ProviderReplay
+	if len(toolCalls) > 0 && native.hasPrivate() {
+		if responseModel != selectedModel {
+			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "native replay model does not match the requested source", nil)
+		}
+		replay, err = native.finish(p.name, selectedModel, p.replayBinding(selectedModel), toolCalls)
+		if err != nil {
+			return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid native replay state", nil)
+		}
+	}
+	publicText := strings.Join(textParts, "\n")
+	if replay != nil {
+		publicText = replay.AssistantText()
+	}
 	result := &ChatResponse{
-		Text:      text,
+		Text:      publicText,
 		ToolCalls: toolCalls,
+		Replay:    replay,
 		// Keep the upstream response inside the adapter. Raw model payloads are
 		// not part of the Supervisor contract and must not cross persistence or
 		// activity boundaries.
@@ -499,6 +533,7 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 	lines := providerStreamLines{}
 	scanner.Split(lines.split)
 	state := anthropicStreamState{model: defaultModel,
+		selectedModel: defaultModel, replayBinding: p.replayBinding(defaultModel),
 		responseModel: func(returned string) string { return p.responseModel(defaultModel, returned) },
 		events:        newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
 	dataLines := make([]string, 0, 1)
@@ -651,11 +686,26 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 		out.Temperature = &req.Temperature
 	}
 	var systemParts []string
+	var replayCallIDs map[string]string
 	for _, msg := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		content := strings.TrimSpace(msg.Content)
-		if content == "" && len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 && len(msg.Images) == 0 {
+		if msg.Replay != nil && role != "assistant" {
+			return anthropicMessageRequest{}, errors.New("Anthropic replay requires an assistant message")
+		}
+		if content == "" && len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 && len(msg.Images) == 0 && msg.Replay == nil {
 			continue
+		}
+		if len(replayCallIDs) > 0 {
+			if role == "assistant" || role == "system" {
+				return anthropicMessageRequest{}, errors.New("Anthropic replay is missing its adjacent tool results")
+			}
+			var err error
+			msg.ToolResults, err = anthropicReplayResults(msg.ToolResults, replayCallIDs)
+			if err != nil {
+				return anthropicMessageRequest{}, err
+			}
+			replayCallIDs = nil
 		}
 		switch role {
 		case "system":
@@ -664,6 +714,15 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 			}
 			systemParts = append(systemParts, content)
 		case "assistant":
+			if msg.Replay != nil {
+				encoded, aliases, err := anthropicReplayMessage(msg, p.name, selectedModel, p.replayBinding(selectedModel))
+				if err != nil {
+					return anthropicMessageRequest{}, err
+				}
+				out.Messages = append(out.Messages, anthropicMessage{Role: "assistant", Content: encoded})
+				replayCallIDs = aliases
+				continue
+			}
 			encoded, err := anthropicMessageContent(msg, true)
 			if err != nil {
 				return anthropicMessageRequest{}, err
@@ -676,6 +735,9 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 			}
 			out.Messages = append(out.Messages, anthropicMessage{Role: "user", Content: encoded})
 		}
+	}
+	if len(replayCallIDs) > 0 {
+		return anthropicMessageRequest{}, errors.New("Anthropic replay has an unresolved native tool batch")
 	}
 	if len(req.Tools) > MaxProviderToolSpecs {
 		return anthropicMessageRequest{}, errors.New("tool specification count exceeds the provider limit")
@@ -767,6 +829,9 @@ type anthropicImageSource struct {
 }
 
 func anthropicMessageContent(message Message, assistant bool) (any, error) {
+	if message.Replay != nil {
+		return nil, errors.New("Anthropic replay requires provider source validation")
+	}
 	if err := ValidateMessageImages(message); err != nil {
 		return nil, err
 	}
@@ -825,26 +890,16 @@ type anthropicStreamEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index"`
 	Message struct {
+		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
-	ContentBlock struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
-	} `json:"content_block"`
-	Delta struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		PartialJSON string `json:"partial_json"`
-		StopReason  string `json:"stop_reason"`
-	} `json:"delta"`
-	Usage struct {
+	ContentBlock json.RawMessage `json:"content_block"`
+	Delta        json.RawMessage `json:"delta"`
+	Usage        struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
@@ -870,6 +925,9 @@ type anthropicStreamState struct {
 	itemCount      int
 	events         providerStreamEvents
 	responseModel  func(string) string
+	selectedModel  string
+	replayBinding  string
+	replay         anthropicReplayBuilder
 }
 
 type anthropicStreamToolBlock struct {
@@ -891,6 +949,10 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned a duplicate message start", nil)
 		}
+		if event.Message.ID != "" && !replayIdentity(event.Message.ID) {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid native response identity", nil)
+		}
+		s.replay.responseID = event.Message.ID
 		model := strings.TrimSpace(event.Message.Model)
 		if model == "" || !utf8.ValidString(model) || len([]rune(model)) > MaxItemStreamIdentity ||
 			strings.ContainsRune(model, 0) {
@@ -912,8 +974,12 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned an invalid content block start", nil)
 		}
+		if s.replay.startBlock(event.Index, event.ContentBlock) != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an unsupported native content block", nil)
+		}
+		block := s.replay.blocks[event.Index].block
 		itemID := fmt.Sprintf("block/%d", event.Index)
-		if event.ContentBlock.Type == "text" && event.ContentBlock.Text != "" {
+		if block.Type == "text" && *block.Text != "" {
 			s.ensureBlockMaps()
 			s.textBlocks[event.Index] = true
 			s.itemCount++
@@ -924,11 +990,11 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			})}
 			events = append(events, s.events.emit(StreamEvent{
 				Type: StreamTextDelta, ItemID: itemID, ItemType: StreamItemMessage,
-				ItemStatus: StreamItemInProgress, TextDelta: event.ContentBlock.Text,
+				ItemStatus: StreamItemInProgress, TextDelta: *block.Text,
 			}))
-			return &ChatChunk{Text: event.ContentBlock.Text, Events: events}, false, nil
+			return &ChatChunk{Text: *block.Text, Events: events}, false, nil
 		}
-		if event.ContentBlock.Type == "text" {
+		if block.Type == "text" {
 			s.ensureBlockMaps()
 			s.textBlocks[event.Index] = true
 			s.itemCount++
@@ -937,13 +1003,13 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 				ItemStatus: StreamItemInProgress,
 			})}}, false, nil
 		}
-		if event.ContentBlock.Type == "tool_use" {
+		if block.Type == "tool_use" {
 			if len(s.toolBlocks)+len(s.toolCalls) >= MaxProviderToolCalls {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 					"returned too many tool blocks", nil)
 			}
-			id := strings.TrimSpace(event.ContentBlock.ID)
-			name := strings.TrimSpace(event.ContentBlock.Name)
+			id := block.ID
+			name := block.Name
 			if err := validateStreamIdentity(id, "provider call"); err != nil {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 					"returned an invalid tool block identity", err)
@@ -955,7 +1021,7 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			s.ensureBlockMaps()
 			s.toolBlocks[event.Index] = &anthropicStreamToolBlock{
 				id: id, name: name,
-				input: append(json.RawMessage(nil), event.ContentBlock.Input...),
+				input: append(json.RawMessage(nil), block.Input...),
 			}
 			s.itemCount++
 			return &ChatChunk{Events: []StreamEvent{
@@ -973,35 +1039,42 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned a content delta outside an active message", nil)
 		}
+		if s.replay.appendDelta(event.Index, event.Delta) != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid native content delta", nil)
+		}
+		var delta anthropicReplayDelta
+		if json.Unmarshal(event.Delta, &delta) != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid native content delta", nil)
+		}
 		itemID := fmt.Sprintf("block/%d", event.Index)
-		if event.Delta.Type == "text_delta" {
-			if event.Delta.Text == "" || !s.textBlocks[event.Index] ||
+		if delta.Type == "text_delta" {
+			if *delta.Text == "" || !s.textBlocks[event.Index] ||
 				s.toolBlocks[event.Index] != nil || s.privateBlocks[event.Index] {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 					"returned text for an unknown content block", nil)
 			}
 			events := []StreamEvent{s.events.emit(StreamEvent{
 				Type: StreamTextDelta, ItemID: itemID, ItemType: StreamItemMessage,
-				ItemStatus: StreamItemInProgress, TextDelta: event.Delta.Text,
+				ItemStatus: StreamItemInProgress, TextDelta: *delta.Text,
 			})}
 			s.hasText = true
-			return &ChatChunk{Text: event.Delta.Text, Events: events}, false, nil
+			return &ChatChunk{Text: *delta.Text, Events: events}, false, nil
 		}
-		if event.Delta.Type == "input_json_delta" {
+		if delta.Type == "input_json_delta" {
 			block, exists := s.toolBlocks[event.Index]
 			if !exists {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned tool JSON for an unknown block", nil)
 			}
-			if block.partial.Len()+len(event.Delta.PartialJSON) > MaxProviderToolPayloadSize {
+			if block.partial.Len()+len(*delta.PartialJSON) > MaxProviderToolPayloadSize {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "streamed tool arguments exceed the size limit", nil)
 			}
 			block.hasPartial = true
-			_, _ = block.partial.WriteString(event.Delta.PartialJSON)
-			if event.Delta.PartialJSON != "" {
+			_, _ = block.partial.WriteString(*delta.PartialJSON)
+			if *delta.PartialJSON != "" {
 				return &ChatChunk{Events: []StreamEvent{s.events.emit(StreamEvent{
 					Type: StreamToolArgumentDelta, ItemID: itemID, CallID: block.id,
 					ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress,
-					ToolName: block.name, ArgumentDelta: event.Delta.PartialJSON,
+					ToolName: block.name, ArgumentDelta: *delta.PartialJSON,
 				})}}, false, nil
 			}
 			return nil, false, nil
@@ -1015,6 +1088,14 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			event.Index >= MaxProviderOutputItems {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned a content stop outside an active message", nil)
+		}
+		if err := s.replay.endBlock(event.Index); err != nil {
+			if s.toolBlocks[event.Index] != nil {
+				s.pendingToolErr = NewProviderError(OutcomeInvalidResponse, provider, "returned invalid native tool input", nil)
+				delete(s.toolBlocks, event.Index)
+				return nil, false, nil
+			}
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid native content stop", nil)
 		}
 		itemID := fmt.Sprintf("block/%d", event.Index)
 		if s.textBlocks[event.Index] {
@@ -1064,12 +1145,18 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned usage outside an active message", nil)
 		}
+		var delta struct {
+			StopReason string `json:"stop_reason"`
+		}
+		if len(event.Delta) > 0 && json.Unmarshal(event.Delta, &delta) != nil {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned an invalid message delta", nil)
+		}
 		if event.Usage.InputTokens != 0 {
 			s.inputTokens = event.Usage.InputTokens
 		}
 		s.outputTokens = event.Usage.OutputTokens
-		if event.Delta.StopReason != "" {
-			reason := anthropicFinishReason(event.Delta.StopReason)
+		if delta.StopReason != "" {
+			reason := anthropicFinishReason(delta.StopReason)
 			if s.finishReason != "" && s.finishReason != reason {
 				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 					"changed stop reason during the stream", nil)
@@ -1109,6 +1196,15 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 				"returned an incompatible stop reason", err)
 		}
 		chunk.ToolCalls = calls
+		if len(calls) > 0 && s.replay.hasPrivate() {
+			if s.model != s.selectedModel {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "native replay model does not match the requested source", nil)
+			}
+			chunk.Replay, err = s.replay.finish(provider, s.selectedModel, s.replayBinding, calls)
+			if err != nil {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid native replay state", nil)
+			}
+		}
 		chunk.Events = []StreamEvent{s.events.terminalEvent(OutcomeSuccess, chunk.Usage)}
 		return &chunk, true, nil
 	case "error":
@@ -1158,47 +1254,16 @@ type anthropicMessage struct {
 }
 
 type anthropicMessageResponse struct {
-	ID         string `json:"id"`
-	Type       string `json:"type"`
-	Role       string `json:"role"`
-	Model      string `json:"model"`
-	StopReason string `json:"stop_reason"`
-	Content    []struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
-	} `json:"content"`
-	Usage struct {
+	ID         string            `json:"id"`
+	Type       string            `json:"type"`
+	Role       string            `json:"role"`
+	Model      string            `json:"model"`
+	StopReason string            `json:"stop_reason"`
+	Content    []json.RawMessage `json:"content"`
+	Usage      struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
-}
-
-func (r anthropicMessageResponse) Text() string {
-	var parts []string
-	for _, item := range r.Content {
-		if item.Type == "text" && strings.TrimSpace(item.Text) != "" {
-			parts = append(parts, item.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func (r anthropicMessageResponse) ToolCalls() ([]ToolCall, error) {
-	calls := make([]ToolCall, 0)
-	for _, item := range r.Content {
-		if item.Type != "tool_use" {
-			continue
-		}
-		arguments := append(json.RawMessage(nil), item.Input...)
-		if len(bytes.TrimSpace(arguments)) == 0 {
-			arguments = json.RawMessage(`{}`)
-		}
-		calls = append(calls, ToolCall{ID: item.ID, Name: item.Name, Arguments: arguments})
-	}
-	return NormalizeToolCalls(calls)
 }
 
 func (r anthropicMessageResponse) ModelOrDefault(model string) string {
