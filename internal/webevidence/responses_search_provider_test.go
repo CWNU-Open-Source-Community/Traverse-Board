@@ -827,6 +827,74 @@ func TestOpenAIResponsesSearchProviderSharesNegativeProbeFlight(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesSearchProviderDelayedProbeUsesNegativeCache(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		startAfter string
+	}{
+		{name: "initial probe"},
+		{name: "compatibility probe", startAfter: nativeSearchTool},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := newResponsesSearchRuntimeStub("delayed-negative")
+			var requests atomic.Int32
+			client := responsesSearchTestClient(t, func(*http.Request) (*http.Response, error) {
+				if requests.Add(1) == 1 {
+					return webResponse(http.StatusTooManyRequests,
+						http.Header{"Content-Type": {"application/json"}},
+						`{"error":{"message":"rate limited"}}`), nil
+				}
+				return webResponse(http.StatusOK,
+					http.Header{"Content-Type": {"application/json"}},
+					successfulResponsesSearchBody()), nil
+			})
+			provider, err := NewOpenAIResponsesSearchProvider(client,
+				"https://api.vendor.com/v1/responses", "delayed-negative", "model", runtime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 10, 1, 23, 0, 0, 0, time.UTC)
+			provider.now = func() time.Time { return now }
+			authority := responsesSearchAuthority()
+			state, err := provider.resolveState(t.Context(), authority)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Pause a caller after its initial cache miss. Another caller then
+			// completes a rejected flight before the delayed caller enters probe.
+			if err := provider.cachedNegative(state); err != nil {
+				t.Fatalf("initial negative cache: %v", err)
+			}
+			if _, found := provider.cachedTool(state); found {
+				t.Fatal("initial positive cache was populated")
+			}
+			_, err = provider.Qualify(t.Context(), authority)
+			var qualification *NativeSearchQualificationError
+			if !errors.As(err, &qualification) ||
+				qualification.Reason != NativeSearchReasonProviderRejected || requests.Load() != 1 {
+				t.Fatalf("winning flight qualification=%#v requests=%d err=%v",
+					qualification, requests.Load(), err)
+			}
+			tool, results, performed, err := provider.probe(t.Context(), state,
+				authority, "delayed query", test.startAfter)
+			qualification = nil
+			if !errors.As(err, &qualification) ||
+				qualification.Reason != NativeSearchReasonProviderRejected ||
+				tool != "" || len(results) != 0 || performed || requests.Load() != 1 {
+				t.Fatalf("delayed probe tool=%q results=%d performed=%t requests=%d err=%v",
+					tool, len(results), performed, requests.Load(), err)
+			}
+			// The locked recheck must retain the existing TTL and permit a new
+			// real qualification exactly when the negative entry expires.
+			now = now.Add(nativeSearchRejectedNegativeTTL)
+			binding, err := provider.Qualify(t.Context(), authority)
+			if err != nil || binding == "" || requests.Load() != 2 {
+				t.Fatalf("expired cache binding=%q requests=%d err=%v", binding, requests.Load(), err)
+			}
+		})
+	}
+}
+
 func TestOpenAIResponsesSearchProviderRequiresPublicAuthorizedEndpointAndValidRuntime(t *testing.T) {
 	runtime := newResponsesSearchRuntimeStub("credential")
 	for _, endpoint := range []string{
