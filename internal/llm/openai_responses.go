@@ -768,7 +768,42 @@ type openAIResponsesStreamEvent struct {
 	Refusal   string                    `json:"refusal"`
 	Arguments string                    `json:"arguments"`
 	Name      string                    `json:"name"`
-	Error     *openAIError              `json:"error"`
+	Error     json.RawMessage           `json:"error"`
+	Code      json.RawMessage           `json:"code"`
+	Message   json.RawMessage           `json:"message"`
+	Param     json.RawMessage           `json:"param"`
+}
+
+func (e openAIResponsesStreamEvent) genericError() (openAIError, bool) {
+	// Responses generic error events use flat code/message/param fields.
+	// Keep the legacy nested envelope, but never choose between mixed shapes.
+	if len(e.Error) != 0 {
+		if len(e.Code) != 0 || len(e.Message) != 0 || len(e.Param) != 0 {
+			return openAIError{}, false
+		}
+		var wire *openAIError
+		if json.Unmarshal(e.Error, &wire) != nil || wire == nil {
+			return openAIError{}, false
+		}
+		return *wire, true
+	}
+	var message *string
+	if !utf8.Valid(e.Message) || json.Unmarshal(e.Message, &message) != nil ||
+		message == nil || strings.TrimSpace(*message) == "" {
+		return openAIError{}, false
+	}
+	for _, field := range []json.RawMessage{e.Code, e.Param} {
+		if len(field) == 0 {
+			continue
+		}
+		var value *string
+		if !utf8.Valid(field) || json.Unmarshal(field, &value) != nil {
+			return openAIError{}, false
+		}
+	}
+	// Only the existing code allowlist classifies the error. Discard upstream
+	// message and param so neither can become a diagnostic, cause or event.
+	return openAIError{Code: e.Code}, true
 }
 
 type responsesStreamItem struct {
@@ -1005,10 +1040,11 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 		s.terminal = true
 		return chunk, true, nil
 	case "error":
-		if event.Error == nil {
-			return nil, false, openAIProtocolError(s.provider, "Responses stream returned an empty error event")
+		wire, valid := event.genericError()
+		if !valid {
+			return nil, false, openAIProtocolError(s.provider, "Responses stream returned an invalid error event")
 		}
-		return nil, false, openAIWireError(s.provider, *event.Error)
+		return nil, false, openAIWireError(s.provider, wire)
 	default:
 		return nil, false, openAIProtocolError(s.provider, "returned an unsupported Responses stream event")
 	}
