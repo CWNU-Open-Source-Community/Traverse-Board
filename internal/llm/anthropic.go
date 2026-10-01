@@ -231,12 +231,12 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, NormalizeProviderError(p.name, err)
+		return nil, anthropicTransportError(ctx, p.name, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return nil, NormalizeProviderError(p.name, err)
+		return nil, anthropicTransportError(ctx, p.name, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, anthropicHTTPError(p.name, resp.StatusCode, resp.Header.Get("Retry-After"), raw)
@@ -459,13 +459,13 @@ func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRe
 	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, NormalizeProviderError(p.name, err)
+		return nil, anthropicTransportError(ctx, p.name, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if readErr != nil {
-			return nil, NormalizeProviderError(p.name, readErr)
+			return nil, anthropicTransportError(ctx, p.name, readErr)
 		}
 		return nil, anthropicHTTPError(p.name, resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 	}
@@ -474,11 +474,30 @@ func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRe
 	return ch, nil
 }
 
+func anthropicTransportError(ctx context.Context, provider string, source error) *ProviderError {
+	if err := providerContextError(ctx, provider); err != nil {
+		return err
+	}
+	var typed *ProviderError
+	if errors.As(source, &typed) {
+		return NormalizeProviderError(provider, source)
+	}
+	var network net.Error
+	if errors.As(source, &network) && network.Timeout() {
+		err := NewProviderError(OutcomeRetryable, provider, "request failed", nil)
+		err.Reason = ProviderFailureNetwork
+		return err
+	}
+	return NormalizeProviderError(provider, source)
+}
+
 func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.ReadCloser, defaultModel string, chunks chan<- ChatChunk) {
 	defer close(chunks)
 	defer body.Close()
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	lines := providerStreamLines{}
+	scanner.Split(lines.split)
 	state := anthropicStreamState{model: defaultModel,
 		responseModel: func(returned string) string { return p.responseModel(defaultModel, returned) },
 		events:        newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
@@ -517,6 +536,10 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 		return true
 	}
 	for scanner.Scan() {
+		if err := scanner.Err(); err != nil && !lines.terminated {
+			_ = sendError(providerHTTPReadError(ctx, p.name, "stream read failed", err))
+			return
+		}
 		line := scanner.Text()
 		if line == "" {
 			if !flush() {
@@ -528,11 +551,14 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
 	}
-	if !flush() || stopped || ctx.Err() != nil {
+	if stopped || ctx.Err() != nil {
 		return
 	}
 	if err := scanner.Err(); err != nil {
-		_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name, "stream read failed", err))
+		_ = sendError(providerHTTPReadError(ctx, p.name, "stream read failed", err))
+		return
+	}
+	if !flush() || stopped {
 		return
 	}
 	if state.pendingToolErr != nil {

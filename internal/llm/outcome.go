@@ -221,6 +221,7 @@ func defaultProviderFailureReason(kind Outcome, statusCode int) ProviderFailureR
 
 type ModelAttempt struct {
 	SupervisorAttemptID    string
+	SpecialistAttemptID    string
 	Purpose                string
 	CompactionSourceSHA256 string
 	Number                 int
@@ -248,6 +249,14 @@ const ModelPurposeContextCompaction = "context_compaction"
 // MonetaryAttemptNumber keeps auxiliary source-bound reservations outside the
 // legacy per-turn normal-attempt range. Invalid identities never yield a key.
 func (a ModelAttempt) MonetaryAttemptNumber() int64 {
+	if a.SpecialistAttemptID != "" {
+		if !validSupervisorMonetaryIdentity(a.SpecialistAttemptID) || a.Number <= 0 ||
+			a.SupervisorAttemptID != "" || a.Purpose != "" || a.SteeringSequence != 0 {
+			return 0
+		}
+		digest := sha256.Sum256([]byte("specialist_model_cost.v1\x00" + a.SpecialistAttemptID + "\x00" + strconv.Itoa(a.Number)))
+		return int64(binary.BigEndian.Uint64(digest[:8])&((1<<61)-1) | (1 << 61))
+	}
 	if a.Purpose == "" {
 		if a.SupervisorAttemptID != "" {
 			if !validSupervisorMonetaryIdentity(a.SupervisorAttemptID) || a.Number <= 0 {

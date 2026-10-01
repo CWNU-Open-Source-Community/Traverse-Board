@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -778,11 +777,7 @@ func ollamaProtocolError(provider string, message string) *ProviderError {
 }
 
 func ollamaTransportError(ctx context.Context, provider string) *ProviderError {
-	if ctx.Err() != nil {
-		err := NewProviderError(OutcomeCancelled, provider, "request was cancelled", nil)
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			err.Reason = ProviderFailureNetwork
-		}
+	if err := providerContextError(ctx, provider); err != nil {
 		return err
 	}
 	// The loopback daemon is simply not running. This stable sentence is the
@@ -795,16 +790,7 @@ func ollamaTransportError(ctx context.Context, provider string) *ProviderError {
 }
 
 func ollamaReadError(ctx context.Context, provider string, message string, source error) *ProviderError {
-	if ctx.Err() != nil {
-		return ollamaTransportError(ctx, provider)
-	}
-	var network net.Error
-	if errors.As(source, &network) {
-		err := NewProviderError(OutcomeRetryable, provider, message, nil)
-		err.Reason = ProviderFailureNetwork
-		return err
-	}
-	return ollamaProtocolError(provider, message)
+	return providerHTTPReadError(ctx, provider, message, source)
 }
 
 func ollamaHTTPError(provider string, statusCode int, raw []byte) *ProviderError {
@@ -1111,6 +1097,8 @@ func (p *OllamaProvider) readStream(ctx context.Context, body io.ReadCloser,
 		events: newProviderStreamEvents(p.name, model, "ollama-response", StreamGranularityComplete)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOllamaStreamLineBytes)
+	lines := providerStreamLines{}
+	scanner.Split(lines.split)
 	sendError := func(err error) bool {
 		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
 	}
@@ -1118,6 +1106,10 @@ func (p *OllamaProvider) readStream(ctx context.Context, body io.ReadCloser,
 	// the terminal event, and any non-empty trailing event must surface as a
 	// protocol violation instead of being silently ignored.
 	for scanner.Scan() {
+		if err := scanner.Err(); err != nil && !lines.terminated {
+			_ = sendError(ollamaReadError(ctx, p.name, "stream read failed", err))
+			return
+		}
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue

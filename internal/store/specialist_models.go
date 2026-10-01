@@ -70,6 +70,7 @@ type specialistModelCallRecord struct {
 }
 
 type specialistModelTerminal struct {
+	notDispatched      bool
 	status             string
 	usage              *llm.Usage
 	action             *domain.SpecialistAction
@@ -152,6 +153,9 @@ func (s *SQLiteStore) RecordSpecialistModelStarted(ctx context.Context,
 			"Specialist model attempt reference is invalid", err)
 	}
 	modelAttempt = sanitizeModelAttempt(modelAttempt)
+	if modelAttempt.SpecialistAttemptID != "" && (modelAttempt.SpecialistAttemptID != ref.AttemptID || modelAttempt.MonetaryAttemptNumber() == 0) {
+		return false, apperror.New(apperror.CodeInvalidArgument, "Specialist monetary identity differs from its Agent attempt")
+	}
 	if modelAttempt.Outcome != "" || modelAttempt.ErrorText != "" || modelAttempt.RetryAfter != 0 ||
 		modelAttempt.Elapsed != 0 || modelAttempt.RetryPlanned || modelAttempt.StreamEvents != 0 ||
 		modelAttempt.StreamBytes != 0 {
@@ -175,6 +179,9 @@ func (s *SQLiteStore) RecordSpecialistModelStarted(ctx context.Context,
 		return false, err
 	}
 	if found {
+		if err := requireSpecialistMonetaryStartTx(ctx, tx, ref.RunID, ref.AttemptID, modelAttempt); err != nil {
+			return false, err
+		}
 		if err := requireSpecialistModelIdentity(existing, modelAttempt); err != nil {
 			return false, err
 		}
@@ -246,6 +253,7 @@ func (s *SQLiteStore) RecordSpecialistModelStarted(ctx context.Context,
 			"transport_attempt": modelAttempt.TransportNumber(), "max_attempts": modelAttempt.MaxAttempts,
 			"protocol_repair": modelAttempt.ProtocolRepair,
 			"provider":        modelAttempt.Provider, "model": modelAttempt.Model, "context": modelAttempt.Context,
+			"monetary_attempt_number": specialistMonetaryPayloadNumber(modelAttempt),
 		}); err != nil {
 		return false, err
 	}
@@ -400,11 +408,38 @@ func (s *SQLiteStore) RecordSpecialistModelFailed(ctx context.Context,
 	})
 }
 
+func (s *SQLiteStore) RecordSpecialistModelNotDispatched(ctx context.Context, ref domain.AgentAttemptRef,
+	modelAttempt llm.ModelAttempt,
+) (domain.AgentAttempt, error) {
+	modelAttempt = sanitizeModelAttempt(modelAttempt)
+	if err := validateSpecialistModelIdentity(modelAttempt); err != nil {
+		return domain.AgentAttempt{}, err
+	}
+	if modelAttempt.ValidateFailed() != nil || modelAttempt.Outcome != llm.OutcomePermanent ||
+		modelAttempt.SpecialistAttemptID == "" || modelAttempt.RetryPlanned || modelAttempt.RetryAfter != 0 ||
+		modelAttempt.StreamEvents != 0 || modelAttempt.StreamBytes != 0 {
+		return domain.AgentAttempt{}, apperror.New(apperror.CodeInvalidArgument, "invalid not-dispatched Specialist accounting receipt")
+	}
+	return s.recordSpecialistModelTerminal(ctx, ref, modelAttempt, specialistModelTerminal{
+		status: "failed", usage: &llm.Usage{}, notDispatched: true,
+	})
+}
+
+func specialistMonetaryPayloadNumber(attempt llm.ModelAttempt) int64 {
+	if attempt.SpecialistAttemptID == "" {
+		return 0
+	}
+	return attempt.MonetaryAttemptNumber()
+}
+
 func (s *SQLiteStore) recordSpecialistModelTerminal(ctx context.Context,
 	ref domain.AgentAttemptRef, modelAttempt llm.ModelAttempt,
 	terminal specialistModelTerminal,
 ) (domain.AgentAttempt, error) {
 	ref = normalizeAgentAttemptRef(ref)
+	if modelAttempt.SpecialistAttemptID != "" && (modelAttempt.SpecialistAttemptID != ref.AttemptID || modelAttempt.MonetaryAttemptNumber() == 0) {
+		return domain.AgentAttempt{}, apperror.New(apperror.CodeInvalidArgument, "Specialist monetary identity differs from its Agent attempt")
+	}
 	if err := ref.Validate(); err != nil {
 		return domain.AgentAttempt{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			"Specialist model attempt reference is invalid", err)
@@ -434,7 +469,19 @@ func (s *SQLiteStore) recordSpecialistModelTerminal(ctx context.Context,
 	if err := requireSpecialistModelIdentity(call, modelAttempt); err != nil {
 		return domain.AgentAttempt{}, err
 	}
+	if err := requireSpecialistMonetaryStartTx(ctx, tx, ref.RunID, ref.AttemptID, modelAttempt); err != nil {
+		return domain.AgentAttempt{}, err
+	}
 	if call.Status != "started" {
+		var dispatch string
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload_json,'$.dispatch'),'') FROM run_events
+			WHERE run_id=? AND source='specialist_model_gateway' AND type IN ('model.completed','model.failed') AND subject_id=?`,
+			ref.RunID, specialistModelSubject(ref.AttemptID, modelAttempt.Number)).Scan(&dispatch); err != nil {
+			return domain.AgentAttempt{}, err
+		}
+		if (dispatch == "not_sent") != terminal.notDispatched {
+			return domain.AgentAttempt{}, apperror.New(apperror.CodeConflict, "Specialist dispatch receipt replay differs from its durable record")
+		}
 		if err := requireSpecialistTerminalReplay(call, modelAttempt, terminal); err != nil {
 			return domain.AgentAttempt{}, err
 		}
@@ -555,7 +602,11 @@ func (s *SQLiteStore) recordSpecialistModelTerminal(ctx context.Context,
 		"protocol_repair": modelAttempt.ProtocolRepair,
 		"model":           modelAttempt.Model, "outcome": modelAttempt.Outcome,
 		"elapsed_millis": elapsedMillis, "stream_events": modelAttempt.StreamEvents,
-		"stream_bytes": modelAttempt.StreamBytes,
+		"stream_bytes":            modelAttempt.StreamBytes,
+		"monetary_attempt_number": specialistMonetaryPayloadNumber(modelAttempt),
+	}
+	if terminal.notDispatched {
+		payload["dispatch"] = "not_sent"
 	}
 	eventType := events.ModelFailedEvent
 	if terminal.status == "completed" {
