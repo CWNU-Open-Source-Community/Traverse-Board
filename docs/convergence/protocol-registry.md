@@ -17,7 +17,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
 | [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 110 | true |
-| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 22 | true |
+| [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 23 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
@@ -611,7 +611,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `credential-provider-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>22 active identifiers</summary>
+<details><summary>23 active identifiers</summary>
 
 - `anthropic_native_search.v1`
 - `anthropic_native_search_cache.v1`
@@ -633,6 +633,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `provider_native_search_tool.v1`
 - `provider_registry_reload.v1`
 - `provider_request_runtime.v1`
+- `specialist_model_cost.v1`
 - `supervisor_model_cost.v1`
 - `supervisor_model_cost_steering.v1`
 

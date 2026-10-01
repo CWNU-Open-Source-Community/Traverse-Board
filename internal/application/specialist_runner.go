@@ -499,20 +499,18 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 		eventCtx, cancelEvent := specialistEventContext(ctx)
 		charged, storeErr := r.store.RecordSpecialistModelCompleted(eventCtx, ref,
 			modelCall.Attempt, *response, input, action, decision)
-		cancelEvent()
 		if storeErr != nil {
+			cancelEvent()
 			return r.failAttempt(ctx, result, ref, storeErr)
 		}
 		if r.monetary != nil {
-			if _, settleErr := r.monetary.SettleModelCall(ctx, ref.RunID,
-				domain.MonetaryScopeSpecialist, modelCall.Attempt, llm.Usage{
-					InputTokens:  int(charged.Usage.InputTokens),
-					OutputTokens: int(charged.Usage.OutputTokens),
-					TotalTokens:  int(charged.Usage.TotalTokens),
-				}, len(response.ToolCalls)); settleErr != nil {
+			if _, settleErr := r.monetary.SettleModelCall(eventCtx, ref.RunID,
+				domain.MonetaryScopeSpecialist, modelCall.Attempt, response.Usage, len(response.ToolCalls)); settleErr != nil {
+				cancelEvent()
 				return r.failAttempt(ctx, result, ref, settleErr)
 			}
 		}
+		cancelEvent()
 		result.Usage = charged.Usage
 		result.ModelOutcome = llm.OutcomeSuccess
 		result.Action = normalized
@@ -720,7 +718,8 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 				"Specialist model execution timeout was exhausted")
 		}
 		attempt := llm.ModelAttempt{
-			Number: number, TransportAttempt: transportAttempt,
+			SpecialistAttemptID: ref.AttemptID,
+			Number:              number, TransportAttempt: transportAttempt,
 			MaxAttempts: retryPolicy.MaxAttempts, ProtocolRepair: protocolRepair,
 			Provider: modelRef.Provider, Model: modelRef.Model, Context: contextAudit,
 		}
@@ -774,23 +773,10 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 				maxTurnExecutionMillis, attempt.Elapsed) &&
 			retryPolicy.allowsRetryAfter(providerErr)
 		result.Attempt = attempt
-		eventCtx, cancelEvent := specialistEventContext(ctx)
-		_, storeErr := r.store.RecordSpecialistModelFailed(eventCtx, ref, attempt, streamed.Usage)
-		cancelEvent()
+		_, storeErr := r.recordSpecialistFailureAccounting(ctx, ref, attempt, streamed.Usage,
+			errors.Is(callErr, llm.ErrPreparedRequestChanged))
 		if storeErr != nil {
 			return result, errors.Join(providerApplicationError(providerErr), storeErr)
-		}
-		if r.monetary != nil {
-			if streamed.Usage != nil {
-				_, moneyErr := r.monetary.SettleModelCall(ctx, ref.RunID,
-					domain.MonetaryScopeSpecialist, attempt, *streamed.Usage, 0)
-				if moneyErr != nil {
-					return result, errors.Join(providerApplicationError(providerErr), moneyErr)
-				}
-			} else {
-				_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
-					domain.MonetaryScopeSpecialist, attempt)
-			}
 		}
 		if !attempt.RetryPlanned {
 			return result, providerApplicationError(providerErr)
@@ -1113,13 +1099,7 @@ func (r *SpecialistRunner) recordUnusableModelResponse(ctx context.Context,
 	attempt.ErrorText = "provider returned an empty Specialist response"
 	attempt.RetryAfter = 0
 	attempt.RetryPlanned = false
-	eventCtx, cancelEvent := specialistEventContext(ctx)
-	charged, storeErr := r.store.RecordSpecialistModelFailed(eventCtx, ref, attempt, nil)
-	cancelEvent()
-	if r.monetary != nil {
-		_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
-			domain.MonetaryScopeSpecialist, attempt)
-	}
+	charged, storeErr := r.recordSpecialistFailureAccounting(ctx, ref, attempt, nil, false)
 	if charged.ID != "" {
 		result.Usage = charged.Usage
 	}

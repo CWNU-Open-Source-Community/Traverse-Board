@@ -465,7 +465,7 @@ func (s *SQLiteStore) ReleaseModelCost(ctx context.Context,
 		return domain.MonetaryUsage{}, false, apperror.New(apperror.CodeConflict,
 			"model attempt monetary reservation was already settled")
 	}
-	if normalized.Scope == domain.MonetaryScopeRoot {
+	if normalized.Scope == domain.MonetaryScopeRoot || normalized.Scope == domain.MonetaryScopeSpecialist {
 		evidence, e := monetaryModelEvidenceTx(ctx, tx, normalized.RunID, reservation.ID, normalized.Scope, normalized.AttemptNumber, reservation.Provider, reservation.Model)
 		if e != nil {
 			return domain.MonetaryUsage{}, false, e
@@ -618,7 +618,7 @@ func (s *SQLiteStore) ReleaseOpenMonetaryReservations(ctx context.Context, runID
 	releasedCount := 0
 	for _, reservation := range open {
 		releasedMicros := reservation.reservedMicros - reservation.settledMicros
-		if reservation.scope == domain.MonetaryScopeRoot {
+		if reservation.scope == domain.MonetaryScopeRoot || reservation.scope == domain.MonetaryScopeSpecialist {
 			evidence, err := monetaryModelEvidenceTx(ctx, tx, runID, reservation.id, reservation.scope, reservation.attemptNumber, reservation.provider, reservation.model)
 			if err != nil {
 				return 0, err
@@ -788,7 +788,7 @@ func reconcileMonetaryReservationsTx(ctx context.Context, tx *sql.Tx, runID stri
 		if err := json.Unmarshal([]byte(evidence.PayloadJSON), &payload); err != nil {
 			return err
 		}
-		settle := (r.scope == domain.MonetaryScopeRoot && !evidence.NotSent) || evidence.EventType == events.ModelCompletedEvent
+		settle := ((r.scope == domain.MonetaryScopeRoot || r.scope == domain.MonetaryScopeSpecialist) && !evidence.NotSent) || evidence.EventType == events.ModelCompletedEvent
 		settledMicros := int64(0)
 		if settle {
 			// Even an invalid response can contain billable known usage. An

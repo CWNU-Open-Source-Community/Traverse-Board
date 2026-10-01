@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -605,11 +604,7 @@ func openAIProtocolError(provider string, message string) *ProviderError {
 }
 
 func openAITransportError(ctx context.Context, provider string) *ProviderError {
-	if ctx.Err() != nil {
-		err := NewProviderError(OutcomeCancelled, provider, "request was cancelled", nil)
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			err.Reason = ProviderFailureNetwork
-		}
+	if err := providerContextError(ctx, provider); err != nil {
 		return err
 	}
 	err := NewProviderError(OutcomeRetryable, provider, "request failed", nil)
@@ -618,16 +613,7 @@ func openAITransportError(ctx context.Context, provider string) *ProviderError {
 }
 
 func openAIReadError(ctx context.Context, provider string, message string, source error) *ProviderError {
-	if ctx.Err() != nil {
-		return openAITransportError(ctx, provider)
-	}
-	var network net.Error
-	if errors.As(source, &network) {
-		err := NewProviderError(OutcomeRetryable, provider, message, nil)
-		err.Reason = ProviderFailureNetwork
-		return err
-	}
-	return openAIProtocolError(provider, message)
+	return providerHTTPReadError(ctx, provider, message, source)
 }
 
 func openAIHTTPError(provider string, statusCode int, retryAfter string, raw []byte) *ProviderError {
@@ -1152,6 +1138,8 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 		events: newProviderStreamEvents(p.name, model, "openai-response", StreamGranularityDelta)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
+	lines := providerStreamLines{}
+	scanner.Split(lines.split)
 	dataLines := make([]string, 0, 1)
 	eventBytes := 0
 	stopped := false
@@ -1182,6 +1170,10 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 		return chunk == nil || p.sendStreamChunk(ctx, chunks, *chunk)
 	}
 	for scanner.Scan() {
+		if err := scanner.Err(); err != nil && !lines.terminated {
+			_ = sendError(openAIReadError(ctx, p.name, "stream read failed", err))
+			return
+		}
 		line := scanner.Text()
 		if line == "" {
 			if !flush() || stopped {
@@ -1204,15 +1196,17 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 		eventBytes += len(value) + 1
 		dataLines = append(dataLines, value)
 	}
-	if len(dataLines) != 0 && !flush() {
-		return
-	}
 	if stopped || ctx.Err() != nil {
 		return
 	}
 	if scanner.Err() != nil {
 		_ = sendError(openAIReadError(ctx, p.name, "stream read failed", scanner.Err()))
 		return
+	}
+	if len(dataLines) != 0 {
+		if !flush() || stopped {
+			return
+		}
 	}
 	_ = sendError(openAIProtocolError(p.name, "stream ended before [DONE]"))
 }

@@ -1221,6 +1221,8 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		items:   make(map[string]*responsesStreamItem)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
+	lines := providerStreamLines{}
+	scanner.Split(lines.split)
 	dataLines := make([]string, 0, 1)
 	dataBytes := 0
 	finished := false
@@ -1273,6 +1275,10 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		return true
 	}
 	for scanner.Scan() {
+		if err := scanner.Err(); err != nil && !lines.terminated {
+			_ = sendFailure(openAIReadError(ctx, p.name, "could not read Responses stream", err))
+			return
+		}
 		line := scanner.Text()
 		if line == "" {
 			if !flush() {
@@ -1291,11 +1297,14 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 			dataLines = append(dataLines, part)
 		}
 	}
-	if !flush() || finished || ctx.Err() != nil {
+	if finished || ctx.Err() != nil {
 		return
 	}
 	if scanner.Err() != nil {
-		_ = sendFailure(openAIProtocolError(p.name, "could not read Responses stream"))
+		_ = sendFailure(openAIReadError(ctx, p.name, "could not read Responses stream", scanner.Err()))
+		return
+	}
+	if !flush() || finished {
 		return
 	}
 	if state.pendingToolErr != nil {
