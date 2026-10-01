@@ -512,6 +512,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	if err != nil {
 		return err
 	}
+	providerDefinitionControl.WithModelDiscoveryCredentials(a.credentials)
 	providerCredentialControl := application.NewProviderCredentialService(a.credentials).
 		WithRegistryReload(a.models, a.store)
 	fileEditReview := application.NewFileEditReviewService(a.store).WithDrydock(commandRuntimeDrydocks)
@@ -857,11 +858,13 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 
 func newAPIExecutionPermissionCapabilities(approval, fullAccess, debug bool) domain.ExecutionPermissionRuntimeCapabilities {
 	return domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   approval,
-		DangerFullAccessEnabled:   fullAccess,
-		DebugMaximumAccessEnabled: debug,
+		OperatorApprovalEnabled:        approval,
+		DangerFullAccessEnabled:        fullAccess,
+		DebugMaximumAccessEnabled:      debug,
+		FullAccessRequiresRuntimeGrant: fullAccess,
 		// All API services share this process-local revocation fence. Creating
-		// the authority does not activate a grant or change the CLI startup gates.
+		// it grants nothing. Like Desktop, Full requires explicit current Run
+		// activation; a process restart never inherits that activation.
 		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 }

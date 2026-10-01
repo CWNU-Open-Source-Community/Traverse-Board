@@ -31,6 +31,14 @@ func supervisorMemoryBudget(window llm.ContextWindow) int {
 	if err != nil {
 		return maxSupervisorMemoryTokens
 	}
+	// Newly discovered output/model capacities must not also inflate the
+	// established history/compaction budget. Explicit legacy overrides retain
+	// their existing behavior.
+	if window.Source == "provider_model_metadata" || window.Source == "operator_model_policy" ||
+		window.Source == "local_model_default" {
+		baseline, _ := llm.DefaultContextWindow().InputLimit(llm.DefaultContextMaxOutput)
+		inputLimit = min(inputLimit, baseline)
+	}
 	// Keep the existing small-window policy, but allow larger models to carry
 	// inherited summaries. The aggregate request gate still reserves output,
 	// counts tools/current input, and refuses to silently drop task history.

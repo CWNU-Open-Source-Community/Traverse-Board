@@ -353,7 +353,8 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			current.status AS run_status, 0 AS sequence, '' AS event_id,
 			'' AS event_version, current.mission_id, '' AS event_type,
 			'' AS event_source, '' AS subject_id, '' AS payload_json,
-			'' AS operator_content, '' AS operator_status, 0 AS operator_message_bound,0 AS operator_image_count,0 AS operator_attachment_count, '' AS operator_delivery_mode, binding.created_at
+			'' AS operator_content, '' AS operator_status, 0 AS operator_message_bound,0 AS operator_image_count,0 AS operator_attachment_count, '' AS operator_delivery_mode,
+			'' AS promoted_to_message_id, '' AS promoted_from_message_id, binding.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
 		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
@@ -378,17 +379,21 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 				WHERE bound.queued_event_id = event.event_id OR bound.session_event_id = event.event_id),
 			COALESCE(steering.image_count,0),COALESCE(steering.attachment_count,0),
 			COALESCE(steering.delivery_mode, ''),
+			COALESCE(promoted_to.replacement_message_id, ''), COALESCE(promoted_from.message_id, ''),
 			event.created_at
 		FROM thread_runs binding
 		JOIN runs current ON current.id = binding.run_id
 		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
 		JOIN run_events event ON event.run_id = binding.run_id
 		LEFT JOIN operator_steering_messages steering ON steering.id = event.subject_id
+		LEFT JOIN operator_steering_promotions promoted_to ON promoted_to.message_id=steering.id AND promoted_to.run_id=binding.run_id
+		LEFT JOIN operator_steering_promotions promoted_from ON promoted_from.replacement_message_id=steering.id AND promoted_from.run_id=binding.run_id
 	)
 	SELECT ordinal, run_id, session_id, predecessor_run_id,
 		predecessor_run_status, run_status, sequence, event_id, event_version,
 		mission_id, event_type, event_source, subject_id, payload_json, created_at
 		, operator_content, operator_status, operator_message_bound,operator_image_count,operator_attachment_count, operator_delivery_mode
+		, promoted_to_message_id, promoted_from_message_id
 	FROM transcript WHERE thread_id = ?`
 	args := []any{threadID, threadID}
 	if beforeOrdinal > 0 {
@@ -412,7 +417,7 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 			&item.Sequence, &eventID, &eventVersion, &missionID, &eventType,
 			&eventSource, &subjectID, &payloadJSON, &created, &item.OperatorContent,
 			&item.OperatorStatus, &item.OperatorMessageBound, &item.OperatorImageCount, &item.OperatorAttachmentCount,
-			&item.OperatorDeliveryMode); err != nil {
+			&item.OperatorDeliveryMode, &item.PromotedToMessageID, &item.PromotedFromMessageID); err != nil {
 			return nil, err
 		}
 		item.CreatedAt = parseTS(created)

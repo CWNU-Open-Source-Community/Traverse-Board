@@ -187,13 +187,13 @@ func (s *SQLiteStore) EndFailedThreadTurn(ctx context.Context, threadID, runID, 
 		lastError = append(lastError[:512], []rune(" [error preview truncated]")...)
 	}
 	outcome += fmt.Sprintf("Stopped at %s. Last Supervisor error preview: %s\n", handoff.Result.StopReason, string(lastError))
-	toolRows, err := tx.QueryContext(ctx, `SELECT call_id,tool_name,status,result_json FROM run_supervisor_tool_calls WHERE run_id=? AND attempt_id=? ORDER BY round,position`, runID, checkpoint.AttemptID)
+	toolRows, err := tx.QueryContext(ctx, `SELECT call_id,tool_name,status,result_json,error_code FROM run_supervisor_tool_calls WHERE run_id=? AND attempt_id=? ORDER BY round,position`, runID, checkpoint.AttemptID)
 	if err != nil {
 		return empty, false, err
 	}
 	for toolRows.Next() {
-		var id, name, status, result string
-		if err := toolRows.Scan(&id, &name, &status, &result); err != nil {
+		var id, name, status, result, errorCode string
+		if err := toolRows.Scan(&id, &name, &status, &result, &errorCode); err != nil {
 			_ = toolRows.Close()
 			return empty, false, err
 		}
@@ -203,6 +203,16 @@ func (s *SQLiteStore) EndFailedThreadTurn(ctx context.Context, threadID, runID, 
 		}
 		if name == "workspace_apply" {
 			outcome += fileApplyBoundaryFailureEvidence(result)
+		}
+		call := domain.SupervisorToolCall{RunID: runID, Turn: checkpoint.NextTurn, AttemptID: checkpoint.AttemptID,
+			CallID: id, ToolName: name, Status: domain.SupervisorToolCallStatus(status), ResultJSON: result, ErrorCode: errorCode}
+		if effect := domain.ObservedSupervisorToolEffect(call); effect != nil {
+			encoded, _ := json.Marshal(struct {
+				Effect   *domain.SupervisorToolEffect `json:"observation"`
+				Original domain.HistoryReadRequest    `json:"original_result"`
+			}{effect, domain.SupervisorToolResultReference(call)})
+			outcome += fmt.Sprintf("Recorded tool %s (%s): %s; historical effect only, no current authority or filesystem guarantee: %s\n", id, name, status, encoded)
+			continue
 		}
 		preview := []rune(sanitizeSupervisorText(result))
 		if len(preview) > 512 {

@@ -363,6 +363,17 @@ type openAPIThreadPlanController struct {
 	threadID, runID string
 }
 
+func (c openAPIThreadPlanController) PromoteCurrentSteering(_ context.Context, r domain.PromoteOperatorSteeringRequest) (domain.PromoteOperatorSteeringResult, error) {
+	if r.ExpectedExecutionID != "execution-openapi-promotion" || r.ExpectedAttemptID != "attempt-openapi-promotion" || r.ExpectedRevision != 0 || r.ExpectedContentSHA256 != strings.Repeat("a", 64) || r.RequestedBy != "http_session_operator" {
+		return domain.PromoteOperatorSteeringResult{}, fmt.Errorf("promotion route did not forward captured intent")
+	}
+	return domain.PromoteOperatorSteeringResult{Receipt: domain.OperatorSteeringPromotionReceipt{
+		ID: "promotion-openapi", MessageID: r.MessageID, ReplacementMessageID: "steer-openapi-replacement", RunID: c.runID, SessionID: r.SessionID,
+		ExpectedRevision: r.ExpectedRevision, ContentSHA256: r.ExpectedContentSHA256, TargetAttemptID: r.ExpectedAttemptID, ExecutionID: r.ExpectedExecutionID,
+		CancellationID: "cancel-openapi-promotion", RequestedBy: r.RequestedBy, CreatedAt: time.Now().UTC(),
+		OperationKeyDigest: strings.Repeat("b", 64), RequestFingerprint: strings.Repeat("c", 64)}}, nil
+}
+
 func (c openAPIThreadPlanController) InspectPlan(_ context.Context, r application.ThreadPlanControlRequest) (application.ThreadPlanControlResult, error) {
 	if r.Version != application.PlanDeliveryControlProtocolVersion || r.ThreadID != c.threadID || r.RunID != c.runID || r.Action != "enter_plan" || r.OperationKey == "" || r.RequestedBy != "http_thread_operator" {
 		return application.ThreadPlanControlResult{}, fmt.Errorf("Plan route did not forward the original request identity")
@@ -1237,7 +1248,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
 			}
-			if spec.OperationID == "discoverGitAdvancedHunks" {
+			if spec.OperationID == "discoverProviderModels" {
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(`{"data":[{"id":"catalog-model"}]}`))
+				}))
+				defer upstream.Close()
+				body := `{"version":"provider_model_discovery.v1","provider_id":"model-discovery-draft","endpoint_url":"` + upstream.URL + `/v1/responses","transport":"openai_responses","advanced_config":{},"confirm_discovery":true}`
+				response = performControlMethodPathRequest(t, requestAPI, http.MethodPost, requestPath,
+					"", strings.NewReader(body))
+			} else if spec.OperationID == "discoverGitAdvancedHunks" {
 				body := `{"spec":{"protocol_version":"git-advanced.v1",` +
 					`"operation":"hunk_stage","paths":["README.md"]}}`
 				request := httptest.NewRequest(http.MethodPost,
@@ -1474,6 +1493,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"reason":"OpenAPI live cancellation"}`
 				} else if spec.Path == SessionSteeringRevisionPathTemplate {
 					body = `{"version":"session_steering_revision.v1","expected_revision":0,"content":"OpenAPI updated body"}`
+				} else if spec.Path == SessionSteeringPromotionPathTemplate {
+					body = `{"version":"session_steering_promotion.v1","expected_revision":0,"expected_content_sha256":"` + strings.Repeat("a", 64) + `","expected_attempt_id":"attempt-openapi-promotion","expected_execution_id":"execution-openapi-promotion"}`
 				} else if spec.Path == RunLifecycleControlPathTemplate {
 					body = `{"version":"run_lifecycle_control.v1","action":"start"}`
 				} else if spec.Path == ThreadRunRecoveryControlPathTemplate {

@@ -60,6 +60,7 @@ type Gateway struct {
 	artifacts                  *artifact.Manager
 	structuredMemory           StructuredMemoryExecutor
 	historyRecall              HistoryRecallExecutor
+	skillRead                  SkillReadExecutor
 	delegationProposals        SpecialistDelegationExecutor
 	childTaskProposals         ChildTaskProposalExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
@@ -278,6 +279,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 		}
 	}
 	switch normalized.Name {
+	case SkillReadTool:
+		return g.invokeSkillRead(ctx, normalized)
 	case HistorySearchTool, HistoryReadTool:
 		return g.invokeHistoryRecall(ctx, normalized)
 	case WorkspaceListTool, WorkspaceReadTool, WorkspaceGlobTool, WorkspaceGrepTool,
@@ -863,6 +866,9 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 }
 
 func validateToolArguments(call ToolCall) error {
+	if call.Name == SkillReadTool {
+		return validateSkillReadCall(call)
+	}
 	if IsHistoryRecallTool(call.Name) {
 		return validateHistoryRecallCall(call)
 	}

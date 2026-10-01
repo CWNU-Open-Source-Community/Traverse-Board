@@ -16,18 +16,19 @@ import (
 
 // providerRequestRuntime is created from an already validated and normalized
 // Provider definition. It deliberately interprets only the documented
-// request_headers, request_body, model_mapping, and model_capabilities
+// request_headers, request_body, model_mapping, model_context_windows, and model_capabilities
 // containers. Capability declarations stay local and never enter the HTTP
 // payload. Other advanced JSON remains inert operator-owned extension data.
 type providerRequestRuntime struct {
-	providerID string
-	endpoint   string
-	credential credentialLookup
-	headers    map[string]any
-	body       map[string]any
-	models     map[string]string
-	vision     map[string]llm.VisionSupport
-	binding    string
+	providerID     string
+	endpoint       string
+	credential     credentialLookup
+	headers        map[string]any
+	body           map[string]any
+	models         map[string]string
+	vision         map[string]llm.VisionSupport
+	contextWindows map[string]llm.ContextWindow
+	binding        string
 }
 
 var _ llm.HTTPProviderRuntime = (*providerRequestRuntime)(nil)
@@ -82,6 +83,12 @@ func newProviderRequestRuntime(definition ProviderDefinition,
 	}
 	if value, found := root["model_capabilities"]; found {
 		runtime.vision, err = parseVisionCapabilities(value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if value, found := root["model_context_windows"]; found {
+		runtime.contextWindows, err = parseModelContextWindows(value)
 		if err != nil {
 			return nil, err
 		}

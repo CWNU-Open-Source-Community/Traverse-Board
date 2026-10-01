@@ -203,6 +203,7 @@ func TestThreadToolBoundaryReturnsCompactionFromEarlierSegment(t *testing.T) {
 			assertBoundaryPrompt(t, request)
 			return textResponse(rootActionResponse(domain.RootActionContinue, "One final observation remains", "", "")), nil
 		case index == 6:
+			assertInternalInputDelivery(t, request, input.Content)
 			boundaryContextText(t, request)
 			return boundaryRead("compaction-final-read", 1), nil
 		case index == 7:
@@ -248,6 +249,7 @@ func TestThreadToolBoundaryContinuesSixDependentWorkspaceCalls(t *testing.T) {
 			edit = approveBoundaryEdit(t, st, run)
 			return textResponse(rootActionResponse(domain.RootActionContinue, "Proposal reviewed; apply it next", "", "")), nil
 		case 6:
+			assertInternalInputDelivery(t, request, input.Content)
 			content := boundaryContextText(t, request)
 			for _, exact := range []string{edit.ID, edit.OriginalHash, edit.ProposedHash, "workspace_change"} {
 				if !strings.Contains(content, exact) {
@@ -393,6 +395,7 @@ func TestThreadToolBoundaryRestartKeepsAppliedEditAndOriginalHandoff(t *testing.
 			return textResponse(rootActionResponse(domain.RootActionContinue, "Applied the file; inspect it once more", "", "")), nil
 		case 6:
 			content := boundaryContextText(t, request)
+			assertInternalInputDelivery(t, request, input.Content)
 			if !strings.Contains(content, `"file_written":true`) || !strings.Contains(content, edit.ID) || !strings.Contains(content, edit.ProposedHash) {
 				t.Fatal("restart lost completed apply facts")
 			}

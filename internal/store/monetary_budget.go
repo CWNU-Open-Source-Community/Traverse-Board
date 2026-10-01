@@ -788,7 +788,7 @@ func reconcileMonetaryReservationsTx(ctx context.Context, tx *sql.Tx, runID stri
 		if err := json.Unmarshal([]byte(evidence.PayloadJSON), &payload); err != nil {
 			return err
 		}
-		settle := r.scope == domain.MonetaryScopeRoot || evidence.EventType == events.ModelCompletedEvent
+		settle := (r.scope == domain.MonetaryScopeRoot && !evidence.NotSent) || evidence.EventType == events.ModelCompletedEvent
 		settledMicros := int64(0)
 		if settle {
 			// Even an invalid response can contain billable known usage. An

@@ -24,12 +24,25 @@ func TestToolRequestRepairRetainsSchemasAndCompletedToolHistory(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "read-1", Name: "workspace_read", Arguments: json.RawMessage(`{}`)}}},
 		{Role: "user", ToolResults: []llm.ToolResult{{ToolCallID: "read-1", Content: `{"sha256":"verified source"}`}}},
 	}}
-	repair := supervisorProtocolRepairRequest(request, reason)
+	repair := supervisorProtocolRepairRequest(request, reason, supervisorRepairContext{})
 	if !reflect.DeepEqual(repair.Tools, request.Tools) || !reflect.DeepEqual(repair.Messages[2:len(repair.Messages)-1], request.Messages[1:]) || repair.Metadata["protocol_repair"] != "1" {
 		t.Fatal("tool correction changed schemas or verified transcript")
 	}
 	if !strings.Contains(repair.Messages[1].Content, "before execution") || !strings.Contains(repair.Messages[1].Content, "expected_occurrences") {
 		t.Fatal("tool correction omitted its no-effect boundary or actionable field diagnostic")
+	}
+	last := repair.Messages[len(repair.Messages)-1].Content
+	if !strings.Contains(last, "native function-call channel") || strings.Contains(last, `"action":"finish"`) || strings.Contains(last, "When a lifecycle reply is permitted") {
+		t.Fatal("pending tool correction advertises a competing lifecycle reply")
+	}
+	// No process-local flag: the persisted rejected round and completed round
+	// count must give the same answer when rebuilding after a DB reopen.
+	completed := supervisorProtocolRepairRequest(request, reason, supervisorRepairContext{ThreadEndTurn: true, ToolRounds: 2})
+	if !strings.Contains(completed.Messages[1].Content, "allowance is consumed") ||
+		strings.Contains(completed.Messages[1].Content, "This response must correct") ||
+		!strings.Contains(completed.Messages[len(completed.Messages)-1].Content, `action="finish"`) ||
+		!reflect.DeepEqual(completed.Tools, request.Tools) || completed.Metadata["protocol_repair"] != "1" {
+		t.Fatal("completed native correction did not restore normal work while preserving its consumed budget")
 	}
 }
 
@@ -41,7 +54,7 @@ func TestRootProtocolRepairPlacesFormatInstructionAfterIntactToolResults(t *test
 			{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "search-call", Name: "web_search", Arguments: json.RawMessage(`{"query":"docs"}`)}}},
 			{Role: "user", ToolResults: []llm.ToolResult{{ToolCallID: "search-call", Content: `{"source":"https://docs.example.com/"}`}}},
 		}}
-	repair := supervisorProtocolRepairRequest(request, "invalid JSON")
+	repair := supervisorProtocolRepairRequest(request, "invalid JSON", supervisorRepairContext{})
 	if !repair.JSONMode || len(repair.Tools) != 0 || repair.Metadata["protocol_repair"] != "1" ||
 		len(repair.Messages) != len(request.Messages)+2 || len(request.Tools) != 1 {
 		t.Fatal("repair changed the qualified strategy, retained tools, or mutated the original request")

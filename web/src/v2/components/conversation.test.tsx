@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { APIRequestError, type CyberAgentClient } from "../../api/client";
 import type { V2FileReference } from "./file-context";
 import type { PageResult, ThreadDetailView, ThreadExecutionView, ThreadTranscriptItemView, WorkspaceView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
+import { V2RecoveryProvider } from "../recovery-storage";
 import { V2Conversation } from "./conversation";
 
 const composerFiles = vi.hoisted(() => ({ current: undefined as V2FileReference[] | undefined }));
@@ -25,6 +26,10 @@ vi.mock("../projection/narrative", () => ({
     kind: item.source === "operator" ? "user" : "assistant",
     text: item.detail ?? item.title,
     createdAt: item.created_at,
+    status: item.status,
+    deliveryMode: item.delivery_mode,
+    promotedToMessageID: item.promoted_to_message_id,
+    promotedFromMessageID: item.promoted_from_message_id,
   })),
 }));
 
@@ -128,7 +133,116 @@ function baseClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient
   } as unknown as CyberAgentClient;
 }
 
+function queuedTranscript(id: string, sourceRef: string, patch: Partial<ThreadTranscriptItemView> = {}) {
+  return { ...transcriptItem(id, "同样的排队要求", 1), source: "operator" as const, kind: "operator_input" as const,
+    source_ref: sourceRef, status: "pending", ...patch };
+}
+function queueSnapshot(runID = "run-thread-a", sessionID = "sess-thread-a") {
+  return { version: "thread_queued_messages.v1", thread_id: "thread-a", run_id: runID, session_id: sessionID,
+    pending: 1, prepared: 0, capability_grant: false, items: [{ id: "queued-one", sequence: 1, status: "pending",
+      prepared: false, content: "同样的排队要求", content_sha256: "a".repeat(64), content_redacted: false,
+      revision: 0, created_at: "2026-09-29T01:00:00Z", images: [], attachments: [], can_edit: false, can_cancel: false }] };
+}
+
 describe("V2Conversation", () => {
+  it("enables queue promotion only when the observed running execution matches the validated queue owner", async () => {
+    let executionID = "execution-other";
+    const execution = () => ({ version: "thread_execution.v1", thread_id: "thread-a", run_id: "run-thread-a",
+      state: "running", execution_id: executionID, queued_messages: 1, capability_grant: false });
+    const client = baseClient({ baseURL: "/api/v1", hasThreadExecutionRead: true, hasSessionSteeringControl: true,
+      threadExecution: vi.fn(() => Promise.resolve(execution())),
+      get: vi.fn((path: string) => Promise.resolve(path.endsWith("/queued-messages")
+        ? { ...queueSnapshot(), current_attempt_id: "attempt-a", execution_id: "execution-a",
+          items: queueSnapshot().items.map((item) => ({ ...item, can_edit: true, can_cancel: true })) }
+        : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+    } as unknown as Partial<CyberAgentClient>);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } } });
+    render(<V2RecoveryProvider client={client} scopeID="conversation-queue-owner-test"><QueryClientProvider client={queryClient}>
+      <V2Conversation client={client} onArchive={vi.fn()} onManageModels={vi.fn()} onOpenInspector={vi.fn()}
+        threadID="thread-a" workspaces={workspaces} />
+    </QueryClientProvider></V2RecoveryProvider>);
+    const action = await screen.findByRole("button", { name: "引导当前任务" });
+    expect(action).toBeDisabled();
+    expect(action).toHaveAttribute("title", "当前执行暂时无法接受引导，请刷新状态后重试。");
+    executionID = "execution-a";
+    await act(async () => { queryClient.setQueryData(v2QueryKeys.execution("thread-a"), execution()); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "引导当前任务" })).toBeEnabled());
+  });
+
+  it("compacts a promoted source while keeping its original text expandable and the correction fully visible", async () => {
+    const client = baseClient({ getPage: vi.fn(() => Promise.resolve(page([
+      queuedTranscript("promoted-source", "queued-one", { status: "cancelled", promoted_to_message_id: "replacement-steer" }),
+      queuedTranscript("cancelled-source", "cancelled-one", { status: "cancelled" }),
+      queuedTranscript("steer-replacement", "replacement-steer", { status: "committed", delivery_mode: "steer",
+        promoted_from_message_id: "queued-one" }),
+    ]))) } as unknown as Partial<CyberAgentClient>);
+    const ui = renderConversation(client);
+    const summary = await screen.findByText("排队消息已转为引导");
+    expect(summary).toHaveAttribute("title", "同样的排队要求");
+    const history = summary.closest("details")!;
+    expect(history).not.toHaveAttribute("open");
+    expect(screen.getByText("已取消，不会继续处理")).toBeInTheDocument();
+    expect(screen.getByText("已加入当前任务")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(summary);
+    expect(history).toHaveAttribute("open");
+    expect(within(history).getByText("同样的排队要求")).toBeInTheDocument();
+    expect(within(ui.container.querySelector(".v2-narrative")!).getAllByText("同样的排队要求")).toHaveLength(3);
+  });
+
+  it("suppresses only the exact durable pending queue identity while retaining equal text and history", async () => {
+    const items = [queuedTranscript("queued-event", "queued-one"), queuedTranscript("another-event", "another-message"),
+      queuedTranscript("previous-run-event", "queued-one", { run_id: "run-previous" }),
+      queuedTranscript("committed-event", "queued-one", { status: "committed" }),
+      queuedTranscript("cancelled-event", "queued-one", { status: "cancelled" }),
+      queuedTranscript("unconfirmed-event", "queued-one", { durable: false, provisional: true })];
+    const client = baseClient({ get: vi.fn((path: string) => Promise.resolve(path.endsWith("/queued-messages")
+      ? queueSnapshot() : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      getPage: vi.fn(() => Promise.resolve(page(items))) } as unknown as Partial<CyberAgentClient>);
+    const ui = renderConversation(client);
+    await screen.findByRole("button", { name: "查看消息 1 全文" });
+    await waitFor(() => expect(within(ui.container.querySelector(".v2-narrative")!).getAllByText("同样的排队要求")).toHaveLength(5));
+    expect(ui.queryClient.getQueryData<{ pages: PageResult<ThreadTranscriptItemView>[] }>(v2QueryKeys.transcript("thread-a"))
+      ?.pages[0].items).toEqual(items);
+  });
+
+  it("keeps an unconfirmed pending bubble and restores it when a complete queue refresh fails", async () => {
+    const pendingQueue = deferred<unknown>(); let fail = false, first = true;
+    const client = baseClient({ get: vi.fn((path: string) => {
+      if (path.endsWith("/queued-messages")) {
+        if (fail) return Promise.reject(new TypeError("queue unavailable"));
+        if (first) { first = false; return pendingQueue.promise; }
+        return Promise.resolve(queueSnapshot());
+      }
+      return Promise.resolve({ ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } });
+    }), getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<CyberAgentClient>);
+    const ui = renderConversation(client);
+    expect(await screen.findByText("同样的排队要求")).toBeInTheDocument();
+    await act(async () => { pendingQueue.resolve(queueSnapshot()); });
+    await screen.findByRole("button", { name: "查看消息 1 全文" });
+    await waitFor(() => expect(within(ui.container.querySelector(".v2-narrative")!).queryByText("同样的排队要求")).not.toBeInTheDocument());
+    fail = true;
+    await act(async () => { await ui.queryClient.invalidateQueries({ queryKey: [...v2QueryKeys.thread("thread-a"), "queued-messages"] }); });
+    expect(await within(ui.container.querySelector(".v2-narrative")!).findByText("同样的排队要求")).toBeInTheDocument();
+    expect(screen.getByText(/暂时无法读取完整队列/u)).toBeInTheDocument();
+  });
+
+  it("does not suppress a pending bubble using a malformed queue or a successor Run's reused ID", async () => {
+    let successor = false;
+    const client = baseClient({ get: vi.fn((path: string) => Promise.resolve(path.endsWith("/queued-messages")
+      ? successor ? queueSnapshot("run-next", "sess-next") : { ...queueSnapshot(), pending: 2 }
+      : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
+      getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<CyberAgentClient>);
+    const ui = renderConversation(client);
+    await screen.findByText(/暂时无法读取完整队列/u);
+    expect(within(ui.container.querySelector(".v2-narrative")!).getByText("同样的排队要求")).toBeInTheDocument();
+    successor = true;
+    await act(async () => { ui.queryClient.setQueryData(v2QueryKeys.thread("thread-a"),
+      { ...detail("thread-a"), active_run: { id: "run-next", session_id: "sess-next", status: "running" } }); });
+    await screen.findByRole("button", { name: "查看消息 1 全文" });
+    expect(within(ui.container.querySelector(".v2-narrative")!).getByText("同样的排队要求")).toBeInTheDocument();
+  });
+
   it("sends an explicit current-task correction through the Session endpoint", async () => {
     const submitSessionMessage = vi.fn(() => Promise.resolve({ steering: { id: "steer-current" } } as Awaited<
       ReturnType<CyberAgentClient["submitSessionMessage"]>>));

@@ -146,7 +146,7 @@ func fileApplyCallIdentity(call domain.SupervisorToolCall) (toolgateway.Workspac
 func fileApplyOperationMatches(operation fileedit.ApplyOperation, call domain.SupervisorToolCall,
 	input toolgateway.WorkspaceApplyPayload, authority toolgateway.AgentCodeCallAuthority, key string,
 ) bool {
-	kind := map[string]string{"create": fileedit.OperationCreate, "propose_patch": fileedit.OperationReplace, "move": fileedit.OperationMove}[input.ExpectedAction]
+	kind := map[string]string{"create": fileedit.OperationCreate, "propose_patch": fileedit.OperationReplace, "replace": fileedit.OperationReplace, "move": fileedit.OperationMove}[input.ExpectedAction]
 	return operation.RunID == call.RunID && operation.SessionID == authority.SessionID &&
 		operation.WorkspaceID == authority.WorkspaceID && operation.AppliedBy == authority.RootAgentID &&
 		operation.EditID == input.EditID && operation.Operation == kind &&

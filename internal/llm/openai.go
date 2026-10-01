@@ -290,10 +290,7 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 		return "", openAIChatRequest{}, errors.New("temperature is outside the supported range")
 	}
 	maxTokens := request.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 1024
-	}
-	if maxTokens > 1_000_000 {
+	if maxTokens < 0 || maxTokens > 1_000_000 {
 		return "", openAIChatRequest{}, errors.New("max tokens exceeds the provider request limit")
 	}
 	wire := openAIChatRequest{Model: wireModel, MaxTokens: maxTokens, Stream: stream}
@@ -746,7 +743,7 @@ type openAIChatRequest struct {
 	Messages       []openAIMessage       `json:"messages"`
 	Tools          []openAITool          `json:"tools,omitempty"`
 	Temperature    *float64              `json:"temperature,omitempty"`
-	MaxTokens      int                   `json:"max_tokens"`
+	MaxTokens      int                   `json:"max_tokens,omitempty"`
 	ResponseFormat *openAIResponseFormat `json:"response_format,omitempty"`
 	Stream         bool                  `json:"stream,omitempty"`
 	StreamOptions  *openAIStreamOptions  `json:"stream_options,omitempty"`

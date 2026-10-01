@@ -1,0 +1,30 @@
+{
+  "protocol": "skill.v1",
+  "name": "frontend-design",
+  "version": "1.0.0",
+  "description": "Design or refine web interfaces: visual hierarchy, typography, responsive layout, interaction states and SVG/CSS motion, with rendered-page checks. Use for visual UI work, not backend-only changes.",
+  "profiles": [
+    "code"
+  ],
+  "surfaces": [
+    "code"
+  ],
+  "phases": [
+    "plan",
+    "deliver"
+  ],
+  "roles": [
+    "root"
+  ],
+  "user_invocable": true,
+  "model_invocable": true,
+  "explicit_only": false,
+  "tool_dependencies": [
+    "list_workspace",
+    "read_file"
+  ],
+  "content_path": "SKILL.md",
+  "content_sha256": "9749917113832c6e6e187e34c904acf584b7eedbbd9d61185243ff082d906e0e",
+  "content_bytes": 3438,
+  "content_token_upper_bound": 3438
+}

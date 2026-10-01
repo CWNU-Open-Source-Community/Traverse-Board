@@ -1160,6 +1160,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveSessionSteeringCancellation(tracked, request, requestID, sessionID, messageID)
 		return
 	}
+	if sessionID, messageID, matched := matchSessionSteeringPromotionPath(request.URL.Path); matched {
+		a.serveSessionSteeringPromotion(tracked, request, requestID, sessionID, messageID)
+		return
+	}
 	if sessionID, messageID, matched := matchSessionSteeringRevisionPath(request.URL.Path); matched {
 		a.serveSessionSteeringRevision(tracked, request, requestID, sessionID, messageID)
 		return
@@ -1213,6 +1217,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			a.serveModelControl(tracked, request, requestID, route, kind)
 			return
 		}
+	}
+	if request.URL.Path == ProviderModelDiscoveryPath {
+		a.serveProviderModelDiscovery(tracked, request, requestID)
+		return
 	}
 	if provider, remove, matched := matchProviderDefinitionControlPath(request.URL.Path); matched {
 		a.serveProviderDefinitionControl(tracked, request, requestID, provider, remove)

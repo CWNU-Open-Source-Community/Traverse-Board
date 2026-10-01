@@ -70,7 +70,8 @@ func (s *MonetaryBudgetService) ReserveModelCall(ctx context.Context, run domain
 	inputBytes := estimateModelRequestBytes(request)
 	maxTokens := request.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 1024
+		return domain.MonetaryUsage{}, apperror.New(apperror.CodeFailedPrecondition,
+			"monetary budget requires an explicit model output limit before reservation")
 	}
 	reserve := entry.EstimateCost(inputBytes, int64(maxTokens), 0, int64(len(request.Tools)))
 	if reserve <= 0 {

@@ -51,10 +51,11 @@ type AgentBrowserStatus struct {
 }
 
 type AgentBrowserNavigation struct {
-	SessionID     string    `json:"session_id"`
-	CanonicalURL  string    `json:"canonical_url"`
-	DocumentEpoch uint64    `json:"document_epoch"`
-	CompletedAt   time.Time `json:"completed_at"`
+	SessionID     string                `json:"session_id"`
+	CanonicalURL  string                `json:"canonical_url"`
+	DocumentEpoch uint64                `json:"document_epoch"`
+	CompletedAt   time.Time             `json:"completed_at"`
+	Viewport      *AgentBrowserViewport `json:"viewport,omitempty"`
 }
 
 type AgentBrowserElement struct {
@@ -75,6 +76,7 @@ type AgentBrowserSnapshot struct {
 	DocumentEpoch     uint64                `json:"document_epoch"`
 	Text              string                `json:"text"`
 	Elements          []AgentBrowserElement `json:"elements"`
+	Layout            *AgentBrowserLayout   `json:"layout,omitempty"`
 	Truncated         bool                  `json:"truncated"`
 	UntrustedEvidence bool                  `json:"untrusted_evidence"`
 	FramesSupported   bool                  `json:"frames_supported"`

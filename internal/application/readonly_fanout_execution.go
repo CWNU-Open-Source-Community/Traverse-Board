@@ -699,6 +699,9 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 		if response != nil && response.Usage.Validate() == nil {
 			receivedUsage = &response.Usage
 		}
+		if errors.Is(callErr, llm.ErrPreparedRequestChanged) {
+			receivedUsage = &llm.Usage{}
+		}
 		status := domain.ReadOnlyFanoutExecutionShardFailed
 		code := string(providerErr.Kind)
 		if ctx.Err() != nil || errors.Is(callErr, context.Canceled) {
@@ -709,6 +712,9 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 		}
 		persistErr := s.failReadOnlyFanoutShard(ctx, lease, execution.ID,
 			started, modelRef, receivedUsage, elapsed, status, code, providerErr.Error())
+		if persistErr == nil && errors.Is(callErr, llm.ErrPreparedRequestChanged) && s.monetary != nil {
+			_, persistErr = s.monetary.ReleaseModelCall(ctx, run.ID, domain.MonetaryScopeReadOnlyFanout, fanoutAttempt)
+		}
 		return errors.Join(providerApplicationError(providerErr), persistErr)
 	}
 	if response == nil {

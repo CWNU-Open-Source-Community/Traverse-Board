@@ -3441,6 +3441,100 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/models/model-discovery": {
+      "post": {
+        "operationId": "discoverProviderModels",
+        "summary": "Fetch the draft Provider model catalog",
+        "description": "Fetches a bounded catalog with a transient draft key or a revision-bound stored key. Never persists credentials, saves definitions, follows redirects, or grants model qualification. Input and output capacities are separate optional upstream metadata.",
+        "tags": [
+          "Control"
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ModelDiscoveryResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderModelDiscoveryRequest"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/models/prices": {
       "get": {
         "operationId": "listPriceSnapshots",
@@ -19907,6 +20001,256 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/sessions/{session_id}/messages/{message_id}/promote": {
+      "post": {
+        "operationId": "promoteSessionSteering",
+        "summary": "Guide the current task with one queued text message",
+        "description": "Atomically cancels one exact unprepared next-turn revision, enqueues its text as steering for the captured live execution and attempt, and seals a receipt linking both messages. Attachments are rejected without changing the queue. Replays the original receipt after execution ends; never starts another execution or grants capabilities.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Operator steering message identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SessionSteeringPromotionView"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SessionSteeringPromotionRejectionView"
+                        }
+                      ]
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionSteeringPromotionRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sessions/{session_id}/messages/{message_id}/promotions/{operation_key}": {
+      "get": {
+        "operationId": "inspectSessionSteeringPromotion",
+        "summary": "Observe an exact queue promotion or rejection receipt",
+        "description": "Returns the immutable success or rejection receipt, or current source status from one read transaction. An absent receipt and process-local execution state never prove an in-flight request cannot commit. Never resubmits a promotion. An explicit retry can seal a rejection that fences any delayed original POST.",
+        "tags": [
+          "Sessions"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Operator steering message identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_key",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionSteeringPromotionObservationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/sessions/{session_id}/messages/{message_id}/revise": {
       "post": {
         "operationId": "reviseSessionSteering",
@@ -32633,6 +32977,31 @@
         ],
         "type": "object"
       },
+      "DiscoveredModel": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "input_token_limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "output_token_limit": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
       "DockerSandboxAdmissionRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -41005,6 +41374,40 @@
         ],
         "type": "object"
       },
+      "ModelDiscoveryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredModel"
+            },
+            "maxItems": 512,
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "provider_api"
+            ],
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "provider_model_discovery.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "source",
+          "models",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "ModelHarnessAvailabilityView": {
         "additionalProperties": false,
         "properties": {
@@ -43562,6 +43965,54 @@
           "response_content_returned",
           "qualification_status",
           "duration_ms"
+        ],
+        "type": "object"
+      },
+      "ProviderModelDiscoveryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "advanced_config": {},
+          "confirm_discovery": {
+            "type": "boolean"
+          },
+          "endpoint_url": {
+            "type": "string"
+          },
+          "expected_definition_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "provider_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "secret": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "transport": {
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "provider_model_discovery.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "provider_id",
+          "endpoint_url",
+          "transport",
+          "advanced_config",
+          "confirm_discovery"
         ],
         "type": "object"
       },
@@ -49294,6 +49745,312 @@
         ],
         "type": "object"
       },
+      "SessionSteeringPromotionObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "execution_observed": {
+            "type": "boolean"
+          },
+          "message": {
+            "$ref": "#/components/schemas/OperatorSteeringObservationMessageView"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "promotion": {
+            "$ref": "#/components/schemas/SessionSteeringPromotionView"
+          },
+          "rejection": {
+            "$ref": "#/components/schemas/SessionSteeringPromotionRejectionView"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "absent",
+              "sealed",
+              "rejected"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "session_steering_promotion.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id",
+          "message_id",
+          "state",
+          "capability_grant",
+          "execution_observed"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringPromotionReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "cancellation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "replacement_message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target_attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "replacement_message_id",
+          "expected_revision",
+          "content_sha256",
+          "target_attempt_id",
+          "execution_id",
+          "cancellation_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringPromotionRejectionReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target_attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_revision",
+          "content_sha256",
+          "target_attempt_id",
+          "execution_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringPromotionRejectionView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SessionSteeringPromotionRejectionReceiptView"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_called": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "session_steering_promotion.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "session_id",
+          "message_id",
+          "receipt",
+          "rejected",
+          "replayed",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringPromotionRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_content_sha256": {
+            "type": "string"
+          },
+          "expected_execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              "session_steering_promotion.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_revision",
+          "expected_content_sha256",
+          "expected_attempt_id",
+          "expected_execution_id"
+        ],
+        "type": "object"
+      },
+      "SessionSteeringPromotionView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SessionSteeringPromotionReceiptView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_called": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "session_steering_promotion.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "session_id",
+          "message_id",
+          "receipt",
+          "replayed",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
       "SessionSteeringRevisionObservationView": {
         "additionalProperties": false,
         "properties": {
@@ -54536,6 +55293,16 @@
           "capability_grant": {
             "type": "boolean"
           },
+          "current_attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/ThreadQueuedMessageView"
@@ -55282,6 +56049,16 @@
           "position": {
             "format": "int32",
             "type": "integer"
+          },
+          "promoted_from_message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "promoted_to_message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
           },
           "provisional": {
             "type": "boolean"

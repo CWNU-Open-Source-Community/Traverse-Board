@@ -72,6 +72,11 @@ func ValidateAndNormalizeProviderAdvancedConfig(raw json.RawMessage,
 	if err := validateAdvancedConfigNode(root, "", providerID, 1); err != nil {
 		return nil, err
 	}
+	if limits, found := root["model_context_windows"]; found {
+		if _, err := parseModelContextWindows(limits); err != nil {
+			return nil, err
+		}
+	}
 	encoded, err := json.Marshal(root)
 	if err != nil || len(encoded) > MaxProviderAdvancedConfigBytes {
 		return nil, errors.New("custom Provider advanced config could not be normalized")

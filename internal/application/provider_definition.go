@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
@@ -63,9 +64,10 @@ type ProviderDefinitionMutationResult struct {
 }
 
 type ProviderDefinitionService struct {
-	mu       sync.Mutex
-	store    ProviderDefinitionStore
-	registry ProviderDefinitionRegistry
+	mu                   sync.Mutex
+	store                ProviderDefinitionStore
+	registry             ProviderDefinitionRegistry
+	discoveryCredentials credential.Store
 }
 
 func NewProviderDefinitionService(store ProviderDefinitionStore,

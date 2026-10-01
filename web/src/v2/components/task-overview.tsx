@@ -3,6 +3,7 @@ import { ArrowRight, FolderOpen, GitBranch, RefreshCw } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import { readThreadReview, type ThreadReviewChange } from "../../api/task-delivery";
 import { ErrorState, LoadingState, StatusBadge } from "../../components/common";
+import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { ReviewDiff } from "./review-diff";
 import "./task-delivery.css";
 
@@ -11,8 +12,9 @@ const currentLabels: Record<string, string> = { matches: "与此记录一致", c
 const freshness: Record<string, string> = { current: "适用于当前版本", stale: "代码已变化，需重验", unbound: "未绑定代码版本", unavailable: "无法核对版本" };
 export const taskReviewKey = (threadID: string) => ["thread", threadID, "task-review"] as const;
 
-export function TaskOverview({ client, threadID, onFeedback, onGit }: {
+export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile }: {
   client: CyberAgentClient; threadID: string; onFeedback: (context: string) => void; onGit?: () => void;
+  onReviewFile?: (target: FileEditReviewTarget) => void;
 }) {
   const query = useQuery({ queryKey: taskReviewKey(threadID), queryFn: ({ signal }) => readThreadReview(client, threadID, signal), refetchOnMount: "always" });
   const review = query.data;
@@ -48,12 +50,14 @@ export function TaskOverview({ client, threadID, onFeedback, onGit }: {
       {onGit && <div className="v2-overview-next"><span>查看当前目录的全部改动，选择本次提交范围。</span>
         <button className="v2-delivery-primary" onClick={onGit} type="button">选择文件并提交<ArrowRight size={15} aria-hidden="true" /></button></div>}
       <div className="v2-overview-review-grid"><section aria-label="任务编辑">
+      <h3>尚未应用的提案 <span>({review.unapplied_changes.length})</span></h3>
+      {!review.unapplied_changes.length && <p>没有已记录的待应用提案。</p>}
+      {[...review.unapplied_changes].sort((left, right) => Number(right.run_id === review.current_run_id) - Number(left.run_id === review.current_run_id))
+        .map((change) => <TaskChange key={`${change.run_id}:${change.edit_id}`} change={change} observedAt={review.observed_at}
+          onFeedback={feedback} onReviewFile={onReviewFile} currentRunID={review.current_run_id} />)}
       <h3>已应用的编辑 <span>({review.applied_changes.length})</span></h3>
       {!review.applied_changes.length && <p>没有已记录的应用编辑；这不表示工作目录没有变化。</p>}
       {review.applied_changes.map((change) => <TaskChange key={`${change.run_id}:${change.edit_id}`} change={change} observedAt={review.observed_at} onFeedback={feedback} />)}
-      <h3>尚未应用的提案 <span>({review.unapplied_changes.length})</span></h3>
-      {!review.unapplied_changes.length && <p>没有已记录的待应用提案。</p>}
-      {review.unapplied_changes.map((change) => <TaskChange key={`${change.run_id}:${change.edit_id}`} change={change} observedAt={review.observed_at} onFeedback={feedback} />)}
       </section><section aria-label="任务检查">
       <h3>检查结果 <span>({review.checks.length})</span></h3>
       {!review.checks.length && <p>尚无已记录的检查结果。</p>}
@@ -70,10 +74,16 @@ export function TaskOverview({ client, threadID, onFeedback, onGit }: {
     </>}
   </section>;
 }
-function TaskChange({ change, observedAt, onFeedback }: { change: ThreadReviewChange; observedAt: string; onFeedback: (context: string) => void }) {
+function TaskChange({ change, observedAt, onFeedback, onReviewFile, currentRunID }: {
+  change: ThreadReviewChange; observedAt: string; onFeedback: (context: string) => void;
+  onReviewFile?: (target: FileEditReviewTarget) => void; currentRunID?: string;
+}) {
   const source = `文件：${change.path}${change.destination_path ? ` → ${change.destination_path}` : ""}\n来源执行：${change.run_id}\n目录：${change.workspace_id}\n编辑记录：${change.edit_id}\n原版本：${change.original_sha256}\n提案版本：${change.proposed_sha256}\n当前观测版本：${change.current_sha256 || "不可用"}\n读取时间：${observedAt}`;
   return <article className="v2-delivery-change"><header><strong>{change.path}{change.destination_path && ` → ${change.destination_path}`}</strong>
     <StatusBadge status={change.status} /><span>{change.status !== "applied" && change.current_match === "changed" ? "当前内容尚不同于提案" : change.status !== "applied" && change.current_match === "matches" ? "当前内容与提案相同，仍以应用记录为准" : currentLabels[change.current_match] ?? "尚无法核对"}</span>
+    {onReviewFile && <><span>{change.run_id === currentRunID ? "当前执行的提案" : "历史执行的提案"}</span>
+      <button className="v2-delivery-primary" type="button" onClick={() => onReviewFile({ runID: change.run_id,
+        editID: change.edit_id, workspaceID: change.workspace_id })}>查看并审阅</button></>}
     <button type="button" onClick={() => onFeedback(source)}>引用文件</button></header>
     <details><summary>查看这次编辑的差异</summary>
       {(change.diff_truncated || change.redacted) && <p>此差异{change.diff_truncated ? "已截断" : ""}{change.redacted ? "已脱敏" : ""}，只引用可见内容。</p>}

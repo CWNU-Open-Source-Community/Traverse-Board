@@ -620,6 +620,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/model-discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch the draft Provider model catalog
+         * @description Fetches a bounded catalog with a transient draft key or a revision-bound stored key. Never persists credentials, saves definitions, follows redirects, or grants model qualification. Input and output capacities are separate optional upstream metadata.
+         */
+        post: operations["discoverProviderModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/prices": {
         parameters: {
             query?: never;
@@ -3420,6 +3440,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session_id}/messages/{message_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guide the current task with one queued text message
+         * @description Atomically cancels one exact unprepared next-turn revision, enqueues its text as steering for the captured live execution and attempt, and seals a receipt linking both messages. Attachments are rejected without changing the queue. Replays the original receipt after execution ends; never starts another execution or grants capabilities.
+         */
+        post: operations["promoteSessionSteering"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/messages/{message_id}/promotions/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe an exact queue promotion or rejection receipt
+         * @description Returns the immutable success or rejection receipt, or current source status from one read transaction. An absent receipt and process-local execution state never prove an in-flight request cannot commit. Never resubmits a promotion. An explicit retry can seal a rejection that fences any delayed original POST.
+         */
+        get: operations["inspectSessionSteeringPromotion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session_id}/messages/{message_id}/revise": {
         parameters: {
             query?: never;
@@ -6154,6 +6214,14 @@ export interface components {
             secrets: string;
             terminal_input: string;
         };
+        DiscoveredModel: {
+            display_name?: string;
+            id: string;
+            /** Format: int32 */
+            input_token_limit?: number;
+            /** Format: int32 */
+            output_token_limit?: number;
+        };
         DockerSandboxAdmissionRequestView: {
             manifest: components["schemas"]["Manifest"];
             plan_id: string;
@@ -8296,6 +8364,14 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "observed" | "resolved";
         };
+        ModelDiscoveryResult: {
+            models: components["schemas"]["DiscoveredModel"][];
+            /** @enum {string} */
+            source: "provider_api";
+            truncated: boolean;
+            /** @enum {string} */
+            version: "provider_model_discovery.v1";
+        };
         ModelHarnessAvailabilityView: {
             expires_at: string;
             /** @enum {string} */
@@ -8914,6 +8990,19 @@ export interface components {
             /** @enum {string} */
             status: "reachable" | "unreachable";
             tool_called: boolean;
+        };
+        ProviderModelDiscoveryRequest: {
+            advanced_config: unknown;
+            confirm_discovery: boolean;
+            endpoint_url: string;
+            /** Format: int64 */
+            expected_definition_revision?: number;
+            provider_id: string;
+            secret?: string;
+            /** @enum {string} */
+            transport: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
+            /** @enum {string} */
+            version: "provider_model_discovery.v1";
         };
         ProviderSearchReadinessView: {
             capability_grant: boolean;
@@ -10372,6 +10461,78 @@ export interface components {
             /** @enum {string} */
             version: "session_steering_cancellation.v1";
         };
+        SessionSteeringPromotionObservationView: {
+            capability_grant: boolean;
+            execution_id?: string;
+            execution_observed: boolean;
+            message?: components["schemas"]["OperatorSteeringObservationMessageView"];
+            message_id: string;
+            promotion?: components["schemas"]["SessionSteeringPromotionView"];
+            rejection?: components["schemas"]["SessionSteeringPromotionRejectionView"];
+            session_id: string;
+            /** @enum {string} */
+            state: "absent" | "sealed" | "rejected";
+            /** @enum {string} */
+            version: "session_steering_promotion.v1";
+        };
+        SessionSteeringPromotionReceiptView: {
+            cancellation_id: string;
+            content_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            execution_id: string;
+            /** Format: int64 */
+            expected_revision: number;
+            id: string;
+            replacement_message_id: string;
+            target_attempt_id: string;
+        };
+        SessionSteeringPromotionRejectionReceiptView: {
+            content_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            execution_id: string;
+            /** Format: int64 */
+            expected_revision: number;
+            id: string;
+            target_attempt_id: string;
+        };
+        SessionSteeringPromotionRejectionView: {
+            capability_grant: boolean;
+            execution_started: boolean;
+            message_id: string;
+            model_called: boolean;
+            receipt: components["schemas"]["SessionSteeringPromotionRejectionReceiptView"];
+            rejected: boolean;
+            replayed: boolean;
+            run_id: string;
+            session_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "session_steering_promotion.v1";
+        };
+        SessionSteeringPromotionRequestView: {
+            expected_attempt_id: string;
+            expected_content_sha256: string;
+            expected_execution_id: string;
+            /** Format: int64 */
+            expected_revision: number;
+            /** @enum {string} */
+            version: "session_steering_promotion.v1";
+        };
+        SessionSteeringPromotionView: {
+            capability_grant: boolean;
+            execution_started: boolean;
+            message_id: string;
+            model_called: boolean;
+            receipt: components["schemas"]["SessionSteeringPromotionReceiptView"];
+            replayed: boolean;
+            run_id: string;
+            session_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "session_steering_promotion.v1";
+        };
         SessionSteeringRevisionObservationView: {
             capability_grant: boolean;
             message?: components["schemas"]["OperatorSteeringObservationMessageView"];
@@ -11606,6 +11767,8 @@ export interface components {
         };
         ThreadQueuedMessagesView: {
             capability_grant: boolean;
+            current_attempt_id?: string;
+            execution_id?: string;
             items: components["schemas"]["ThreadQueuedMessageView"][];
             /** Format: int32 */
             pending: number;
@@ -11790,6 +11953,8 @@ export interface components {
             model_attempt?: number;
             /** Format: int32 */
             position?: number;
+            promoted_from_message_id?: string;
+            promoted_to_message_id?: string;
             provisional: boolean;
             run_id: string;
             /** Format: int64 */
@@ -14598,6 +14763,47 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ModelHarnessQualificationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    discoverProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderModelDiscoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelDiscoveryResult"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
@@ -21170,6 +21376,95 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["SessionSteeringCancellationObservationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    promoteSessionSteering: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Operator steering message identity */
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionSteeringPromotionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionSteeringPromotionView"] | components["schemas"]["SessionSteeringPromotionRejectionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    inspectSessionSteeringPromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identity */
+                session_id: string;
+                /** @description Operator steering message identity */
+                message_id: string;
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionSteeringPromotionObservationView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

@@ -88,6 +88,7 @@ type supervisorBrowserActionTools struct {
 
 type supervisorToolOptions struct {
 	HistoryRecall      bool
+	BuiltinSkills      []toolgateway.BuiltinSkillDescriptor
 	OwnedFileWorkspace bool
 	CommandRuntime     supervisorCommandRuntimeTools
 	AgentCode          supervisorAgentCodeTools
@@ -157,6 +158,12 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 	}
 	out := make([]llm.ToolSpec, 0, len(definitions))
 	for _, definition := range definitions {
+		if definition.Name == toolgateway.SkillReadTool {
+			if len(configured.BuiltinSkills) == 0 {
+				continue
+			}
+			definition = toolgateway.SkillReadToolDefinition(configured.BuiltinSkills)
+		}
 		if toolgateway.IsHistoryRecallTool(definition.Name) && !configured.HistoryRecall {
 			continue
 		}
@@ -280,7 +287,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	for index, call := range normalized {
 		name := toolgateway.ToolName(call.Name)
 		if name != toolgateway.WorkItemCreateTool && name != toolgateway.NoteCreateTool &&
-			!toolgateway.IsHistoryRecallTool(name) &&
+			!toolgateway.IsHistoryRecallTool(name) && name != toolgateway.SkillReadTool &&
 			name != toolgateway.SpecialistDelegationProposeTool &&
 			name != toolgateway.ChildTaskProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
@@ -307,6 +314,19 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			}
 			if !available || len(agentCodeAuthority) == 0 {
 				return nil, fmt.Errorf("provider requested unavailable agent code tool %q", call.Name)
+			}
+		}
+		if name == toolgateway.SkillReadTool {
+			input, _, err := toolgateway.NormalizeSkillReadPayload(call.Arguments)
+			available := false
+			for _, item := range configured.BuiltinSkills {
+				if item.SkillReadRequest == input {
+					available = true
+					break
+				}
+			}
+			if err != nil || !available {
+				return nil, errors.New("provider requested an embedded Skill absent from the current catalog")
 			}
 		}
 		if toolgateway.IsHistoryRecallTool(name) && !configured.HistoryRecall {
@@ -460,6 +480,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			}
 			out[index].Authority = append(json.RawMessage(nil), browserActionAuthority...)
 		}
+	}
+	if err := validateSupervisorBrowserBatch(out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -1257,6 +1280,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.BrowserPermissionSnapshotID = authority.BrowserPermissionSnapshotID
 		toolCall.BrowserPermissionRevision = authority.BrowserPermissionRevision
 	}
+	toolCall.Payload = supervisorAcceptedToolExecutionPayload(name, call.PayloadJSON)
 	toolTimeout := supervisorToolExecutionTimeout(name)
 	toolCtx, cancelTool := context.WithTimeout(ctx, toolTimeout)
 	outcome, err := s.tools.Invoke(toolCtx, toolCall)
@@ -1328,7 +1352,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		Metadata: metadata, Code: code, Message: message,
 	}
 	if name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
-		toolgateway.IsHistoryRecallTool(name) ||
+		toolgateway.IsHistoryRecallTool(name) || name == toolgateway.SkillReadTool ||
 		name == toolgateway.MCPToolCallTool ||
 		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) ||
 		toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) {
@@ -1369,7 +1393,7 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 		return true
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
 		return name == toolgateway.HostCommandProposeTool || name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
-			toolgateway.IsHistoryRecallTool(name) ||
+			toolgateway.IsHistoryRecallTool(name) || name == toolgateway.SkillReadTool ||
 			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
 			toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) ||
 			toolgateway.IsCodeIntelTool(name)

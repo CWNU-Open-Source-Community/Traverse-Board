@@ -46,14 +46,16 @@ type ThreadQueuedMessageView struct {
 }
 
 type ThreadQueuedMessagesView struct {
-	Version         string                    `json:"version"`
-	ThreadID        string                    `json:"thread_id"`
-	RunID           string                    `json:"run_id"`
-	SessionID       string                    `json:"session_id"`
-	Pending         int                       `json:"pending"`
-	Prepared        int                       `json:"prepared"`
-	Items           []ThreadQueuedMessageView `json:"items"`
-	CapabilityGrant bool                      `json:"capability_grant"`
+	Version          string                    `json:"version"`
+	CurrentAttemptID string                    `json:"current_attempt_id,omitempty"`
+	ExecutionID      string                    `json:"execution_id,omitempty"`
+	ThreadID         string                    `json:"thread_id"`
+	RunID            string                    `json:"run_id"`
+	SessionID        string                    `json:"session_id"`
+	Pending          int                       `json:"pending"`
+	Prepared         int                       `json:"prepared"`
+	Items            []ThreadQueuedMessageView `json:"items"`
+	CapabilityGrant  bool                      `json:"capability_grant"`
 }
 
 type SessionSteeringRevisionRequestView struct {
@@ -162,6 +164,14 @@ func (a *API) threadQueuedMessages(request *http.Request, threadID string) (any,
 	}
 	view := ThreadQueuedMessagesView{Version: snapshot.ProtocolVersion, ThreadID: snapshot.ThreadID,
 		RunID: snapshot.RunID, SessionID: snapshot.SessionID, Items: []ThreadQueuedMessageView{}}
+	if snapshot.CurrentAttemptID != "" && a.sessionSteeringControlEnabled && a.runExecutionEnabled {
+		if controller, ok := a.threadTurnController.(ThreadExecutionController); ok {
+			state, stateErr := controller.ExecutionState(request.Context(), threadID)
+			if stateErr == nil && state.ThreadID == threadID && state.State == "running" && domain.ValidAgentID(state.ExecutionID) {
+				view.CurrentAttemptID, view.ExecutionID = snapshot.CurrentAttemptID, state.ExecutionID
+			}
+		}
+	}
 	var sequence int64
 	for _, queued := range snapshot.Messages {
 		message := queued.Message

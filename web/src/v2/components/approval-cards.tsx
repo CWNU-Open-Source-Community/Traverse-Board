@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Globe2, LoaderCircle, ShieldAlert } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
 import type { ApprovalPreviewView, ApprovalQueueItemView } from "../../api/types";
+import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { v2QueryKeys } from "../query-keys";
 
 type Action = "approve_once" | "approve_for_thread" | "deny";
@@ -19,8 +20,9 @@ const effectText: Record<ApprovalPreviewView["effect"], string> = {
   unavailable: "此类操作暂不支持在这里批准。",
 };
 
-export function V2ApprovalCards({ client, runID, threadID }: {
+export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
   client: CyberAgentClient; runID: string; threadID: string;
+  onReviewFile?: (target: FileEditReviewTarget, trigger: HTMLButtonElement) => void;
 }) {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState("");
@@ -44,15 +46,16 @@ export function V2ApprovalCards({ client, runID, threadID }: {
     </div>}
     {Boolean(query.data?.items.length) && <section aria-label="需要你的批准" className="v2-approval-stack">
       {query.data?.items.map((item) => <ApprovalCard client={client} item={item} key={item.id}
-        onDecided={decided} runID={runID} />)}
+        onDecided={decided} runID={runID} onReviewFile={onReviewFile} />)}
       {query.data?.truncated && <p role="status">待审批操作较多；处理后会继续显示其余操作。</p>}
     </section>}
   </>;
 }
 
-function ApprovalCard({ client, item, runID, onDecided }: {
+function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
   client: CyberAgentClient; item: ApprovalQueueItemView; runID: string;
   onDecided: (message: string) => void;
+  onReviewFile?: (target: FileEditReviewTarget, trigger: HTMLButtonElement) => void;
 }) {
   const [reason, setReason] = useState("");
   const operationKeys = useRef(new Map<string, string>());
@@ -60,7 +63,8 @@ function ApprovalCard({ client, item, runID, onDecided }: {
     queryKey: ["v2", "approval-preview", runID, item.id, item.version],
     queryFn: async ({ signal }) => {
       const value = await client.approvalPreview(runID, item.id, signal);
-      if (value.proposal_id !== item.proposal_id || value.tool_name !== item.tool_name ||
+      if (item.run_id !== runID || value.run_id !== runID || value.approval_id !== item.id ||
+        value.proposal_id !== item.proposal_id || value.tool_name !== item.tool_name ||
         value.workspace_id !== item.workspace_id) throw new Error("审批预览与当前操作不一致，请刷新。");
       return value;
     },
@@ -118,7 +122,8 @@ function ApprovalCard({ client, item, runID, onDecided }: {
         </div>)}
       </dl>
       {preview.data.workspace_id && <details><summary>查看操作目录身份</summary><code>{preview.data.workspace_id}</code></details>}
-      <p>{effectText[preview.data.effect]}</p>
+      <p>{preview.data.effect === "file_review_required" && onReviewFile
+        ? "先查看这份编辑的差异，再决定是否批准和应用。" : effectText[preview.data.effect]}</p>
       {preview.data.redacted && <p>敏感内容已脱敏；这里不会显示凭据值。</p>}
       {(!preview.data.source_current || preview.data.truncated) && <p role="alert">
         {preview.data.truncated ? "预览超过显示上限，不能据此批准。" : "操作已变化或不再等待批准。"}
@@ -129,6 +134,9 @@ function ApprovalCard({ client, item, runID, onDecided }: {
       aria-label={`${item.tool_name} 的拒绝原因`} disabled={mutation.isPending} maxLength={2048}
       onChange={(event) => setReason(event.target.value)} placeholder="拒绝原因（可选）" value={reason} />}
     <footer>
+      {onReviewFile && preview.isSuccess && preview.data.effect === "file_review_required" && <button
+        className="primary" disabled={preview.isFetching} onClick={(event) => onReviewFile({
+          runID, editID: item.proposal_id, workspaceID: item.workspace_id }, event.currentTarget)} type="button">审阅文件提案</button>}
       {item.allowed_actions.includes("deny") && <button className="secondary" disabled={mutation.isPending}
         onClick={() => mutation.mutate("deny")} type="button"><Ban aria-hidden="true" size={15} />
         {recovering ? "继续恢复" : "拒绝"}</button>}

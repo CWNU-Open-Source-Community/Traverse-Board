@@ -88,6 +88,7 @@ var specialistDelegationDefinition = ToolDefinition{
 func SupervisorToolDefinitions() []ToolDefinition {
 	definitions := StructuredMemoryToolDefinitions()
 	definitions = append(definitions, HistoryRecallToolDefinitions()...)
+	definitions = append(definitions, SkillReadToolDefinition(nil))
 	definition := specialistDelegationDefinition
 	definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 	definitions = append(definitions, definition)
@@ -125,6 +126,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
+	if name == SkillReadTool {
+		return SkillReadToolDefinition(nil), true
+	}
 	for _, definition := range HistoryRecallToolDefinitions() {
 		if definition.Name == name {
 			return definition, true
@@ -202,6 +206,10 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 }
 
 func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (json.RawMessage, error) {
+	if name == SkillReadTool {
+		_, canonical, err := NormalizeSkillReadPayload(payload)
+		return canonical, err
+	}
 	if IsHistoryRecallTool(name) {
 		return NormalizeHistoryRecallPayload(name, payload)
 	}

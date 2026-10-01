@@ -405,10 +405,7 @@ func (p *OllamaProvider) prepareRequest(request ChatRequest) (
 		return "", ollamaChatRequest{}, 0, errors.New("temperature is outside the supported range")
 	}
 	maxTokens := request.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 1024
-	}
-	if maxTokens > 1_000_000 {
+	if maxTokens < 0 || maxTokens > 1_000_000 {
 		return "", ollamaChatRequest{}, 0, errors.New("max tokens exceeds the provider request limit")
 	}
 	wire := ollamaChatRequest{Model: model, Messages: make([]ollamaMessage, 0, len(request.Messages)+1)}

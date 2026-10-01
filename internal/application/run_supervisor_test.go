@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
@@ -83,6 +85,15 @@ func TestRunSupervisorCompletesOneTurnAndEnforcesBudget(t *testing.T) {
 }
 
 func TestRunSupervisorAppliesAggregateContextWindowAndCompactsOldestHistory(t *testing.T) {
+	for _, windowTokens := range []int{8192, 10000} {
+		t.Run(fmt.Sprintf("window_%d", windowTokens), func(t *testing.T) {
+			verifyAggregateContextCompaction(t, windowTokens)
+		})
+	}
+}
+
+func verifyAggregateContextCompaction(t *testing.T, windowTokens int) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-context-window.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -113,31 +124,75 @@ func TestRunSupervisorAppliesAggregateContextWindowAndCompactsOldestHistory(t *t
 			t.Fatal(err)
 		}
 	}
+	history, err := st.ListSessionMessages(ctx, run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := continuityRawMessages(t, history)
+	historyTokens := 0
+	for _, message := range history {
+		historyTokens += contextmgr.EstimateTokens(message.Content)
+	}
+	const outputTokens, safetyTokens = 256, 256
+	inputLimit := windowTokens - outputTokens - safetyTokens
+	if historyTokens <= inputLimit {
+		t.Fatalf("raw history alone must exert window pressure: history=%d input_limit=%d", historyTokens, inputLimit)
+	}
 	ref := llm.ModelRef{Provider: provider.Name(), Model: "model"}
 	router := llm.NewRouter(ref)
 	router.RegisterProvider(provider)
 	if err := router.SetContextWindow(ref, llm.ContextWindow{
-		ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: 8192,
-		SafetyMarginTokens: 256, DefaultOutputTokens: 256, MaxOutputTokens: 512,
+		ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: windowTokens,
+		SafetyMarginTokens: safetyTokens, DefaultOutputTokens: outputTokens, MaxOutputTokens: 512,
 		Source: "integration_test",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunSupervisor(st, router,
-		policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
+	_, stepErr := application.NewRunSupervisor(st, router,
+		policy.NewDefaultChecker()).Step(ctx, run.ID)
+	after, err := st.ListSessionMessages(ctx, run.SessionID, true)
+	if err != nil {
 		t.Fatal(err)
+	}
+	afterRaw := continuityRawMessages(t, after)
+	for id, hash := range raw {
+		if afterRaw[id] != hash {
+			t.Fatalf("context fitting rewrote raw historical message %d", id)
+		}
+	}
+	summary, found, err := st.LatestContextSummary(ctx, run.SessionID)
+	if err != nil || !found || summary.Content == "" || summary.CompactedMessageCount != 19 {
+		t.Fatalf("window pressure did not persist the exact history compaction: summary=%+v found=%t err=%v", summary, found, err)
+	}
+	// 8192 fits the original mandatory context but cannot also hold the
+	// committed summary. Preserve that rejection instead of dropping history.
+	if windowTokens == 8192 {
+		if apperror.CodeOf(stepErr) != apperror.CodeResourceExhausted || len(provider.requests) != 0 {
+			t.Fatalf("summary overflow reached provider: calls=%d err=%v", len(provider.requests), stepErr)
+		}
+		return
+	}
+	if stepErr != nil {
+		t.Fatal(stepErr)
 	}
 	if len(provider.requests) != 1 {
 		t.Fatalf("provider calls=%d, want 1", len(provider.requests))
 	}
 	request := provider.requests[0]
-	if request.MaxTokens != 512 || request.Metadata["context_window_source"] != "integration_test" ||
+	if request.MaxTokens != outputTokens || request.Metadata["context_output_reserve"] != "256" ||
+		request.Metadata["context_input_limit"] != strconv.Itoa(inputLimit) ||
+		request.Metadata["context_window_source"] != "integration_test" ||
 		request.Metadata["context_history_omitted"] != "0" ||
 		request.Metadata["context_compacted_messages"] != "19" ||
 		request.Metadata["context_summary_id"] == "" {
 		t.Fatalf("aggregate context gate was not applied: max=%d metadata=%#v",
 			request.MaxTokens, request.Metadata)
 	}
+	estimated, err := strconv.Atoi(request.Metadata["context_input_estimate"])
+	if err != nil || estimated > inputLimit {
+		t.Fatalf("complete compacted request exceeds input capacity: estimate=%d limit=%d err=%v", estimated, inputLimit, err)
+	}
+	t.Logf("raw history=%d compacted request=%d input_limit=%d output_reserve=%d", historyTokens, estimated, inputLimit, request.MaxTokens)
 	joined := ""
 	for _, message := range request.Messages {
 		joined += message.Content

@@ -16,7 +16,7 @@ func TestProviderReplaySchemaV170AddsPrivateLedgersWithoutChangingExistingRows(t
 	defer st.Close()
 	// Seed pre-v170 tool history through current writers, then restore the exact
 	// v169 schema. Current writers require the v171 steering columns.
-	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 171); err != nil {
+	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 172); err != nil {
 		t.Fatal(err)
 	}
 	f := providerReplayFixtureAtStore(t, st)

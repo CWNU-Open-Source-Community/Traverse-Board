@@ -437,8 +437,9 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 		if harnessErr != nil {
 			return r.failAttempt(ctx, result, ref, harnessErr)
 		}
+		modelWindow, _ := modelRequest.PreparedContextWindow()
 		modelRequest, _, contextErr := constrainRequestToModelWindow(modelRequest,
-			r.router.ContextWindow(refModel), contextLayout)
+			modelWindow, contextLayout)
 		if contextErr != nil {
 			return r.failAttempt(ctx, result, ref, contextErr)
 		}

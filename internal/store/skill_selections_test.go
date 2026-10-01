@@ -24,6 +24,10 @@ func TestSkillSelectionIsImmutableIdempotentAndMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest, found := registry.Get("code")
+	if !found {
+		t.Fatal("current code manifest is missing")
+	}
 	service := application.NewSkillSelectionService(st, registry)
 	request := application.SelectSkillsRequest{
 		RunID: run.ID, Names: []string{"code"}, TokenBudget: 4096,
@@ -33,9 +37,13 @@ func TestSkillSelectionIsImmutableIdempotentAndMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Replayed || created.Selection.ItemCount != 1 ||
+	if created.Replayed || created.Selection.ItemCount != 1 || len(created.Selection.Items) != 1 ||
 		created.Selection.Items[0].Name != "code" ||
-		created.Selection.TokenUpperBound != 398 {
+		created.Selection.Items[0].Version != manifest.Version ||
+		created.Selection.Items[0].ContentSHA256 != manifest.ContentSHA256 ||
+		created.Selection.Items[0].ContentBytes != manifest.ContentBytes ||
+		created.Selection.Items[0].TokenUpperBound != manifest.ContentTokenUpperBound ||
+		created.Selection.TokenUpperBound != manifest.ContentTokenUpperBound {
 		t.Fatalf("created selection drifted: %#v", created)
 	}
 	loaded, found, err := st.GetSkillSelectionByRun(ctx, run.ID)

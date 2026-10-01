@@ -3,9 +3,15 @@ import { CyberAgentClient } from "./client";
 const reference = { thread_id: "thread-1", run_id: "run-1", message_id: "message-1", event_sequence: 42 };
 const client = () => new CyberAgentClient("read-secret", "/api/v1", "control-secret");
 const submit = () => client().submitThreadTurn("thread-1", { version: "thread_message_submission.v1", content: "Keep this request" }, "failure-reference-key");
-const respond = (error: object) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+const respond = (error: object, status = 412) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
   version: "api.v1", request_id: "reference-response", error: { code: "FAILED_PRECONDITION", message: "This turn failed", ...error },
-}), { status: 412, headers: { "Content-Type": "application/json" } })));
+}), { status, headers: { "Content-Type": "application/json" } })));
+
+it.each([499, 409])("retains the sealed cancellation receipt over API or native transport (%s)", async (status) => {
+  respond({ code: "CANCELLED", turn_failed: true, turn_failure: reference }, status);
+  await expect(submit()).rejects.toMatchObject({ code: "CANCELLED", status, turnFailed: true, turnFailure: reference });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 
 it("carries the sealed failure reference without treating an older response as referenced", async () => {
   respond({ turn_failed: true, turn_failure: reference });

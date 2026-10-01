@@ -10,6 +10,8 @@ import { usePublicModelStream } from "../../hooks/use-public-model-stream";
 import { useRunEventStream } from "../../hooks/use-run-event-stream";
 import { threadActivityLabel } from "../../lib/thread-activity-label";
 import { projectThreadNarrative, type NarrativeEntry } from "../projection/narrative";
+import { projectAgentActivity } from "../projection/agent-activity";
+import { V2AgentActivity } from "./agent-activity";
 import { narrativeRepresentsFailedSubmission, recoveryRepresentsNotice } from "../projection/failure-feedback";
 import { v2QueryKeys } from "../query-keys";
 import { ControlledCommandProposalPanel } from "../../components/controlled-command-proposal-panel";
@@ -18,12 +20,13 @@ import { v2FileReferenceKey, type V2FileReference } from "./file-context";
 import { imageIdentities, type WorkspaceImageAttachment } from "../../api/image-attachments";
 import { fileAttachmentIdentities, type WorkspaceFileAttachment } from "../../api/file-attachments";
 import { V2FileAttachments } from "./file-input";
-import { V2QueuedMessages } from "./queued-messages";
+import { useV2QueuedMessagesQuery, V2QueuedMessages } from "./queued-messages";
 import { V2AgentBrowser } from "./agent-browser";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { v2ImageReferenceKey, V2ImagePreview } from "./image-input";
 import { V2ApplicationPreview } from "./application-preview";
 import { V2TaskReview } from "./task-review";
+import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
 import { useV2ThreadSubmissions, useV2ThreadTurn, V2SubmissionError, V2RecoveredSubmissionError, removeV2Submission, v2TurnFailed, v2TurnOutcomeKnown, v2TurnWasNotQueued, type V2TurnInput } from "../use-thread-turn";
@@ -47,6 +50,12 @@ function Narrative({ client, entries, threadID }: {
 }) {
   return <ol className="v2-narrative">
     {entries.map((entry) => {
+      if (entry.kind === "user" && entry.status === "cancelled" && entry.promotedToMessageID) return <li className="v2-user-turn" key={entry.id}>
+        <details className="v2-promoted-message-history">
+          <summary title={entry.text}>排队消息已转为引导</summary>
+          <div className="v2-promoted-message-content">{entry.text}<V2ImagePreview client={client} images={entry.images ?? []} />
+            <V2FileAttachments client={client} attachments={entry.attachments ?? []} /></div>
+        </details></li>;
       if (entry.kind === "user") return <li className="v2-user-turn" key={entry.id}>
         <div>{entry.text}<V2ImagePreview client={client} images={entry.images ?? []} />
           <V2FileAttachments client={client} attachments={entry.attachments ?? []} />{entry.status === "cancelled" &&
@@ -88,6 +97,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const [observations, setObservations] = useState<Record<string, string>>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewFileTarget, setReviewFileTarget] = useState<FileEditReviewTarget | undefined>();
+  const reviewReturnFocus = useRef<HTMLButtonElement | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const contextTrigger = useRef<HTMLButtonElement>(null);
@@ -200,6 +211,11 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const streamRunID = activeRun?.id ?? "";
   const streamEnabled = Boolean(activeRun && ["preparing", "running", "waiting_approval"]
     .includes(activeRun.status));
+  const queuedRun = activeRun ?? detailQuery.data?.last_run;
+  const queueBinding = queuedRun?.session_id ? { threadID, runID: queuedRun.id, sessionID: queuedRun.session_id,
+    workspaceID: detailQuery.data?.thread.workspace_id ?? "" } : null;
+  // The panel owns polling; this observer shares its validated snapshots.
+  const queueQuery = useV2QueuedMessagesQuery(client, queueBinding, false);
   const eventStream = useRunEventStream(client, streamEnabled ? streamRunID : "");
   const publicStream = usePublicModelStream(client, streamRunID, streamEnabled);
   const liveSnapshot = publicStream.snapshot?.call.run_id === streamRunID
@@ -245,8 +261,19 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         images: entry.images, attachments: entry.attachments, createdAt: entry.createdAt, provisional: true }));
     return [...durableNarrative, ...pending];
   }, [durableNarrative, optimistic, transcriptItems]);
-  const visibleNarrative = useMemo(() => narrative.filter((entry) =>
-    !recoveryRepresentsNotice(entry, detailQuery.data?.recovery)), [narrative, detailQuery.data?.recovery]);
+  const visibleNarrative = useMemo(() => {
+    // The complete queue is identity checked by readQueuedMessages. A failed
+    // refresh or a different Run must keep every unconfirmed historical row.
+    const queuedIDs = new Set(queueQuery.isSuccess ? queueQuery.data.items.map((item) => item.id) : []);
+    const sources = new Map(transcriptItems.map((item) => [item.id, item]));
+    return narrative.filter((entry) => {
+      if (recoveryRepresentsNotice(entry, detailQuery.data?.recovery)) return false;
+      const source = entry.kind === "user" ? sources.get(entry.id) : undefined;
+      return !(source?.source === "operator" && source.kind === "operator_input" && source.status === "pending" &&
+        source.durable && !source.provisional && source.run_id === queueBinding?.runID &&
+        source.source_ref && queuedIDs.has(source.source_ref));
+    });
+  }, [narrative, detailQuery.data?.recovery, queueBinding?.runID, queueQuery.data, queueQuery.isSuccess, transcriptItems]);
   // Contents the user already submitted: in-flight, just confirmed, or the
   // latest durable user entry. A draft identical to any of these is leftover
   // from a sent message, so the composer offers to clear it before the user
@@ -291,6 +318,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   useEffect(() => {
     setMenuOpen(false);
     setReviewOpen(false);
+    setReviewFileTarget(undefined);
     setPreviewOpen(false);
     setContextOpen(false);
     setComposerFocusRequest(null);
@@ -426,11 +454,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     }
   };
 
-  const stateLabel = activityLabel === "正在停止" || activityLabel === "停止未完成" ? activityLabel
-    : modelActive || activityLabel === "正在工作" ? "正在工作"
-      : reconciling ? "正在核对提交" : turnSubmitting ? "正在发送消息" : activityLabel === "等待新消息"
-        ? currentRun.status === "waiting_approval" ? "等待批准" : currentRun.status === "paused" ? "已暂停" : activityLabel
-        : activityLabel;
+  const agentActivity = projectAgentActivity({ threadID, runID: detail.active_run?.id,
+    runStatus: currentRun.status, archived: detail.thread.status !== "active",
+    execution: executionQuery.data, executionReadable: client.hasThreadExecutionRead === true,
+    executionError: executionQuery.isError, submitting: turnSubmitting, reconciling,
+    snapshot: liveSnapshot, streamStatus: publicStream.status,
+    progressError: Boolean(eventStream.error || publicStream.error || transcriptQuery.isError),
+    transcript: transcriptItems });
   const appendDraftAndReveal = (content: string) => {
     if (content) onDraftChange?.(draft?.trim() ? `${draft}\n\n${content}` : content);
     if (view === "inspector") setInspectorComposerOpen(true);
@@ -439,10 +469,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   };
   return <section className={`v2-conversation${view === "inspector" ? " is-inspector" : ""}`}>
     <header className="v2-conversation-header">
-      <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong>
-        {stateLabel !== "等待新消息" && <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
-          {working && <i />}{stateLabel}</span>}
-      </div>
+      <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong></div>
       <div className="v2-header-actions">
         <V2ThreadExecutionControl client={client} execution={executionQuery.data}
           threadID={threadID} />
@@ -450,7 +477,9 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           ref={contextTrigger} type="button"><BookOpen aria-hidden="true" size={16} /><span>上下文</span></button>
         <button aria-label="应用预览" className="v2-review-trigger" onClick={() => setPreviewOpen(true)}
           ref={previewTrigger} type="button"><PanelTop aria-hidden="true" size={16} /><span>应用预览</span></button>
-        <button aria-label="审阅改动" className="v2-review-trigger" onClick={() => setReviewOpen(true)}
+        <button aria-label="审阅改动" className="v2-review-trigger" onClick={() => {
+          setReviewFileTarget(undefined); reviewReturnFocus.current = reviewTrigger.current; setReviewOpen(true);
+        }}
           ref={reviewTrigger} type="button"><FileDiff aria-hidden="true" size={16} /><span>审阅改动</span></button>
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label="对话操作"
           onClick={() => setMenuOpen((value) => !value)} ref={menuTriggerRef} type="button">
@@ -491,7 +520,11 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       }} />}
     {reviewOpen && <V2TaskReview client={client} detail={detail} working={working}
       onOpenWorktree={onOpenWorktree}
-      onClose={() => setReviewOpen(false)} returnFocusRef={reviewTrigger} onRequestChange={appendDraftAndReveal} />}
+      initialFileTarget={reviewFileTarget}
+      onClose={() => {
+        if (!reviewReturnFocus.current?.isConnected) reviewReturnFocus.current = reviewTrigger.current;
+        setReviewOpen(false);
+      }} returnFocusRef={reviewReturnFocus} onRequestChange={appendDraftAndReveal} />}
     {view === "inspector" && !transcriptQuery.isLoading && <V2Inspector client={client} key={threadID}
       detail={detail} threadID={threadID} durableItems={transcriptItems}
       liveSnapshot={liveSnapshot} liveStatus={publicStream.status}
@@ -561,7 +594,9 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         {(eventStream.error || publicStream.error) && working && <div className="v2-notice tone-warning"
           role="status">实时进度暂不可用；持久工作记录仍会继续同步。</div>}
         {client.hasApprovalControl && detail.active_run && <V2ApprovalCards client={client}
-          runID={currentRun.id} threadID={threadID} />}
+          runID={currentRun.id} threadID={threadID} onReviewFile={(target, trigger) => {
+            reviewReturnFocus.current = trigger; setReviewFileTarget(target); setReviewOpen(true);
+          }} />}
         {detail.active_run && <div className="v2-command-approvals">
           <ControlledCommandProposalPanel client={client} runID={currentRun.id} threadID={threadID} />
           <HostCommandProposalPanel client={client} runID={currentRun.id} threadID={threadID} compact={view === "inspector"} />
@@ -574,14 +609,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       setHasNewContent(false);
     }} type="button">有新内容 · 回到最新</button>}
     <div className="v2-composer-dock">
+      <V2AgentActivity activity={agentActivity} />
       {managedDraft && <V2DraftConflict key={threadID} client={client} workspaceID={detail.thread.workspace_id ?? ""}
         state={managedDraft.state} onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       {currentRun.status === "paused" && <V2PausedThreadControl client={client} threadID={threadID} runID={currentRun.id} />}
       {executionQuery.data?.state === "stop_failed" && <p className="v2-composer-caption" role="alert">
         停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。
       </p>}
-      {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
-        workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive} />}
       {reconciling ? <p className="v2-composer-caption" role="status">正在核对上次提交，避免重复执行。可以继续编辑，核对完成后再发送。</p>
         : executionQuery.data?.state === "stopping" && <p className="v2-composer-caption" role="status">正在停止执行。可以继续编辑，停止完成后再发送。</p>}
       {working && draft && onDraftChange && submittedContents.has(draft.trim()) &&
@@ -593,7 +627,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       {view === "inspector" && <button className="v2-inspector-composer-toggle"
         aria-expanded={inspectorComposerOpen} onClick={() => setInspectorComposerOpen((open) => !open)} type="button">
         {inspectorComposerOpen ? "收起消息编辑器" : draft ? "继续编辑草稿" : "补充消息"}</button>}
-      <div className="v2-shared-composer" ref={composerContainerRef} data-thread-id={threadID} hidden={view === "inspector" && !inspectorComposerOpen}>
+      <div className="v2-composer-options" hidden={view === "inspector" && !inspectorComposerOpen}>
       {(canSteer || deliveryMode === "steer") && <label className="v2-composer-caption">发送方式
         <select aria-label="发送方式" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "next_turn" | "steer")}>
           <option value="next_turn">下一轮处理</option>
@@ -604,6 +638,15 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         {steerUnavailable}，不能更新当前任务；纠正草稿会保留。
         <button className="v2-composer-chip" onClick={() => setDeliveryMode("next_turn")} type="button">切换为下一轮处理</button>
       </p>}
+      </div>
+      <div className="v2-queue-composer-stack">
+      {currentRun.session_id && <V2QueuedMessages client={client} threadID={threadID} runID={currentRun.id} sessionID={currentRun.session_id}
+        workspaceID={detail.thread.workspace_id ?? ""} running={working || runActive}
+        canPromote={client.hasThreadExecutionRead === true
+          ? executionQuery.isSuccess && executionQuery.data.state === "running" &&
+            executionQuery.data.execution_id === queueQuery.data?.execution_id
+          : !executionQuery.isError && canSteer} />}
+      <div className="v2-shared-composer" ref={composerContainerRef} data-thread-id={threadID} hidden={view === "inspector" && !inspectorComposerOpen}>
       <V2Composer client={client} disabled={!client.hasThreadControl ||
         detail.thread.status !== "active"}
         submitDisabled={reconciling || executionQuery.data?.state === "stopping" ||
@@ -626,6 +669,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
           : "消息将在下一轮处理；受理不代表已经执行。"
         : "Enter 发送，Shift + Enter 换行"}</small>
+      </div>
       </div>
     </div>
   </section>;

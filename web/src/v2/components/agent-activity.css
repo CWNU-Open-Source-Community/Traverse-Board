@@ -1,0 +1,18 @@
+.v2-agent-activity {
+  align-items: center;
+  color: var(--v2-muted);
+  display: flex;
+  font-size: 12px;
+  gap: 7px;
+  line-height: 20px;
+  margin: 0 auto 7px;
+  max-width: var(--v2-composer-width);
+  min-height: 20px;
+  padding-inline: 12px;
+}
+.v2-agent-activity > svg { flex: 0 0 20px; }
+.v2-agent-orb { color: var(--v2-ink); display: block; overflow: visible; }
+.v2-agent-activity.needs-attention { color: var(--v2-danger); }
+@media (prefers-contrast: more), (forced-colors: active) {
+  .v2-agent-activity { color: CanvasText; }
+}

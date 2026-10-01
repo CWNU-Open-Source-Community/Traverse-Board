@@ -59,13 +59,14 @@ type ToolSpec struct {
 }
 
 type ChatRequest struct {
-	Model       string
-	Messages    []Message
-	Tools       []ToolSpec
-	Temperature float64
-	MaxTokens   int
-	JSONMode    bool
-	Metadata    map[string]string
+	Model         string
+	Messages      []Message
+	Tools         []ToolSpec
+	Temperature   float64
+	MaxTokens     int
+	JSONMode      bool
+	Metadata      map[string]string
+	preparedModel *preparedModelRequest
 }
 
 type ChatResponse struct {
@@ -79,6 +80,9 @@ type ChatResponse struct {
 	Provider     string
 	FinishReason FinishReason
 	Replay       *ProviderReplay `json:"-"`
+	// Application-issued evidence for a rejected native request. Never returned
+	// to the provider, interpreted as a tool call, or included in public history.
+	ToolRequestRejection *ToolRequestRejection `json:"-"`
 }
 
 type ChatChunk struct {

@@ -703,6 +703,12 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Summary: "List credential-free custom Provider definitions", Tag: "Models",
 			Description: "Returns operator-authored Provider protocol, endpoint, model mapping, search policy, and bounded advanced JSON. Credentials are represented only by same-Provider references and plaintext is never returned.",
 			DataType:    reflect.TypeOf(ProviderDefinitionCollectionView{})},
+		{Path: ProviderModelDiscoveryPath, Method: http.MethodPost,
+			OperationID: "discoverProviderModels", Summary: "Fetch the draft Provider model catalog",
+			Tag: "Control", Control: true,
+			Description: "Fetches a bounded catalog with a transient draft key or a revision-bound stored key. Never persists credentials, saves definitions, follows redirects, or grants model qualification. Input and output capacities are separate optional upstream metadata.",
+			DataType:    reflect.TypeOf(modelregistry.ModelDiscoveryResult{}),
+			RequestType: reflect.TypeOf(application.ProviderModelDiscoveryRequest{})},
 		{Path: ProviderDefinitionPathTemplate, Method: http.MethodPost,
 			OperationID: "upsertProviderDefinition", Summary: "Create or update a custom Provider",
 			Tag: "Control", Control: true,
@@ -881,6 +887,13 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Summary: "Observe one exact message revision receipt", Tag: "Sessions",
 			Description: "Read-only confirmation of the original operation key and fixed HTTP operator. An absent receipt is not proof that an in-flight request will not commit. This never resubmits the modification.",
 			DataType:    reflect.TypeOf(SessionSteeringRevisionObservationView{}), NotFound: true,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
+		{Path: SessionSteeringPromotionObservationPathTemplate, OperationID: "inspectSessionSteeringPromotion",
+			Summary: "Observe an exact queue promotion or rejection receipt", Tag: "Sessions",
+			Description: "Returns the immutable success or rejection receipt, or current source status from one read transaction. An absent receipt and process-local execution state never prove an in-flight request cannot commit. Never resubmits a promotion. An explicit retry can seal a rejection that fences any delayed original POST.",
+			DataType:    reflect.TypeOf(SessionSteeringPromotionObservationView{}), NotFound: true,
 			Parameters: []openAPIParameter{sessionID, messageID,
 				{Name: "operation_key", In: "path", Required: true, Schema: map[string]any{"type": "string",
 					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
@@ -1622,6 +1635,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Parameters: []openAPIParameter{sessionID, messageID,
 				{Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string",
 					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
+		{Path: SessionSteeringPromotionPathTemplate, Method: http.MethodPost,
+			OperationID: "promoteSessionSteering", Summary: "Guide the current task with one queued text message", Tag: "Control",
+			Description: "Atomically cancels one exact unprepared next-turn revision, enqueues its text as steering for the captured live execution and attempt, and seals a receipt linking both messages. Attachments are rejected without changing the queue. Replays the original receipt after execution ends; never starts another execution or grants capabilities.",
+			DataType:    reflect.TypeOf(SessionSteeringPromotionView{}), RequestType: reflect.TypeOf(SessionSteeringPromotionRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusAccepted,
+			Parameters: []openAPIParameter{sessionID, messageID,
+				{Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string",
+					"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}}},
 		{Path: RunLifecycleControlPathTemplate, Method: http.MethodPost,
 			OperationID: "controlRunLifecycle", Summary: "Start, pause, or resume a Run",
 			Tag:         "Control",
@@ -2098,6 +2119,9 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 			return openAPIOperation{}, fmt.Errorf("OpenAPI path %q has no response DTO", spec.Path)
 		}
 		dataSchema := registry.ref(spec.DataType)
+		if spec.Path == SessionSteeringPromotionPathTemplate {
+			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(SessionSteeringPromotionRejectionView{}))}}
+		}
 		if spec.Collection {
 			dataSchema = map[string]any{"type": "array", "items": dataSchema}
 		}
@@ -2785,8 +2809,11 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "ProviderCredentialStatusView" && fieldName == "provider" {
 		schema["maxLength"] = 64
 	}
-	if typeName == "ProviderCredentialRequestView" && fieldName == "secret" {
+	if (typeName == "ProviderCredentialRequestView" || typeName == "ProviderModelDiscoveryRequest") && fieldName == "secret" {
 		schema["writeOnly"] = true
+	}
+	if typeName == "ModelDiscoveryResult" && fieldName == "models" {
+		schema["maxItems"] = 512
 	}
 	if typeName == "FileEditProposalSourceView" && fieldName == "source_handle" {
 		schema["minLength"] = 43
@@ -3143,6 +3170,10 @@ var openAPIFieldEnums = map[string][]string{
 	"ModelHarnessAvailabilityView.protocol_version":            {llm.ModelHarnessProtocolVersion},
 	"ModelHarnessAvailabilityView.transport_protocol":          {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
 	"ProviderDefinition.version":                               {modelregistry.ProviderDefinitionVersion},
+	"ProviderModelDiscoveryRequest.version":                    {modelregistry.ModelDiscoveryVersion},
+	"ProviderModelDiscoveryRequest.transport":                  {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
+	"ModelDiscoveryResult.version":                             {modelregistry.ModelDiscoveryVersion},
+	"ModelDiscoveryResult.source":                              {"provider_api"},
 	"ProviderDefinition.transport":                             {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
 	"ProviderDefinition.search_mode":                           {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeWeb, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
 	"ProviderDefinition.native_web_search_capability":          {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},
@@ -3416,6 +3447,11 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadQueuedMessagesView.version":                         {domain.ThreadQueuedMessagesProtocolVersion},
 	"ThreadQueuedMessageView.status":                           {string(domain.OperatorSteeringPending)},
 	"SessionSteeringRevisionRequestView.version":               {domain.SessionSteeringRevisionProtocolVersion},
+	"SessionSteeringPromotionRequestView.version":              {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionView.version":                     {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionObservationView.version":          {domain.SessionSteeringPromotionProtocolVersion},
+	"SessionSteeringPromotionObservationView.state":            {"absent", "sealed", "rejected"},
+	"SessionSteeringPromotionRejectionView.version":            {domain.SessionSteeringPromotionProtocolVersion},
 	"SessionSteeringRevisionView.version":                      {domain.SessionSteeringRevisionProtocolVersion},
 	"SessionSteeringRevisionObservationView.version":           {domain.SessionSteeringRevisionProtocolVersion},
 	"SessionSteeringRevisionObservationView.state":             {"absent", "sealed"},

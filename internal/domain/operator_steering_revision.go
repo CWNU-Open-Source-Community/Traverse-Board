@@ -176,10 +176,11 @@ type QueuedOperatorSteeringMessage struct {
 }
 
 type ThreadQueuedMessagesSnapshot struct {
-	ProtocolVersion string
-	ThreadID        string
-	RunID           string
-	SessionID       string
-	RunStatus       RunStatus
-	Messages        []QueuedOperatorSteeringMessage
+	ProtocolVersion  string
+	CurrentAttemptID string
+	ThreadID         string
+	RunID            string
+	SessionID        string
+	RunStatus        RunStatus
+	Messages         []QueuedOperatorSteeringMessage
 }

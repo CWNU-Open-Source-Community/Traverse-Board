@@ -2,6 +2,7 @@ package application_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -18,15 +19,16 @@ import (
 )
 
 type ordinaryMoneyLifecycleProvider struct {
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-	unblock sync.Once
-	calls   atomic.Int64
-	text    string
-	usage   llm.Usage
-	unknown bool
-	finish  llm.FinishReason
+	started   chan struct{}
+	release   chan struct{}
+	once      sync.Once
+	unblock   sync.Once
+	calls     atomic.Int64
+	text      string
+	usage     llm.Usage
+	unknown   bool
+	finish    llm.FinishReason
+	toolCalls []llm.ToolCall
 }
 
 func (*ordinaryMoneyLifecycleProvider) Name() string { return "usage-test" }
@@ -50,7 +52,7 @@ func (p *ordinaryMoneyLifecycleProvider) StreamChat(_ context.Context, _ llm.Cha
 	if !p.unknown {
 		chunks <- llm.ChatChunk{Text: p.text}
 		chunks <- llm.FinalChatChunk(&llm.ChatResponse{
-			Text: p.text, Provider: p.Name(), Model: "model", Usage: p.usage, FinishReason: p.finish,
+			Text: p.text, Provider: p.Name(), Model: "model", Usage: p.usage, FinishReason: p.finish, ToolCalls: p.toolCalls,
 		})
 	}
 	close(chunks)
@@ -318,13 +320,14 @@ func (s *ordinaryMoneyTerminalWriteFault) RecordSupervisorModelFailedWithUsage(c
 
 func TestOrdinaryModelRejectedPublicationKeepsKnownUsageOnce(t *testing.T) {
 	for _, scenario := range []struct {
-		name                string
-		protocol, committed bool
+		name                        string
+		protocol, committed, native bool
 	}{
 		{name: "normal_completion"},
 		{name: "invalid_response_terminal", protocol: true},
 		{name: "completed_acknowledgement_lost", committed: true},
 		{name: "failed_acknowledgement_lost", protocol: true, committed: true},
+		{name: "native_rejected_acknowledgement_lost", protocol: true, committed: true, native: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			protocol := scenario.protocol
@@ -335,6 +338,9 @@ func TestOrdinaryModelRejectedPublicationKeepsKnownUsageOnce(t *testing.T) {
 			}
 			if protocol {
 				p.text = ""
+			}
+			if scenario.native {
+				p.toolCalls = []llm.ToolCall{{ID: "rejected-before-execution", Name: "note_create", Arguments: json.RawMessage(`{"title":123,"content":"pw7"}`)}}
 			}
 			_, st, run, _ := newOrdinaryMoneyLifecycleFixture(t, p)
 			fault := &ordinaryMoneyTerminalWriteFault{SQLiteStore: st, failProtocol: protocol, commitBeforeError: scenario.committed}

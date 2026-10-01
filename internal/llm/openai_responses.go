@@ -267,10 +267,7 @@ func (p *OpenAIResponsesProvider) prepareRequest(request ChatRequest,
 		return "", openAIResponsesRequest{}, errors.New("temperature is outside the supported range")
 	}
 	maxTokens := request.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 1024
-	}
-	if maxTokens > 1_000_000 {
+	if maxTokens < 0 || maxTokens > 1_000_000 {
 		return "", openAIResponsesRequest{}, errors.New("max output tokens exceeds the provider request limit")
 	}
 	wire := openAIResponsesRequest{Model: wireModel, MaxOutputTokens: maxTokens,
@@ -697,7 +694,7 @@ type openAIResponsesRequest struct {
 	Tools           []openAIResponsesTool `json:"tools,omitempty"`
 	Text            *openAIResponsesText  `json:"text,omitempty"`
 	Temperature     *float64              `json:"temperature,omitempty"`
-	MaxOutputTokens int                   `json:"max_output_tokens"`
+	MaxOutputTokens int                   `json:"max_output_tokens,omitempty"`
 	Store           bool                  `json:"store"`
 	Stream          bool                  `json:"stream"`
 }

@@ -35,6 +35,13 @@ func TestThreadCorrectsRejectedToolBatchOnceAndContinuesActualResults(t *testing
 	}
 	requests := provider.Requests()
 	for index := 1; index < len(requests); index++ {
+		last := requests[index].Messages[len(requests[index].Messages)-1].Content
+		if index == 1 && (!strings.Contains(last, "native function-call channel") || strings.Contains(last, `"action":"finish"`)) {
+			t.Fatal("actual correction request teaches a competing text reply")
+		}
+		if index > 1 && !strings.Contains(last, "correction phase is complete") {
+			t.Fatal("accepted correction did not restore normal lifecycle guidance")
+		}
 		if requests[index].Metadata["protocol_repair"] != "1" || !hasToolSpec(requests[index], "note_create") {
 			t.Fatal("tool correction lost the offered tools or durable single repair")
 		}
@@ -73,5 +80,27 @@ func TestThreadCorrectsRejectedToolBatchOnceAndContinuesActualResults(t *testing
 	}
 	if _, err := turns.Execute(t.Context(), request); err != nil || len(provider.Requests()) != 4 {
 		t.Fatal("original input confirmation replayed a corrected effect")
+	}
+}
+
+func TestThreadToolCorrectionDoesNotReplenishAfterSuccessfulBatch(t *testing.T) {
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("bad-first", "note_create", `{"title":123}`),
+		toolResponse("corrected", "note_create", `{"title":"One real effect","content":"retain me"}`),
+		toolResponse("bad-second", "note_create", `{"title":456}`),
+		toolResponse("must-not-retry", "note_create", `{"title":"Extra effect","content":"not permitted"}`),
+	}}
+	st, turns, request := threadControlFixture(t, provider)
+	result, err := turns.Execute(t.Context(), request)
+	if err == nil || len(provider.Requests()) != 3 {
+		t.Fatalf("correction allowance renewed: calls=%d err=%v", len(provider.Requests()), err)
+	}
+	notes, err := st.ListNotes(t.Context(), domain.NoteFilter{RunID: result.Submission.Run.ID})
+	if err != nil || len(notes) != 1 || notes[0].Title != "One real effect" {
+		t.Fatal("accepted effect lost or rejected effect executed", err)
+	}
+	eventList, err := st.ListRunEvents(t.Context(), result.Submission.Run.ID)
+	if err != nil || countEventType(eventList, events.ProtocolRepairRequestedEvent) != 1 {
+		t.Fatal("durable correction allowance renewed", err)
 	}
 }

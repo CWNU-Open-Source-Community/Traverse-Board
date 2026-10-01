@@ -50,13 +50,17 @@ func (s *AgentBrowserService) ExecuteAgentBrowserAction(ctx context.Context, sco
 	}
 	slot.consumed[scope.Call.SupervisorToolCallID] = true
 	s.mu.Lock()
+	if s.closed || slot.closed || s.slots[a.RunID] != slot {
+		s.mu.Unlock()
+		return toolgateway.BrowserActionExecutionResult{}, agentBrowserUnavailable("browser session retired before dispatch; original authority cannot be rebound")
+	}
 	r := slot.runtime
-	s.mu.Unlock()
 	if r == nil && name == toolgateway.BrowserNavigateTool {
-		s.mu.Lock()
 		slot.view.State = "starting"
 		slot.launchAttempted = true
-		s.mu.Unlock()
+	}
+	s.mu.Unlock()
+	if r == nil && name == toolgateway.BrowserNavigateTool {
 		runtimeAuthority := browserruntime.AgentBrowserAuthority{RunID: a.RunID, ManagerBootID: a.ManagerBootID, SessionID: a.BrowserSessionID, Generation: a.SessionGeneration, PermissionSnapshotID: a.PermissionSnapshotID, PermissionRevision: a.PermissionRevision, PermissionActivation: slot.activation, RunAuthorizationFence: a.RunAuthorizationFence, PermissionMode: string(a.PermissionMode)}
 		r, e = s.launch(ctx, browserruntime.AgentBrowserStartRequest{HomePath: s.options.HomePath, Authority: runtimeAuthority, Product: s.options.Product, Headless: s.options.Headless, RuntimeDeadline: time.Now().Add(s.options.SessionLifetime), CheckAuthority: func(c context.Context, received browserruntime.AgentBrowserAuthority) error {
 			if received != runtimeAuthority {
@@ -107,11 +111,27 @@ func (s *AgentBrowserService) ExecuteAgentBrowserAction(ctx context.Context, sco
 	s.mu.Unlock()
 	var value any
 	metadata := map[string]string{"untrusted_output": "true", "agent_browser_session_id": a.BrowserSessionID, "manager_boot_id": a.ManagerBootID}
+	if p.Target != nil {
+		resolver, ok := r.(agentBrowserSnapshotTargetResolver)
+		if !ok {
+			return toolgateway.BrowserActionExecutionResult{}, agentBrowserUnavailable("this owned browser does not support exact snapshot targets")
+		}
+		p.ElementRef, e = resolver.ResolveSnapshotTarget(ctx, p.SnapshotID, p.Target.Name, p.Target.Role)
+		if e != nil {
+			return toolgateway.BrowserActionExecutionResult{}, normalizeAgentBrowserActionError(e)
+		}
+	}
 	switch name {
 	case toolgateway.BrowserStatusTool:
 		value, e = s.GetStatus(ctx, a.RunID)
 	case toolgateway.BrowserNavigateTool:
-		value, e = r.Navigate(ctx, p.URL)
+		if p.Viewport == nil {
+			value, e = r.Navigate(ctx, p.URL)
+		} else if navigator, ok := r.(agentBrowserViewportNavigator); ok {
+			value, e = navigator.NavigateWithViewport(ctx, p.URL, browserruntime.AgentBrowserViewport{Width: p.Viewport.Width, Height: p.Viewport.Height})
+		} else {
+			e = agentBrowserUnavailable("this owned browser does not support viewport navigation")
+		}
 	case toolgateway.BrowserSnapshotTool:
 		var snapshot browserruntime.AgentBrowserSnapshot
 		snapshot, e = r.Snapshot(ctx)
@@ -195,6 +215,9 @@ func normalizeAgentBrowserActionError(err error) error {
 	var action *browserruntime.AgentBrowserActionError
 	if errors.As(err, &action) && action.OutcomeUnknown {
 		return apperror.Wrap(apperror.CodeFailedPrecondition, "outcome_unknown: browser input was dispatched; do not automatically repeat it", err)
+	}
+	if errors.Is(err, browserruntime.ErrAgentBrowserStaleReference) {
+		return apperror.Wrap(apperror.CodeFailedPrecondition, "stale_browser_reference: snapshot or input invalidated the old refs; obtain a new snapshot before the next input; never automatically repeat an outcome_unknown action", err)
 	}
 	return apperror.Wrap(apperror.CodeFailedPrecondition, "Agent browser action failed", err)
 }

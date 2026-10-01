@@ -22,24 +22,35 @@ type ApplyAttempts = Record<string, ApplyAttempt>;
 const applyAttemptsKey = (runID: string) => ["run", runID, "file-apply-attempts"] as const;
 const metadataOnlyDiff = (edit: FileEditPreviewView, diff: ParsedUnifiedDiff) =>
   (edit.operation === "delete" || edit.operation === "move") && !diff.lines.some((line) => line.kind === "hunk");
+export type FileEditReviewTarget = { runID: string; editID: string; workspaceID: string };
+type EditSelection = { runID: string; editID: string; workspaceID?: string };
 
 export function FileEditPanel({ client, runID, runStatus, onRequestChange, onRequestRevert,
-  requestRevertUnavailableReason, onChanged }: {
+  requestRevertUnavailableReason, onChanged, initialTarget }: {
   client: CyberAgentClient; runID: string; runStatus?: string;
   onRequestChange?: (edit: FileEditPreviewView) => void;
   onRequestRevert?: (edit: FileEditPreviewView) => void;
   requestRevertUnavailableReason?: string;
   onChanged?: () => void;
+  initialTarget?: FileEditReviewTarget;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const [receipts, setReceipts] = useState<Record<string, OperationReceiptView>>({});
   const [continuations, setContinuations] = useState<Record<string, ApprovalContinuationView>>({});
   const [recoveryEditID, setRecoveryEditID] = useState("");
-  const [selectedEditID, setSelectedEditID] = useState("");
+  const [editSelection, setEditSelection] = useState<EditSelection>(() => initialTarget ?? { runID, editID: "" });
+  const selectedEditID = editSelection.runID === runID ? editSelection.editID : "";
+  const expectedWorkspaceID = editSelection.workspaceID;
+  const targetRunMismatch = expectedWorkspaceID !== undefined && editSelection.runID !== runID;
+  const setSelectedEditID = (editID: string) => setEditSelection({ runID, editID });
   const selection = useRef({ runID, selectedEditID });
   selection.current = { runID, selectedEditID };
-  useEffect(() => { setSelectedEditID(""); setRecoveryEditID(""); }, [runID]);
+  useEffect(() => {
+    setEditSelection(initialTarget ?? { runID, editID: "" }); setRecoveryEditID("");
+  }, [runID, initialTarget?.runID, initialTarget?.editID, initialTarget?.workspaceID]);
+  const panel = useRef<HTMLElement>(null);
+  const fileButtons = useRef(new Map<string, HTMLButtonElement>());
   const revertState = useQuery<RevertAttempts>({ queryKey: revertAttemptsKey(runID),
     queryFn: () => ({}), enabled: false, initialData: {}, gcTime: Infinity });
   const attempts = revertState.data ?? {};
@@ -59,10 +70,19 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
   const currentWorkspaceID = changeSetQuery.isSuccess && !changeSetQuery.isFetching
     ? changeSetQuery.data.workspace_id : "";
   const selectedInQueue = query.data?.items.find((edit) => edit.id === selectedEditID);
-  const selectedQuery = useQuery({ queryKey: ["run", runID, "file-edit", selectedEditID],
-    queryFn: ({ signal }) => client.fileEdit(runID, selectedEditID, signal),
-    enabled: Boolean(selectedEditID && (!selectedInQueue || selectedInQueue.operation === "delete")) });
-  const selectedEdit = selectedInQueue?.operation === "delete" ? selectedQuery.data : selectedInQueue ?? selectedQuery.data;
+  const selectedQuery = useQuery({ queryKey: expectedWorkspaceID === undefined
+    ? ["run", runID, "file-edit", selectedEditID] : ["run", runID, "file-edit", selectedEditID, "target", expectedWorkspaceID],
+    queryFn: async ({ signal }) => {
+      const edit = await client.fileEdit(runID, selectedEditID, signal);
+      if (edit.id !== selectedEditID || (expectedWorkspaceID !== undefined && edit.workspace_id !== expectedWorkspaceID)) {
+        throw new Error(t("文件提案与指定记录或原目录不一致，请刷新任务后重试。", "The file proposal does not match the requested record or directory. Refresh the task and retry."));
+      }
+      return edit;
+    }, retry: false, refetchOnMount: "always",
+    enabled: Boolean(selectedEditID && (expectedWorkspaceID !== undefined || !selectedInQueue || selectedInQueue.operation === "delete")) });
+  const selectedEdit = !selectedEditID ? undefined : expectedWorkspaceID !== undefined
+    ? selectedQuery.isSuccess && !selectedQuery.isFetching ? selectedQuery.data : undefined
+    : selectedInQueue?.operation === "delete" ? selectedQuery.data : selectedInQueue ?? selectedQuery.data;
   const refreshEdits = (requestedRunID: string) => {
     void queryClient.invalidateQueries({ queryKey: ["run", requestedRunID, "file-edits"] });
     void queryClient.invalidateQueries({ queryKey: ["run", requestedRunID, "file-edit-change-set"] });
@@ -195,7 +215,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
   }
   if (query.isError || !query.data) return <div>{pendingOperations}<ErrorState error={query.error} />
     <button onClick={() => void query.refetch()} type="button">{t("重试文件变更", "Retry file changes")}</button></div>;
-  if (changeSetQuery.isSuccess && query.data.items.length === 0 && !selectedEdit && !Object.keys(attempts).length && !Object.keys(applyAttempts).length) return <EmptyState>{t("没有文件编辑提案", "No file edit proposals")}</EmptyState>;
+  if (changeSetQuery.isSuccess && query.data.items.length === 0 && !selectedEditID && !targetRunMismatch && !Object.keys(attempts).length && !Object.keys(applyAttempts).length) return <EmptyState>{t("没有文件编辑提案", "No file edit proposals")}</EmptyState>;
   const operationError = review.error;
   const changeSet = changeSetQuery.data;
   const partial = changeSet && changeSet.applied_count > 0 &&
@@ -210,7 +230,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
   const knownInverse = selectedAttempt?.state === "created" ? query.data.items.find((edit) => edit.id === selectedAttempt.editID) ??
     queryClient.getQueryData<FileEditPreviewView>(["run", runID, "file-edit", selectedAttempt.editID]) : undefined;
   const viewExisting = selectedAttempt?.state === "created" && knownInverse?.status !== "denied";
-  return <section className="file-edit-panel" aria-label={t("文件编辑预览", "File edit previews")}>
+  return <section className="file-edit-panel" aria-label={t("文件编辑预览", "File edit previews")} ref={panel} tabIndex={-1}>
     <header className="projection-heading">
       <div><FileDiff aria-hidden="true" size={17} /><h2>{t("差异审阅", "Diff review")}</h2></div>
       <span>{query.data.items.length}{query.data.truncated ? "+" : ""} {t("项编辑", "edits")}
@@ -239,15 +259,18 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
       return <div key={key}>{edit && <p><code>{edit.path}</code></p>}
         <ApprovalContinuationNotice continuation={continuation} /></div>;
     })}
-    {selectedEditID && !selectedEdit && selectedQuery.isLoading && <LoadingState label={t("加载撤销提案", "Loading revert proposal")} />}
-    {selectedEditID && !selectedEdit && selectedQuery.isError && <div><ErrorState error={selectedQuery.error} />
+    {targetRunMismatch && <p role="alert">{t("指定提案属于另一次执行，尚未打开。请返回原执行记录重试。", "The requested proposal belongs to another execution and has not been opened. Return to its execution record and retry.")}</p>}
+    {selectedEditID && !selectedEdit && selectedQuery.isFetching && <LoadingState label={t("正在读取指定文件提案…", "Reading the requested file proposal…")} />}
+    {selectedEditID && !selectedEdit && selectedQuery.isError && <div role="alert"><p>{t("指定文件提案无法确认，尚未打开：", "The requested file proposal could not be confirmed and has not been opened: ")}{selectedEditID}</p><ErrorState error={selectedQuery.error} />
       <button onClick={() => void selectedQuery.refetch()} type="button">{t("重试读取提案", "Retry proposal")}</button></div>}
     <div className={`file-review-workspace${selectedEdit ? " is-reviewing" : ""}`}>
       <div className="file-edit-list" aria-label={t("已更改文件", "Changed files")}>
       {query.data.items.map((edit) => {
         const diff = parsedDiffs.get(edit.id) ?? parseUnifiedDiff("");
         return <button aria-pressed={edit.id === selectedEditID} className="file-edit-row"
-          key={edit.id} onClick={() => setSelectedEditID(edit.id)} type="button">
+          key={edit.id} onClick={() => setSelectedEditID(edit.id)} ref={(element) => {
+            if (element) fileButtons.current.set(edit.id, element); else fileButtons.current.delete(edit.id);
+          }} type="button">
           <FileText aria-hidden="true" size={15} />
           <code>{edit.operation === "move"
             ? `${edit.path} → ${edit.destination_path}` : edit.path}</code>
@@ -275,7 +298,10 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
         viewExistingRevert={viewExisting} inverse={Object.values(attempts).some((attempt) =>
           attempt.state === "created" && attempt.editID === selectedEdit.id)}
         onRequestChange={onRequestChange ? () => onRequestChange(selectedEdit) : undefined}
-        onClose={() => setSelectedEditID("")} onRecover={() => setRecoveryEditID(selectedEdit.id)}
+        onClose={() => {
+          setSelectedEditID("");
+          requestAnimationFrame(() => (fileButtons.current.get(selectedEdit.id) ?? panel.current)?.focus());
+        }} onRecover={() => setRecoveryEditID(selectedEdit.id)}
         onReview={(action) => review.mutate({ requestedRunID: runID, editID: selectedEdit.id, action })}
         receipt={receipts[`${runID}:${selectedEdit.id}`]} reviewing={review.isPending && review.variables?.editID === selectedEdit.id}
         reviewAction={review.variables?.action} applying={Boolean(applyAttempts[selectedEdit.id])} />}
@@ -318,12 +344,14 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
   }) {
   const { t } = useLocale();
   const conversationRevert = requestRevertInConversation && (runStatus !== "running" || !currentTarget);
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => { close.current?.focus(); }, [edit.id]);
   return <aside aria-label={t(`审阅 ${edit.path}`, `Review ${edit.path}`)} className="file-review-drawer">
     <header>
       <div><code>{edit.operation === "move"
         ? `${edit.path} → ${edit.destination_path}` : edit.path}</code>
         <StatusBadge status={edit.operation} /><StatusBadge status={edit.status} /></div>
-      <button aria-label={t("关闭审阅", "Close review")} className="icon-button" onClick={onClose}
+      <button aria-label={t("关闭审阅", "Close review")} className="icon-button" onClick={onClose} ref={close}
         title={t("关闭审阅", "Close review")} type="button">
         <PanelRightClose aria-hidden="true" size={16} />
       </button>

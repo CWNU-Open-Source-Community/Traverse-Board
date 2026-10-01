@@ -282,6 +282,9 @@ func supervisorProgressStateFingerprintTx(ctx context.Context, tx *sql.Tx,
 			return "", err
 		}
 	}
+	if err := writeSupervisorToolProgressTx(ctx, tx, runID, digest); err != nil {
+		return "", err
+	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
