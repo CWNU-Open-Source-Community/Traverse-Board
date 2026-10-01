@@ -41,3 +41,26 @@ func TestSelectSectionsStopsWhenCompleteRequiredSetCannotFit(t *testing.T) {
 		t.Fatal("empty mandatory rule accepted")
 	}
 }
+
+func TestSelectSectionsLargeExcludedSourceStillValidatesIdentityAndFlags(t *testing.T) {
+	excluded := Section{Kind: "rule", SourceID: "excluded", Content: strings.Repeat("x", MaxContextSectionBytes+1),
+		Priority: 760, Excluded: true}
+	for _, test := range []struct {
+		name     string
+		mutate   func(Section) []Section
+		wantText string
+	}{
+		{"missing_kind", func(s Section) []Section { s.Kind = ""; return []Section{s} }, "kind and source id are required"},
+		{"missing_id", func(s Section) []Section { s.SourceID = ""; return []Section{s} }, "kind and source id are required"},
+		{"invalid_priority", func(s Section) []Section { s.Priority = 1001; return []Section{s} }, "outside 0..1000"},
+		{"conflicting_flags", func(s Section) []Section { s.Required = true; return []Section{s} }, "required context section cannot be excluded"},
+		{"duplicate_source", func(s Section) []Section { return []Section{s, s} }, "duplicate context source"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := SelectSections(test.mutate(excluded), 10)
+			if err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("excluded-source delivery-size exemption bypassed input validation: %v", err)
+			}
+		})
+	}
+}

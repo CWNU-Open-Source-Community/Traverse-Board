@@ -13,6 +13,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
@@ -96,6 +97,81 @@ func TestSupervisorProjectInstructionDeliveryPreservesRequiredOutboundContentUnd
 	}
 	if starts != len(requests) {
 		t.Fatalf("model starts=%d requests=%d", starts, len(requests))
+	}
+}
+
+func TestSupervisorProjectInstructionDeliveryOmitsLargeEscapedExcludedSource(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "excluded-escaped-bound.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, snapshot := newDeliveryTestRun(t, st, t.TempDir(), "src", map[string]string{
+		"AGENTS.md":     "EXCLUDED_LARGE_ESCAPED_RULE\n" + strings.Repeat("\"", 65500),
+		"src/AGENTS.md": "SMALL_CURRENT_MANDATORY_RULE",
+	}, map[string]projectconfig.InstructionRequirement{
+		"AGENTS.md": projectconfig.InstructionExcluded, "src/AGENTS.md": projectconfig.InstructionMandatory,
+	}, false)
+	if err := snapshot.Validate(); err != nil || len(snapshot.Sources[0].Content) > snapshot.Limits.MaxFileBytes {
+		t.Fatalf("escaped excluded source must remain inside the snapshot input bounds: %v", err)
+	}
+	// Even this subset of the production envelope exceeds the delivery-size
+	// bound. The full excluded envelope must be omitted without being sent.
+	minimum, err := json.Marshal(struct {
+		Content string `json:"content"`
+		SHA256  string `json:"content_sha256"`
+	}{snapshot.Sources[0].Content, snapshot.Sources[0].ContentSHA256})
+	if err != nil || len(minimum) <= contextmgr.MaxContextSectionBytes {
+		t.Fatalf("fixture did not reach the escaped delivery boundary: bytes=%d err=%v", len(minimum), err)
+	}
+	t.Logf("excluded_source_bytes=%d snapshot_file_limit=%d envelope_subset_bytes=%d delivery_limit=%d",
+		len(snapshot.Sources[0].Content), snapshot.Limits.MaxFileBytes, len(minimum), contextmgr.MaxContextSectionBytes)
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		textResponse(rootActionResponse(domain.RootActionContinue, "required source delivered and excluded source omitted", "", "")),
+	}}
+	result, err := newToolLoopSupervisor(st, provider).Step(t.Context(), run.ID)
+	requests := provider.Requests()
+	if err != nil || result.ModelAttempts != 1 || len(requests) != 1 {
+		t.Fatalf("valid excluded source blocked required delivery: err=%v outbound=%d", err, len(requests))
+	}
+	assertRequiredDeliveryRequest(t, requests[0], snapshot)
+	for _, message := range requests[0].Messages {
+		if strings.Contains(message.Content, "EXCLUDED_LARGE_ESCAPED_RULE") {
+			t.Fatal("excluded content reached the Provider")
+		}
+	}
+	eventList, err := st.ListRunEvents(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	for _, event := range eventList {
+		if event.Type != events.ModelStartedEvent || event.Source != "model_gateway" {
+			continue
+		}
+		starts++
+		var payload struct {
+			Context *llm.ModelContextAudit `json:"context"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil || payload.Context == nil {
+			t.Fatalf("actual start lost the source audit: %v", err)
+		}
+		required, excluded := false, false
+		for _, source := range payload.Context.Included {
+			required = required || source.SourceID == snapshot.DeliverySourceID(1) && source.Tokens > 0
+			if source.SourceID == snapshot.DeliverySourceID(0) {
+				t.Fatal("excluded source was audited as included")
+			}
+		}
+		for _, source := range payload.Context.Omitted {
+			excluded = excluded || source.SourceID == "omitted/operator_excluded/"+snapshot.DeliverySourceID(0) && source.Tokens > 0
+		}
+		if !required || !excluded {
+			t.Fatalf("actual request and omission audit disagree: %+v", payload.Context)
+		}
+	}
+	if starts != 1 || countEventType(eventList, events.SupervisorToolExecutionStartedEvent) != 0 {
+		t.Fatalf("excluded-only content changed dispatch: model starts=%d", starts)
 	}
 }
 

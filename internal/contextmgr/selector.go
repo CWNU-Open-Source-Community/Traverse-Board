@@ -65,7 +65,9 @@ func SelectSections(sections []Section, maxTokens int) (Selection, error) {
 		if section.Priority < 0 || section.Priority > 1000 {
 			return Selection{}, fmt.Errorf("context section priority %d is outside 0..1000", section.Priority)
 		}
-		if len([]byte(section.Content)) > MaxContextSectionBytes {
+		// Excluded sources are audited but never delivered, so their serialized
+		// size must not block delivery of the remaining validated sources.
+		if !section.Excluded && len([]byte(section.Content)) > MaxContextSectionBytes {
 			if section.Required {
 				return Selection{}, fmt.Errorf("%w: required section exceeds %d bytes", ErrRequiredContextBudget, MaxContextSectionBytes)
 			}
