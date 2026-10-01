@@ -33,7 +33,8 @@ describe("v2 model provider presets", () => {
     expect(byID.get("official-openai")?.draft).toMatchObject({
       endpointURL: "https://api.openai.com/v1/responses",
       transport: "openai_responses",
-      defaultModel: "gpt-5.6-terra",
+      defaultModel: "gpt-6.1-sol",
+      models: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"],
       searchMode: "provider_native",
       nativeSearchDeclared: true,
     });

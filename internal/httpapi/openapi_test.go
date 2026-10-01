@@ -1248,7 +1248,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
 			}
-			if spec.OperationID == "discoverGitAdvancedHunks" {
+			if spec.OperationID == "discoverProviderModels" {
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(`{"data":[{"id":"catalog-model"}]}`))
+				}))
+				defer upstream.Close()
+				body := `{"version":"provider_model_discovery.v1","provider_id":"model-discovery-draft","endpoint_url":"` + upstream.URL + `/v1/responses","transport":"openai_responses","advanced_config":{},"confirm_discovery":true}`
+				response = performControlMethodPathRequest(t, requestAPI, http.MethodPost, requestPath,
+					"", strings.NewReader(body))
+			} else if spec.OperationID == "discoverGitAdvancedHunks" {
 				body := `{"spec":{"protocol_version":"git-advanced.v1",` +
 					`"operation":"hunk_stage","paths":["README.md"]}}`
 				request := httptest.NewRequest(http.MethodPost,

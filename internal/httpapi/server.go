@@ -1218,6 +1218,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+	if request.URL.Path == ProviderModelDiscoveryPath {
+		a.serveProviderModelDiscovery(tracked, request, requestID)
+		return
+	}
 	if provider, remove, matched := matchProviderDefinitionControlPath(request.URL.Path); matched {
 		a.serveProviderDefinitionControl(tracked, request, requestID, provider, remove)
 		return

@@ -11,8 +11,14 @@ import type {
   ProviderDefinitionCollectionView,
   ProviderDefinitionMutationView,
   ProviderDefinitionView,
+  DiscoveredProviderModelView,
 } from "../../api/types";
 import { V2ConfirmDialog } from "./dialog";
+import {
+  inheritedProviderModelPolicy, policyShape, providerModelGroups, providerModelLimit,
+  providerModelPolicyError, providerPolicyControlsError, withProviderModelPolicy,
+  type ProviderModelPolicy,
+} from "./provider-model-policy";
 
 const definitionQueryKey = ["v2", "provider-definitions"] as const;
 const credentialQueryKey = ["v2", "provider-credentials"] as const;
@@ -422,6 +428,7 @@ function definitionFromDraft(draft: ProviderDraft): { definition?: ProviderDefin
   if (!validHTTPSURL(draft.websiteURL.trim(), true)) return { error: "官网链接必须是 HTTPS URL。" };
   const models = normalizeModels(draft.models);
   if (models.length === 0) return { error: "请至少填写一个模型名称。" };
+  if (models.length > providerModelLimit) return { error: "每个供应商最多保存 128 个模型；请调整模型列表后再保存。" };
   const defaultModel = draft.defaultModel.trim() || models[0];
   if (!models.includes(defaultModel)) return { error: "默认模型必须存在于模型列表中。" };
   if (draft.searchMode === "provider_native" && !draft.nativeSearchDeclared) {
@@ -432,6 +439,8 @@ function definitionFromDraft(draft: ProviderDraft): { definition?: ProviderDefin
   const advancedConfig = advanced.value;
   const capabilitiesError = modelCapabilitiesError(advancedConfig, models);
   if (capabilitiesError) return { error: capabilitiesError };
+  const policyError = providerModelPolicyError(advancedConfig);
+  if (policyError) return { error: policyError };
   return { definition: {
     version: "provider_definition.v1",
     id,
@@ -510,6 +519,14 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
   const [qualification, setQualification] = useState<ModelHarnessQualificationView | null>(null);
   const [preparedDefinition, setPreparedDefinition] = useState<ProviderDefinitionView | null>(null);
+  const [manualModel, setManualModel] = useState("");
+  const [discoveryBusy, setDiscoveryBusy] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState("");
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredProviderModelView[] | null>(null);
+  const [discoveryTruncated, setDiscoveryTruncated] = useState(false);
+  const [selectedDiscoveredModels, setSelectedDiscoveredModels] = useState<string[]>([]);
+  const discoveryAbortRef = useRef<AbortController | null>(null);
+  const discoveryVersionRef = useRef(0);
   const migrationSecretRef = useRef("");
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
@@ -528,6 +545,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
       mountedRef.current = false;
       harnessOperationVersionRef.current += 1;
       harnessOperationRef.current = false;
+      discoveryAbortRef.current?.abort();
+      discoveryVersionRef.current += 1;
     };
   }, []);
 
@@ -546,6 +565,17 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     (credentials.data?.items ?? []).map((status) => [status.provider, status]),
   ), [credentials.data?.items]);
 
+  const invalidateDiscovery = () => {
+    discoveryAbortRef.current?.abort();
+    discoveryAbortRef.current = null;
+    discoveryVersionRef.current += 1;
+    setDiscoveryBusy(false);
+    setDiscoveryError("");
+    setDiscoveredModels(null);
+    setDiscoveryTruncated(false);
+    setSelectedDiscoveredModels([]);
+  };
+
   useEffect(() => {
     if (!initialPreset) {
       initializedPresetIDRef.current = null;
@@ -553,6 +583,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     }
     if (!definitions.data || initializedPresetIDRef.current === initialPreset.id) return;
     initializedPresetIDRef.current = initialPreset.id;
+    invalidateDiscovery();
+    setManualModel("");
     const existing = definitions.data.providers.find((provider) => provider.id === initialPreset.id);
     setError("");
     setNotice("");
@@ -567,6 +599,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
   }, [draft !== null, draft?.existing?.id]);
 
   const openEditor = (next: ProviderDraft, trigger: HTMLElement) => {
+    invalidateDiscovery();
+    setManualModel("");
     returnFocusRef.current = trigger;
     setError("");
     setNotice("");
@@ -577,6 +611,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     setDraft(next);
   };
   const closeEditor = () => {
+    invalidateDiscovery();
     const target = returnFocusRef.current;
     harnessOperationVersionRef.current += 1;
     harnessOperationRef.current = false;
@@ -592,7 +627,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     }
     requestAnimationFrame(() => target?.focus());
   };
-  const update = <K extends keyof ProviderDraft>(key: K, value: ProviderDraft[K]) => {
+  const update = <K extends keyof ProviderDraft>(key: K, value: ProviderDraft[K], preserveDiscovery = false) => {
+    if (!preserveDiscovery && ["id", "endpointURL", "transport", "apiKey", "advancedJSON"].includes(key)) invalidateDiscovery();
     setDraft((current) => current ? { ...current, [key]: value } : current);
     setError("");
     setNotice("");
@@ -600,6 +636,61 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
     setDiagnostic(null);
     setQualification(null);
     setPreparedDefinition(null);
+  };
+
+  const mergeModels = (incoming: string[]): boolean => {
+    if (!draft) return false;
+    const models = [...new Set([...normalizeModels(draft.models), ...incoming])];
+    if (models.length > providerModelLimit) {
+      setDiscoveryError(`合并后共有 ${models.length} 个模型，超过 128 个上限。请减少勾选，或先从模型列表移除不需要的项；当前列表已保留。`);
+      return false;
+    }
+    setDraft((current) => current ? draftWithModels(current, models.join("\n")) : current);
+    setDiscoveryError(""); setError(""); setNotice("");
+    setHarnessError(""); setDiagnostic(null); setQualification(null); setPreparedDefinition(null);
+    return true;
+  };
+
+  const discoverModels = async () => {
+    if (!draft || discoveryAbortRef.current || typeof client.discoverProviderModels !== "function") return;
+    const advanced = parseAdvancedJSON(draft.advancedJSON);
+    if (!advanced.value || !validProviderEndpointURL(draft.endpointURL.trim())) {
+      setDiscoveryError(advanced.error ?? "请先填写有效的请求地址，再获取模型。");
+      return;
+    }
+    const existing = draft.existing;
+    const useStoredKey = !draft.apiKey && credentialByProvider.get(draft.id)?.configured;
+    if (useStoredKey && (!existing || draft.endpointURL.trim() !== existing.endpoint_url || draft.transport !== existing.transport)) {
+      setDiscoveryError("请求地址或协议已变更。请填写此地址的 API Key 后获取模型，或先保存新的连接配置。");
+      return;
+    }
+    if (scanPlaintextSecrets(advanced.value, draft.id)?.count) {
+      setDiscoveryError("高级 JSON 含明文密钥。请先移到 API Key 输入框，并修正凭据引用，再获取模型。");
+      return;
+    }
+    const controller = new AbortController();
+    const version = ++discoveryVersionRef.current;
+    discoveryAbortRef.current = controller;
+    setDiscoveryBusy(true); setDiscoveryError(""); setDiscoveredModels(null); setSelectedDiscoveredModels([]);
+    try {
+      const result = await client.discoverProviderModels({
+        version: "provider_model_discovery.v1", provider_id: draft.id.trim() || "model-discovery-draft",
+        endpoint_url: draft.endpointURL.trim(), transport: draft.transport,
+        advanced_config: advanced.value, confirm_discovery: true,
+        ...(draft.apiKey ? { secret: draft.apiKey } : useStoredKey && existing ? { expected_definition_revision: existing.revision } : {}),
+      }, controller.signal);
+      if (!mountedRef.current || controller.signal.aborted || version !== discoveryVersionRef.current) return;
+      setDiscoveredModels(result.models);
+      setDiscoveryTruncated(result.truncated);
+    } catch (reason) {
+      if (!mountedRef.current || controller.signal.aborted || version !== discoveryVersionRef.current) return;
+      setDiscoveryError(reason instanceof Error ? reason.message : "无法获取模型列表。当前模型与配置已保留，可手动添加。");
+    } finally {
+      if (mountedRef.current && version === discoveryVersionRef.current) {
+        discoveryAbortRef.current = null;
+        setDiscoveryBusy(false);
+      }
+    }
   };
 
   const verifyHarness = async () => {
@@ -739,10 +830,12 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         result.collection);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: credentialQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ["models", "availability"] }),
         queryClient.invalidateQueries({ queryKey: ["v2", "models", "available-routes"] }),
         queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === "v2" && query.queryKey[1] === "thread" && query.queryKey[3] === "model-route" }),
       ]);
       const saved = result.definition ?? definition;
+      invalidateDiscovery();
       setNotice(`已保存 ${definition.display_name}`);
       onSaved?.(saved);
       if (prepareForDraft) {
@@ -766,6 +859,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
   const save = () => {
     if (!draft || busy || harnessBusy) return;
+    invalidateDiscovery();
     const parsed = definitionFromDraft(draft);
     if (!parsed.definition) {
       setAdvancedOpen(true);
@@ -854,6 +948,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         version: "provider_credential.v1", action: "delete", confirm: true, secret: "",
       });
       await queryClient.invalidateQueries({ queryKey: credentialQueryKey });
+      invalidateDiscovery();
       setNotice("系统凭据已移除。供应商定义未改变。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "移除系统凭据失败。");
@@ -888,6 +983,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
       queryClient.setQueryData<ProviderDefinitionCollectionView>(definitionQueryKey,
         result.collection);
       await queryClient.invalidateQueries({ queryKey: credentialQueryKey });
+      invalidateDiscovery();
       setDraft(null);
       if (initialPreset && onExit) {
         onExit();
@@ -981,6 +1077,16 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
   const parsedCapabilities = parseAdvancedJSON(draft.advancedJSON).value;
   const modelCapabilities = isRecord(parsedCapabilities?.model_capabilities) ? parsedCapabilities.model_capabilities : {};
   const capabilitiesError = parsedCapabilities ? modelCapabilitiesError(parsedCapabilities, modelOptions) : undefined;
+  const policyControlsError = parsedCapabilities ? providerPolicyControlsError(parsedCapabilities) : undefined;
+  const policyError = parsedCapabilities ? providerModelPolicyError(parsedCapabilities) : undefined;
+  const policyGroups = providerModelGroups(modelOptions, parsedCapabilities ?? {});
+  const modelPolicies = isRecord(parsedCapabilities?.model_context_windows) ? parsedCapabilities.model_context_windows : {};
+  const changePolicy = (wireModel: string, policy: ProviderModelPolicy | null) => {
+    if (!parsedCapabilities || policyControlsError) return;
+    // Local planning values do not change the catalog request's endpoint or
+    // authentication. Keep returned limits visible while the user edits them.
+    update("advancedJSON", JSON.stringify(withProviderModelPolicy(parsedCapabilities, wireModel, policy), null, 2), true);
+  };
   const keylessLocal = permitsKeylessLocalProvider(parsedDraftDefinition);
   const savedConfiguration = Boolean(draft.existing && parsedDraftDefinition && !draft.apiKey &&
     definitionFingerprint(parsedDraftDefinition) === definitionFingerprint(draft.existing));
@@ -1037,6 +1143,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             placeholder="https://example.com（可选）" type="url" value={draft.websiteURL} /></label>
           <label className="is-wide">请求地址<input inputMode="url"
             onChange={(event) => {
+              invalidateDiscovery();
               const endpointURL = event.target.value;
               setDraft((current) => current ? { ...current, endpointURL,
                 ...(knownNativeSearchUnsupported(endpointURL) ? {
@@ -1044,11 +1151,12 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
                   nativeSearchDeclared: false,
                 } : {}),
               } : current);
-              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null);
+              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null); setPreparedDefinition(null);
             }}
             placeholder="https://api.example.com/v1/chat/completions" required type="url"
             value={draft.endpointURL} /></label>
           <label>协议<select onChange={(event) => {
+            invalidateDiscovery();
             const transport = event.target.value as ProviderDraft["transport"];
             setDraft((current) => current ? {
               ...current,
@@ -1065,23 +1173,107 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             setHarnessError("");
             setDiagnostic(null);
             setQualification(null);
+            setPreparedDefinition(null);
           }} value={draft.transport}>
             <option value="openai_chat_completions">OpenAI Chat Completions</option>
             <option value="openai_responses">OpenAI Responses</option>
             <option value="anthropic_messages">Anthropic Messages</option>
           </select></label>
           {!quickSetup && modelField}
+        </div>
+      </section>}
+
+      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-models-title">
+        <header><div><h2 id="provider-models-title">可用模型</h2><p>使用当前 API Key 从服务获取模型，或手动补充。获取后选择要加入的模型，保存时生效。</p></div>
+          <button className="secondary" disabled={busy || discoveryBusy || typeof client.discoverProviderModels !== "function"}
+            onClick={() => void discoverModels()} type="button">
+            {discoveryBusy && <LoaderCircle aria-hidden="true" className="spin" size={14} />}
+            {discoveryBusy ? "正在获取模型…" : "获取模型列表"}</button></header>
+        <div className="v2-provider-grid">
+          <div className="v2-provider-model-add is-wide"><label>手动添加模型<input autoComplete="off"
+            onChange={(event) => setManualModel(event.target.value)} placeholder="输入完整模型名称" spellCheck={false} value={manualModel}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                if (manualModel.trim() && mergeModels(normalizeModels(manualModel))) setManualModel("");
+              }
+            }} /></label><button disabled={!manualModel.trim() || busy}
+            onClick={() => { if (mergeModels(normalizeModels(manualModel))) setManualModel(""); }} type="button">
+            <Plus aria-hidden="true" size={14} />添加模型</button></div>
           <label className="is-wide">模型列表<textarea aria-describedby="provider-models-help"
             aria-label="模型列表"
             onChange={(event) => {
               const models = event.target.value;
               setDraft((current) => current ? draftWithModels(current, models) : current);
-              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null);
+              setError(""); setNotice(""); setHarnessError(""); setDiagnostic(null); setQualification(null); setPreparedDefinition(null);
             }}
             placeholder={"model-a\nmodel-b"} rows={3} spellCheck={false} value={draft.models} />
-            <small id="provider-models-help">每行或逗号分隔；名称会原样传给供应商。移除模型会清除对应图片能力声明，新名称需重新确认。</small></label>
+            <small id="provider-models-help">每行或逗号分隔，最多 128 个（当前 {modelOptions.length} 个）。名称按 model_mapping 映射后发送；移除模型会清除对应图片声明，新名称需重新确认。</small></label>
+          {typeof client.discoverProviderModels !== "function" && <p className="v2-provider-field-help is-wide">当前后端不支持获取模型，可继续手动添加。</p>}
+          {discoveryError && <p className="v2-inline-error is-wide" role="alert">{discoveryError}</p>}
+          {discoveredModels && <div aria-label="获取到的模型" className="v2-provider-discovery is-wide">
+            <p aria-live="polite">服务返回 {discoveredModels.length} 个模型。勾选后加入当前列表；获取结果不代表已通过连接或 Harness 验证。</p>
+            {discoveryTruncated && <p>服务模型列表较长，本次结果未完整返回。可从已返回结果中选择，也可手动添加完整模型名。</p>}
+            {discoveredModels.length === 0 && <p>服务没有返回模型。当前列表已保留，可手动添加模型名。</p>}
+            <div className="v2-provider-discovery-options">{discoveredModels.map((model) => {
+              const added = modelOptions.includes(model.id);
+              return <label className="v2-provider-check" key={model.id}><input type="checkbox"
+                aria-label={`选择模型 ${model.id}`} checked={added || selectedDiscoveredModels.includes(model.id)} disabled={added}
+                onChange={(event) => setSelectedDiscoveredModels((current) => event.target.checked ? [...current, model.id] : current.filter((id) => id !== model.id))} />
+                <span><strong>{model.id}{added ? " · 已添加" : ""}</strong>
+                  {model.display_name && model.display_name !== model.id && <small>{model.display_name}</small>}
+                  {(model.input_token_limit !== undefined || model.output_token_limit !== undefined) && <small>服务返回的限制：
+                    {model.input_token_limit !== undefined && `输入 ${model.input_token_limit.toLocaleString()} token`}
+                    {model.input_token_limit !== undefined && model.output_token_limit !== undefined && " · "}
+                    {model.output_token_limit !== undefined && `输出 ${model.output_token_limit.toLocaleString()} token`}。未自动写入本地策略。</small>}
+                </span></label>;
+            })}</div>
+            {discoveredModels.length > 0 && <button disabled={!selectedDiscoveredModels.some((model) => !modelOptions.includes(model))}
+              onClick={() => { if (mergeModels(selectedDiscoveredModels)) setSelectedDiscoveredModels([]); }} type="button">添加所选模型</button>}
+          </div>}
         </div>
-      </section>}
+      </section>
+
+      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-output-title">
+        <header><div><h2 id="provider-output-title">模型输出限制</h2>
+          <p>每个模型可继承默认策略，或自定义默认输出与单次上限。Token 包括服务计入输出的推理内容，不保证全部用于可见文字。</p></div></header>
+        <div className="v2-provider-grid">
+          {!modelOptions.length && <p className="v2-provider-field-help is-wide">先填写模型列表。</p>}
+          {!parsedCapabilities && <p className="v2-provider-field-help is-wide">先修正下方高级 JSON，再设置输出限制。</p>}
+          {policyControlsError && <p className="v2-provider-field-help is-wide" role="alert">{policyControlsError}</p>}
+          {policyError && <p className="v2-provider-field-help is-wide" role="alert">{policyError}</p>}
+          {policyGroups.map(({ wireModel, aliases }) => {
+            const inherited = inheritedProviderModelPolicy(draft.endpointURL, draft.transport, wireModel, parsedCapabilities ?? {});
+            const custom = Object.hasOwn(modelPolicies, wireModel);
+            const rawPolicy = modelPolicies[wireModel];
+            const invalidShape = custom && !policyShape(rawPolicy);
+            const policy = custom && policyShape(rawPolicy) ? rawPolicy : inherited.policy;
+            const disabled = !parsedCapabilities || Boolean(policyControlsError) || invalidShape;
+            const source = custom ? "用户覆盖" : inherited.source === "known" ? "继承默认 · 已知模型的本地规划策略" : "继承默认 · 本地保守回退（服务端实际限制未知）";
+            return <article aria-label={`${wireModel} 输出策略`} className="v2-provider-policy is-wide" key={wireModel}>
+              <div className="v2-provider-policy-heading"><strong>{aliases.join(" / ")}</strong><span>{source}</span></div>
+              {(aliases.length > 1 || aliases[0] !== wireModel) && <p>实际发送模型：{wireModel}。映射到此模型的名称共享以下设置。</p>}
+              {!custom && inherited.source === "fallback" && <p>这里的上限是本地预算，并非服务端能力声明；带工具的请求会按上限预留输出空间。</p>}
+              {!custom && inherited.source === "known" && <p>{inherited.explicitDefault
+                ? "默认输出 16,384 token 是应用发送给服务的单次请求限制；128,000 token 上限来自官方模型资料，可在此自定义。"
+                : "容量依据已知模型资料；默认输出是应用的本地预算，可按任务需要调整。"}</p>}
+              <label className="v2-provider-check"><input aria-label={`${wireModel} 自定义输出限制`} type="checkbox" checked={custom} disabled={disabled}
+                onChange={(event) => changePolicy(wireModel, event.target.checked ? inherited.policy : null)} />自定义此模型的输出限制</label>
+              <div className="v2-provider-policy-fields">{([
+                ["default_output_tokens", "默认输出 token", 1, 1000000],
+                ["max_output_tokens", "单次输出上限 token", 1, 1000000],
+                ["window_tokens", "上下文窗口 token", 4096, 2097152],
+              ] as const).map(([field, label, min, max]) => <label key={field}>{label}<input type="number" inputMode="numeric"
+                aria-label={`${wireModel} ${label}`} min={min} max={max} step={1} disabled={disabled || !custom} value={policy[field] || ""}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  changePolicy(wireModel, { ...policy, [field]: Number.isFinite(value) ? value : 0 });
+                }} /></label>)}</div>
+              <p>默认输出 ≤ 单次上限；单次上限须小于上下文窗口减去 1024 token，且不超过当前适配器的 1,000,000 token。</p>
+            </article>;
+          })}
+        </div>
+      </section>
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
         <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明确认每个模型是否接收图片。保存的是能力声明，不代表已经验证图像理解；原始图片会发送到上方的请求地址。</p></div></header>
@@ -1094,10 +1286,11 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
               update("advancedJSON", JSON.stringify({ ...parsedCapabilities,
                 model_capabilities: { ...modelCapabilities, [model]: { vision: event.target.value } } }, null, 2));
             }}><option value="unknown">尚未确认</option><option value="supported">支持图片</option><option value="unsupported">不支持图片</option></select></label>;
-        })}</div>
-        {!modelOptions.length && <p>先填写模型列表。</p>}
-        {!parsedCapabilities && <p>先修正下方高级 JSON，再设置图片能力。</p>}
-        {capabilitiesError && <p>{capabilitiesError}</p>}
+        })}
+        {!modelOptions.length && <p className="v2-provider-field-help is-wide">先填写模型列表。</p>}
+        {!parsedCapabilities && <p className="v2-provider-field-help is-wide">先修正下方高级 JSON，再设置图片能力。</p>}
+        {capabilitiesError && <p className="v2-provider-field-help is-wide">{capabilitiesError}</p>}
+        </div>
       </section>}
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-search-title">

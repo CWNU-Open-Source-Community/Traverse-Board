@@ -34,11 +34,26 @@ func httpModelContextWindow(baseURL, model, transport string, runtime HTTPProvid
 		}
 	}
 	endpoint, err := url.Parse(baseURL)
-	if err != nil || endpoint.Scheme != "https" || !strings.EqualFold(endpoint.Hostname(), "api.deepseek.com") ||
+	if err != nil || endpoint.Scheme != "https" ||
 		(endpoint.Port() != "" && endpoint.Port() != "443") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return DefaultContextWindow()
 	}
 	path := strings.TrimRight(endpoint.Path, "/")
+	if strings.EqualFold(endpoint.Hostname(), "api.openai.com") {
+		pathOK := (transport == HarnessTransportOpenAIResponses && (path == "" || path == "/v1" || path == "/v1/responses")) ||
+			(transport == HarnessTransportOpenAIChatCompletions && (path == "" || path == "/v1" || path == "/v1/chat/completions"))
+		if pathOK && (wireModel == "gpt-6-astra" || wireModel == "gpt-6.1-sol" || wireModel == "gpt-6-luna") {
+			// Official catalog checked 2026-10-01: developers.openai.com/api/docs/models.
+			// 16384 is our local request default, not a provider default.
+			return ContextWindow{ProtocolVersion: ContextWindowProtocolVersion, WindowTokens: 1_050_000,
+				SafetyMarginTokens: DefaultContextSafetyTokens, DefaultOutputTokens: 16_384,
+				MaxOutputTokens: 128_000, Source: "local_model_default"}
+		}
+		return DefaultContextWindow()
+	}
+	if !strings.EqualFold(endpoint.Hostname(), "api.deepseek.com") {
+		return DefaultContextWindow()
+	}
 	if transport == HarnessTransportAnthropicMessages {
 		if path != "/anthropic" && path != "/anthropic/v1" && path != "/anthropic/v1/messages" {
 			return DefaultContextWindow()
@@ -100,7 +115,7 @@ func (r ChatRequest) PlannedOutputTokens(window ContextWindow) int {
 }
 
 func (r ChatRequest) AllowsDefaultOutput() bool {
-	return r.preparedModel != nil && r.preparedModel.optionalOutput && r.preparedModel.window.Source != "operator_model_policy"
+	return r.preparedModel != nil && r.preparedModel.optionalOutput && r.preparedModel.window.Source != "operator_model_policy" && r.preparedModel.window.Source != "local_model_default"
 }
 
 func (r ChatRequest) PreparedContextWindow() (ContextWindow, bool) {

@@ -512,6 +512,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	if err != nil {
 		return err
 	}
+	providerDefinitionControl.WithModelDiscoveryCredentials(a.credentials)
 	providerCredentialControl := application.NewProviderCredentialService(a.credentials).
 		WithRegistryReload(a.models, a.store)
 	fileEditReview := application.NewFileEditReviewService(a.store).WithDrydock(commandRuntimeDrydocks)

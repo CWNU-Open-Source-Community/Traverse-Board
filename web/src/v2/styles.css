@@ -1208,7 +1208,24 @@
 .v2-provider-grid { display: grid; gap: 14px 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; }
 .v2-provider-grid > label,
 .v2-provider-credential-row > label { color: var(--v2-ink); display: grid; font-size: 12px; font-weight: 600; gap: 7px; min-width: 0; }
-.v2-provider-grid > label.is-wide { grid-column: 1 / -1; }
+.v2-provider-grid > .is-wide { grid-column: 1 / -1; }
+.v2-provider-field-help { color: var(--v2-muted); font-size: 12px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.v2-provider-model-add { align-items: end; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) auto; }
+.v2-provider-model-add > label,
+.v2-provider-policy-fields > label { color: var(--v2-ink); display: grid; font-size: 12px; font-weight: 600; gap: 7px; min-width: 0; }
+.v2-provider-discovery { display: grid; gap: 12px; min-width: 0; }
+.v2-provider-discovery > p,
+.v2-provider-policy > p { color: var(--v2-muted); font-size: 12px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.v2-provider-discovery-options { border: 1px solid var(--v2-border); border-radius: 10px; display: grid; gap: 12px; max-height: 320px; overflow: auto; overscroll-behavior: contain; padding: 12px; }
+.v2-provider-discovery-options strong { font-size: 12px; overflow-wrap: anywhere; }
+.v2-provider-discovery-options small { font-size: 11px; }
+.v2-provider-discovery > button { justify-self: start; }
+.v2-provider-policy { border: 1px solid var(--v2-border); border-radius: 10px; display: grid; gap: 12px; min-width: 0; padding: 14px; }
+.v2-provider-policy-heading { align-items: baseline; display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: space-between; }
+.v2-provider-policy-heading > strong { font-size: 13px; overflow-wrap: anywhere; }
+.v2-provider-policy-heading > span { color: var(--v2-muted); font-size: 11px; }
+.v2-provider-policy > .v2-provider-check { align-items: center; font-size: 12px; }
+.v2-provider-policy-fields { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .v2-provider-grid input,
 .v2-provider-grid select,
 .v2-provider-grid textarea,
@@ -1940,7 +1957,10 @@
   .v2-provider-heading { align-items: stretch; flex-direction: column; }
   .v2-provider-heading > button { align-self: flex-start; }
   .v2-provider-grid { grid-template-columns: 1fr; }
-  .v2-provider-grid > label.is-wide { grid-column: auto; }
+  .v2-provider-grid > .is-wide { grid-column: auto; }
+  .v2-provider-model-add,
+  .v2-provider-policy-fields { grid-template-columns: 1fr; }
+  .v2-provider-model-add > button { justify-self: start; }
   .v2-provider-tags { display: none; }
   .v2-provider-credential-row { align-items: stretch; grid-template-columns: 1fr; }
   .v2-provider-credential-row > button { justify-self: start; }

@@ -142,6 +142,9 @@ function createClient(providers: ProviderDefinitionView[] = []) {
       vision_capability: { state: "unknown", source: "unknown" },
     }))),
   }));
+  const discoverProviderModels = vi.fn().mockResolvedValue({
+    version: "provider_model_discovery.v1", source: "provider_api", models: [], truncated: false,
+  });
   return {
     client: {
       hasModelControl: true,
@@ -155,6 +158,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
       diagnoseProvider,
       qualifyModelHarness,
       availableModelRoutes,
+      discoverProviderModels,
     } as unknown as CyberAgentClient,
     providerDefinitions,
     providerCredentialStatuses,
@@ -164,6 +168,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
     diagnoseProvider,
     qualifyModelHarness,
     availableModelRoutes,
+    discoverProviderModels,
   };
 }
 
@@ -184,6 +189,246 @@ async function fillRequiredProvider(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("V2 custom Provider settings", () => {
+  it("allows discovery and output customization in a new quick preset before its advanced connection fields are opened", async () => {
+    const controls = createClient();
+    controls.discoverProviderModels.mockResolvedValue({ models: [{ id: "gpt-6-astra" }], truncated: false });
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={{ ...openAIPreset, models: ["gpt-6.1-sol"], defaultModel: "gpt-6.1-sol" }} />
+    </QueryClientProvider>);
+    await screen.findByRole("heading", { name: "添加供应商" });
+    expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "gpt-6.1-sol 默认输出 token" })).toHaveValue(16384);
+    expect(screen.getByRole("spinbutton", { name: "gpt-6.1-sol 单次输出上限 token" })).toHaveValue(128000);
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "transient-quick-key" } });
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择模型 gpt-6-astra" }));
+    await user.click(screen.getByRole("button", { name: "添加所选模型" }));
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-6.1-sol");
+    await user.click(screen.getByRole("checkbox", { name: "gpt-6-astra 自定义输出限制" }));
+    expect(screen.getByRole("checkbox", { name: "选择模型 gpt-6-astra" })).toBeChecked();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "gpt-6-astra 单次输出上限 token" }), { target: { value: "64000" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.advanced_config.model_context_windows).toEqual({
+      "gpt-6-astra": { window_tokens: 1050000, default_output_tokens: 16384, max_output_tokens: 64000 },
+    });
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+  });
+
+  it("invalidates cached qualification and route state after saving a changed output policy", async () => {
+    const controls = createClient([provider()]);
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const availabilityKey = ["models", "availability"];
+    const routesKey = ["v2", "models", "available-routes"];
+    const threadRouteKey = ["v2", "thread", "thread-1", "model-route"];
+    for (const key of [availabilityKey, routesKey, threadRouteKey]) queryClient.setQueryData(key, { qualification: "old-revision" });
+    render(<QueryClientProvider client={queryClient}><V2ProviderSettings client={controls.client} /></QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("checkbox", { name: "acme-pro 自定义输出限制" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await screen.findByRole("button", { name: /Acme AI/u });
+    for (const key of [availabilityKey, routesKey, threadRouteKey]) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+  });
+
+  it("aborts an outstanding discovery when the settings component unmounts", async () => {
+    const controls = createClient([provider()]);
+    controls.discoverProviderModels.mockImplementation(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    const view = renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    const signal = controls.discoverProviderModels.mock.calls[0][1] as AbortSignal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("blocks an invalid numeric policy on submit and lets the user correct the same form", async () => {
+    const controls = createClient([provider()]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("checkbox", { name: "acme-pro 自定义输出限制" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "acme-pro 单次输出上限 token" }), { target: { value: "31744" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").some((node) => node.textContent?.includes("1024 token"))).toBe(true);
+    expect(screen.getByRole("spinbutton", { name: "acme-pro 单次输出上限 token" })).toBeEnabled();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "acme-pro 单次输出上限 token" }), { target: { value: "31743" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+  });
+
+  it("discovers using an existing credential revision and merges selected models without changing saved model options", async () => {
+    const advanced = { model_capabilities: { "acme-pro": { vision: "supported" } },
+      model_context_windows: { "acme-pro": { window_tokens: 100000, default_output_tokens: 8000, max_output_tokens: 32000 } },
+      extension: { keep: true } };
+    const controls = createClient([provider({ advanced_config: advanced })]);
+    controls.discoverProviderModels.mockResolvedValue({ version: "provider_model_discovery.v1", source: "provider_api",
+      models: [{ id: "acme-pro" }, { id: "acme-new", input_token_limit: 200000, output_token_limit: 64000 }], truncated: true });
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    expect(controls.discoverProviderModels).toHaveBeenCalledWith({ version: "provider_model_discovery.v1", provider_id: "acme",
+      endpoint_url: "https://api.acme.example/v1/chat/completions", transport: "openai_chat_completions",
+      advanced_config: advanced, confirm_discovery: true, expected_definition_revision: 4 }, expect.any(AbortSignal));
+    expect(screen.getByText(/本次结果未完整返回/u)).toBeInTheDocument();
+    expect(screen.getByText(/输入 200,000 token · 输出 64,000 token/u)).toBeInTheDocument();
+    expect(screen.getByLabelText("模型列表")).toHaveValue("acme-pro");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox", { name: "选择模型 acme-new" }));
+    await user.click(screen.getByRole("button", { name: "添加所选模型" }));
+    expect(screen.getByLabelText("模型列表")).toHaveValue("acme-pro\nacme-new");
+    expect(screen.getByLabelText("默认模型")).toHaveValue("acme-pro");
+    expect(JSON.parse((screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value)).toEqual(advanced);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition).toMatchObject({ models: ["acme-pro", "acme-new"], default_model: "acme-pro", advanced_config: advanced });
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+    expect(controls.qualifyModelHarness).not.toHaveBeenCalled();
+  });
+
+  it.each(["请求地址", "API Key", "协议", "高级 JSON"])("aborts model discovery and discards a stale response when %s changes", async (field) => {
+    const controls = createClient([provider()]);
+    let resolve!: (value: unknown) => void;
+    controls.discoverProviderModels.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    const signal = controls.discoverProviderModels.mock.calls[0][1] as AbortSignal;
+    fireEvent.change(field === "高级 JSON" ? screen.getByRole("textbox", { name: field }) : screen.getByLabelText(field), { target: { value: ({ "请求地址": "https://new.example/v1", "API Key": "new-transient-key", "协议": "openai_responses", "高级 JSON": '{"extension":true}' })[field] } });
+    expect(signal.aborted).toBe(true);
+    resolve({ version: "provider_model_discovery.v1", source: "provider_api", models: [{ id: "stale-model" }], truncated: false });
+    await waitFor(() => expect(screen.getByRole("button", { name: "获取模型列表" })).toBeEnabled());
+    expect(screen.queryByRole("checkbox", { name: "选择模型 stale-model" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("模型列表")).toHaveValue("acme-pro");
+  });
+
+  it("aborts discovery on close and rejects late results after opening a different provider", async () => {
+    const controls = createClient([provider(), provider({ id: "other", display_name: "Other AI", models: ["other-model"], default_model: "other-model" })]);
+    let resolve!: (value: unknown) => void;
+    controls.discoverProviderModels.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    const signal = controls.discoverProviderModels.mock.calls[0][1] as AbortSignal;
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(signal.aborted).toBe(true);
+    await user.click(screen.getByRole("button", { name: /Other AI/u }));
+    resolve({ models: [{ id: "stale-model" }], truncated: false });
+    await waitFor(() => expect(screen.getByLabelText("模型列表")).toHaveValue("other-model"));
+    expect(screen.queryByRole("checkbox", { name: "选择模型 stale-model" })).not.toBeInTheDocument();
+  });
+
+  it("never discovers a changed endpoint using its old stored credential", async () => {
+    const controls = createClient([provider()]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: "https://new.example/v1" } });
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    expect(controls.discoverProviderModels).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("请求地址或协议已变更");
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "new-key-for-new-endpoint" } });
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    expect(controls.discoverProviderModels.mock.calls[0][0]).toMatchObject({ secret: "new-key-for-new-endpoint", endpoint_url: "https://new.example/v1" });
+    expect(controls.discoverProviderModels.mock.calls[0][0]).not.toHaveProperty("expected_definition_revision");
+    expect(controls.changeProviderCredential).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("API Key")).toHaveValue("new-key-for-new-endpoint");
+  });
+
+  it("keeps failed-discovery drafts intact and supports explicit manual additions and Enter", async () => {
+    const controls = createClient([provider()]);
+    controls.discoverProviderModels.mockRejectedValue(new Error("服务暂时无法访问"));
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("服务暂时无法访问");
+    expect(screen.getByLabelText("模型列表")).toHaveValue("acme-pro");
+    fireEvent.change(screen.getByLabelText("手动添加模型"), { target: { value: "acme-new" } });
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+    fireEvent.change(screen.getByLabelText("手动添加模型"), { target: { value: "acme-pro, acme-next" } });
+    fireEvent.keyDown(screen.getByLabelText("手动添加模型"), { key: "Enter" });
+    expect(screen.getByLabelText("模型列表")).toHaveValue("acme-pro\nacme-new\nacme-next");
+    expect(screen.getByLabelText("手动添加模型")).toHaveValue("");
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+  });
+
+  it("refuses an over-limit model merge without silently truncating the draft or selection", async () => {
+    const models = Array.from({ length: 128 }, (_, index) => `model-${index}`);
+    const controls = createClient([provider({ models, default_model: models[0] })]);
+    controls.discoverProviderModels.mockResolvedValue({ models: [{ id: "one-too-many" }], truncated: false });
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    await user.click(screen.getByRole("button", { name: "获取模型列表" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择模型 one-too-many" }));
+    await user.click(screen.getByRole("button", { name: "添加所选模型" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("129 个模型，超过 128 个上限");
+    expect(screen.getByLabelText("模型列表")).toHaveValue(models.join("\n"));
+    expect(screen.getByRole("checkbox", { name: "选择模型 one-too-many" })).toBeChecked();
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+  });
+
+  it("edits one shared wire-model policy, saves it, and can restore inheritance without removing extensions", async () => {
+    const advanced = { model_mapping: { "acme-pro": "wire-model", "acme-alias": "wire-model" },
+      model_capabilities: { "acme-pro": { vision: "supported" } }, extension: { keep: true } };
+    const controls = createClient([provider({ models: ["acme-pro", "acme-alias"], advanced_config: advanced })]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    expect(screen.getAllByRole("article", { name: "wire-model 输出策略" })).toHaveLength(1);
+    expect(screen.getByRole("spinbutton", { name: "wire-model 单次输出上限 token" })).toHaveValue(4096);
+    expect(screen.getByText(/服务端实际限制未知/u)).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "wire-model 自定义输出限制" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "wire-model 默认输出 token" }), { target: { value: "8000" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "wire-model 单次输出上限 token" }), { target: { value: "16000" } });
+    expect(screen.getByText("用户覆盖")).toBeInTheDocument();
+    expect(JSON.parse((screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value)).toEqual({ ...advanced,
+      model_context_windows: { "wire-model": { window_tokens: 32768, default_output_tokens: 8000, max_output_tokens: 16000 } } });
+    await user.click(screen.getByRole("checkbox", { name: "wire-model 自定义输出限制" }));
+    expect(JSON.parse((screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value)).toEqual(advanced);
+    await user.click(screen.getByRole("checkbox", { name: "wire-model 自定义输出限制" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "wire-model 单次输出上限 token" }), { target: { value: "24000" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.advanced_config).toEqual({ ...advanced,
+      model_context_windows: { "wire-model": { window_tokens: 32768, default_output_tokens: 1024, max_output_tokens: 24000 } } });
+  });
+
+  it("keeps malformed handwritten model policy intact and blocks lossy form changes", async () => {
+    const advanced = { model_context_windows: { "acme-pro": { window_tokens: 32768, default_output_tokens: 1024, max_output_tokens: 4096, future: true } } };
+    const controls = createClient([provider({ advanced_config: advanced })]);
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
+    expect(screen.getByRole("checkbox", { name: "acme-pro 自定义输出限制" })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: "acme-pro 默认输出 token" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
+    expect(JSON.parse((screen.getByRole("textbox", { name: "高级 JSON" }) as HTMLTextAreaElement).value)).toEqual(advanced);
+  });
+
+  it("keeps image empty and invalid-JSON states inside the same padded field grid", async () => {
+    const controls = createClient();
+    const user = userEvent.setup();
+    renderSettings(controls.client);
+    await user.click(await screen.findByRole("button", { name: "添加供应商" }));
+    const section = screen.getByRole("region", { name: "图片输入" });
+    const empty = within(section).getByText("先填写模型列表。");
+    expect(empty.parentElement).toHaveClass("v2-provider-grid");
+    expect(empty).toHaveClass("v2-provider-field-help", "is-wide");
+    fireEvent.change(screen.getByRole("textbox", { name: "高级 JSON" }), { target: { value: "{" } });
+    expect(within(section).getByText("先修正下方高级 JSON，再设置图片能力。").parentElement).toBe(empty.parentElement);
+  });
+
   it.each(["remove", "rename"])("keeps image declarations aligned when models %s without transferring vision support", async (action) => {
     const controls = createClient([provider({ models: ["acme-pro", "acme-image"],
       advanced_config: { custom_extension: { keep: "unchanged" }, model_capabilities: {

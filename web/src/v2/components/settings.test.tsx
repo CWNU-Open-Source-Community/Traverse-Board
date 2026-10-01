@@ -178,7 +178,7 @@ describe("V2 model provider catalog", () => {
     const controls = renderModels(["official-openai"]);
 
     const openAI = await screen.findByRole("button", {
-      name: /OpenAI，gpt-5\.6-terra，已保存 API Key/u,
+      name: /OpenAI，gpt-6\.1-sol，已保存 API Key/u,
     });
     await user.click(openAI);
 
@@ -190,7 +190,7 @@ describe("V2 model provider catalog", () => {
     expect(screen.getByLabelText("显示名称")).toHaveValue("OpenAI 官方 API");
     expect(screen.getByLabelText("请求地址")).toHaveValue("https://api.openai.com/v1/responses");
     expect(screen.getByLabelText("协议")).toHaveValue("openai_responses");
-    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-5.6-terra");
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-6.1-sol");
     expect(screen.getByRole("textbox", { name: "高级 JSON" })).toBeEnabled();
     expect(controls.providerDefinitions).toHaveBeenCalledOnce();
     expect(controls.providerCredentialStatuses).toHaveBeenCalled();
@@ -198,7 +198,7 @@ describe("V2 model provider catalog", () => {
     await user.click(screen.getByRole("button", { name: "返回模型目录" }));
     expect(await screen.findByRole("heading", { name: "模型" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", {
-      name: /OpenAI，gpt-5\.6-terra，已保存 API Key/u,
+      name: /OpenAI，gpt-6\.1-sol，已保存 API Key/u,
     })).toHaveFocus());
   });
 

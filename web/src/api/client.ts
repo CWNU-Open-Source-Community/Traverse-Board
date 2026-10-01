@@ -1,4 +1,5 @@
 import { consumeSSE } from "./sse";
+import type { ProviderModelDiscoveryRequestView, ProviderModelDiscoveryView } from "./types";
 import { acceptedImageTypes, maximumImageBytes, validImageAttachment, validImageAttachments, type WorkspaceImageAttachment } from "./image-attachments";
 import { maximumFileBytes, validFileAttachment, validFileAttachments, type WorkspaceFileAttachment } from "./file-attachments";
 import {
@@ -7398,6 +7399,37 @@ export class CyberAgentClient {
     }
     return parseProviderDefinitionCollection(await this.get<unknown>(
       "/models/provider-definitions", {}, signal));
+  }
+
+  async discoverProviderModels(body: ProviderModelDiscoveryRequestView,
+    signal?: AbortSignal): Promise<ProviderModelDiscoveryView> {
+    if (!this.hasProviderDefinitions || body.version !== "provider_model_discovery.v1" ||
+      body.confirm_discovery !== true || !validCustomProviderID(body.provider_id) ||
+      typeof body.endpoint_url !== "string" || !body.endpoint_url || body.endpoint_url.length > 2048 ||
+      !["openai_chat_completions", "openai_responses", "anthropic_messages"].includes(body.transport) ||
+      !validProviderAdvancedConfig(body.advanced_config) ||
+      (body.secret !== undefined && (typeof body.secret !== "string" || body.secret.length < 8 ||
+        body.secret.length > 2560 || /\s/.test(body.secret))) ||
+      (body.expected_definition_revision !== undefined && !safePositiveInteger(body.expected_definition_revision))) {
+      throw new Error("Confirmed model discovery capability and a valid draft are required");
+    }
+    const value = await this.sendControlRequest<unknown>("/models/model-discovery", body, signal);
+    const safeText = (text: unknown, limit: number): text is string => typeof text === "string" &&
+      text.length <= limit && text.trim() === text && !/[\x00-\x1f\x7f]/.test(text) &&
+      (!body.secret || !text.includes(body.secret));
+    if (!hasExactKeys(value, ["version", "source", "models", "truncated"]) ||
+      value.version !== "provider_model_discovery.v1" || value.source !== "provider_api" ||
+      typeof value.truncated !== "boolean" || !Array.isArray(value.models) || value.models.length > 512 ||
+      value.models.some((model: unknown) => !isRecord(model) ||
+        Object.keys(model).some((key) => !["id", "display_name", "input_token_limit", "output_token_limit"].includes(key)) ||
+        !boundedIdentity(model.id) || !safeText(model.id, 256) ||
+        (model.display_name !== undefined && !safeText(model.display_name, 256)) ||
+        (model.input_token_limit !== undefined && (!safePositiveInteger(model.input_token_limit) || Number(model.input_token_limit) > 2_097_152)) ||
+        (model.output_token_limit !== undefined && (!safePositiveInteger(model.output_token_limit) || Number(model.output_token_limit) > 1_000_000))) ||
+      new Set(value.models.map((m: { id: unknown }) => m.id)).size !== value.models.length) {
+      throw new APIRequestError("Provider model discovery returned an invalid catalog", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as ProviderModelDiscoveryView;
   }
 
   async upsertProviderDefinition(provider: string, body: ProviderDefinitionUpsertRequestView,

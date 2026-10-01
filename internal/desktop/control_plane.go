@@ -730,6 +730,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
+	providerDefinitionControl.WithModelDiscoveryCredentials(credentialStore)
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
 	fileEditReview := application.NewFileEditReviewService(stateStore).WithDrydock(commandRuntimeDrydocks)

@@ -620,6 +620,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/model-discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch the draft Provider model catalog
+         * @description Fetches a bounded catalog with a transient draft key or a revision-bound stored key. Never persists credentials, saves definitions, follows redirects, or grants model qualification. Input and output capacities are separate optional upstream metadata.
+         */
+        post: operations["discoverProviderModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/prices": {
         parameters: {
             query?: never;
@@ -6194,6 +6214,14 @@ export interface components {
             secrets: string;
             terminal_input: string;
         };
+        DiscoveredModel: {
+            display_name?: string;
+            id: string;
+            /** Format: int32 */
+            input_token_limit?: number;
+            /** Format: int32 */
+            output_token_limit?: number;
+        };
         DockerSandboxAdmissionRequestView: {
             manifest: components["schemas"]["Manifest"];
             plan_id: string;
@@ -8336,6 +8364,14 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "observed" | "resolved";
         };
+        ModelDiscoveryResult: {
+            models: components["schemas"]["DiscoveredModel"][];
+            /** @enum {string} */
+            source: "provider_api";
+            truncated: boolean;
+            /** @enum {string} */
+            version: "provider_model_discovery.v1";
+        };
         ModelHarnessAvailabilityView: {
             expires_at: string;
             /** @enum {string} */
@@ -8954,6 +8990,19 @@ export interface components {
             /** @enum {string} */
             status: "reachable" | "unreachable";
             tool_called: boolean;
+        };
+        ProviderModelDiscoveryRequest: {
+            advanced_config: unknown;
+            confirm_discovery: boolean;
+            endpoint_url: string;
+            /** Format: int64 */
+            expected_definition_revision?: number;
+            provider_id: string;
+            secret?: string;
+            /** @enum {string} */
+            transport: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
+            /** @enum {string} */
+            version: "provider_model_discovery.v1";
         };
         ProviderSearchReadinessView: {
             capability_grant: boolean;
@@ -14714,6 +14763,47 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ModelHarnessQualificationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    discoverProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderModelDiscoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelDiscoveryResult"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

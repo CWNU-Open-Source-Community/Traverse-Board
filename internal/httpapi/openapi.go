@@ -703,6 +703,12 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Summary: "List credential-free custom Provider definitions", Tag: "Models",
 			Description: "Returns operator-authored Provider protocol, endpoint, model mapping, search policy, and bounded advanced JSON. Credentials are represented only by same-Provider references and plaintext is never returned.",
 			DataType:    reflect.TypeOf(ProviderDefinitionCollectionView{})},
+		{Path: ProviderModelDiscoveryPath, Method: http.MethodPost,
+			OperationID: "discoverProviderModels", Summary: "Fetch the draft Provider model catalog",
+			Tag: "Control", Control: true,
+			Description: "Fetches a bounded catalog with a transient draft key or a revision-bound stored key. Never persists credentials, saves definitions, follows redirects, or grants model qualification. Input and output capacities are separate optional upstream metadata.",
+			DataType:    reflect.TypeOf(modelregistry.ModelDiscoveryResult{}),
+			RequestType: reflect.TypeOf(application.ProviderModelDiscoveryRequest{})},
 		{Path: ProviderDefinitionPathTemplate, Method: http.MethodPost,
 			OperationID: "upsertProviderDefinition", Summary: "Create or update a custom Provider",
 			Tag: "Control", Control: true,
@@ -2803,8 +2809,11 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "ProviderCredentialStatusView" && fieldName == "provider" {
 		schema["maxLength"] = 64
 	}
-	if typeName == "ProviderCredentialRequestView" && fieldName == "secret" {
+	if (typeName == "ProviderCredentialRequestView" || typeName == "ProviderModelDiscoveryRequest") && fieldName == "secret" {
 		schema["writeOnly"] = true
+	}
+	if typeName == "ModelDiscoveryResult" && fieldName == "models" {
+		schema["maxItems"] = 512
 	}
 	if typeName == "FileEditProposalSourceView" && fieldName == "source_handle" {
 		schema["minLength"] = 43
@@ -3161,6 +3170,10 @@ var openAPIFieldEnums = map[string][]string{
 	"ModelHarnessAvailabilityView.protocol_version":            {llm.ModelHarnessProtocolVersion},
 	"ModelHarnessAvailabilityView.transport_protocol":          {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOpenAIResponses, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
 	"ProviderDefinition.version":                               {modelregistry.ProviderDefinitionVersion},
+	"ProviderModelDiscoveryRequest.version":                    {modelregistry.ModelDiscoveryVersion},
+	"ProviderModelDiscoveryRequest.transport":                  {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
+	"ModelDiscoveryResult.version":                             {modelregistry.ModelDiscoveryVersion},
+	"ModelDiscoveryResult.source":                              {"provider_api"},
 	"ProviderDefinition.transport":                             {modelregistry.ProviderTransportOpenAIChatCompletions, modelregistry.ProviderTransportOpenAIResponses, modelregistry.ProviderTransportAnthropicMessages},
 	"ProviderDefinition.search_mode":                           {modelregistry.ProviderSearchModeDisabled, modelregistry.ProviderSearchModeAuto, modelregistry.ProviderSearchModeWeb, modelregistry.ProviderSearchModeSearXNG, modelregistry.ProviderSearchModeProviderNative},
 	"ProviderDefinition.native_web_search_capability":          {modelregistry.NativeWebSearchUnsupported, modelregistry.NativeWebSearchDeclaredUnverified},

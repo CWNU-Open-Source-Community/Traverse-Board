@@ -248,6 +248,28 @@ export type ProviderCredentialListView = components["schemas"]["ProviderCredenti
 export type ProviderCredentialRequestView = components["schemas"]["ProviderCredentialRequestView"];
 export type ProviderCredentialStatusView = components["schemas"]["ProviderCredentialStatusView"];
 export type ProviderDefinitionView = components["schemas"]["ProviderDefinition"];
+export interface ProviderModelDiscoveryRequestView {
+  version: "provider_model_discovery.v1";
+  provider_id: string;
+  endpoint_url: string;
+  transport: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
+  advanced_config: Record<string, unknown>;
+  secret?: string;
+  expected_definition_revision?: number;
+  confirm_discovery: true;
+}
+export interface DiscoveredProviderModelView {
+  id: string;
+  display_name?: string;
+  input_token_limit?: number;
+  output_token_limit?: number;
+}
+export interface ProviderModelDiscoveryView {
+  version: "provider_model_discovery.v1";
+  source: "provider_api";
+  models: DiscoveredProviderModelView[];
+  truncated: boolean;
+}
 export type ProviderDefinitionCollectionView =
   components["schemas"]["ProviderDefinitionCollectionView"];
 export type ProviderDefinitionUpsertRequestView =
