@@ -53,7 +53,24 @@ func (s *SQLiteStore) PrepareSpecialistContext(ctx context.Context,
 	if err != nil {
 		return domain.SpecialistContextBatch{}, err
 	}
-	if found {
+	brief, briefFound, err := loadSpecialistTaskBriefTx(ctx, tx, attempt)
+	if err != nil {
+		return domain.SpecialistContextBatch{}, err
+	}
+	if found && !briefFound {
+		return domain.SpecialistContextBatch{}, apperror.New(apperror.CodeFailedPrecondition,
+			"legacy prepared Specialist context must recover through a fresh attempt")
+	}
+	if briefFound {
+		if !found {
+			var preparedAt string
+			if err := tx.QueryRowContext(ctx, `SELECT prepared_at FROM specialist_task_briefs WHERE agent_attempt_id=?`, attempt.ID).Scan(&preparedAt); err != nil {
+				return domain.SpecialistContextBatch{}, err
+			}
+			batch = domain.SpecialistContextBatch{RunID: run.ID, AgentID: child.ID, ParentAgentID: parent.ID,
+				AgentAttemptID: attempt.ID, Turn: attempt.Turn, Messages: []domain.AgentMessage{}, PreparedAt: parseTS(preparedAt)}
+		}
+		batch.TaskBrief = brief
 		batch.Recovered = true
 		if err := tx.Commit(); err != nil {
 			return domain.SpecialistContextBatch{}, err
@@ -74,6 +91,15 @@ func (s *SQLiteStore) PrepareSpecialistContext(ctx context.Context,
 	batch = domain.SpecialistContextBatch{
 		RunID: run.ID, AgentID: child.ID, ParentAgentID: parent.ID,
 		AgentAttemptID: attempt.ID, Turn: attempt.Turn, Messages: messages, PreparedAt: now,
+	}
+	for _, message := range messages {
+		if err := validateEligibleSpecialistContextMessageTx(ctx, tx, run.ID, child, parent, message); err != nil {
+			return domain.SpecialistContextBatch{}, err
+		}
+	}
+	batch.TaskBrief, err = prepareSpecialistTaskBriefTx(ctx, tx, attempt, messages, now)
+	if err != nil {
+		return domain.SpecialistContextBatch{}, err
 	}
 	if err := batch.Validate(); err != nil {
 		return domain.SpecialistContextBatch{}, err

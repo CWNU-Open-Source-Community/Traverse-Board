@@ -16,13 +16,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 110 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 111 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 23 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
-| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 40 | true |
+| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 41 | true |
 | [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 110 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
@@ -483,7 +483,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>110 active identifiers</summary>
+<details><summary>111 active identifiers</summary>
 
 - `byte_identical.v1`
 - `data_store_scope.v1`
@@ -542,6 +542,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `specialist_operator_schedule_request.v1`
 - `specialist_skill_assignment.v1`
 - `specialist_skill_context.v1`
+- `specialist_task_brief.v1`
 - `standard-code-backend-readiness.v1`
 - `standard-code-command-result.v1`
 - `standard-code-command.v1`
@@ -785,7 +786,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `extension-package-contracts-reader` (`v1, v2`, active) at `internal/skills`
 
-<details><summary>40 active identifiers</summary>
+<details><summary>41 active identifiers</summary>
 
 - `extension-control.v1`
 - `extension-inventory.v1`
@@ -827,6 +828,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `skill_selection_operation.v1`
 - `skill_selection_request.v1`
 - `specialist_instruction.v1`
+- `specialist_instruction.v2`
 
 </details>
 
@@ -1827,7 +1829,6 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `skill.v2` | `test-fixture` | `internal/skills/manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `slsa_provenance.v1` | `test-fixture` | `internal/analyzer/provenance_verification_test.go`, `internal/analyzer/release_manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `specialist_delegation.v2` | `test-fixture` | `internal/domain/specialist_delegation_test.go`, `internal/toolgateway/specialist_delegation_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
-| `specialist_instruction.v2` | `test-fixture` | `internal/domain/agent_context_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `standard_code_fixture_manifest.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `internal/packagede2e/testdata/fixture-manifest.json` | Packaged E2E fixed-repository fixture manifest. |
 | `standard_code_fixture_set.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `scripts/standard-code-packaged-e2e.ps1` | Packaged E2E fixed-repository fixture set. |
 | `standard_code_packaged_e2e.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `scripts/standard-code-packaged-e2e.ps1` | Packaged E2E harness report, not a shipped product protocol. |

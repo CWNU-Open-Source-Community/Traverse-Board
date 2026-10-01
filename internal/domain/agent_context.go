@@ -51,8 +51,11 @@ type AgentAttemptFailurePayload struct {
 // can enter a child model context. Routing identity remains outside the model
 // payload and is verified against the durable Agent graph by the Store.
 type AgentInstructionPayload struct {
-	Version     string `json:"version"`
-	Instruction string `json:"instruction"`
+	Version             string `json:"version"`
+	Instruction         string `json:"instruction"`
+	Operation           string `json:"operation,omitempty"`
+	TargetMessageID     string `json:"target_message_id,omitempty"`
+	TargetPayloadSHA256 string `json:"target_payload_sha256,omitempty"`
 }
 
 type RootInboxDelivery struct {
@@ -99,11 +102,36 @@ type SpecialistContextBatch struct {
 	Messages       []AgentMessage
 	PreparedAt     time.Time
 	Recovered      bool
+	TaskBrief      SpecialistTaskBrief
 }
 
 func (p AgentInstructionPayload) Validate() error {
-	if p.Version != SpecialistInstructionVersion {
+	if p.Version != SpecialistInstructionVersion && p.Version != SpecialistInstructionOperationVersion {
 		return fmt.Errorf("unsupported Specialist instruction payload version %q", p.Version)
+	}
+	if p.Version == SpecialistInstructionVersion {
+		if p.Operation != "" || p.TargetMessageID != "" || p.TargetPayloadSHA256 != "" {
+			return errors.New("legacy Specialist instruction cannot contain an operation")
+		}
+	} else {
+		switch p.Operation {
+		case "append":
+			if p.TargetMessageID != "" || p.TargetPayloadSHA256 != "" {
+				return errors.New("append instruction cannot retire a source")
+			}
+		case "replace", "withdraw":
+			if !validAgentIdentity(p.TargetMessageID, false) || !validBriefHash(p.TargetPayloadSHA256) {
+				return errors.New("instruction retirement requires a normalized source ID and SHA-256")
+			}
+		default:
+			return errors.New("unsupported Specialist instruction operation")
+		}
+	}
+	if p.Operation == "withdraw" {
+		if p.Instruction != "" {
+			return errors.New("withdraw cannot add instruction text")
+		}
+		return nil
 	}
 	if !utf8.ValidString(p.Instruction) || strings.TrimSpace(p.Instruction) == "" {
 		return errors.New("specialist instruction is required and must be valid UTF-8")
@@ -120,6 +148,9 @@ func (p AgentInstructionPayload) Validate() error {
 func DecodeAgentInstructionPayload(payloadJSON string) (AgentInstructionPayload, error) {
 	var payload AgentInstructionPayload
 	if err := decodeStrictAgentPayload(payloadJSON, &payload); err != nil {
+		return AgentInstructionPayload{}, fmt.Errorf("invalid Specialist instruction payload: %w", err)
+	}
+	if err := validateInstructionObjectShape(payloadJSON, payload); err != nil {
 		return AgentInstructionPayload{}, fmt.Errorf("invalid Specialist instruction payload: %w", err)
 	}
 	payload.Version = strings.TrimSpace(payload.Version)
