@@ -55,7 +55,7 @@ const (
 	DefaultAnthropicModel  = "claude-3-5-sonnet-latest"
 	defaultOpenAIBaseURL   = "https://api.openai.com"
 	DefaultOpenAIModel     = "gpt-4.1-mini"
-	DefaultOpenAITimeout   = 60 * time.Second
+	DefaultOpenAITimeout   = llm.DefaultProviderRequestTimeout
 	defaultOllamaBaseURL   = llm.OllamaDefaultBaseURL
 	ollamaProbeTimeout     = 5 * time.Second
 )
@@ -167,6 +167,7 @@ type anthropicEnvironment struct {
 	apiKeyEnv       string
 	baseURLEnv      string
 	modelEnv        string
+	timeoutEnv      string
 	defaultBaseURL  string
 	defaultModel    string
 	disableThinking bool
@@ -177,6 +178,7 @@ type openAIEnvironment struct {
 	apiKeyEnv      string
 	baseURLEnv     string
 	modelEnv       string
+	timeoutEnv     string
 	defaultBaseURL string
 	defaultModel   string
 }
@@ -185,6 +187,7 @@ type ollamaEnvironment struct {
 	name           string
 	baseURLEnv     string
 	modelEnv       string
+	timeoutEnv     string
 	defaultBaseURL string
 }
 
@@ -242,13 +245,14 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 	}
 	configs := []anthropicEnvironment{
 		{name: "mimo", apiKeyEnv: "MIMO_API_KEY", baseURLEnv: "MIMO_BASE_URL",
-			modelEnv: "MIMO_MODEL", defaultBaseURL: defaultMimoBaseURL,
+			modelEnv: "MIMO_MODEL", timeoutEnv: "MIMO_TIMEOUT_SECONDS", defaultBaseURL: defaultMimoBaseURL,
 			defaultModel: DefaultMimoModel},
 		{name: "deepseek", apiKeyEnv: "DEEPSEEK_API_KEY", baseURLEnv: "DEEPSEEK_BASE_URL",
-			modelEnv: "DEEPSEEK_MODEL", defaultBaseURL: defaultDeepSeekBaseURL,
+			modelEnv: "DEEPSEEK_MODEL", timeoutEnv: "DEEPSEEK_TIMEOUT_SECONDS", defaultBaseURL: defaultDeepSeekBaseURL,
 			defaultModel: DefaultDeepSeekModel, disableThinking: true},
 		{name: "anthropic", apiKeyEnv: "CYBERAGENT_ANTHROPIC_API_KEY",
 			baseURLEnv: "CYBERAGENT_ANTHROPIC_BASE_URL", modelEnv: "CYBERAGENT_ANTHROPIC_MODEL",
+			timeoutEnv:     "CYBERAGENT_ANTHROPIC_TIMEOUT_SECONDS",
 			defaultBaseURL: defaultAnthropicURL, defaultModel: DefaultAnthropicModel},
 	}
 	for _, config := range configs {
@@ -260,6 +264,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 	if err := registry.registerOpenAIEnvironment(ctx, openAIEnvironment{
 		name: "openai", apiKeyEnv: "CYBERAGENT_OPENAI_API_KEY",
 		baseURLEnv: "CYBERAGENT_OPENAI_BASE_URL", modelEnv: "CYBERAGENT_OPENAI_MODEL",
+		timeoutEnv:     "CYBERAGENT_OPENAI_TIMEOUT_SECONDS",
 		defaultBaseURL: defaultOpenAIBaseURL, defaultModel: DefaultOpenAIModel,
 	}, lookup, credentials, strictCredentialReads); err != nil {
 		return nil, err
@@ -267,6 +272,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 	if err := registry.registerOllamaEnvironment(ctx, ollamaEnvironment{
 		name: "ollama", baseURLEnv: "CYBERAGENT_OLLAMA_BASE_URL",
 		modelEnv: "CYBERAGENT_OLLAMA_MODEL", defaultBaseURL: defaultOllamaBaseURL,
+		timeoutEnv: "CYBERAGENT_OLLAMA_TIMEOUT_SECONDS",
 	}, lookup); err != nil {
 		return nil, err
 	}
@@ -787,19 +793,19 @@ func (r *Registry) registerCustomProvider(ctx context.Context,
 		provider, err = llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
 			Name: definition.ID, BaseURL: definition.EndpointURL,
 			DefaultModel: definition.DefaultModel,
-			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+			HTTPClient:   &http.Client{Timeout: runtime.requestTimeout}, Runtime: runtime,
 		})
 	case ProviderTransportOpenAIResponses:
 		provider, err = llm.NewOpenAIResponsesProvider(llm.OpenAIResponsesConfig{
 			Name: definition.ID, BaseURL: definition.EndpointURL,
 			DefaultModel: definition.DefaultModel,
-			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+			HTTPClient:   &http.Client{Timeout: runtime.requestTimeout}, Runtime: runtime,
 		})
 	case ProviderTransportAnthropicMessages:
 		provider, err = llm.NewAnthropicCompatibleProvider(llm.AnthropicCompatibleConfig{
 			Name: definition.ID, BaseURL: definition.EndpointURL,
 			DefaultModel: definition.DefaultModel,
-			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+			HTTPClient:   &http.Client{Timeout: runtime.requestTimeout}, Runtime: runtime,
 		})
 	default:
 		err = errors.New("unsupported custom Provider transport")
@@ -819,6 +825,7 @@ func (r *Registry) registerCustomProvider(ctx context.Context,
 func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anthropicEnvironment,
 	lookup EnvironmentLookup, credentials credentialLookup, strictCredentialReads bool,
 ) error {
+	requestTimeout, timeoutErr := environmentRequestTimeout(lookup, config.timeoutEnv)
 	key, present := lookup(config.apiKeyEnv)
 	credentialSource := "none"
 	if present {
@@ -853,8 +860,10 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 		harnesses = []HarnessAvailability{unqualifiedHarnessAvailability(model,
 			llm.HarnessTransportAnthropicMessages, llm.HarnessJSONStrategyPrompt)}
 	}
-	configurationError := false
-	if present && key != "" {
+	configurationError := timeoutErr != nil
+	if configurationError {
+		status = ProviderInvalidConfiguration
+	} else if present && key != "" {
 		baseURL := environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL)
 		if len(models) == 0 {
 			status = ProviderInvalidConfiguration
@@ -870,6 +879,7 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 		provider, err := llm.NewAnthropicCompatibleProvider(llm.AnthropicCompatibleConfig{
 			Name: config.name, BaseURL: baseURL, APIKey: key, DefaultModel: model,
 			DisableThinking: config.disableThinking,
+			HTTPClient:      &http.Client{Timeout: requestTimeout},
 		})
 		if err != nil {
 			status = ProviderInvalidConfiguration
@@ -895,6 +905,7 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIEnvironment,
 	lookup EnvironmentLookup, credentials credentialLookup, strictCredentialReads bool,
 ) error {
+	requestTimeout, timeoutErr := environmentRequestTimeout(lookup, config.timeoutEnv)
 	key, present := lookup(config.apiKeyEnv)
 	credentialSource := "none"
 	if present {
@@ -928,8 +939,10 @@ func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIE
 			llm.HarnessTransportOpenAIChatCompletions, llm.HarnessJSONStrategyNative)}
 	}
 	status := ProviderNotConfigured
-	configurationError := false
-	if present && key != "" {
+	configurationError := timeoutErr != nil
+	if configurationError {
+		status = ProviderInvalidConfiguration
+	} else if present && key != "" {
 		if len(models) == 0 {
 			status = ProviderInvalidConfiguration
 			configurationError = true
@@ -938,7 +951,7 @@ func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIE
 				Name:    config.name,
 				BaseURL: environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL),
 				APIKey:  key, DefaultModel: model,
-				HTTPClient: &http.Client{Timeout: DefaultOpenAITimeout},
+				HTTPClient: &http.Client{Timeout: requestTimeout},
 			})
 			if err != nil {
 				status = ProviderInvalidConfiguration
@@ -970,6 +983,7 @@ func (r *Registry) registerOllamaEnvironment(ctx context.Context, config ollamaE
 	lookup EnvironmentLookup,
 ) error {
 	_ = ctx
+	requestTimeout, timeoutErr := environmentRequestTimeout(lookup, config.timeoutEnv)
 	baseURL, endpointSet := lookup(config.baseURLEnv)
 	baseURL = strings.TrimSpace(baseURL)
 	model := environmentValue(lookup, config.modelEnv, "")
@@ -978,11 +992,13 @@ func (r *Registry) registerOllamaEnvironment(ctx context.Context, config ollamaE
 		models = []string{strings.TrimSpace(model)}
 	}
 	status := ProviderNotConfigured
-	configurationError := false
-	if endpointSet && baseURL != "" {
+	configurationError := timeoutErr != nil
+	if configurationError {
+		status = ProviderInvalidConfiguration
+	} else if endpointSet && baseURL != "" {
 		provider, err := llm.NewOllamaProvider(llm.OllamaConfig{
 			Name: config.name, BaseURL: baseURL,
-			HTTPClient: &http.Client{Timeout: DefaultOpenAITimeout},
+			HTTPClient: &http.Client{Timeout: requestTimeout},
 		})
 		if err != nil || len(models) == 0 {
 			status = ProviderInvalidConfiguration

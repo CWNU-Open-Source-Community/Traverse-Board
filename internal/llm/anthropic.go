@@ -24,7 +24,6 @@ const AnthropicVersion = "2023-06-01"
 const (
 	maxProviderBaseURLBytes = 2048
 	maxProviderAPIKeyBytes  = 16 * 1024
-	defaultProviderTimeout  = 60 * time.Second
 )
 
 type AnthropicCompatibleConfig struct {
@@ -63,7 +62,10 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 	} else if err := validateHTTPProviderRuntime(config.Runtime); err != nil {
 		return nil, err
 	}
-	client := providerHTTPClient(config.HTTPClient)
+	client, err := providerHTTPClient(config.HTTPClient)
+	if err != nil {
+		return nil, err
+	}
 	defaultModel := strings.TrimSpace(config.DefaultModel)
 	if defaultModel == "" {
 		defaultModel = "claude-3-5-sonnet-latest"
@@ -77,21 +79,6 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 		client:          client,
 		runtime:         config.Runtime,
 	}, nil
-}
-
-func providerHTTPClient(source *http.Client) *http.Client {
-	client := &http.Client{Timeout: defaultProviderTimeout}
-	if source != nil {
-		copy := *source
-		client = &copy
-		if client.Timeout <= 0 || client.Timeout > defaultProviderTimeout {
-			client.Timeout = defaultProviderTimeout
-		}
-	}
-	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	return client
 }
 
 func normalizeProviderBaseURL(value string, provider string) (string, error) {
