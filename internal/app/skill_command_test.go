@@ -23,14 +23,15 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 	t.Setenv("CYBERAGENT_HOME", home)
 
 	listed, stderr, code := executeTestCommand(t, "skill", "list")
-	if code != 0 || stderr != "" || !strings.Contains(listed, "code@1.2.0") ||
+	if code != 0 || stderr != "" || !strings.Contains(listed, "code@1.3.0") ||
 		!strings.Contains(listed, "learn@1.2.0") || !strings.Contains(listed, "review@1.5.0") ||
 		!strings.Contains(listed, "plan-delivery@1.2.0") ||
 		!strings.Contains(listed, "script@1.2.0") ||
 		!strings.Contains(listed, "doctor@1.1.0") ||
 		!strings.Contains(listed, "debug@1.1.0") ||
 		!strings.Contains(listed, "loop-monitor@1.0.0") ||
-		!strings.Contains(listed, "run-verify@1.1.0") ||
+		!strings.Contains(listed, "run-verify@1.2.0") ||
+		!strings.Contains(listed, "frontend-design@1.0.0") ||
 		!strings.Contains(listed, "run-skill-generator@1.0.0") ||
 		!strings.Contains(listed, "focused-checks@1.2.0") ||
 		!strings.Contains(listed, "simplify@1.0.0") ||
@@ -52,7 +53,8 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 	filtered, stderr, code := executeTestCommand(t, "skill", "list", "--profile", "review")
 	if code != 0 || stderr != "" || !strings.Contains(filtered, "review@1.5.0") ||
 		!strings.Contains(filtered, "plan-delivery@1.2.0") ||
-		strings.Contains(filtered, "code@1.2.0") || strings.Contains(filtered, "script@1.2.0") {
+		strings.Contains(filtered, "code@1.3.0") || strings.Contains(filtered, "script@1.2.0") ||
+		strings.Contains(filtered, "frontend-design@1.0.0") {
 		t.Fatalf("unexpected profile filter: code=%d stderr=%q output=%q", code, stderr, filtered)
 	}
 
@@ -63,13 +65,13 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 		!strings.Contains(shown, "roles: root,specialist") ||
 		!strings.Contains(shown, "model_invocable: true") ||
 		!strings.Contains(shown, "tool_dependencies: list_workspace,read_file,replace_file") ||
-		!strings.Contains(shown, "content_sha256: 279113f9") ||
+		!strings.Contains(shown, "content_sha256: 46f3727a74a4e1086cd867f575e4082db1aa9c427f490a03db43edfd5797d438") ||
 		strings.Contains(shown, "The current runtime does not inject") {
 		t.Fatalf("unexpected skill show: code=%d stderr=%q output=%q", code, stderr, shown)
 	}
 
 	validated, stderr, code := executeTestCommand(t, "skill", "validate")
-	if code != 0 || stderr != "" || !strings.Contains(validated, "validated 13 built-in skill.v1 manifests") {
+	if code != 0 || stderr != "" || !strings.Contains(validated, "validated 14 built-in skill.v1 manifests") {
 		t.Fatalf("unexpected skill validation: code=%d stderr=%q output=%q", code, stderr, validated)
 	}
 	if _, err := os.Stat(filepath.Join(home, "cyberagent.db")); !os.IsNotExist(err) {

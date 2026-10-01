@@ -213,6 +213,15 @@ func TestThreadContextContinuityPreservesOriginalIntentAndEvidenceAfterHistoryLi
 }
 
 func TestThreadContextContinuityCompactsWindowPressureWithoutSilentHistoryLoss(t *testing.T) {
+	for _, windowTokens := range []int{8192, 10000} {
+		t.Run(fmt.Sprintf("window_%d", windowTokens), func(t *testing.T) {
+			verifyThreadContextWindowPressure(t, windowTokens)
+		})
+	}
+}
+
+func verifyThreadContextWindowPressure(t *testing.T, windowTokens int) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "thread-context-pressure.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -254,10 +263,10 @@ func TestThreadContextContinuityCompactsWindowPressureWithoutSilentHistoryLoss(t
 	if err != nil {
 		t.Fatal("provider request lacked actual input estimate")
 	}
-	// 8192 fits the mandatory request plus bounded summary. The two long raw
-	// historical inputs exceed it; the old implementation silently drops rows.
-	const windowTokens = 8192
-	if historyEstimate <= windowTokens-512-128 {
+	// Both fixtures exert actual window pressure. 10000 also fits the complete
+	// committed summary; 8192 must reject once that summary becomes mandatory.
+	inputLimit := windowTokens - 512 - 128
+	if historyEstimate <= inputLimit {
 		t.Fatalf("fixture does not exert window pressure: estimated input=%d", historyEstimate)
 	}
 	if err := router.SetContextWindow(llm.ModelRef{Provider: provider.Name(), Model: "model"}, llm.ContextWindow{
@@ -271,22 +280,38 @@ func TestThreadContextContinuityCompactsWindowPressureWithoutSilentHistoryLoss(t
 		OperationKey: "pressure-after-window-change", RequestedBy: "test_operator",
 	})
 	requests := provider.Requests()
-	if nextErr != nil || len(requests) != 3 {
-		t.Fatalf("bounded summary should fit and proceed exactly once: calls=%d err=%v", len(requests), nextErr)
-	}
-	encoded, err := json.Marshal(requests[2].Messages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, marker := range []string{"UX_CONTEXT_PRESSURE_ORIGINAL", "UX_CONTEXT_PRESSURE_CORRECTION"} {
-		if !strings.Contains(string(encoded), marker) {
-			t.Errorf("window fitting silently lost %s", marker)
+	if windowTokens == 8192 {
+		if apperror.CodeOf(nextErr) != apperror.CodeResourceExhausted || len(requests) != 2 {
+			t.Fatalf("summary overflow made a new provider call: calls=%d err=%v", len(requests), nextErr)
 		}
+	} else {
+		if nextErr != nil || len(requests) != 3 {
+			t.Fatalf("bounded summary should fit and proceed exactly once: calls=%d err=%v", len(requests), nextErr)
+		}
+		encoded, err := json.Marshal(requests[2].Messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, marker := range []string{"UX_CONTEXT_PRESSURE_ORIGINAL", "UX_CONTEXT_PRESSURE_CORRECTION"} {
+			if !strings.Contains(string(encoded), marker) {
+				t.Errorf("window fitting silently lost %s", marker)
+			}
+		}
+		if omitted := requests[2].Metadata["context_history_omitted"]; omitted != "0" {
+			t.Errorf("window fitting did not prove zero omitted history: %q", omitted)
+		}
+		estimated, err := strconv.Atoi(requests[2].Metadata["context_input_estimate"])
+		if err != nil || estimated > inputLimit || requests[2].MaxTokens != 512 ||
+			requests[2].Metadata["context_output_reserve"] != "512" ||
+			requests[2].Metadata["context_input_limit"] != strconv.Itoa(inputLimit) {
+			t.Fatalf("complete compacted request lost its effective cap: estimate=%d limit=%d max=%d metadata=%+v err=%v",
+				estimated, inputLimit, requests[2].MaxTokens, requests[2].Metadata, err)
+		}
+		t.Logf("prior raw request=%d compacted request=%d input_limit=%d output_reserve=%d", historyEstimate, estimated, inputLimit, requests[2].MaxTokens)
 	}
-	if omitted := requests[2].Metadata["context_history_omitted"]; omitted != "0" {
-		t.Errorf("window fitting did not prove zero omitted history: %q", omitted)
-	}
-	if summary, exists, err := st.LatestContextSummary(t.Context(), run.SessionID); err != nil || !exists || summary.Content == "" {
+	if summary, exists, err := st.LatestContextSummary(t.Context(), run.SessionID); err != nil || !exists || summary.Content == "" ||
+		summary.CompactedMessageCount <= 0 || !strings.Contains(summary.Content, "UX_CONTEXT_PRESSURE_ORIGINAL") ||
+		!strings.Contains(summary.Content, "UX_CONTEXT_PRESSURE_CORRECTION") {
 		t.Errorf("window pressure did not attempt persistent context compaction: exists=%t err=%v", exists, err)
 	}
 	after, err := st.ListSessionMessages(t.Context(), run.SessionID, true)

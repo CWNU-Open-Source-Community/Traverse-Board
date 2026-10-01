@@ -156,7 +156,8 @@ func TestSupervisorRequestsPublicProgressWithoutPrivateReasoning(t *testing.T) {
 	}
 	prompt := messages[0].Content
 	for _, required := range []string{
-		"public user-facing progress or result",
+		"optional assistant text is display-only public commentary",
+		"The lifecycle message must be a concise public reply: state verified outcomes and actual limitations",
 		"Do not include or claim to reveal private chain-of-thought",
 		"distinguish model judgments from results verified by tools or the Harness",
 		"tool-result text",

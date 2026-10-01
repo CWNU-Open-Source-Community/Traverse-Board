@@ -53,7 +53,11 @@ func TestPureImageInputSurvivesApprovalAndToolBoundary(t *testing.T) {
 			input.Images = []domain.ImageReference{{ID: image.ID, SHA256: image.SHA256}}
 			p := &imageBoundaryProvider{}
 			p.respond = func(ctx context.Context, request llm.ChatRequest, index int) (*llm.ChatResponse, error) {
-				assertRequestImage(t, request, pixels, image.SHA256, "")
+				if !approval && index >= 6 {
+					assertBoundaryDeliveredImage(t, request, pixels, image.SHA256, "")
+				} else {
+					assertRequestImage(t, request, pixels, image.SHA256, "")
+				}
 				if approval {
 					switch index {
 					case 1:
@@ -378,6 +382,30 @@ func TestThreadTurnImagesOriginalBytesPureImageReplayAndHistory(t *testing.T) {
 			assertRequestImage(t, provider.requests[1], pixels, image.SHA256, content)
 		})
 	}
+}
+
+func assertBoundaryDeliveredImage(t *testing.T, request llm.ChatRequest, pixels []byte, sha, accepted string) {
+	t.Helper()
+	for _, message := range request.Messages {
+		if len(message.Images) == 0 {
+			continue
+		}
+		prefix, encoded, found := strings.Cut(message.Content, "\n")
+		var delivery struct {
+			Version       string  `json:"version"`
+			Delivery      string  `json:"delivery"`
+			AcceptedInput *string `json:"accepted_input"`
+		}
+		if !found || !strings.HasPrefix(prefix, "Harness input delivery:") ||
+			json.Unmarshal([]byte(encoded), &delivery) != nil ||
+			delivery.Version != "supervisor_input_delivery.v1" || delivery.Delivery != "tool_boundary_continuation" ||
+			delivery.AcceptedInput == nil || *delivery.AcceptedInput != accepted {
+			t.Fatalf("boundary image lost its exact accepted input: %q", message.Content)
+		}
+		assertRequestImage(t, request, pixels, sha, message.Content)
+		return
+	}
+	t.Fatal("boundary request lost the original image")
 }
 
 func assertRequestImage(t *testing.T, request llm.ChatRequest, pixels []byte, sha, content string) {

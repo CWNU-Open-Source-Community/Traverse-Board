@@ -58,3 +58,24 @@ func TestOutputMetadataPreservesHistoryBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalOpenAIDefaultPreservesHistoryBudget(t *testing.T) {
+	for _, model := range []string{"gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"} {
+		t.Run(model, func(t *testing.T) {
+			provider, err := llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
+				Name: "official-openai", BaseURL: "https://api.openai.com/v1", APIKey: "synthetic", DefaultModel: model,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			window := provider.ModelContextWindow(model)
+			if window.Source != "local_model_default" || window.WindowTokens != 1_050_000 ||
+				window.DefaultOutputTokens != 16_384 || window.MaxOutputTokens != 128_000 {
+				t.Fatalf("fixture lost the actual local OpenAI policy: %+v", window)
+			}
+			if got, baseline := supervisorMemoryBudget(window), supervisorMemoryBudget(llm.DefaultContextWindow()); got != baseline {
+				t.Fatalf("local model default inflated history budget: got=%d baseline=%d", got, baseline)
+			}
+		})
+	}
+}

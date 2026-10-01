@@ -98,11 +98,37 @@ func verifyHistoricalFileApplyContinuation(t *testing.T, confirm bool) {
 			for _, m := range request.Messages {
 				text += m.Content + "\n"
 			}
-			if !strings.Contains(text, "Do not apply") || !strings.Contains(text, edit.ID) || !strings.Contains(text, edit.ProposedHash) || !strings.Contains(text, "original detailed error was not retained") {
+			if !strings.Contains(text, "Do not apply") || !strings.Contains(text, edit.ID) || !strings.Contains(text, edit.ProposedHash) ||
+				!strings.Contains(text, "Recorded unstarted apply expectations (no execution authority)") || !hasToolSpec(request, "history_read") {
 				t.Fatal("new message or bounded exact failed-apply evidence missing")
 			}
-			return textResponse(rootActionResponse(domain.RootActionFinish, "No write was requested or performed", "left unchanged", "")), nil
+			rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, round := range rounds {
+				for _, call := range round.Calls {
+					if call.ToolName != "workspace_apply" || call.Status != domain.SupervisorToolFailed {
+						continue
+					}
+					ref := domain.SupervisorToolResultReference(call)
+					if !strings.Contains(text, ref.SourceID) || !strings.Contains(text, ref.ExpectedSHA256) ||
+						!strings.Contains(call.ResultJSON, "original detailed error was not retained") {
+						t.Fatal("failed-apply projection lost its exact sealed result reference")
+					}
+					return toolResponse("read-exact-failed-apply", "history_read", historyRecallReadJSON(ref)), nil
+				}
+			}
+			t.Fatal("failed apply was not sealed before the new request")
+			return nil, nil
 		case 2:
+			requireBoundaryFileAbsent(t, root)
+			if !hasToolResult(request, "original detailed error was not retained") || !hasToolResult(request, edit.ID) ||
+				!hasToolResult(request, edit.ProposedHash) {
+				t.Fatal("exact history_read did not recover the failed-apply detail")
+			}
+			return textResponse(rootActionResponse(domain.RootActionFinish, "No write was requested or performed", "left unchanged", "")), nil
+		case 3:
 			return beforeBoundaryApply(edit), nil
 		default:
 			if !hasToolResult(request, `\"file_written\":true`) {
@@ -138,7 +164,7 @@ func verifyHistoricalFileApplyContinuation(t *testing.T, confirm bool) {
 	next.Content, next.OperationKey = "Now apply only the same reviewed file, keeping its exact hash", "explicit-file-boundary-retry"
 	// A fresh facade models reconnect/restart; no transient map carries authority.
 	result, err := toolBoundaryService(st, st, p).Execute(t.Context(), next)
-	if err != nil || result.Submission.Message.Status != domain.OperatorSteeringCommitted || len(p.Requests()) != 3 {
+	if err != nil || result.Submission.Message.Status != domain.OperatorSteeringCommitted || len(p.Requests()) != 4 {
 		t.Fatalf("explicit retry=%#v %v", result, err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "test", "example.mjs"))
@@ -149,10 +175,10 @@ func verifyHistoricalFileApplyContinuation(t *testing.T, confirm bool) {
 	if err != nil || !found || !reflect.DeepEqual(latest, original) {
 		t.Fatal("old failure was rewritten")
 	}
-	if _, err := current.Execute(t.Context(), input); err == nil || len(p.Requests()) != 3 {
+	if _, err := current.Execute(t.Context(), input); err == nil || len(p.Requests()) != 4 {
 		t.Fatal("old key replayed after explicit retry")
 	}
-	if _, err := toolBoundaryService(st, st, p).Execute(t.Context(), next); err != nil || len(p.Requests()) != 3 {
+	if _, err := toolBoundaryService(st, st, p).Execute(t.Context(), next); err != nil || len(p.Requests()) != 4 {
 		t.Fatal("new key replay executed the mutation twice")
 	}
 }

@@ -34,7 +34,8 @@ func supervisorMemoryBudget(window llm.ContextWindow) int {
 	// Newly discovered output/model capacities must not also inflate the
 	// established history/compaction budget. Explicit legacy overrides retain
 	// their existing behavior.
-	if window.Source == "provider_model_metadata" || window.Source == "operator_model_policy" {
+	if window.Source == "provider_model_metadata" || window.Source == "operator_model_policy" ||
+		window.Source == "local_model_default" {
 		baseline, _ := llm.DefaultContextWindow().InputLimit(llm.DefaultContextMaxOutput)
 		inputLimit = min(inputLimit, baseline)
 	}
