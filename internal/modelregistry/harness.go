@@ -245,6 +245,9 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 	base llm.ModelHarness,
 ) (llm.HarnessQualification, int, int, error) {
+	if r.geminiSequentialProbes[ref] {
+		return r.probeGeminiHarness(ctx, ref, base)
+	}
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return llm.HarnessQualification{}, 0, 0, err

@@ -233,7 +233,7 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 	}
 	r := &ProviderReplay{version: value.Version, provider: value.Provider, model: value.Model,
 		transport: value.Transport, binding: value.Binding, parts: value.Parts, calls: value.Calls}
-	if value.Version != 2 {
+	if value.Version != 2 && value.Version != 3 {
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)
 		for key := range fields {
@@ -243,12 +243,15 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 		}
 	}
 	if value.ResponseID != nil {
-		if value.Version != 2 {
+		if value.Version != 2 && value.Version != 3 {
 			return nil, errors.New("provider replay response identity is unsupported")
 		}
 		r.responseID = *value.ResponseID
 	}
 	if value.Version == 2 && decodeAnthropicReplayJSON(raw, &value) != nil {
+		return nil, errors.New("provider replay encoding is invalid")
+	}
+	if value.Version == 3 && decodeGeminiReplayJSON(raw, &value) != nil {
 		return nil, errors.New("provider replay encoding is invalid")
 	}
 	if err := r.validate(); err != nil {
@@ -258,6 +261,9 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 }
 
 func (r *ProviderReplay) validate() error {
+	if r != nil && r.version == 3 && r.transport == HarnessTransportOpenAIChatCompletions {
+		return validateGeminiProviderReplay(r)
+	}
 	if r != nil && r.version == 2 && r.transport == HarnessTransportAnthropicMessages {
 		return validateAnthropicProviderReplay(r)
 	}

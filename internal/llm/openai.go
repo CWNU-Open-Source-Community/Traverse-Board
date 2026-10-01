@@ -191,6 +191,9 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if !utf8.Valid(raw) {
 		return nil, openAIProtocolError(p.name, "returned non-UTF-8 JSON")
 	}
+	if GeminiThoughtSignatureScope(p.baseURL, wire.Model) && validateGeminiWireJSON(raw) != nil {
+		return nil, openAIProtocolError(p.name, "returned ambiguous Gemini native metadata")
+	}
 	var parsed openAIChatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, openAIProtocolError(p.name, "returned malformed JSON")
@@ -198,7 +201,14 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if parsed.Error != nil {
 		return nil, openAIWireError(p.name, *parsed.Error)
 	}
-	return p.normalizeResponse(model, parsed)
+	result, err := p.normalizeResponse(model, parsed)
+	if err != nil || !GeminiThoughtSignatureScope(p.baseURL, wire.Model) {
+		return result, err
+	}
+	if err := p.captureGeminiResponse(model, wire.Model, parsed, result); err != nil {
+		return nil, openAIProtocolError(p.name, "returned invalid Gemini signature replay")
+	}
+	return result, nil
 }
 
 func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
@@ -235,7 +245,7 @@ func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatR
 		return nil, openAIHTTPError(p.name, resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 	}
 	chunks := make(chan ChatChunk, 8)
-	go p.readStream(ctx, resp.Body, model, chunks)
+	go p.readStream(ctx, resp.Body, model, chunks, wire.Model)
 	return chunks, nil
 }
 
@@ -259,14 +269,20 @@ func (p *OpenAICompatibleProvider) DescribeModelHarness(model string) ModelHarne
 	if model == "" {
 		model = p.defaultModel
 	}
+	binding := providerHarnessBinding(p.runtime, p.name, p.baseURL, model,
+		HarnessTransportOpenAIChatCompletions, HarnessToolStrategyNative, HarnessJSONStrategyNative)
+	if mappedModel, err := providerRequestModel(p.runtime, model); err == nil {
+		if wireModel, err := normalizeOpenAIModel(mappedModel); err == nil && GeminiThoughtSignatureScope(p.baseURL, wireModel) {
+			// One-round qualifications predate native sequential signature replay.
+			binding = providerHarnessBinding(nil, binding, wireModel, "gemini-sequential-signature-probe-v1")
+		}
+	}
 	return ModelHarness{
 		ProtocolVersion:   ModelHarnessProtocolVersion,
 		TransportProtocol: HarnessTransportOpenAIChatCompletions,
 		ToolStrategy:      HarnessToolStrategyNative, JSONStrategy: HarnessJSONStrategyNative,
 		QualificationStatus: HarnessQualificationRequired,
-		BindingDigest: providerHarnessBinding(p.runtime, p.name, p.baseURL, model,
-			HarnessTransportOpenAIChatCompletions, HarnessToolStrategyNative,
-			HarnessJSONStrategyNative),
+		BindingDigest:       binding,
 	}
 }
 
@@ -309,12 +325,22 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 	if request.JSONMode {
 		wire.ResponseFormat = &openAIResponseFormat{Type: "json_object"}
 	}
-	for index, message := range request.Messages {
-		mapped, err := openAIMessages(message)
+	if GeminiThoughtSignatureScope(p.baseURL, wireModel) {
+		wire.Messages, err = p.geminiMessages(request.Messages, selectedModel, wireModel)
 		if err != nil {
-			return "", openAIChatRequest{}, fmt.Errorf("invalid message at index %d", index)
+			return "", openAIChatRequest{}, err
 		}
-		wire.Messages = append(wire.Messages, mapped...)
+	} else {
+		for index, message := range request.Messages {
+			if message.Replay != nil {
+				return "", openAIChatRequest{}, errors.New("private replay is unsupported for this Chat provider scope")
+			}
+			mapped, err := openAIMessages(message)
+			if err != nil {
+				return "", openAIChatRequest{}, fmt.Errorf("invalid message at index %d", index)
+			}
+			wire.Messages = append(wire.Messages, mapped...)
+		}
 	}
 	if len(wire.Messages) == 0 {
 		content := "Hello"
@@ -560,6 +586,11 @@ func (p *OpenAICompatibleProvider) modelsEndpoint() string {
 }
 
 func (p *OpenAICompatibleProvider) endpoint(path string) string {
+	if path == "/v1/chat/completions" {
+		if endpoint, ok := geminiOpenAIEndpoint(p.baseURL); ok {
+			return endpoint
+		}
+	}
 	if strings.HasSuffix(p.baseURL, path) {
 		return p.baseURL
 	}
@@ -740,11 +771,12 @@ type openAIChatRequest struct {
 }
 
 type openAIMessage struct {
-	Role       string              `json:"role"`
-	Content    *string             `json:"content,omitempty"`
-	ToolCalls  []openAIToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
-	Parts      []openAIContentPart `json:"-"`
+	Role         string              `json:"role"`
+	Content      *string             `json:"content,omitempty"`
+	ToolCalls    []openAIToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID   string              `json:"tool_call_id,omitempty"`
+	Parts        []openAIContentPart `json:"-"`
+	ExtraContent json.RawMessage     `json:"extra_content,omitempty"`
 }
 
 type openAIImageURL struct {
@@ -780,9 +812,10 @@ type openAIFunctionSpec struct {
 }
 
 type openAIToolCall struct {
-	ID       string             `json:"id"`
-	Type     string             `json:"type"`
-	Function openAIFunctionCall `json:"function"`
+	ID           string             `json:"id"`
+	Type         string             `json:"type"`
+	Function     openAIFunctionCall `json:"function"`
+	ExtraContent json.RawMessage    `json:"extra_content,omitempty"`
 }
 
 type openAIFunctionCall struct {
@@ -811,6 +844,7 @@ type openAIError struct {
 }
 
 type openAIChatResponse struct {
+	ID      string         `json:"id"`
 	Model   string         `json:"model"`
 	Choices []openAIChoice `json:"choices"`
 	Usage   *openAIUsage   `json:"usage"`
@@ -825,16 +859,18 @@ type openAIChoice struct {
 }
 
 type openAIStreamDelta struct {
-	Role      string                 `json:"role"`
-	Content   *string                `json:"content"`
-	ToolCalls []openAIStreamToolCall `json:"tool_calls"`
+	Role         string                 `json:"role"`
+	Content      *string                `json:"content"`
+	ToolCalls    []openAIStreamToolCall `json:"tool_calls"`
+	ExtraContent json.RawMessage        `json:"extra_content,omitempty"`
 }
 
 type openAIStreamToolCall struct {
-	Index    *int               `json:"index"`
-	ID       string             `json:"id"`
-	Type     string             `json:"type"`
-	Function openAIFunctionCall `json:"function"`
+	Index        *int               `json:"index"`
+	ID           string             `json:"id"`
+	Type         string             `json:"type"`
+	Function     openAIFunctionCall `json:"function"`
+	ExtraContent json.RawMessage    `json:"extra_content,omitempty"`
 }
 
 type openAIStreamResponse struct {
@@ -858,23 +894,29 @@ type openAIStreamToolState struct {
 }
 
 type openAIStreamState struct {
-	provider      string
-	model         string
-	upstreamModel string
-	responseModel bool
-	finished      bool
-	finishReason  string
-	usage         *Usage
-	textBytes     int
-	hasTextDelta  bool
-	textItemSeen  bool
-	tools         map[int]*openAIStreamToolState
-	events        providerStreamEvents
+	provider       string
+	model          string
+	upstreamModel  string
+	responseModel  bool
+	finished       bool
+	finishReason   string
+	usage          *Usage
+	textBytes      int
+	hasTextDelta   bool
+	textItemSeen   bool
+	tools          map[int]*openAIStreamToolState
+	events         providerStreamEvents
+	gemini         *geminiReplayBuilder
+	geminiProvider *OpenAICompatibleProvider
+	wireModel      string
 }
 
 func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	if !utf8.Valid(payload) {
 		return nil, openAIProtocolError(s.provider, "returned a non-UTF-8 stream event")
+	}
+	if s.gemini != nil && validateGeminiWireJSON(payload) != nil {
+		return nil, openAIProtocolError(s.provider, "returned ambiguous Gemini native metadata")
 	}
 	var event openAIStreamResponse
 	if err := json.Unmarshal(payload, &event); err != nil {
@@ -892,6 +934,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 			return nil, openAIProtocolError(s.provider, "changed model identity during the stream")
 		}
 		s.upstreamModel, s.responseModel = model, true
+	}
+	if s.gemini != nil && s.gemini.observeID(event.ID) != nil {
+		return nil, openAIProtocolError(s.provider, "stream returned invalid Gemini response identity")
 	}
 	if len(event.Choices) == 0 {
 		if event.Usage == nil || s.usage != nil || !s.finished || !s.responseModel ||
@@ -916,6 +961,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	if choice.Delta.Role != "" && choice.Delta.Role != "assistant" {
 		return nil, openAIProtocolError(s.provider, "returned an invalid stream role")
 	}
+	if s.gemini != nil && s.gemini.capture(choice.Delta.ExtraContent, nil) != nil {
+		return nil, openAIProtocolError(s.provider, "stream returned invalid Gemini message signature")
+	}
 	streamEvents := s.ensureStreamStarted()
 	chunk := &ChatChunk{}
 	if choice.Delta.Content != nil && *choice.Delta.Content != "" {
@@ -925,6 +973,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 		}
 		s.textBytes += len(text)
 		s.hasTextDelta = true
+		if s.gemini != nil {
+			s.gemini.text.WriteString(text)
+		}
 		if !s.textItemSeen {
 			s.textItemSeen = true
 			streamEvents = append(streamEvents, s.events.emit(StreamEvent{
@@ -942,6 +993,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 		events, err := s.consumeToolDelta(delta)
 		if err != nil {
 			return nil, openAIProtocolError(s.provider, "returned an invalid tool-call delta")
+		}
+		if s.gemini != nil && s.gemini.capture(delta.ExtraContent, delta.Index) != nil {
+			return nil, openAIProtocolError(s.provider, "stream returned invalid Gemini tool signature")
 		}
 		streamEvents = append(streamEvents, events...)
 	}
@@ -1092,6 +1146,13 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 	if err := validateOpenAIFinishReason(finishReason, s.hasTextDelta, len(calls)); err != nil {
 		return ChatChunk{}, openAIProtocolError(s.provider, "stream returned an incompatible finish reason")
 	}
+	var replay *ProviderReplay
+	if s.gemini != nil {
+		replay, err = s.gemini.replay(s.geminiProvider, s.model, s.wireModel, s.upstreamModel, s.gemini.text.String(), calls)
+		if err != nil {
+			return ChatChunk{}, openAIProtocolError(s.provider, "stream returned invalid Gemini signature replay")
+		}
+	}
 	events := make([]StreamEvent, 0, 3+len(calls)*2)
 	if s.textItemSeen {
 		events = append(events, s.events.emit(StreamEvent{
@@ -1122,7 +1183,7 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 		}))
 	}
 	events = append(events, s.events.terminalEvent(OutcomeSuccess, &usage))
-	return ChatChunk{Done: true, ToolCalls: calls, Events: events, Usage: &usage,
+	return ChatChunk{Done: true, ToolCalls: calls, Replay: replay, Events: events, Usage: &usage,
 		Model: s.model, Provider: s.provider, FinishReason: finishReason}, nil
 }
 
@@ -1134,12 +1195,19 @@ func (s *openAIStreamState) ensureStreamStarted() []StreamEvent {
 }
 
 func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadCloser,
-	model string, chunks chan<- ChatChunk,
+	model string, chunks chan<- ChatChunk, wireModels ...string,
 ) {
 	defer close(chunks)
 	defer body.Close()
 	state := openAIStreamState{provider: p.name, model: model,
 		events: newProviderStreamEvents(p.name, model, "openai-response", StreamGranularityDelta)}
+	wireModel := model
+	if len(wireModels) != 0 {
+		wireModel = wireModels[0]
+	}
+	if GeminiThoughtSignatureScope(p.baseURL, wireModel) {
+		state.gemini, state.geminiProvider, state.wireModel = &geminiReplayBuilder{}, p, wireModel
+	}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
 	lines := providerStreamLines{}
