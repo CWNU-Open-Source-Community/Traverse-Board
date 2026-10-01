@@ -256,7 +256,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 		Parameters:  schema}
 	first := llm.ChatRequest{
 		Messages: []llm.Message{
-			{Role: "system", Content: "Traverse Board model Harness qualification. First call only the supplied synthetic tool as requested. After receiving its result, return the requested JSON acknowledgement without another tool call. No external work is performed by this probe."},
+			{Role: "system", Content: "Traverse Board model Harness qualification. First call only the supplied synthetic tool as requested. After receiving its result, return exactly one JSON object with version " + HarnessProbeProtocolVersion + ", status ok, and the same nonce. Do not call another tool. No external work is performed by this probe."},
 			{Role: "user", Content: "Call prayu_harness_echo exactly once with nonce " + nonce + "."},
 		},
 		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,
@@ -295,9 +295,9 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 	}
 	second := llm.ChatRequest{
 		Messages: append(append([]llm.Message(nil), first.Messages...),
-			llm.Message{Role: "assistant", Content: firstResponse.Text, ToolCalls: firstResponse.ToolCalls},
+			llm.Message{Role: "assistant", Content: firstResponse.Text, ToolCalls: firstResponse.ToolCalls,
+				Replay: firstResponse.Replay.Clone()},
 			llm.Message{Role: "user",
-				Content: "Return exactly one JSON object with version model_harness_probe.v1, status ok, and the same nonce. Do not call a tool.",
 				ToolResults: []llm.ToolResult{{
 					ToolCallID: firstResponse.ToolCalls[0].ID, Content: string(resultJSON),
 				}}}),
@@ -392,8 +392,17 @@ func collectHarnessProbeStream(ctx context.Context, router *llm.Router, ref llm.
 				return nil, llm.NewProviderError(llm.OutcomeInvalidResponse,
 					ref.Provider, "model Harness probe returned invalid tool calls", err)
 			}
+			if chunk.Replay != nil {
+				if chunk.Replay.ValidateSource(ref.Provider, ref.Model) != nil ||
+					chunk.Replay.ValidateToolCalls(calls) != nil ||
+					chunk.Replay.AssistantText() != text.String() {
+					return nil, llm.NewProviderError(llm.OutcomeInvalidResponse,
+						ref.Provider, "model Harness probe replay does not match its response", nil)
+				}
+			}
 			return &llm.ChatResponse{Text: text.String(), ToolCalls: calls,
-				Usage: *chunk.Usage, Provider: chunk.Provider, Model: chunk.Model}, nil
+				Usage: *chunk.Usage, Provider: chunk.Provider, Model: chunk.Model,
+				FinishReason: chunk.FinishReason, Replay: chunk.Replay.Clone()}, nil
 		}
 	}
 	return nil, llm.NewProviderError(llm.OutcomeInvalidResponse, ref.Provider,

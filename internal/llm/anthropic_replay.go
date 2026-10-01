@@ -14,22 +14,26 @@ import (
 // These are the only native assistant blocks supported by this replay format.
 // Pointers preserve required empty strings; private strings never enter Text.
 type anthropicReplayBlock struct {
-	Type      string          `json:"type"`
-	Text      *string         `json:"text,omitempty"`
-	Thinking  *string         `json:"thinking,omitempty"`
-	Signature *string         `json:"signature,omitempty"`
-	Data      *string         `json:"data,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
+	Type        string          `json:"type"`
+	Text        *string         `json:"text,omitempty"`
+	Thinking    *string         `json:"thinking,omitempty"`
+	Signature   *string         `json:"signature,omitempty"`
+	Data        *string         `json:"data,omitempty"`
+	ID          string          `json:"id,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Input       json.RawMessage `json:"input,omitempty"`
+	Citations   json.RawMessage `json:"citations,omitempty"`
+	Caller      json.RawMessage `json:"caller,omitempty"`
+	ToolsetName json.RawMessage `json:"toolset_name,omitempty"`
 }
 
 type anthropicReplayDelta struct {
-	Type        string  `json:"type"`
-	Text        *string `json:"text,omitempty"`
-	Thinking    *string `json:"thinking,omitempty"`
-	Signature   *string `json:"signature,omitempty"`
-	PartialJSON *string `json:"partial_json,omitempty"`
+	Type        string          `json:"type"`
+	Text        *string         `json:"text,omitempty"`
+	Thinking    *string         `json:"thinking,omitempty"`
+	Signature   *string         `json:"signature,omitempty"`
+	PartialJSON *string         `json:"partial_json,omitempty"`
+	Citation    json.RawMessage `json:"citation,omitempty"`
 }
 
 func (b *anthropicReplayBlock) UnmarshalJSON(raw []byte) error {
@@ -38,7 +42,7 @@ func (b *anthropicReplayBlock) UnmarshalJSON(raw []byte) error {
 	if json.Unmarshal(raw, &value) != nil {
 		return errors.New("Anthropic native block fields are invalid")
 	}
-	var required, optional []string
+	var required, optional, nullable []string
 	switch value.Type {
 	case "thinking":
 		required, optional = []string{"type", "thinking"}, []string{"signature"}
@@ -46,12 +50,14 @@ func (b *anthropicReplayBlock) UnmarshalJSON(raw []byte) error {
 		required = []string{"type", "data"}
 	case "text":
 		required = []string{"type", "text"}
+		optional, nullable = []string{"citations"}, []string{"citations"}
 	case "tool_use":
 		required = []string{"type", "id", "name", "input"}
+		optional, nullable = []string{"caller", "toolset_name"}, []string{"caller", "toolset_name"}
 	default:
 		return errors.New("Anthropic native block type is unsupported")
 	}
-	if checkAnthropicReplayFields(raw, required, optional) != nil {
+	if checkAnthropicReplayNullableFields(raw, required, optional, nullable) != nil {
 		return errors.New("Anthropic native block schema is invalid")
 	}
 	*b = anthropicReplayBlock(value)
@@ -74,6 +80,8 @@ func (d *anthropicReplayDelta) UnmarshalJSON(raw []byte) error {
 		field = "signature"
 	case "input_json_delta":
 		field = "partial_json"
+	case "citations_delta":
+		field = "citation"
 	default:
 		return errors.New("Anthropic native delta type is unsupported")
 	}
@@ -85,14 +93,15 @@ func (d *anthropicReplayDelta) UnmarshalJSON(raw []byte) error {
 }
 
 type anthropicReplayPendingBlock struct {
-	block         anthropicReplayBlock
-	closed        bool
-	signatureSeen bool
-	text          strings.Builder
-	thinking      strings.Builder
-	signature     strings.Builder
-	partial       strings.Builder
-	hasPartial    bool
+	block            anthropicReplayBlock
+	closed           bool
+	signatureSeen    bool
+	text             strings.Builder
+	thinking         strings.Builder
+	signature        strings.Builder
+	partial          strings.Builder
+	hasPartial       bool
+	hasCitationDelta bool
 }
 
 // A builder belongs to one upstream response, not the newest response in a
@@ -157,6 +166,17 @@ func (b *anthropicReplayBuilder) appendDelta(index int, raw json.RawMessage) err
 		return errors.New("Anthropic replay delta is invalid")
 	}
 	pending := b.blocks[index]
+	if delta.Type == "citations_delta" {
+		var citation map[string]json.RawMessage
+		if pending.block.Type != "text" || json.Unmarshal(delta.Citation, &citation) != nil || citation == nil {
+			return errors.New("Anthropic citation delta does not match its text block")
+		}
+		// Citation metadata is inert for ordinary public text. Do not silently
+		// omit it from a signed private tool replay that we cannot reconstruct.
+		pending.hasCitationDelta = true
+		b.bytes += len(raw)
+		return nil
+	}
 	var target **string
 	var accumulated *strings.Builder
 	var value *string
@@ -252,6 +272,9 @@ func (b *anthropicReplayBuilder) finish(provider, model, binding string, calls [
 		if !pending.closed {
 			return nil, errors.New("Anthropic replay content has an unfinished block")
 		}
+		if pending.hasCitationDelta {
+			return nil, errors.New("Anthropic citation-bearing private replay is unsupported")
+		}
 		block := pending.block
 		if validateAnthropicReplayBlock(block, true) != nil {
 			return nil, errors.New("Anthropic replay has an incomplete native block")
@@ -266,6 +289,7 @@ func (b *anthropicReplayBuilder) finish(provider, model, binding string, calls [
 			}
 		case "text":
 			part.Kind, part.Text = "text", redact.String(*block.Text)
+			part.Opaque, err = encodeAnthropicReplayMetadata(block)
 		case "tool_use":
 			if toolIndex >= len(normalized) {
 				return nil, errors.New("Anthropic replay has an unmatched native tool")
@@ -278,9 +302,13 @@ func (b *anthropicReplayBuilder) finish(provider, model, binding string, calls [
 			}
 			r.calls[toolIndex] = providerReplayCall{WireID: call.ID, DurableID: call.ID, Name: call.Name, PayloadSHA256: digest}
 			part.Kind, part.CallIndex = "tool", toolIndex
+			part.Opaque, err = encodeAnthropicReplayMetadata(block)
 			toolIndex++
 		default:
 			return nil, errors.New("Anthropic replay content type is unsupported")
+		}
+		if err != nil {
+			return nil, errors.New("Anthropic replay block metadata cannot be encoded")
 		}
 		r.parts = append(r.parts, part)
 	}
@@ -329,12 +357,14 @@ func validateAnthropicProviderReplay(r *ProviderReplay) error {
 			}
 		case "text":
 			textBytes += len(part.Text)
-			if len(part.Opaque) != 0 || part.CallIndex != 0 || !utf8.ValidString(part.Text) ||
+			_, metadataErr := decodeAnthropicReplayMetadata(part.Kind, part.Opaque)
+			if metadataErr != nil || part.CallIndex != 0 || !utf8.ValidString(part.Text) ||
 				textBytes > MaxModelOutputBytes || redact.String(part.Text) != part.Text {
 				return errors.New("Anthropic replay public block is invalid")
 			}
 		case "tool":
-			if part.Text != "" || len(part.Opaque) != 0 || part.CallIndex != toolIndex || toolIndex >= len(r.calls) {
+			_, metadataErr := decodeAnthropicReplayMetadata(part.Kind, part.Opaque)
+			if part.Text != "" || metadataErr != nil || part.CallIndex != toolIndex || toolIndex >= len(r.calls) {
 				return errors.New("Anthropic replay tool position is invalid")
 			}
 			toolIndex++
@@ -376,11 +406,14 @@ func anthropicReplayMessage(message Message, provider, model, binding string) ([
 			blocks = append(blocks, block)
 		case "text":
 			text := part.Text
-			blocks = append(blocks, anthropicReplayBlock{Type: "text", Text: &text})
+			metadata, _ := decodeAnthropicReplayMetadata(part.Kind, part.Opaque)
+			blocks = append(blocks, anthropicReplayBlock{Type: "text", Text: &text, Citations: metadata.Citations})
 		case "tool":
 			call, bound := calls[part.CallIndex], r.calls[part.CallIndex]
+			metadata, _ := decodeAnthropicReplayMetadata(part.Kind, part.Opaque)
 			blocks = append(blocks, anthropicReplayBlock{Type: "tool_use", ID: bound.WireID,
-				Name: call.Name, Input: append(json.RawMessage(nil), call.Arguments...)})
+				Name: call.Name, Input: append(json.RawMessage(nil), call.Arguments...),
+				Caller: metadata.Caller, ToolsetName: metadata.ToolsetName})
 			aliases[bound.DurableID] = bound.WireID
 		}
 	}
@@ -415,7 +448,8 @@ func validateAnthropicReplayBlock(block anthropicReplayBlock, complete bool) err
 			return errors.New("Anthropic replay string exceeds its UTF-8 byte bound")
 		}
 	}
-	privateOnly := block.ID == "" && block.Name == "" && len(block.Input) == 0
+	noToolFields := block.ID == "" && block.Name == "" && len(block.Input) == 0
+	privateOnly := noToolFields && len(block.Citations) == 0 && len(block.Caller) == 0 && len(block.ToolsetName) == 0
 	switch block.Type {
 	case "thinking":
 		if !privateOnly || block.Text != nil || block.Data != nil || block.Thinking == nil ||
@@ -427,12 +461,16 @@ func validateAnthropicReplayBlock(block anthropicReplayBlock, complete bool) err
 			return errors.New("Anthropic redacted thinking block is invalid")
 		}
 	case "text":
-		if !privateOnly || block.Text == nil || block.Thinking != nil || block.Signature != nil || block.Data != nil || len(*block.Text) > MaxModelOutputBytes {
+		if !noToolFields || block.Text == nil || block.Thinking != nil || block.Signature != nil || block.Data != nil ||
+			len(block.Caller) != 0 || len(block.ToolsetName) != 0 || len(*block.Text) > MaxModelOutputBytes ||
+			validateAnthropicCitations(block.Citations, complete) != nil {
 			return errors.New("Anthropic text block is invalid")
 		}
 	case "tool_use":
 		var object map[string]json.RawMessage
 		if block.Text != nil || block.Thinking != nil || block.Signature != nil || block.Data != nil ||
+			len(block.Citations) != 0 || validateAnthropicDirectCaller(block.Caller) != nil ||
+			validateAnthropicLocalToolset(block.ToolsetName) != nil ||
 			!replayIdentity(block.ID) || validateToolName(block.Name) != nil || len(block.Input) > MaxProviderToolPayloadSize ||
 			decodeAnthropicReplayJSON(block.Input, &object) != nil || object == nil {
 			return errors.New("Anthropic tool block is invalid")
@@ -468,6 +506,10 @@ func decodeAnthropicReplayJSON(raw []byte, target any) error {
 }
 
 func checkAnthropicReplayFields(raw []byte, required, optional []string) error {
+	return checkAnthropicReplayNullableFields(raw, required, optional, nil)
+}
+
+func checkAnthropicReplayNullableFields(raw []byte, required, optional, nullable []string) error {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
 		return errors.New("Anthropic replay object is invalid")
@@ -482,8 +524,12 @@ func checkAnthropicReplayFields(raw []byte, required, optional []string) error {
 	for _, key := range optional {
 		allowed[key] = true
 	}
+	allowsNull := make(map[string]bool, len(nullable))
+	for _, key := range nullable {
+		allowsNull[key] = true
+	}
 	for key, value := range fields {
-		if !allowed[key] || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if !allowed[key] || (!allowsNull[key] && bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
 			return errors.New("Anthropic replay object has an unsupported field")
 		}
 	}

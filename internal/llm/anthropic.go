@@ -1079,6 +1079,9 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			}
 			return nil, false, nil
 		}
+		if delta.Type == "citations_delta" && s.textBlocks[event.Index] {
+			return nil, false, nil
+		}
 		if !s.privateBlocks[event.Index] {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned an unsupported content block delta", nil)
