@@ -22,7 +22,9 @@ func TestResponsesGenericErrorClassificationAndPrivacy(t *testing.T) {
 		reason ProviderFailureReason
 	}{
 		{"capacity", map[string]any{"code": "server_error", "param": nil}, OutcomeRetryable, ProviderFailureCapacity},
+		{"empty_message_capacity", map[string]any{"code": "server_error", "message": "", "param": responsesErrorParamCanary}, OutcomeRetryable, ProviderFailureCapacity},
 		{"rate_limit", map[string]any{"code": "rate_limit_exceeded"}, OutcomeRateLimited, ProviderFailureRateLimit},
+		{"blank_message_rate_limit", map[string]any{"code": "rate_limit_exceeded", "message": " \n\t", "param": responsesErrorParamCanary}, OutcomeRateLimited, ProviderFailureRateLimit},
 		{"authentication", map[string]any{"code": "invalid_api_key", "param": responsesErrorParamCanary}, OutcomePermanent, ProviderFailureAuthentication},
 		{"network", map[string]any{"code": "request_timeout"}, OutcomeRetryable, ProviderFailureNetwork},
 		{"model", map[string]any{"code": "model_not_found"}, OutcomePermanent, ProviderFailureModelNotFound},
@@ -55,6 +57,11 @@ func TestResponsesGenericErrorClassificationAndPrivacy(t *testing.T) {
 				if chunk.Usage != nil {
 					t.Fatal("generic error manufactured authoritative usage")
 				}
+				for _, event := range chunk.Events {
+					if event.Type == StreamResponseFailed && event.Outcome != tc.kind {
+						t.Fatalf("failure terminal classification: got=%s want=%s", event.Outcome, tc.kind)
+					}
+				}
 			}
 		})
 	}
@@ -65,8 +72,6 @@ func TestResponsesGenericErrorRejectsInvalidShapes(t *testing.T) {
 		{"empty", `{"type":"error"}`},
 		{"missing_message", `{"type":"error","code":"server_error"}`},
 		{"null_message", `{"type":"error","code":"server_error","message":null}`},
-		{"empty_message", `{"type":"error","message":""}`},
-		{"blank_message", `{"type":"error","message":" \n\t"}`},
 		{"number_message", `{"type":"error","message":42}`},
 		{"object_message", `{"type":"error","message":{}}`},
 		{"number_code", `{"type":"error","message":"fixture","code":42}`},

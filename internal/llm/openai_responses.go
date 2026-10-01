@@ -789,7 +789,7 @@ func (e openAIResponsesStreamEvent) genericError() (openAIError, bool) {
 	}
 	var message *string
 	if !utf8.Valid(e.Message) || json.Unmarshal(e.Message, &message) != nil ||
-		message == nil || strings.TrimSpace(*message) == "" {
+		message == nil {
 		return openAIError{}, false
 	}
 	for _, field := range []json.RawMessage{e.Code, e.Param} {
