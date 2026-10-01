@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -88,8 +89,12 @@ func validateInstructionObjectShape(raw string, p AgentInstructionPayload) error
 		return errors.New("Specialist instruction has an invalid field set")
 	}
 	for _, field := range expected {
-		if _, ok := fields[field]; !ok {
+		value, ok := fields[field]
+		if !ok {
 			return errors.New("Specialist instruction is missing a field")
+		}
+		if value = bytes.TrimSpace(value); len(value) == 0 || value[0] != '"' {
+			return fmt.Errorf("Specialist instruction field %s must be a string", field)
 		}
 	}
 	return nil

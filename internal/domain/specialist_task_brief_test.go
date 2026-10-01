@@ -28,6 +28,7 @@ func TestSpecialistTaskBriefOperationProtocolRejectsAmbiguityAndUnknownVersions(
 		`{"version":"specialist_instruction.v2","instruction":"scope","operation":"replace"}`,
 		`{"version":"specialist_instruction.v2","instruction":"scope","operation":"append","target_message_id":"agentmsg-earlier"}`,
 		`{"version":"specialist_instruction.v2","instruction":"scope","operation":"withdraw","target_message_id":"agentmsg-earlier","target_payload_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`,
+		`{"version":"specialist_instruction.v2","instruction":null,"operation":"withdraw","target_message_id":"agentmsg-earlier","target_payload_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`,
 		`{"version":"specialist_instruction.v2","instruction":"scope","operation":"append","authority":"root"}`,
 		`{"version":"specialist_instruction.v1","instruction":"scope","operation":""}`,
 		fmt.Sprintf(`{"version":%q,"instruction":"scope","operation":"append"}`, strings.Replace(SpecialistInstructionOperationVersion, ".v2", ".v99", 1)),
