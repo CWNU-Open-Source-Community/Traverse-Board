@@ -59,9 +59,13 @@ func NewOpenAIResponsesProvider(config OpenAIResponsesConfig) (*OpenAIResponsesP
 	if _, err := normalizeOpenAIModel(model); err != nil {
 		return nil, fmt.Errorf("default model for provider %s is invalid", name)
 	}
+	client, err := providerHTTPClient(config.HTTPClient)
+	if err != nil {
+		return nil, err
+	}
 	return &OpenAIResponsesProvider{
 		name: name, baseURL: baseURL, apiKey: config.APIKey,
-		defaultModel: model, client: providerHTTPClient(config.HTTPClient),
+		defaultModel: model, client: client,
 		runtime: config.Runtime,
 	}, nil
 }

@@ -466,8 +466,11 @@ func TestAnthropicCompatibleProviderClassifiesHTTPFailures(t *testing.T) {
 
 func TestProviderHTTPClientBoundsTimeoutAndDisablesRedirects(t *testing.T) {
 	source := &http.Client{Timeout: 2 * time.Minute}
-	client := providerHTTPClient(source)
-	if client == source || client.Timeout != defaultProviderTimeout || source.Timeout != 2*time.Minute {
+	client, err := providerHTTPClient(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client == source || client.Timeout != 2*time.Minute || source.Timeout != 2*time.Minute {
 		t.Fatalf("HTTP client timeout was not safely copied and bounded: source=%s client=%s",
 			source.Timeout, client.Timeout)
 	}
@@ -475,7 +478,10 @@ func TestProviderHTTPClientBoundsTimeoutAndDisablesRedirects(t *testing.T) {
 	if err := client.CheckRedirect(request, nil); !errors.Is(err, http.ErrUseLastResponse) {
 		t.Fatalf("redirect policy error = %v", err)
 	}
-	short := providerHTTPClient(&http.Client{Timeout: 5 * time.Second})
+	short, err := providerHTTPClient(&http.Client{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if short.Timeout != 5*time.Second {
 		t.Fatalf("short caller timeout was widened: %s", short.Timeout)
 	}
