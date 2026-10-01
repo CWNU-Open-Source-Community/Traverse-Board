@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -33,6 +34,11 @@ func insertInitialRunInstructionSnapshotTx(ctx context.Context, tx *sql.Tx,
 	if err := snapshot.Validate(); err != nil ||
 		snapshot.Fingerprint != run.Config.ProjectInstructionsFingerprint {
 		return errors.New("initial Run instruction snapshot binding is invalid")
+	}
+	if snapshot.Delivery != nil {
+		if err := contextmgr.ValidateMemoryActor(confirmedBy); err != nil {
+			return err
+		}
 	}
 	added := make([]string, len(snapshot.Sources))
 	for index, source := range snapshot.Sources {
@@ -61,6 +67,78 @@ func (s *SQLiteStore) GetLatestRunInstructionSnapshot(ctx context.Context,
 		return projectconfig.RunInstructionSnapshot{}, false, err
 	}
 	return record, true, nil
+}
+
+// New model starts are audited only after the application has checked the exact
+// outbound rule envelopes. A pending tool must retain that source-bound start;
+// a refreshed contract or an ambiguous legacy start cannot authorize resumption.
+// This read check never replaces the gateway's execution/lease authorization.
+func (s *SQLiteStore) CheckRunProjectInstructionToolContext(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, round domain.SupervisorToolRound,
+	expectedFingerprint string,
+) error {
+	if round.RunID != checkpoint.RunID || round.AttemptID != checkpoint.AttemptID ||
+		round.Turn != checkpoint.NextTurn {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"project instruction tool origin differs from the current attempt")
+	}
+	run, err := s.GetRun(ctx, checkpoint.RunID)
+	if err != nil {
+		return err
+	}
+	if run.Config.ProjectInstructionsFingerprint != expectedFingerprint {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"project instruction snapshot changed before tool resumption")
+	}
+	var snapshot projectconfig.InstructionSnapshot
+	if err := json.Unmarshal(run.Config.ProjectInstructions, &snapshot); err != nil {
+		return err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+	if snapshot.Delivery == nil {
+		return nil
+	}
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT payload_json FROM run_events
+		WHERE run_id = ? AND type = ? AND source = 'model_gateway' AND subject_id = ?`,
+		run.ID, events.ModelStartedEvent, supervisorModelSubject(checkpoint, round.ModelAttempt)).Scan(&raw); err != nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"resumed tool has no source-bound project instruction model start")
+	}
+	start, err := parseSupervisorModelStartedPayload(raw)
+	if err != nil {
+		return err
+	}
+	if start.AttemptID != round.AttemptID || start.Turn != round.Turn ||
+		start.ModelAttempt != round.ModelAttempt || start.Context == nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"resumed tool has no matching project instruction context audit")
+	}
+	for index, item := range snapshot.Delivery.Sources {
+		id := snapshot.DeliverySourceID(index)
+		matched := false
+		for _, source := range start.Context.Included {
+			matched = matched || (source.Kind == "project_instruction" && source.SourceID == id &&
+				item.Requirement != projectconfig.InstructionExcluded)
+		}
+		if item.Requirement != projectconfig.InstructionMandatory {
+			reason := "budget"
+			if item.Requirement == projectconfig.InstructionExcluded {
+				reason = "operator_excluded"
+			}
+			for _, source := range start.Context.Omitted {
+				matched = matched || (source.Kind == "project_instruction" &&
+					source.SourceID == "omitted/"+reason+"/"+id)
+			}
+		}
+		if !matched {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"resumed tool model request did not carry the current pinned project instruction contract")
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) ListRunInstructionSnapshots(ctx context.Context,
@@ -124,6 +202,30 @@ func (s *SQLiteStore) ConfirmRunInstructionSnapshot(ctx context.Context,
 	if run.Config.ProjectInstructionsFingerprint != expectedFingerprint {
 		return projectconfig.RunInstructionSnapshot{}, false,
 			errors.New("project instruction snapshot changed concurrently")
+	}
+	var prior projectconfig.InstructionSnapshot
+	if len(run.Config.ProjectInstructions) > 0 {
+		if err := json.Unmarshal(run.Config.ProjectInstructions, &prior); err != nil {
+			return projectconfig.RunInstructionSnapshot{}, false, err
+		}
+	}
+	if prior.Delivery != nil && snapshot.Delivery == nil {
+		return projectconfig.RunInstructionSnapshot{}, false, apperror.New(apperror.CodeFailedPrecondition,
+			"classified project instructions require renewed explicit delivery classification")
+	}
+	if prior.Delivery != nil || snapshot.Delivery != nil {
+		if run.Status != domain.RunCreated && run.Status != domain.RunPaused {
+			return projectconfig.RunInstructionSnapshot{}, false, apperror.New(apperror.CodeFailedPrecondition,
+				"pause the Run before changing project instruction delivery")
+		}
+		lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+		if err != nil {
+			return projectconfig.RunInstructionSnapshot{}, false, err
+		}
+		if found && lease.Status == domain.RunExecutionLeaseActive {
+			return projectconfig.RunInstructionSnapshot{}, false, apperror.New(apperror.CodeFailedPrecondition,
+				"release the active Run execution lease before changing project instruction delivery")
+		}
 	}
 	originalConfigJSON, err := marshalRedactedJSON(run.Config)
 	if err != nil {
