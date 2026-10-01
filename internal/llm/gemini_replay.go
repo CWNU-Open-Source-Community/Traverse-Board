@@ -211,7 +211,8 @@ func (b *geminiReplayBuilder) replay(p *OpenAICompatibleProvider, routeModel, wi
 func validateGeminiProviderReplay(r *ProviderReplay) error {
 	if r == nil || r.version != 3 || r.transport != HarnessTransportOpenAIChatCompletions ||
 		!replayIdentity(r.provider) || !replayIdentity(r.model) || !replayIdentity(r.responseID) || !replayDigest(r.binding) ||
-		len(r.calls) == 0 || len(r.calls) > MaxProviderToolCalls || len(r.parts) < 2 || len(r.parts) > len(r.calls)+2 {
+		len(r.calls) == 0 || len(r.calls) > MaxProviderToolCalls || len(r.parts) < 2 || len(r.parts) > len(r.calls)+2 ||
+		r.parts[0].Kind != "gemini_metadata" {
 		return errors.New("Gemini replay envelope is invalid")
 	}
 	wireIDs, durableIDs := map[string]bool{}, map[string]bool{}

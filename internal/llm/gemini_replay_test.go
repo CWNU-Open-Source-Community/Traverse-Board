@@ -481,6 +481,34 @@ func TestGeminiReplayStoredSchemaAndHistoryBounds(t *testing.T) {
 	}
 }
 
+func TestGeminiReplayRequiresNativeMetadataForParallelCalls(t *testing.T) {
+	p, _, calls := geminiBoundTestReplay(t)
+	calls = append(calls, ToolCall{ID: "native-b", Name: "echo", Arguments: json.RawMessage(`{}`)})
+	b := &geminiReplayBuilder{responseID: "parallel-response", tools: map[int]string{0: "private-first-tool"}}
+	replay, err := b.replay(p, "route-alias", geminiTestModel, "upstream-snapshot", "", calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := replay.EncodeForStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]json.RawMessage
+	var parts []json.RawMessage
+	if json.Unmarshal(raw, &stored) != nil || json.Unmarshal(stored["parts"], &parts) != nil || len(parts) != 3 {
+		t.Fatal("parallel fixture did not contain native metadata and both tool positions")
+	}
+	stored["parts"], _ = json.Marshal(parts[1:])
+	missingMetadata, _ := json.Marshal(stored)
+	if decoded, err := DecodeProviderReplay(missingMetadata); err == nil || decoded != nil {
+		t.Fatal("durable v3 replay accepted parallel calls without wire/upstream provenance")
+	}
+	replay.parts = replay.parts[1:]
+	if _, err := replay.EncodeForStore(); err == nil {
+		t.Fatal("v3 writer accepted parallel calls without native metadata")
+	}
+}
+
 func TestGeminiQualificationBindingRejectsOldOneRoundRecord(t *testing.T) {
 	p, _, _ := geminiBoundTestReplay(t)
 	old := providerHarnessBinding(p.runtime, p.name, p.baseURL, p.defaultModel, HarnessTransportOpenAIChatCompletions, HarnessToolStrategyNative, HarnessJSONStrategyNative)
