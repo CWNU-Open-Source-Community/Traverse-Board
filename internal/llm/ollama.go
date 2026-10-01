@@ -725,13 +725,9 @@ func normalizeOllamaBaseURL(value string) (string, error) {
 // routed through a proxy, and non-loopback hosts are rejected before any
 // request is built.
 func ollamaHTTPClient(source *http.Client) (*http.Client, error) {
-	client := &http.Client{Timeout: defaultProviderTimeout}
-	if source != nil {
-		copy := *source
-		client = &copy
-		if client.Timeout <= 0 || client.Timeout > defaultProviderTimeout {
-			client.Timeout = defaultProviderTimeout
-		}
+	client, err := providerHTTPClient(source)
+	if err != nil {
+		return nil, err
 	}
 	switch transport := client.Transport.(type) {
 	case nil:
@@ -742,9 +738,6 @@ func ollamaHTTPClient(source *http.Client) (*http.Client, error) {
 		client.Transport = clone
 	default:
 		return nil, errors.New("Ollama requires a proxy-free standard HTTP transport")
-	}
-	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
 	}
 	return client, nil
 }
