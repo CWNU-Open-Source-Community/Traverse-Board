@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -22,7 +20,7 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopThreadTurn(t *testi
 	const model = "integration-model"
 	const assistantReply = "真实模型桌面对话已提交"
 	var calls atomic.Int32
-	noncePattern := regexp.MustCompile(`Call prayu_harness_echo exactly once with nonce ([0-9a-f]{32})\.`)
+	qualificationFixture := &anthropicHarnessFixture{}
 	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/messages" || request.Method != http.MethodPost {
 			t.Errorf("unexpected Provider request %s %s", request.Method, request.URL.Path)
@@ -49,25 +47,18 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopThreadTurn(t *testi
 			return
 		}
 		calls.Add(1)
-		body := string(raw)
-		switch {
-		case strings.Contains(body, "Return exactly one JSON object with version model_harness_probe.v1"):
-			match := regexp.MustCompile(`[0-9a-f]{32}`).FindString(body)
-			if match == "" {
-				t.Errorf("qualification result nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
+		phase, nonce, err := qualificationFixture.phase(raw)
+		if err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch phase {
+		case "tool_result":
 			writeAnthropicTextSSE(t, writer, model, fmt.Sprintf(
-				`{"version":"model_harness_probe.v1","status":"ok","nonce":"%s"}`, match))
-		case strings.Contains(body, "Call prayu_harness_echo exactly once"):
-			match := noncePattern.FindStringSubmatch(body)
-			if len(match) != 2 {
-				t.Errorf("qualification nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			writeAnthropicToolSSE(t, writer, model, match[1])
+				`{"version":"model_harness_probe.v1","status":"ok","nonce":"%s"}`, nonce))
+		case "tool_call":
+			writeAnthropicToolSSE(t, writer, model, nonce)
 		default:
 			writeAnthropicTextSSE(t, writer, model,
 				`{"version":"root_lifecycle.v1","action":"wait","message":"`+
@@ -104,7 +95,7 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopThreadTurn(t *testi
 	}
 	var qualification httpapi.ModelHarnessQualificationView
 	decodeDesktopControlData(t, harness, &qualification)
-	if qualification.Status != modelregistry.HarnessDiagnosticQualified ||
+	if qualification.Status != modelregistry.HarnessDiagnosticQualified || qualification.ModelCalls != 2 || qualification.SyntheticToolCalls != 1 ||
 		!qualification.Harness.RootEligible {
 		t.Fatalf("Harness qualification did not become root eligible: %#v", qualification)
 	}

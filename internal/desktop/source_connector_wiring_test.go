@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +33,7 @@ type desktopSourceWiringRequest struct {
 func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.T) {
 	const model = "source-wiring-model"
 	const providerSecret = "desktop-source-wiring-secret"
-	qualificationNonce := regexp.MustCompile(`Call prayu_harness_echo exactly once with nonce ([0-9a-f]{32})\.`)
+	qualificationFixture := &anthropicHarnessFixture{}
 
 	var requestMu sync.Mutex
 	modelRequests := make([]desktopSourceWiringRequest, 0, 2)
@@ -64,25 +63,18 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 			return
 		}
 
-		body := string(raw)
-		switch {
-		case strings.Contains(body, "Return exactly one JSON object with version model_harness_probe.v1"):
-			nonce := regexp.MustCompile(`[0-9a-f]{32}`).FindString(body)
-			if nonce == "" {
-				t.Errorf("qualification result nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
+		phase, nonce, err := qualificationFixture.phase(raw)
+		if err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch phase {
+		case "tool_result":
 			writeAnthropicTextSSE(t, writer, model, fmt.Sprintf(
 				`{"version":"model_harness_probe.v1","status":"ok","nonce":"%s"}`, nonce))
-		case strings.Contains(body, "Call prayu_harness_echo exactly once"):
-			match := qualificationNonce.FindStringSubmatch(body)
-			if len(match) != 2 {
-				t.Errorf("qualification tool nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			writeAnthropicToolSSE(t, writer, model, match[1])
+		case "tool_call":
+			writeAnthropicToolSSE(t, writer, model, nonce)
 		default:
 			requestMu.Lock()
 			modelRequests = append(modelRequests, captured)
@@ -128,7 +120,7 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	}
 	var qualification httpapi.ModelHarnessQualificationView
 	decodeDesktopControlData(t, harness, &qualification)
-	if qualification.Status != modelregistry.HarnessDiagnosticQualified ||
+	if qualification.Status != modelregistry.HarnessDiagnosticQualified || qualification.ModelCalls != 2 || qualification.SyntheticToolCalls != 1 ||
 		!qualification.Harness.RootEligible {
 		t.Fatalf("Harness qualification did not become root eligible: %#v", qualification)
 	}
