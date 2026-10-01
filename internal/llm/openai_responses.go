@@ -1316,7 +1316,7 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 	lines := providerStreamLines{}
 	scanner.Split(lines.split)
 	dataLines := make([]string, 0, 1)
-	dataBytes := 0
+	eventSize := providerSSEEventSize{}
 	finished := false
 	send := func(chunk ChatChunk) bool {
 		select {
@@ -1338,8 +1338,9 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 			return true
 		}
 		payload := strings.Join(dataLines, "\n")
+		clear(dataLines)
 		dataLines = dataLines[:0]
-		dataBytes = 0
+		eventSize = providerSSEEventSize{}
 		if payload == "[DONE]" {
 			if state.terminal {
 				finished = true
@@ -1380,12 +1381,10 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		}
 		if strings.HasPrefix(line, "data:") {
 			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if len(part) > maxOpenAIStreamEventBytes ||
-				dataBytes > maxOpenAIStreamEventBytes-len(part) {
+			if !eventSize.append(len(part)) {
 				_ = sendFailure(openAIProtocolError(p.name, "Responses stream event exceeds its limit"))
 				return
 			}
-			dataBytes += len(part)
 			dataLines = append(dataLines, part)
 		}
 	}
