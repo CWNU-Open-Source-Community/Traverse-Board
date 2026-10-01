@@ -466,6 +466,10 @@ func (p *OllamaProvider) normalizeResponse(model string, parsed ollamaChatRespon
 	if !parsed.Done {
 		return nil, ollamaProtocolError(p.name, "returned an incomplete response")
 	}
+	finishReason := normalizeOllamaFinishReason(parsed.DoneReason)
+	if finishReason == FinishReasonUnknown {
+		return nil, ollamaProtocolError(p.name, "returned an invalid done reason")
+	}
 	if parsed.Message == nil {
 		return nil, ollamaProtocolError(p.name, "returned a response without a message")
 	}
@@ -476,14 +480,34 @@ func (p *OllamaProvider) normalizeResponse(model string, parsed ollamaChatRespon
 	if !utf8.ValidString(text) || len(text) > MaxModelOutputBytes {
 		return nil, ollamaProtocolError(p.name, "returned invalid message content")
 	}
+	response := &ChatResponse{
+		Text: text, Usage: ollamaUsage(parsed.PromptEvalCount, parsed.EvalCount, text, messagesBytes),
+		Model: model, Provider: p.name, FinishReason: finishReason,
+	}
+	if completionErr := CompletionError(p.name, finishReason); completionErr != nil {
+		return response, completionErr
+	}
 	toolCalls, err := normalizeOllamaToolCalls(parsed.Message.ToolCalls)
 	if err != nil {
 		return nil, ollamaProtocolError(p.name, "returned invalid tool calls")
 	}
-	usage := ollamaUsage(parsed.PromptEvalCount, parsed.EvalCount, text, messagesBytes)
-	return &ChatResponse{
-		Text: text, ToolCalls: toolCalls, Usage: usage, Model: model, Provider: p.name,
-	}, nil
+	response.ToolCalls = toolCalls
+	return response, nil
+}
+
+// The native API omits done_reason when empty. Keep that compatibility, but
+// only stop is an explicit successful reason; length is an incomplete result.
+func normalizeOllamaFinishReason(reason string) FinishReason {
+	switch strings.TrimSpace(reason) {
+	case "":
+		return ""
+	case "stop":
+		return FinishReasonStop
+	case "length":
+		return FinishReasonLength
+	default:
+		return FinishReasonUnknown
+	}
 }
 
 // ollamaUsage uses the daemon token counts when present and otherwise falls
@@ -938,7 +962,9 @@ type ollamaStreamState struct {
 	hasText       bool
 	textItemSeen  bool
 	toolCount     int
+	wireTools     []ollamaWireToolCall
 	tools         []ToolCall
+	finishReason  FinishReason
 	usage         *Usage
 	events        providerStreamEvents
 }
@@ -1003,43 +1029,62 @@ func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
 			if s.toolCount != 0 {
 				return nil, ollamaProtocolError(s.provider, "received duplicate tool calls during the stream")
 			}
-			calls, err := normalizeOllamaToolCalls(event.Message.ToolCalls)
-			if err != nil {
-				return nil, ollamaProtocolError(s.provider, "returned invalid tool calls")
+			if len(event.Message.ToolCalls) > MaxProviderToolCalls {
+				return nil, ollamaProtocolError(s.provider, "returned too many tool calls")
 			}
-			s.tools = calls
-			s.toolCount = len(calls)
-			for index := range calls {
-				itemID := fmt.Sprintf("tool/%d", index)
-				call := calls[index]
-				streamEvents = append(streamEvents,
-					s.events.emit(StreamEvent{Type: StreamOutputItemStarted, ItemID: itemID,
-						ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress}),
-					s.events.emit(StreamEvent{Type: StreamToolCallStarted, ItemID: itemID,
-						CallID: call.ID, ItemType: StreamItemToolCall,
-						ItemStatus: StreamItemInProgress, ToolName: call.Name}),
-					s.events.emit(StreamEvent{Type: StreamToolCallCompleted, ItemID: itemID,
-						CallID: call.ID, ItemType: StreamItemToolCall,
-						ItemStatus: StreamItemReadyForValidation, ToolName: call.Name,
-						CompletedCall: &call}),
-					s.events.emit(StreamEvent{Type: StreamOutputItemCompleted, ItemID: itemID,
-						CallID: call.ID, ItemType: StreamItemToolCall,
-						ItemStatus: StreamItemCompleted, ToolName: call.Name}),
-				)
+			for _, call := range event.Message.ToolCalls {
+				if len(bytes.TrimSpace(call.Function.Arguments)) > MaxProviderToolPayloadSize {
+					return nil, ollamaProtocolError(s.provider, "returned oversized tool arguments")
+				}
 			}
+			// Hold bounded calls until the terminal reason is known. Even valid
+			// JSON is incomplete when the daemon subsequently reports length.
+			s.wireTools = event.Message.ToolCalls
+			s.toolCount = len(s.wireTools)
 		}
 	}
 	if event.Done {
 		s.finished = true
-		if s.toolCount == 0 && !s.hasText {
-			return nil, ollamaProtocolError(s.provider, "stream produced no content")
-		}
-		if reason := strings.TrimSpace(event.DoneReason); reason != "" &&
-			reason != "stop" && reason != "length" {
+		s.finishReason = normalizeOllamaFinishReason(event.DoneReason)
+		if s.finishReason == FinishReasonUnknown {
 			return nil, ollamaProtocolError(s.provider, "returned an invalid done reason")
 		}
 		usage := ollamaUsage(event.PromptEvalCount, event.EvalCount, "", s.messagesBytes)
 		s.usage = &usage
+		chunk.FinishReason = s.finishReason
+		chunk.Usage = s.usage
+		chunk.Model, chunk.Provider = s.model, s.provider
+		if completionErr := CompletionError(s.provider, s.finishReason); completionErr != nil {
+			chunk.Err = completionErr
+			chunk.Events = append(streamEvents, s.events.terminalEvent(completionErr.Kind, s.usage))
+			return chunk, nil
+		}
+		if s.toolCount == 0 && !s.hasText {
+			return nil, ollamaProtocolError(s.provider, "stream produced no content")
+		}
+		calls, err := normalizeOllamaToolCalls(s.wireTools)
+		if err != nil {
+			return nil, ollamaProtocolError(s.provider, "returned invalid tool calls")
+		}
+		s.tools = calls
+		for index := range calls {
+			itemID := fmt.Sprintf("tool/%d", index)
+			call := calls[index]
+			streamEvents = append(streamEvents,
+				s.events.emit(StreamEvent{Type: StreamOutputItemStarted, ItemID: itemID,
+					ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress}),
+				s.events.emit(StreamEvent{Type: StreamToolCallStarted, ItemID: itemID,
+					CallID: call.ID, ItemType: StreamItemToolCall,
+					ItemStatus: StreamItemInProgress, ToolName: call.Name}),
+				s.events.emit(StreamEvent{Type: StreamToolCallCompleted, ItemID: itemID,
+					CallID: call.ID, ItemType: StreamItemToolCall,
+					ItemStatus: StreamItemReadyForValidation, ToolName: call.Name,
+					CompletedCall: &call}),
+				s.events.emit(StreamEvent{Type: StreamOutputItemCompleted, ItemID: itemID,
+					CallID: call.ID, ItemType: StreamItemToolCall,
+					ItemStatus: StreamItemCompleted, ToolName: call.Name}),
+			)
+		}
 		if s.textItemSeen {
 			streamEvents = append(streamEvents, s.events.emit(StreamEvent{
 				Type: StreamOutputItemCompleted, ItemID: "message", ItemType: StreamItemMessage,
@@ -1050,8 +1095,6 @@ func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
 		chunk.Done = true
 		chunk.ToolCalls = s.tools
 		chunk.Events = streamEvents
-		chunk.Usage = s.usage
-		chunk.Model, chunk.Provider = s.model, s.provider
 		return chunk, nil
 	}
 	chunk.Events = streamEvents
@@ -1073,12 +1116,11 @@ func (s *ollamaStreamState) finalChunk() (ChatChunk, error) {
 	if !s.finished {
 		return ChatChunk{}, ollamaProtocolError(s.provider, "stream ended before the terminal event")
 	}
-	if s.toolCount == 0 && !s.hasText {
+	if s.toolCount == 0 && !s.hasText && CompletionError(s.provider, s.finishReason) == nil {
 		return ChatChunk{}, ollamaProtocolError(s.provider, "stream produced no content")
 	}
-	usage := *s.usage
-	return ChatChunk{Done: true, ToolCalls: s.tools, Usage: &usage,
-		Model: s.model, Provider: s.provider}, nil
+	return FinalChatChunk(&ChatResponse{ToolCalls: s.tools, Usage: *s.usage,
+		Model: s.model, Provider: s.provider, FinishReason: s.finishReason}), nil
 }
 
 func (p *OllamaProvider) readStream(ctx context.Context, body io.ReadCloser,
