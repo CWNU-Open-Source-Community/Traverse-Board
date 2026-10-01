@@ -358,6 +358,9 @@ func advancedRequestBodyContainer(key string) bool {
 func validateAdvancedSemanticContainer(key string, value any, providerID string) error {
 	normalized := strings.ToLower(strings.TrimSpace(key))
 	switch normalized {
+	case "request_timeout_seconds":
+		_, err := parseProviderRequestTimeout(value)
+		return err
 	case "model_capabilities":
 		_, err := parseVisionCapabilities(value)
 		return err
@@ -398,6 +401,8 @@ func validateAdvancedSemanticContainer(key string, value any, providerID string)
 
 func canonicalAdvancedSemanticContainer(key string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "request_timeout_seconds":
+		return "request_timeout_seconds", true
 	case "env":
 		return "env", true
 	case "model_mapping":

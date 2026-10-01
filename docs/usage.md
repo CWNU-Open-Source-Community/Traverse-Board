@@ -1324,7 +1324,61 @@ cyberagent model set script mock/mock-code
 
 `provider price-import --file <path>` atomically installs one operator-authored `price_snapshot.v1` document as the active price table; `provider price-list` prints the import history newest first. Prices are operator configuration, never model output: a Provider response, README, Skill, or repository file can never reach the import surface. A same-content import replays idempotently, a new import rotates the active table, and an invalid or unknown-field document is rejected without changing state. The document bounds are 64 KiB, 512 unique provider/model entries, RFC3339 validity that must cover the import time and last at most one year, and integer micro-USD prices (1 USD = 1,000,000 micros). [`configs/prices.example.json`](../configs/prices.example.json) is a documentation-only example.
 
-The optional `mimo`, `deepseek`, `anthropic`, and `openai` Providers load credentials from the process environment first and may then use the Go-owned system credential store. OpenAI-compatible configuration uses only `CYBERAGENT_OPENAI_API_KEY`, `CYBERAGENT_OPENAI_BASE_URL`, and `CYBERAGENT_OPENAI_MODEL`; the base URL and model default to `https://api.openai.com` and `gpt-4.1-mini`. Its strict Chat Completions profile uses a 60-second production HTTP deadline, clamps internal injected clients to that maximum, follows no redirects, sends only `Authorization`, `Content-Type`, and `Accept`, and accepts no caller- or repository-supplied custom headers or compatibility fields. The OS credential name is `openai`. Do not use generic `OPENAI_*` variables for this adapter.
+The optional `mimo`, `deepseek`, `anthropic`, and `openai` Providers load credentials from the process environment first and may then use the Go-owned system credential store. OpenAI-compatible configuration uses `CYBERAGENT_OPENAI_API_KEY`, `CYBERAGENT_OPENAI_BASE_URL`, `CYBERAGENT_OPENAI_MODEL`, and the optional `CYBERAGENT_OPENAI_TIMEOUT_SECONDS`; the base URL and model default to `https://api.openai.com` and `gpt-4.1-mini`. Its strict Chat Completions profile defaults to a 60-second total HTTP deadline, follows no redirects, sends only `Authorization`, `Content-Type`, and `Accept`, and accepts no caller- or repository-supplied custom headers or compatibility fields. The OS credential name is `openai`. Do not use generic `OPENAI_*` variables for this adapter.
+
+### Provider request total timeout
+
+Custom Providers use the existing Advanced JSON editor/import path in Desktop,
+HTTP Provider definition control, and CLI Provider definition files. Set the
+top-level `request_timeout_seconds` to an integer from **1 through 1800**:
+
+```json
+{"request_timeout_seconds":120}
+```
+
+This is local HTTP-client policy; it is not placed inside `request_body` or sent
+to the upstream service. The saved definition includes the configured value;
+an absent field means the effective default of **60 seconds**. Zero, negative,
+fractional, null, string, overflowing, and out-of-range values are rejected
+before the definition is saved. Use the canonical lowercase field name.
+Existing Provider definition readback shows the value, and the normal Registry
+reload applies an updated definition to subsequent requests. Active requests
+keep the client captured at their start.
+
+Built-in Providers use their existing process-environment configuration:
+
+| Provider | Optional total-timeout variable |
+|---|---|
+| `mimo` | `MIMO_TIMEOUT_SECONDS` |
+| `deepseek` | `DEEPSEEK_TIMEOUT_SECONDS` |
+| `anthropic` | `CYBERAGENT_ANTHROPIC_TIMEOUT_SECONDS` |
+| `openai` | `CYBERAGENT_OPENAI_TIMEOUT_SECONDS` |
+| `ollama` | `CYBERAGENT_OLLAMA_TIMEOUT_SECONDS` |
+
+These variables have the same 1–1800 second range and 60 second default. An
+explicit empty or invalid value marks only that Provider's configuration
+invalid; it never selects unlimited waiting or silently falls back to 60.
+Set the variable before launching CLI, API, or Desktop, or before a normal
+Registry reload in an already-running host whose process environment changed.
+Neither repository YAML nor a model response supplies this configuration.
+
+The effective deadline is the earliest of this request total timeout, the
+caller's deadline, and the Run's remaining time budget. Stop still cancels an
+active request immediately. The total includes connection setup, response-header
+waiting, and all response-body reads, including both continuously flowing and
+stalled streams; receiving another delta does not restart the timer. Separate
+connection/header limits and an independent streaming idle timeout are not
+configurable in this phase. Diagnostics and qualification keep their existing
+shorter caller deadlines (15 and 30 seconds).
+
+The 1800 second ceiling is a local resource bound, allowing a deliberately long
+generation while keeping one request finite; it is not a Provider protocol
+limit or an extension of the Run budget. Existing retry limits, error privacy,
+known/unknown-cost accounting, and rejection of partial tools remain in force.
+For the real HTTP regression, run
+`go test -count=1 -timeout 3m ./internal/modelregistry -run '^TestConfiguredProviderStreamCompletesBeyondOneMinute$'`.
+It sends local, synthetic output for 65 seconds across Chat, Responses,
+Anthropic, and Ollama; `-short` skips this long test for focused checks.
 
 Windows stores exact supported keys in Credential Manager; non-Windows has no plaintext-file fallback. Credential status and mutation never return plaintext. Desktop and API control planes atomically reload a new Registry generation after a successful change; a host without the reload dependency reports `restart_required: true`. Base URLs must be absolute HTTPS URLs unless they target an exact loopback host over HTTP; embedded credentials, query strings, fragments, and redirects are rejected. API keys are bounded normalized UTF-8 without whitespace or control characters. [`../configs/models.yaml`](../configs/models.yaml) is a documentation-only, non-secret example and is not loaded at runtime; repository or Workspace content cannot configure a Provider endpoint, header, or key.
 

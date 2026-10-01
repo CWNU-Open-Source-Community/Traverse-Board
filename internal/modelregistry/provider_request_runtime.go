@@ -10,13 +10,15 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/llm"
 )
 
 // providerRequestRuntime is created from an already validated and normalized
 // Provider definition. It deliberately interprets only the documented
-// request_headers, request_body, model_mapping, model_context_windows, and model_capabilities
+// request_headers, request_body, request_timeout_seconds, model_mapping,
+// model_context_windows, and model_capabilities
 // containers. Capability declarations stay local and never enter the HTTP
 // payload. Other advanced JSON remains inert operator-owned extension data.
 type providerRequestRuntime struct {
@@ -28,6 +30,7 @@ type providerRequestRuntime struct {
 	models         map[string]string
 	vision         map[string]llm.VisionSupport
 	contextWindows map[string]llm.ContextWindow
+	requestTimeout time.Duration
 	binding        string
 }
 
@@ -73,13 +76,20 @@ func newProviderRequestRuntime(definition ProviderDefinition,
 		return nil, errors.New("custom Provider advanced config runtime is invalid")
 	}
 	runtime := &providerRequestRuntime{
-		providerID: definition.ID,
-		endpoint:   definition.EndpointURL,
-		credential: credentials,
-		headers:    map[string]any{},
-		body:       map[string]any{},
-		models:     map[string]string{},
-		vision:     map[string]llm.VisionSupport{},
+		providerID:     definition.ID,
+		endpoint:       definition.EndpointURL,
+		credential:     credentials,
+		headers:        map[string]any{},
+		body:           map[string]any{},
+		models:         map[string]string{},
+		vision:         map[string]llm.VisionSupport{},
+		requestTimeout: llm.DefaultProviderRequestTimeout,
+	}
+	if value, found := root["request_timeout_seconds"]; found {
+		runtime.requestTimeout, err = parseProviderRequestTimeout(value)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if value, found := root["model_capabilities"]; found {
 		runtime.vision, err = parseVisionCapabilities(value)
