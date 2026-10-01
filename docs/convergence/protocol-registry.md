@@ -474,14 +474,17 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Core Go control-plane maintainers
-- Source of truth: `internal/application`, `internal/domain`, `internal/store`, `internal/webevidence`
-- Persistence/export boundary: Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence.
-- Compatibility rule: Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence.
-- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
+- Source of truth: `internal/application`, `internal/domain`, `internal/llm/anthropic_replay.go`, `internal/llm/provider_replay.go`, `internal/store`, `internal/webevidence`
+- Persistence/export boundary: Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence. Provider-private replay is retained in run_supervisor_provider_replay.replay_blob and SQLite backups under the existing Run/turn/attempt/model-attempt/round fences, blob hash, and accepted tool-batch binding.
+- Compatibility rule: Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence. Provider-private replay uses numeric envelope v1 for OpenAI Responses and v2 for Anthropic Messages. DecodeProviderReplay reads both; v1 serialization and stored rows remain supported, while v2 requires its bounded exact source/response/tool-batch schema. Unknown versions and version/transport mismatches fail closed. There is no v1-to-v2 reinterpretation, old-row rewrite, or reader retirement. After v2 rows have been written, rollback to a pre-v2 binary requires a matching pre-v2 database backup; retain the original database and its private replay evidence for audit/recovery.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Provider-private replay readers remain while any supported database or backup requires v1 or v2; retain internal/llm/provider_replay_test.go, internal/llm/anthropic_thinking_replay_test.go, internal/store/supervisor_provider_replay_test.go, and internal/store/supervisor_anthropic_replay_test.go coverage until a separately reviewed retirement proves compatibility and rollback; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `control-plane-ledgers-writer` (`v1, v2, v3`, write-new) at `internal/application`
+  - `provider-private-replay-anthropic-v2-writer` (`v2`, write-new) at `internal/llm/anthropic_replay.go`
+  - `provider-private-replay-responses-v1-writer` (`v1`, write-current) at `internal/llm/provider_replay.go`
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
+  - `provider-private-replay-envelope-reader` (`v1, v2`, active) at `internal/llm/provider_replay.go`
 
 <details><summary>110 active identifiers</summary>
 
