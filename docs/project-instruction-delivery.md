@@ -69,7 +69,10 @@ does not prove that an in-flight model or tool has stopped. An active lease caus
 `FAILED_PRECONDITION` and preserves the original confirmed revision.
 
 Compaction and reopening the local database reconstruct required rules from the
-pinned snapshot. Pending tools also require the source-bound model-start receipt
+pinned snapshot. Generated-summary model requests also receive the complete
+mandatory envelopes. If an auxiliary request cannot fit, it makes no model call;
+the existing extractive fallback still checks mandatory delivery before the root
+continuation. Pending tools also require the source-bound model-start receipt
 from the same Run, turn, attempt and classified snapshot. Refreshing the contract
 invalidates old pending tool origins. They stop with `FAILED_PRECONDITION` and keep
 the original evidence rather than acquiring the new rule state automatically.
@@ -78,10 +81,12 @@ the original evidence rather than acquiring the new rule state automatically.
 
 - **Configured:** an operator confirmed `delivery.sources` in the immutable pinned
   snapshot. This proves the classification and source version.
-- **Delivered:** a matching root `model.started` context audit identifies a source
+- **Delivered:** a matching `model.started` context audit identifies a source
   included in the checked outbound request. Classified IDs include requirement,
   snapshot fingerprint, source hash and ordinal. Local regression tests additionally
   capture the actual Provider messages and verify the complete envelope content.
+  Auxiliary summary starts use purpose `context_compaction`; they establish
+  delivery to that summary call, separately from the root continuation.
 - **Followed:** the model's actions and results satisfy the rule. Delivery evidence
   alone does not establish this; inspect the actual execution and validation evidence.
 
@@ -89,6 +94,8 @@ Optional omissions retain token estimates and use `omitted/budget/` audit identi
 Explicit exclusions use `omitted/operator_excluded/`. Resolve either identity against
 the immutable snapshot for source path, scope, precedence and exclusion reason.
 An omission is never recorded as successful delivery.
+Auxiliary summaries omit optional sources as `omitted/auxiliary_scope/`, because
+they are outside that request's scope, and retain the same explicit exclusion reason.
 
 Unclassified existing Runs retain their previous optional rule-selection behavior.
 No-rule Runs require no classification. Older binaries cannot validate classified

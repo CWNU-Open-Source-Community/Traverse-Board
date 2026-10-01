@@ -55,12 +55,21 @@ confirmed Run snapshot without the existing reviewed refresh.
    classified snapshot identity must match. An old or refreshed-contract model
    start cannot authorize a tool continuation. This check precedes the existing
    gateway authorization; it grants no permission and restores no delivery lease.
+   Generated-summary requests also carry the complete mandatory user-role
+   envelopes and verify them after final window fitting. A request that cannot
+   fit is refused before a model start or Provider dispatch; the existing
+   extractive fallback remains subject to the root request's delivery checks.
 6. Encode classified audit identities as
    `project-rule.v1/{requirement}/{snapshot-fingerprint}/{content-sha256}/{ordinal}`.
    Optional and excluded omissions use the corresponding `omitted/budget/` or
    `omitted/operator_excluded/` prefix. Paths, scope, precedence, requirement and
    excluded reasons can be resolved from the immutable snapshot history. Existing
    model-audit DTOs and Provider protocols remain unchanged.
+   Auxiliary summaries omit optional rules as `omitted/auxiliary_scope/`, rather
+   than claiming a budget failure or delivery. Their `context_compaction` starts
+   retain the same source-bound mandatory identities and exclusion evidence.
+   The protocol registry retains legacy, classified dispatch and immutable-history
+   readers; retiring them requires migration or retention evidence and rollback.
 
 ## Compatibility and recovery
 
@@ -96,6 +105,8 @@ Deterministic tests capture actual outbound Provider messages and compare comple
 pinned content and source metadata. They exercise pressure from higher-priority
 notes, optional/excluded omissions, selection and final-request overflow with
 zero model/tool dispatch, native-tool continuation, actual history compaction,
+generated-summary dispatch with complete pinned rules and purpose-specific audits,
+summary-window refusal without dropping original history or mandatory rules,
 SQLite close/reopen with live disk drift, contract changes before pending tool
 dispatch, complete-rule retries, and rejected refresh during a live model lease.
 API/service tests exercise operator confirmation, source hash

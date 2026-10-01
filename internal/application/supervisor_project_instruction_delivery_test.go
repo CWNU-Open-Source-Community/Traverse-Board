@@ -453,6 +453,171 @@ func TestSupervisorProjectInstructionDeliveryRejectsRefreshWhileModelOwnsExecuti
 	}
 }
 
+func TestSupervisorProjectInstructionDeliveryIncludesPinnedRulesInGeneratedSummaryDispatch(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "required-generated-summary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	root := t.TempDir()
+	run, snapshot := newDeliveryTestRun(t, st, root, "src", map[string]string{
+		"AGENTS.md": "REQUIRED_GENERATED_PINNED_BEGIN\n" + strings.Repeat("retain source scope and acceptance constraints; ", 80) + "\nREQUIRED_GENERATED_PINNED_END",
+		"CLAUDE.md": "EXCLUDED_GENERATED_RULE", "src/AGENTS.md": "OPTIONAL_GENERATED_RULE",
+	}, map[string]projectconfig.InstructionRequirement{
+		"AGENTS.md": projectconfig.InstructionMandatory, "CLAUDE.md": projectconfig.InstructionExcluded,
+		"src/AGENTS.md": projectconfig.InstructionOptional,
+	}, true)
+	for index := range 24 {
+		if _, err := st.SaveSessionMessage(t.Context(), session.NewMessage(run.SessionID, "user",
+			fmt.Sprintf("Historical checkpoint %02d: keep original acceptance constraints and report observed evidence.", index))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawBefore := continuityRawMessages(t, before)
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("UNCONFIRMED_GENERATED_REPLACEMENT"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider := newGeneratedProtocolProvider()
+	trackGeneratedFixture(t, provider)
+	turns, _ := generatedThreadServices(st, provider, nil)
+	submitHistoryRecall(t, turns, run.ID, "required-generated-summary", "Continue with the confirmed project rules and original historical constraints.")
+	generated, normal := provider.splitRequests()
+	if len(generated) != 1 || len(normal) != 1 || generated[0].Transport != "chat" || len(generated[0].Request.Tools) != 0 {
+		t.Fatalf("fixture did not dispatch one actual auxiliary request and continuation: auxiliary=%d normal=%d", len(generated), len(normal))
+	}
+	for _, captured := range append(generated, normal...) {
+		assertRequiredDeliveryRequest(t, captured.Request, snapshot)
+		if strings.Contains(generatedRequestText(captured.Request), "UNCONFIRMED_GENERATED_REPLACEMENT") {
+			t.Fatal("summary or continuation silently refreshed the pinned rule")
+		}
+	}
+	for _, marker := range []string{"OPTIONAL_GENERATED_RULE", "EXCLUDED_GENERATED_RULE"} {
+		if strings.Contains(generatedRequestText(generated[0].Request), marker) {
+			t.Fatalf("auxiliary request included an inapplicable source: %s", marker)
+		}
+	}
+	eventList, err := st.ListRunEvents(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	for _, event := range eventList {
+		if event.Type != events.ModelStartedEvent || event.Source != "model_gateway" {
+			continue
+		}
+		var payload struct {
+			Purpose string                 `json:"purpose"`
+			Context *llm.ModelContextAudit `json:"context"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil || payload.Context == nil {
+			t.Fatalf("model start lost its required-source audit: %v", err)
+		}
+		starts++
+		included := false
+		for _, source := range payload.Context.Included {
+			included = included || source.SourceID == snapshot.DeliverySourceID(0)
+		}
+		if !included {
+			t.Fatal("actual model start omitted the mandatory source identity")
+		}
+		if payload.Purpose == generatedFixturePurpose {
+			optional, excluded := false, false
+			for _, source := range payload.Context.Omitted {
+				optional = optional || source.SourceID == "omitted/auxiliary_scope/"+snapshot.DeliverySourceID(2) && source.Tokens > 0
+				excluded = excluded || source.SourceID == "omitted/operator_excluded/"+snapshot.DeliverySourceID(1) && source.Tokens > 0
+			}
+			if !optional || !excluded {
+				t.Fatalf("auxiliary omissions claimed delivery or an incorrect reason: %+v", payload.Context)
+			}
+		}
+	}
+	if starts != 2 || countEventType(eventList, events.SupervisorToolExecutionStartedEvent) != 0 {
+		t.Fatalf("summary accounting or tool boundary changed: starts=%d", starts)
+	}
+	summary, found, err := st.LatestContextSummary(t.Context(), run.SessionID)
+	if err != nil || !found {
+		t.Fatalf("actual generated handoff was not persisted: %v", err)
+	}
+	assertGeneratedSummaryReceipt(t, summary)
+	after, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawAfter := continuityRawMessages(t, after)
+	for id, content := range rawBefore {
+		if rawAfter[id] != content {
+			t.Fatalf("generated compaction rewrote source message %d", id)
+		}
+	}
+}
+
+func TestSupervisorProjectInstructionDeliveryRefusesOversizedSummaryBeforeDispatch(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "required-summary-window.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, snapshot := newDeliveryTestRun(t, st, t.TempDir(), ".", map[string]string{
+		"AGENTS.md": "REQUIRED_SUMMARY_WINDOW_BEGIN\n" + strings.Repeat("r", 32*1024) + "\nREQUIRED_SUMMARY_WINDOW_END",
+	}, map[string]projectconfig.InstructionRequirement{"AGENTS.md": projectconfig.InstructionMandatory}, true)
+	for index := range 24 {
+		if _, err := st.SaveSessionMessage(t.Context(), session.NewMessage(run.SessionID, "user",
+			fmt.Sprintf("Observed historical checkpoint %02d: %s", index, strings.Repeat("diagnostic detail remains evidence; ", 130)))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := newGeneratedProtocolProvider()
+	trackGeneratedFixture(t, provider)
+	turns, _ := generatedThreadServices(st, provider, nil)
+	submitHistoryRecall(t, turns, run.ID, "required-summary-window", "Continue under the same required project rules.")
+	generated, normal := provider.splitRequests()
+	if len(generated) != 0 || len(normal) != 1 {
+		t.Fatalf("oversized auxiliary input reached the Provider or lost continuation: auxiliary=%d normal=%d", len(generated), len(normal))
+	}
+	assertRequiredDeliveryRequest(t, normal[0].Request, snapshot)
+	eventList, err := st.ListRunEvents(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback := false
+	for _, event := range eventList {
+		if event.Type == "session.context_compacted" {
+			var payload struct {
+				Generated bool   `json:"generated"`
+				Reason    string `json:"generation_fallback_reason"`
+			}
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				t.Fatal(err)
+			}
+			fallback = fallback || !payload.Generated && strings.Contains(payload.Reason, "generation_input_window")
+		}
+		if event.Type == events.ModelStartedEvent && strings.Contains(event.PayloadJSON, `"purpose":"context_compaction"`) {
+			t.Fatal("refused auxiliary request created a model-start receipt")
+		}
+	}
+	if !fallback || countEventType(eventList, events.ModelStartedEvent) != 1 || countEventType(eventList, events.SupervisorToolExecutionStartedEvent) != 0 {
+		t.Fatal("window refusal did not retain a truthful extractive fallback and zero auxiliary/tool starts")
+	}
+	history, err := st.ListSessionMessages(t.Context(), run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range 24 {
+		found := false
+		prefix := fmt.Sprintf("Observed historical checkpoint %02d:", index)
+		for _, message := range history {
+			found = found || message.Role == "user" && strings.HasPrefix(message.Content, prefix)
+		}
+		if !found {
+			t.Fatalf("window fallback erased historical source %02d", index)
+		}
+	}
+}
+
 func TestSupervisorProjectInstructionDeliveryPreservesCompletePinnedRulesAcrossRetry(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "required-retry-refresh.db"))
 	if err != nil {
