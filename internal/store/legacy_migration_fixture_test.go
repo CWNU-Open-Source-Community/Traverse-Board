@@ -183,12 +183,22 @@ func migrationTriggerBeforeForTest(name string, version int) string {
 func removeSchemaV157ForTestStatements() []string {
 	const next = "run_supervisor_tool_calls_v160_restore"
 	const previous = "run_supervisor_tool_calls_v161_fixture"
-	statements := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
+	// This cumulative fixture starts from the current schema. Prove that no
+	// private rejection evidence would be lost before any main-schema mutation.
+	statements := []string{
+		`CREATE TEMP TABLE legacy_fixture_empty_rejections (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_rejections SELECT count(*) FROM run_supervisor_tool_rejections;`,
+		`DROP TABLE legacy_fixture_empty_rejections;`,
+		`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`,
+	}
 	// The v168 guards must reject modern queue history before any object or
 	// ledger mutation; a rejected downgrade leaves schema and ledger untouched.
 	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
 	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
 	statements = append(statements,
+		`DROP TRIGGER trg_supervisor_tool_rejection_immutable;`,
+		`DROP TABLE run_supervisor_tool_rejections;`,
+		`DELETE FROM schema_migrations WHERE version IN (173,174);`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_insert;`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_update_immutable;`,
 		`DROP TRIGGER trg_scheduled_job_observation_consent_delete_immutable;`,

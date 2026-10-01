@@ -242,5 +242,6 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v171 | 增加当前执行段的操作员文字纠正模式、attempt 绑定与不可变 claim | add current-turn operator text steering, attempt binding, and immutable claims |
 | v172 | 原子转换排队文字为当前引导，持久保存原消息、替代消息和执行身份的不可变关联收据 | atomically promote queued text to steering with immutable source, replacement and execution identity receipts |
 | v173 | 将只读内置技能发现与读取纳入已有 Supervisor 账本，保留旧行身份与权限约束，并从成功收据重建精确版本指导 | admit read-only built-in skill discovery and reads to the existing Supervisor ledger, preserve row identities and authority guards, and reconstruct exact-version guidance from successful receipts |
+| v174 | 在原协议失败事务中原子保存有界脱敏的原生工具请求拒绝诊断，保持原 attempt 身份，不生成可执行调用、Provider 回放或历史回填 | atomically preserve bounded redacted rejected native request diagnostics in the original protocol-failure transaction, retaining attempt identity without executable calls, Provider replay or historical backfill |
 
 </details>

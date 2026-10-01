@@ -1364,6 +1364,7 @@
         "plan_delivery_control.v1",
         "provider_credential.v1",
         "provider_diagnostic.v1",
+        "provider_model_discovery.v1",
         "provider_search_readiness.v1",
         "repository_commit_comparison.v1",
         "repository_commit_file_preview.v1",
@@ -2301,6 +2302,97 @@
       "retired_identifiers": []
     },
     {
+      "id": "supervisor-input-delivery-projection",
+      "class": "projection",
+      "owner": "Supervisor input and context maintainers",
+      "source_of_truth": [
+        "internal/application/run_supervisor.go",
+        "internal/application/supervisor_input_delivery.go",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "supervisor-input-delivery-writer",
+          "source": "internal/application/supervisor_input_delivery.go",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "supervisor-input-delivery-model-request-consumer",
+          "source": "internal/llm",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "A model-request-only projection preserves accepted_input while distinguishing an internal tool boundary from a new user submission. Provider adapters deliver this text to the model; this record does not claim a Go envelope decoder or rewrite durable accepted input.",
+      "compatibility_rule": "Rebuild initial, refreshed and recovered requests from the original committed input and exact returned boundary receipts, append accepted steering after the projection, and never derive continuation authority or success from user/tool text.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Durable accepted_input and the store's exact ToolBoundaryContextCalls lookup, plus later committed operator steering. No provider replay or permission is reconstructed from the projection.",
+      "active_identifiers": [
+        "supervisor_input_delivery.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "supervisor-tool-rejection-diagnostics",
+      "class": "internal-durable",
+      "owner": "Supervisor terminal accounting and private diagnostic maintainers",
+      "source_of_truth": [
+        "internal/llm/tool_request_rejection.go",
+        "internal/store/migration_v174.go",
+        "internal/store/supervisor_tool_rejection.go"
+      ],
+      "writers": [
+        {
+          "id": "supervisor-tool-rejection-diagnostic-writer",
+          "source": "internal/store/supervisor_tool_rejection.go",
+          "versions": [
+            1
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "supervisor-tool-rejection-exact-terminal-reader",
+          "source": "internal/store/supervisor_tool_rejection.go",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "The original protocol-failure transaction stores an immutable, at-most-64KiB redacted projection of the received native batch and actually offered schema under the same Run/turn/attempt/model-attempt identity. This private diagnostic is excluded from executable calls, pending work, provider replay and ordinary model history.",
+      "compatibility_rule": "Retain exact committed diagnostic bytes and digest comparison for terminal idempotency. Unknown or changed evidence cannot overwrite the original terminal. Historical failures are not backfilled, and diagnostic structure never substitutes for an executable request, approval or permission.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "tool_request_rejection.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
       "id": "thread-run-session-ledgers",
       "class": "internal-durable",
       "owner": "Thread, Run, Session, context, and message maintainers",
@@ -2353,7 +2445,7 @@
       ],
       "persisted_or_exported": true,
       "persistence_boundary": "SQLite preserves user history, ordering, Run succession, provenance, notes, and messages. Scoped browser recovery storage retains unsent drafts and exact unknown-request identities; these cannot be reconstructed from server history.",
-      "compatibility_rule": "Add versions without rewriting identity/history; retain every reader needed by supported databases and exports.",
+      "compatibility_rule": "Add versions without rewriting identity/history; retain every reader needed by supported databases and exports. The observed_browser_controls marker is a semantic progress hash domain, not an executable payload or authority. Retain sealed original tool receipts and the meaning of persisted progress counters when evolving its observation projection.",
       "retirement_gate": {
         "mode": "migration-or-retention",
         "requirements": [
@@ -2374,6 +2466,7 @@
         "llm.item_stream.identity.v1",
         "long_term_memory.v1",
         "note_context.v1",
+        "observed_browser_controls.v1",
         "operator_steering_revision_operation.v1",
         "operator_steering_revision_request.v1",
         "queue_edit.v1",
@@ -3005,6 +3098,22 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "browser_snapshot.v3",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/store/supervisor_tool_rejection_test.go"
+      ],
+      "reason": "Unsupported future snapshot version in an exact rejected-diagnostic negative test; never a production protocol."
+    },
+    {
+      "identifier": "browser_type.v3",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/llm/tool_request_rejection_test.go"
+      ],
+      "reason": "Unsupported future type version in an exact redacted diagnostic negative test; never a production protocol."
+    },
+    {
       "identifier": "call.v1",
       "kind": "test-fixture",
       "sources": [
@@ -3115,6 +3224,14 @@
         "internal/analyzer/subprocess_conformance_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "foreign.v1",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/store/run_progress_browser_state_test.go"
+      ],
+      "reason": "Foreign receipt envelope in an exact sealed-progress rejection test; never a production protocol."
     },
     {
       "identifier": "full_cdp_session.v0",
@@ -3289,6 +3406,7 @@
       "identifier": "public_model_stream.v1",
       "kind": "test-fixture",
       "sources": [
+        "web/src/v2/projection/agent-activity.test.ts",
         "web/src/v2/projection/narrative.test.ts"
       ],
       "reason": "Test-only live-stream fixture; production presentation uses the registered current stream protocol."

@@ -23,7 +23,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 40 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 109 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 110 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
@@ -36,7 +36,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
-| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 50 | true |
+| [supervisor-input-delivery-projection](#supervisor-input-delivery-projection) | `projection` | Supervisor input and context maintainers | 1 | true |
+| [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
+| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
 | [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
@@ -840,7 +842,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>109 active identifiers</summary>
+<details><summary>110 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -893,6 +895,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `plan_delivery_control.v1`
 - `provider_credential.v1`
 - `provider_diagnostic.v1`
+- `provider_model_discovery.v1`
 - `provider_search_readiness.v1`
 - `repository_commit_comparison.v1`
 - `repository_commit_file_preview.v1`
@@ -1475,13 +1478,52 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 </details>
 
+### supervisor-input-delivery-projection
+
+- Class: `projection`
+- Owner: Supervisor input and context maintainers
+- Source of truth: `internal/application/run_supervisor.go`, `internal/application/supervisor_input_delivery.go`, `internal/store`
+- Persistence/export boundary: A model-request-only projection preserves accepted_input while distinguishing an internal tool boundary from a new user submission. Provider adapters deliver this text to the model; this record does not claim a Go envelope decoder or rewrite durable accepted input.
+- Compatibility rule: Rebuild initial, refreshed and recovered requests from the original committed input and exact returned boundary receipts, append accepted steering after the projection, and never derive continuation authority or success from user/tool text.
+- Retirement gate (`rebuild-from-source`): Rebuild source remains retained and independently verifiable; Replacement preserves ordering, cursor, invalidation, and redaction behavior; Retirement evidence proves a complete rebuild from the named source
+- Rebuild source: Durable accepted_input and the store's exact ToolBoundaryContextCalls lookup, plus later committed operator steering. No provider replay or permission is reconstructed from the projection.
+- Writers:
+  - `supervisor-input-delivery-writer` (`v1`, write-current) at `internal/application/supervisor_input_delivery.go`
+- Readers:
+  - `supervisor-input-delivery-model-request-consumer` (`v1`, active) at `internal/llm`
+
+<details><summary>1 active identifiers</summary>
+
+- `supervisor_input_delivery.v1`
+
+</details>
+
+### supervisor-tool-rejection-diagnostics
+
+- Class: `internal-durable`
+- Owner: Supervisor terminal accounting and private diagnostic maintainers
+- Source of truth: `internal/llm/tool_request_rejection.go`, `internal/store/migration_v174.go`, `internal/store/supervisor_tool_rejection.go`
+- Persistence/export boundary: The original protocol-failure transaction stores an immutable, at-most-64KiB redacted projection of the received native batch and actually offered schema under the same Run/turn/attempt/model-attempt identity. This private diagnostic is excluded from executable calls, pending work, provider replay and ordinary model history.
+- Compatibility rule: Retain exact committed diagnostic bytes and digest comparison for terminal idempotency. Unknown or changed evidence cannot overwrite the original terminal. Historical failures are not backfilled, and diagnostic structure never substitutes for an executable request, approval or permission.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
+- Writers:
+  - `supervisor-tool-rejection-diagnostic-writer` (`v1`, write-new) at `internal/store/supervisor_tool_rejection.go`
+- Readers:
+  - `supervisor-tool-rejection-exact-terminal-reader` (`v1`, active) at `internal/store/supervisor_tool_rejection.go`
+
+<details><summary>1 active identifiers</summary>
+
+- `tool_request_rejection.v1`
+
+</details>
+
 ### thread-run-session-ledgers
 
 - Class: `internal-durable`
 - Owner: Thread, Run, Session, context, and message maintainers
 - Source of truth: `internal/session`, `internal/store`, `web/src/v2`
 - Persistence/export boundary: SQLite preserves user history, ordering, Run succession, provenance, notes, and messages. Scoped browser recovery storage retains unsent drafts and exact unknown-request identities; these cannot be reconstructed from server history.
-- Compatibility rule: Add versions without rewriting identity/history; retain every reader needed by supported databases and exports.
+- Compatibility rule: Add versions without rewriting identity/history; retain every reader needed by supported databases and exports. The observed_browser_controls marker is a semantic progress hash domain, not an executable payload or authority. Retain sealed original tool receipts and the meaning of persisted progress counters when evolving its observation projection.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `thread-run-session-ledgers-writer` (`v0, v1, v2, v3`, write-new) at `internal/application`
@@ -1490,7 +1532,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3`, active) at `internal/store`
   - `thread-local-recovery-reader` (`v1`, active) at `web/src/v2`
 
-<details><summary>50 active identifiers</summary>
+<details><summary>51 active identifiers</summary>
 
 - `context_memory.v1`
 - `continuity_context.v1`
@@ -1503,6 +1545,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `llm.item_stream.identity.v1`
 - `long_term_memory.v1`
 - `note_context.v1`
+- `observed_browser_controls.v1`
 - `operator_steering_revision_operation.v1`
 - `operator_steering_revision_request.v1`
 - `queue_edit.v1`
@@ -1727,6 +1770,8 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `browser_navigate.v3` | `negative-version-fixture` | `internal/toolgateway/agent_browser_actions_test.go` | Agent browser v2 rejects the unsupported future-version payload in an exact negative test; it is not a production protocol. |
 | `browser_network_containment_evidence.v0` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `browser_network_containment_policy.v1` | `test-fixture` | `internal/browserruntime/readiness_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `browser_snapshot.v3` | `negative-version-fixture` | `internal/store/supervisor_tool_rejection_test.go` | Unsupported future snapshot version in an exact rejected-diagnostic negative test; never a production protocol. |
+| `browser_type.v3` | `negative-version-fixture` | `internal/llm/tool_request_rejection_test.go` | Unsupported future type version in an exact redacted diagnostic negative test; never a production protocol. |
 | `call.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `compatibility.v1` | `conformance-test` | `cmd/cyberagent-desktop/windows_resources_test.go` | Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol. |
 | `controlled_command_proposal.v2` | `test-fixture` | `internal/toolgateway/controlled_command_proposal_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1741,6 +1786,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `docker_sandbox_product_lifecycle_test.v1` | `test-fixture` | `internal/store/docker_sandbox_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `fake-browser-process.v1` | `test-fixture` | `internal/browserruntime/production_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `fixture.wrong.v1` | `negative-version-fixture` | `internal/analyzer/subprocess_conformance_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `foreign.v1` | `negative-version-fixture` | `internal/store/run_progress_browser_state_test.go` | Foreign receipt envelope in an exact sealed-progress rejection test; never a production protocol. |
 | `full_cdp_session.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP session decoding. |
 | `full_cdp_session_close.v0` | `negative-version-fixture` | `internal/httpapi/full_cdp_session_control_test.go` | Unknown-version HTTP fixture retained to prove fail-closed Full CDP close decoding. |
 | `generated_handoff.v2` | `negative-version-fixture` | `internal/application/thread_generated_compaction_integration_test.go`, `internal/contextmgr/generated_summary_test.go` | Unsupported generated summary version used only to verify rejection; not a production protocol. |
@@ -1761,7 +1807,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `protocol_registry_example.v1` | `compatibility-example` | `internal/protocolregistry/registry_test.go`, `internal/protocolregistry/testdata/compatibility_v1.json` | Old v1 compatibility fixture retained to prove dual-read behavior. |
 | `protocol_registry_example.v2` | `compatibility-example` | `internal/protocolregistry/registry_test.go` | Write-new v2 compatibility example identifier. |
 | `protocol_registry_example.v3` | `negative-version-fixture` | `internal/protocolregistry/registry_test.go` | Unknown-version fixture retained to prove fail-closed decoding. |
-| `public_model_stream.v1` | `test-fixture` | `web/src/v2/projection/narrative.test.ts` | Test-only live-stream fixture; production presentation uses the registered current stream protocol. |
+| `public_model_stream.v1` | `test-fixture` | `web/src/v2/projection/agent-activity.test.ts`, `web/src/v2/projection/narrative.test.ts` | Test-only live-stream fixture; production presentation uses the registered current stream protocol. |
 | `run_capability_readiness.v2` | `test-fixture` | `web/src/api/client.test.ts` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `run_creation.v2` | `test-fixture` | `internal/application/run_creation_test.go`, `internal/domain/run_creation_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `runner_evidence_set_receipt.v2` | `test-fixture` | `internal/runner/testdata/evidence_set_receipt_compatibility_vectors.json` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

@@ -79,6 +79,49 @@ func legacyFixtureRows(t testing.TB, state *SQLiteStore, table string) [][]any {
 	return result
 }
 
+func TestLegacyFixtureRejectsPrivateRejectionBeforeSchemaOrLedgerMutation(t *testing.T) {
+	f := newProviderReplayFixture(t)
+	f.start(t)
+	reason, err := domain.NewSupervisorToolRequestRepairReason(0, "browser action protocol version is invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.RecordSupervisorProtocolFailure(t.Context(), f.turn.Checkpoint, f.attempt, rejectedTestResponse(), reason, true); err != nil {
+		t.Fatal(err)
+	}
+	beforeSchema := legacyFixtureSchema(t, f.store)
+	beforeRows := legacyFixtureRows(t, f.store, "run_supervisor_tool_rejections")
+	if len(beforeRows) != 1 {
+		t.Fatal("missing actual rejected-request fixture")
+	}
+	beforeLedger, err := f.store.loadAppliedMigrations(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := false
+	for _, statement := range removeSchemaV157ForTestStatements() {
+		if _, err := f.store.db.ExecContext(t.Context(), statement); err != nil {
+			if !strings.HasPrefix(statement, "INSERT INTO legacy_fixture_empty_rejections") {
+				t.Fatalf("fixture failed outside the private diagnostic guard: %q: %v", statement, err)
+			}
+			rejected = true
+			break
+		}
+	}
+	if !rejected {
+		t.Fatal("legacy fixture did not reject modern private diagnostics")
+	}
+	if after := legacyFixtureSchema(t, f.store); !reflect.DeepEqual(after, beforeSchema) {
+		t.Fatal("rejected downgrade changed main schema")
+	}
+	if after := legacyFixtureRows(t, f.store, "run_supervisor_tool_rejections"); !reflect.DeepEqual(after, beforeRows) {
+		t.Fatal("rejected downgrade changed diagnostic bytes or row identity")
+	}
+	if after, err := f.store.loadAppliedMigrations(t.Context()); err != nil || !reflect.DeepEqual(after, beforeLedger) {
+		t.Fatalf("rejected downgrade changed migration ledger: %v", err)
+	}
+}
+
 func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	ctx := t.Context()
 	oracle := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "real-v156.db"))
