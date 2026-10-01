@@ -435,6 +435,10 @@ func (p *OpenAIResponsesSearchProvider) probe(ctx context.Context,
 		return tool, nil, false, nil
 	}
 	p.cacheMu.Lock()
+	if negative := p.cachedNegativeLocked(state); negative != nil {
+		p.cacheMu.Unlock()
+		return "", nil, false, negative
+	}
 	if tool, found := p.cachedToolLocked(state); found {
 		p.cacheMu.Unlock()
 		return tool, nil, false, nil
@@ -792,9 +796,13 @@ func nativeSearchQualificationReason(err error) string {
 }
 
 func (p *OpenAIResponsesSearchProvider) cachedNegative(state responsesSearchState) error {
-	key := nativeSearchNegativeCacheKey(state.baseKey)
 	p.cacheMu.Lock()
 	defer p.cacheMu.Unlock()
+	return p.cachedNegativeLocked(state)
+}
+
+func (p *OpenAIResponsesSearchProvider) cachedNegativeLocked(state responsesSearchState) error {
+	key := nativeSearchNegativeCacheKey(state.baseKey)
 	entry, found := p.negative[key]
 	if !found {
 		return nil
