@@ -1093,7 +1093,9 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 		case "overloaded_error", "api_error":
 			kind = OutcomeRetryable
 		}
-		return nil, false, NewProviderError(kind, provider, event.Error.Message, nil)
+		// Error fields can echo prompt text or credentials. Only the known type
+		// controls classification; no upstream error text leaves this adapter.
+		return nil, false, NewProviderError(kind, provider, "returned a streaming error", nil)
 	}
 	return nil, false, nil
 }
