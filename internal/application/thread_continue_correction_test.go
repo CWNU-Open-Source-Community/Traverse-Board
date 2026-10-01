@@ -1,12 +1,49 @@
 package application_test
 
 import (
+	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 )
+
+func TestThreadConsumedContinuationCorrectionReachesNextSegmentWithoutReplay(t *testing.T) {
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("one", "note_create", `{"title":"One","content":"actual first effect"}`),
+		textResponse(`{"version":"root_lifecycle.v1","action":"continue","message":"Next note is still needed."}`),
+		toolResponse("two", "note_create", `{"title":"Two","content":"actual second effect"}`),
+		toolResponse("three", "note_create", `{"title":"Three","content":"actual third effect"}`),
+		toolResponse("four", "note_create", `{"title":"Four","content":"actual fourth effect"}`),
+		textResponse(`{"version":"root_lifecycle.v1","action":"continue","message":"One more note is needed in the next segment."}`),
+		toolResponse("five", "note_create", `{"title":"Five","content":"actual fifth effect"}`),
+		textResponse(`{"version":"root_lifecycle.v1","action":"finish","message":"Saved five notes.","summary":"Five durable notes saved."}`),
+	}}
+	st, turns, request := threadControlFixture(t, provider)
+	request.Content = "Save five notes and verify the count."
+	result, err := turns.Execute(t.Context(), request)
+	if err != nil || len(provider.Requests()) != 8 {
+		t.Fatalf("calls=%d result=%+v err=%v", len(provider.Requests()), result, err)
+	}
+	notes, err := st.ListNotes(t.Context(), domain.NoteFilter{RunID: result.Submission.Run.ID})
+	if err != nil || len(notes) != 5 {
+		t.Fatalf("notes=%d err=%v", len(notes), err)
+	}
+	boundary := provider.Requests()[5]
+	if len(boundary.Tools) != 0 || boundary.Metadata["protocol_repair"] != "1" ||
+		!strings.Contains(boundary.Messages[len(boundary.Messages)-1].Content, "Return continue") {
+		t.Fatal("consumed correction did not reach the normal no-tool scheduling boundary")
+	}
+	list, err := st.ListRunEvents(t.Context(), result.Submission.Run.ID)
+	if err != nil || countEventType(list, events.ProtocolRepairRequestedEvent) != 1 ||
+		countEventType(list, events.SupervisorRunCompletedEvent) != 0 {
+		t.Fatal("single repair or resumable Run state changed")
+	}
+	if _, err := turns.Execute(t.Context(), request); err != nil || len(provider.Requests()) != 8 {
+		t.Fatal("same-key replay repeated the completed work")
+	}
+}
 
 func TestThreadToolFreeContinueUsesOneCorrectionWithoutConsumingInput(t *testing.T) {
 	for _, test := range []struct {
@@ -23,6 +60,7 @@ func TestThreadToolFreeContinueUsesOneCorrectionWithoutConsumingInput(t *testing
 		{"explicit finish chooses current answer", []*llm.ChatResponse{textResponse(`{"version":"root_lifecycle.v1","action":"finish","message":"已保存第一条笔记；此处结束当前回复。"}`)}, 3, 1, false, domain.RunRunning},
 		{"explicit wait requests external input", []*llm.ChatResponse{textResponse(`{"version":"root_lifecycle.v1","action":"wait","message":"第二条笔记需要你提供内容。","reason":"需要第二条笔记的内容"}`)}, 3, 1, false, domain.RunPaused},
 		{"another continue exhausts rather than claims completion", []*llm.ChatResponse{textResponse(`{"version":"root_lifecycle.v1","action":"continue","message":"下一步仍未执行。"}`)}, 3, 1, true, ""},
+		{"captured 013 continue with reason remains rejected", []*llm.ChatResponse{textResponse(`{"version":"root_lifecycle.v1","action":"continue","message":"styles.css 与 index.html 的替换提案已获自动授权但尚未写入；下一步先应用 styles.css 提案，再应用 index.html 提案。","reason":"需要先执行已授权的 workspace_apply 才能完成文件变更。"}`)}, 3, 1, true, domain.RunPaused},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			provider := &scriptedToolProvider{responses: append([]*llm.ChatResponse{
@@ -40,7 +78,7 @@ func TestThreadToolFreeContinueUsesOneCorrectionWithoutConsumingInput(t *testing
 				t.Fatalf("thread=%+v err=%v", thread, lookupErr)
 			}
 			run, lookupErr := st.GetRun(t.Context(), thread.LastRunID)
-			if lookupErr != nil || (!test.wantError && run.Status != test.wantStatus) {
+			if lookupErr != nil || (test.wantStatus != "" && run.Status != test.wantStatus) {
 				t.Fatalf("Run state=%s err=%v", run.Status, lookupErr)
 			}
 			notes, lookupErr := st.ListNotes(t.Context(), domain.NoteFilter{RunID: run.ID})

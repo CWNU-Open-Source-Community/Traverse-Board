@@ -419,6 +419,7 @@ func migrationPlan() []migration {
 		{Version: 171, Name: "Attempt-bound midturn operator steering", Statements: midTurnSteeringStatements},
 		{Version: 172, Name: "Atomic queued message promotion to current task", Statements: operatorSteeringPromotionStatements},
 		{Version: 173, Name: "Fenced on-demand embedded Skill reads", Statements: builtinSkillReadStatements, DisableForeignKeys: true},
+		{Version: 174, Name: "Atomic private rejected native request diagnostics", Statements: supervisorToolRejectionStatements},
 	}
 }
 

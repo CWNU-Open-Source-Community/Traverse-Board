@@ -76,6 +76,7 @@ var agentBrowserCDPMethods = map[string]bool{
 	"DOM.getDocument":                true, "DOM.resolveNode": true, "DOM.scrollIntoViewIfNeeded": true, "DOM.focus": true,
 	"Runtime.callFunctionOn": true, "Runtime.releaseObjectGroup": true, "Accessibility.getFullAXTree": true,
 	"Input.dispatchMouseEvent": true, "Input.dispatchKeyEvent": true, "Input.insertText": true,
+	"Emulation.setDeviceMetricsOverride": true,
 }
 
 func (c *agentBrowserCDP) call(ctx context.Context, session, method string, params any, out any) error {

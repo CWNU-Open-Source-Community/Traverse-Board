@@ -59,10 +59,10 @@ func TestProtocolRepairMatchesInteractiveToolBoundary(t *testing.T) {
 		if len(repaired.Tools) != 0 {
 			t.Fatal("format repair gained tools")
 		}
-		if rounds == 2 && (!strings.Contains(last, "A tool-free continue is invalid") || strings.Contains(last, `action="continue"`) || !strings.Contains(last, "required nonempty message string")) {
+		if rounds != domain.MaxSupervisorToolRounds && (!strings.Contains(last, "Do not use tool-free continue here") || strings.Contains(last, `action="continue"`) || !strings.Contains(last, "required nonempty message string")) {
 			t.Fatal("repeated the observed 020/029 guidance contradiction", last)
 		}
-		if rounds != 2 && !strings.Contains(last, `action="continue"`) {
+		if rounds == domain.MaxSupervisorToolRounds && !strings.Contains(last, `action="continue"`) {
 			t.Fatal("removed continue at a permitted scheduling boundary")
 		}
 	}

@@ -1059,15 +1059,29 @@ func (s *SQLiteStore) RecordSupervisorProtocolFailure(ctx context.Context, check
 		"provider":   attempt.Provider, "model": attempt.Model, "outcome": attempt.Outcome,
 		"error": attempt.ErrorText, "elapsed_millis": elapsedMillis,
 		"retry_after_millis": 0, "retry_planned": false, "usage": response.Usage,
-		"failure_stage": failureStage,
-		"stream_events": attempt.StreamEvents, "stream_bytes": attempt.StreamBytes,
+		"failure_stage":   failureStage,
+		"tool_call_count": len(response.ToolCalls),
+		"stream_events":   attempt.StreamEvents, "stream_bytes": attempt.StreamBytes,
 	}
 	addSupervisorMonetaryIdentity(payload, attempt)
 	payload["usage_unknown"] = supervisorModelUsageUnknown(response.Usage)
+	var rejected *llm.ToolRequestRejection
+	if len(response.ToolCalls) > 0 {
+		rejected = response.ToolRequestRejection
+		if rejected == nil {
+			// Direct store callers have received evidence but no offered schema.
+			// Never reconstruct an old capability/schema from current state.
+			rejected = llm.NewToolRequestRejection(response.ToolCalls, nil)
+		}
+		if !rejected.MatchesReceived(response.ToolCalls) {
+			return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "rejected tool diagnostic must bind the original received batch")
+		}
+	}
 	return s.recordSupervisorModelTerminal(ctx, checkpoint, attempt, events.ModelFailedEvent, payload, supervisorModelTerminalOptions{
 		Usage: &response.Usage, RepairPhase: phase, RepairReason: reason, RepairEvent: eventType,
 		ThreadContinueRepairRound: continueRound,
 		TextToolRepair:            textToolRepair,
+		RejectedToolRequest:       rejected,
 	})
 }
 
@@ -1082,6 +1096,7 @@ type supervisorModelTerminalOptions struct {
 	ToolCalls                 []llm.ToolCall
 	Attribution               *domain.AgentAttribution
 	Replay                    *llm.ProviderReplay
+	RejectedToolRequest       *llm.ToolRequestRejection
 }
 
 func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, eventType string, payload map[string]any, options supervisorModelTerminalOptions) (domain.SupervisorCheckpoint, error) {
@@ -1093,6 +1108,9 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 	}
 	if options.Replay != nil && (eventType != events.ModelCompletedEvent || options.AccountingOnly || attempt.Purpose != "" || len(options.ToolCalls) == 0) {
 		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "provider replay requires a successful tool response")
+	}
+	if options.RejectedToolRequest != nil && (eventType != events.ModelFailedEvent || options.AccountingOnly || attempt.Purpose != "" || len(options.ToolCalls) != 0 || options.Replay != nil) {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "rejection diagnostics require a non-executable primary protocol failure")
 	}
 	if err := checkpoint.Validate(); err != nil {
 		return domain.SupervisorCheckpoint{}, err
@@ -1168,6 +1186,11 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if (eventType == events.ModelCompletedEvent && completed) || (eventType == events.ModelFailedEvent && failed) {
+		if eventType == events.ModelFailedEvent && !options.AccountingOnly {
+			if err := requireSupervisorToolRejectionReplayTx(ctx, tx, checkpoint, attempt, options.RejectedToolRequest); err != nil {
+				return domain.SupervisorCheckpoint{}, err
+			}
+		}
 		if eventType == events.ModelCompletedEvent && attempt.Purpose == "" && !options.AccountingOnly {
 			if err := requireSupervisorProviderReplayMatchTx(ctx, tx, checkpoint, attempt, options.Replay, options.ToolCalls); err != nil {
 				return domain.SupervisorCheckpoint{}, err
@@ -1301,6 +1324,9 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if err := appendSupervisorEventTx(ctx, tx, run, eventType, "model_gateway", subject, payload); err != nil {
+		return domain.SupervisorCheckpoint{}, err
+	}
+	if err := insertSupervisorToolRejectionTx(ctx, tx, checkpoint, attempt, options.RejectedToolRequest); err != nil {
 		return domain.SupervisorCheckpoint{}, err
 	}
 	if err := resolveSupervisorModelCancellationTx(ctx, tx, checkpoint, attempt); err != nil {

@@ -71,6 +71,14 @@ type agentBrowserRuntime interface {
 	Close(context.Context) (browserruntime.AgentBrowserCleanup, error)
 	Done() <-chan struct{}
 }
+type agentBrowserViewportNavigator interface {
+	NavigateWithViewport(context.Context, string, browserruntime.AgentBrowserViewport) (browserruntime.AgentBrowserNavigation, error)
+}
+
+type agentBrowserSnapshotTargetResolver interface {
+	ResolveSnapshotTarget(context.Context, string, string, string) (string, error)
+}
+
 type agentBrowserSlot struct {
 	action    sync.Mutex
 	authority toolgateway.AgentBrowserCallAuthority
@@ -175,6 +183,19 @@ func (s *AgentBrowserService) authorityLocked(a toolgateway.AgentBrowserCallAuth
 		return a, agentBrowserUnavailable("Agent browser manager is shut down")
 	}
 	slot := s.slots[runID]
+	if rotate && agentBrowserUnusedColdSlot(slot) {
+		candidate := agentBrowserAuthorityForSlot(a, slot)
+		if candidate != slot.authority || !s.options.Capabilities.RuntimeAuthority.AllowsRunAuthorizationFence(runID, candidate.RunAuthorizationFence) {
+			// A read-only status query may have allocated this session before a
+			// quiescent mode/permission change. No launch ever began, so there
+			// are no owned resources to reap. Retain the old immutable session;
+			// only a fresh provider advertisement may allocate its successor.
+			slot.closed = true
+			slot.view.State = "closed"
+			slot.view.Cleanup = &browserruntime.AgentBrowserCleanup{SessionID: slot.authority.BrowserSessionID, TreeReaped: true, ProfileRemoved: true}
+			slot.view.UpdatedAt = time.Now().UTC()
+		}
+	}
 	if slot == nil || (rotate && agentBrowserCleanupComplete(slot)) {
 		fence, e := s.options.Capabilities.RuntimeAuthority.IssueRunAuthorizationFence(runID)
 		if e != nil {
@@ -190,15 +211,20 @@ func (s *AgentBrowserService) authorityLocked(a toolgateway.AgentBrowserCallAuth
 		s.slots[runID] = slot
 		s.sessions[a.BrowserSessionID] = slot
 	}
+	a = agentBrowserAuthorityForSlot(a, slot)
+	if slot.closed || agentBrowserRuntimeEnded(slot.runtime) || a != slot.authority || !s.options.Capabilities.RuntimeAuthority.AllowsRunAuthorizationFence(runID, a.RunAuthorizationFence) {
+		return a, agentBrowserUnavailable("Agent browser session authority has expired")
+	}
+	return a, a.Validate()
+}
+
+func agentBrowserAuthorityForSlot(a toolgateway.AgentBrowserCallAuthority, slot *agentBrowserSlot) toolgateway.AgentBrowserCallAuthority {
 	a.ManagerBootID = slot.authority.ManagerBootID
 	a.BrowserSessionID = slot.authority.BrowserSessionID
 	a.SessionGeneration = slot.authority.SessionGeneration
 	a.RunAuthorizationFence = slot.authority.RunAuthorizationFence
 	a.Generation = a.Fingerprint()
-	if slot.closed || agentBrowserRuntimeEnded(slot.runtime) || a != slot.authority || !s.options.Capabilities.RuntimeAuthority.AllowsRunAuthorizationFence(runID, a.RunAuthorizationFence) {
-		return a, agentBrowserUnavailable("Agent browser session authority has expired")
-	}
-	return a, a.Validate()
+	return a
 }
 func (s *AgentBrowserService) check(ctx context.Context, a toolgateway.AgentBrowserCallAuthority) error {
 	current, e := s.authority(ctx, a.RunID)
@@ -224,6 +250,10 @@ func agentBrowserRuntimeEnded(r agentBrowserRuntime) bool {
 }
 func agentBrowserCleanupComplete(slot *agentBrowserSlot) bool {
 	return slot.closed && slot.view.Cleanup != nil && slot.view.Cleanup.TreeReaped && slot.view.Cleanup.ProfileRemoved && !slot.view.Cleanup.CleanupPending
+}
+
+func agentBrowserUnusedColdSlot(slot *agentBrowserSlot) bool {
+	return slot != nil && slot.runtime == nil && !slot.launchAttempted && !slot.closed
 }
 
 // Only preparation for a new provider request may rotate a cleaned session.
@@ -253,7 +283,7 @@ func (s *AgentBrowserService) Capabilities(ctx context.Context, runID string) (A
 		c.CanStart = slot.runtime == nil
 		return c, nil
 	}
-	if !s.closed && slot != nil && agentBrowserCleanupComplete(slot) {
+	if !s.closed && slot != nil && (agentBrowserCleanupComplete(slot) || agentBrowserUnusedColdSlot(slot)) {
 		c.Available = true
 		c.CanStart = true
 		return c, nil

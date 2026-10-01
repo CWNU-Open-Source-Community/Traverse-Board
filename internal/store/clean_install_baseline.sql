@@ -6065,6 +6065,18 @@ CREATE TABLE "run_supervisor_tool_calls" (
 				AND completed_at IS NOT NULL))
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_tool_rejections (
+		run_id TEXT NOT NULL,
+		turn INTEGER NOT NULL CHECK(turn > 0),
+		attempt_id TEXT NOT NULL CHECK(length(attempt_id) > 0),
+		model_attempt INTEGER NOT NULL CHECK(model_attempt > 0),
+		diagnostic_json TEXT NOT NULL CHECK(json_valid(diagnostic_json) AND length(CAST(diagnostic_json AS BLOB)) BETWEEN 2 AND 65536),
+		diagnostic_sha256 TEXT NOT NULL CHECK(length(diagnostic_sha256) = 64),
+		created_at TEXT NOT NULL,
+		PRIMARY KEY(run_id, turn, attempt_id, model_attempt),
+		FOREIGN KEY(run_id) REFERENCES runs(id)
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE run_supervisor_tool_rounds (
 		run_id TEXT NOT NULL,
 		turn INTEGER NOT NULL,
@@ -25454,6 +25466,9 @@ CREATE TRIGGER trg_supervisor_tool_call_model_attempt
 		BEGIN
 			SELECT RAISE(ABORT, 'supervisor tool call model attempt mismatch');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_tool_rejection_immutable BEFORE UPDATE ON run_supervisor_tool_rejections
+	 BEGIN SELECT RAISE(ABORT, 'rejected tool diagnostic is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_supervisor_tool_round_active_attempt
 		BEFORE INSERT ON run_supervisor_tool_rounds

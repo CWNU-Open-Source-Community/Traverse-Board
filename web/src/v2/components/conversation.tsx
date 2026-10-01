@@ -10,6 +10,8 @@ import { usePublicModelStream } from "../../hooks/use-public-model-stream";
 import { useRunEventStream } from "../../hooks/use-run-event-stream";
 import { threadActivityLabel } from "../../lib/thread-activity-label";
 import { projectThreadNarrative, type NarrativeEntry } from "../projection/narrative";
+import { projectAgentActivity } from "../projection/agent-activity";
+import { V2AgentActivity } from "./agent-activity";
 import { narrativeRepresentsFailedSubmission, recoveryRepresentsNotice } from "../projection/failure-feedback";
 import { v2QueryKeys } from "../query-keys";
 import { ControlledCommandProposalPanel } from "../../components/controlled-command-proposal-panel";
@@ -452,11 +454,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     }
   };
 
-  const stateLabel = activityLabel === "正在停止" || activityLabel === "停止未完成" ? activityLabel
-    : modelActive || activityLabel === "正在工作" ? "正在工作"
-      : reconciling ? "正在核对提交" : turnSubmitting ? "正在发送消息" : activityLabel === "等待新消息"
-        ? currentRun.status === "waiting_approval" ? "等待批准" : currentRun.status === "paused" ? "已暂停" : activityLabel
-        : activityLabel;
+  const agentActivity = projectAgentActivity({ threadID, runID: detail.active_run?.id,
+    runStatus: currentRun.status, archived: detail.thread.status !== "active",
+    execution: executionQuery.data, executionReadable: client.hasThreadExecutionRead === true,
+    executionError: executionQuery.isError, submitting: turnSubmitting, reconciling,
+    snapshot: liveSnapshot, streamStatus: publicStream.status,
+    progressError: Boolean(eventStream.error || publicStream.error || transcriptQuery.isError),
+    transcript: transcriptItems });
   const appendDraftAndReveal = (content: string) => {
     if (content) onDraftChange?.(draft?.trim() ? `${draft}\n\n${content}` : content);
     if (view === "inspector") setInspectorComposerOpen(true);
@@ -465,10 +469,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   };
   return <section className={`v2-conversation${view === "inspector" ? " is-inspector" : ""}`}>
     <header className="v2-conversation-header">
-      <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong>
-        {stateLabel !== "等待新消息" && <span className={working ? "v2-working-state" : "v2-execution-label"} role="status">
-          {working && <i />}{stateLabel}</span>}
-      </div>
+      <div><Folder aria-hidden="true" size={17} /><strong>{detail.thread.title}</strong></div>
       <div className="v2-header-actions">
         <V2ThreadExecutionControl client={client} execution={executionQuery.data}
           threadID={threadID} />
@@ -608,6 +609,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       setHasNewContent(false);
     }} type="button">有新内容 · 回到最新</button>}
     <div className="v2-composer-dock">
+      <V2AgentActivity activity={agentActivity} />
       {managedDraft && <V2DraftConflict key={threadID} client={client} workspaceID={detail.thread.workspace_id ?? ""}
         state={managedDraft.state} onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       {currentRun.status === "paused" && <V2PausedThreadControl client={client} threadID={threadID} runID={currentRun.id} />}

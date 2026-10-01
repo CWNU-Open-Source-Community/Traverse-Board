@@ -481,6 +481,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			out[index].Authority = append(json.RawMessage(nil), browserActionAuthority...)
 		}
 	}
+	if err := validateSupervisorBrowserBatch(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

@@ -43,7 +43,7 @@ func writeSupervisorToolProgressTx(ctx context.Context, tx *sql.Tx, runID string
 		model_attempt, call_id, stream_response_id, stream_item_id, stream_call_id,
 		tool_name, payload_json, authority_json, status, result_json, error_code, created_at, completed_at
 		FROM run_supervisor_tool_calls WHERE run_id=? AND status='completed' AND error_code=''
-		AND completed_at IS NOT NULL AND tool_name IN ('workspace_read','workspace_apply','workspace_delete')
+		AND completed_at IS NOT NULL AND tool_name IN ('workspace_read','workspace_apply','workspace_delete','browser_snapshot')
 		ORDER BY turn,rowid`, runID)
 	if err != nil {
 		return fmt.Errorf("read sealed tool progress: %w", err)
@@ -51,6 +51,7 @@ func writeSupervisorToolProgressTx(ctx context.Context, tx *sql.Tx, runID string
 	defer rows.Close()
 	reads := map[string]*progressReadObservation{}
 	writes := map[string]bool{}
+	browserStates := map[string]bool{}
 	for rows.Next() {
 		call, err := scanSupervisorToolCall(rows)
 		if err != nil {
@@ -62,7 +63,11 @@ func writeSupervisorToolProgressTx(ctx context.Context, tx *sql.Tx, runID string
 			envelope.Status != "completed" || envelope.Truncated {
 			continue
 		}
-		if call.ToolName == "workspace_read" {
+		if call.ToolName == "browser_snapshot" {
+			if observation, ok := progressBrowserStateObservation(call, envelope); ok {
+				browserStates[observation] = true
+			}
+		} else if call.ToolName == "workspace_read" {
 			addProgressReadObservation(call, envelope, reads)
 		} else if observation, ok := progressAppliedObservation(call, envelope); ok {
 			writes[observation] = true
@@ -72,7 +77,7 @@ func writeSupervisorToolProgressTx(ctx context.Context, tx *sql.Tx, runID string
 		return err
 	}
 	// Keep the old fingerprint unchanged when this Run has no accepted evidence.
-	if len(reads)+len(writes) == 0 {
+	if len(reads)+len(writes)+len(browserStates) == 0 {
 		return nil
 	}
 	writeProgressHashValue(digest, "sealed_tool_progress.v1")
@@ -95,6 +100,10 @@ func writeSupervisorToolProgressTx(ctx context.Context, tx *sql.Tx, runID string
 	}
 	for _, key := range sortedProgressKeys(writes) {
 		writeProgressHashValue(digest, "applied")
+		writeProgressHashValue(digest, key)
+	}
+	for _, key := range sortedProgressKeys(browserStates) {
+		writeProgressHashValue(digest, "observed_browser_controls.v1")
 		writeProgressHashValue(digest, key)
 	}
 	return nil

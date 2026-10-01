@@ -32,7 +32,7 @@ type modelContextPlan struct {
 }
 
 func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWindow,
-	layout modelContextLayout,
+	layout modelContextLayout, inputCaps ...int,
 ) (llm.ChatRequest, modelContextPlan, error) {
 	if err := window.Validate(); err != nil {
 		return llm.ChatRequest{}, modelContextPlan{}, apperror.Wrap(
@@ -56,6 +56,14 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	if err != nil {
 		return llm.ChatRequest{}, modelContextPlan{}, apperror.Wrap(
 			apperror.CodeFailedPrecondition, "model context input limit is invalid", err)
+	}
+	if len(inputCaps) > 0 {
+		if inputCaps[0] < 0 {
+			return llm.ChatRequest{}, modelContextPlan{}, apperror.New(apperror.CodeFailedPrecondition, "model input capacity is negative")
+		}
+		if inputCaps[0] < inputLimit {
+			inputLimit = inputCaps[0]
+		}
 	}
 	omitted := 0
 	estimated := estimateModelRequestTokens(request)

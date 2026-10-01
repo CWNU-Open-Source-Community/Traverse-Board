@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"cyberagent-workbench/internal/redact"
 )
 
 // These are trusted, fixed observation functions evaluated in an isolated
@@ -33,7 +35,6 @@ const agentBrowserInspectFunction = `function(){
  hit:!!hit&&(hit===e||e.contains(hit)),focused:document.activeElement===e||e.contains(document.activeElement),x,y,
  signature};
 }`
-const agentBrowserDocumentFunction = `function(){const s=(this.body&&this.body.innerText)||'';return {title:this.title.slice(0,1024),text:s.slice(0,16384),truncated:s.length>16384,ready:this.readyState};}`
 
 type agentBrowserNode struct {
 	Connected, Disabled, ReadOnly, Editable, Visible, Hit, Focused bool
@@ -43,6 +44,7 @@ type agentBrowserNode struct {
 type agentBrowserPage struct {
 	Title, Text, Ready string
 	Truncated          bool
+	Layout             *AgentBrowserLayout
 }
 
 func (r *AgentBrowserRuntime) world(ctx context.Context) (int64, error) {
@@ -86,6 +88,17 @@ func (r *AgentBrowserRuntime) releaseObjects(ctx context.Context) {
 }
 
 func (r *AgentBrowserRuntime) Navigate(ctx context.Context, rawURL string) (AgentBrowserNavigation, error) {
+	return r.navigate(ctx, rawURL, nil)
+}
+
+func (r *AgentBrowserRuntime) NavigateWithViewport(ctx context.Context, rawURL string, viewport AgentBrowserViewport) (AgentBrowserNavigation, error) {
+	if err := viewport.validate(); err != nil {
+		return AgentBrowserNavigation{}, err
+	}
+	return r.navigate(ctx, rawURL, &viewport)
+}
+
+func (r *AgentBrowserRuntime) navigate(ctx context.Context, rawURL string, viewport *AgentBrowserViewport) (AgentBrowserNavigation, error) {
 	canonical, err := agentBrowserURL(rawURL)
 	if err != nil {
 		return AgentBrowserNavigation{}, err
@@ -99,6 +112,11 @@ func (r *AgentBrowserRuntime) Navigate(ctx context.Context, rawURL string) (Agen
 	r.mu.Lock()
 	r.invalidateLocked()
 	r.mu.Unlock()
+	if viewport != nil {
+		if err := r.call(op, "Emulation.setDeviceMetricsOverride", map[string]any{"width": viewport.Width, "height": viewport.Height, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+			return AgentBrowserNavigation{}, r.unknown(err)
+		}
+	}
 	var result struct {
 		FrameID, LoaderID, ErrorText string
 		IsDownload                   bool
@@ -144,7 +162,12 @@ func (r *AgentBrowserRuntime) Navigate(ctx context.Context, rawURL string) (Agen
 			if err = r.check(op, doc.epoch); err != nil {
 				return AgentBrowserNavigation{}, r.unknown(err)
 			}
-			return AgentBrowserNavigation{r.request.Authority.SessionID, doc.url, doc.epoch, time.Now().UTC()}, nil
+			var observed *AgentBrowserViewport
+			if page.Layout != nil {
+				v := page.Layout.Viewport
+				observed = &v
+			}
+			return AgentBrowserNavigation{SessionID: r.request.Authority.SessionID, CanonicalURL: doc.url, DocumentEpoch: doc.epoch, CompletedAt: time.Now().UTC(), Viewport: observed}, nil
 		}
 		select {
 		case <-op.Done():
@@ -187,7 +210,7 @@ func (r *AgentBrowserRuntime) Snapshot(ctx context.Context) (AgentBrowserSnapsho
 	if err = r.call(op, "Accessibility.getFullAXTree", map[string]any{"frameId": frame}, &tree); err != nil {
 		return AgentBrowserSnapshot{}, err
 	}
-	snapshot := AgentBrowserSnapshot{Version: AgentBrowserProtocolVersion, SessionID: r.request.Authority.SessionID, SnapshotID: agentBrowserToken(), CanonicalURL: doc.url, Title: page.Title, DocumentEpoch: doc.epoch, Text: page.Text, Truncated: page.Truncated, UntrustedEvidence: true, FramesSupported: false, Elements: []AgentBrowserElement{}}
+	snapshot := AgentBrowserSnapshot{Version: AgentBrowserProtocolVersion, SessionID: r.request.Authority.SessionID, SnapshotID: agentBrowserToken(), CanonicalURL: doc.url, Title: page.Title, DocumentEpoch: doc.epoch, Text: page.Text, Truncated: page.Truncated, Layout: page.Layout, UntrustedEvidence: true, FramesSupported: false, Elements: []AgentBrowserElement{}}
 	refs := map[string]agentBrowserRef{}
 	for _, node := range tree.Nodes {
 		if node.Ignored || node.Backend == 0 || !agentBrowserInteractiveRole(node.Role.Value) {
@@ -205,12 +228,15 @@ func (r *AgentBrowserRuntime) Snapshot(ctx context.Context) (AgentBrowserSnapsho
 			continue
 		}
 		ref := agentBrowserToken()
-		refs[ref] = agentBrowserRef{node.Backend, doc.epoch, snapshot.SnapshotID, inspected.Signature}
 		name := node.Name.Value
 		if len(name) > 512 {
 			name = string([]rune(name)[:min(len([]rune(name)), 512)])
 		}
+		refs[ref] = agentBrowserRef{backend: node.Backend, epoch: doc.epoch, snapshot: snapshot.SnapshotID, signature: inspected.Signature, name: name, role: node.Role.Value}
 		snapshot.Elements = append(snapshot.Elements, AgentBrowserElement{Ref: ref, Role: node.Role.Value, Name: name, Tag: inspected.Tag, Type: inspected.Type, Disabled: inspected.Disabled})
+	}
+	if err = boundAgentBrowserSnapshot(&snapshot, refs); err != nil {
+		return AgentBrowserSnapshot{}, err
 	}
 	if err = r.check(op, doc.epoch); err != nil {
 		return AgentBrowserSnapshot{}, err
@@ -231,6 +257,42 @@ func agentBrowserInteractiveRole(role string) bool {
 		return true
 	}
 	return false
+}
+
+// Resolve only the installed, bounded snapshot's exposed AX names. Click/Type
+// subsequently perform the normal live signature, hit-test and authority checks.
+func (r *AgentBrowserRuntime) ResolveSnapshotTarget(ctx context.Context, snapshot, name, role string) (string, error) {
+	// Gateway redaction can make different raw AX labels look identical. Never
+	// resolve such labels back to one raw node; use an existing current ref.
+	if redact.String(name) != name || strings.Contains(name, "[REDACTED") {
+		return "", ErrAgentBrowserTargetChanged
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var matched string
+	current := false
+	for ref, stored := range r.refs {
+		if stored.epoch != r.epoch || stored.snapshot != snapshot {
+			continue
+		}
+		current = true
+		if stored.name == name && stored.role == role {
+			if matched != "" {
+				return "", ErrAgentBrowserTargetChanged
+			}
+			matched = ref
+		}
+	}
+	if !current {
+		return "", ErrAgentBrowserStaleReference
+	}
+	if matched == "" {
+		return "", ErrAgentBrowserTargetChanged
+	}
+	return matched, nil
 }
 
 func (r *AgentBrowserRuntime) reference(ctx context.Context, snapshot, ref string) (agentBrowserRef, agentBrowserNode, error) {

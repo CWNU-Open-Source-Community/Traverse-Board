@@ -80,6 +80,9 @@ type ChatResponse struct {
 	Provider     string
 	FinishReason FinishReason
 	Replay       *ProviderReplay `json:"-"`
+	// Application-issued evidence for a rejected native request. Never returned
+	// to the provider, interpreted as a tool call, or included in public history.
+	ToolRequestRejection *ToolRequestRejection `json:"-"`
 }
 
 type ChatChunk struct {

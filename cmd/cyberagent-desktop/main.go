@@ -180,7 +180,26 @@ func (h inProcessAPIHandler) ServeHTTP(writer http.ResponseWriter, request *http
 		trusted.Header.Get("Content-Length") == "" {
 		trusted.ContentLength = 0
 	}
-	h.next.ServeHTTP(writer, trusted)
+	h.next.ServeHTTP(desktopAPIResponseWriter{ResponseWriter: writer}, trusted)
+}
+
+// The embedded WebView transport derives the reason phrase from http.StatusText.
+// Cancellation's nonstandard 499 has no phrase and can leave native fetch pending.
+// Keep the CANCELLED envelope and its durable failure receipt intact; only the
+// desktop transport uses a standard error status. The standalone API keeps 499.
+type desktopAPIResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w desktopAPIResponseWriter) WriteHeader(status int) {
+	if status == apperror.HTTPStatus(context.Canceled) {
+		status = http.StatusConflict
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w desktopAPIResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func trustedDesktopRendererOrigin(request *http.Request) bool {

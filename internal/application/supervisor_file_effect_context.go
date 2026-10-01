@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// Independent small effect ledger: no file bodies or apply contracts.
+const supervisorFileEffectContextTokens = 2048
+
 type supervisorFileEffectStore interface {
 	SupervisorFileEffectCalls(context.Context, domain.SupervisorCheckpoint) ([]domain.SupervisorToolCall, error)
 }
@@ -17,15 +20,23 @@ type supervisorFileEffectStore interface {
 // Generated summaries, repeated compaction and legacy truncated failure records
 // cannot replace these observations with an assistant's completion claim.
 func (s *RunSupervisor) fileEffectContext(ctx context.Context, checkpoint domain.SupervisorCheckpoint, boundaryContext string) (string, error) {
-	reader, ok := s.store.(supervisorFileEffectStore)
-	if !ok {
-		return "", nil
-	}
-	calls, err := reader.SupervisorFileEffectCalls(ctx, checkpoint)
+	calls, err := s.fileEffectCalls(ctx, checkpoint)
 	if err != nil || len(calls) == 0 {
 		return "", err
 	}
 	return boundedSupervisorFileEffectContext(checkpoint, calls, boundaryContext)
+}
+
+func (s *RunSupervisor) fileEffectCalls(ctx context.Context, checkpoint domain.SupervisorCheckpoint) ([]domain.SupervisorToolCall, error) {
+	reader, ok := s.store.(supervisorFileEffectStore)
+	if !ok {
+		return nil, nil
+	}
+	calls, err := reader.SupervisorFileEffectCalls(ctx, checkpoint)
+	if err != nil || len(calls) == 0 {
+		return nil, err
+	}
+	return calls, nil
 }
 
 func boundedSupervisorFileEffectContext(checkpoint domain.SupervisorCheckpoint, calls []domain.SupervisorToolCall, boundaryContexts ...string) (string, error) {
@@ -65,7 +76,7 @@ func boundedSupervisorFileEffectContext(checkpoint domain.SupervisorCheckpoint, 
 		}
 		trial := append(append([]string(nil), lines...), string(encoded))
 		message := toolBoundaryEvidenceMessage("file-effect-budget", checkpoint.AttemptID, finish(trial))
-		if len(trial) > 6 || estimateModelRequestTokens(llm.ChatRequest{Messages: []llm.Message{message}})-8 > toolBoundaryContextTokens {
+		if len(trial) > 6 || estimateModelRequestTokens(llm.ChatRequest{Messages: []llm.Message{message}})-8 > supervisorFileEffectContextTokens {
 			break
 		}
 		lines = trial

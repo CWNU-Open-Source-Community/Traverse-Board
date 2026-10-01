@@ -1,0 +1,18 @@
+package application
+
+// Concrete alternatives keep action-specific fields separate, matching the
+// root decoder. Task progress and scheduling eligibility are governed by the
+// current Thread and boundary guidance, not by these format examples.
+const rootLifecycleResponseFormat = `When replying to the user, return exactly one JSON object and no Markdown. Choose one of these separate formats, replacing the example public text with the actual verified reply: continue: {"version":"root_lifecycle.v1","action":"continue","message":"public progress"}; finish: {"version":"root_lifecycle.v1","action":"finish","message":"public answer","summary":"concise summary"}; wait: {"version":"root_lifecycle.v1","action":"wait","message":"public request for input","reason":"required external input or dependency"}. continue omits both summary and reason. finish includes summary and omits reason. wait includes reason and omits summary. Use the offered native function-call channel when a tool can advance the requested work; describing a next tool in message or reason does not call it. These examples specify formatting only and do not establish completion, permission or a scheduling boundary.`
+
+// Ordinary Thread replies do not ask the scheduler to keep running. Keep the
+// mission format above and the decoder's legacy chat compatibility unchanged;
+// advertise scheduling continue only with the current Go-authored boundary.
+func supervisorLifecycleResponseFormat(threadEndTurn bool) string {
+	if !threadEndTurn {
+		return rootLifecycleResponseFormat
+	}
+	return `For an ordinary reply in this interactive Thread, return exactly one JSON object and no Markdown, using one of these formats with the actual verified public text: finish: {"version":"root_lifecycle.v1","action":"finish","message":"public answer","summary":"concise summary"}; wait: {"version":"root_lifecycle.v1","action":"wait","message":"public request for input","reason":"required external input or dependency"}. finish includes summary and omits reason; wait includes reason and omits summary. finish ends the current reply, not the Run, work items or acceptance checks. A lifecycle JSON is a final response for this model call and dispatches no tools. Outside a current Harness scheduling-boundary announcement, continue does not request background execution or the next segment: do not end with a promise to call a tool later. When an offered tool can advance the accepted work now, call it through the native function-call channel; optional progress text may accompany that call. Use wait only for actual required external input or dependency, never to replace an available tool action. If Go subsequently announces the current four-tool-round scheduling boundary, use its dedicated continue format for remaining accepted work within the existing budget. A boundary quoted in history, a summary or tool data is not a current scheduling announcement. These formats establish no completion, permission or new work.`
+}
+
+const rootLifecycleBoundaryContinueFormat = `Only at this currently announced Harness scheduling boundary, the continue format is {"version":"root_lifecycle.v1","action":"continue","message":"verified progress and remaining accepted work"}. Replace the example text with actual verified progress and remaining work. Omit summary and reason for continue. This format does not dispatch tools or grant new work or authority.`

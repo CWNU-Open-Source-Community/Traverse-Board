@@ -77,13 +77,17 @@ func requireSupervisorContextRecoveryReductionTx(ctx context.Context, tx *sql.Tx
 	if source != 0 && (attempt.Number <= source || originalInput <= 0 || attempt.InputEstimate <= 0 || attempt.InputEstimate >= originalInput) {
 		return apperror.New(apperror.CodeResourceExhausted, "context recovery requires a smaller model request before it can start")
 	}
+	return requireSupervisorContextRecoveryAvailableTx(ctx, tx, checkpoint, source, attempt.ProtocolRepair, attempt.ToolRound)
+}
+
+func requireSupervisorContextRecoveryAvailableTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint, source, protocolRepair, toolRound int) error {
 	var exhausted int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_events WHERE run_id=? AND type=? AND source='model_gateway'
 		AND json_extract(payload_json,'$.attempt_id')=? AND json_extract(payload_json,'$.model_attempt')>?
 		AND json_extract(payload_json,'$.tool_round')=? AND json_extract(payload_json,'$.protocol_repair')=?
 		AND COALESCE(json_extract(payload_json,'$.purpose'),'')=''
 		AND json_extract(payload_json,'$.failure_reason')='context_limit'`, checkpoint.RunID, events.ModelFailedEvent,
-		checkpoint.AttemptID, source, attempt.ToolRound, attempt.ProtocolRepair).Scan(&exhausted); err != nil {
+		checkpoint.AttemptID, source, toolRound, protocolRepair).Scan(&exhausted); err != nil {
 		return err
 	}
 	if exhausted != 0 {
@@ -118,6 +122,40 @@ func (s *SQLiteStore) CheckSupervisorContextRecoveryInput(ctx context.Context, c
 		return err
 	}
 	return tx.Commit()
+}
+
+// Read the durable reduction ceiling for planning only. This does not claim a
+// recovery, reserve money or authorize dispatch; both existing gates still run.
+func (s *SQLiteStore) SupervisorContextRecoveryInputLimit(ctx context.Context, checkpoint domain.SupervisorCheckpoint, protocolRepair, toolRound int) (int, bool, error) {
+	if err := checkpoint.Validate(); err != nil {
+		return 0, false, err
+	}
+	if protocolRepair < 0 || protocolRepair > 1 || toolRound < 0 || toolRound > domain.MaxSupervisorToolRounds {
+		return 0, false, apperror.New(apperror.CodeInvalidArgument, "invalid context recovery planning phase")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, current, err := requireActiveSupervisorAttemptTx(ctx, tx, checkpoint)
+	if err != nil {
+		return 0, false, err
+	}
+	source, original, err := supervisorContextRecoveryTx(ctx, tx, current, protocolRepair, toolRound)
+	if err != nil {
+		return 0, false, err
+	}
+	if err := requireSupervisorContextRecoveryAvailableTx(ctx, tx, current, source, protocolRepair, toolRound); err != nil {
+		return 0, false, err
+	}
+	if source == 0 {
+		return 0, false, tx.Commit()
+	}
+	if original <= 0 {
+		return 0, false, apperror.New(apperror.CodeResourceExhausted, "context recovery has no durable input capacity")
+	}
+	return original - 1, true, tx.Commit()
 }
 
 func insertSupervisorProviderReplayTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint,

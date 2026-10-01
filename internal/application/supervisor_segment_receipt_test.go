@@ -13,6 +13,10 @@ import (
 	"cyberagent-workbench/internal/session"
 )
 
+// Legacy small-allocation vectors remain useful. Production capacity is derived
+// from the fully prepared request rather than this test-only allocation.
+const supervisorSegmentReceiptTokenBudget = 2048
+
 // The stdout shapes below deliberately miss the strict web_fetch projection so
 // supervisorToolContextResult returns the sealed ResultJSON unchanged and the
 // receipt projection is deterministic.

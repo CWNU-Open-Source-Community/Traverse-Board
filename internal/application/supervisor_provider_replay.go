@@ -22,6 +22,10 @@ type supervisorContextRecoveryInputStore interface {
 	CheckSupervisorContextRecoveryInput(context.Context, domain.SupervisorCheckpoint, llm.ModelAttempt) error
 }
 
+type supervisorContextRecoveryLimitStore interface {
+	SupervisorContextRecoveryInputLimit(context.Context, domain.SupervisorCheckpoint, int, int) (int, bool, error)
+}
+
 func (s *RunSupervisor) attachSupervisorProviderReplay(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	request llm.ChatRequest, rounds []domain.SupervisorToolRound,
 ) (llm.ChatRequest, error) {

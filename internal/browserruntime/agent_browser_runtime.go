@@ -14,6 +14,7 @@ type agentBrowserRef struct {
 	backend             int64
 	epoch               uint64
 	snapshot, signature string
+	name, role          string
 }
 
 type AgentBrowserRuntime struct {
