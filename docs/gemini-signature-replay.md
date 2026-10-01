@@ -3,7 +3,9 @@
 The OpenAI Chat adapter preserves Gemini 3 tool-round thought signatures for
 the official Google AI Studio HTTPS endpoint at
 `generativelanguage.googleapis.com/v1beta/openai/chat/completions`, including
-configuration using the documented `/v1beta/openai` base URL. This scope uses
+configuration using the documented `/v1beta/openai` base URL. Scope follows
+the constructor's surrounding-whitespace and trailing-slash normalization,
+with no port or the default HTTPS port 443. Model scope uses
 the actual wire model after custom model mapping: `gemini-3-…` or
 `gemini-3.…`. A local route alias can select that model. A provider display name,
 a proxy hostname, Vertex endpoint or a `google/` prefix does not establish the

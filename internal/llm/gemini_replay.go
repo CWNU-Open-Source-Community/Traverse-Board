@@ -24,6 +24,12 @@ func GeminiThoughtSignatureScope(endpoint, wireModel string) bool {
 }
 
 func geminiOpenAIEndpoint(endpoint string) (string, bool) {
+	// Scope detection and the Registry's frozen probe must see the same URL
+	// normalization as the provider constructor, including trailing slashes.
+	endpoint, err := normalizeProviderBaseURL(endpoint, "gemini")
+	if err != nil {
+		return "", false
+	}
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Hostname() != "generativelanguage.googleapis.com" ||
 		(u.Port() != "" && u.Port() != "443") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" {
@@ -359,6 +365,9 @@ func (p *OpenAICompatibleProvider) geminiMessages(messages []Message, routeModel
 		mapped, err := openAIMessages(message)
 		if err != nil {
 			return nil, errors.New("Gemini replay message is invalid")
+		}
+		if len(pending) != 0 && len(mapped) != 0 && (role != "user" || len(message.ToolResults) == 0) {
+			return nil, errors.New("Gemini replay inserted a message before completing its tool batch")
 		}
 		if message.Replay != nil {
 			r := message.Replay

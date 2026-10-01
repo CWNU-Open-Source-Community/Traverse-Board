@@ -32,12 +32,16 @@ type geminiTestRuntime struct {
 func (r geminiTestRuntime) MapModel(string) (string, error) { return r.wireModel, nil }
 func (r geminiTestRuntime) BindingDigest() string           { return strings.Repeat(r.digest, 64) }
 
-func geminiFixtureProvider(t *testing.T, handler http.Handler, runtime HTTPProviderRuntime) *OpenAICompatibleProvider {
+func geminiFixtureProvider(t *testing.T, handler http.Handler, runtime HTTPProviderRuntime, configuredEndpoints ...string) *OpenAICompatibleProvider {
 	t.Helper()
+	endpoint := geminiTestEndpoint
+	if len(configuredEndpoints) != 0 {
+		endpoint = configuredEndpoints[0]
+	}
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	target, _ := url.Parse(server.URL)
-	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{Name: "gemini-test", BaseURL: geminiTestEndpoint,
+	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{Name: "gemini-test", BaseURL: endpoint,
 		APIKey: "fixture-only", DefaultModel: "route-alias", Runtime: runtime,
 		HTTPClient: &http.Client{Transport: geminiTestTransport(func(request *http.Request) (*http.Response, error) {
 			if request.URL.String() != geminiTestEndpoint {
@@ -252,6 +256,9 @@ func TestGeminiScopeAndEndpointIsolation(t *testing.T) {
 	}{
 		{geminiTestEndpoint, geminiTestModel, geminiTestEndpoint, true},
 		{"https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.1-pro-preview", geminiTestEndpoint, true},
+		{" https://generativelanguage.googleapis.com/v1beta/openai/// ", geminiTestModel, geminiTestEndpoint, true},
+		{geminiTestEndpoint + "/", geminiTestModel, geminiTestEndpoint, true},
+		{"https://generativelanguage.googleapis.com:443/v1beta/openai/", geminiTestModel, "https://generativelanguage.googleapis.com:443/v1beta/openai/chat/completions", true},
 		{geminiTestEndpoint, "gemini-2.5-pro", geminiTestEndpoint, false},
 		{"https://example.test/v1", geminiTestModel, "https://example.test/v1/chat/completions", false},
 		{"https://example.test/v1/chat/completions", geminiTestModel, "https://example.test/v1/chat/completions", false},
@@ -267,6 +274,77 @@ func TestGeminiScopeAndEndpointIsolation(t *testing.T) {
 				t.Fatalf("provider scope or endpoint changed: %s", p.endpoint("/v1/chat/completions"))
 			}
 		})
+	}
+}
+
+func TestGeminiScopeRejectsOtherEndpointAndWireModelBoundaries(t *testing.T) {
+	for _, endpoint := range []string{
+		"https://generativelanguage.googleapis.com:8443/v1beta/openai",
+		"https://fixture@generativelanguage.googleapis.com/v1beta/openai",
+		"https://generativelanguage.googleapis.com/v1beta/openai?key=fixture",
+		"https://generativelanguage.googleapis.com/v1beta/openai#fragment",
+		"https://generativelanguage.googleapis.com/v1beta/%6fpenai",
+		"https://generativelanguage.googleapis.com/v1/openai",
+		"https://aiplatform.googleapis.com/v1beta/openai",
+	} {
+		if GeminiThoughtSignatureScope(endpoint, geminiTestModel) {
+			t.Errorf("endpoint escaped the official AI Studio scope: %s", endpoint)
+		}
+	}
+	for _, model := range []string{"GEMINI-3.1-pro-preview", "gemini-3", "gemini-30-pro", "google/gemini-3.1-pro-preview", " gemini-3.1-pro-preview ", "route-alias"} {
+		if GeminiThoughtSignatureScope(geminiTestEndpoint, model) {
+			t.Errorf("wire model escaped the exact Gemini 3 family: %s", model)
+		}
+	}
+}
+
+func TestGeminiConfiguredEndpointNormalizationActualHTTP(t *testing.T) {
+	for _, endpoint := range []string{
+		" https://generativelanguage.googleapis.com/v1beta/openai/// ",
+		"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions/",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			p := geminiFixtureProvider(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1beta/openai/chat/completions" {
+					t.Errorf("configured official endpoint produced another HTTP path: %s", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"normalized-response","model":"upstream-snapshot","choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"native-a","type":"function","function":{"name":"echo","arguments":"{}"},"extra_content":{"google":{"thought_signature":"private-tool"}}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`)
+			}), geminiTestRuntime{wireModel: geminiTestModel, digest: "a"}, endpoint)
+			response, err := p.Chat(t.Context(), ChatRequest{Messages: []Message{{Role: "user", Content: "continue"}}})
+			if err != nil || response.Replay == nil {
+				t.Fatal("normalized official configuration lost native signed replay", err)
+			}
+		})
+	}
+}
+
+func TestGeminiReplayCompletesParallelBatchBeforeNextMessage(t *testing.T) {
+	p, replay, calls := geminiBoundTestReplay(t)
+	calls = append(calls, ToolCall{ID: "native-b", Name: "echo", Arguments: json.RawMessage(`{"city":"Rome"}`)})
+	b := &geminiReplayBuilder{responseID: "parallel-response", tools: map[int]string{0: "private-first-tool"}}
+	parallel, err := b.replay(p, "route-alias", geminiTestModel, "upstream-snapshot", "", calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstResult := Message{Role: "user", ToolResults: []ToolResult{{ToolCallID: "native-a", Content: `{"ok":true}`}}}
+	lastResult := Message{Role: "user", ToolResults: []ToolResult{{ToolCallID: "native-b", Content: `{"ok":true}`}}}
+	batch := []Message{{Role: "user", Content: "continue"}, {Role: "assistant", ToolCalls: calls, Replay: parallel}, firstResult, lastResult}
+	_, wire, err := p.prepareRequest(ChatRequest{Messages: batch}, false)
+	if err != nil || len(wire.Messages) != 4 || wire.Messages[2].Role != "tool" || wire.Messages[3].Role != "tool" || len(wire.Messages[1].ToolCalls[1].ExtraContent) != 0 {
+		t.Fatal("complete parallel batch was rejected or copied the first signature to its unsigned call", err)
+	}
+	for _, interrupted := range []Message{
+		{Role: "assistant", Content: "interrupted"},
+		{Role: "system", Content: "interrupted"},
+		{Role: "user", Content: "new turn"},
+		{Role: "assistant", Content: replay.AssistantText(), ToolCalls: calls[:1], Replay: replay},
+	} {
+		messages := append([]Message(nil), batch[:3]...)
+		messages = append(messages, interrupted, lastResult)
+		if _, _, err := p.prepareRequest(ChatRequest{Messages: messages}, false); err == nil {
+			t.Errorf("incomplete batch accepted an intervening %s message", interrupted.Role)
+		}
 	}
 }
 

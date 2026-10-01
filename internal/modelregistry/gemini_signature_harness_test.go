@@ -53,7 +53,9 @@ func TestHarnessQualificationGeminiTwoNativeRoundsActualHTTP(t *testing.T) {
 					original = append([]json.RawMessage(nil), body.Messages...)
 					nonces = regexp.MustCompile(`[0-9a-f]{32}`).FindAllString(string(body.Messages[0]), -1)
 					if len(nonces) != 3 || nonces[0] == nonces[1] || nonces[2] != nonces[0] {
-						t.Fatal("sequential rounds did not receive distinct original-turn nonces")
+						t.Error("sequential rounds did not receive distinct original-turn nonces")
+						w.WriteHeader(http.StatusBadRequest)
+						return
 					}
 				} else {
 					if !reflect.DeepEqual(original, body.Messages[:2]) {
@@ -176,14 +178,42 @@ func TestHarnessQualificationGeminiTwoNativeRoundsActualHTTP(t *testing.T) {
 }
 
 func TestGeminiFrozenCustomMappingScope(t *testing.T) {
-	registry := New(func(string) (string, bool) { return "", false })
-	registry.credentials = func(_ context.Context, _ string) (string, bool, error) { return "fixture", true, nil }
-	definition := validCustomDefinition("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
-	definition.AdvancedConfig = json.RawMessage(`{"model_mapping":{"acme-code":"gemini-3.7-flash","acme-fast":"other-model"}}`)
-	if err := registry.registerCustomProvider(t.Context(), definition); err != nil {
-		t.Fatal(err)
+	for _, endpoint := range []string{
+		"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+		"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions/",
+		"https://generativelanguage.googleapis.com:443/v1beta/openai/",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			registry := New(func(string) (string, bool) { return "", false })
+			registry.credentials = func(_ context.Context, _ string) (string, bool, error) { return "fixture", true, nil }
+			definition := validCustomDefinition(endpoint)
+			definition.AdvancedConfig = json.RawMessage(`{"model_mapping":{"acme-code":"gemini-3.7-flash","acme-fast":"other-model"}}`)
+			if err := registry.registerCustomProvider(t.Context(), definition); err != nil {
+				t.Fatal(err)
+			}
+			if !registry.geminiSequentialProbes[llm.ModelRef{Provider: definition.ID, Model: "acme-code"}] || registry.geminiSequentialProbes[llm.ModelRef{Provider: definition.ID, Model: "acme-fast"}] {
+				t.Fatal("custom registration inferred scope from route names instead of actual wire model")
+			}
+		})
 	}
-	if !registry.geminiSequentialProbes[llm.ModelRef{Provider: definition.ID, Model: "acme-code"}] || registry.geminiSequentialProbes[llm.ModelRef{Provider: definition.ID, Model: "acme-fast"}] {
-		t.Fatal("custom registration inferred scope from route names instead of actual wire model")
+}
+
+func TestGeminiFrozenEnvironmentEndpointNormalization(t *testing.T) {
+	for _, endpoint := range []string{
+		" https://generativelanguage.googleapis.com/v1beta/openai/// ",
+		"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions/",
+		"https://generativelanguage.googleapis.com:443/v1beta/openai/",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			values := map[string]string{"CYBERAGENT_OPENAI_API_KEY": "fixture", "CYBERAGENT_OPENAI_BASE_URL": endpoint, "CYBERAGENT_OPENAI_MODEL": "gemini-3.7-flash"}
+			registry := New(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
+			if !registry.geminiSequentialProbes[llm.ModelRef{Provider: "openai", Model: "gemini-3.7-flash"}] {
+				t.Fatal("provider-normalized endpoint did not freeze the sequential probe")
+			}
+			values["CYBERAGENT_OPENAI_BASE_URL"] = "https://example.test/v1"
+			if !registry.geminiSequentialProbes[llm.ModelRef{Provider: "openai", Model: "gemini-3.7-flash"}] {
+				t.Fatal("mutable environment changed the frozen probe plan")
+			}
+		})
 	}
 }
