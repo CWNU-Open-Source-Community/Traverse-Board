@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 
@@ -22,7 +20,7 @@ import (
 func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	const model = "agent-browser-wiring-model"
 	const providerSecret = "desktop-agent-browser-wiring-secret"
-	qualificationNonce := regexp.MustCompile(`Call prayu_harness_echo exactly once with nonce ([0-9a-f]{32})\.`)
+	qualificationFixture := &anthropicHarnessFixture{}
 
 	var requestMu sync.Mutex
 	modelRequests := make([]desktopSourceWiringRequest, 0, 2)
@@ -50,25 +48,18 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		body := string(raw)
-		switch {
-		case strings.Contains(body, "Return exactly one JSON object with version model_harness_probe.v1"):
-			nonce := regexp.MustCompile(`[0-9a-f]{32}`).FindString(body)
-			if nonce == "" {
-				t.Errorf("qualification result nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
+		phase, nonce, err := qualificationFixture.phase(raw)
+		if err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch phase {
+		case "tool_result":
 			writeAnthropicTextSSE(t, writer, model, fmt.Sprintf(
 				`{"version":"model_harness_probe.v1","status":"ok","nonce":"%s"}`, nonce))
-		case strings.Contains(body, "Call prayu_harness_echo exactly once"):
-			match := qualificationNonce.FindStringSubmatch(body)
-			if len(match) != 2 {
-				t.Errorf("qualification tool nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			writeAnthropicToolSSE(t, writer, model, match[1])
+		case "tool_call":
+			writeAnthropicToolSSE(t, writer, model, nonce)
 		default:
 			requestMu.Lock()
 			modelRequests = append(modelRequests, captured)
@@ -113,6 +104,11 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 			modelregistry.HarnessQualificationProtocolVersion, model))
 	if harness.Code != http.StatusAccepted {
 		t.Fatalf("Harness qualification status=%d body=%s", harness.Code, harness.Body.String())
+	}
+	var qualification httpapi.ModelHarnessQualificationView
+	decodeDesktopControlData(t, harness, &qualification)
+	if qualification.Status != modelregistry.HarnessDiagnosticQualified || !qualification.Harness.RootEligible || qualification.ModelCalls != 2 || qualification.SyntheticToolCalls != 1 {
+		t.Fatalf("Harness qualification did not verify exactly one paired tool exchange: %#v", qualification)
 	}
 	route := desktopControlRequest(plane.Handler(), http.MethodPost,
 		"/api/v1/models/routes/code", "desktop-agent-browser-route-0001",
