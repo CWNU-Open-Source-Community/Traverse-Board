@@ -39,6 +39,13 @@ current attempt snapshot; it carries no new authority. Pending inbox deliveries
 still consume exactly once only with the existing continue/finish transaction.
 Repeated active constraints do not create new consumption of their old message.
 
+Request construction and completion checks share deterministic redacted task
+projections. Source hashes and the snapshot fingerprint continue to bind original
+stored task truth. Delivery JSON escapes assignment separators inside string
+values so existing completion and Session text redaction cannot consume escaped
+whitespace or following required text; decoded JSON meaning stays the same.
+Dispatch refuses an encoding that is not stable under those redaction boundaries.
+
 Bounds are explicit: 256 instruction source operations, 32 active instructions,
 20 active child WorkItems and 128 KiB snapshot JSON. Existing 4,096-token context,
 28 KiB selected-source and 32 KiB final-input limits remain dispatch fences. Count,

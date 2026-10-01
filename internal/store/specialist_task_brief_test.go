@@ -337,6 +337,17 @@ func TestSpecialistTaskBriefRejectsIncompleteCompletedInputWithoutCommittingUsag
 	st := openWorkItemTestStore(t)
 	f := prepareSpecialistAttemptFixture(t, t.Context(), st, "completion source proof", 3, 128)
 	sendSpecialistInstructionTestMessage(t, t.Context(), st, f, "complete current scope", idgen.New("brief-send"))
+	workService := application.NewWorkItemService(st)
+	work, err := workService.Create(t.Context(), application.CreateWorkItemRequest{
+		RunID: f.Run.ID, OwnerAgentID: f.Child.ID, Title: "complete required title",
+		Description: "complete required description tail", AcceptanceCriteria: []string{"required acceptance tail"}, Priority: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workService.Transition(t.Context(), work.ID, work.Version, domain.WorkItemBlocked, "required blocked reason"); err != nil {
+		t.Fatal(err)
+	}
 	a, _, err := st.BeginSpecialistAttempt(t.Context(), newAttemptStart(f, idgen.New("attempt")), idgen.New("brief-start"))
 	if err != nil {
 		t.Fatal(err)
@@ -355,6 +366,51 @@ func TestSpecialistTaskBriefRejectsIncompleteCompletedInputWithoutCommittingUsag
 	input := `{"version":"specialist_context.v1","task_brief_fingerprint":"` + batch.TaskBrief.Fingerprint + `","parent_instructions":[],"work_items":[]}`
 	if _, err := st.RecordSpecialistModelCompleted(t.Context(), attemptRef(a), modern, response, input, action, policy.Decision{Allowed: true, Reason: "allowed", Risk: "low"}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("incomplete input committed: %v", err)
+	}
+	type instruction struct {
+		Text string `json:"instruction"`
+	}
+	type completeInput struct {
+		Version      string                             `json:"version"`
+		Fingerprint  string                             `json:"task_brief_fingerprint"`
+		Instructions []instruction                      `json:"parent_instructions"`
+		Work         []domain.SpecialistTaskWorkContext `json:"work_items"`
+	}
+	if len(batch.TaskBrief.Instructions) != 1 || len(batch.TaskBrief.WorkItems) != 1 {
+		t.Fatal("fixture must bind one instruction and one complete owned WorkItem")
+	}
+	full := completeInput{Version: domain.SpecialistContextVersion, Fingerprint: batch.TaskBrief.Fingerprint,
+		Instructions: []instruction{{Text: domain.SpecialistTaskInstructionProjection(batch.TaskBrief.Instructions[0].Instruction)}},
+		Work:         []domain.SpecialistTaskWorkContext{domain.SpecialistTaskWorkProjection(batch.TaskBrief.WorkItems[0])}}
+	for _, tc := range []struct {
+		name   string
+		change func(*completeInput)
+	}{
+		{"instruction", func(v *completeInput) { v.Instructions[0].Text = "changed required scope" }},
+		{"title", func(v *completeInput) { v.Work[0].Title = "changed required title" }},
+		{"description", func(v *completeInput) { v.Work[0].Description = "truncated description" }},
+		{"acceptance", func(v *completeInput) { v.Work[0].AcceptanceCriteria = nil }},
+		{"blocked_reason", func(v *completeInput) { v.Work[0].BlockedReason = "changed blocked reason" }},
+		{"dependency", func(v *completeInput) { v.Work[0].Dependencies = []string{"work-unselected"} }},
+		{"priority", func(v *completeInput) { v.Work[0].Priority = domain.WorkItemPriorityNormal }},
+		{"item_version", func(v *completeInput) { v.Work[0].Version++ }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(full)
+			var changed completeInput
+			if err := json.Unmarshal(raw, &changed); err != nil {
+				t.Fatal(err)
+			}
+			tc.change(&changed)
+			raw, err := domain.MarshalSpecialistDeliveryContext(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.RecordSpecialistModelCompleted(t.Context(), attemptRef(a), modern, response, string(raw), action,
+				policy.Decision{Allowed: true, Reason: "allowed", Risk: "low"}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+				t.Fatalf("changed required content committed with the correct brief fingerprint: %v", err)
+			}
+		})
 	}
 	saved, found, err := st.GetAgentAttempt(t.Context(), a.ID)
 	if err != nil || !found || saved.UsageRecordedAt != nil || saved.Usage.TotalTokens != 0 {

@@ -227,7 +227,7 @@ func validateSpecialistBriefCompletedInputTx(ctx context.Context, tx *sql.Tx, at
 		return apperror.New(apperror.CodeFailedPrecondition, "Specialist completed input differs from its prepared task brief")
 	}
 	for i, instruction := range brief.Instructions {
-		if delivered.Instructions[i].Instruction != instruction.Instruction {
+		if delivered.Instructions[i].Instruction != domain.SpecialistTaskInstructionProjection(instruction.Instruction) {
 			return apperror.New(apperror.CodeFailedPrecondition, "Specialist completed input changed a required instruction")
 		}
 	}

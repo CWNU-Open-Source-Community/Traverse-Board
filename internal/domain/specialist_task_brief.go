@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"cyberagent-workbench/internal/redact"
 )
 
 const (
@@ -45,9 +47,65 @@ type SpecialistTaskWorkContext struct {
 }
 
 func SpecialistTaskWorkProjection(item WorkItem) SpecialistTaskWorkContext {
-	return SpecialistTaskWorkContext{ID: item.ID, Status: item.Status, Priority: item.Priority, Title: item.Title,
-		Description: item.Description, AcceptanceCriteria: append([]string(nil), item.AcceptanceCriteria...),
-		Dependencies: append([]string(nil), item.Dependencies...), BlockedReason: item.BlockedReason, Version: item.Version}
+	criteria := make([]string, len(item.AcceptanceCriteria))
+	for i, criterion := range item.AcceptanceCriteria {
+		criteria[i] = redact.String(criterion)
+	}
+	return SpecialistTaskWorkContext{ID: item.ID, Status: item.Status, Priority: item.Priority, Title: redact.String(item.Title),
+		Description: redact.String(item.Description), AcceptanceCriteria: criteria,
+		Dependencies: append([]string(nil), item.Dependencies...), BlockedReason: redact.String(item.BlockedReason), Version: item.Version}
+}
+
+func SpecialistTaskInstructionProjection(instruction string) string {
+	return redact.String(instruction)
+}
+
+// MarshalSpecialistDeliveryContext redacts decoded string values before encoding.
+// Escape assignment separators inside JSON strings so generic text redaction at
+// completion and Session storage cannot consume escaped whitespace and following
+// task text. JSON values remain unchanged. Source snapshots use ordinary JSON
+// encoding instead; their original hashes and fingerprint are never projected.
+func MarshalSpecialistDeliveryContext(value any) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(encoded))
+	for i := 0; i < len(encoded); {
+		if encoded[i] != '"' {
+			out = append(out, encoded[i])
+			i++
+			continue
+		}
+		start := i
+		i++
+		for encoded[i] != '"' {
+			if encoded[i] == '\\' {
+				i++
+			}
+			i++
+		}
+		i++
+		if i < len(encoded) && encoded[i] == ':' {
+			out = append(out, encoded[start:i]...)
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(encoded[start:i], &text); err != nil {
+			return nil, err
+		}
+		safe, err := json.Marshal(redact.String(text))
+		if err != nil {
+			return nil, err
+		}
+		safe = bytes.ReplaceAll(safe, []byte(":"), []byte(`\u003a`))
+		safe = bytes.ReplaceAll(safe, []byte("="), []byte(`\u003d`))
+		out = append(out, safe...)
+	}
+	if redact.String(string(out)) != string(out) {
+		return nil, errors.New("Specialist delivery context is not stable under redaction")
+	}
+	return out, nil
 }
 
 // Task truth survives attempts; this value contains no lease or execution grant.

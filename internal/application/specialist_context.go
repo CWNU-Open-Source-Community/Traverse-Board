@@ -140,6 +140,9 @@ func specialistTurnInputMode(mission domain.Mission, runScope domain.Scope, chil
 			Instruction: truncateWorkBoardText(redact.String(payload.Instruction),
 				domain.MaxSpecialistInstructionRunes),
 		}
+		if requiredWork {
+			record.Instruction = domain.SpecialistTaskInstructionProjection(payload.Instruction)
+		}
 		content, err := marshalSpecialistContextRecord(record)
 		if err != nil {
 			return "", contextmgr.Selection{}, err
@@ -168,14 +171,7 @@ func specialistTurnInputMode(mission domain.Mission, runScope domain.Scope, chil
 			Version:            item.Version,
 		}
 		if requiredWork {
-			record.Title = redact.String(item.Title)
-			record.Description = redact.String(item.Description)
-			record.AcceptanceCriteria = append([]string(nil), item.AcceptanceCriteria...)
-			record.Dependencies = append([]string(nil), item.Dependencies...)
-			record.BlockedReason = redact.String(item.BlockedReason)
-			for i := range record.AcceptanceCriteria {
-				record.AcceptanceCriteria[i] = redact.String(record.AcceptanceCriteria[i])
-			}
+			record = domain.SpecialistTaskWorkProjection(item)
 			mandatory[specialistContextSourceKey("child_work_item", item.ID)] = struct{}{}
 		}
 		content, err := marshalSpecialistContextRecord(record)
@@ -261,7 +257,7 @@ func specialistTurnInputMode(mission domain.Mission, runScope domain.Scope, chil
 			envelope.Notes = append(envelope.Notes, noteRecords[key])
 		}
 	}
-	encoded, err := json.Marshal(envelope)
+	encoded, err := domain.MarshalSpecialistDeliveryContext(envelope)
 	if err != nil {
 		return "", contextmgr.Selection{}, err
 	}
@@ -273,7 +269,7 @@ func specialistTurnInputMode(mission domain.Mission, runScope domain.Scope, chil
 }
 
 func marshalSpecialistContextRecord(value any) (string, error) {
-	encoded, err := json.Marshal(value)
+	encoded, err := domain.MarshalSpecialistDeliveryContext(value)
 	if err != nil {
 		return "", err
 	}

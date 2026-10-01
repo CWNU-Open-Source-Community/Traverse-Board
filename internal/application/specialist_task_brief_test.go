@@ -11,9 +11,11 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 )
@@ -403,5 +405,175 @@ func TestSpecialistTaskBriefRemainsCompleteDuringTransportRetry(t *testing.T) {
 	second := provider.requests[1].Messages[len(provider.requests[1].Messages)-1].Content
 	if first != second || !strings.Contains(second, required) {
 		t.Fatal("transport retry changed persistent task constraints")
+	}
+}
+
+func TestSpecialistTaskBriefRedactedSourcesCompleteAndSettleExactlyOnce(t *testing.T) {
+	const raw = "TOKEN=synthetic-secret-215\nREQUIRED_REDACTION_TAIL_215"
+	safe := redact.String(raw)
+	if safe == raw || !strings.Contains(safe, "REQUIRED_REDACTION_TAIL_215") {
+		t.Fatal("fixture must trigger redaction without losing the following constraint")
+	}
+	for _, source := range []string{"instruction", "owned_work"} {
+		t.Run(source, func(t *testing.T) {
+			provider := &specialistTestProvider{responses: specialistBriefResponses(t, 2)}
+			st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+			instructionText, workText := "keep the current scope", "complete the assigned review"
+			if source == "instruction" {
+				instructionText = raw
+			} else {
+				workText = raw
+			}
+			instruction := sendSpecialistBriefInstruction(t, st, run, child, instructionText)
+			payload, err := domain.DecodeAgentInstructionPayload(instruction.PayloadJSON)
+			if err != nil || payload.Instruction != redact.String(instructionText) {
+				t.Fatalf("real instruction write did not redact its string value: %v", err)
+			}
+			workService := application.NewWorkItemService(st)
+			work, err := workService.Create(t.Context(), application.CreateWorkItemRequest{
+				RunID: run.ID, OwnerAgentID: child.ID, Title: workText, Description: workText,
+				AcceptanceCriteria: []string{workText}, Priority: "high",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			work, err = workService.Transition(t.Context(), work.ID, work.Version, domain.WorkItemBlocked, workText)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if work.Title != redact.String(workText) || work.Description != redact.String(workText) ||
+				len(work.AcceptanceCriteria) != 1 || work.AcceptanceCriteria[0] != redact.String(workText) ||
+				work.BlockedReason != redact.String(workText) {
+				t.Fatal("real owned-work writes did not redact their text")
+			}
+			provider.responses[1].Text = specialistResponse(t, domain.SpecialistAction{
+				Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionFinish,
+				Message: "safe source delivery verified", Report: &domain.CompletionReport{
+					Version: domain.CompletionReportVersion, Outcome: domain.CompletionPartial,
+					Summary:     "required constraints and redaction preserved; assigned work remains blocked",
+					WorkItemIDs: []string{work.ID},
+				},
+			})
+			brief, err := domain.BuildSpecialistTaskBrief(run.ID, child.ID, child.ParentID,
+				[]domain.AgentMessage{instruction}, []domain.WorkItem{work})
+			if err != nil {
+				t.Fatal(err)
+			}
+			completedIDs := []string{}
+			for i := range 2 {
+				result, err := runner.Step(t.Context(), run.ID, child.ID)
+				wantStatus := domain.AgentAttemptContinued
+				if i == 1 {
+					wantStatus = domain.AgentAttemptFinished
+				}
+				if err != nil || result.AttemptStatus != wantStatus ||
+					result.ModelOutcome != llm.OutcomeSuccess || result.Usage.TotalTokens != 5 {
+					attempts, _ := st.ListAgentAttempts(t.Context(), child.ID)
+					var savedUsage int64
+					for _, attempt := range attempts {
+						savedUsage += attempt.Usage.TotalTokens
+					}
+					t.Fatalf("successful provider response failed completion: calls=%d saved_usage=%d result=%#v err=%v",
+						len(provider.requests), savedUsage, result, err)
+				}
+				completedIDs = append(completedIDs, result.AttemptID)
+			}
+			if len(provider.requests) != 2 {
+				t.Fatalf("provider calls=%d want2", len(provider.requests))
+			}
+			assertInput := func(input string) {
+				t.Helper()
+				var envelope struct {
+					Fingerprint  string `json:"task_brief_fingerprint"`
+					Instructions []struct {
+						Instruction string `json:"instruction"`
+					} `json:"parent_instructions"`
+					Work []domain.SpecialistTaskWorkContext `json:"work_items"`
+				}
+				if err := json.Unmarshal([]byte(input), &envelope); err != nil ||
+					envelope.Fingerprint != brief.Fingerprint || len(envelope.Instructions) != 1 || len(envelope.Work) != 1 {
+					t.Fatalf("delivered safe context lost its source binding: %v", err)
+				}
+				if envelope.Instructions[0].Instruction != payload.Instruction || envelope.Work[0].Title != work.Title ||
+					envelope.Work[0].Description != work.Description || len(envelope.Work[0].AcceptanceCriteria) != 1 ||
+					envelope.Work[0].AcceptanceCriteria[0] != work.AcceptanceCriteria[0] ||
+					envelope.Work[0].BlockedReason != work.BlockedReason {
+					t.Fatal("safe delivery or persistence changed a required task constraint")
+				}
+			}
+			for _, request := range provider.requests {
+				assertInput(request.Messages[len(request.Messages)-1].Content)
+				encoded, _ := json.Marshal(request)
+				if strings.Contains(string(encoded), "synthetic-secret-215") {
+					t.Fatal("sensitive source text leaked into the provider request")
+				}
+			}
+			messages, err := st.ListSessionMessages(t.Context(), child.SessionID, true)
+			if err != nil || len(messages) != 4 {
+				t.Fatalf("successful model input/output not persisted: count%d err%v", len(messages), err)
+			}
+			for _, message := range messages {
+				if strings.Contains(message.Content, "synthetic-secret-215") {
+					t.Fatal("sensitive source text leaked into session history")
+				}
+				if message.Role == "user" {
+					assertInput(message.Content)
+				}
+			}
+			attempts, err := st.ListAgentAttempts(t.Context(), child.ID)
+			if err != nil || len(attempts) != 2 || attempts[0].ID == attempts[1].ID {
+				t.Fatalf("expected two independent settled attempts: %v", err)
+			}
+			for _, attempt := range attempts {
+				if (attempt.Status != domain.AgentAttemptContinued && attempt.Status != domain.AgentAttemptFinished) ||
+					attempt.UsageRecordedAt == nil || attempt.Usage.TotalTokens != 5 {
+					t.Fatal("successful attempt usage was not settled exactly once")
+				}
+			}
+			updated, err := st.GetAgentNode(t.Context(), child.ID)
+			if err != nil || updated.TokensUsed != 10 || updated.TurnsUsed != 2 || updated.Status != domain.AgentCompleted {
+				t.Fatal("child usage totals lost or duplicated a successful call")
+			}
+			inbox, err := st.ListAgentMessages(t.Context(), child.ID, false, 10)
+			if err != nil || len(inbox) != 1 || inbox[0].Status != domain.AgentMessageConsumed ||
+				inbox[0].PayloadJSON != instruction.PayloadJSON {
+				t.Fatal("instruction source was altered or not consumed once")
+			}
+			assertSpecialistEventCounts(t, st, run.ID, map[string]int{
+				events.ModelStartedEvent: 2, events.ModelCompletedEvent: 2,
+				events.AgentAttemptUsageRecordedEvent: 2, events.AgentMessageConsumedEvent: 1,
+			})
+			timeline, err := st.ListRunEvents(t.Context(), run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range timeline {
+				if strings.Contains(event.PayloadJSON, "synthetic-secret-215") {
+					t.Fatal("sensitive source text leaked into event evidence")
+				}
+				if event.Type != events.ModelStartedEvent && event.Type != events.AgentMessageConsumedEvent {
+					continue
+				}
+				var payload struct {
+					AttemptID string                `json:"agent_attempt_id"`
+					Context   llm.ModelContextAudit `json:"context"`
+				}
+				if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+					t.Fatal(err)
+				}
+				if event.Type == events.AgentMessageConsumedEvent && payload.AttemptID != completedIDs[0] {
+					t.Fatal("later attempt consumed an already-delivered instruction")
+				}
+				if event.Type == events.ModelStartedEvent {
+					bound := false
+					for _, included := range payload.Context.Included {
+						bound = bound || included.Kind == "specialist_task_brief" && included.SourceID == brief.Fingerprint
+					}
+					if !bound || (payload.AttemptID != completedIDs[0] && payload.AttemptID != completedIDs[1]) {
+						t.Fatal("safe projection lost its original brief fingerprint or current attempt binding")
+					}
+				}
+			}
+		})
 	}
 }
