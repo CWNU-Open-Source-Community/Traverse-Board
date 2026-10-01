@@ -29,7 +29,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
 | [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
-| [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 4 | true |
+| [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 6 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
 | [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 4 | true |
@@ -1123,19 +1123,24 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `external-durable`
 - Owner: Project configuration and instruction maintainers
-- Source of truth: `configs`, `internal/projectconfig`
-- Persistence/export boundary: .prayu configuration, instruction precedence, and fingerprints persist in user projects and automation.
-- Compatibility rule: Use deterministic dual-read for path/precedence changes, reject conflicts, and keep old-project fixtures.
-- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
+- Source of truth: `configs`, `internal/application/project_instruction_delivery.go`, `internal/projectconfig`, `internal/store/run_instruction_snapshots.go`
+- Persistence/export boundary: .prayu configuration, instruction precedence, fingerprints and opt-in delivery classifications persist in user projects and immutable Run snapshot revisions; project-rule.v1 identities persist in source-bound model-start audits.
+- Compatibility rule: Use deterministic dual-read for path/precedence changes, reject conflicts, and keep old-project fixtures. ADR 0162 retains legacy fingerprints and optional selection when delivery is absent; new readers also validate classified snapshots. InstructionDelivery and ProjectInstructionDelivery tests prove classified binding, old-reader rejection and SQLite close/reopen revision retention. Retain the classified snapshot and dispatch readers on writer rollback; never rewrite historical fingerprints or audit identities.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Classified Run readers and dispatch fences remain until every classified revision and model-start audit has migration or retention evidence; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `project-configuration-contract-writer` (`v1`, write-current) at `internal/projectconfig`
+  - `project-instruction-audit-writer` (`v1`, write-current) at `internal/application/run_supervisor.go`
 - Readers:
   - `project-configuration-contract-reader` (`v1`, active) at `internal/projectconfig`
+  - `project-instruction-dispatch-reader` (`v1`, active) at `internal/application/project_instruction_delivery.go`
+  - `project-instruction-history-reader` (`v1`, active) at `internal/store/run_instruction_snapshots.go`
 
-<details><summary>4 active identifiers</summary>
+<details><summary>6 active identifiers</summary>
 
 - `prayu.locale.v1`
+- `project-rule.v1`
 - `project_config.v1`
+- `project_instruction_delivery.v1`
 - `project_instruction_guidance.v1`
 - `project_instruction_snapshot.v1`
 
