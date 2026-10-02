@@ -196,7 +196,7 @@ func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *test
 	if err != nil || result.AttemptStatus != domain.AgentAttemptContinued ||
 		result.ParentInstructions != 1 || result.ContextRecovered ||
 		result.OwnedWorkItems != 1 || result.OwnedNotes != 1 ||
-		result.ContextSources != 4 || result.ContextOmitted != 0 ||
+		result.ContextSources != 5 || result.ContextOmitted != 0 ||
 		result.ContextTokens <= 0 || result.ContextTokens > result.ContextTokenBudget {
 		t.Fatalf("Specialist child context result is invalid: result=%#v err=%v", result, err)
 	}
@@ -220,7 +220,7 @@ func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *test
 	}
 	if request.Metadata["parent_instructions"] != "1" ||
 		request.Metadata["owned_work_items"] != "1" || request.Metadata["owned_notes"] != "1" ||
-		request.Metadata["context_sources"] != "4" {
+		request.Metadata["context_sources"] != "5" {
 		t.Fatalf("Specialist context metadata is invalid: %#v", request.Metadata)
 	}
 	messages, err := st.ListAgentMessages(ctx, child.ID, false, 10)
@@ -233,6 +233,12 @@ func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *test
 		t.Fatal(err)
 	}
 	modelStarted := ""
+	var delivered struct {
+		Fingerprint string `json:"task_brief_fingerprint"`
+	}
+	if err := json.Unmarshal([]byte(input), &delivered); err != nil || len(delivered.Fingerprint) != 64 {
+		t.Fatalf("current child input lacks its exact task fingerprint: %v", err)
+	}
 	for _, event := range timeline {
 		if event.Type == events.ModelStartedEvent && event.Source == "specialist_model_gateway" {
 			modelStarted = event.PayloadJSON
@@ -243,6 +249,19 @@ func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *test
 		strings.Contains(modelStarted, "Use the child-owned work") ||
 		strings.Contains(modelStarted, "bounded observation for the child") {
 		t.Fatalf("Specialist context provenance leaked content or lost source IDs: %s", modelStarted)
+	}
+	var provenance struct {
+		Context llm.ModelContextAudit `json:"context"`
+	}
+	if err := json.Unmarshal([]byte(modelStarted), &provenance); err != nil {
+		t.Fatal(err)
+	}
+	bound := false
+	for _, source := range provenance.Context.Included {
+		bound = bound || source.Kind == "specialist_task_brief" && source.SourceID == delivered.Fingerprint
+	}
+	if !bound {
+		t.Fatal("model start receipt differs from the actual delivered task fingerprint")
 	}
 }
 

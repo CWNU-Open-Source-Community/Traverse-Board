@@ -172,6 +172,9 @@ func (s *SQLiteStore) RestoreAgentGraph(ctx context.Context, runID string) (doma
 	if err := validateSpecialistContextDeliveryProjectionTx(ctx, tx, nodes); err != nil {
 		return domain.AgentGraph{}, err
 	}
+	if err := validateSpecialistBriefProjectionTx(ctx, tx, nodes); err != nil {
+		return domain.AgentGraph{}, err
+	}
 	if err := validateAgentCompletionProjectionTx(ctx, tx, nodes); err != nil {
 		return domain.AgentGraph{}, err
 	}
