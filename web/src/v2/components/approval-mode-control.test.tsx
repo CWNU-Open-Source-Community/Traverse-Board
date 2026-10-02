@@ -1,17 +1,135 @@
-import { StrictMode, useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { StrictMode, useState, type ReactNode } from "react";
+import { cleanup, fireEvent, render as renderComponent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalModeControlProps } from "./approval-mode-contract";
 import { V2ApprovalModeControl } from "./approval-mode-control";
+import { LocaleProvider, useLocale, type PrayuLocale } from "../../lib/locale";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.localStorage.removeItem("prayu.locale.v1"); });
+
+function render(ui: ReactNode, locale: PrayuLocale = "zh-CN") {
+  window.localStorage.setItem("prayu.locale.v1", locale);
+  return renderComponent(ui, { wrapper: LocaleProvider });
+}
 
 function props(overrides: Partial<ApprovalModeControlProps> = {}): ApprovalModeControlProps {
   return { mode: "ask", fullActivation: "inactive", pending: false, onRequestChange: vi.fn(), ...overrides };
 }
 
 const labels = ["请求批准", "帮我批准", "完全访问权限"];
+
+describe.each(["menu", "settings"] as const)("V2ApprovalModeControl English %s", (variant) => {
+  const role = variant === "menu" ? "menuitemradio" : "button";
+  async function open(user: ReturnType<typeof userEvent.setup>) {
+    if (variant === "menu") await user.click(screen.getByRole("button", { expanded: false }));
+  }
+
+  it("localizes choices, descriptions and accessible names while preserving the Auto request", async () => {
+    const user = userEvent.setup(); const initial = props({ variant });
+    const view = render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user);
+    expect(within(screen.getByRole("group", { name: "Execution approval modes" })).getAllByRole(role)
+      .map((item) => item.getAttribute("aria-label"))).toEqual(["Request approval", "Approve for me", "Full access"]);
+    expect(screen.getByText("Execution permissions")).toBeVisible();
+    expect(screen.getByText("Full access inactive")).toBeVisible();
+    expect(screen.getByRole(role, { name: "Request approval" })).toHaveAccessibleDescription(/public network requests need approval/u);
+    expect(screen.getByText(/A tool's read-only claim is not verification/u)).toBeVisible();
+    expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+    await user.click(screen.getByRole(role, { name: "Approve for me" }));
+    expect(initial.onRequestChange).toHaveBeenCalledExactlyOnceWith({ mode: "auto", confirmFull: false });
+  });
+
+  it("cancels in English without a write, then confirms Full exactly once", async () => {
+    const user = userEvent.setup(); const initial = props({ variant });
+    render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user); await user.click(screen.getByRole(role, { name: "Full access" }));
+    const dialog = screen.getByRole("dialog", { name: "Enable Full access?" });
+    expect(within(dialog).getByRole("button", { name: "Close" })).toHaveFocus();
+    expect(within(dialog).getByText(/operating system, provider, and runtime/u)).toBeVisible();
+    expect(dialog.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const returnTarget = variant === "menu" ? screen.getByRole("button", { expanded: false })
+      : screen.getByRole(role, { name: "Full access" });
+    expect(returnTarget).toHaveFocus();
+    await open(user); await user.click(screen.getByRole(role, { name: "Full access" }));
+    await user.dblClick(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm activation" }));
+    expect(initial.onRequestChange).toHaveBeenCalledExactlyOnceWith({ mode: "full", confirmFull: true });
+  });
+
+  it("keeps cold Full inactive until English reactivation is confirmed", async () => {
+    const user = userEvent.setup(); const initial = props({ variant, mode: "full" });
+    render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user);
+    expect(screen.getByText("Full access inactive")).toBeVisible();
+    expect(screen.getByRole(role, { name: "Full access" })).toHaveAccessibleDescription(/Selected · inactive/u);
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole(variant === "menu" ? "menuitem" : "button", { name: /Reactivate Full access/u }));
+    const dialog = screen.getByRole("dialog", { name: "Reactivate Full access?" });
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reactivation" }));
+    expect(initial.onRequestChange).toHaveBeenCalledExactlyOnceWith({ mode: "full", confirmFull: true });
+  });
+
+  it.each(["inactive", "active", "unavailable"] as const)("localizes Full %s without issuing a request", async (fullActivation) => {
+    const user = userEvent.setup(); const initial = props({ variant, mode: "full", fullActivation });
+    const view = render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user);
+    expect(screen.getByText(`Full access ${fullActivation}`)).toBeVisible();
+    if (fullActivation === "unavailable") {
+      expect(screen.getByRole(role, { name: "Full access" })).toHaveAccessibleDescription(
+        "Currently unavailable Full access is not available in the current environment.");
+    }
+    expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+  });
+
+  it("localizes pending and blank-error fallbacks while preserving a supplied reason", async () => {
+    const user = userEvent.setup(); const initial = props({ variant, pending: true,
+      fullActivation: "unavailable", fullUnavailableReason: "Provider has disabled this capability", error: " " });
+    const view = render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user);
+    expect(screen.getByRole("status")).toHaveTextContent("Updating permissions…");
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed to update permissions");
+    expect(screen.getByText("Provider has disabled this capability")).toBeVisible();
+    expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pending English confirmation locked with a localized busy label", async () => {
+    const user = userEvent.setup(); const initial = props({ variant });
+    const view = render(<V2ApprovalModeControl {...initial} />, "en-US");
+    await open(user); await user.click(screen.getByRole(role, { name: "Full access" }));
+    view.rerender(<V2ApprovalModeControl {...initial} pending />);
+    const dialog = screen.getByRole("dialog", { name: "Enable Full access?" });
+    expect(within(dialog).getByRole("button", { name: "Processing…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}{Enter}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(initial.onRequestChange).not.toHaveBeenCalled();
+  });
+});
+
+it("updates an open confirmation when locale changes without changing consent or preference", async () => {
+  const user = userEvent.setup(); const initial = props({ variant: "settings" });
+  function Host() {
+    const { setLocale } = useLocale();
+    return <><button onClick={() => setLocale("en-US")}>Use English</button><V2ApprovalModeControl {...initial} /></>;
+  }
+  render(<Host />);
+  await user.click(screen.getByRole("button", { name: "完全访问权限" }));
+  expect(screen.getByRole("dialog", { name: "启用完全访问权限？" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Use English" }));
+  const dialog = screen.getByRole("dialog", { name: "Enable Full access?" });
+  expect(dialog.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+  expect(initial.onRequestChange).not.toHaveBeenCalled();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Full access" })).toHaveFocus();
+});
 
 describe.each(["menu", "settings"] as const)("V2ApprovalModeControl %s", (variant) => {
   const role = variant === "menu" ? "menuitemradio" : "button";

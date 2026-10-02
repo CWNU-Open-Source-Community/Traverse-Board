@@ -1,6 +1,7 @@
 import { AlertTriangle, X } from "lucide-react";
 import type { RefObject } from "react";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
+import { useLocale } from "../../lib/locale";
 
 export function V2ConfirmDialog({ open, title, description, confirmLabel, danger = false,
   busy = false, returnFocusRef, onCancel, onConfirm }: {
@@ -14,6 +15,7 @@ export function V2ConfirmDialog({ open, title, description, confirmLabel, danger
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useLocale();
   const ref = useModalFocusTrap<HTMLElement>(open, onCancel, busy, undefined, { returnFocusRef });
   if (!open) return null;
   return <div className="v2-overlay" role="presentation" onMouseDown={(event) => {
@@ -24,14 +26,14 @@ export function V2ConfirmDialog({ open, title, description, confirmLabel, danger
       <header><span className={danger ? "danger" : ""}>
         <AlertTriangle aria-hidden="true" size={17} /></span>
         <h2 id="v2-confirm-title">{title}</h2>
-        <button aria-label="关闭" disabled={busy} onClick={onCancel} type="button">
+        <button aria-label={t("关闭", "Close")} disabled={busy} onClick={onCancel} type="button">
           <X aria-hidden="true" size={16} />
         </button>
       </header>
       <p>{description}</p>
-      <footer><button disabled={busy} onClick={onCancel} type="button">取消</button>
+      <footer><button disabled={busy} onClick={onCancel} type="button">{t("取消", "Cancel")}</button>
         <button className={danger ? "danger" : "primary"} disabled={busy}
-          onClick={onConfirm} type="button">{busy ? "正在处理…" : confirmLabel}</button></footer>
+          onClick={onConfirm} type="button">{busy ? t("正在处理…", "Processing…") : confirmLabel}</button></footer>
     </section>
   </div>;
 }

@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberAgentClient } from "../api/client";
 import type { RunDetailView, RunExecutionPermissionView } from "../api/types";
 import { capabilityReadinessFixture } from "../test/capability-readiness";
+import { LocaleProvider } from "../lib/locale";
 import { ExecutionPermissionPanel } from "./run-permission-settings";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.localStorage.removeItem("prayu.locale.v1"); });
 
 function permission(mode: "ask" | "auto" | "full" = "ask", active = false): RunExecutionPermissionView {
   return {
@@ -29,6 +30,7 @@ function permission(mode: "ask" | "auto" | "full" = "ask", active = false): RunE
 }
 
 function install(initial = permission(), deferResponse = false) {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   // The exported real panel consumes only these RunDetail fields. Other Run
   // settings are deliberately not mocked into this panel's authority boundary.
@@ -54,7 +56,8 @@ function install(initial = permission(), deferResponse = false) {
       queryFn: async () => queries.getQueryData<RunDetailView>(["run", runID])! });
     return <ExecutionPermissionPanel client={client} detail={data!} readiness={capabilityReadinessFixture(runID)} />;
   }
-  const tree = (runID: string) => <QueryClientProvider client={queries}><Host runID={runID} /></QueryClientProvider>;
+  const tree = (runID: string) => <LocaleProvider><QueryClientProvider client={queries}>
+    <Host runID={runID} /></QueryClientProvider></LocaleProvider>;
   const view = render(tree("run-ui-a"));
   return { queries, fetch, release: () => release?.(), changeRun: () => view.rerender(tree("run-ui-b")),
     rerender: () => view.rerender(tree("run-ui-a")),
