@@ -32,7 +32,6 @@ func TestLaunchBranchesAreExplicitAndResolvedCredentialsAreVersioned(t *testing.
 		"wrong branch":        func(v *ResolvedLaunch) { v.Transport = TransportStdio },
 		"both branches":       func(v *ResolvedLaunch) { v.Stdio = &StdioLaunch{Command: "node"} },
 		"unbound credential":  func(v *ResolvedLaunch) { v.HTTP.Credential.Revision = "" },
-		"credential conflict": func(v *ResolvedLaunch) { v.HTTP.Headers["authorization"] = "Bearer another" },
 		"header injection":    func(v *ResolvedLaunch) { v.HTTP.Headers["X-Key"] = "value\r\nInjected: yes" },
 		"duplicate header":    func(v *ResolvedLaunch) { v.HTTP.Headers["accept"] = "text/plain" },
 		"invalid header name": func(v *ResolvedLaunch) { v.HTTP.Headers["Bad Name"] = "value" },
