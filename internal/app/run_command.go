@@ -2128,83 +2128,48 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		writeRunExecutionPermission(a.out, permission, false,
-			capabilities.Allows(permission.Mode))
+		writeRunExecutionPermission(a.out, permission, false, capabilities.AllowsSnapshot(permission))
 		return nil
 	}
+	const usage = "usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> ask|auto|full --operation-key <key> [--confirm-full --enable-permission-control --enable-danger-full-access] [--operator <id>] [--reason <text>]"
 	if len(args) == 0 || args[0] != "set" {
-		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-workspace-sandbox] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New(usage)
 	}
 	fs := newFlagSet("run execution-permission set", a.errOut)
-	operationKey := fs.String("operation-key", "",
-		"stable execution-permission operation key")
+	operationKey := fs.String("operation-key", "", "stable execution-permission operation key")
 	operator := fs.String("operator", "cli_operator", "operator identity")
 	reason := fs.String("reason", "", "redacted selection reason")
-	confirmWorkspace := fs.Bool("confirm-workspace-access", false,
-		"confirm the sandbox-only Workspace boundary")
-	confirmApproval := fs.Bool("confirm-user-approval", false,
-		"confirm exact per-command operator approval")
-	confirmFull := fs.Bool("confirm-danger-full-access", false,
-		"confirm unsandboxed one-shot host access")
-	confirmDebug := fs.Bool("confirm-debug-access", false,
-		"confirm persistent maximum-access debug capabilities")
-	enableControl := fs.Bool("enable-permission-control", false,
-		"enable permission elevation for this process")
-	enableWorkspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
-		"request the verified process-local Workspace Sandbox gate")
-	enableFull := fs.Bool("enable-danger-full-access", false,
-		"enable danger-full-access for this process")
-	enableDebug := fs.Bool("enable-debug-maximum-access", false,
-		"enable maximum debug access for this process")
+	confirmFull := fs.Bool("confirm-full", false, "explicitly confirm Full for this process")
+	enableControl := fs.Bool("enable-permission-control", false, "enable permission control for this process")
+	enableFull := fs.Bool("enable-danger-full-access", false, "make Full activation available in this process")
 	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 		"operation-key": true, "operator": true, "reason": true,
-		"confirm-workspace-access": false,
-		"confirm-user-approval":    false, "confirm-danger-full-access": false,
-		"confirm-debug-access": false, "enable-permission-control": false,
-		"enable-workspace-sandbox":  false,
-		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+		"confirm-full": false, "enable-permission-control": false, "enable-danger-full-access": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
-		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-workspace-sandbox] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New(usage)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *enableControl,
-		DangerFullAccessEnabled:   *enableFull,
-		DebugMaximumAccessEnabled: *enableDebug,
-	}
-	if *enableWorkspaceSandbox && !*enableControl {
-		return apperror.New(apperror.CodeInvalidArgument,
-			"--enable-workspace-sandbox requires --enable-permission-control")
-	}
-	if *enableWorkspaceSandbox {
-		backend, readiness, err := openLocalSandbox(ctx, true)
-		if err != nil {
-			return err
-		}
-		defer backend.Close()
-		capabilities.WorkspaceSandboxEnabled = readiness.Ready
+		OperatorApprovalEnabled: *enableControl, DangerFullAccessEnabled: *enableFull,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	if err := capabilities.Validate(); err != nil {
-		return apperror.Wrap(apperror.CodeInvalidArgument,
-			err.Error(), err)
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
 	service := application.NewRunExecutionPermissionService(a.store, capabilities)
-	result, err := service.Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{
-			RunID: fs.Arg(0), Mode: fs.Arg(1), OperationKey: *operationKey,
-			RequestedBy: *operator, Reason: *reason,
-			ConfirmWorkspaceAccess:  *confirmWorkspace,
-			ConfirmUserApproval:     *confirmApproval,
-			ConfirmDangerFullAccess: *confirmFull,
-			ConfirmDebugAccess:      *confirmDebug,
-		})
+	result, err := service.Change(ctx, application.ChangeRunExecutionPermissionRequest{
+		RunID: fs.Arg(0), Mode: fs.Arg(1), OperationKey: *operationKey,
+		RequestedBy: *operator, Reason: *reason, ConfirmFull: *confirmFull,
+	})
 	if err != nil {
 		return err
 	}
-	writeRunExecutionPermission(a.out, result.Permission, result.Replayed,
-		capabilities.Allows(result.Permission.Mode))
+	writeRunExecutionPermission(a.out, result.Permission, result.Replayed, capabilities.AllowsSnapshot(result.Permission))
+	if result.Permission.Mode == domain.RunExecutionPermissionFull {
+		fmt.Fprintln(a.out, "activation_lifetime: this CLI process only; a later process requires explicit Full confirmation")
+	}
 	return nil
 }
 

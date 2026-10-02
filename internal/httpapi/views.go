@@ -777,27 +777,30 @@ type ExecutionPermissionCapabilityMatrixView struct {
 }
 
 type RunExecutionPermissionView struct {
-	ProtocolVersion      string                                  `json:"protocol_version"`
-	Revision             int64                                   `json:"revision"`
-	Mode                 string                                  `json:"mode"`
-	ApprovalPolicy       string                                  `json:"approval_policy"`
-	CommandScope         string                                  `json:"command_scope"`
-	FilesystemScope      string                                  `json:"filesystem_scope"`
-	NetworkScope         string                                  `json:"network_scope"`
-	PersistentTerminal   bool                                    `json:"persistent_terminal"`
-	BackgroundProcess    bool                                    `json:"background_process"`
-	AgentTerminalInput   bool                                    `json:"agent_terminal_input"`
-	RiskTier             string                                  `json:"risk_tier"`
-	RequiredGate         string                                  `json:"required_gate"`
-	PolicyVersion        string                                  `json:"policy_version"`
-	OperatorConfirmed    bool                                    `json:"operator_confirmed"`
-	RuntimeGateAvailable bool                                    `json:"runtime_gate_available"`
-	Runtime              ExecutionPermissionRuntimeView          `json:"runtime"`
-	CapabilityMatrix     ExecutionPermissionCapabilityMatrixView `json:"capability_matrix"`
-	CreatedAt            time.Time                               `json:"created_at"`
-	ProcessEnabled       bool                                    `json:"process_enabled"`
-	ExecutionAuthorized  bool                                    `json:"execution_authorized"`
-	CapabilityGrant      bool                                    `json:"capability_grant"`
+	ProtocolVersion       string                                  `json:"protocol_version"`
+	Revision              int64                                   `json:"revision"`
+	Mode                  string                                  `json:"mode"`
+	ApprovalMode          string                                  `json:"approval_mode"`
+	FullActivation        string                                  `json:"full_activation"`
+	FullUnavailableReason string                                  `json:"full_unavailable_reason,omitempty"`
+	ApprovalPolicy        string                                  `json:"approval_policy"`
+	CommandScope          string                                  `json:"command_scope"`
+	FilesystemScope       string                                  `json:"filesystem_scope"`
+	NetworkScope          string                                  `json:"network_scope"`
+	PersistentTerminal    bool                                    `json:"persistent_terminal"`
+	BackgroundProcess     bool                                    `json:"background_process"`
+	AgentTerminalInput    bool                                    `json:"agent_terminal_input"`
+	RiskTier              string                                  `json:"risk_tier"`
+	RequiredGate          string                                  `json:"required_gate"`
+	PolicyVersion         string                                  `json:"policy_version"`
+	OperatorConfirmed     bool                                    `json:"operator_confirmed"`
+	RuntimeGateAvailable  bool                                    `json:"runtime_gate_available"`
+	Runtime               ExecutionPermissionRuntimeView          `json:"runtime"`
+	CapabilityMatrix      ExecutionPermissionCapabilityMatrixView `json:"capability_matrix"`
+	CreatedAt             time.Time                               `json:"created_at"`
+	ProcessEnabled        bool                                    `json:"process_enabled"`
+	ExecutionAuthorized   bool                                    `json:"execution_authorized"`
+	CapabilityGrant       bool                                    `json:"capability_grant"`
 }
 
 type BrowserCDPPermissionRuntimeView struct {
@@ -1674,9 +1677,11 @@ func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) RunExecutionPermissionView {
 	matrix, _ := value.CapabilityMatrix()
+	activation, unavailable := approvalFullActivation(value.Mode, capabilities.AllowsSnapshot(value), capabilities)
 	return RunExecutionPermissionView{
 		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
 		Mode: string(value.Mode), ApprovalPolicy: string(value.ApprovalPolicy),
+		ApprovalMode: string(value.Mode.ApprovalPreference()), FullActivation: activation, FullUnavailableReason: unavailable,
 		CommandScope:       string(value.CommandScope),
 		FilesystemScope:    string(value.FilesystemScope),
 		NetworkScope:       string(value.NetworkScope),
@@ -1709,8 +1714,7 @@ func runBrowserCDPPermissionView(value domain.RunBrowserCDPPermissionSnapshot,
 	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) RunBrowserCDPPermissionView {
 	executionDebugSelected := executionPermission.Mode == domain.RunExecutionPermissionDebug
-	executionFullSelected := executionPermission.Mode == domain.RunExecutionPermissionFullAccess ||
-		executionDebugSelected
+	executionFullSelected := executionPermission.Mode.IncludesFullAccess()
 	runtimeAvailable := capabilities.Allows(value.Mode)
 	if value.Mode == domain.RunBrowserCDPPermissionFullDebug {
 		runtimeAvailable = runtimeAvailable && executionFullSelected &&

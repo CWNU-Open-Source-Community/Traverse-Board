@@ -20,7 +20,7 @@ export const fullCDPSessionQueryKey = (runID: string) =>
   ["v2", "run", runID, "full-cdp-session"] as const;
 
 function allowsFullCDP(mode: PermissionMode | null): boolean {
-  return mode === "full_access" || mode === "debug";
+  return mode === "full" || mode === "full_access" || mode === "debug";
 }
 
 function statusCopy({ runID, mode, permission, loading, failed, controlEnabled,
