@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,27 @@ import (
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+func TestBuiltinSkillActivationSharesCountWithInstalledSkills(t *testing.T) {
+	registry, err := skills.BuiltinRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skillProjectionFixture{}
+	at := time.Now().UTC()
+	for i := 0; i < skills.MaxSelectionItems; i++ {
+		pin := toolgateway.SkillReadRequest{InstallationID: fmt.Sprintf("installed-%d", i), PackageID: "package", ComponentID: "skill", Revision: strings.Repeat("a", 64), InstallationGeneration: 3}
+		raw, _ := json.Marshal(pin)
+		state.calls = append(state.calls, domain.SupervisorToolCall{RunID: "run", ToolName: "skill_read", Status: domain.SupervisorToolCompleted, CompletedAt: &at, PayloadJSON: string(raw)})
+	}
+	reader := &builtinSkillReader{state, registry}
+	manifest, _ := registry.Get("frontend-design")
+	pin := toolgateway.SkillReadRequest{Name: manifest.Name, Version: manifest.Version, ContentSHA256: manifest.ContentSHA256}
+	mode := domain.RunModeSnapshot{Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver, Profile: domain.ProfileCode}
+	if _, _, err := reader.contextItems(t.Context(), "run", mode, &pin); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+		t.Fatal("bundled read bypassed shared activation bound", err)
+	}
+}
 
 type skillProjectionFixture struct {
 	builtinSkillReadStore

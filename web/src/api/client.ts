@@ -6119,7 +6119,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     }
   }
   for (const item of value.plugins) {
-    if (!isRecord(item) || item.protocol_version !== "plugin-installation.v1" ||
+    if (!isRecord(item) || !["plugin-installation.v1", "plugin-installation.v2"].includes(String(item.protocol_version)) ||
       !boundedIdentity(item.id) || !isSHA256(item.archive_sha256) ||
       !isSHA256(item.package_fingerprint) || !safePositiveInteger(item.generation) ||
       typeof item.signature_present !== "boolean" || typeof item.signature_valid !== "boolean" ||
@@ -6127,11 +6127,20 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
       !boundedIdentity(item.staged_by) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !isRecord(item.manifest) || !boundedIdentity(item.manifest.id) ||
-      !boundedText(item.manifest.name, 256) || !boundedText(item.manifest.publisher, 256) ||
+      !boundedText(item.manifest.name, 256) ||
+      (item.protocol_version === "plugin-installation.v1" && !boundedText(item.manifest.publisher, 256)) ||
       !boundedStringArray(item.manifest.capabilities, 4, 32) ||
       !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
       !boundedText(item.source.uri, 4_096)) {
       throw new APIRequestError("Plugin installation projection is invalid", "INVALID_RESPONSE", 502);
+    }
+    if (item.protocol_version === "plugin-installation.v2" &&
+      (!isRecord(item.snapshot) || !["agent-skills", "agent-plugins"].includes(String(item.snapshot.format)) ||
+        !isSHA256(item.snapshot.revision) || item.snapshot.revision !== item.archive_sha256 ||
+        !["code", "cyber"].includes(String(item.snapshot.surface)) ||
+        (item.manifest.version !== "" && !boundedText(item.manifest.version, 256)) || item.manifest.publisher !== "" ||
+        item.signature_present !== false || item.signature_valid !== false)) {
+      throw new APIRequestError("Portable plugin installation projection is invalid", "INVALID_RESPONSE", 502);
     }
   }
   return value as unknown as ExtensionInventoryView;

@@ -109,23 +109,32 @@ type ExtensionPluginManifestView struct {
 }
 
 type ExtensionPluginInstallationView struct {
-	ProtocolVersion      string                      `json:"protocol_version"`
-	ID                   string                      `json:"id"`
-	Manifest             ExtensionPluginManifestView `json:"manifest"`
-	Source               ExtensionSourceView         `json:"source"`
-	ArchiveSHA256        string                      `json:"archive_sha256"`
-	PackageFingerprint   string                      `json:"package_fingerprint"`
-	SignaturePresent     bool                        `json:"signature_present"`
-	SignatureValid       bool                        `json:"signature_valid"`
-	PublisherFingerprint string                      `json:"publisher_fingerprint,omitempty"`
-	State                string                      `json:"state"`
-	EnabledCapabilities  []string                    `json:"enabled_capabilities"`
-	Generation           int64                       `json:"generation"`
-	StagedBy             string                      `json:"staged_by"`
-	ReviewedBy           string                      `json:"reviewed_by,omitempty"`
-	ReviewedAt           string                      `json:"reviewed_at,omitempty"`
-	CreatedAt            string                      `json:"created_at"`
-	UpdatedAt            string                      `json:"updated_at"`
+	ProtocolVersion      string                         `json:"protocol_version"`
+	ID                   string                         `json:"id"`
+	Manifest             ExtensionPluginManifestView    `json:"manifest"`
+	Snapshot             *ExtensionPortableSnapshotView `json:"snapshot,omitempty"`
+	Source               ExtensionSourceView            `json:"source"`
+	ArchiveSHA256        string                         `json:"archive_sha256"`
+	PackageFingerprint   string                         `json:"package_fingerprint"`
+	SignaturePresent     bool                           `json:"signature_present"`
+	SignatureValid       bool                           `json:"signature_valid"`
+	PublisherFingerprint string                         `json:"publisher_fingerprint,omitempty"`
+	State                string                         `json:"state"`
+	EnabledCapabilities  []string                       `json:"enabled_capabilities"`
+	Generation           int64                          `json:"generation"`
+	StagedBy             string                         `json:"staged_by"`
+	ReviewedBy           string                         `json:"reviewed_by,omitempty"`
+	ReviewedAt           string                         `json:"reviewed_at,omitempty"`
+	CreatedAt            string                         `json:"created_at"`
+	UpdatedAt            string                         `json:"updated_at"`
+}
+
+// Portable author version is optional. The acquired revision is a separate
+// host identity; it must never be represented as an invented author version.
+type ExtensionPortableSnapshotView struct {
+	Format   string `json:"format"`
+	Revision string `json:"revision"`
+	Surface  string `json:"surface"`
 }
 
 type ExtensionMCPReviewRequestView struct {
@@ -358,8 +367,8 @@ func extensionMCPCallAuditView(value mcp.CallAudit) ExtensionMCPCallAuditView {
 }
 
 func extensionPluginInstallationView(value plugins.Installation) ExtensionPluginInstallationView {
-	capabilities := make([]string, 0, len(value.Manifest.Capabilities))
-	for _, capability := range value.Manifest.Capabilities {
+	capabilities := make([]string, 0, len(value.Capabilities()))
+	for _, capability := range value.Capabilities() {
 		capabilities = append(capabilities, string(capability))
 	}
 	enabled := make([]string, 0, len(value.EnabledCapabilities))
@@ -367,8 +376,8 @@ func extensionPluginInstallationView(value plugins.Installation) ExtensionPlugin
 		enabled = append(enabled, string(capability))
 	}
 	result := ExtensionPluginInstallationView{ProtocolVersion: value.ProtocolVersion,
-		ID: value.ID, Manifest: ExtensionPluginManifestView{ID: value.Manifest.ID,
-			Name: value.Manifest.Name, Version: value.Manifest.Version,
+		ID: value.ID, Manifest: ExtensionPluginManifestView{ID: value.PackageID(),
+			Name: value.DisplayName(), Version: value.Manifest.Version,
 			Publisher: value.Manifest.Publisher, Description: value.Manifest.Description,
 			Capabilities: capabilities},
 		Source: ExtensionSourceView{Kind: value.Source.Kind, URI: value.Source.URI,
@@ -381,6 +390,10 @@ func extensionPluginInstallationView(value plugins.Installation) ExtensionPlugin
 		StagedBy: value.StagedBy, ReviewedBy: value.ReviewedBy,
 		CreatedAt: value.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: value.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	if value.Snapshot != nil {
+		result.Manifest.Version = value.Snapshot.AuthorVersion
+		result.Snapshot = &ExtensionPortableSnapshotView{Format: value.Snapshot.Format, Revision: value.Revision(), Surface: value.Source.Surface}
+	}
 	if value.ReviewedAt != nil {
 		result.ReviewedAt = value.ReviewedAt.UTC().Format(time.RFC3339Nano)
 	}

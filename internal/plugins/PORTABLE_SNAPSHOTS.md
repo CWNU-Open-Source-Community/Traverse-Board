@@ -25,7 +25,8 @@ activated. MCP execution will need its separately authorized runtime path.
 Host acquisition limits reuse the existing plugin object store's 4 MiB archive,
 8 MiB decoded content and 256 KiB metadata limits, with at most 1024 entries.
 Ordinary files and directories (including empty files/directories, scripts and
-binary data) are retained. Source links, junctions and special files are rejected
+binary data) are retained. Root `.git` administration, including a worktree pointer
+file, is excluded before traversal. Source links, junctions and special files are rejected
 as an explicit acquisition limitation; this path does not materialize them.
 Case-equivalent paths are rejected to keep one inventory identity on Windows.
 The loader can read contained links, but this acquisition path intentionally has
@@ -33,22 +34,49 @@ the narrower input boundary. Filesystem confinement is not a process sandbox.
 
 ## Integration and old-entry retirement
 
-No production entry is retired by this preparatory increment. The next wiring
-increment must use the **same** plugin object/install/state/audit tables and the
-existing directory/Git import and `skill_read` entry points:
+The directory/Git source import entry now selects an explicit format. Its former
+unconditional `skills.BuildPackageFromDir` step remains only for legacy Skill
+directories; existing signed ZIP codecs, old rows and recovery readers remain.
+Native packages are never rebuilt as a fabricated legacy author manifest.
 
-- Replace the unconditional generic `skills.BuildPackageFromDir` route with
-  explicit format dispatch; retain old signed ZIP codecs and archived readers.
-- Persist the acquired descriptor beside the retained object, rather than
-  applying legacy semver/publisher/content-size constraints to portable files.
-- Offer summaries only for currently enabled installation capabilities; copy
-  the exact component/revision into the existing `skill_read` request.
-- Recheck current Run/session/attempt and installation generation before I/O
-  and before returning the result. Snapshot references themselves are not
-  authorization. Revocation is not an atomic OS-level operation.
-- Restore successful-read guidance using the existing tool-call ledger and the
-  exact installed object, never historical stdout or a new Run/Session database.
+`plugin-installation.v2` stores the acquired descriptor in the existing
+`plugin_installations.manifest_json` slot and exact bytes in `plugin_objects`.
+Migration 177 extends that table while retaining the v1 JSON, signatures, object
+bytes, transition foreign keys and historical migration checksums. The host
+revision is not an author version; absent author/version remain absent in the
+original source. Source provenance and the selected surface are immutable.
+Import confirmation approves/enables instructions only; scripts and MCP launches
+remain inert. Current disabled/revoked/quarantined/rolled-back records are never
+renewed by an import retry. The operation key is durably bound to exact input.
+The existing one-object provenance binding rejects a second installation of the
+same archive under a different operation/source/surface instead of aliasing it.
 
-Tests exercise real unmodified upstream fixtures through capture, serialized
-descriptor, reopen, instruction activation and resource read. These establish
-the storage/read seam only, not public installation or MCP interoperability.
+The existing `skill_read` and Supervisor path now offer enabled native summaries
+and read by installation/package/component/revision/generation. Resource paths
+use only the acquired inventory. Ordinary text, empty and binary resources have
+explicit UTF-8/base64 output, original and delivered digests, existing redaction,
+a 64 KiB read bound and the existing result envelope ceiling. The reader checks
+current Run/session/root attempt/lease, mode and installation state before I/O
+and before returning bytes. These checkpoints are not atomic OS revocation.
+
+The existing successful tool-call ledger retains activation references. Resource
+reads do not displace instruction activation. Bundled guidance keeps its existing
+body-restoration budget; native references survive restart/compaction and require
+an exact re-read when needed. Large native bodies are not silently truncated into
+the old bundled context budget. Historical stdout never restores activation.
+The shared eight-activation bound includes bundled and native reads.
+
+Validation covers two unchanged upstream fixtures through the real source import,
+catalog and Supervisor tool path, plus retained-object restart/pending-receipt
+recovery, binary/empty resources, source/object drift and disable/revoke/cancel
+checks. CLI import and existing plugin review/list paths remain the operator
+entry. HTTP extension inventory exposes native identity, optional author version,
+revision and selected surface for those same review operations.
+
+This increment retires the generic native-to-legacy repack step, the bundled-only
+read identity/catalog assumption, and name-only ledger deduplication. It does not
+retire legacy archive readers, create another installation or Run/Session database,
+execute Skill scripts or connect an MCP service. Git import currently selects the
+repository root only; callers with monorepo Skills must select/materialize the
+actual package directory. Native URL archives, GUI import UX, MCP/process production
+wiring and the public ask/auto/full writer cutover remain later increments.
