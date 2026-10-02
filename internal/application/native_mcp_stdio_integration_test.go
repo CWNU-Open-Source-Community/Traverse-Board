@@ -74,7 +74,7 @@ func TestNativeMCPOriginalScriptReachesGuardedProductionStdio(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			dataRoot := filepath.Join(stateRoot, "data", portableIdentity(installed.ID+"\x00"+record.Descriptor.NativeSource.Component.ComponentID))
+			dataRoot := filepath.Join(stateRoot, "data", portableIdentity(installed.PackageID()+"\x00"+installed.Source.Surface))
 			if scenario == "change_script_during_discovery" {
 				if err := os.WriteFile(filepath.Join(dataRoot, "change-script"), []byte("explicit fixture"), 0600); err != nil {
 					t.Fatal(err)
@@ -120,6 +120,46 @@ func TestNativeMCPOriginalScriptReachesGuardedProductionStdio(t *testing.T) {
 				if callErr != nil || calls != 1 || !strings.Contains(result.Content, "packaged-result") || strings.Contains(result.Content, "credential-") {
 					t.Fatalf("native script dispatch/redaction: calls=%d result=%+v err=%v", calls, result, callErr)
 				}
+				// Update the same logical plugin with a differently named MCP
+				// component. A second real process must see the first call's data.
+				if _, err := service.Review(ctx, installed.ID, plugins.ReviewRequest{Action: plugins.ReviewDisable,
+					ExpectedPackageFingerprint: installed.PackageFingerprint, ExpectedGeneration: installed.Generation, ReviewedBy: "operator"}); err != nil {
+					t.Fatal(err)
+				}
+				upgradedConfig := strings.Replace(string(config), "packaged-script", "upgraded-script", 1)
+				if err := os.WriteFile(filepath.Join(installed.Source.URI, "mcp.json"), []byte(upgradedConfig), 0600); err != nil {
+					t.Fatal(err)
+				}
+				next := importNativeMCPDirectoryFixture(t, state, installed.Source.URI, "native-mcp-upgrade")
+				if next.PackageID() != installed.PackageID() || next.Revision() == installed.Revision() || next.ID == installed.ID {
+					t.Fatal("fixture did not create a separately reviewed revision")
+				}
+				upgraded, err := service.StageMCPServers(ctx, next.ID, mcp.ScopeRun, run.ID, "workspace-command-runtime-app", manager)
+				if err != nil || len(upgraded) != 1 {
+					t.Fatal("upgrade staging", err)
+				}
+				nextRecord := upgraded[0]
+				if nextRecord.Descriptor.NativeSource.Component == record.Descriptor.NativeSource.Component {
+					t.Fatal("fixture did not change component identity")
+				}
+				if _, err := manager.Review(ctx, nextRecord.Descriptor.ID, mcp.ReviewRequest{Action: mcp.ReviewApproveDiscovery,
+					ExpectedDescriptorFingerprint: nextRecord.DescriptorFingerprint, ReviewedBy: "operator"}); err != nil {
+					t.Fatal(err)
+				}
+				nextRecord, err = manager.Refresh(ctx, nextRecord.Descriptor.ID)
+				if err != nil {
+					t.Fatal("upgrade discovery", err)
+				}
+				if _, err := manager.Review(ctx, nextRecord.Descriptor.ID, mcp.ReviewRequest{Action: mcp.ReviewEnableCapabilities,
+					ExpectedDescriptorFingerprint: nextRecord.DescriptorFingerprint, ExpectedCapabilityFingerprint: nextRecord.Capabilities.Fingerprint, ReviewedBy: "operator"}); err != nil {
+					t.Fatal(err)
+				}
+				result, err = executor.ExecuteMCP(ctx, scope, toolgateway.MCPToolCallPayload{Version: toolgateway.MCPClientToolProtocolVersion, ServerID: nextRecord.Descriptor.ID,
+					ToolName: "packaged_lookup", CapabilityFingerprint: nextRecord.Capabilities.Fingerprint, Arguments: json.RawMessage(`{}`)})
+				counter, readErr := os.ReadFile(filepath.Join(dataRoot, "counter"))
+				if err != nil || readErr != nil || string(counter) != "2" || !strings.Contains(result.Content, "count=2") {
+					t.Fatal("plugin update lost persistent PLUGIN_DATA", err, readErr, string(counter))
+				}
 			} else {
 				receipt, found := mcp.InvocationReceipt(callErr)
 				if callErr == nil || !found || receipt.State != toolcontract.ReceiptNotDispatched || calls != 0 || result.Content != "" {
@@ -150,6 +190,11 @@ func importNativeMCPFixture(t *testing.T, state *store.SQLiteStore, config []byt
 			t.Fatal(err)
 		}
 	}
+	return importNativeMCPDirectoryFixture(t, state, directory, "native-mcp-import")
+}
+
+func importNativeMCPDirectoryFixture(t *testing.T, state *store.SQLiteStore, directory, operationKey string) plugins.Installation {
+	t.Helper()
 	builtins, err := skills.BuiltinRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +205,7 @@ func importNativeMCPFixture(t *testing.T, state *store.SQLiteStore, config []byt
 	}
 	catalog := NewSkillCatalogService(state, NewSkillPackageRegistryService(state, objects, builtins))
 	imported, err := catalog.ImportFromDirectory(t.Context(), ImportSkillFromDirectoryRequest{Directory: directory, Surface: domain.ExecutionSurfaceCode,
-		OperationKey: "native-mcp-import", InstalledBy: "operator", ConfirmUntrusted: true})
+		OperationKey: operationKey, InstalledBy: "operator", ConfirmUntrusted: true})
 	if err != nil || imported.Portable == nil || imported.Portable.State != plugins.StateStaged {
 		t.Fatal("original import must remain staged", err)
 	}
@@ -195,7 +240,10 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     if (fs.existsSync(path.join(data, 'change-script'))) fs.appendFileSync(__filename, '\n// source changed during discovery\n');
     result = {tools:[{name:'packaged_lookup',inputSchema:{type:'object'}}], resultType:'complete', ttlMs:0, cacheScope:'private'};
   } else if (frame.method === 'tools/call') {
-    result = {content:[{type:'text',text:'packaged-result ' + process.env.NATIVE_SECRET}],resultType:'complete'};
+    const counter = path.join(data, 'counter');
+    const count = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) + 1 : 1;
+    fs.writeFileSync(counter, String(count));
+    result = {content:[{type:'text',text:'packaged-result count=' + count + ' ' + process.env.NATIVE_SECRET}],resultType:'complete'};
   } else { process.exit(3); }
   process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:frame.id,result}) + '\n');
 });

@@ -80,7 +80,11 @@ func (r *NativeMCPSourceResolver) Resolve(ctx context.Context, ref mcp.NativeSou
 		return failed(err)
 	}
 	scratch := filepath.Join(r.root, "runtime")
-	data := filepath.Join(r.root, "data", portableIdentity(ref.InstallationID+"\x00"+ref.Component.ComponentID))
+	// Package identity and selected surface define the logical installed plugin.
+	// Immutable revision records and individual MCP servers must share its data
+	// directory so native PLUGIN_DATA survives updates (Agent Plugins 1.0 §9.1).
+	instanceID := portableIdentity(ref.Component.PackageID + "\x00" + ref.Surface)
+	data := filepath.Join(r.root, "data", instanceID)
 	for _, directory := range []string{scratch, data} {
 		if err := prepareNativeMCPDirectory(directory); err != nil {
 			return failed(err)
@@ -125,7 +129,7 @@ func (r *NativeMCPSourceResolver) Resolve(ctx context.Context, ref mcp.NativeSou
 			baseEnv[name] = value
 		}
 	}
-	launch, err := mcp.ResolveLaunch(declaration, toolcontract.LaunchContext{InstanceID: portableIdentity(ref.InstallationID + "\x00" + ref.Revision), InstallRoot: root,
+	launch, err := mcp.ResolveLaunch(declaration, toolcontract.LaunchContext{InstanceID: instanceID, InstallRoot: root,
 		DataRoot: data, BaseEnv: baseEnv, ProtocolVersions: []string{"2026-07-28", "2025-06-18", "2024-11-05"}})
 	if err != nil {
 		return failed(err)
