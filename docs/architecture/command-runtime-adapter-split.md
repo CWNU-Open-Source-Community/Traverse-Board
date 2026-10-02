@@ -154,10 +154,15 @@ OS syscall or container service. Revocation after dispatch can encounter an
 in-flight effect; existing process ownership, reconciliation and tree cleanup
 remain responsible for stopping owned work, without claiming to undo its effects.
 
-Background process lifetime may outlive a request, but detaching its context no
-longer erases the original request's cancellation before dispatch. Initial stdin
-and subsequent writes recheck authority; later writes do so after acquiring the
-per-Job input gate. Existing exact Job/input replays return their original receipt
+Background process lifetime may outlive a request. Before process dispatch, the
+original request's cancellation remains enforced even through a detached context.
+After the manager has durably committed the running Job and started its ownership,
+wait and timeout workers, asynchronous initial stdin uses the Job lifetime. A
+completed HTTP request no longer cancels those already-bound initial bytes. This
+handoff detaches request cancellation only: the same operation's authority check
+still re-reads current permission, activation and lease state before writing.
+Initial stdin and subsequent writes recheck authority; later writes do so after
+acquiring the per-Job input gate. Existing exact Job/input replays return their original receipt
 without consuming another dispatch grant. Failed or uncertain effects are not
 automatically retried. Cleanup-only cancellation remains usable after revocation.
 

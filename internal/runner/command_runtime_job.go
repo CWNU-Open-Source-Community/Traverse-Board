@@ -843,9 +843,14 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	if request.Spec.Spec.StdinPolicy == CommandRuntimeStdinPipe &&
 		(request.Spec.Spec.InitialStdin != "" || request.Spec.Spec.CloseInitialStdin) {
 		<-entry.inputGate
+		// Start has committed ownership to this Job. Its initial bytes were
+		// already bound to that operation; completing the originating request
+		// must not cancel their delivery. Rebind only cancellation lifetime:
+		// the same host check still re-reads current permission and lease state.
+		initialInputCtx := withCommandRuntimeDispatchCheck(context.WithoutCancel(ctx), request.DispatchCheck)
 		go m.writeInitialStdin(entry, []byte(request.Spec.Spec.InitialStdin),
 			request.Spec.Spec.CloseInitialStdin, func() error {
-				return CheckCommandRuntimeDispatch(dispatchCtx, request.Spec)
+				return CheckCommandRuntimeDispatch(initialInputCtx, request.Spec)
 			})
 	}
 	return entry.snapshot(), false, nil
