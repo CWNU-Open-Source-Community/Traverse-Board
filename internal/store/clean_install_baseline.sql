@@ -2257,14 +2257,14 @@ CREATE TABLE file_edit_apply_results (
 		CHECK(event_sequence > 0)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE file_edit_auto_authorizations (
+CREATE TABLE "file_edit_auto_authorizations" (
 		edit_id TEXT PRIMARY KEY REFERENCES file_edits(id) ON DELETE RESTRICT,
 		operation_key_digest TEXT NOT NULL UNIQUE CHECK(length(operation_key_digest)=64),
 		proposal_fingerprint TEXT NOT NULL CHECK(length(proposal_fingerprint)=64),
 		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
 		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
 		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
-		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move')),
+		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move','delete')),
 		path TEXT NOT NULL,
 		destination_path TEXT NOT NULL,
 		original_hash TEXT NOT NULL,
@@ -2274,18 +2274,19 @@ CREATE TABLE file_edit_auto_authorizations (
 		permission_snapshot_id TEXT NOT NULL REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		permission_revision INTEGER NOT NULL CHECK(permission_revision > 0),
 		mode_revision INTEGER NOT NULL CHECK(mode_revision > 0),
-		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 1 AND 256),
-		runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 0 AND 256),
+		runtime_generation INTEGER NOT NULL CHECK(runtime_generation >= 0),
 		agent_id TEXT NOT NULL REFERENCES agent_nodes(id) ON DELETE RESTRICT,
 		capability_generation TEXT NOT NULL CHECK(length(capability_generation)=64),
 		lease_id TEXT NOT NULL CHECK(length(lease_id) BETWEEN 1 AND 256),
 		lease_generation INTEGER NOT NULL CHECK(lease_generation > 0),
 		created_at TEXT NOT NULL,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
 		CHECK((operation_kind='move' AND length(destination_path) BETWEEN 1 AND 512
 			AND destination_path<>path AND proposed_hash='missing'
 			AND destination_original_hash='missing'
 			AND destination_proposed_hash=original_hash)
-			OR (operation_kind IN ('create','replace') AND destination_path=''
+			OR (operation_kind IN ('create','replace','delete') AND destination_path=''
 				AND destination_original_hash='' AND destination_proposed_hash=''))
 	);
 -- traverse-board-clean-install-object-boundary --
@@ -13519,8 +13520,7 @@ CREATE INDEX idx_drydock_workspaces_expiry
 CREATE INDEX idx_file_edit_apply_operations_run_created
 		ON file_edit_apply_operations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
-CREATE INDEX idx_file_edit_auto_authorizations_run_created
-		ON file_edit_auto_authorizations(run_id, created_at);
+CREATE INDEX idx_file_edit_auto_authorizations_run_created ON file_edit_auto_authorizations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_file_edits_session_status_updated_at
 			ON file_edits(session_id, status, updated_at);
@@ -16036,7 +16036,12 @@ CREATE TRIGGER trg_file_edit_auto_apply_insert
 					AND edit.status='approved' AND run.status='running'
 					AND approval.run_id=run.id AND approval.mode='automatic'
 					AND approval.status='approved' AND approval.reviewed_by='automatic_policy'
-					AND permission.mode='full_access'
+					AND ((permission.mode='full_access' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0 AND source.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND source.runtime_generation=0 AND source.operation_kind<>'delete'))
+				AND ((source.runtime_epoch='' AND source.run_authorization_fence=0)
+					OR (length(source.runtime_epoch)>0 AND source.run_authorization_fence>0))))
 					AND permission.revision=source.permission_revision
 					AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 						WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -16061,7 +16066,7 @@ CREATE TRIGGER trg_file_edit_auto_approval_insert
 					AND NEW.action_class='workspace_write'
 					AND NEW.tool_name=CASE source.operation_kind
 						WHEN 'create' THEN 'create_file'
-						WHEN 'move' THEN 'move_file' ELSE 'replace_file' END)
+						WHEN 'move' THEN 'move_file' WHEN 'delete' THEN 'delete_file' ELSE 'replace_file' END)
 		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit approval source is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_file_edit_auto_approval_update
@@ -16102,7 +16107,12 @@ CREATE TRIGGER trg_file_edit_auto_authorization_insert
 				AND NOT EXISTS (SELECT 1 FROM tool_approvals prior WHERE prior.proposal_id=edit.id)
 				AND run.status='running' AND session_record.status='active'
 				AND session_record.workspace_id=mission.workspace_id
-				AND permission.mission_id=mission.id AND permission.mode='full_access'
+				AND permission.mission_id=mission.id AND ((permission.mode='full_access' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0 AND NEW.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND NEW.runtime_generation=0 AND NEW.operation_kind<>'delete'))
+				AND ((NEW.runtime_epoch='' AND NEW.run_authorization_fence=0)
+					OR (length(NEW.runtime_epoch)>0 AND NEW.run_authorization_fence>0))))
 				AND permission.revision=NEW.permission_revision
 				AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 					WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -25386,7 +25396,7 @@ CREATE TRIGGER trg_standard_code_preset_operation_update
 							WHERE newer.run_id = interaction.run_id AND newer.revision > interaction.revision))
 				AND EXISTS (SELECT 1 FROM run_execution_permission_snapshots permission
 					WHERE permission.id = NEW.permission_snapshot_id AND permission.run_id = NEW.run_id
-						AND (permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR EXISTS (
+						AND ((permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full') AND permission.network_scope='per_operation')) OR EXISTS (
 		SELECT 1 FROM runs next_run
 		JOIN thread_runs next_link ON next_link.run_id=next_run.id
 		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id

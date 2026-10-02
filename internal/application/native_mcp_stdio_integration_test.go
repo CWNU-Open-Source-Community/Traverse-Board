@@ -37,7 +37,7 @@ func TestNativeMCPOriginalScriptReachesGuardedProductionStdio(t *testing.T) {
 	for _, scenario := range []string{"call", "change_script_during_discovery"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
-			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+			state, run, root, lease, capabilities := newMCPApprovalModeRuntime(t, ctx)
 			root = ensureCommandRuntimeTestAgent(t, ctx, state, lease, root)
 			config, _ := json.Marshal(map[string]any{"$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", "mcpServers": map[string]any{"packaged-script": map[string]any{
 				"type": "stdio", "command": filepath.Base(node), "args": []string{"${PLUGIN_ROOT}/server.cjs"}, "cwd": "${PLUGIN_DATA}",
@@ -85,6 +85,7 @@ func TestNativeMCPOriginalScriptReachesGuardedProductionStdio(t *testing.T) {
 				t.Fatal(err)
 			}
 			scope := exactPermissionMCPScope(run, lease, permission)
+			bindMCPScopeRuntime(t, &scope, permission, capabilities)
 			scope.AgentID, scope.AgentAttemptID = root.ID, root.ActiveAttemptID
 			executor, err := NewMCPClientToolExecutor(manager, state, capabilities)
 			if err != nil {

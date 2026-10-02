@@ -17,7 +17,7 @@ const fileEditAutoAuthorizationSelect = `SELECT operation_key_digest, proposal_f
 	run_id, session_id, workspace_id, operation_kind, path, destination_path,
 	original_hash, proposed_hash, destination_original_hash, destination_proposed_hash,
 	permission_snapshot_id, permission_revision, mode_revision, runtime_epoch,
-	runtime_generation, agent_id, capability_generation, lease_id, lease_generation
+	runtime_generation, agent_id, capability_generation, lease_id, lease_generation, run_authorization_fence
 	FROM file_edit_auto_authorizations WHERE edit_id=?`
 
 func autoFileEditProposalFingerprint(edit fileedit.Edit) string {
@@ -59,7 +59,7 @@ func bindAutoFileEditAuthorization(edit fileedit.Edit, auth fileedit.AutoAuthori
 	}
 	if edit.Status != fileedit.StatusProposed ||
 		(edit.Operation != fileedit.OperationCreate && edit.Operation != fileedit.OperationReplace &&
-			edit.Operation != fileedit.OperationMove) ||
+			edit.Operation != fileedit.OperationMove && edit.Operation != fileedit.OperationDelete) ||
 		edit.ID == "" || edit.SessionID == "" || edit.WorkspaceID == "" ||
 		auth.RunID == "" || auth.SessionID != edit.SessionID || auth.WorkspaceID != edit.WorkspaceID ||
 		auth.Operation != edit.Operation || auth.Path != edit.Path ||
@@ -70,7 +70,8 @@ func bindAutoFileEditAuthorization(edit fileedit.Edit, auth fileedit.AutoAuthori
 		!validAutoFileEditDigest(auth.OperationKeyDigest) ||
 		auth.ProposalFingerprint != autoFileEditProposalFingerprint(edit) ||
 		auth.PermissionSnapshotID == "" || auth.PermissionRevision <= 0 || auth.ModeRevision <= 0 ||
-		auth.RuntimeEpoch == "" || auth.RuntimeGeneration == 0 || auth.RuntimeGeneration > math.MaxInt64 ||
+		auth.RuntimeGeneration > math.MaxInt64 || auth.RunAuthorizationFence > math.MaxInt64 ||
+		(auth.RuntimeGeneration != 0 && auth.RuntimeEpoch == "") || (auth.RunAuthorizationFence != 0 && auth.RuntimeEpoch == "") ||
 		auth.AgentID == "" || !validAutoFileEditDigest(auth.CapabilityGeneration) ||
 		auth.LeaseID == "" || auth.LeaseGeneration <= 0 {
 		return fileedit.AutoAuthorization{}, apperror.New(apperror.CodeInvalidArgument,
@@ -151,7 +152,7 @@ func (s *SQLiteStore) CreateAutomaticallyAuthorizedFileEditIfAbsent(ctx context.
 		return fileedit.Edit{}, false, err
 	}
 	if err := projectFileEditWithAuthorizationSourceTx(ctx, tx, approved,
-		fileedit.StatusProposed, true, "full_access_automatic"); err != nil {
+		fileedit.StatusProposed, true, "operation_policy_automatic"); err != nil {
 		return fileedit.Edit{}, false, err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO file_edit_auto_authorizations
@@ -159,15 +160,15 @@ func (s *SQLiteStore) CreateAutomaticallyAuthorizedFileEditIfAbsent(ctx context.
 		 workspace_id, operation_kind, path, destination_path, original_hash, proposed_hash,
 		 destination_original_hash, destination_proposed_hash,
 		 permission_snapshot_id, permission_revision, mode_revision, runtime_epoch,
-		 runtime_generation, agent_id, capability_generation, lease_id, lease_generation, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 runtime_generation, agent_id, capability_generation, lease_id, lease_generation, created_at, run_authorization_fence)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		edit.ID, auth.OperationKeyDigest, auth.ProposalFingerprint, auth.RunID, auth.SessionID,
 		auth.WorkspaceID, auth.Operation, auth.Path, auth.DestinationPath,
 		auth.OriginalHash, auth.ProposedHash,
 		auth.DestinationOriginalHash, auth.DestinationProposedHash,
 		auth.PermissionSnapshotID, auth.PermissionRevision, auth.ModeRevision,
 		auth.RuntimeEpoch, auth.RuntimeGeneration, auth.AgentID, auth.CapabilityGeneration,
-		auth.LeaseID, auth.LeaseGeneration, ts(edit.CreatedAt))
+		auth.LeaseID, auth.LeaseGeneration, ts(edit.CreatedAt), auth.RunAuthorizationFence)
 	if err != nil {
 		return fileedit.Edit{}, false, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"automatic FileEdit source is no longer current", err)
@@ -194,14 +195,14 @@ func scanFileEditAutoAuthorization(row scanner) (fileedit.AutoAuthorization, boo
 		&auth.DestinationOriginalHash, &auth.DestinationProposedHash,
 		&auth.PermissionSnapshotID, &auth.PermissionRevision, &auth.ModeRevision,
 		&auth.RuntimeEpoch, &generation, &auth.AgentID,
-		&auth.CapabilityGeneration, &auth.LeaseID, &auth.LeaseGeneration)
+		&auth.CapabilityGeneration, &auth.LeaseID, &auth.LeaseGeneration, &auth.RunAuthorizationFence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fileedit.AutoAuthorization{}, false, nil
 	}
 	if err != nil {
 		return fileedit.AutoAuthorization{}, false, err
 	}
-	if generation <= 0 {
+	if generation < 0 {
 		return fileedit.AutoAuthorization{}, false, apperror.New(apperror.CodeConflict,
 			"stored automatic FileEdit authorization generation is invalid")
 	}

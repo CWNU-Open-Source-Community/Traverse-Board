@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolcontract"
-	"cyberagent-workbench/internal/toolgateway"
 )
 
 type mcpReceiptFaultStore struct {
@@ -53,40 +50,11 @@ func TestMCPRuntimeSupervisorRecoveryNeverRepeatsUncertainDispatch(t *testing.T)
 	for _, scenario := range []string{"lost_receipt", "outcome_unknown", "remote_error"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
-			state, run, _, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
-			permission, err := state.GetRunExecutionPermission(ctx, run.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
+			f := newMCPOperationApprovalFixture(t, domain.RunExecutionPermissionFull, false, false)
+			state, turn, capabilities := f.st, f.turn, f.capabilities
 			client := &mcpReceiptFixtureClient{scenario: scenario}
-			client.capabilities = mcp.ScopedCapabilities{ProtocolVersion: mcp.ClientProtocolVersion, Generation: strings.Repeat("b", 64),
-				Servers: []mcp.ScopedServerCapability{{ServerID: "docs", Name: "Documentation", CapabilityFingerprint: strings.Repeat("a", 64),
-					Tools: []mcp.RemoteTool{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}}}}
 			fault := &mcpReceiptFaultStore{SQLiteStore: state, fail: scenario == "lost_receipt"}
 			supervisor := NewRunSupervisor(fault, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
-			turn, err := state.BeginSupervisorTurn(ctx, lease, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			advertisement, err := supervisor.supervisorMCPCapabilities(ctx, turn, permission)
-			if err != nil || len(advertisement.Authority) == 0 {
-				t.Fatal("missing existing advertisement", err)
-			}
-			payload, _ := json.Marshal(epochMCPPayload())
-			prepared, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "provider-mcp", Name: string(toolgateway.MCPToolCallTool), Arguments: payload}},
-				run.ID, turn.Checkpoint.NextTurn, 1, domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver, permission.Mode, false, false, supervisorToolOptions{MCP: advertisement})
-			if err != nil || len(prepared) != 1 {
-				t.Fatal("could not prepare MCP checkpoint", err)
-			}
-			attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1, Provider: "fixture", Model: "model"}
-			if _, err := state.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil {
-				t.Fatal(err)
-			}
-			attempt.Outcome = llm.OutcomeSuccess
-			turn.Checkpoint, err = state.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt, llm.ChatResponse{Provider: "fixture", Model: "model", ToolCalls: prepared})
-			if err != nil {
-				t.Fatal(err)
-			}
 			rounds, err := state.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 			if err != nil {
 				t.Fatal(err)

@@ -27,7 +27,7 @@ func TestNativeMCPLegacyFallbackReachesReviewedProductionCall(t *testing.T) {
 	for _, version := range []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2099-01-01"} {
 		t.Run(version, func(t *testing.T) {
 			ctx := t.Context()
-			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+			state, run, root, lease, capabilities := newMCPApprovalModeRuntime(t, ctx)
 			root = ensureCommandRuntimeTestAgent(t, ctx, state, lease, root)
 			var runtimePhase atomic.Bool
 			var traceMu sync.Mutex
@@ -155,6 +155,7 @@ func TestNativeMCPLegacyFallbackReachesReviewedProductionCall(t *testing.T) {
 				t.Fatal(err)
 			}
 			scope := exactPermissionMCPScope(run, lease, permission)
+			bindMCPScopeRuntime(t, &scope, permission, capabilities)
 			scope.AgentID, scope.AgentAttemptID = root.ID, root.ActiveAttemptID
 			executor, err := NewMCPClientToolExecutor(manager, state, capabilities)
 			if err != nil {

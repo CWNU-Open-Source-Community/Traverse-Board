@@ -340,7 +340,7 @@ func (s *SQLiteStore) CommitStandardCodePreset(ctx context.Context,
 			"selected_backend": stored.SelectedBackend,
 			"selection_reason": stored.SelectionReason, "surface": "code",
 			"phase": "plan", "interaction": "controlled",
-			"permission": "workspace_access", "network": "disabled",
+			"permission": commit.Permission.Mode, "network": "disabled",
 			"credentials": "none", "capability_grant": false})
 	if err != nil {
 		return domain.StandardCodePresetOperation{}, domain.Run{}, false, err
@@ -555,7 +555,7 @@ func synchronizeStandardCodeThreadPermissionTx(ctx context.Context, tx *sql.Tx,
 	}
 	next, err := current.Next("thread-preset-permission-"+operation.KeyDigest[:32],
 		commit.Permission.Mode, commit.Permission.OperatorConfirmed, operation.RequestedBy,
-		"Standard Code preset selected workspace access for this Thread", commit.CommittedAt)
+		"Standard Code preset synchronized this Thread's approval preference", commit.CommittedAt)
 	if err != nil {
 		return err
 	}
@@ -728,8 +728,7 @@ func validateStandardCodeSnapshotTuple(operation domain.StandardCodePresetOperat
 		commit.Interaction.ExecutionProfile != commit.Profile.Profile ||
 		commit.Interaction.ExecutionProfileRevision != commit.Profile.Revision ||
 		commit.Interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
-		commit.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		commit.Permission.NetworkScope != domain.ExecutionPermissionNetworkDisabled ||
+		!commit.Permission.Mode.IsApprovalMode() ||
 		commit.BrowserCDP.Mode != domain.RunBrowserCDPPermissionRestricted {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"Standard Code preset snapshot tuple violates the fixed contract")
@@ -831,9 +830,13 @@ func validateStandardCodePermissionTransition(current,
 		return apperror.New(apperror.CodeConflict,
 			"Standard Code preset reused the current permission snapshot with changed content")
 	}
+	if current.Mode.IsApprovalMode() {
+		return apperror.New(apperror.CodeConflict,
+			"Standard Code preset cannot replace the current approval preference")
+	}
 	expected, err := current.Next(desired.ID,
-		domain.RunExecutionPermissionWorkspaceAccess, true, operation.RequestedBy,
-		"Standard Code preset selected Workspace Access", at)
+		domain.RunExecutionPermissionAsk, false, operation.RequestedBy,
+		"Standard Code preset migrated historical approval preference to Ask", at)
 	if err != nil || !reflect.DeepEqual(desired, expected) {
 		return apperror.New(apperror.CodeConflict,
 			"Standard Code preset permission transition is not exact")

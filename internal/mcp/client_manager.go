@@ -328,6 +328,9 @@ type ScopedServerCapability struct {
 	Name                  string       `json:"name"`
 	CapabilityFingerprint string       `json:"capability_fingerprint"`
 	Tools                 []RemoteTool `json:"tools"`
+	// Host-only review identity; never accepted from a model tool payload.
+	DescriptorFingerprint  string `json:"-"`
+	RegistrationGeneration int64  `json:"-"`
 }
 
 type ScopedCapabilities struct {
@@ -368,7 +371,8 @@ func (m *Manager) Capabilities(ctx context.Context, runID, workspaceID string) (
 		result.Servers = append(result.Servers, ScopedServerCapability{
 			ServerID: record.Descriptor.ID, Name: record.Descriptor.Name,
 			CapabilityFingerprint: record.Capabilities.Fingerprint,
-			Tools:                 slices.Clone(record.Capabilities.Tools)})
+			DescriptorFingerprint: record.DescriptorFingerprint, RegistrationGeneration: record.Generation,
+			Tools: slices.Clone(record.Capabilities.Tools)})
 	}
 	sort.Slice(result.Servers, func(i, j int) bool { return result.Servers[i].ServerID < result.Servers[j].ServerID })
 	raw, _ := json.Marshal(result.Servers)

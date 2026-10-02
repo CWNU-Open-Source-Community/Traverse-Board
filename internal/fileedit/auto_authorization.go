@@ -22,6 +22,7 @@ type AutoAuthorization struct {
 	ModeRevision            int64
 	RuntimeEpoch            string
 	RuntimeGeneration       uint64
+	RunAuthorizationFence   uint64
 	AgentID                 string
 	CapabilityGeneration    string
 	LeaseID                 string

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/runmutation"
@@ -129,7 +130,7 @@ func TestSchemaV150RebuildsAuthorityBoundBrowserAndMCPSupervisorLedger(t *testin
 		t.Fatal(err)
 	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
-	_, run := createStructuredToolTestRun(t, ctx, state, "preserve v149 Supervisor call")
+	run := seedV149StructuredToolRun(t, state)
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -228,4 +229,108 @@ func TestCleanInstallV150IncludesBrowserAndMCPSupervisorLedger(t *testing.T) {
 	}
 	assertSupervisorToolCallSchemaV150(t, state)
 	assertNoForeignKeyViolations(t, state.db)
+}
+
+// Seed old data under its genuine v149 constraints. The current application
+// writer cannot manufacture a five-mode row; no historical trigger is relaxed.
+func seedV149StructuredToolRun(t *testing.T, state *SQLiteStore) domain.Run {
+	return seedLegacyStructuredToolRun(t, state, "ws-structured", domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+}
+
+func seedLegacyStructuredToolRun(t *testing.T, state *SQLiteStore, workspaceID string, phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode) domain.Run {
+	t.Helper()
+	ctx, now := t.Context(), time.Now().UTC().Truncate(time.Millisecond)
+	tx, err := state.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, query := range []string{
+		`INSERT INTO sessions(id,workspace_id,title,route,status,created_at,updated_at) VALUES('session-v149',?,'v149','code','active',?,?)`,
+		`INSERT INTO missions(id,goal,profile,workspace_id,scope_json,created_at,updated_at) VALUES('mission-v149','preserve historical native operations','code',?,'{"network_mode":"disabled","workspace_id":"' || ? || '"}',?,?)`,
+		`INSERT INTO runs(id,mission_id,session_id,status,config_json,budget_json,created_at,updated_at) VALUES('run-v149','mission-v149','session-v149','created','{"model_route":"mock/default"}','{"max_turns":5,"max_tokens":1000,"max_tool_calls":20}',?,?)`,
+	} {
+		args := []any{ts(now), ts(now)}
+		if strings.HasPrefix(query, "INSERT INTO sessions") {
+			args = append([]any{workspaceID}, args...)
+		}
+		if strings.HasPrefix(query, "INSERT INTO missions") {
+			args = append([]any{workspaceID, workspaceID}, args...)
+		}
+		if _, err = tx.ExecContext(ctx, query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := domain.Run{ID: "run-v149", MissionID: "mission-v149", SessionID: "session-v149", Status: domain.RunCreated, Budget: domain.Budget{MaxTurns: 5, MaxTokens: 1000, MaxToolCalls: 20}, CreatedAt: now, UpdatedAt: now}
+	mission := domain.Mission{ID: run.MissionID, Profile: domain.ProfileCode, WorkspaceID: workspaceID, Scope: domain.Scope{NetworkMode: "disabled", WorkspaceID: workspaceID}, CreatedAt: now, UpdatedAt: now}
+	mode, err := domain.NewInitialRunModeSnapshot("mode-v149", run, mission, domain.ExecutionSurfaceCode, phase, "historical-operator", "historical mode", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertInitialRunModeSnapshotTx(ctx, tx, mode, run, mission); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := domain.NewInitialRunExecutionProfileSnapshot("profile-v149", run, mission, "historical-operator", "v149 profile", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertInitialRunExecutionProfileSnapshotTx(ctx, tx, profile, run, mission); err != nil {
+		t.Fatal(err)
+	}
+	interaction, err := domain.NewInitialRunExecutionInteractionSnapshot("interaction-v149", run, mission, mode, profile, "historical-operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertInitialRunExecutionInteractionSnapshotTx(ctx, tx, interaction, run, mission, mode, profile); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := domain.NewInitialRunExecutionPermissionSnapshot("unused-v2", run, mission, "historical-operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialID := "permission-v149"
+	if permissionMode != domain.RunExecutionPermissionConservative {
+		initialID += "-initial"
+	}
+	legacy, err := initial.Next(initialID, domain.RunExecutionPermissionConservative, false, "historical-operator", "genuine historical permission tuple", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Revision = 1
+	if err = insertRunExecutionPermissionSnapshotTx(ctx, tx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if permissionMode != domain.RunExecutionPermissionConservative {
+		legacy, err = legacy.Next("permission-v149", permissionMode, true, "historical-operator", "genuine historical permission selection", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = insertRunExecutionPermissionSnapshotTx(ctx, tx, legacy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	browser, err := domain.NewInitialRunBrowserCDPPermissionSnapshot("browser-v149", run, mission, "historical-operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertInitialRunBrowserCDPPermissionSnapshotTx(ctx, tx, browser, run, mission); err != nil {
+		t.Fatal(err)
+	}
+	if err = insertInitialRunInstructionSnapshotTx(ctx, tx, run, "historical-operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err = syncRootAgentTx(ctx, tx, run, mission, rootAgentProjection{Status: domain.AgentReady}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = createAgentGraphSnapshotTx(ctx, tx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := state.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stored
 }

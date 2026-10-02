@@ -3493,7 +3493,7 @@ var openAPIFieldEnums = map[string][]string{
 	"PlanDeliveryWorkItemControlView.applied_status":           {string(domain.WorkItemInProgress), string(domain.WorkItemCompleted)},
 	"ApprovalQueueView.protocol_version":                       {application.ApprovalQueueProtocolVersion},
 	"ApprovalPreviewView.protocol_version":                     {application.ApprovalQueueProtocolVersion},
-	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"},
+	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "mcp_server_and_tool", "unavailable"},
 	"AgentBrowserStatusView.version":                           {"agent_browser_status.v1"},
 	"AgentBrowserStatusView.state":                             {"unavailable", "idle", "starting", "ready", "loading", "busy", "waiting_user", "failed", "closing", "closed", "cleanup_pending"},
 	"AgentBrowserCloseRequestView.version":                     {"agent_browser_close.v1"},

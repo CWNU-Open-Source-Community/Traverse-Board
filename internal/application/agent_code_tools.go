@@ -76,13 +76,27 @@ func NewAgentCodeToolExecutor(store AgentCodeToolStore,
 func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 	scope toolgateway.AgentCodeExecutionScope, name toolgateway.ToolName,
 	payload json.RawMessage,
-) (toolgateway.AgentCodeExecutionResult, error) {
+) (result toolgateway.AgentCodeExecutionResult, returnErr error) {
 	if e == nil || e.store == nil || e.manager == nil || e.apply == nil {
 		return toolgateway.AgentCodeExecutionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "agent code tool dependencies are unavailable")
 	}
 	if err := e.validateScope(ctx, scope, name); err != nil {
 		return toolgateway.AgentCodeExecutionResult{}, err
+	}
+	payload = append(json.RawMessage(nil), payload...)
+	if definition, found := toolgateway.AgentCodeToolDefinition(name); found && definition.Class == toolgateway.ClassWorkspaceRead {
+		recheck, err := e.authorizeAgentCodeRead(ctx, scope, name, payload)
+		if err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, err
+		}
+		defer func() {
+			if returnErr == nil {
+				if err := recheck(); err != nil {
+					result, returnErr = toolgateway.AgentCodeExecutionResult{}, err
+				}
+			}
+		}()
 	}
 	var value any
 	var metadata = map[string]string{"workspace_id": scope.WorkspaceID}
@@ -265,6 +279,9 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	scope toolgateway.AgentCodeExecutionScope, name toolgateway.ToolName,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := scope.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
 			"agent code tool scope is invalid", err)
@@ -292,19 +309,6 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 	permission, err := e.store.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		return apperror.Normalize(err)
-	}
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant {
-		generation, live := e.executionCapabilities.FullAccessGeneration(permission)
-		epoch := ""
-		if e.executionCapabilities.RuntimeAuthority != nil {
-			epoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-		}
-		if !live || epoch == "" || scope.PermissionSnapshotID != permission.ID ||
-			scope.PermissionGeneration != generation || scope.PermissionRuntimeEpoch != epoch {
-			return apperror.New(apperror.CodePolicyDenied,
-				"agent code tool requires the exact live Full Access activation")
-		}
 	}
 	agent, err := e.store.GetAgentNode(ctx, scope.RootAgentID)
 	if err != nil {
@@ -335,6 +339,13 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"agent code tool authority binding changed before execution")
 	}
+	if permission.Mode.IsApprovalMode() || (permission.Mode == domain.RunExecutionPermissionFullAccess &&
+		e.executionCapabilities.FullAccessRequiresRuntimeGrant) {
+		if !agentCodeRuntimeCurrent(e.executionCapabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence) {
+			return apperror.New(apperror.CodePolicyDenied,
+				"agent code tool requires its current permission and runtime fence")
+		}
+	}
 	capabilities := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: agent.ID,
 		WorkspaceID:     sourceWorkspaceID,
@@ -343,6 +354,7 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 		PermissionSnapshotID:   scope.PermissionSnapshotID,
 		PermissionGeneration:   scope.PermissionGeneration,
 		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  scope.RunAuthorizationFence,
 		ModeRevision:           mode.Revision, PermissionRevision: permission.Revision})
 	if capabilities.Generation != scope.CapabilityGeneration {
 		return apperror.New(apperror.CodeConflict,
@@ -385,7 +397,11 @@ func (e *AgentCodeToolExecutor) propose(ctx context.Context,
 			OperationKey: scope.OperationKey}, func(ctx context.Context,
 			prepared fileedit.Edit,
 		) (fileedit.Edit, bool, error) {
-			if e.canAutomaticallyAuthorizeFileEdit(scope, prepared.Operation) {
+			automatic, err := e.automaticallyAuthorizePreparedFileEdit(ctx, scope, prepared)
+			if err != nil {
+				return fileedit.Edit{}, false, err
+			}
+			if automatic {
 				return e.saveAutomaticallyAuthorizedPreparedProposal(ctx, scope, prepared)
 			}
 			writer, ok := e.store.(interface {
@@ -493,30 +509,34 @@ func (e *AgentCodeToolExecutor) saveProposal(ctx context.Context,
 	} else if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeNotFound {
 		return fileedit.Edit{}, false, apperror.Normalize(err)
 	}
-	if e.canAutomaticallyAuthorizeFileEdit(scope, proposal.Operation) {
-		edit, err := e.manager.PrepareProposal(ctx, proposal)
-		if err != nil {
-			return fileedit.Edit{}, false, apperror.Normalize(err)
-		}
+	edit, err := e.manager.PrepareProposal(ctx, proposal)
+	if err != nil {
+		return fileedit.Edit{}, false, apperror.Normalize(err)
+	}
+	automatic, err := e.automaticallyAuthorizePreparedFileEdit(ctx, scope, edit)
+	if err != nil {
+		return fileedit.Edit{}, false, err
+	}
+	if automatic {
 		return e.saveAutomaticallyAuthorizedPreparedProposal(ctx, scope, edit)
 	}
-	edit, err := e.manager.Propose(ctx, proposal)
-	return edit, false, apperror.Normalize(err)
-}
-
-func (e *AgentCodeToolExecutor) canAutomaticallyAuthorizeFileEdit(
-	scope toolgateway.AgentCodeExecutionScope, operation string,
-) bool {
-	return (operation == fileedit.OperationCreate || operation == fileedit.OperationReplace ||
-		operation == fileedit.OperationMove) &&
-		scope.PermissionMode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant
+	writer, ok := e.store.(interface {
+		CreateFileEditIfAbsent(context.Context, fileedit.Edit) (fileedit.Edit, bool, error)
+	})
+	if !ok {
+		return fileedit.Edit{}, false, apperror.New(apperror.CodeFailedPrecondition, "atomic file proposal storage unavailable")
+	}
+	return writer.CreateFileEditIfAbsent(ctx, edit)
 }
 
 func (e *AgentCodeToolExecutor) saveAutomaticallyAuthorizedPreparedProposal(ctx context.Context,
 	scope toolgateway.AgentCodeExecutionScope, edit fileedit.Edit,
 ) (fileedit.Edit, bool, error) {
-	if !e.canAutomaticallyAuthorizeFileEdit(scope, edit.Operation) {
+	automatic, err := e.automaticallyAuthorizePreparedFileEdit(ctx, scope, edit)
+	if err != nil {
+		return fileedit.Edit{}, false, err
+	}
+	if !automatic {
 		return fileedit.Edit{}, false, apperror.New(apperror.CodePolicyDenied,
 			"automatic FileEdit authorization is unavailable for this operation")
 	}
@@ -550,6 +570,7 @@ func (e *AgentCodeToolExecutor) saveAutomaticallyAuthorizedPreparedProposal(ctx 
 		ModeRevision:            scope.ModeRevision,
 		RuntimeEpoch:            scope.PermissionRuntimeEpoch,
 		RuntimeGeneration:       scope.PermissionGeneration,
+		RunAuthorizationFence:   scope.RunAuthorizationFence,
 		CapabilityGeneration:    scope.CapabilityGeneration,
 		LeaseID:                 scope.LeaseID, LeaseGeneration: scope.LeaseGeneration,
 	}
@@ -606,7 +627,7 @@ func (e *AgentCodeToolExecutor) applyChange(ctx context.Context,
 		LeaseGeneration:        scope.LeaseGeneration,
 		PermissionSnapshotID:   scope.PermissionSnapshotID,
 		PermissionGeneration:   scope.PermissionGeneration,
-		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch})
+		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch, RunAuthorizationFence: scope.RunAuthorizationFence})
 }
 
 func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
@@ -626,7 +647,9 @@ func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
 		RunID: scope.RunID, EditID: edit.ID, OperationKey: scope.OperationKey,
 		AppliedBy: scope.RootAgentID, InvocationID: scope.CheckpointInvocationID(),
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
-		LeaseGeneration: scope.LeaseGeneration})
+		LeaseGeneration: scope.LeaseGeneration, PermissionSnapshotID: scope.PermissionSnapshotID,
+		PermissionGeneration: scope.PermissionGeneration, PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		RunAuthorizationFence: scope.RunAuthorizationFence})
 }
 
 func agentCodeEditID(operationKey string) string {
@@ -651,6 +674,7 @@ func (e *AgentCodeToolExecutor) agentCodeEditResult(ctx context.Context,
 					source.PermissionSnapshotID == scope.PermissionSnapshotID &&
 					source.RuntimeEpoch == scope.PermissionRuntimeEpoch &&
 					source.RuntimeGeneration == scope.PermissionGeneration &&
+					source.RunAuthorizationFence == scope.RunAuthorizationFence &&
 					source.CapabilityGeneration == scope.CapabilityGeneration
 			} else {
 				// ExecuteAgentCode verified the current execution scope. Only a
@@ -670,7 +694,7 @@ func (e *AgentCodeToolExecutor) agentCodeEditResult(ctx context.Context,
 		"review_required":             !automatic && !authorized, "apply_authorized": authorized,
 		"authorization_source": func() string {
 			if automatic {
-				return "full_access_automatic"
+				return "operation_policy_automatic"
 			}
 			return "operator_review"
 		}(),

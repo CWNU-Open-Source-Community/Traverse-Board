@@ -424,8 +424,10 @@ func migrationPlan() []migration {
 		{Version: 176, Name: "Private ordinary assistant replay bound to accepted Supervisor history", Statements: supervisorAssistantReplayStatements},
 		{Version: 177, Name: "Portable snapshots in the existing plugin installation lifecycle", Statements: portablePluginInstallationStatements(), DisableForeignKeys: true},
 	}
-	return append(previous, migration{Version: 178, Name: "Versioned operation approval preferences in existing Run and Thread ledgers",
+	previous = append(previous, migration{Version: 178, Name: "Versioned operation approval preferences in existing Run and Thread ledgers",
 		Statements: operationApprovalPreferenceStatements(previous), DisableForeignKeys: true})
+	return append(previous, migration{Version: 179, Name: "Operation policy decisions in the existing file edit authorization ledger",
+		Statements: fileOperationApprovalStatements(), DisableForeignKeys: true})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

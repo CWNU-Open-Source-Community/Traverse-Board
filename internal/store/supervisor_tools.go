@@ -698,6 +698,9 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 	}
 	if !executionStarted {
 		preflight, preflightErr := validateAgentBrowserPreflightResultTx(ctx, tx, call, result)
+		if !preflight && preflightErr == nil {
+			preflight, preflightErr = validateMCPPreflightResultTx(ctx, tx, call, result)
+		}
 		if preflightErr != nil {
 			return domain.SupervisorToolCall{}, false, preflightErr
 		}
@@ -705,7 +708,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 			return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition, "supervisor tool result requires a durable execution start")
 		}
 	}
-	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result, true)
+	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result, executionStarted)
 	if err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
@@ -753,7 +756,7 @@ func recordSupervisorToolResultTx(ctx context.Context, tx *sql.Tx, run domain.Ru
 			payload["error_code"] = call.ErrorCode
 			if !dispatched {
 				payload["outcome"] = "not_dispatched"
-				payload["reason"] = "steering_superseded"
+				payload["reason"] = result.ErrorCode
 			}
 			return payload
 		}()); err != nil {

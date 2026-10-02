@@ -26,7 +26,7 @@ func TestNativeMCPOriginalSourceReachesGuardedProductionTLS(t *testing.T) {
 	for _, scenario := range []string{"call", "disable_during_discovery", "disable_during_runtime", "disable_after_call"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
-			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+			state, run, root, lease, capabilities := newMCPApprovalModeRuntime(t, ctx)
 			root = ensureCommandRuntimeTestAgent(t, ctx, state, lease, root)
 			service, _ := plugins.NewService(state)
 			var installed plugins.Installation
@@ -171,6 +171,7 @@ func TestNativeMCPOriginalSourceReachesGuardedProductionTLS(t *testing.T) {
 				t.Fatal(err)
 			}
 			scope := exactPermissionMCPScope(run, lease, permission)
+			bindMCPScopeRuntime(t, &scope, permission, capabilities)
 			scope.AgentID, scope.AgentAttemptID = root.ID, root.ActiveAttemptID
 			executor, err := NewMCPClientToolExecutor(manager, state, capabilities)
 			if err != nil {
