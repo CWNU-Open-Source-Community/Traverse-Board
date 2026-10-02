@@ -422,6 +422,7 @@ func migrationPlan() []migration {
 		{Version: 174, Name: "Atomic private rejected native request diagnostics", Statements: supervisorToolRejectionStatements},
 		{Version: 175, Name: "Pinned Specialist task briefs and explicit instruction retirement", Statements: specialistTaskBriefStatements()},
 		{Version: 176, Name: "Private ordinary assistant replay bound to accepted Supervisor history", Statements: supervisorAssistantReplayStatements},
+		{Version: 177, Name: "Portable snapshots in the existing plugin installation lifecycle", Statements: portablePluginInstallationStatements(), DisableForeignKeys: true},
 	}
 }
 

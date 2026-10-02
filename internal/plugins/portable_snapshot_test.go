@@ -17,6 +17,37 @@ import (
 	"cyberagent-workbench/internal/toolcontract"
 )
 
+func TestPortableSnapshotExcludesGitAdministrationBeforeAcquisition(t *testing.T) {
+	for _, kind := range []string{"directory", "worktree-pointer"} {
+		t.Run(kind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "repo-skill")
+			if err := os.Mkdir(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: repo-skill\ndescription: Selected package source.\n---\nRead this skill.\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			admin := filepath.Join(root, ".git")
+			if kind == "directory" {
+				if err := os.Mkdir(admin, 0700); err != nil {
+					t.Fatal(err)
+				}
+				admin = filepath.Join(admin, "config")
+			}
+			if err := os.WriteFile(admin, []byte("repository administration is not package content"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			pkg, err := CapturePortableDirectory(t.Context(), root, "selected-package", toolcontract.SourceRef{URI: "test:selected-package"}, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pkg.Snapshot.Inventory) != 1 || pkg.Snapshot.Inventory[0].Path != "SKILL.md" {
+				t.Fatalf("captured Git administration: %+v", pkg.Snapshot.Inventory)
+			}
+		})
+	}
+}
+
 func TestPortableSnapshotRetainsRealUpstreamAndRestoresExactResources(t *testing.T) {
 	for _, fixture := range []struct {
 		name, directory, skill, resource, revision string

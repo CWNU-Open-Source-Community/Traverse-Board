@@ -234,6 +234,11 @@ func captureSnapshot(ctx context.Context, root *os.Root) ([]SnapshotEntry, map[s
 		}
 		sort.Slice(children, func(i, j int) bool { return children[i].Name() < children[j].Name() })
 		for _, child := range children {
+			// Repository administration is not plugin source, including a Git
+			// worktree's .git pointer file. Never traverse or package it.
+			if directory == "." && child.Name() == ".git" {
+				continue
+			}
 			name := path.Join(directory, child.Name())
 			if !snapshotPath(name) {
 				return errors.New("snapshot path is invalid")
