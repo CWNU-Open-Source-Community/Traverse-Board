@@ -174,6 +174,12 @@ describe("Composer network layout and interaction", () => {
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: "网页访问与搜索" })).toBeVisible();
     expect(screen.getByRole("dialog", { name: "追加网页访问范围？" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "网页访问与搜索" }));
+    expect(screen.getByRole("dialog", { name: "追加网页访问范围？" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "关闭网页访问与搜索" }));
+    await user.click(screen.getByRole("button", { name: "Outside" }));
+    expect(screen.getByRole("dialog", { name: "网页访问与搜索" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "追加网页访问范围？" })).toBeVisible();
     await act(async () => { release?.(); });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "追加网页访问范围？" })).not.toBeInTheDocument());
     expect(fixture.onSubmit).not.toHaveBeenCalled();

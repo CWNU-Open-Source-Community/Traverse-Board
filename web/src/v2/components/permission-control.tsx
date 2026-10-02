@@ -105,7 +105,10 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
     {variant === "menu" ? <div className="v2-network-scope-control" ref={networkRef}>
       <button aria-label={t("网页访问与搜索", "Web access and search")}
         aria-controls={networkOpen ? networkID : undefined} aria-expanded={networkOpen} aria-haspopup="dialog"
-        className="v2-composer-chip" onClick={() => setNetworkOpen((value) => !value)} ref={networkTriggerRef} type="button">
+        className="v2-composer-chip" onClick={() => {
+          if (networkPanelRef.current?.querySelector('[aria-modal="true"]')) return;
+          setNetworkOpen((value) => !value);
+        }} ref={networkTriggerRef} type="button">
         <Globe2 aria-hidden="true" size={14} />{t("网页访问与搜索", "Web & search")}
         <ChevronDown aria-hidden="true" size={13} />
       </button>
