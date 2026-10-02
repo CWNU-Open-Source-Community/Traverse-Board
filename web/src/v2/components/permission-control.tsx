@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Globe2, X } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
@@ -44,16 +44,19 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
   const networkRef = useRef<HTMLDivElement>(null);
   const networkTriggerRef = useRef<HTMLButtonElement>(null);
   const networkPanelRef = useRef<HTMLElement>(null);
+  const networkConfirmationOpenRef = useRef(false);
+  const onNetworkConfirmationOpenChange = useCallback((open: boolean) => {
+    networkConfirmationOpenRef.current = open;
+  }, []);
   const networkID = useId();
   useEffect(() => {
     if (!networkOpen || variant !== "menu") return;
     networkPanelRef.current?.focus();
-    const confirming = () => Boolean(networkPanelRef.current?.querySelector('[aria-modal="true"]'));
     const outside = (event: PointerEvent) => {
-      if (!confirming() && !networkRef.current?.contains(event.target as Node)) setNetworkOpen(false);
+      if (!networkConfirmationOpenRef.current && !networkRef.current?.contains(event.target as Node)) setNetworkOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || confirming()) return;
+      if (event.key !== "Escape" || event.defaultPrevented || networkConfirmationOpenRef.current) return;
       event.preventDefault(); setNetworkOpen(false); networkTriggerRef.current?.focus();
     };
     window.addEventListener("pointerdown", outside);
@@ -87,7 +90,7 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
   const permission = query.data.execution_permission;
   const network = networkOpen && <V2RunNetworkAuthorityControl key={`${threadID}:${query.data.current_run_id ?? ""}`}
     client={client} runID={query.data.current_run_id ?? ""} threadID={threadID}
-    onOpenModelSettings={onOpenModelSettings} />;
+    onOpenModelSettings={onOpenModelSettings} onConfirmationOpenChange={onNetworkConfirmationOpenChange} />;
   return <div className={`v2-permission-host is-${variant}`}
     style={variant === "menu" ? { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0, maxWidth: "100%" } : undefined}>
     <V2ApprovalModeControl mode={permission.approval_mode} fullActivation={permission.full_activation}
@@ -106,7 +109,7 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
       <button aria-label={t("网页访问与搜索", "Web access and search")}
         aria-controls={networkOpen ? networkID : undefined} aria-expanded={networkOpen} aria-haspopup="dialog"
         className="v2-composer-chip" onClick={() => {
-          if (networkPanelRef.current?.querySelector('[aria-modal="true"]')) return;
+          if (networkConfirmationOpenRef.current) return;
           setNetworkOpen((value) => !value);
         }} ref={networkTriggerRef} type="button">
         <Globe2 aria-hidden="true" size={14} />{t("网页访问与搜索", "Web & search")}
@@ -117,7 +120,7 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
         <header><strong>{t("网页访问与搜索", "Web access and search")}</strong>
           <button aria-label={t("关闭网页访问与搜索", "Close web access and search")}
             className="v2-composer-icon" onClick={() => {
-              if (networkPanelRef.current?.querySelector('[aria-modal="true"]')) return;
+              if (networkConfirmationOpenRef.current) return;
               setNetworkOpen(false); networkTriggerRef.current?.focus();
             }} type="button"><X aria-hidden="true" size={14} /></button></header>
         <div className="v2-permission-network">{network}</div>
