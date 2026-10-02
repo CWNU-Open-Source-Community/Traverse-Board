@@ -129,8 +129,13 @@ func (r *NativeMCPSourceResolver) Resolve(ctx context.Context, ref mcp.NativeSou
 			baseEnv[name] = value
 		}
 	}
+	// Explicit host policy for the pinned go-sdk v1.8.0 support set. Modern
+	// discovery may fall back by first sending initialize(2025-11-25), even
+	// when the peer subsequently selects an older supported legacy version.
+	// Both the sent and selected versions remain checked by the wire guard;
+	// a future SDK upgrade must not silently broaden this allowlist.
 	launch, err := mcp.ResolveLaunch(declaration, toolcontract.LaunchContext{InstanceID: instanceID, InstallRoot: root,
-		DataRoot: data, BaseEnv: baseEnv, ProtocolVersions: []string{"2026-07-28", "2025-06-18", "2024-11-05"}})
+		DataRoot: data, BaseEnv: baseEnv, ProtocolVersions: []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}})
 	if err != nil {
 		return failed(err)
 	}
