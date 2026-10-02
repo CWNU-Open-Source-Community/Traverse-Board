@@ -183,11 +183,19 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
   );
 }
 
-export function ExecutionPermissionPanel({ client, detail }: {
+type ExecutionPermissionPanelProps = {
   client: CyberAgentClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
-}) {
+};
+
+export function ExecutionPermissionPanel(props: ExecutionPermissionPanelProps) {
+  // The exported panel also owns target isolation when a caller reuses it.
+  // Keep pending callbacks and confirmation state attached to the original Run.
+  return <RunExecutionPermissionControl key={props.detail.run.id} {...props} />;
+}
+
+function RunExecutionPermissionControl({ client, detail }: ExecutionPermissionPanelProps) {
   const queryClient = useQueryClient();
   const permission = detail.execution_permission;
   const mutation = useMutation({
