@@ -11,7 +11,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 51 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 52 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
@@ -23,7 +23,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 43 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 110 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 112 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
@@ -260,11 +260,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Writers:
   - `authority-approval-ledgers-writer` (`v1`, write-current) at `internal/application`
   - `universal-tool-binding-writer` (`v1`, write-new) at `internal/toolcontract`
+  - `approval-preference-writer` (`v2`, write-new) at `internal/application/run_execution_permission.go`
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
   - `universal-tool-binding-reader` (`v1`, active) at `internal/executionauth`
+  - `approval-preference-reader` (`v1, v2`, active) at `internal/domain`
 
-<details><summary>51 active identifiers</summary>
+<details><summary>52 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -303,6 +305,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_network_authority_request.v1`
 - `run_phase_change_request.v1`
 - `thread_execution_permission.v1`
+- `thread_execution_permission.v2`
 - `thread_execution_permission_browser_cdp_materialization_operation.v1`
 - `thread_execution_permission_browser_cdp_operation.v1`
 - `thread_execution_permission_change_request.v1`
@@ -861,7 +864,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>110 active identifiers</summary>
+<details><summary>112 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -884,6 +887,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `doctor-snapshot.v1`
 - `execution_interaction_policy.v1`
 - `execution_permission_policy.v1`
+- `execution_permission_policy.v2`
 - `execution_profile_policy.v1`
 - `file_edit_apply.v1`
 - `file_edit_change_set.v1`
@@ -927,6 +931,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_execution_handoff.v1`
 - `run_execution_interaction.v1`
 - `run_execution_permission.v1`
+- `run_execution_permission.v2`
 - `run_execution_profile.v1`
 - `run_lifecycle_control.v1`
 - `run_mode.v1`

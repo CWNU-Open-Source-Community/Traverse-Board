@@ -381,6 +381,14 @@
             1
           ],
           "mode": "write-new"
+        },
+        {
+          "id": "approval-preference-writer",
+          "source": "internal/application/run_execution_permission.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
         }
       ],
       "readers": [
@@ -397,6 +405,15 @@
           "source": "internal/executionauth",
           "versions": [
             1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "approval-preference-reader",
+          "source": "internal/domain",
+          "versions": [
+            1,
+            2
           ],
           "status": "active"
         }
@@ -450,6 +467,7 @@
         "run_network_authority_request.v1",
         "run_phase_change_request.v1",
         "thread_execution_permission.v1",
+        "thread_execution_permission.v2",
         "thread_execution_permission_browser_cdp_materialization_operation.v1",
         "thread_execution_permission_browser_cdp_operation.v1",
         "thread_execution_permission_change_request.v1",
@@ -1434,6 +1452,7 @@
         "doctor-snapshot.v1",
         "execution_interaction_policy.v1",
         "execution_permission_policy.v1",
+        "execution_permission_policy.v2",
         "execution_profile_policy.v1",
         "file_edit_apply.v1",
         "file_edit_change_set.v1",
@@ -1477,6 +1496,7 @@
         "run_execution_handoff.v1",
         "run_execution_interaction.v1",
         "run_execution_permission.v1",
+        "run_execution_permission.v2",
         "run_execution_profile.v1",
         "run_lifecycle_control.v1",
         "run_mode.v1",

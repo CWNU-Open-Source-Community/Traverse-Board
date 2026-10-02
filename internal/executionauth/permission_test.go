@@ -21,10 +21,11 @@ func permissionSnapshot(t *testing.T,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode == domain.RunExecutionPermissionConservative {
+	if mode == domain.RunExecutionPermissionAsk {
 		return initial
 	}
-	next, err := initial.Next("permission-next", mode, true, "test_operator",
+	next, err := initial.Next("permission-next", mode,
+		mode != domain.RunExecutionPermissionConservative, "test_operator",
 		"test permission selection", now)
 	if err != nil {
 		t.Fatal(err)
