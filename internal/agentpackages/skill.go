@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"path"
 	"strings"
@@ -50,8 +51,15 @@ func inspectNamedSkill(ctx context.Context, source fs.FS, directory, directoryNa
 		return skillDescription{}, err
 	}
 	var document yaml.Node
-	if err := yaml.Unmarshal(header, &document); err != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+	decoder := yaml.NewDecoder(bytes.NewReader(header))
+	if err := decoder.Decode(&document); err != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
 		return skillDescription{}, errors.New("skill_frontmatter_invalid")
+	}
+	// Unmarshal silently ignores documents after the first. The entire extracted
+	// frontmatter must contain exactly one mapping, including after an explicit
+	// YAML end marker; neither hidden documents nor trailing junk are metadata.
+	if err := decoder.Decode(new(yaml.Node)); err != io.EOF {
+		return skillDescription{}, errors.New("skill_frontmatter_trailing_data")
 	}
 	for i := 0; i < len(document.Content[0].Content); i += 2 {
 		key := document.Content[0].Content[i]
