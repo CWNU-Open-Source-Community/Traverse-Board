@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
 
 	"cyberagent-workbench/internal/apperror"
@@ -49,7 +50,7 @@ func (s *SkillCatalogService) importPortableDirectory(ctx context.Context, direc
 			(action == plugins.ReviewEnable && installed.State != plugins.StateApproved) {
 			continue
 		}
-		if len(installed.Capabilities()) == 0 {
+		if !slices.Contains(installed.Capabilities(), plugins.CapabilitySkills) {
 			break
 		}
 		installed, err = service.Review(ctx, installed.ID, plugins.ReviewRequest{Action: action,

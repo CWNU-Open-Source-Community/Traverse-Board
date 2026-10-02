@@ -11,6 +11,8 @@ import (
 const (
 	RunExecutionPermissionProtocolVersion = "run_execution_permission.v1"
 	RunExecutionPermissionPolicyVersion   = "execution_permission_policy.v1"
+	RunApprovalPermissionProtocolVersion  = "run_execution_permission.v2"
+	OperationPermissionPolicyVersion      = "execution_permission_policy.v2"
 	MaxRunExecutionPermissionReasonRunes  = 1024
 )
 
@@ -25,6 +27,9 @@ const (
 	RunExecutionPermissionApproval        RunExecutionPermissionMode = "approval"
 	RunExecutionPermissionFullAccess      RunExecutionPermissionMode = "full_access"
 	RunExecutionPermissionDebug           RunExecutionPermissionMode = "debug"
+	RunExecutionPermissionAsk             RunExecutionPermissionMode = "ask"
+	RunExecutionPermissionAuto            RunExecutionPermissionMode = "auto"
+	RunExecutionPermissionFull            RunExecutionPermissionMode = "full"
 )
 
 type ExecutionPermissionApprovalPolicy string
@@ -204,7 +209,18 @@ func (m RunExecutionPermissionMode) Valid() bool {
 // capabilities of Full Access. Debug is a strict superset: it adds persistent
 // terminal/background debugging but must not lose Full Access sinks.
 func (m RunExecutionPermissionMode) IncludesFullAccess() bool {
-	return m == RunExecutionPermissionFullAccess || m == RunExecutionPermissionDebug
+	return m.IsFullPreference() || m == RunExecutionPermissionDebug
+}
+
+// IsFullPreference includes the historical Full reader, but never treats a
+// historical Debug process gate as a freshly confirmed Full preference.
+func (m RunExecutionPermissionMode) IsFullPreference() bool {
+	return m == RunExecutionPermissionFull || m == RunExecutionPermissionFullAccess
+}
+
+func (m RunExecutionPermissionMode) IsApprovalMode() bool {
+	_, err := ParseExecutionApprovalMode(string(m))
+	return err == nil
 }
 
 // ExecutionPermissionRuntimeCapabilities are process-local startup grants.
@@ -241,6 +257,10 @@ func (c ExecutionPermissionRuntimeCapabilities) Allows(
 		return false
 	}
 	switch mode {
+	case RunExecutionPermissionAsk, RunExecutionPermissionAuto:
+		return true
+	case RunExecutionPermissionFull:
+		return c.DangerFullAccessEnabled && c.RuntimeAuthority != nil
 	case RunExecutionPermissionConservative:
 		return true
 	case RunExecutionPermissionWorkspaceAccess:
@@ -266,8 +286,8 @@ func (c ExecutionPermissionRuntimeCapabilities) AllowsSnapshot(
 	if !c.Allows(snapshot.Mode) {
 		return false
 	}
-	if snapshot.Mode != RunExecutionPermissionFullAccess ||
-		!c.FullAccessRequiresRuntimeGrant {
+	if !snapshot.Mode.IsFullPreference() ||
+		(snapshot.Mode != RunExecutionPermissionFull && !c.FullAccessRequiresRuntimeGrant) {
 		return true
 	}
 	_, allowed := c.RuntimeAuthority.AllowsFullAccess(snapshot)
@@ -280,8 +300,8 @@ func (c ExecutionPermissionRuntimeCapabilities) FullAccessGeneration(
 	if !c.AllowsSnapshot(snapshot) {
 		return 0, false
 	}
-	if snapshot.Mode == RunExecutionPermissionDebug ||
-		!c.FullAccessRequiresRuntimeGrant {
+	if !snapshot.Mode.IsFullPreference() ||
+		(snapshot.Mode != RunExecutionPermissionFull && !c.FullAccessRequiresRuntimeGrant) {
 		return 0, true
 	}
 	return c.RuntimeAuthority.AllowsFullAccess(snapshot)
@@ -334,8 +354,8 @@ func NewInitialRunExecutionPermissionSnapshot(id string, run Run, mission Missio
 			"Run execution permission Run and Mission identities do not match")
 	}
 	snapshot := newRunExecutionPermissionSnapshot(id, run.ID, mission.ID, 1,
-		RunExecutionPermissionConservative, false, requestedBy,
-		"initial conservative execution permission", at)
+		RunExecutionPermissionAsk, false, requestedBy,
+		"initial ask execution approval preference", at)
 	if err := snapshot.Validate(); err != nil {
 		return RunExecutionPermissionSnapshot{}, err
 	}
@@ -347,15 +367,19 @@ func newRunExecutionPermissionSnapshot(id string, runID string, missionID string
 	requestedBy string, reason string, at time.Time,
 ) RunExecutionPermissionSnapshot {
 	definition := runExecutionPermissionDefinitions[mode]
+	protocol, policy := RunExecutionPermissionProtocolVersion, RunExecutionPermissionPolicyVersion
+	if mode.IsApprovalMode() {
+		protocol, policy = RunApprovalPermissionProtocolVersion, OperationPermissionPolicyVersion
+	}
 	return RunExecutionPermissionSnapshot{
 		ID: strings.TrimSpace(id), RunID: runID, MissionID: missionID, Revision: revision,
-		ProtocolVersion: RunExecutionPermissionProtocolVersion, Mode: mode,
+		ProtocolVersion: protocol, Mode: mode,
 		ApprovalPolicy: definition.ApprovalPolicy, CommandScope: definition.CommandScope,
 		FilesystemScope: definition.FilesystemScope, NetworkScope: definition.NetworkScope,
 		PersistentTerminal: definition.PersistentTerminal,
 		BackgroundProcess:  definition.BackgroundProcess,
 		AgentTerminalInput: definition.AgentTerminalInput, RiskTier: definition.RiskTier,
-		RequiredGate: definition.RequiredGate, PolicyVersion: RunExecutionPermissionPolicyVersion,
+		RequiredGate: definition.RequiredGate, PolicyVersion: policy,
 		OperatorConfirmed: confirmed, RequestedBy: strings.TrimSpace(requestedBy),
 		Reason: strings.TrimSpace(reason), CreatedAt: at.UTC(),
 	}
@@ -374,7 +398,11 @@ func (s RunExecutionPermissionSnapshot) Validate() error {
 	if s.Revision <= 0 {
 		return errors.New("Run execution permission revision must be positive")
 	}
-	if s.ProtocolVersion != RunExecutionPermissionProtocolVersion {
+	protocol, policy := RunExecutionPermissionProtocolVersion, RunExecutionPermissionPolicyVersion
+	if s.Mode.IsApprovalMode() {
+		protocol, policy = RunApprovalPermissionProtocolVersion, OperationPermissionPolicyVersion
+	}
+	if s.ProtocolVersion != protocol {
 		return fmt.Errorf("unsupported Run execution permission protocol %q", s.ProtocolVersion)
 	}
 	definition, ok := runExecutionPermissionDefinitions[s.Mode]
@@ -393,7 +421,7 @@ func (s RunExecutionPermissionSnapshot) Validate() error {
 		s.OperatorConfirmed != definition.OperatorConfirmed {
 		return errors.New("Run execution permission controls do not match the selected mode")
 	}
-	if s.PolicyVersion != RunExecutionPermissionPolicyVersion {
+	if s.PolicyVersion != policy {
 		return fmt.Errorf("unsupported Run execution permission policy %q", s.PolicyVersion)
 	}
 	if s.ProcessEnabled || s.ExecutionAuthorized || s.CapabilityGrant {
@@ -424,7 +452,7 @@ func (s RunExecutionPermissionSnapshot) Next(id string,
 		return RunExecutionPermissionSnapshot{}, fmt.Errorf(
 			"invalid Run execution permission mode %q", mode)
 	}
-	if mode == s.Mode && mode != RunExecutionPermissionFullAccess {
+	if mode == s.Mode && !mode.IsFullPreference() {
 		return RunExecutionPermissionSnapshot{}, errors.New(
 			"Run execution permission transition must change mode")
 	}

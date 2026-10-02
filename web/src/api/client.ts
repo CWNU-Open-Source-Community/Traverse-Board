@@ -6094,7 +6094,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     if (!isRecord(item) || item.protocol_version !== "mcp-client-server.v1" ||
       !boundedIdentity(item.id) || !boundedText(item.name, 256) ||
       (item.transport !== "stdio" && item.transport !== "streamable_http") ||
-      !boundedText(item.target, 4_096) || !boundedIdentity(item.workspace_id) ||
+      !validExtensionMCPTarget(item) || !boundedIdentity(item.workspace_id) ||
       !isSHA256(item.descriptor_fingerprint) || !safePositiveInteger(item.generation) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !boundedStringArray(item.declared_capabilities, 3, 32) ||
@@ -6149,6 +6149,16 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
 function parseExtensionMCPServer(value: unknown): ExtensionMCPServerView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [value], mcp_calls: [], plugins: [] }).mcp_servers[0];
+}
+
+function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
+  if (item.native_source === undefined) return boundedText(item.target, 4_096);
+  const source = item.native_source;
+  return item.target === "" && (item.credential_ref === undefined || item.credential_ref === "") &&
+    isRecord(source) && boundedIdentity(source.installation_id) !== "" &&
+    boundedIdentity(source.package_id) !== "" && boundedIdentity(source.component_id) !== "" &&
+    isSHA256(source.revision) && safePositiveInteger(source.installation_generation) &&
+    (source.surface === "code" || source.surface === "cyber");
 }
 
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {

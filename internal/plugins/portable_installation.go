@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"cyberagent-workbench/internal/agentpackages"
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/toolcontract"
 )
@@ -32,12 +33,19 @@ func (i Installation) DisplayName() string {
 }
 func (i Installation) Capabilities() []Capability {
 	if i.Snapshot != nil {
-		// Portable runtime contributions are enabled only when their real host
-		// wiring exists. Reading source instructions never enables MCP or scripts.
+		var capabilities []Capability
 		if len(i.Snapshot.Skills) != 0 {
-			return []Capability{CapabilitySkills}
+			capabilities = append(capabilities, CapabilitySkills)
 		}
-		return nil
+		// This is a source contribution candidate, not executable authority.
+		// StageMCPServers loads the exact object and admits only declarations
+		// accepted by the native codec; instruction import enables Skills only.
+		if i.Snapshot.Format == agentpackages.FormatAgentPlugin && slices.ContainsFunc(i.Snapshot.Inventory, func(e SnapshotEntry) bool {
+			return e.Path == "mcp.json" && e.Kind == "file"
+		}) {
+			capabilities = append(capabilities, CapabilityMCP)
+		}
+		return capabilities
 	}
 	return slices.Clone(i.Manifest.Capabilities)
 }

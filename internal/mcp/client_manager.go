@@ -33,16 +33,18 @@ type ManagerOptions struct {
 	HTTPClient       *http.Client
 	TransportFactory TransportFactory
 	Now              func() time.Time
+	NativeSources    NativeSourceResolver
 }
 
 type Manager struct {
-	store       ClientStore
-	credentials CredentialReader
-	factory     TransportFactory
-	httpClient  *http.Client
-	now         func() time.Time
-	locksMu     sync.Mutex
-	locks       map[string]*sync.Mutex
+	store         ClientStore
+	credentials   CredentialReader
+	factory       TransportFactory
+	httpClient    *http.Client
+	nativeSources NativeSourceResolver
+	now           func() time.Time
+	locksMu       sync.Mutex
+	locks         map[string]*sync.Mutex
 }
 
 // ReconcileStartup deterministically fences discovery whose durable lease has
@@ -112,7 +114,7 @@ func NewClientManager(store ClientStore, credentials CredentialReader,
 			return newRemoteClientTransport(descriptor, bearer, options.HTTPClient)
 		}
 	}
-	return &Manager{store: store, credentials: credentials, factory: factory, httpClient: options.HTTPClient, now: now,
+	return &Manager{store: store, credentials: credentials, factory: factory, httpClient: options.HTTPClient, nativeSources: options.NativeSources, now: now,
 		locks: make(map[string]*sync.Mutex)}, nil
 }
 
@@ -120,6 +122,14 @@ func (m *Manager) Stage(ctx context.Context, descriptor ServerDescriptor) (Serve
 	if err := descriptor.Validate(); err != nil {
 		return ServerRecord{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
 			"MCP server descriptor is invalid", err)
+	}
+	if descriptor.NativeSource != nil {
+		if m.nativeSources == nil {
+			return ServerRecord{}, false, errors.New("native MCP source resolver is unavailable")
+		}
+		if err := m.nativeSources.Check(ctx, *descriptor.NativeSource, descriptor.RunID); err != nil {
+			return ServerRecord{}, false, err
+		}
 	}
 	now := m.now().UTC()
 	record := ServerRecord{ProtocolVersion: ServerRecordProtocolVersion,
@@ -199,10 +209,21 @@ func (m *Manager) Review(ctx context.Context, serverID string,
 func (m *Manager) Refresh(ctx context.Context, serverID string) (ServerRecord, error) {
 	lock := m.lock(serverID)
 	lock.Lock()
-	defer lock.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			lock.Unlock()
+		}
+	}()
 	record, err := m.store.GetMCPClientServer(ctx, strings.TrimSpace(serverID))
 	if err != nil {
 		return ServerRecord{}, err
+	}
+	if record.Descriptor.NativeSource != nil {
+		// Native discovery has actual send guards and the existing durable
+		// generation/lease CAS; operator disable must remain live in flight.
+		lock.Unlock()
+		locked = false
 	}
 	return m.refreshLocked(ctx, record)
 }
@@ -229,14 +250,22 @@ func (m *Manager) refreshLocked(ctx context.Context, record ServerRecord) (Serve
 	}
 	callCtx, cancel := context.WithTimeout(ctx,
 		time.Duration(record.Descriptor.CallTimeoutMillis)*time.Millisecond)
-	client, err := m.connect(callCtx, record.Descriptor)
-	if err == nil {
-		defer client.Close()
-		capabilities, discoverErr := client.Discover(callCtx, m.now())
-		if discoverErr != nil {
-			err = discoverErr
-		} else {
+	if record.Descriptor.NativeSource != nil {
+		var capabilities CapabilitySnapshot
+		capabilities, err = m.discoverNativeSource(callCtx, record)
+		if err == nil {
 			record.Capabilities = capabilities
+		}
+	} else {
+		var client *Client
+		client, err = m.connect(callCtx, record.Descriptor)
+		if err == nil {
+			defer client.Close()
+			var capabilities CapabilitySnapshot
+			capabilities, err = client.Discover(callCtx, m.now())
+			if err == nil {
+				record.Capabilities = capabilities
+			}
 		}
 	}
 	cancel()
@@ -323,6 +352,18 @@ func (m *Manager) Capabilities(ctx context.Context, runID, workspaceID string) (
 			record.ApprovedCapabilityFingerprint != record.Capabilities.Fingerprint ||
 			!scopeMatches(record.Descriptor, runID, workspaceID) {
 			continue
+		}
+		if source := record.Descriptor.NativeSource; source != nil {
+			if m.nativeSources == nil {
+				continue
+			}
+			if err := m.nativeSources.Check(ctx, *source, runID); err != nil {
+				code := apperror.CodeOf(err)
+				if code != apperror.CodePolicyDenied && code != apperror.CodeNotFound {
+					return ScopedCapabilities{}, err
+				}
+				continue
+			}
 		}
 		result.Servers = append(result.Servers, ScopedServerCapability{
 			ServerID: record.Descriptor.ID, Name: record.Descriptor.Name,
@@ -422,6 +463,9 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 		lock.Unlock()
 		locked = false
 		return m.invokeResolved(ctx, request, record)
+	}
+	if record.Descriptor.NativeSource != nil {
+		return ClientCallResult{}, apperror.New(apperror.CodePolicyDenied, "native MCP invocation requires common host authority")
 	}
 	callCtx, cancel := context.WithTimeout(ctx,
 		time.Duration(record.Descriptor.CallTimeoutMillis)*time.Millisecond)

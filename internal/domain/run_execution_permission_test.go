@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-func TestRunExecutionPermissionModesHaveClosedDefinitions(t *testing.T) {
+func TestLegacyRunExecutionPermissionModesHaveClosedDefinitions(t *testing.T) {
 	now := time.Now().UTC()
 	mission := Mission{ID: "mission-permission", CreatedAt: now}
 	run := Run{ID: "run-permission", MissionID: mission.ID, Status: RunCreated, CreatedAt: now}
-	initial, err := NewInitialRunExecutionPermissionSnapshot(
-		"permission-initial", run, mission, "test_operator", now)
+	initial := newRunExecutionPermissionSnapshot("permission-initial", run.ID, mission.ID, 1,
+		RunExecutionPermissionConservative, false, "test_operator", "historical fixture", now)
+	err := initial.Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,8 +180,8 @@ func TestRunExecutionPermissionSameModeReconfirmationOnlyRotatesFullAccess(t *te
 			reconfirmed, err)
 	}
 	if _, err := initial.Next("permission-conservative-reconfirmation",
-		RunExecutionPermissionConservative, false, "test_operator",
-		"same conservative mode", now); err == nil {
-		t.Fatal("same-mode conservative selection unexpectedly rotated a snapshot")
+		RunExecutionPermissionAsk, false, "test_operator",
+		"same ask mode", now); err == nil {
+		t.Fatal("same-mode ask selection unexpectedly rotated a snapshot")
 	}
 }

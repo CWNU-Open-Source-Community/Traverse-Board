@@ -6504,6 +6504,15 @@ export interface components {
             server_version?: string;
             tools: string[];
         };
+        ExtensionMCPNativeSourceView: {
+            component_id: string;
+            /** Format: int64 */
+            installation_generation: number;
+            installation_id: string;
+            package_id: string;
+            revision: string;
+            surface: string;
+        };
         ExtensionMCPReviewRequestView: {
             action: string;
             expected_capability_fingerprint?: string;
@@ -6523,6 +6532,7 @@ export interface components {
             health_message?: string;
             id: string;
             name: string;
+            native_source?: components["schemas"]["ExtensionMCPNativeSourceView"];
             protocol_version: string;
             reviewed_at?: string;
             reviewed_by?: string;

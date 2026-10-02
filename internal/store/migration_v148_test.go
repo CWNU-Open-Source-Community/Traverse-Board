@@ -73,10 +73,9 @@ func TestCleanInstallV148DefersPreparingThreadPermission(t *testing.T) {
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
 	assertPreparingPermissionDeferredAndMaterialized(t, ctx, state, service,
 		run, threadRecord, application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
 			OperationKey: "clean-v148-preparing-deferred-0001", RequestedBy: "test_operator",
-			Reason:                 "apply Workspace access after preparing completes",
-			ConfirmWorkspaceAccess: true,
+			Reason: "apply Auto after preparing completes",
 		})
 	if version, err := state.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
 		t.Fatalf("clean schema version=%d want=%d err=%v", version, LatestSchemaVersion, err)
@@ -140,7 +139,7 @@ func assertPreparingPermissionDeferredAndMaterialized(t *testing.T, ctx context.
 	}
 	permission, err := state.GetRunExecutionPermission(ctx, successor.Run.ID)
 	if err != nil || cancelled.Status != domain.RunCancelled || !successor.SuccessorCreated ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+		permission.Mode.ApprovalPreference() != domain.RunExecutionPermissionMode(request.Mode).ApprovalPreference() {
 		t.Fatalf("successor did not materialize deferred permission: cancelled=%+v successor=%+v permission=%+v err=%v",
 			cancelled, successor, permission, err)
 	}

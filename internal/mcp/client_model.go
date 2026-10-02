@@ -157,10 +157,11 @@ type ServerDescriptor struct {
 	Source               Source           `json:"source"`
 	CallTimeoutMillis    int64            `json:"call_timeout_ms"`
 	MaxResultBytes       int              `json:"max_result_bytes"`
+	NativeSource         *NativeSourceRef `json:"native_source,omitempty"`
 }
 
 func (d ServerDescriptor) Validate() error {
-	if d.ProtocolVersion != ClientProtocolVersion || !validClientIdentity(d.ID) ||
+	if (d.ProtocolVersion != ClientProtocolVersion && d.ProtocolVersion != NativeClientProtocolVersion) || !validClientIdentity(d.ID) ||
 		!validClientIdentity(d.Name) || !d.Transport.Valid() || !d.Scope.Valid() ||
 		!validClientIdentity(d.WorkspaceID) || d.CallTimeoutMillis < 100 ||
 		d.CallTimeoutMillis > int64((5*time.Minute)/time.Millisecond) ||
@@ -177,7 +178,15 @@ func (d ServerDescriptor) Validate() error {
 	if err := d.Source.Validate(); err != nil {
 		return err
 	}
-	if d.Transport == TransportStdio {
+	if d.ProtocolVersion == NativeClientProtocolVersion {
+		if d.NativeSource == nil || d.NativeSource.Validate() != nil || d.Source.Kind != "plugin" ||
+			d.Source.PluginID != d.NativeSource.Component.PackageID || d.Source.SHA256 != d.NativeSource.Revision ||
+			d.Target != "" || len(d.Arguments) != 0 || d.CredentialRef != "" {
+			return errors.New("native MCP registration must retain exact source references without legacy launch fields")
+		}
+	} else if d.NativeSource != nil {
+		return errors.New("legacy MCP registration cannot carry a native source")
+	} else if d.Transport == TransportStdio {
 		if !filepath.IsAbs(d.Target) || !validClientText(d.Target, MaxClientTargetBytes, false) ||
 			d.CredentialRef != "" {
 			return errors.New("stdio MCP target must be an absolute path and cannot receive a credential")

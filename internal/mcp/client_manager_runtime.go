@@ -170,9 +170,35 @@ func (m *Manager) invokeResolved(ctx context.Context, request InvokeRequest, rec
 	if _, err = rand.Read(key); err != nil {
 		return result, err
 	}
-	launch, bearer, err := m.resolveLegacyRuntime(ctx, record, key)
-	if err != nil {
-		return result, err
+	var launch toolcontract.ResolvedLaunch
+	var bearer string
+	var secrets []string
+	var recheckSource func(context.Context) error
+	if source := record.Descriptor.NativeSource; source != nil {
+		if m.nativeSources == nil {
+			return result, errors.New("native MCP source resolver is unavailable")
+		}
+		var closeSource func()
+		launch, secrets, recheckSource, closeSource, err = m.nativeSources.Resolve(ctx, *source, request.RunID)
+		if closeSource != nil {
+			defer closeSource()
+		}
+		if err != nil {
+			return result, err
+		}
+		if recheckSource == nil || closeSource == nil || launch.Component != source.Component ||
+			launch.Transport != toolcontract.Transport(record.Descriptor.Transport) || !slices.Contains(launch.ProtocolVersions, record.Capabilities.ProtocolVersion) {
+			return result, errors.New("native MCP source does not match the reviewed registration")
+		}
+		launch.ProtocolVersions = []string{record.Capabilities.ProtocolVersion}
+	} else {
+		launch, bearer, err = m.resolveLegacyRuntime(ctx, record, key)
+		if err != nil {
+			return result, err
+		}
+		if bearer != "" {
+			secrets = []string{bearer}
+		}
 	}
 	credential := func(ctx context.Context, ref toolcontract.CredentialRef) (string, error) {
 		if m.credentials == nil || launch.HTTP == nil || launch.HTTP.Credential == nil || ref != *launch.HTTP.Credential {
@@ -197,10 +223,16 @@ func (m *Manager) invokeResolved(ctx context.Context, request InvokeRequest, rec
 			current.Capabilities.Fingerprint != request.CapabilityFingerprint || !scopeMatches(current.Descriptor, request.RunID, request.WorkspaceID) {
 			return apperror.New(apperror.CodePolicyDenied, "MCP server review or scope changed before dispatch")
 		}
-		if launch.HTTP != nil && launch.HTTP.Credential != nil {
-			_, err = credential(ctx, *launch.HTTP.Credential)
+		if recheckSource != nil {
+			if err := recheckSource(ctx); err != nil {
+				return err
+			}
 		}
-		return err
+		if launch.HTTP != nil && launch.HTTP.Credential != nil {
+			_, credentialErr := credential(ctx, *launch.HTTP.Credential)
+			return credentialErr
+		}
+		return nil
 	}
 	// One host decision per connect/discovery/call; later discovery sends recheck
 	// that exact decision without consuming another grant or trusting annotations.
@@ -279,9 +311,7 @@ func (m *Manager) invokeResolved(ctx context.Context, request InvokeRequest, rec
 		return result, err
 	}
 	defer client.Close()
-	if bearer != "" {
-		client.secrets = []string{bearer}
-	}
+	client.secrets = slices.Clone(secrets)
 	client.descriptor.DeclaredCapabilities = slices.Clone(record.Descriptor.DeclaredCapabilities)
 	current, err := client.DiscoverWithScope(ctx, discovery)
 	if err != nil {
