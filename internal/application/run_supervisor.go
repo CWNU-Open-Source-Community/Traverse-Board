@@ -936,6 +936,10 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	if err != nil {
 		return result, s.recordFailure(ctx, &result, err, 0)
 	}
+	messages, contextLayout, err = s.supervisorMessagesWithPrivateHistory(ctx, turn, history, messages, contextLayout)
+	if err != nil {
+		return result, s.recordFailure(ctx, &result, err, 0)
+	}
 	boundaryContext := boundaryReceipt.Content
 	if boundaryContext != "" {
 		messages = append(messages, toolBoundaryEvidenceMessage(turn.Run.SessionID, turn.Checkpoint.AttemptID, boundaryContext))
@@ -1123,6 +1127,10 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		if err != nil {
 			return err
 		}
+		baseRequest.Messages, contextLayout, err = s.supervisorMessagesWithPrivateHistory(ctx, turn, history, baseRequest.Messages, contextLayout)
+		if err != nil {
+			return err
+		}
 		if boundaryContext != "" {
 			baseRequest.Messages = append(baseRequest.Messages,
 				toolBoundaryEvidenceMessage(turn.Run.SessionID, turn.Checkpoint.AttemptID, boundaryContext))
@@ -1159,6 +1167,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		return rebuildHistoryRequest(false)
 	}
 	trySegmentReceipt := func() bool {
+		if s.router.RequiresPrivateAssistantHistory(ref) {
+			return false
+		}
 		// A tiny first round can make a single-round receipt larger. Check all
 		// bounded prefixes locally before deciding no useful reduction exists.
 		for count := receiptedRounds + 1; count <= len(toolRounds); count++ {
@@ -1663,7 +1674,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		safeAction := redactRootAction(action)
 		result.RequestedAction = safeAction.Kind
 		safeResponse := *response
-		safeResponse.Text = safeAction.Message
+		if !safeResponse.Replay.RequiresPrivateAssistantHistory() {
+			safeResponse.Text = safeAction.Message
+		}
 		var updatedRun domain.Run
 		var checkpoint domain.SupervisorCheckpoint
 		var messages session.TurnMessages

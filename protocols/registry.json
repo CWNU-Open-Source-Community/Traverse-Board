@@ -733,7 +733,9 @@
         "internal/domain",
         "internal/llm/anthropic_replay.go",
         "internal/llm/gemini_replay.go",
+        "internal/llm/kimi_replay.go",
         "internal/llm/provider_replay.go",
+        "internal/providerhistory",
         "internal/store",
         "internal/webevidence"
       ],
@@ -771,6 +773,14 @@
             3
           ],
           "mode": "write-new"
+        },
+        {
+          "id": "provider-private-replay-kimi-v4-writer",
+          "source": "internal/llm/kimi_replay.go",
+          "versions": [
+            4
+          ],
+          "mode": "write-new"
         }
       ],
       "readers": [
@@ -790,20 +800,29 @@
           "versions": [
             1,
             2,
-            3
+            3,
+            4
+          ],
+          "status": "active"
+        },
+        {
+          "id": "provider-private-replay-kimi-v4-history-reader",
+          "source": "internal/store/supervisor_assistant_replay.go",
+          "versions": [
+            4
           ],
           "status": "active"
         }
       ],
       "persisted_or_exported": true,
-      "persistence_boundary": "Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence. Provider-private replay is retained in run_supervisor_provider_replay.replay_blob and SQLite backups under the existing Run/turn/attempt/model-attempt/round fences, blob hash, and accepted tool-batch binding.",
-      "compatibility_rule": "Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence. Provider-private replay uses numeric envelope v1 for OpenAI Responses, v2 for Anthropic Messages, and v3 for scoped Google AI Studio Gemini 3 OpenAI-compatible Chat tool rounds. DecodeProviderReplay reads all three; v1 serialization and stored v1/v2 rows remain supported. v2/v3 require bounded exact source/response/tool-batch schemas; v3 additionally binds configured route and actual wire model separately, retaining only recognized message/tool thought signatures in their original positions. Unknown versions and version/transport mismatches fail closed. There is no cross-version reinterpretation, old-row rewrite, or reader retirement. After v2 or v3 rows have been written, rollback to an older binary lacking that reader requires a matching database backup from before those rows; retain the original database and its private replay evidence for audit/recovery.",
+      "persistence_boundary": "Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence. Provider-private tool replay remains in run_supervisor_provider_replay.replay_blob under its Run/turn/attempt/model-attempt/round fences, blob hash, and accepted tool-batch binding. Schema 176 adds separate run_supervisor_assistant_replay candidates and immutable run_supervisor_assistant_replay_bindings for successful zero-tool v4 responses accepted as exact public session-message projections. All private state is retained in SQLite backups and absent from public DTOs.",
+      "compatibility_rule": "Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence. Provider-private replay uses numeric envelope v1 for OpenAI Responses, v2 for Anthropic Messages, v3 for scoped Google AI Studio Gemini 3 Chat tool rounds, and v4 for exact mapped Kimi K3 on the distinct official Moonshot HTTPS Chat origins. DecodeProviderReplay reads all four; prior serialization and stored v1/v2/v3 rows remain supported. v4 retains only typed presence-aware nullable reasoning, accepted content, native response/tool identities and route/wire/runtime bindings; every assistant in native history needs its original replay. Separate ordinary-history bindings retain source/session provenance and complete recorded tool segments across reopen without restoring execution authority. Missing/imported/summarized/corrupt history refuses; no blind extensions, backfill, cross-version reinterpretation, old-row rewrite or reader retirement occurs. Unknown versions and transport mismatches fail closed. After schema 176 or v4 rows have been written, rollback to an older binary lacking that reader requires a matching pre-change database backup; retain the original database and its private replay evidence for recovery.",
       "retirement_gate": {
         "mode": "migration-or-retention",
         "requirements": [
           "ADR-backed retirement decision and rollback path",
           "Old-version fixtures remain until every supported source is migrated or retained",
-          "Provider-private replay readers remain while any supported database or backup requires v1, v2 or v3; retain internal/llm/provider_replay_test.go, internal/llm/anthropic_thinking_replay_test.go, internal/llm/gemini_replay_test.go, internal/store/supervisor_provider_replay_test.go, internal/store/supervisor_anthropic_replay_test.go, and internal/store/supervisor_gemini_replay_test.go coverage until a separately reviewed retirement proves compatibility and rollback",
+          "Provider-private replay readers remain while any supported database or backup requires v1, v2, v3 or v4; retain internal/llm/provider_replay_test.go, internal/llm/anthropic_thinking_replay_test.go, internal/llm/gemini_replay_test.go, internal/llm/kimi_replay_test.go, internal/llm/kimi_http_replay_test.go, internal/store/supervisor_provider_replay_test.go, internal/store/supervisor_anthropic_replay_test.go, internal/store/supervisor_gemini_replay_test.go, internal/store/supervisor_assistant_replay_test.go and internal/application/supervisor_kimi_replay_test.go coverage until a separately reviewed retirement proves compatibility and rollback",
           "Reader history is append-only; retirement requires migration or retention evidence"
         ]
       },

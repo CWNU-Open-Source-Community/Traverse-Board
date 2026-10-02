@@ -16,7 +16,8 @@ const MaxProviderReplayBytes = 1024 * 1024
 
 // ProviderReplay is adapter-owned protocol state, never public model output or
 // tool authority. Ordinary JSON and diagnostic formatting cannot reveal it.
-// Persistence must explicitly use EncodeForStore under the tool-round fence.
+// Persistence explicitly uses EncodeForStore under the successful-model fence
+// and, for ordinary history, the accepted session-message binding.
 type ProviderReplay struct {
 	version                             int
 	provider, model, transport, binding string
@@ -208,7 +209,7 @@ func (r *ProviderReplay) EncodeForStore() ([]byte, error) {
 	}
 	value := providerReplayStored{Version: r.version, Provider: r.provider, Model: r.model,
 		Transport: r.transport, Binding: r.binding, Parts: r.parts, Calls: r.calls}
-	if r.version == 2 && value.Calls == nil {
+	if (r.version == 2 || r.version == 4) && value.Calls == nil {
 		value.Calls = []providerReplayCall{}
 	}
 	if r.responseID != "" {
@@ -233,7 +234,7 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 	}
 	r := &ProviderReplay{version: value.Version, provider: value.Provider, model: value.Model,
 		transport: value.Transport, binding: value.Binding, parts: value.Parts, calls: value.Calls}
-	if value.Version != 2 && value.Version != 3 {
+	if value.Version != 2 && value.Version != 3 && value.Version != 4 {
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)
 		for key := range fields {
@@ -243,7 +244,7 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 		}
 	}
 	if value.ResponseID != nil {
-		if value.Version != 2 && value.Version != 3 {
+		if value.Version != 2 && value.Version != 3 && value.Version != 4 {
 			return nil, errors.New("provider replay response identity is unsupported")
 		}
 		r.responseID = *value.ResponseID
@@ -254,6 +255,9 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 	if value.Version == 3 && decodeGeminiReplayJSON(raw, &value) != nil {
 		return nil, errors.New("provider replay encoding is invalid")
 	}
+	if value.Version == 4 && decodeKimiReplayJSON(raw, &value) != nil {
+		return nil, errors.New("provider replay encoding is invalid")
+	}
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
@@ -261,6 +265,9 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 }
 
 func (r *ProviderReplay) validate() error {
+	if r != nil && r.version == 4 && r.transport == HarnessTransportOpenAIChatCompletions {
+		return validateKimiProviderReplay(r)
+	}
 	if r != nil && r.version == 3 && r.transport == HarnessTransportOpenAIChatCompletions {
 		return validateGeminiProviderReplay(r)
 	}

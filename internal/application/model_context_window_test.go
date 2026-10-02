@@ -1,12 +1,37 @@
 package application
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/llm"
 )
+
+func TestKimiNativeHistoryCannotBeOmittedToFitWindow(t *testing.T) {
+	id := "native-history-window"
+	raw, _ := json.Marshal(map[string]any{"version": 4, "provider": "kimi-fixture", "model": "kimi-k3", "transport": "openai_chat_completions", "binding": strings.Repeat("a", 64), "response_id": id,
+		"parts": []any{map[string]any{"kind": "kimi_metadata", "id": llm.StableStreamID("kimi-native-replay", id, "metadata", "0"),
+			"opaque": map[string]any{"wire_model": "kimi-k3", "upstream_model": "kimi-k3", "content_state": "absent", "reasoning_content": strings.Repeat("r", 512)}}}, "calls": []any{}})
+	replay, err := llm.DecodeProviderReplay(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window := llm.ContextWindow{ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: 256, SafetyMarginTokens: 16, DefaultOutputTokens: 64, MaxOutputTokens: 64, Source: "test"}
+	request := llm.ChatRequest{Messages: []llm.Message{{Role: "system", Content: "fixed"}, {Role: "user", Content: "earlier"}, {Role: "assistant", Replay: replay}, {Role: "user", Content: "current"}}, MaxTokens: 64}
+	layout := modelContextLayout{HistoryStart: 1, HistoryCount: 2}
+	if _, _, err := constrainRequestToModelWindow(request, window, layout); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+		t.Fatal("private history was silently omitted", err)
+	}
+	if len(request.Messages) != 4 || request.Messages[2].Replay != replay {
+		t.Fatal("failed planning changed native history")
+	}
+	request.Messages[2].Replay = nil
+	if _, plan, err := constrainRequestToModelWindow(request, window, layout); err != nil || plan.HistoryOmitted != 0 {
+		t.Fatal("ordinary context changed under the scoped refusal", err)
+	}
+}
 
 func TestConstrainRequestToModelWindowTrimsOldestHistoryAndCapsOutput(t *testing.T) {
 	window := llm.ContextWindow{

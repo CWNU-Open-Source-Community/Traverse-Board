@@ -268,7 +268,7 @@ func TestSpecialistTaskBriefPreparationRollsBackWithDeliveryFailure(t *testing.T
 }
 
 func removeSchemaV175ForTestStatements() []string {
-	statements := []string{
+	statements := append(removeSchemaV176ForTestStatements(), []string{
 		`CREATE TEMP TABLE legacy_fixture_empty_briefs(n INTEGER CHECK(n=0));`,
 		`INSERT INTO legacy_fixture_empty_briefs SELECT count(*) FROM specialist_task_briefs;`,
 		`INSERT INTO legacy_fixture_empty_briefs SELECT count(*) FROM agent_messages WHERE json_valid(payload_json) AND json_extract(payload_json,'$.version')='specialist_instruction.v2';`,
@@ -278,7 +278,7 @@ func removeSchemaV175ForTestStatements() []string {
 		`DROP TRIGGER trg_specialist_instruction_source_immutable;`, `DROP TRIGGER trg_specialist_instruction_source_delete;`,
 		`DROP TRIGGER trg_specialist_context_delivery_insert;`, `DROP TRIGGER trg_specialist_context_delivery_commit;`,
 		`DELETE FROM schema_migrations WHERE version=175;`,
-	}
+	}...)
 	for _, statement := range specialistContextDeliveryStatements {
 		if strings.HasPrefix(statement, "CREATE TRIGGER trg_specialist_context_delivery_insert\n") || strings.HasPrefix(statement, "CREATE TRIGGER trg_specialist_context_delivery_commit\n") {
 			statements = append(statements, statement)

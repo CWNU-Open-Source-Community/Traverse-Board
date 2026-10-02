@@ -911,6 +911,9 @@ func (s *SQLiteStore) recordSupervisorModelCompleted(ctx context.Context,
 	if _, _, _, err := supervisorUsage(response.Usage); err != nil {
 		return domain.SupervisorCheckpoint{}, err
 	}
+	if response.Replay.RequiresPrivateAssistantHistory() && response.Text != response.Replay.AssistantText() {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "private assistant replay differs from the accepted model text")
+	}
 	toolCalls := []llm.ToolCall(nil)
 	if len(response.ToolCalls) > 0 {
 		var err error
@@ -1106,8 +1109,9 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 		}
 		payload["failure_reason"] = attempt.FailureReason
 	}
-	if options.Replay != nil && (eventType != events.ModelCompletedEvent || options.AccountingOnly || attempt.Purpose != "" || len(options.ToolCalls) == 0) {
-		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "provider replay requires a successful tool response")
+	if options.Replay != nil && (eventType != events.ModelCompletedEvent || options.AccountingOnly || attempt.Purpose != "" ||
+		(len(options.ToolCalls) == 0 && !options.Replay.RequiresPrivateAssistantHistory())) {
+		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "provider replay requires a supported successful primary response")
 	}
 	if options.RejectedToolRequest != nil && (eventType != events.ModelFailedEvent || options.AccountingOnly || attempt.Purpose != "" || len(options.ToolCalls) != 0 || options.Replay != nil) {
 		return domain.SupervisorCheckpoint{}, apperror.New(apperror.CodeInvalidArgument, "rejection diagnostics require a non-executable primary protocol failure")
@@ -1338,6 +1342,10 @@ func (s *SQLiteStore) recordSupervisorModelTerminal(ctx context.Context, checkpo
 			return domain.SupervisorCheckpoint{}, err
 		}
 		if err := insertSupervisorProviderReplayTx(ctx, tx, current, attempt, options.Replay, options.ToolCalls); err != nil {
+			return domain.SupervisorCheckpoint{}, err
+		}
+	} else if options.Replay.RequiresPrivateAssistantHistory() {
+		if err := insertSupervisorAssistantReplayTx(ctx, tx, current, attempt, options.Replay); err != nil {
 			return domain.SupervisorCheckpoint{}, err
 		}
 	}
@@ -1685,6 +1693,7 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 	if err := action.Validate(); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid root lifecycle action", err)
 	}
+	nativeResponse, nativeAction := response, action
 	response.Text = action.Message
 	if _, _, _, err := supervisorUsage(response.Usage); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
@@ -1738,6 +1747,9 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 		}
 	}
 	if completionReplay {
+		if err := requireSupervisorAssistantCompletionReplayTx(ctx, tx, checkpoint, nativeResponse, nativeAction); err != nil {
+			return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
+		}
 		if err := tx.Commit(); err != nil {
 			return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 		}
@@ -1774,6 +1786,10 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, apperror.New(apperror.CodeFailedPrecondition, "exhausted protocol repair cannot complete a supervisor turn")
 	}
 	if err := requireLatestSupervisorModelCompletedTx(ctx, tx, run.ID, checkpoint); err != nil {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
+	}
+	privateModelAttempt, privateReplayDigest, err := prepareSupervisorAssistantBindingTx(ctx, tx, checkpoint, nativeResponse, nativeAction)
+	if err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
 	if err := requireSupervisorToolsReadyTx(ctx, tx, checkpoint); err != nil {
@@ -1917,6 +1933,9 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 		}
 	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.AgentTurnCompletedEvent, "run_supervisor", checkpoint.AttemptID, completionPayload); err != nil {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
+	}
+	if err := insertSupervisorAssistantBindingTx(ctx, tx, checkpoint, assistantMessage, privateModelAttempt, privateReplayDigest); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
 	if repairCompleted {

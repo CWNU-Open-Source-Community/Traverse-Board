@@ -178,6 +178,14 @@ func insertSupervisorProviderReplayTx(ctx context.Context, tx *sql.Tx, checkpoin
 func requireSupervisorProviderReplayMatchTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint,
 	attempt llm.ModelAttempt, replay *llm.ProviderReplay, calls []llm.ToolCall,
 ) error {
+	if len(calls) == 0 {
+		if err := requireSupervisorAssistantCandidateMatchTx(ctx, tx, checkpoint, attempt, replay); err != nil {
+			return err
+		}
+		if replay.RequiresPrivateAssistantHistory() {
+			return nil
+		}
+	}
 	expected, err := encodeSupervisorProviderReplay(replay, attempt, calls)
 	if err != nil {
 		return err
