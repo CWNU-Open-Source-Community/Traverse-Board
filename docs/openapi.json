@@ -40728,6 +40728,25 @@
         ],
         "type": "object"
       },
+      "InstructionDelivery": {
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/InstructionSourceDelivery"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "sources"
+        ],
+        "type": "object"
+      },
       "InstructionLimits": {
         "additionalProperties": false,
         "properties": {
@@ -40764,6 +40783,9 @@
               "$ref": "#/components/schemas/InstructionConflict"
             },
             "type": "array"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/InstructionDelivery"
           },
           "fingerprint": {
             "type": "string"
@@ -40920,6 +40942,30 @@
           "why_effective",
           "redacted",
           "authority"
+        ],
+        "type": "object"
+      },
+      "InstructionSourceDelivery": {
+        "additionalProperties": false,
+        "properties": {
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "exclusion_reason": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content_sha256",
+          "requirement"
         ],
         "type": "object"
       },
@@ -60994,6 +61040,12 @@
       "projectInstructionRefreshRequestView": {
         "additionalProperties": false,
         "properties": {
+          "classifications": {
+            "items": {
+              "$ref": "#/components/schemas/InstructionSourceDelivery"
+            },
+            "type": "array"
+          },
           "confirm": {
             "type": "boolean"
           },

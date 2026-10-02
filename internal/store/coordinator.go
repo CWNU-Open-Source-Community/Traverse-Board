@@ -283,6 +283,9 @@ func (s *SQLiteStore) SendAgentMessage(ctx context.Context, message domain.Agent
 		return domain.AgentMessage{}, false,
 			apperror.Wrap(apperror.CodeInvalidArgument, "invalid agent message", err)
 	}
+	if err := validateSpecialistInstructionSendTx(ctx, tx, message, recipient); err != nil {
+		return domain.AgentMessage{}, false, err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_messages
 		(id, run_id, sender_agent_id, recipient_agent_id, sequence, kind, semantic, payload_json, status, created_at, consumed_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`, message.ID, message.RunID,

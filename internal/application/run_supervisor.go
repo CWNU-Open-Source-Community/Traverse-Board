@@ -792,6 +792,18 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		}
 	}
 	memoryBudget := supervisorMemoryBudget(s.router.ContextWindow(ref))
+	projectInstructionSections, err := projectInstructionContextSections(turn.Run.Config)
+	if err != nil {
+		return result, s.recordFailure(ctx, &result, err, 0)
+	}
+	// Refuse an impossible mandatory set before optional generated history
+	// compaction can spend another model call.
+	if _, err := contextmgr.SelectSections(projectInstructionSections, memoryBudget); err != nil {
+		if errors.Is(err, contextmgr.ErrRequiredContextBudget) {
+			err = projectInstructionDeliveryFailure()
+		}
+		return result, s.recordFailure(ctx, &result, err, 0)
+	}
 	history, summary, hasSummary, didCompact, err := s.supervisorConversationContext(ctx, &turn)
 	result.Checkpoint = turn.Checkpoint
 	if err != nil {
@@ -814,11 +826,6 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		RunID: turn.Run.ID, Statuses: []domain.NoteStatus{domain.NoteActive},
 		Viewer: "root", ViewerAgentID: turn.Agent.ID, Limit: maxSupervisorNotes,
 	})
-	if err != nil {
-		failure := s.recordFailure(ctx, &result, err, 0)
-		return result, failure
-	}
-	projectInstructionSections, err := projectInstructionContextSections(turn.Run.Config)
 	if err != nil {
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
@@ -849,6 +856,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	if err := requireSupervisorContinuityContext(memory, summary, hasSummary, turn.Mission.ID, turn.Run.Config.ContinuityContextFingerprint); err != nil {
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
+	}
+	if err := requirePinnedProjectInstructionSelection(turn.Run.Config, memory); err != nil {
+		return result, s.recordFailure(ctx, &result, err, 0)
 	}
 	contextAudit := supervisorModelContextAudit(memory)
 	executionPermission, err := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
@@ -1023,6 +1033,12 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	refreshStandardCodeSupervisorRequest(&request, standardCode)
 	baseRequest := request
 	if len(toolRounds) > 0 {
+		if err := requirePinnedProjectInstructionRequest(turn.Run.Config, baseRequest); err != nil {
+			return result, s.recordFailure(ctx, &result, err, 0)
+		}
+		if err := s.requirePinnedProjectInstructionToolOrigins(ctx, turn, toolRounds); err != nil {
+			return result, s.recordFailure(ctx, &result, err, 0)
+		}
 		var waitingApproval bool
 		toolRounds, waitingApproval, err = s.resumeSupervisorTools(ctx, turn, toolRounds, standardCode)
 		if err != nil {
@@ -1086,6 +1102,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 		}
 		if err == nil {
 			err = requireSupervisorContinuityContext(memory, summary, hasSummary, turn.Mission.ID, turn.Run.Config.ContinuityContextFingerprint)
+		}
+		if err == nil {
+			err = requirePinnedProjectInstructionSelection(turn.Run.Config, memory)
 		}
 		if err != nil {
 			return err
@@ -1279,6 +1298,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 			continue
 		}
 		modelRequest = boundedRequest
+		if err := requirePinnedProjectInstructionRequest(turn.Run.Config, modelRequest); err != nil {
+			return result, s.recordFailure(ctx, &result, err, 0)
+		}
 		modelCall, err := s.callModelWithRetry(ctx, turn, ref, modelRequest, protocolRepair,
 			len(toolRounds), steeringSequence, contextAudit)
 		if modelCall.Checkpoint.RunID != "" {
@@ -1474,6 +1496,9 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 				toolRounds, storeErr = s.store.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 				if storeErr != nil {
 					return result, apperror.Normalize(storeErr)
+				}
+				if err := s.requirePinnedProjectInstructionToolOrigins(ctx, turn, toolRounds); err != nil {
+					return result, s.recordFailure(ctx, &result, err, 0)
 				}
 				var waitingApproval bool
 				toolRounds, waitingApproval, storeErr = s.resumeSupervisorTools(ctx, turn, toolRounds,
@@ -2124,6 +2149,9 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 	for transportAttempt := nextTransportAttempt; transportAttempt <= policy.MaxAttempts; transportAttempt++ {
 		if err := ctx.Err(); err != nil {
 			return result, apperror.Normalize(err)
+		}
+		if err := s.requireCurrentPinnedProjectInstructions(ctx, turn.Run); err != nil {
+			return result, err
 		}
 		request, err = supervisorRequestWithinBudget(request, turn.Run.Budget, result.Checkpoint)
 		if err != nil {
@@ -2870,6 +2898,9 @@ func supervisorMemoryContextWithinBudget(memoryBudget int, threadEndTurn bool, s
 	}
 	selection, err := contextmgr.SelectSections(sections, memoryBudget)
 	if err != nil {
+		if errors.Is(err, contextmgr.ErrRequiredContextBudget) {
+			return contextmgr.Selection{}, projectInstructionDeliveryFailure()
+		}
 		return contextmgr.Selection{}, err
 	}
 	for _, message := range inboxMessages {
@@ -3030,44 +3061,7 @@ func continuityContextSections(config domain.RunConfig) ([]contextmgr.Section, e
 }
 
 func projectInstructionContextSections(config domain.RunConfig) ([]contextmgr.Section, error) {
-	if len(config.ProjectInstructions) == 0 {
-		return nil, nil
-	}
-	var snapshot projectconfig.InstructionSnapshot
-	if err := json.Unmarshal(config.ProjectInstructions, &snapshot); err != nil {
-		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
-			"pinned project instruction snapshot cannot be decoded", err)
-	}
-	if err := snapshot.Validate(); err != nil || snapshot.Fingerprint != config.ProjectInstructionsFingerprint {
-		return nil, apperror.New(apperror.CodeFailedPrecondition,
-			"pinned project instruction snapshot failed its fingerprint binding")
-	}
-	sections := make([]contextmgr.Section, 0, len(snapshot.Sources))
-	for _, source := range snapshot.Sources {
-		envelope := projectInstructionGuidanceEnvelope{
-			Version: "project_instruction_guidance.v1",
-			Source: projectInstructionGuidanceSource{
-				Path: source.Path, Scope: source.Scope, Kind: source.Kind,
-				ContentSHA256: source.ContentSHA256, Snapshot: snapshot.Fingerprint,
-				Precedence: source.Precedence, WhyEffective: source.WhyEffective,
-				Trust: source.Trust,
-			},
-			Authority: source.Authority, Content: source.Content,
-		}
-		encoded, err := json.Marshal(envelope)
-		if err != nil {
-			return nil, err
-		}
-		priority := 760 + source.Depth
-		if priority > 799 {
-			priority = 799
-		}
-		sections = append(sections, contextmgr.Section{
-			Kind: "project_instruction", SourceID: source.Path,
-			Content: string(encoded), Priority: priority,
-		})
-	}
-	return sections, nil
+	return pinnedProjectInstructionContextSections(config)
 }
 
 type supervisorRootInboxEnvelope struct {
@@ -3217,8 +3211,12 @@ func supervisorModelContextAudit(selection contextmgr.Selection) *llm.ModelConte
 		})
 	}
 	for _, source := range selection.OmittedSources {
+		sourceID := source.SourceID
+		if strings.HasPrefix(sourceID, "project-rule.v1/") && source.OmissionReason != "" {
+			sourceID = "omitted/" + source.OmissionReason + "/" + sourceID
+		}
 		audit.Omitted = append(audit.Omitted, llm.ModelContextSource{
-			Kind: source.Kind, SourceID: source.SourceID, Tokens: source.Tokens,
+			Kind: source.Kind, SourceID: sourceID, Tokens: source.Tokens,
 		})
 	}
 	return audit

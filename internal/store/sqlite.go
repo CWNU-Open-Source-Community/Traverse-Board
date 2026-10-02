@@ -420,6 +420,7 @@ func migrationPlan() []migration {
 		{Version: 172, Name: "Atomic queued message promotion to current task", Statements: operatorSteeringPromotionStatements},
 		{Version: 173, Name: "Fenced on-demand embedded Skill reads", Statements: builtinSkillReadStatements, DisableForeignKeys: true},
 		{Version: 174, Name: "Atomic private rejected native request diagnostics", Statements: supervisorToolRejectionStatements},
+		{Version: 175, Name: "Pinned Specialist task briefs and explicit instruction retirement", Statements: specialistTaskBriefStatements()},
 	}
 }
 
