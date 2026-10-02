@@ -25,14 +25,13 @@ func (c *exactPermissionMCPClient) Capabilities(context.Context, string, string)
 	return c.capabilities, nil
 }
 
-func TestSupervisorMCPAdvertisementFenceRejectsRevokedFullAndDebug(t *testing.T) {
+func TestSupervisorMCPAdvertisementFenceRejectsRevokedThreeModes(t *testing.T) {
 	for _, permissionMode := range []domain.RunExecutionPermissionMode{
-		domain.RunExecutionPermissionFullAccess,
-		domain.RunExecutionPermissionDebug,
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
 	} {
 		t.Run(string(permissionMode), func(t *testing.T) {
 			ctx := context.Background()
-			state, runRecord, _, lease, _ := newCommandRuntimeTestRuntimeWithPermission(
+			state, runRecord, _, lease, _ := newMCPApprovalModeRuntime(
 				t, ctx, permissionMode)
 			permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
 			if err != nil {
@@ -44,7 +43,7 @@ func TestSupervisorMCPAdvertisementFenceRejectsRevokedFullAndDebug(t *testing.T)
 				DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
 				RuntimeAuthority: authority,
 			}
-			if permissionMode == domain.RunExecutionPermissionFullAccess {
+			if permissionMode == domain.RunExecutionPermissionFull {
 				if _, err := authority.ActivateRunFullAccess(permission); err != nil {
 					t.Fatal(err)
 				}
@@ -53,6 +52,7 @@ func TestSupervisorMCPAdvertisementFenceRejectsRevokedFullAndDebug(t *testing.T)
 			client := &exactPermissionMCPClient{capabilities: mcp.ScopedCapabilities{
 				ProtocolVersion: mcp.ClientProtocolVersion, Generation: strings.Repeat("b", 64),
 				Servers: []mcp.ScopedServerCapability{{ServerID: "docs", Name: "Documentation",
+					DescriptorFingerprint: strings.Repeat("c", 64), RegistrationGeneration: 1,
 					CapabilityFingerprint: fingerprint, Tools: []mcp.RemoteTool{{
 						Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`),
 					}}}},
@@ -80,6 +80,7 @@ func TestSupervisorMCPAdvertisementFenceRejectsRevokedFullAndDebug(t *testing.T)
 			authority.RevokeRun(runRecord.ID)
 			_, err = supervisor.invokeSupervisorTool(ctx, turn, domain.SupervisorToolCall{
 				RunID: runRecord.ID, Turn: turn.Checkpoint.NextTurn,
+				AgentID: turn.Agent.ID, AgentAttemptID: turn.Checkpoint.AttemptID, AttemptID: turn.Checkpoint.AttemptID, AgentAttribution: domain.AgentAttributionSupervisorRoot,
 				CallID: prepared[0].ID, ToolName: prepared[0].Name,
 				PayloadJSON:   string(prepared[0].Arguments),
 				AuthorityJSON: string(prepared[0].Authority),
@@ -101,7 +102,7 @@ func (c *exactPermissionMCPClient) Invoke(context.Context, mcp.InvokeRequest) (
 
 func TestMCPExecutorRequiresExactLiveFullAccessAndRunFence(t *testing.T) {
 	ctx := context.Background()
-	state, runRecord, _, lease, _ := newCommandRuntimeTestRuntime(t, ctx)
+	state, runRecord, _, lease, _ := newMCPApprovalModeRuntime(t, ctx)
 	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -142,46 +143,6 @@ func TestMCPExecutorRequiresExactLiveFullAccessAndRunFence(t *testing.T) {
 	authority.RevokeRun(runRecord.ID)
 	if _, err := executor.ExecuteMCP(ctx, scope, payload); err == nil || client.calls != 1 {
 		t.Fatalf("revoked Full Access authority reached MCP transport: calls=%d err=%v",
-			client.calls, err)
-	}
-}
-
-func TestMCPExecutorDebugUsesRunFence(t *testing.T) {
-	ctx := context.Background()
-	state, runRecord, _, lease, _ := newCommandRuntimeTestRuntimeWithPermission(t,
-		ctx, domain.RunExecutionPermissionDebug)
-	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority := domain.NewExecutionPermissionRuntimeAuthority()
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: authority,
-	}
-	client := &exactPermissionMCPClient{}
-	executor, err := NewMCPClientToolExecutor(client, state, capabilities)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fence, err := authority.IssueRunAuthorizationFence(runRecord.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := exactPermissionMCPScope(runRecord, lease, permission)
-	scope.RunAuthorizationFence = fence
-	scope.PermissionRuntimeEpoch = authority.RuntimeEpoch()
-	payload := toolgateway.MCPToolCallPayload{Version: toolgateway.MCPClientToolProtocolVersion,
-		ServerID: "docs", ToolName: "lookup",
-		CapabilityFingerprint: string(make([]byte, 64)), Arguments: json.RawMessage(`{}`)}
-	if _, err := executor.ExecuteMCP(ctx, scope, payload); err != nil || client.calls != 1 {
-		t.Fatalf("Debug did not inherit fenced MCP execution: calls=%d err=%v",
-			client.calls, err)
-	}
-	authority.RevokeRun(runRecord.ID)
-	if _, err := executor.ExecuteMCP(ctx, scope, payload); err == nil || client.calls != 1 {
-		t.Fatalf("revoked Debug fence reached MCP transport: calls=%d err=%v",
 			client.calls, err)
 	}
 }

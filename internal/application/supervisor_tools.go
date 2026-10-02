@@ -195,9 +195,7 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 				configured.CommandRuntime.Adapter)
 		}
 		if definition.Name == toolgateway.MCPToolCallTool {
-			if surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
-				!permissionMode.IncludesFullAccess() ||
-				len(configured.MCP.Capabilities.Servers) == 0 ||
+			if len(configured.MCP.Capabilities.Servers) == 0 ||
 				len(configured.MCP.Authority) == 0 {
 				continue
 			}
@@ -385,12 +383,6 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			return nil, errors.New(
 				"provider requested command runtime outside its advertised Code/Deliver adapter authority")
 		}
-		if name == toolgateway.MCPToolCallTool &&
-			(surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
-				!permissionMode.IncludesFullAccess()) {
-			return nil, errors.New(
-				"provider requested MCP outside Code/Deliver Full Access or Debug runtime")
-		}
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {
 			return nil, err
@@ -455,11 +447,25 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			out[index].Authority = append(json.RawMessage(nil), commandRuntimeAuthority...)
 		}
 		if name == toolgateway.MCPToolCallTool {
-			if authority, err := mcp.DecodeSupervisorCallAuthority(
-				configured.MCP.Authority); err != nil || authority.RunID != runID {
+			authority, err := mcp.DecodeSupervisorCallAuthority(configured.MCP.Authority)
+			if err != nil || authority.RunID != runID {
 				return nil, errors.New("MCP advertisement authority is invalid")
 			}
-			out[index].Authority = append(json.RawMessage(nil), configured.MCP.Authority...)
+			if authority.Version == mcp.SupervisorOperationAuthorityVersion {
+				request, _, _ := toolgateway.NormalizeMCPToolPayload(payload)
+				for _, server := range configured.MCP.Capabilities.Servers {
+					if server.ServerID == request.ServerID {
+						authority.ServerID = server.ServerID
+						authority.DescriptorFingerprint = server.DescriptorFingerprint
+						authority.ServerGeneration = server.RegistrationGeneration
+						break
+					}
+				}
+			}
+			out[index].Authority, err = mcp.EncodeSupervisorCallAuthority(authority)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if toolgateway.IsWebEvidenceTool(name) {
 			authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
@@ -664,9 +670,7 @@ func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (supervisorMCPTools, error) {
-	if s.mcpClient == nil || turn.Mode.Surface != domain.ExecutionSurfaceCode ||
-		turn.Mode.Phase != domain.ExecutionPhaseDeliver || turn.Agent.Role != domain.AgentRoleRoot ||
-		!permission.Mode.IncludesFullAccess() ||
+	if s.mcpClient == nil ||
 		strings.TrimSpace(turn.Mission.WorkspaceID) == "" {
 		return supervisorMCPTools{}, nil
 	}
@@ -698,12 +702,14 @@ func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
 		return supervisorMCPTools{}, nil
 	}
 	authority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
-		Version: mcp.SupervisorCallAuthorityVersion,
+		Version: mcp.SupervisorOperationAuthorityVersion,
 		RunID:   turn.Run.ID, MissionID: turn.Mission.ID,
 		WorkspaceID:          turn.Mission.WorkspaceID,
 		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
 		PermissionMode: permission.Mode, PermissionGeneration: generation,
 		RunAuthorizationFence: fence, PermissionRuntimeEpoch: runtimeEpoch,
+		ServerID: bounded.Servers[0].ServerID, DescriptorFingerprint: bounded.Servers[0].DescriptorFingerprint,
+		ServerGeneration: bounded.Servers[0].RegistrationGeneration,
 	})
 	if err != nil {
 		return supervisorMCPTools{}, err
@@ -738,7 +744,8 @@ func boundedSupervisorMCPCapabilities(value mcp.ScopedCapabilities) mcp.ScopedCa
 			break
 		}
 		projected := mcp.ScopedServerCapability{ServerID: server.ServerID, Name: server.Name,
-			CapabilityFingerprint: server.CapabilityFingerprint}
+			CapabilityFingerprint: server.CapabilityFingerprint, DescriptorFingerprint: server.DescriptorFingerprint,
+			RegistrationGeneration: server.RegistrationGeneration}
 		for _, tool := range server.Tools {
 			cost := len(tool.Name) + len(tool.Description) + len(tool.InputSchema) + 256
 			if count >= maxSupervisorMCPTools || cost > budget {
@@ -949,7 +956,7 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 				}
 			}
 			agentBrowserCall := toolgateway.IsBrowserActionTool(toolgateway.ToolName(call.ToolName)) && toolgateway.IsAgentBrowserPayload(json.RawMessage(call.PayloadJSON))
-			browserPreflightStopped := false
+			preflightStopped := false
 			if agentBrowserCall && decision.Allowed {
 				waiting, denial, preflightErr := s.preflightAgentBrowserApproval(ctx, call)
 				if preflightErr != nil {
@@ -961,11 +968,23 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 				if denial != nil {
 					decision.Allowed = false
 					decision.Result = denial
-					browserPreflightStopped = true
+					preflightStopped = true
+				}
+			}
+			if toolgateway.ToolName(call.ToolName) == toolgateway.MCPToolCallTool && decision.Allowed {
+				waiting, denial, preflightErr := s.preflightMCPApproval(ctx, call)
+				if preflightErr != nil {
+					return rounds, false, preflightErr
+				}
+				if waiting {
+					return rounds, true, nil
+				}
+				if denial != nil {
+					decision.Allowed, decision.Result, preflightStopped = false, denial, true
 				}
 			}
 			fresh := true
-			if !browserPreflightStopped {
+			if !preflightStopped {
 				var startedErr error
 				if fence, ok := s.store.(interface {
 					RecordSupervisorToolExecutionStartedWithSteering(context.Context, domain.SupervisorCheckpoint, string) (bool, bool, error)

@@ -60,7 +60,7 @@ func (e *MCPClientToolExecutor) ExecuteMCP(ctx context.Context,
 	if err := e.recheckExecutionScope(ctx, scope); err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}
-	subject, authorizer, recheck, err := e.operationAuthorizer(ctx, scope, payload.ServerID)
+	subject, authorizer, recheck, err := e.operationAuthorizer(ctx, scope, payload)
 	if err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}

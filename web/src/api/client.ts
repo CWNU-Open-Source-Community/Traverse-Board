@@ -1648,7 +1648,7 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
       "INVALID_RESPONSE", 502);
   }
   if (value.continuation !== undefined) {
-    if (value.tool_name !== "agent_browser_sensitive") {
+    if (!["agent_browser_sensitive", "mcp_tool_call"].includes(String(value.tool_name))) {
       throw new APIRequestError("Approval continuation belongs to another operation", "INVALID_RESPONSE", 502);
     }
     validateApprovalContinuation(value.continuation, true);
@@ -8546,7 +8546,7 @@ export class CyberAgentClient {
       value.run_id !== runID || value.approval_id !== approvalID ||
       !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
       (value.workspace_id !== "" && !boundedIdentity(value.workspace_id)) ||
-      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"]
+      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "mcp_server_and_tool", "unavailable"]
         .includes(String(value.effect)) || typeof value.working_directory !== "string" ||
       !["", "."].includes(value.working_directory) ||
       typeof value.source_current !== "boolean" || typeof value.redacted !== "boolean" ||
@@ -8561,7 +8561,7 @@ export class CyberAgentClient {
     const effects: Record<string, string> = { shell: "dry_run", script_process: "dry_run",
       "git.advanced": "record_git_approval", replace_file: "file_review_required",
       create_file: "file_review_required", move_file: "file_review_required", delete_file: "file_review_required",
-      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action" };
+      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action", mcp_tool_call: "mcp_server_and_tool" };
     if (value.effect !== (effects[value.tool_name] ?? "unavailable")) {
       throw new APIRequestError("Approval preview returned a different effect", "INVALID_RESPONSE", 502);
     }

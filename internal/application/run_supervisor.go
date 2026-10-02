@@ -447,9 +447,9 @@ func (s *RunSupervisor) supervisorCommandRuntimeTools(ctx context.Context,
 	return supervisorCommandRuntimeTools{Adapter: adapter, Authority: authority}, nil
 }
 
-// WithMCPClient exposes only already-reviewed MCP tools to an exact
-// Code/Deliver/Root/full-access turn. Staging and approval remain operator
-// control-plane operations outside the Supervisor.
+// WithMCPClient exposes operator-reviewed MCP tools within their host scope.
+// Per-call consent and current execution authority are checked separately;
+// registration staging and review remain operator control-plane operations.
 func (s *RunSupervisor) WithMCPClient(client SupervisorMCPClient) *RunSupervisor {
 	if s == nil || s.tools == nil || client == nil {
 		return s

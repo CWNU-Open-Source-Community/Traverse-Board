@@ -4899,7 +4899,7 @@ export interface components {
         ApprovalPreviewView: {
             approval_id: string;
             /** @enum {string} */
-            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "unavailable";
+            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "mcp_server_and_tool" | "unavailable";
             fields: components["schemas"]["ApprovalPreviewFieldView"][];
             proposal_id: string;
             /** @enum {string} */

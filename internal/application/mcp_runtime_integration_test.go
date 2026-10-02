@@ -40,7 +40,7 @@ func (c *mcpRuntimeCredentialFixture) replace(value string) {
 func TestMCPRuntimeCommonAuthorityAtRealTLSSends(t *testing.T) {
 	for _, scenario := range []string{"native_result", "modern_result", "revoke_before_connect", "revoke_discovery", "disable_discovery", "lease_discovery", "credential_drift", "lost_response", "revoke_after_send", "disable_after_send", "credential_after_send", "remote_error"} {
 		t.Run(scenario, func(t *testing.T) {
-			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, t.Context())
+			state, run, root, lease, capabilities := newMCPApprovalModeRuntime(t, t.Context())
 			root = ensureCommandRuntimeTestAgent(t, t.Context(), state, lease, root)
 			authority := domain.NewExecutionPermissionRuntimeAuthority()
 			capabilities.FullAccessRequiresRuntimeGrant, capabilities.RuntimeAuthority = true, authority

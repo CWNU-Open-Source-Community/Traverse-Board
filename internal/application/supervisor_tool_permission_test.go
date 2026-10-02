@@ -371,15 +371,16 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 	fingerprint := strings.Repeat("a", 64)
 	capabilities := mcp.ScopedCapabilities{ProtocolVersion: mcp.ClientProtocolVersion,
 		Generation: strings.Repeat("b", 64), Servers: []mcp.ScopedServerCapability{{
-			ServerID: "docs", Name: "Documentation", CapabilityFingerprint: fingerprint,
+			ServerID: "docs", Name: "Documentation", CapabilityFingerprint: fingerprint, DescriptorFingerprint: strings.Repeat("d", 64), RegistrationGeneration: 1,
 			Tools: []mcp.RemoteTool{{Name: "lookup", Description: "Look up a document.",
 				InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string"}}}`)}},
 		}}}
 	authority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
-		Version: mcp.SupervisorCallAuthorityVersion,
-		RunID:   "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		Version:  mcp.SupervisorOperationAuthorityVersion,
+		ServerID: "docs", DescriptorFingerprint: strings.Repeat("d", 64), ServerGeneration: 1,
+		RunID: "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
 		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
-		PermissionMode: domain.RunExecutionPermissionFullAccess,
+		PermissionMode: domain.RunExecutionPermissionFull,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -398,33 +399,26 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		return false, nil
 	}
 	found, schema := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, options)
+		domain.RunExecutionPermissionFull, options)
 	if !found || !json.Valid(schema) || !strings.Contains(string(schema), `"const":"docs"`) ||
 		!strings.Contains(string(schema), `"const":"lookup"`) ||
 		!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
 		t.Fatalf("reviewed MCP capability was not encoded exactly: %s", schema)
 	}
 	if found, _ := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, options); !found {
-		t.Fatal("Debug did not inherit the reviewed MCP capability")
+		domain.RunExecutionPermissionAuto, options); !found {
+		t.Fatal("Auto did not expose the reviewed MCP capability")
 	}
-	for _, test := range []struct {
-		surface    domain.ExecutionSurface
-		phase      domain.ExecutionPhase
-		permission domain.RunExecutionPermissionMode
-		options    supervisorToolOptions
-	}{
-		{domain.ExecutionSurfaceCyber, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionFullAccess, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
-			domain.RunExecutionPermissionFullAccess, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionApproval, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionFullAccess, supervisorToolOptions{}},
-	} {
-		if found, _ := visible(test.surface, test.phase, test.permission, test.options); found {
-			t.Fatal("MCP tool leaked outside the exact reviewed runtime scope")
+	for _, surface := range []domain.ExecutionSurface{domain.ExecutionSurfaceCode, domain.ExecutionSurfaceCyber} {
+		for _, phase := range []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver} {
+			for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+				if found, _ := visible(surface, phase, mode, options); !found {
+					t.Fatal("reviewed MCP was hidden behind a retired surface/phase/mode gate", surface, phase, mode)
+				}
+				if found, _ := visible(surface, phase, mode, supervisorToolOptions{}); found {
+					t.Fatal("unreviewed MCP capability was exposed")
+				}
+			}
 		}
 	}
 	payload := json.RawMessage(`{"version":"mcp-client.v1","server_id":"docs","tool_name":"lookup","capability_fingerprint":"` + fingerprint + `","arguments":{"query":"bounded"}}`)
@@ -432,26 +426,28 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		Arguments: payload}}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, options); err != nil {
+		domain.RunExecutionPermissionFull, false, false, options); err != nil {
 		t.Fatalf("exact reviewed MCP call was rejected: %v", err)
 	}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, false, false, options); err != nil {
-		t.Fatalf("Debug did not inherit the exact reviewed MCP call: %v", err)
+		domain.RunExecutionPermissionAuto, false, false, options); err != nil {
+		t.Fatalf("Auto did not expose the exact reviewed MCP call: %v", err)
 	}
 	forged := options
+	forged.MCP.Capabilities.Servers = append([]mcp.ScopedServerCapability(nil), options.MCP.Capabilities.Servers...)
 	forged.MCP.Capabilities.Servers[0].CapabilityFingerprint = strings.Repeat("c", 64)
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, forged); err == nil {
+		domain.RunExecutionPermissionFull, false, false, forged); err == nil {
 		t.Fatal("stale MCP capability fingerprint was accepted")
 	}
 	wrongRunAuthority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
-		Version: mcp.SupervisorCallAuthorityVersion,
-		RunID:   "run-other", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		Version:  mcp.SupervisorOperationAuthorityVersion,
+		ServerID: "docs", DescriptorFingerprint: strings.Repeat("d", 64), ServerGeneration: 1,
+		RunID: "run-other", MissionID: "mission-1", WorkspaceID: "workspace-1",
 		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
-		PermissionMode: domain.RunExecutionPermissionFullAccess,
+		PermissionMode: domain.RunExecutionPermissionFull,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -460,14 +456,14 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 	wrongRun.MCP.Authority = wrongRunAuthority
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, wrongRun); err == nil {
+		domain.RunExecutionPermissionFull, false, false, wrongRun); err == nil {
 		t.Fatal("MCP advertisement authority for another Run was accepted")
 	}
 	malformed := options
 	malformed.MCP.Authority = json.RawMessage(`{"version":1}`)
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, malformed); err == nil {
+		domain.RunExecutionPermissionFull, false, false, malformed); err == nil {
 		t.Fatal("malformed MCP advertisement authority was accepted")
 	}
 	if !recoverableSupervisorToolError(toolgateway.MCPToolCallTool,

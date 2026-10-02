@@ -18,12 +18,20 @@ function effectCopy(result: ThreadExecutionPermissionControlView): string {
   return "已用于此对话的后续执行";
 }
 
-export function V2PermissionControl({ client, threadID, variant = "menu", onOpenModelSettings }: {
+type PermissionControlProps = {
   client: CyberAgentClient;
   threadID: string;
   variant?: "menu" | "settings";
   onOpenModelSettings?: () => void;
-}) {
+};
+
+export function V2PermissionControl(props: PermissionControlProps) {
+  // Target changes discard confirmation/pending/error UI. An already submitted
+  // mutation keeps its original instance and can only update that Thread's cache.
+  return <ThreadPermissionControl key={props.threadID} {...props} />;
+}
+
+function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenModelSettings }: PermissionControlProps) {
   const queryClient = useQueryClient();
   const [networkOpen, setNetworkOpen] = useState(false);
   const query = useQuery({
