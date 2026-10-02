@@ -433,7 +433,7 @@ func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit,
 		}
 		mode = "automatic"
 		reviewer = "automatic_policy"
-		decisionReason = "Full Access automatically authorized this file edit"
+		decisionReason = "Current operation policy automatically authorized this exact file edit"
 	}
 	toolName := fileedit.ApprovalToolName(edit)
 	proposal := approval.Proposal{

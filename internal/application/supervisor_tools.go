@@ -834,20 +834,9 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 	if err != nil {
 		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
 	}
-	permissionGeneration := uint64(0)
-	permissionRuntimeEpoch := ""
-	permissionSnapshotID := ""
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		s.executionCapabilities.FullAccessRequiresRuntimeGrant {
-		var live bool
-		permissionGeneration, live = s.executionCapabilities.FullAccessGeneration(permission)
-		if s.executionCapabilities.RuntimeAuthority != nil {
-			permissionRuntimeEpoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-		}
-		if !live || permissionRuntimeEpoch == "" {
-			return toolgateway.AgentCodeCapabilitySnapshot{}, nil, nil
-		}
-		permissionSnapshotID = permission.ID
+	permissionSnapshotID, permissionGeneration, permissionRuntimeEpoch, runFence, live := bindAgentCodeRuntime(s.executionCapabilities, permission)
+	if !live {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, nil
 	}
 	scope := toolgateway.AgentCodeCapabilityContext{RunID: turn.Run.ID,
 		MissionID: turn.Mission.ID, RootAgentID: turn.Agent.ID,
@@ -857,6 +846,7 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 		PermissionSnapshotID:   permissionSnapshotID,
 		PermissionGeneration:   permissionGeneration,
 		PermissionRuntimeEpoch: permissionRuntimeEpoch,
+		RunAuthorizationFence:  runFence,
 		ModeRevision:           turn.Mode.Revision, PermissionRevision: permission.Revision}
 	snapshot := toolgateway.AgentCodeCapabilities(scope)
 	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, turn.Run.SessionID)
@@ -1106,16 +1096,10 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
 		live := true
-		if permissionErr == nil && permission.Mode == domain.RunExecutionPermissionFullAccess &&
-			s.executionCapabilities.FullAccessRequiresRuntimeGrant {
-			generation, active := s.executionCapabilities.FullAccessGeneration(permission)
-			epoch := ""
-			if s.executionCapabilities.RuntimeAuthority != nil {
-				epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-			}
-			live = active && epoch != "" && authority.PermissionSnapshotID == permission.ID &&
-				authority.PermissionGeneration == generation &&
-				authority.PermissionRuntimeEpoch == epoch
+		if permissionErr == nil && (permission.Mode.IsApprovalMode() ||
+			(permission.Mode == domain.RunExecutionPermissionFullAccess && s.executionCapabilities.FullAccessRequiresRuntimeGrant)) {
+			live = agentCodeRuntimeCurrent(s.executionCapabilities, permission, authority.PermissionSnapshotID,
+				authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
 		}
 		if authorityErr != nil || authority.RunID != call.RunID ||
 			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
@@ -1136,6 +1120,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
 		toolCall.PermissionGeneration = authority.PermissionGeneration
 		toolCall.PermissionRuntimeEpoch = authority.PermissionRuntimeEpoch
+		toolCall.RunAuthorizationFence = authority.RunAuthorizationFence
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.CapabilityGeneration

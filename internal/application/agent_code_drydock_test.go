@@ -14,9 +14,25 @@ import (
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/tools"
 	"cyberagent-workbench/internal/workspace"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
+
+// Preserve explicit per-file review in this owned-directory isolation scenario.
+// Routine new-mode automatic writes have a separate real-filesystem matrix.
+type reviewedDrydockFilePolicy struct{ policy.DefaultChecker }
+
+func (reviewedDrydockFilePolicy) CheckText(context, text string) policy.Decision {
+	return policy.NewDefaultChecker().CheckText(context, text)
+}
+func (reviewedDrydockFilePolicy) CheckToolCall(call tools.Call) policy.Decision {
+	d := policy.NewDefaultChecker().CheckToolCall(call)
+	if call.Name == "replace_file" || call.Name == "create_file" || call.Name == "move_file" || call.Name == "delete_file" {
+		d.NeedsApproval = true
+	}
+	return d
+}
 
 func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 	fixture := newDrydockApplicationFixture(t, "agent code owned files")
@@ -29,9 +45,9 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 	owned := mustCreateDrydock(t, fixture)
 	if _, err := NewRunExecutionPermissionService(fixture.state,
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}).Change(t.Context(),
-		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: "workspace_access",
+		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: "auto",
 			OperationKey: "owned-agent-code-permission", RequestedBy: "operator", Reason: "exercise reviewed owned edit",
-			ConfirmWorkspaceAccess: true}); err != nil {
+			ConfirmWorkspaceAccess: false}); err != nil {
 		t.Fatal(err)
 	}
 	writeDrydockTestFile(t, filepath.Join(fixture.sourceRoot, "tracked.txt"), "user source\r\n")
@@ -56,7 +72,7 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("root found=%t err=%v", found, err)
 	}
-	supervisor := NewRunSupervisor(fixture.state, nil, policy.NewDefaultChecker())
+	supervisor := NewRunSupervisor(fixture.state, nil, reviewedDrydockFilePolicy{})
 	supervisor.WithDrydock(fixture.service)
 	_, raw, err := supervisor.supervisorAgentCodeCapabilities(t.Context(), domain.SupervisorTurn{
 		Run: run, Mission: mission, Agent: root, Mode: mode}, permission)
@@ -86,6 +102,8 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 		RootFingerprint: authority.RootFingerprint, Surface: authority.Surface, Phase: authority.Phase,
 		Role: authority.Role, Profile: authority.Profile, PermissionMode: authority.PermissionMode,
 		ModeRevision: authority.ModeRevision, PermissionRevision: authority.PermissionRevision,
+		PermissionSnapshotID: authority.PermissionSnapshotID, PermissionGeneration: authority.PermissionGeneration,
+		PermissionRuntimeEpoch: authority.PermissionRuntimeEpoch, RunAuthorizationFence: authority.RunAuthorizationFence,
 		CapabilityGeneration: authority.CapabilityGeneration, LeaseID: lease.Lease.LeaseID,
 		LeaseGeneration: lease.Lease.Generation, RequestedBy: "run_supervisor"}
 	read, err := supervisor.tools.Invoke(t.Context(), call)
@@ -136,7 +154,9 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: root.ID, WorkspaceID: mission.WorkspaceID,
 		RootFingerprint: stale.RootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: root.Role, Profile: mode.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision}).Generation
+		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
+		PermissionSnapshotID: authority.PermissionSnapshotID, PermissionGeneration: authority.PermissionGeneration,
+		PermissionRuntimeEpoch: authority.PermissionRuntimeEpoch, RunAuthorizationFence: authority.RunAuthorizationFence}).Generation
 	stale.OperationKey = "owned-agent-code-old-authority-0001"
 	if _, err := supervisor.tools.Invoke(t.Context(), stale); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeFailedPrecondition {
 		t.Fatalf("old source authority was reinterpreted: %v", err)
@@ -235,9 +255,9 @@ func TestAgentCodeOwnedDrydockRejectsApprovalHostProposal(t *testing.T) {
 	mustCreateDrydock(t, fixture)
 	if _, err := NewRunExecutionPermissionService(fixture.state,
 		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(t.Context(),
-		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: "approval",
+		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: "auto",
 			OperationKey: "owned-host-approval-0001", RequestedBy: "operator",
-			Reason: "explicit approval mode", ConfirmUserApproval: true}); err != nil {
+			Reason: "explicit current approval mode"}); err != nil {
 		t.Fatal(err)
 	}
 	run, err := NewRunService(fixture.state).Start(t.Context(), fixture.run.ID)
@@ -267,7 +287,7 @@ func TestAgentCodeOwnedDrydockRejectsApprovalHostProposal(t *testing.T) {
 		t.Fatalf("owned approval mode could propose a source command: %v", err)
 	}
 	for _, definition := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionApproval, false, false,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionAuto, false, false,
 		supervisorToolOptions{OwnedFileWorkspace: true}) {
 		if definition.Name == string(toolgateway.HostCommandProposeTool) {
 			t.Fatal("unsupported source host command was advertised for an owned Run")

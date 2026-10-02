@@ -34,6 +34,15 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 	if err != nil {
 		return nil, apperror.Normalize(err)
 	}
+	var runtimeFence uint64
+	runtimeEpoch := ""
+	if runtime := s.executionCapabilities.RuntimeAuthority; runtime != nil {
+		runtimeEpoch = runtime.RuntimeEpoch()
+		runtimeFence, err = runtime.IssueRunAuthorizationFence(prepared.RunID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	authorizer := executionauth.NewPolicyAuthorizer(func(checkCtx context.Context,
 		actualSubject executionauth.SubjectRef, _ toolcontract.Operation, approvalRef string,
 	) (executionauth.OperationAuthority, error) {
@@ -45,11 +54,15 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 		if err != nil {
 			return executionauth.OperationAuthority{}, apperror.Normalize(err)
 		}
+		expectedApprovalRef := current.approval.ID
+		if current.approval.Mode == "automatic" {
+			expectedApprovalRef = ""
+		}
 		if actualSubject != subject || current.run.Status != domain.RunRunning ||
 			current.session.Status != session.StatusActive ||
 			current.edit.Status != fileedit.StatusApproved ||
 			current.workspace.RootPath != binding.workspace.RootPath || currentRoot != rootFingerprint ||
-			current.approval.ID != approvalRef || current.approval.RequestFingerprint !=
+			current.approval.ID != binding.approval.ID || approvalRef != expectedApprovalRef || current.approval.RequestFingerprint !=
 			fileedit.ApprovalFingerprint(current.edit.SessionID, current.edit.WorkspaceID, current.edit) {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied,
 				"FileEdit execution authority changed before filesystem mutation")
@@ -69,6 +82,24 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 		if err := s.checkAutomaticFileEditAuthorization(checkCtx, current, request); err != nil {
 			return executionauth.OperationAuthority{}, err
 		}
+		permissions, ok := s.store.(interface {
+			GetRunExecutionPermission(context.Context, string) (domain.RunExecutionPermissionSnapshot, error)
+		})
+		if !ok {
+			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeFailedPrecondition, "file permission reader unavailable")
+		}
+		permission, err := permissions.GetRunExecutionPermission(checkCtx, prepared.RunID)
+		if err != nil {
+			return executionauth.OperationAuthority{}, err
+		}
+		projection, err := domain.ExecutionPermissionApproval(permission)
+		if err != nil {
+			return executionauth.OperationAuthority{}, err
+		}
+		generation, live := s.executionCapabilities.FullAccessGeneration(permission)
+		if !live || (runtimeEpoch != "" && !mcpRuntimeAuthorityCurrent(s.executionCapabilities, prepared.RunID, runtimeFence, runtimeEpoch)) {
+			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "file runtime authority was revoked")
+		}
 		leases, ok := s.store.(RunExecutionLeaseStore)
 		if !ok {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -83,23 +114,27 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied,
 				"FileEdit execution lease changed before filesystem mutation")
 		}
-		// Legacy reviewed proposals stay per-operation approvals. This does not
-		// map the old five modes onto new runtime capabilities or activate full.
-		// Automatic legacy rows still require their exact original live grant.
 		raw, err := json.Marshal(struct {
-			Root     string
-			Request  ApplyFileEditRequest
-			Approval approval.Record
-		}{currentRoot, request, current.approval})
+			Root         string
+			Request      ApplyFileEditRequest
+			Approval     approval.Record
+			Permission   domain.RunExecutionPermissionSnapshot
+			Generation   uint64
+			RuntimeEpoch string
+			RuntimeFence uint64
+		}{currentRoot, request, current.approval, permission, generation, runtimeEpoch, runtimeFence})
 		if err != nil {
 			return executionauth.OperationAuthority{}, err
 		}
-		return executionauth.OperationAuthority{
-			Mode: domain.ExecutionApprovalAsk, BindingFingerprint: fileedit.HashText(string(raw)),
-			RuntimeAvailable: true, EffectsVerified: true,
-			Approval: &executionauth.BoundApproval{Ref: current.approval.ID, Subject: subject,
-				OperationFingerprint: finalFingerprint, Status: string(current.approval.Status)},
-		}, nil
+		value := executionauth.OperationAuthority{Mode: projection.Mode, BindingFingerprint: fileedit.HashText(string(raw)),
+			RuntimeAvailable: true, FullActivated: projection.Mode == domain.ExecutionApprovalFull, EffectsVerified: true}
+		// A persisted automatic decision is provenance, not an operator consent
+		// that could bypass the current common policy on a later attempt.
+		if current.approval.Mode != "automatic" {
+			value.Approval = &executionauth.BoundApproval{Ref: current.approval.ID, Subject: subject,
+				OperationFingerprint: finalFingerprint, Status: string(current.approval.Status)}
+		}
+		return value, nil
 	})
 	var decision executionauth.Decision
 	started := false
@@ -123,7 +158,11 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 			started = true
 			// Defer activation until an actual mutation is needed. A manager
 			// recovering already-published bytes must remain a read-only replay.
-			decision, err = authorizer.Authorize(ctx, subject, operation, binding.approval.ID)
+			approvalRef := binding.approval.ID
+			if binding.approval.Mode == "automatic" {
+				approvalRef = ""
+			}
+			decision, err = authorizer.Authorize(ctx, subject, operation, approvalRef)
 			if err != nil {
 				return err
 			}
@@ -132,7 +171,11 @@ func (s *FileEditApplyService) fileEditDispatchCheck(ctx context.Context,
 			}
 			return decision.BeforeDispatch(ctx, actualFingerprint)
 		}
-		return authorizer.Recheck(ctx, subject, actual, binding.approval.ID, decision.AuthorizationRef)
+		approvalRef := binding.approval.ID
+		if binding.approval.Mode == "automatic" {
+			approvalRef = ""
+		}
+		return authorizer.Recheck(ctx, subject, actual, approvalRef, decision.AuthorizationRef)
 	}, nil
 }
 

@@ -24,6 +24,61 @@ func standardCodeThreadTestRuntime() CapabilityReadinessRuntime {
 			CommandRuntimeLocalSandboxBackend, "preset-thread-test-adapter", "preset-thread-test-generation")}}
 }
 
+func TestStandardCodePresetPreservesApprovalPreferenceAndNetworkIsolation(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			fixture := newDrydockApplicationFixture(t, "preset approval preference "+string(mode))
+			runtime := standardCodeThreadTestRuntime()
+			runtime.ExecutionPermissionCapabilities.DangerFullAccessEnabled = true
+			runtime.ExecutionPermissionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+			thread, err := fixture.state.GetThreadByRun(t.Context(), fixture.run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode != domain.RunExecutionPermissionAsk {
+				_, err := NewThreadExecutionPermissionService(fixture.state, runtime.ExecutionPermissionCapabilities).Change(t.Context(),
+					ChangeThreadExecutionPermissionRequest{ThreadID: thread.ID, Mode: string(mode),
+						ConfirmFull: mode == domain.RunExecutionPermissionFull, OperationKey: "preset-retain-mode-before-configuration",
+						RequestedBy: "operator", Reason: "select approval preference independently of isolation"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := fixture.state.GetRunExecutionPermission(t.Context(), fixture.run.ID)
+			if err != nil || before.Mode != mode {
+				t.Fatalf("before=%+v err=%v", before, err)
+			}
+			preference, err := fixture.state.GetThreadExecutionPermission(t.Context(), thread.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewStandardCodePresetService(fixture.state, fixture.service, runtime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := ConfigureStandardCodeRequest{Version: domain.StandardCodePresetProtocolVersion,
+				RunID: fixture.run.ID, Action: "configure", BackendIntent: "local",
+				OperationKey: "preset-retain-mode-configure", RequestedBy: "operator"}
+			preview, err := service.Configure(t.Context(), request)
+			if err != nil || !preview.TrustRequired {
+				t.Fatalf("preview=%+v err=%v", preview, err)
+			}
+			request.ConfirmWorkspaceTrust, request.ExpectedTrustDigest = true, preview.TrustDigest
+			configured, err := service.Configure(t.Context(), request)
+			if err != nil || configured.Status != StandardCodeResultConfigured || configured.Permission == nil ||
+				!reflect.DeepEqual(*configured.Permission, before) || configured.Mode == nil ||
+				configured.Mode.Scope.NetworkMode != "disabled" || len(configured.Mode.Scope.AllowedTargets) != 0 ||
+				configured.Network != "disabled" || configured.Credentials != "none" {
+				t.Fatalf("preset coupled approval preference to isolation: %+v err=%v", configured, err)
+			}
+			after, err := fixture.state.GetThreadExecutionPermission(t.Context(), thread.ID)
+			if err != nil || !reflect.DeepEqual(after, preference) {
+				t.Fatalf("preset overwrote Thread preference: %+v err=%v", after, err)
+			}
+		})
+	}
+}
+
 func TestStandardCodePresetKeepsConfiguredThreadRunForNextSubmission(t *testing.T) {
 	for _, status := range []domain.RunStatus{domain.RunCreated, domain.RunPaused, domain.RunRunning} {
 		t.Run(string(status), func(t *testing.T) {
@@ -65,7 +120,7 @@ func TestStandardCodePresetKeepsConfiguredThreadRunForNextSubmission(t *testing.
 				t.Fatal(err)
 			}
 			preference, err := fixture.state.GetThreadExecutionPermission(t.Context(), thread.ID)
-			if err != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess || preference.Revision != 2 ||
+			if err != nil || preference.Mode != domain.RunExecutionPermissionAsk || preference.Revision != 1 ||
 				preference.ProcessEnabled || preference.ExecutionAuthorized || preference.CapabilityGrant {
 				t.Fatalf("Thread preference=%+v err=%v", preference, err)
 			}
@@ -92,7 +147,7 @@ func TestStandardCodePresetKeepsConfiguredThreadRunForNextSubmission(t *testing.
 			}
 			changed, err := NewThreadExecutionPermissionService(fixture.state, runtime.ExecutionPermissionCapabilities).
 				Change(t.Context(), ChangeThreadExecutionPermissionRequest{ThreadID: thread.ID,
-					Mode: "conservative", OperationKey: "preset-thread-later-setting-0001",
+					Mode: "auto", OperationKey: "preset-thread-later-setting-0001",
 					RequestedBy: "operator", Reason: "explicit later preference"})
 			if err != nil {
 				t.Fatal(err)
@@ -209,7 +264,7 @@ func TestStandardCodePresetRejectsPermissionPreparedEarlierButCommittedAfterInte
 			}
 			changed, err := NewThreadExecutionPermissionService(permissionStore, runtime.ExecutionPermissionCapabilities).
 				Change(t.Context(), ChangeThreadExecutionPermissionRequest{ThreadID: thread.ID,
-					Mode: "approval", ConfirmUserApproval: true, OperationKey: "permission-prepared-before-preset-0001",
+					Mode: "auto", OperationKey: "permission-prepared-before-preset-0001",
 					RequestedBy: "operator", Reason: "later commit must remain authoritative"})
 			if err != nil {
 				t.Fatal(err)
