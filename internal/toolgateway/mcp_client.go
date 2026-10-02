@@ -87,6 +87,8 @@ type MCPExecutionScope struct {
 	RunID                  string
 	MissionID              string
 	WorkspaceID            string
+	AgentID                string
+	AgentAttemptID         string
 	Surface                domain.ExecutionSurface
 	Phase                  domain.ExecutionPhase
 	Role                   domain.AgentRole
@@ -162,6 +164,7 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 	scope := MCPExecutionScope{InvocationID: call.InvocationID, RunID: call.RunID,
 		MissionID:   call.MissionID,
 		WorkspaceID: call.WorkspaceID, Surface: call.Surface, Phase: call.Phase, Role: call.Role,
+		AgentID: call.AgentID, AgentAttemptID: call.AgentAttemptID,
 		PermissionMode:        call.PermissionMode,
 		PermissionSnapshotID:  call.PermissionSnapshotID,
 		PermissionRevision:    call.PermissionRevision,

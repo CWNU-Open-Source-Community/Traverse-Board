@@ -29,6 +29,13 @@ func (s *SQLiteStore) CreateMCPClientServer(ctx context.Context,
 	if err != nil {
 		return mcp.ServerRecord{}, false, err
 	}
+	// This denormalized column is a locator, not an execution input. Native
+	// registrations resolve the acquired object referenced by descriptor_json;
+	// never copy its original command, endpoint, env or headers into this row.
+	target := record.Descriptor.Target
+	if record.Descriptor.NativeSource != nil {
+		target = "plugin-object:" + record.DescriptorFingerprint
+	}
 	capabilityJSON := []byte(`{}`)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -72,7 +79,7 @@ func (s *SQLiteStore) CreateMCPClientServer(ctx context.Context,
 		reviewed_by, reviewed_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, '', '', NULL, ?, '', NULL, ?, ?)`,
 		record.Descriptor.ID, record.ProtocolVersion, record.Descriptor.Name,
-		record.Descriptor.Transport, record.Descriptor.Target, record.Descriptor.Scope,
+		record.Descriptor.Transport, target, record.Descriptor.Scope,
 		record.Descriptor.RunID, record.Descriptor.WorkspaceID, string(descriptorJSON),
 		record.DescriptorFingerprint, record.State, string(capabilityJSON), record.Health,
 		record.Generation, ts(record.CreatedAt), ts(record.UpdatedAt))

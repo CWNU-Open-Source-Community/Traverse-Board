@@ -8,6 +8,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/mcp"
+	"cyberagent-workbench/internal/toolcontract"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -59,24 +60,29 @@ func (e *MCPClientToolExecutor) ExecuteMCP(ctx context.Context,
 	if err := e.recheckExecutionScope(ctx, scope); err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}
+	subject, authorizer, recheck, err := e.operationAuthorizer(ctx, scope, payload.ServerID)
+	if err != nil {
+		return toolgateway.MCPExecutionResult{}, err
+	}
 	result, err := e.client.Invoke(ctx, mcp.InvokeRequest{
 		RunID: scope.RunID, WorkspaceID: scope.WorkspaceID,
 		ServerID: payload.ServerID, ToolName: payload.ToolName,
 		CapabilityFingerprint: payload.CapabilityFingerprint,
 		Arguments:             payload.Arguments,
+		OperationID:           scope.InvocationID, Subject: subject, Authorizer: authorizer,
 	})
 	if err != nil {
 		return toolgateway.MCPExecutionResult{}, err
 	}
 	// Revocation during transport cannot undo a remote side effect. Reject its
 	// result under stale authority without retrying the invocation.
-	if err := e.recheckExecutionScope(ctx, scope); err != nil {
-		return toolgateway.MCPExecutionResult{}, apperror.Wrap(apperror.CodeOf(apperror.Normalize(err)),
-			"MCP call was dispatched but its authority changed before the result was accepted; do not automatically repeat the action", err)
+	if err := recheck(ctx); err != nil {
+		return toolgateway.MCPExecutionResult{}, mcp.NewInvocationError(toolcontract.Receipt{OperationID: scope.InvocationID,
+			State: toolcontract.ReceiptResultReceived, ErrorCode: "authority_changed"}, err)
 	}
 	return toolgateway.MCPExecutionResult{
 		Content: result.Content, IsError: result.IsError, Truncated: result.Truncated,
-		Metadata: map[string]string{"trust": "untrusted", "source": "mcp_client"},
+		Metadata: map[string]string{"trust": "untrusted", "source": "mcp_client", "execution_receipt": "result_received", "operation_id": scope.InvocationID},
 	}, nil
 }
 
@@ -96,26 +102,33 @@ func mcpRuntimeAuthorityCurrent(capabilities domain.ExecutionPermissionRuntimeCa
 func (e *MCPClientToolExecutor) recheckExecutionScope(ctx context.Context,
 	scope toolgateway.MCPExecutionScope,
 ) error {
+	_, err := e.currentExecutionScope(ctx, scope)
+	return err
+}
+
+func (e *MCPClientToolExecutor) currentExecutionScope(ctx context.Context,
+	scope toolgateway.MCPExecutionScope,
+) (domain.RunExecutionPermissionSnapshot, error) {
 	run, err := e.store.GetRun(ctx, scope.RunID)
 	if err != nil {
-		return apperror.Normalize(err)
+		return domain.RunExecutionPermissionSnapshot{}, apperror.Normalize(err)
 	}
 	mission, err := e.store.GetMission(ctx, scope.MissionID)
 	if err != nil {
-		return apperror.Normalize(err)
+		return domain.RunExecutionPermissionSnapshot{}, apperror.Normalize(err)
 	}
 	permission, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
 	if err != nil {
-		return apperror.Normalize(err)
+		return domain.RunExecutionPermissionSnapshot{}, apperror.Normalize(err)
 	}
 	lease, found, err := e.store.GetRunExecutionLease(ctx, scope.RunID)
 	if err != nil {
-		return apperror.Normalize(err)
+		return domain.RunExecutionPermissionSnapshot{}, apperror.Normalize(err)
 	}
 	generation, live := e.capabilities.FullAccessGeneration(permission)
 	fenceLive := mcpRuntimeAuthorityCurrent(e.capabilities, scope.RunID,
 		scope.RunAuthorizationFence, scope.PermissionRuntimeEpoch)
-	if run.ID != scope.RunID || run.MissionID != scope.MissionID || run.Terminal() ||
+	if run.ID != scope.RunID || run.MissionID != scope.MissionID || run.Status != domain.RunRunning || run.Terminal() ||
 		mission.ID != scope.MissionID || mission.WorkspaceID != scope.WorkspaceID ||
 		permission.ID != scope.PermissionSnapshotID ||
 		permission.Revision != scope.PermissionRevision ||
@@ -123,9 +136,9 @@ func (e *MCPClientToolExecutor) recheckExecutionScope(ctx context.Context,
 		generation != scope.PermissionGeneration ||
 		!found || lease.LeaseID != scope.LeaseID ||
 		lease.Generation != scope.LeaseGeneration || !lease.ActiveAt(time.Now().UTC()) {
-		return apperror.New(
+		return domain.RunExecutionPermissionSnapshot{}, apperror.New(
 			apperror.CodeConflict,
 			"MCP execution permission, activation generation, or Run lease is stale")
 	}
-	return nil
+	return permission, nil
 }

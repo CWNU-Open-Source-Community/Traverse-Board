@@ -5347,7 +5347,7 @@ export interface components {
             selectable: boolean;
             selected: boolean;
             /** @enum {string} */
-            value: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
+            value: "ask" | "auto" | "full" | "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
         };
         Change: {
             binary: boolean;
@@ -6504,6 +6504,15 @@ export interface components {
             server_version?: string;
             tools: string[];
         };
+        ExtensionMCPNativeSourceView: {
+            component_id: string;
+            /** Format: int64 */
+            installation_generation: number;
+            installation_id: string;
+            package_id: string;
+            revision: string;
+            surface: string;
+        };
         ExtensionMCPReviewRequestView: {
             action: string;
             expected_capability_fingerprint?: string;
@@ -6523,6 +6532,7 @@ export interface components {
             health_message?: string;
             id: string;
             name: string;
+            native_source?: components["schemas"]["ExtensionMCPNativeSourceView"];
             protocol_version: string;
             reviewed_at?: string;
             reviewed_by?: string;
@@ -9758,12 +9768,9 @@ export interface components {
             status: "active" | "released";
         };
         RunExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         RunExecutionPermissionControlView: {
@@ -9773,30 +9780,35 @@ export interface components {
         RunExecutionPermissionView: {
             agent_terminal_input: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "run_execution_permission.v1";
+            protocol_version: "run_execution_permission.v1" | "run_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -11367,12 +11379,9 @@ export interface components {
             type: string;
         };
         ThreadExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         ThreadExecutionPermissionControlView: {
@@ -11380,7 +11389,7 @@ export interface components {
             current_run_effect?: "applied" | "paused_and_applied" | "deferred" | "no_active_run";
             current_run_id?: string;
             /** @enum {string} */
-            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
             current_run_synchronized: boolean;
             execution_permission: components["schemas"]["ThreadExecutionPermissionView"];
             replayed: boolean;
@@ -11390,30 +11399,35 @@ export interface components {
             applies_to_current_run: boolean;
             applies_to_future_successor_runs: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "thread_execution_permission.v1";
+            protocol_version: "thread_execution_permission.v1" | "thread_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */

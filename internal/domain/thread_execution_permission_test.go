@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestThreadExecutionPermissionIsConservativeAndNonAuthorizingByDefault(t *testing.T) {
+func TestThreadExecutionPermissionIsAskAndNonAuthorizingByDefault(t *testing.T) {
 	at := time.Date(2026, 8, 28, 1, 2, 3, 0, time.UTC)
 	threadRecord := Thread{ID: "thread-permission-domain", MissionID: "mission-domain",
 		ProtocolVersion: ThreadProtocolVersion, Title: "permission domain",
@@ -16,19 +16,19 @@ func TestThreadExecutionPermissionIsConservativeAndNonAuthorizingByDefault(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if initial.Mode != RunExecutionPermissionConservative || initial.Revision != 1 ||
+	if initial.Mode != RunExecutionPermissionAsk || initial.Revision != 1 ||
 		initial.OperatorConfirmed || initial.ProcessEnabled ||
 		initial.ExecutionAuthorized || initial.CapabilityGrant {
 		t.Fatalf("initial Thread permission widened authority: %+v", initial)
 	}
 	next, err := initial.Next("thread-permission-snapshot-2",
-		RunExecutionPermissionWorkspaceAccess, true, "operator",
-		"select bounded Workspace Access", at.Add(time.Second))
+		RunExecutionPermissionAuto, false, "operator",
+		"select per-operation auto approval", at.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Mode != RunExecutionPermissionWorkspaceAccess || next.Revision != 2 ||
-		!next.OperatorConfirmed || next.ProcessEnabled || next.ExecutionAuthorized ||
+	if next.Mode != RunExecutionPermissionAuto || next.Revision != 2 ||
+		next.OperatorConfirmed || next.ProcessEnabled || next.ExecutionAuthorized ||
 		next.CapabilityGrant {
 		t.Fatalf("next Thread permission widened authority: %+v", next)
 	}

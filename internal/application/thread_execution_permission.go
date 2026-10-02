@@ -40,6 +40,7 @@ type ChangeThreadExecutionPermissionRequest struct {
 	OperationKey            string
 	RequestedBy             string
 	Reason                  string
+	ConfirmFull             bool
 	ConfirmWorkspaceAccess  bool
 	ConfirmUserApproval     bool
 	ConfirmDangerFullAccess bool
@@ -191,8 +192,7 @@ func (s *ThreadExecutionPermissionService) Change(ctx context.Context,
 		// non-revoking change is fenced only after the Store confirms that it
 		// actually applied to the current Run; a deferred preference must not
 		// disturb an in-flight Run.
-		if current.Mode == domain.RunExecutionPermissionFullAccess &&
-			target != domain.RunExecutionPermissionFullAccess {
+		if current.Mode.IsFullPreference() && !target.IsFullPreference() {
 			s.capabilities.RuntimeAuthority.RevokeThread(normalized.ThreadID)
 		}
 		if threadRecord.ActiveRunID != "" {
@@ -238,7 +238,7 @@ func (s *ThreadExecutionPermissionService) Change(ctx context.Context,
 		// preference. The Store binds that operation to the existing immutable
 		// Run snapshot; do not revoke live child fences when no Run permission
 		// generation actually changed.
-		if target != domain.RunExecutionPermissionFullAccess {
+		if !target.IsFullPreference() {
 			s.capabilities.RuntimeAuthority.RevokeThread(normalized.ThreadID)
 		}
 		if result.CurrentRunID != "" {
@@ -256,27 +256,22 @@ func threadPermissionRequiresImmediateRuntimeRevocation(
 	currentRun *domain.RunExecutionPermissionSnapshot,
 	target domain.RunExecutionPermissionMode,
 ) bool {
-	if current.Mode == domain.RunExecutionPermissionFullAccess &&
-		!target.IncludesFullAccess() {
+	if domain.PermissionTransitionRevokes(current.Mode, target) {
 		return true
 	}
 	if currentRun == nil {
 		// A same-mode Full re-confirmation with no active Run rotates the
 		// process-local Thread grant immediately.
-		return current.Mode == domain.RunExecutionPermissionFullAccess &&
-			target == domain.RunExecutionPermissionFullAccess
+		return current.Mode.IsFullPreference() && target.IsFullPreference()
 	}
-	return currentRun.Mode == domain.RunExecutionPermissionDebug &&
-		target != domain.RunExecutionPermissionDebug ||
-		currentRun.Mode == domain.RunExecutionPermissionFullAccess &&
-			!target.IncludesFullAccess()
+	return domain.PermissionTransitionRevokes(currentRun.Mode, target)
 }
 
 func (s *ThreadExecutionPermissionService) activateFullAccess(ctx context.Context,
 	result ChangeThreadExecutionPermissionResult,
 ) error {
-	if result.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
-		!s.capabilities.FullAccessRequiresRuntimeGrant {
+	if !result.Permission.Mode.IsFullPreference() ||
+		(result.Permission.Mode != domain.RunExecutionPermissionFull && !s.capabilities.FullAccessRequiresRuntimeGrant) {
 		return nil
 	}
 	if s.capabilities.RuntimeAuthority == nil {
@@ -372,6 +367,7 @@ func normalizeChangeThreadExecutionPermissionRequest(
 			RunID: request.ThreadID, Mode: request.Mode,
 			OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
 			Reason:                  request.Reason,
+			ConfirmFull:             request.ConfirmFull,
 			ConfirmWorkspaceAccess:  request.ConfirmWorkspaceAccess,
 			ConfirmUserApproval:     request.ConfirmUserApproval,
 			ConfirmDangerFullAccess: request.ConfirmDangerFullAccess,

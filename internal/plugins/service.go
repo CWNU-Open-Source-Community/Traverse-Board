@@ -347,6 +347,9 @@ func (s *Service) StageMCPServers(ctx context.Context, installationID string,
 		return nil, apperror.New(apperror.CodePolicyDenied,
 			"plugin MCP capability is not enabled")
 	}
+	if installation.Snapshot != nil {
+		return s.stagePortableMCPServers(ctx, installation, scope, runID, workspaceID, stager)
+	}
 	values := make([]mcp.ServerRecord, 0, len(installation.Manifest.MCPServers))
 	for _, contribution := range installation.Manifest.MCPServers {
 		descriptor := mcp.ServerDescriptor{ProtocolVersion: mcp.ClientProtocolVersion,
