@@ -958,9 +958,12 @@ func (s *RunSupervisor) stepSegmentWithLeaseMode(ctx context.Context, lease doma
 	if fileEffects != "" {
 		messages = append(messages, toolBoundaryEvidenceMessage(turn.Run.SessionID, turn.Checkpoint.AttemptID, fileEffects))
 	}
-	builtinSkills, err := s.builtinSkillCatalog(ctx, turn)
+	builtinSkills, skillCatalogDiagnostic, err := s.builtinSkillCatalog(ctx, turn)
 	if err != nil {
 		return result, s.recordFailure(ctx, &result, err, 0)
+	}
+	if skillCatalogDiagnostic != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: skillCatalogDiagnostic})
 	}
 	skillCandidateEnabled := slices.ContainsFunc(skillContext.Items,
 		func(item skills.ContextItem) bool { return item.Name == runSkillGeneratorName })

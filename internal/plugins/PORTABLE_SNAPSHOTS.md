@@ -66,6 +66,18 @@ an exact re-read when needed. Large native bodies are not silently truncated int
 the old bundled context budget. Historical stdout never restores activation.
 The shared eight-activation bound includes bundled and native reads.
 
+Installed discovery shows at most 32 summaries initially. The previous 33rd-Skill
+error, which aborted the whole Supervisor turn, is retired. A visible count and
+`skill_read` request lead to metadata pages with exact component references.
+Continuation binds the installation inventory revision; an enablement or revision
+change requires restarting discovery. Summaries are not an authorization whitelist:
+content reads always check the current installation, scope and exact pin. Metadata
+pages do not consume activation slots or restore instruction bodies. Descriptions
+are bounded independently from the original content. The existing 1000-installation
+scan bound emits an explicit partial-inventory diagnostic with package-specific
+operator inspection commands; exact current references remain readable. This does
+not add content paging: each instruction or resource read still has the 64 KiB bound.
+
 Validation covers two unchanged upstream fixtures through the real source import,
 catalog and Supervisor tool path, plus retained-object restart/pending-receipt
 recovery, binary/empty resources, source/object drift and disable/revoke/cancel

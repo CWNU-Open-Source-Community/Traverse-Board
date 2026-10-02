@@ -84,6 +84,33 @@ HTTPS 导入要求预先给出 archive SHA-256 并拒绝所有 redirect。Git �
 
 `skills` capability 只审查并启用包内声明式 Skill 资源，不会因 Plugin 启用而自动选择、注入或授权任何 Run；后续消费仍必须经过既有的显式 Skill 安装/选择与模式兼容流程。UI metadata 同样只是惰性展示数据，不加载包内脚本。
 
+## 原生 Skill 目录导入、发现与版本切换
+
+原生 Agent Skill 或标准 Agent Plugins 目录使用原始 `SKILL.md` 和资源文件；导入保留所选目录的不可变快照。确认只启用 Skill 读取，不执行脚本或建立 MCP 连接：
+
+```powershell
+cyberagent skill import-dir .\my-skill --surface code `
+  --operation-key my-skill-v1 --confirm-untrusted-skill
+cyberagent plugin list
+cyberagent plugin show <installation-id>
+```
+
+Supervisor 首次最多展示 32 条已安装 Skill 摘要。更多摘要通过 `skill_read` 的 `{"catalog":true}` 请求及返回的 `next_request` 分页取得，不会因第 33 项让 Run 失败。分页只返回元数据，不占用激活名额；读取正文仍核对当前启用状态、surface、revision 和 generation。单次正文或资源读取仍有 64 KiB 上限，暂不支持内容分页。
+
+同一来源的新 revision 使用新的 operation key 导入。如果旧 revision 仍启用，命令会报告 `another plugin version is enabled`；此时新 revision 已保留为 `approved`，旧 revision 继续启用。通过 `plugin list`、`plugin show` 核对两者的来源和 revision，并从各自最新输出取得 ID、`package_fingerprint` 与 `generation`，然后显式切换：
+
+```powershell
+cyberagent plugin review <old-installation-id> --action disable `
+  --fingerprint <old-package-fingerprint> --generation <old-generation> --by operator
+cyberagent plugin review <new-installation-id> --action enable `
+  --fingerprint <new-package-fingerprint> --generation <new-generation> `
+  --capabilities skills --confirm-untrusted --by operator
+cyberagent plugin show <old-installation-id>
+cyberagent plugin show <new-installation-id>
+```
+
+这两个步骤之间没有启用的 revision；这是显式停用/启用流程，不是原子替换。旧 revision 和对象仍保留可检查。用原 operation key 重试相同来源内容不会恢复已停用权限，也不会增加 generation；内容变化必须使用新的 operation key。
+
 ## Hook 真实边界
 
 当前会触发以下固定事件：
