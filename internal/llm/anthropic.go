@@ -489,6 +489,7 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 		responseModel: func(returned string) string { return p.responseModel(defaultModel, returned) },
 		events:        newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
 	dataLines := make([]string, 0, 1)
+	eventSize := providerSSEEventSize{}
 	stopped := false
 	sendError := func(err error) bool {
 		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
@@ -498,7 +499,9 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 			return true
 		}
 		payload := strings.Join(dataLines, "\n")
+		clear(dataLines)
 		dataLines = dataLines[:0]
+		eventSize = providerSSEEventSize{}
 		if payload == "[DONE]" {
 			if state.pendingToolErr != nil {
 				_ = sendError(state.pendingToolErr)
@@ -535,7 +538,15 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
-			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if !eventSize.append(len(part)) {
+				failure := NewProviderError(OutcomeInvalidResponse, p.name,
+					"stream SSE event exceeds its accumulation limit", nil)
+				failure.Reason = ProviderFailureProtocolIncompatible
+				_ = sendError(failure)
+				return
+			}
+			dataLines = append(dataLines, part)
 		}
 	}
 	if stopped || ctx.Err() != nil {

@@ -742,6 +742,60 @@ type openAIResponsesOutputItem struct {
 	Arguments        string                   `json:"arguments"`
 	EncryptedContent string                   `json:"encrypted_content,omitempty"`
 	Summary          json.RawMessage          `json:"summary,omitempty"`
+	statusRaw        json.RawMessage
+}
+
+func (item *openAIResponsesOutputItem) UnmarshalJSON(raw []byte) error {
+	type wireItem openAIResponsesOutputItem
+	var wire struct {
+		wireItem
+		Status json.RawMessage `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	if len(wire.Status) != 0 {
+		if err := json.Unmarshal(wire.Status, &wire.wireItem.Status); err != nil {
+			return err
+		}
+	}
+	*item = openAIResponsesOutputItem(wire.wireItem)
+	item.statusRaw = append(json.RawMessage(nil), wire.Status...)
+	return nil
+}
+
+// Reasoning status is optional (and nullable) in the official item schema.
+// Keep wire data unchanged and distinguish omission from an explicit empty string.
+func (item openAIResponsesOutputItem) reasoningStatusOmitted() bool {
+	return item.Type == "reasoning" && item.Status == "" &&
+		(len(item.statusRaw) == 0 || bytes.Equal(bytes.TrimSpace(item.statusRaw), []byte("null")))
+}
+
+func (item openAIResponsesOutputItem) completedStatus() bool {
+	return item.Status == "completed" || item.reasoningStatusOmitted()
+}
+
+// A done reasoning item and its terminal snapshot can differ only in whether
+// the optional completed status is present. Compare copies, preserving replay data.
+func responsesCompletedOutputEqual(done, terminal []openAIResponsesOutputItem) bool {
+	if len(done) != len(terminal) {
+		return false
+	}
+	for index, item := range done {
+		snapshot := terminal[index]
+		if item.Type == "reasoning" && snapshot.Type == "reasoning" {
+			if !item.completedStatus() || !snapshot.completedStatus() {
+				return false
+			}
+			item.Status, snapshot.Status = "", ""
+		}
+		left, leftErr := json.Marshal(item)
+		right, rightErr := json.Marshal(snapshot)
+		if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
+			return false
+		}
+	}
+	return true
 }
 
 type openAIResponsesIncompleteDetails struct {
@@ -768,7 +822,42 @@ type openAIResponsesStreamEvent struct {
 	Refusal   string                    `json:"refusal"`
 	Arguments string                    `json:"arguments"`
 	Name      string                    `json:"name"`
-	Error     *openAIError              `json:"error"`
+	Error     json.RawMessage           `json:"error"`
+	Code      json.RawMessage           `json:"code"`
+	Message   json.RawMessage           `json:"message"`
+	Param     json.RawMessage           `json:"param"`
+}
+
+func (e openAIResponsesStreamEvent) genericError() (openAIError, bool) {
+	// Responses generic error events use flat code/message/param fields.
+	// Keep the legacy nested envelope, but never choose between mixed shapes.
+	if len(e.Error) != 0 {
+		if len(e.Code) != 0 || len(e.Message) != 0 || len(e.Param) != 0 {
+			return openAIError{}, false
+		}
+		var wire *openAIError
+		if json.Unmarshal(e.Error, &wire) != nil || wire == nil {
+			return openAIError{}, false
+		}
+		return *wire, true
+	}
+	var message *string
+	if !utf8.Valid(e.Message) || json.Unmarshal(e.Message, &message) != nil ||
+		message == nil {
+		return openAIError{}, false
+	}
+	for _, field := range []json.RawMessage{e.Code, e.Param} {
+		if len(field) == 0 {
+			continue
+		}
+		var value *string
+		if !utf8.Valid(field) || json.Unmarshal(field, &value) != nil {
+			return openAIError{}, false
+		}
+	}
+	// Only the existing code allowlist classifies the error. Discard upstream
+	// message and param so neither can become a diagnostic, cause or event.
+	return openAIError{Code: e.Code}, true
 }
 
 type responsesStreamItem struct {
@@ -910,7 +999,7 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses completion model")
 		}
 		for _, item := range s.items {
-			if !item.completed || item.final == nil || item.final.Status != "completed" {
+			if !item.completed || item.final == nil || !item.final.completedStatus() {
 				return nil, false, openAIProtocolError(s.provider, "completed Responses stream with unfinished items")
 			}
 		}
@@ -941,9 +1030,7 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses items")
 		}
 		if len(event.Response.Output) > 0 {
-			stored, storedErr := json.Marshal(output)
-			terminal, terminalErr := json.Marshal(event.Response.Output)
-			if storedErr != nil || terminalErr != nil || !bytes.Equal(stored, terminal) {
+			if !responsesCompletedOutputEqual(output, event.Response.Output) {
 				return nil, false, openAIProtocolError(s.provider,
 					"Responses terminal output changed after item completion")
 			}
@@ -1005,10 +1092,11 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 		s.terminal = true
 		return chunk, true, nil
 	case "error":
-		if event.Error == nil {
-			return nil, false, openAIProtocolError(s.provider, "Responses stream returned an empty error event")
+		wire, valid := event.genericError()
+		if !valid {
+			return nil, false, openAIProtocolError(s.provider, "Responses stream returned an invalid error event")
 		}
-		return nil, false, openAIWireError(s.provider, *event.Error)
+		return nil, false, openAIWireError(s.provider, wire)
 	default:
 		return nil, false, openAIProtocolError(s.provider, "returned an unsupported Responses stream event")
 	}
@@ -1019,7 +1107,7 @@ func (s *responsesStreamState) startItem(item openAIResponsesOutputItem) (*ChatC
 		validateStreamIdentity(item.ID, "Responses output item") != nil || s.items[item.ID] != nil {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item start")
 	}
-	if item.Status != "in_progress" {
+	if item.Status != "in_progress" && !item.reasoningStatusOmitted() {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item status")
 	}
 	state := &responsesStreamItem{wireType: item.Type}
@@ -1114,7 +1202,7 @@ func (s *responsesStreamState) completeTool(id string, item *responsesStreamItem
 func (s *responsesStreamState) completeItem(wire openAIResponsesOutputItem) (*ChatChunk, bool, error) {
 	item := s.items[wire.ID]
 	if item == nil || item.completed || wire.Type == "" || wire.Type != item.wireType ||
-		(wire.Status != "completed" && wire.Status != "incomplete") {
+		(wire.Status != "completed" && wire.Status != "incomplete" && !wire.reasoningStatusOmitted()) {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item completion")
 	}
 	incomplete := wire.Status == "incomplete"
@@ -1207,7 +1295,7 @@ func (s *responsesStreamState) completedOutput() ([]openAIResponsesOutputItem, e
 	output := make([]openAIResponsesOutputItem, 0, len(s.itemOrder))
 	for _, id := range s.itemOrder {
 		item := s.items[id]
-		if item == nil || !item.completed || item.final == nil || item.final.Status != "completed" {
+		if item == nil || !item.completed || item.final == nil || !item.final.completedStatus() {
 			return nil, errors.New("Responses output item is unfinished")
 		}
 		output = append(output, *item.final)
@@ -1228,7 +1316,7 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 	lines := providerStreamLines{}
 	scanner.Split(lines.split)
 	dataLines := make([]string, 0, 1)
-	dataBytes := 0
+	eventSize := providerSSEEventSize{}
 	finished := false
 	send := func(chunk ChatChunk) bool {
 		select {
@@ -1250,8 +1338,9 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 			return true
 		}
 		payload := strings.Join(dataLines, "\n")
+		clear(dataLines)
 		dataLines = dataLines[:0]
-		dataBytes = 0
+		eventSize = providerSSEEventSize{}
 		if payload == "[DONE]" {
 			if state.terminal {
 				finished = true
@@ -1292,12 +1381,10 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		}
 		if strings.HasPrefix(line, "data:") {
 			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if len(part) > maxOpenAIStreamEventBytes ||
-				dataBytes > maxOpenAIStreamEventBytes-len(part) {
+			if !eventSize.append(len(part)) {
 				_ = sendFailure(openAIProtocolError(p.name, "Responses stream event exceeds its limit"))
 				return
 			}
-			dataBytes += len(part)
 			dataLines = append(dataLines, part)
 		}
 	}
