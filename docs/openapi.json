@@ -34339,6 +34339,9 @@
           "signature_valid": {
             "type": "boolean"
           },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExtensionPortableSnapshotView"
+          },
           "source": {
             "$ref": "#/components/schemas/ExtensionSourceView"
           },
@@ -34439,6 +34442,26 @@
           "expected_package_fingerprint",
           "expected_generation",
           "confirm_untrusted"
+        ],
+        "type": "object"
+      },
+      "ExtensionPortableSnapshotView": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "revision",
+          "surface"
         ],
         "type": "object"
       },

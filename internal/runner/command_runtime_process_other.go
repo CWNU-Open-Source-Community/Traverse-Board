@@ -36,7 +36,7 @@ type unixCommandRuntimeProcess struct {
 	waitErr        error
 }
 
-func (unixCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
+func (unixCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeScope,
 	spec CommandRuntimeResolvedSpec,
 ) (commandRuntimeProcess, error) {
 	if validateCommandRuntimeLaunchDirectory(spec) != nil ||
@@ -70,7 +70,7 @@ func (unixCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
 			return nil, err
 		}
 	}
-	if err := command.Start(); err != nil {
+	cleanup := func() {
 		if stdin != nil {
 			_ = stdin.Close()
 		}
@@ -78,6 +78,18 @@ func (unixCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
 		_ = stdoutChild.Close()
 		_ = stderr.Close()
 		_ = stderrChild.Close()
+	}
+	if err := CheckCommandRuntimeDispatch(ctx, spec); err != nil {
+		cleanup()
+		return nil, err
+	}
+	if validateCommandRuntimeLaunchDirectory(spec) != nil ||
+		commandRuntimeFileDigestMatches(spec.ExecutablePath, spec.ExecutableSHA256) != nil {
+		cleanup()
+		return nil, ErrCommandRuntimeBoundary
+	}
+	if err := command.Start(); err != nil {
+		cleanup()
 		return nil, err
 	}
 	// Cmd.Wait closes descriptors created by StdoutPipe and StderrPipe as soon

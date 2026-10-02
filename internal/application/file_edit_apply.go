@@ -317,15 +317,12 @@ func (s *FileEditApplyService) applyWithLease(ctx context.Context,
 	var applyErr error
 	switch binding.edit.Status {
 	case fileedit.StatusApproved:
-		if binding.approval.Mode == "automatic" {
-			applied, applyErr = s.manager.ApproveWithPreWriteCheck(ctx, binding.edit.ID,
-				binding.workspace.RootPath, func() error {
-					return s.checkAutomaticFileEditAuthorization(ctx, binding, normalized)
-				})
-		} else {
-			applied, applyErr = s.manager.Approve(ctx, binding.edit.ID,
-				binding.workspace.RootPath)
+		preWrite, err := s.fileEditDispatchCheck(ctx, operation, binding, normalized)
+		if err != nil {
+			return ApplyFileEditResult{}, err
 		}
+		applied, applyErr = s.manager.ApproveWithPreWriteCheck(ctx, binding.edit.ID,
+			binding.workspace.RootPath, preWrite)
 	case fileedit.StatusApplied, fileedit.StatusFailed:
 		// Recover the durable result after a process interruption.
 	default:

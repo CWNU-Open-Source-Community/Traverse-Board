@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/toolcontract"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
@@ -318,9 +319,12 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if name == toolgateway.SkillReadTool {
 			input, _, err := toolgateway.NormalizeSkillReadPayload(call.Arguments)
-			available := false
+			// Installed discovery is paged. Its first summary page is not an
+			// authority whitelist: the reader validates every exact enabled pin
+			// against current installation, surface, Run and attempt state.
+			available := len(configured.BuiltinSkills) > 0 && (input.Catalog || input.Portable())
 			for _, item := range configured.BuiltinSkills {
-				if item.SkillReadRequest == input {
+				if item.SkillReadRequest == input.CatalogRequest() {
 					available = true
 					break
 				}
@@ -981,6 +985,8 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 			var result domain.SupervisorToolResult
 			if agentBrowserCall && !fresh {
 				result = agentBrowserStoppedResult(call, "outcome_unknown", "A prior browser dispatch started without a completed receipt. Do not automatically repeat the action.", domain.SupervisorToolFailed)
+			} else if toolgateway.ToolName(call.ToolName) == toolgateway.MCPToolCallTool && !fresh {
+				result = mcpStoppedResult(call, "outcome_unknown", "A prior MCP dispatch started without a completed receipt. Inspect existing call evidence; do not automatically repeat the action.", nil)
 			} else if decision.Allowed {
 				result, err = s.invokeSupervisorTool(ctx, turn, call)
 				if err != nil {
@@ -1290,13 +1296,22 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		return domain.SupervisorToolResult{}, apperror.Normalize(ctx.Err())
 	}
 	if errors.Is(toolContextErr, context.DeadlineExceeded) {
-		err = apperror.New(apperror.CodeDeadlineExceeded,
-			fmt.Sprintf("structured supervisor tool exceeded its %s execution limit", toolTimeout))
+		if _, hasReceipt := mcp.InvocationReceipt(err); !hasReceipt {
+			err = apperror.New(apperror.CodeDeadlineExceeded,
+				fmt.Sprintf("structured supervisor tool exceeded its %s execution limit", toolTimeout))
+		}
 	}
 	completedAt := time.Now().UTC()
 	if err != nil {
 		if errors.Is(err, errWebFetchWaitingApproval) {
 			return domain.SupervisorToolResult{}, errSupervisorWaitingApproval
+		}
+		if receipt, found := mcp.InvocationReceipt(err); name == toolgateway.MCPToolCallTool && found {
+			code := string(apperror.CodeOf(apperror.Normalize(err)))
+			if receipt.State == toolcontract.ReceiptOutcomeUnknown {
+				code = string(receipt.State)
+			}
+			return mcpStoppedResult(call, code, err.Error(), &receipt), nil
 		}
 		code := apperror.CodeOf(apperror.Normalize(err))
 		if !recoverableSupervisorToolError(name, code) {
@@ -1346,6 +1361,8 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		status = domain.SupervisorToolDenied
 		code = string(apperror.CodePolicyDenied)
 		message = boundedSupervisorToolMessage(outcome.Decision.Reason)
+	} else if name == toolgateway.MCPToolCallTool && outcome.Result.Status == toolgateway.StatusFailed {
+		status, code, message = domain.SupervisorToolFailed, "remote_tool_error", "Remote MCP tool reported an error; partial effects may have occurred."
 	}
 	envelope := supervisorToolResultEnvelope{
 		Version: supervisorToolResultVersion, Tool: call.ToolName, Status: string(status),
