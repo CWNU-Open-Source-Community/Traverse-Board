@@ -18,6 +18,9 @@ func TestSupervisorFileEditGuidanceReflectsAdvertisedScopeOnly(t *testing.T) {
 		{"full live", domain.RunExecutionPermissionFullAccess, true, true, true, true},
 		{"full without runtime grant", domain.RunExecutionPermissionFullAccess, false, true, true, false},
 		{"operator review", domain.RunExecutionPermissionApproval, false, true, true, false},
+		{"ask prepared policy", domain.RunExecutionPermissionAsk, false, true, true, true},
+		{"auto prepared policy", domain.RunExecutionPermissionAuto, false, true, true, true},
+		{"full prepared policy", domain.RunExecutionPermissionFull, true, true, true, true},
 		{"read only offered", domain.RunExecutionPermissionFullAccess, true, false, false, false},
 		{"boundary without tools", domain.RunExecutionPermissionFullAccess, true, false, false, false},
 		{"apply filtered", domain.RunExecutionPermissionApproval, false, true, false, false},
@@ -51,7 +54,7 @@ func TestSupervisorFileEditGuidanceReflectsAdvertisedScopeOnly(t *testing.T) {
 				!strings.Contains(text, "proposal itself does not write bytes") || !strings.Contains(text, "establish neither current permission nor revocation") {
 				t.Fatal("guidance confused observation with authority", text)
 			}
-			if strings.Contains(text, "eligible new create/replace proposals can receive recorded automatic authorization") != tc.wantAuto {
+			if strings.Contains(text, "Eligible prepared operations can receive recorded automatic authorization") != tc.wantAuto {
 				t.Fatal("incorrect automatic authorization eligibility", text)
 			}
 			if strings.Contains(text, `"workspace_apply":`) != tc.applyOffered {

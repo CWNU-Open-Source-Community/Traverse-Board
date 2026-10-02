@@ -338,7 +338,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 		}).Generation
 
 	reason, expected := standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, machine.permission, browserCDP, true,
+		profile, interaction, machine.permission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint,
 		deliverGeneration)
 	if reason != "" || !expected {
@@ -346,7 +346,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 			reason, expected)
 	}
 	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, machine.permission, browserCDP, true,
+		profile, interaction, machine.permission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint,
 		strings.Repeat("c", 64))
 	if reason != "workspace_context_drift" || !expected {
@@ -355,7 +355,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 	}
 	machine.turn.Mode.Revision = 3
 	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, machine.permission, browserCDP, true,
+		profile, interaction, machine.permission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint,
 		machine.snapshot.CapabilityGeneration)
 	if reason != "mode_or_context_drift" || expected {
@@ -365,7 +365,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 	machine.turn.Mode.Revision = 2
 	machine.turn.Mode.Surface = domain.ExecutionSurfaceCyber
 	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, machine.permission, browserCDP, true,
+		profile, interaction, machine.permission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint,
 		machine.snapshot.CapabilityGeneration)
 	if reason != "mode_or_context_drift" || expected {
@@ -375,7 +375,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 	machine.turn.Mode.Surface = domain.ExecutionSurfaceCode
 	profile.ID = "profile-drifted"
 	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, machine.permission, browserCDP, true,
+		profile, interaction, machine.permission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint,
 		machine.snapshot.CapabilityGeneration)
 	if reason != "execution_context_drift" || !expected {
@@ -386,7 +386,7 @@ func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
 	driftedPermission := machine.permission
 	driftedPermission.Revision++
 	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
-		profile, interaction, driftedPermission, browserCDP, true,
+		profile, interaction, driftedPermission, browserCDP, true, machine.fileAuthority,
 		machine.snapshot.WorkspaceRootFingerprint, deliverGeneration)
 	if reason != "permission_drift" || !expected {
 		t.Fatalf("permission drift was missed: reason=%q expected=%t", reason, expected)

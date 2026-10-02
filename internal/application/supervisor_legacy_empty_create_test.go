@@ -149,7 +149,7 @@ func TestAgentCodeGatewayRejectsNewEmptyCreateWithoutExplicitBody(t *testing.T) 
 	call := toolgateway.ToolCall{Name: toolgateway.WorkspaceChangeTool, RunID: scope.RunID, MissionID: scope.MissionID,
 		AgentID: scope.RootAgentID, SessionID: scope.SessionID, WorkspaceID: scope.WorkspaceID, RootFingerprint: scope.RootFingerprint,
 		Surface: scope.Surface, Phase: scope.Phase, Role: scope.Role, Profile: scope.Profile, PermissionMode: scope.PermissionMode,
-		PermissionSnapshotID: scope.PermissionSnapshotID, PermissionGeneration: scope.PermissionGeneration, PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		PermissionSnapshotID: scope.PermissionSnapshotID, PermissionGeneration: scope.PermissionGeneration, PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch, RunAuthorizationFence: scope.RunAuthorizationFence,
 		ModeRevision: scope.ModeRevision, PermissionRevision: scope.PermissionRevision, CapabilityGeneration: scope.CapabilityGeneration,
 		LeaseID: scope.LeaseID, LeaseGeneration: scope.LeaseGeneration, RequestedBy: scope.RequestedBy,
 		OperationKey: "new-gateway-empty-create-0001"}

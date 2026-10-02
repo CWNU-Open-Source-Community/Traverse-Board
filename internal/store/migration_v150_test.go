@@ -234,6 +234,10 @@ func TestCleanInstallV150IncludesBrowserAndMCPSupervisorLedger(t *testing.T) {
 // Seed old data under its genuine v149 constraints. The current application
 // writer cannot manufacture a five-mode row; no historical trigger is relaxed.
 func seedV149StructuredToolRun(t *testing.T, state *SQLiteStore) domain.Run {
+	return seedLegacyStructuredToolRun(t, state, "ws-structured", domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+}
+
+func seedLegacyStructuredToolRun(t *testing.T, state *SQLiteStore, workspaceID string, phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode) domain.Run {
 	t.Helper()
 	ctx, now := t.Context(), time.Now().UTC().Truncate(time.Millisecond)
 	tx, err := state.db.BeginTx(ctx, nil)
@@ -242,17 +246,24 @@ func seedV149StructuredToolRun(t *testing.T, state *SQLiteStore) domain.Run {
 	}
 	defer tx.Rollback()
 	for _, query := range []string{
-		`INSERT INTO sessions(id,workspace_id,title,route,status,created_at,updated_at) VALUES('session-v149','ws-structured','v149','code','active',?,?)`,
-		`INSERT INTO missions(id,goal,profile,workspace_id,scope_json,created_at,updated_at) VALUES('mission-v149','preserve v149 Supervisor call','code','ws-structured','{"network_mode":"disabled","workspace_id":"ws-structured"}',?,?)`,
+		`INSERT INTO sessions(id,workspace_id,title,route,status,created_at,updated_at) VALUES('session-v149',?,'v149','code','active',?,?)`,
+		`INSERT INTO missions(id,goal,profile,workspace_id,scope_json,created_at,updated_at) VALUES('mission-v149','preserve historical native operations','code',?,'{"network_mode":"disabled","workspace_id":"' || ? || '"}',?,?)`,
 		`INSERT INTO runs(id,mission_id,session_id,status,config_json,budget_json,created_at,updated_at) VALUES('run-v149','mission-v149','session-v149','created','{"model_route":"mock/default"}','{"max_turns":5,"max_tokens":1000,"max_tool_calls":20}',?,?)`,
 	} {
-		if _, err = tx.ExecContext(ctx, query, ts(now), ts(now)); err != nil {
+		args := []any{ts(now), ts(now)}
+		if strings.HasPrefix(query, "INSERT INTO sessions") {
+			args = append([]any{workspaceID}, args...)
+		}
+		if strings.HasPrefix(query, "INSERT INTO missions") {
+			args = append([]any{workspaceID, workspaceID}, args...)
+		}
+		if _, err = tx.ExecContext(ctx, query, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
 	run := domain.Run{ID: "run-v149", MissionID: "mission-v149", SessionID: "session-v149", Status: domain.RunCreated, Budget: domain.Budget{MaxTurns: 5, MaxTokens: 1000, MaxToolCalls: 20}, CreatedAt: now, UpdatedAt: now}
-	mission := domain.Mission{ID: run.MissionID, Profile: domain.ProfileCode, WorkspaceID: "ws-structured", Scope: domain.Scope{NetworkMode: "disabled", WorkspaceID: "ws-structured"}, CreatedAt: now, UpdatedAt: now}
-	mode, err := domain.NewInitialRunModeSnapshot("mode-v149", run, mission, domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver, "historical-operator", "v149 mode", now)
+	mission := domain.Mission{ID: run.MissionID, Profile: domain.ProfileCode, WorkspaceID: workspaceID, Scope: domain.Scope{NetworkMode: "disabled", WorkspaceID: workspaceID}, CreatedAt: now, UpdatedAt: now}
+	mode, err := domain.NewInitialRunModeSnapshot("mode-v149", run, mission, domain.ExecutionSurfaceCode, phase, "historical-operator", "historical mode", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,13 +288,26 @@ func seedV149StructuredToolRun(t *testing.T, state *SQLiteStore) domain.Run {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := initial.Next("permission-v149", domain.RunExecutionPermissionConservative, false, "historical-operator", "historical conservative default", now)
+	initialID := "permission-v149"
+	if permissionMode != domain.RunExecutionPermissionConservative {
+		initialID += "-initial"
+	}
+	legacy, err := initial.Next(initialID, domain.RunExecutionPermissionConservative, false, "historical-operator", "genuine historical permission tuple", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	legacy.Revision = 1
 	if err = insertRunExecutionPermissionSnapshotTx(ctx, tx, legacy); err != nil {
 		t.Fatal(err)
+	}
+	if permissionMode != domain.RunExecutionPermissionConservative {
+		legacy, err = legacy.Next("permission-v149", permissionMode, true, "historical-operator", "genuine historical permission selection", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = insertRunExecutionPermissionSnapshotTx(ctx, tx, legacy); err != nil {
+			t.Fatal(err)
+		}
 	}
 	browser, err := domain.NewInitialRunBrowserCDPPermissionSnapshot("browser-v149", run, mission, "historical-operator", now)
 	if err != nil {

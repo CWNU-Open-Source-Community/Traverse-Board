@@ -22,6 +22,10 @@ import (
 // automatic verification is manufactured by this fixture.
 func TestAgentCodeRevertContinuesAppliedSourceWithFreshApproval(t *testing.T) {
 	f, supervisor := newStandardCodeOperatorInputFixture(t)
+	// This scenario explicitly tests a fresh human review of the inverse.
+	// The current Ask preference otherwise permits verified reversible writes.
+	supervisor.tools.WithAgentCodeExecutor(NewAgentCodeToolExecutor(f.state,
+		reviewedDrydockFilePolicy{}).WithDrydock(f.service))
 	ctx := t.Context()
 	edits, err := f.state.ListFileEdits(ctx, fileedit.ListFilter{SessionID: f.run.SessionID})
 	if err != nil || len(edits) != 1 || edits[0].Status != fileedit.StatusApplied {

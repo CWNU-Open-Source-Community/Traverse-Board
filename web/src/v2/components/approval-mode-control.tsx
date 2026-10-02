@@ -1,24 +1,28 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ShieldCheck, ShieldOff, UserCheck } from "lucide-react";
+import { useLocale } from "../../lib/locale";
 import type { ApprovalModeControlProps, ExecutionApprovalMode, FullActivationState } from "./approval-mode-contract";
 import { V2ConfirmDialog } from "./dialog";
 
-const choices = [
-  { mode: "ask", label: "请求批准", icon: UserCheck,
-    detail: "运行影响可核验的常规操作；普通公网请求需批准。" },
-  { mode: "auto", label: "帮我批准", icon: ShieldCheck,
-    detail: "可自动批准已核验的常规操作和普通公网请求。" },
-  { mode: "full", label: "完全访问权限", icon: ShieldOff,
-    detail: "减少逐次批准；实际访问仍受系统、供应商和运行环境限制。" },
-] as const;
-
-const activationLabels: Record<FullActivationState, string> = {
-  inactive: "未激活", active: "已激活", unavailable: "不可用",
-};
-
 export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableReason,
   pending, disabled = false, error, variant = "menu", onRequestChange }: ApprovalModeControlProps) {
+  const { t } = useLocale();
+  const choices = [
+    { mode: "ask", label: t("请求批准", "Request approval"), icon: UserCheck,
+      detail: t("运行影响可核验的常规操作；普通公网请求需批准。",
+        "Run routine operations with verifiable effects; ordinary public network requests need approval.") },
+    { mode: "auto", label: t("帮我批准", "Approve for me"), icon: ShieldCheck,
+      detail: t("可自动批准已核验的常规操作和普通公网请求。",
+        "Verified routine operations and ordinary public network requests may be approved automatically.") },
+    { mode: "full", label: t("完全访问权限", "Full access"), icon: ShieldOff,
+      detail: t("减少逐次批准；实际访问仍受系统、供应商和运行环境限制。",
+        "Reduce per-operation approval; access remains subject to system, provider, and runtime limits.") },
+  ] as const;
+  const activationLabels: Record<FullActivationState, string> = {
+    inactive: t("未激活", "inactive"), active: t("已激活", "active"),
+    unavailable: t("不可用", "unavailable"),
+  };
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     mode: ExecutionApprovalMode; activation: FullActivationState;
@@ -36,8 +40,9 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
   const selected = choices.find((choice) => choice.mode === mode)!;
   const SelectedIcon = selected.icon;
   const coldFull = mode === "full" && fullActivation === "inactive";
-  const unavailable = fullUnavailableReason?.trim() || "当前环境未提供完全访问权限。";
-  const status = `完全访问${activationLabels[fullActivation]}`;
+  const unavailable = fullUnavailableReason?.trim() ||
+    t("当前环境未提供完全访问权限。", "Full access is not available in the current environment.");
+  const status = t(`完全访问${activationLabels[fullActivation]}`, `Full access ${activationLabels[fullActivation]}`);
   const confirmationOpen = confirmation !== null && confirmation.mode === mode &&
     confirmation.activation === fullActivation && !disabled && fullActivation !== "unavailable";
 
@@ -98,7 +103,7 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
   };
 
   const options = <>
-    <div aria-label="执行权限档位" className="v2-permission-options" role="group">
+    <div aria-label={t("执行权限档位", "Execution approval modes")} className="v2-permission-options" role="group">
       {choices.map(({ mode: value, label, detail, icon: Icon }) => {
         const active = value === mode;
         return <button aria-label={label} aria-describedby={`${id}-${value}${value === "full" && fullActivation === "unavailable" ? ` ${id}-unavailable` : ""}`}
@@ -111,7 +116,8 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
           tabIndex={variant === "menu" ? -1 : undefined} type="button">
           <Icon aria-hidden="true" size={17} /><span><strong>{label}</strong>
             <small id={`${id}-${value}`}>{value === "full" && fullActivation === "unavailable"
-              ? "当前不可用" : value === "full" && active ? `${detail} 已选择 · ${activationLabels[fullActivation]}` : detail}</small></span>
+              ? t("当前不可用", "Currently unavailable") : value === "full" && active
+                ? `${detail} ${t("已选择", "Selected")} · ${activationLabels[fullActivation]}` : detail}</small></span>
           {active ? <Check aria-hidden="true" size={15} /> : null}
         </button>;
       })}
@@ -120,10 +126,11 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
       onClick={(event) => choose("full", event.currentTarget)}
       role={variant === "menu" ? "menuitem" : undefined}
       tabIndex={variant === "menu" ? -1 : undefined} type="button">
-      <ShieldOff aria-hidden="true" size={16} /><span><strong>重新激活完全访问权限</strong>
-        <small>已保存选择；重新激活仍需确认。</small></span>
+      <ShieldOff aria-hidden="true" size={16} /><span><strong>{t("重新激活完全访问权限", "Reactivate Full access")}</strong>
+        <small>{t("已保存选择；重新激活仍需确认。", "Your preference is saved; reactivation still requires confirmation.")}</small></span>
     </button>}
-    <small>影响未知、敏感数据外发、破坏性或共享写入操作不会因选择“帮我批准”而自动获准。工具自称只读不代表已通过核验。</small>
+    <small>{t("影响未知、敏感数据外发、破坏性或共享写入操作不会因选择“帮我批准”而自动获准。工具自称只读不代表已通过核验。",
+      "Unknown effects, sensitive data disclosure, destructive operations, and writes to shared resources are not automatically approved by “Approve for me”. A tool's read-only claim is not verification.")}</small>
   </>;
 
   return <div aria-busy={pending} className={`v2-permission-control is-${variant}`} ref={shellRef}>
@@ -140,7 +147,7 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
         {mode === "full" ? ` · ${activationLabels[fullActivation]}` : ""}
         <ChevronDown aria-hidden="true" size={13} />
       </button>
-      {open && <div aria-label="选择执行权限" className="v2-permission-popover" id={id}
+      {open && <div aria-label={t("选择执行权限", "Choose execution permissions")} className="v2-permission-popover" id={id}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null) &&
             (event.relatedTarget !== triggerRef.current || tabbingRef.current)) setOpen(false);
@@ -157,19 +164,20 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
             : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
           items[next]?.focus();
         }} ref={menuRef} role="menu" tabIndex={-1}>
-        <header><strong>执行权限</strong><span>{status}</span></header>{options}
+        <header><strong>{t("执行权限", "Execution permissions")}</strong><span>{status}</span></header>{options}
       </div>}
-    </> : <section aria-label="执行权限" className="v2-settings-card v2-permission-settings-card"
+    </> : <section aria-label={t("执行权限", "Execution permissions")} className="v2-settings-card v2-permission-settings-card"
       ref={settingsRef} tabIndex={-1}>
-      <header><div><h2>执行权限</h2><p>{status}</p></div></header>{options}
+      <header><div><h2>{t("执行权限", "Execution permissions")}</h2><p>{status}</p></div></header>{options}
     </section>}
     {fullActivation === "unavailable" && <p className="v2-inline-error" id={`${id}-unavailable`}>{unavailable}</p>}
-    {pending && <span role="status">正在更新权限…</span>}
-    {error && <p className="v2-inline-error" role="alert">{error}</p>}
+    {pending && <span role="status">{t("正在更新权限…", "Updating permissions…")}</span>}
+    {error && <p className="v2-inline-error" role="alert">{error.trim() || t("权限更新失败", "Failed to update permissions")}</p>}
     {confirmationOpen && createPortal(<V2ConfirmDialog open busy={pending}
-      confirmLabel={coldFull ? "确认重新激活" : "确认启用"} danger
-      description="将请求无需逐次批准的文件、命令和网络访问，可能造成数据丢失或敏感信息泄露。实际可用范围仍受操作系统、供应商和运行环境限制。"
+      confirmLabel={coldFull ? t("确认重新激活", "Confirm reactivation") : t("确认启用", "Confirm activation")} danger
+      description={t("将请求无需逐次批准的文件、命令和网络访问，可能造成数据丢失或敏感信息泄露。实际可用范围仍受操作系统、供应商和运行环境限制。",
+        "Requests file, command, and network access without per-operation approval. This may cause data loss or expose sensitive information. Actual access remains limited by the operating system, provider, and runtime.")}
       onCancel={cancel} onConfirm={confirm} returnFocusRef={returnFocusRef}
-      title={coldFull ? "重新激活完全访问权限？" : "启用完全访问权限？"} />, document.body)}
+      title={coldFull ? t("重新激活完全访问权限？", "Reactivate Full access?") : t("启用完全访问权限？", "Enable Full access?")} />, document.body)}
   </div>;
 }
