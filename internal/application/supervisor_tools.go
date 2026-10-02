@@ -320,7 +320,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			input, _, err := toolgateway.NormalizeSkillReadPayload(call.Arguments)
 			available := false
 			for _, item := range configured.BuiltinSkills {
-				if item.SkillReadRequest == input {
+				if item.SkillReadRequest == input.CatalogRequest() {
 					available = true
 					break
 				}

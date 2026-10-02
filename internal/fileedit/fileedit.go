@@ -358,7 +358,7 @@ func (m *Manager) ApproveWithPreWriteCheck(ctx context.Context, id string,
 	case OperationMove:
 		return m.approveMove(ctx, edit, workspaceRoot, preWrite)
 	case OperationDelete:
-		return m.approveDelete(ctx, edit, workspaceRoot)
+		return m.approveDelete(ctx, edit, workspaceRoot, preWrite)
 	}
 	if contentHash(edit.ProposedText, true) != edit.ProposedHash {
 		return m.fail(ctx, edit, errors.New("stored proposed content failed integrity validation"))
@@ -451,6 +451,16 @@ func (m *Manager) ApproveWithPreWriteCheck(ctx context.Context, id string,
 		if err := preWrite(); err != nil {
 			return Edit{}, err
 		}
+	}
+	// A live authorization check may block on a database or policy adapter.
+	// Re-read the target after it returns, just as the move path does.
+	finalTarget, err = tools.NewWorkspaceFS(workspaceRoot).ResolveForWrite(edit.Path)
+	if err != nil || finalTarget != target {
+		return m.fail(ctx, edit, errors.New("workspace path changed after authorization check"))
+	}
+	latest, latestExists, err = readCurrentTextFromRoot(root, rootedPath)
+	if err != nil || contentHash(latest, latestExists) != edit.OriginalHash {
+		return m.fail(ctx, edit, errors.New("workspace file changed after authorization check"))
 	}
 	if operation == OperationCreate || edit.OriginalHash == missingHash {
 		// Linking the completed staging inode into an absent target is an
@@ -634,7 +644,7 @@ func (m *Manager) approveMove(ctx context.Context, edit Edit,
 }
 
 func (m *Manager) approveDelete(ctx context.Context, edit Edit,
-	workspaceRoot string,
+	workspaceRoot string, preWrite func() error,
 ) (Edit, error) {
 	if edit.DestinationPath != "" || edit.DestinationOriginalHash != "" ||
 		edit.DestinationProposedHash != "" || edit.ProposedHash != missingHash ||
@@ -675,6 +685,19 @@ func (m *Manager) approveDelete(ctx context.Context, edit Edit,
 	if err != nil || latestHash != edit.OriginalHash {
 		return m.fail(ctx, edit, errors.New(
 			"workspace delete target changed before removal; refusing to continue"))
+	}
+	if preWrite != nil {
+		if err := preWrite(); err != nil {
+			return Edit{}, err
+		}
+	}
+	latest, err = tools.NewWorkspaceFS(workspaceRoot).ResolveForWrite(edit.Path)
+	if err != nil || latest != target {
+		return m.fail(ctx, edit, errors.New("workspace delete target changed after authorization check"))
+	}
+	latestHash, err = currentHashFromRoot(root, rootedPath)
+	if err != nil || latestHash != edit.OriginalHash {
+		return m.fail(ctx, edit, errors.New("workspace delete content changed after authorization check"))
 	}
 	if err := root.Remove(rootedPath); err != nil {
 		return m.fail(ctx, edit, err)

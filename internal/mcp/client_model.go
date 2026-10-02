@@ -270,7 +270,7 @@ type RemoteResource struct {
 }
 
 func (r RemoteResource) Validate() error {
-	if !validClientText(r.URI, 4096, false) || !validRemoteName(r.Name) ||
+	if !validClientText(r.URI, 4096, false) || !validClientText(r.Name, 128, false) ||
 		!validClientText(r.Description, MaxClientDescriptionBytes, true) ||
 		!validClientText(r.MIMEType, 256, true) {
 		return errors.New("discovered MCP resource is invalid")
@@ -303,7 +303,7 @@ type CapabilitySnapshot struct {
 }
 
 func (s CapabilitySnapshot) Validate() error {
-	if s.ProtocolVersion != ProtocolVersion || !validClientIdentity(s.ServerName) ||
+	if !supportedClientProtocol(s.ProtocolVersion) || !validClientIdentity(s.ServerName) ||
 		!validClientText(s.ServerVersion, 128, false) || len(s.Tools) > MaxClientTools ||
 		len(s.Resources) > MaxClientResources || len(s.Prompts) > MaxClientPrompts ||
 		!validClientDigest(s.Fingerprint) || s.DiscoveredAt.IsZero() {

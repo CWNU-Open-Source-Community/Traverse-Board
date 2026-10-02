@@ -63,7 +63,7 @@ func TestSchemaV164PreservesLegacyAutomaticSourcesAndAdmitsBoundMove(t *testing.
 		"approval-v163-auto-create", approval.ProposalIdempotencyKey("create_file", legacy.ID),
 		legacy.ID, legacyAuth.RunID, legacy.SessionID, legacy.WorkspaceID, "create_file",
 		"workspace_write", "automatic", "approved",
-		fileEditApprovalFingerprint(legacy.SessionID, legacy.WorkspaceID, legacy),
+		fileedit.ApprovalFingerprint(legacy.SessionID, legacy.WorkspaceID, legacy),
 		"Full Access automatically authorized this file edit", "tool_gateway",
 		"automatic_policy", 1, ts(legacy.CreatedAt), ts(legacy.UpdatedAt),
 		ts(legacy.UpdatedAt)); err != nil {

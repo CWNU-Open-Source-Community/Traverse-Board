@@ -16,6 +16,7 @@ import (
 )
 
 type Client struct {
+	resolved   *resolvedClient
 	transport  clientTransport
 	descriptor ServerDescriptor
 	secrets    []string
@@ -47,7 +48,7 @@ func (c *Client) Discover(ctx context.Context, at time.Time) (CapabilitySnapshot
 	if c == nil || c.transport == nil || c.closed.Load() {
 		return CapabilitySnapshot{}, errors.New("MCP client is closed")
 	}
-	params := map[string]any{"protocolVersion": ProtocolVersion,
+	params := map[string]any{"protocolVersion": preferredClientProtocolVersion,
 		"capabilities": map[string]any{},
 		"clientInfo":   map[string]string{"name": ClientName, "version": ClientVersion}}
 	var initialized clientInitializeResult
@@ -56,7 +57,7 @@ func (c *Client) Discover(ctx context.Context, at time.Time) (CapabilitySnapshot
 	}
 	initialized.ServerInfo.Name = c.sanitizeText(initialized.ServerInfo.Name)
 	initialized.ServerInfo.Version = c.sanitizeText(initialized.ServerInfo.Version)
-	if initialized.ProtocolVersion != ProtocolVersion ||
+	if !supportedClientProtocol(initialized.ProtocolVersion) ||
 		!validClientIdentity(initialized.ServerInfo.Name) ||
 		!validClientText(initialized.ServerInfo.Version, 128, false) {
 		return CapabilitySnapshot{}, errors.New("MCP initialize response has an unsupported protocol or invalid server identity")
@@ -95,8 +96,13 @@ func (c *Client) Discover(ctx context.Context, at time.Time) (CapabilitySnapshot
 	if err != nil {
 		return CapabilitySnapshot{}, err
 	}
-	return NewCapabilitySnapshot(initialized.ServerInfo.Name, initialized.ServerInfo.Version,
+	snapshot, err := NewCapabilitySnapshot(initialized.ServerInfo.Name, initialized.ServerInfo.Version,
 		advertised, tools, resources, prompts, at)
+	if err == nil {
+		snapshot.ProtocolVersion = initialized.ProtocolVersion
+		snapshot.Fingerprint = capabilityFingerprint(snapshot)
+	}
+	return snapshot, err
 }
 
 func capabilityPresent(raw json.RawMessage) bool {
@@ -306,10 +312,13 @@ func (c *Client) request(ctx context.Context, method string, params any, target 
 	response, err := c.transport.Exchange(ctx, Envelope{JSONRPC: "2.0", ID: idRaw,
 		Method: method, Params: raw})
 	if err != nil {
+		if c.resolved != nil {
+			return &sanitizedClientError{message: "MCP request failed", cause: err}
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
-		return errors.New(c.sanitizeText(err.Error()))
+		return &sanitizedClientError{message: c.sanitizeText(err.Error()), cause: err}
 	}
 	if !bytes.Equal(bytes.TrimSpace(response.ID), idRaw) || response.Method != "" {
 		return errors.New("MCP response identity does not match its request")

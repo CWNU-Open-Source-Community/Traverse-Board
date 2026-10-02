@@ -4184,7 +4184,7 @@ CREATE TABLE plugin_installation_transitions (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE plugin_installations (
+CREATE TABLE "plugin_installations" (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
 		plugin_id TEXT NOT NULL,
@@ -4210,7 +4210,7 @@ CREATE TABLE plugin_installations (
 		updated_at TEXT NOT NULL,
 		FOREIGN KEY(package_fingerprint) REFERENCES plugin_objects(package_fingerprint)
 			ON DELETE RESTRICT,
-		CHECK(protocol_version = 'plugin-installation.v1'),
+		CHECK(protocol_version IN ('plugin-installation.v1','plugin-installation.v2')),
 		CHECK(json_valid(manifest_json) AND length(CAST(manifest_json AS BLOB))
 			BETWEEN 2 AND 262144),
 		CHECK(json_valid(source_json) AND length(CAST(source_json AS BLOB))
@@ -4229,7 +4229,20 @@ CREATE TABLE plugin_installations (
 			'revoked', 'quarantined')),
 		CHECK(generation > 0),
 		CHECK(length(id) BETWEEN 1 AND 256 AND length(plugin_id) BETWEEN 1 AND 256),
-		CHECK(length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256),
+		CHECK(COALESCE((protocol_version='plugin-installation.v1'
+			AND length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256)
+			OR (protocol_version='plugin-installation.v2' AND length(plugin_version)=64
+				AND plugin_version NOT GLOB '*[^0-9a-f]*' AND publisher=''
+				AND signature_present=0 AND signature_valid=0
+				AND publisher_fingerprint='' AND publisher_public_key=''
+				AND json_extract(manifest_json,'$.protocol_version')='agent-package-snapshot.v1'
+				AND json_extract(manifest_json,'$.package_id')=plugin_id
+				AND json_extract(manifest_json,'$.revision')=plugin_version
+				AND archive_sha256=plugin_version
+				AND length(json_extract(source_json,'$.operation_key_digest'))=64
+				AND json_extract(source_json,'$.operation_key_digest') NOT GLOB '*[^0-9a-f]*'
+				AND id='plugin-import-' || json_extract(source_json,'$.operation_key_digest')
+				AND json_extract(source_json,'$.surface') IN ('code','cyber')),0)),
 		CHECK(length(supersedes_installation_id) <= 256
 			AND length(staged_by) BETWEEN 1 AND 256 AND length(reviewed_by) <= 256),
 		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL

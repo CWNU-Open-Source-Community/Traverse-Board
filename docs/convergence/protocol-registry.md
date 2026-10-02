@@ -11,7 +11,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 47 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 51 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
@@ -22,11 +22,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
-| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 41 | true |
+| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 43 | true |
 | [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 110 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
-| [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
+| [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 5 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
 | [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 6 | true |
@@ -253,21 +253,24 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Execution authority and approval maintainers
-- Source of truth: `internal/approval`, `internal/executionauth`, `internal/store`
+- Source of truth: `internal/approval`, `internal/executionauth`, `internal/store`, `internal/toolcontract`
 - Persistence/export boundary: SQLite snapshots preserve permission, profile, interaction, approval, lease, and generation facts.
 - Compatibility rule: Authority changes are additive and fail closed; old readers remain for every supported stored snapshot.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `authority-approval-ledgers-writer` (`v1`, write-current) at `internal/application`
+  - `universal-tool-binding-writer` (`v1`, write-new) at `internal/toolcontract`
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
+  - `universal-tool-binding-reader` (`v1`, active) at `internal/executionauth`
 
-<details><summary>47 active identifiers</summary>
+<details><summary>51 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
 - `approval_operation_key.v1`
 - `approval_record.v1`
+- `executionauth.authorization.v1`
 - `full-cdp-session-operation.v1`
 - `once_command.v1`
 - `once_command_approval.v1`
@@ -311,6 +314,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `thread_message_intent_request.v1`
 - `thread_model_route_operation.v1`
 - `thread_model_route_request.v1`
+- `toolcontract.discovery.v1`
+- `toolcontract.launch.v1`
+- `toolcontract.operation.v1`
 
 </details>
 
@@ -789,11 +795,14 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `extension-package-contracts-writer` (`v1, v2`, write-new) at `internal/skills`
+  - `portable-plugin-installation-writer` (`v2`, write-new) at `internal/plugins`
 - Readers:
   - `extension-package-contracts-reader` (`v1, v2`, active) at `internal/skills`
+  - `plugin-installation-reader` (`v1, v2`, active) at `internal/plugins`
 
-<details><summary>41 active identifiers</summary>
+<details><summary>43 active identifiers</summary>
 
+- `agent-package-snapshot.v1`
 - `extension-control.v1`
 - `extension-inventory.v1`
 - `external_skill_context.v1`
@@ -803,6 +812,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `external_skill_selection_operation.v1`
 - `external_specialist_skill_context.v1`
 - `plugin-installation.v1`
+- `plugin-installation.v2`
 - `plugin-publisher-trust.v1`
 - `plugin-signature.v1`
 - `plugin.v1`
@@ -1026,11 +1036,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `mcp-interchange-reader` (`v1`, active) at `internal/mcp`
 
-<details><summary>3 active identifiers</summary>
+<details><summary>5 active identifiers</summary>
 
 - `mcp-client-call-audit.v1`
 - `mcp-client-server.v1`
 - `mcp-client.v1`
+- `mcp.call.input.v1`
+- `mcp.capabilities.v1`
 
 </details>
 
@@ -1833,6 +1845,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `sandbox_output_fixture.v1` | `test-fixture` | `configs/sandbox-output-fixture.example.json`, `internal/app/sandbox_command_test.go`, `internal/sandbox/output_simulation.go`, `internal/sandbox/output_simulation_test.go` | Explicit sandbox output-simulation fixture input; it grants no production execution authority. |
 | `scheduled-store-observation.v1` | `test-fixture` | `internal/store/scheduled_jobs_concurrency_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `skill.v2` | `test-fixture` | `internal/skills/manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `skill.v99` | `negative-version-fixture` | `internal/agentpackages/edge_cases_test.go` | Unknown legacy Skill version rejection fixture; never a supported production reader. |
 | `slsa_provenance.v1` | `test-fixture` | `internal/analyzer/provenance_verification_test.go`, `internal/analyzer/release_manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `specialist_delegation.v2` | `test-fixture` | `internal/domain/specialist_delegation_test.go`, `internal/toolgateway/specialist_delegation_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `standard_code_fixture_manifest.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `internal/packagede2e/testdata/fixture-manifest.json` | Packaged E2E fixed-repository fixture manifest. |

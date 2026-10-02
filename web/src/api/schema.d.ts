@@ -6550,6 +6550,7 @@ export interface components {
             reviewed_by?: string;
             signature_present: boolean;
             signature_valid: boolean;
+            snapshot?: components["schemas"]["ExtensionPortableSnapshotView"];
             source: components["schemas"]["ExtensionSourceView"];
             staged_by: string;
             state: string;
@@ -6571,6 +6572,11 @@ export interface components {
             expected_generation: number;
             expected_package_fingerprint: string;
             version: string;
+        };
+        ExtensionPortableSnapshotView: {
+            format: string;
+            revision: string;
+            surface: string;
         };
         ExtensionRefreshRequestView: {
             version: string;

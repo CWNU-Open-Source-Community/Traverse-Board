@@ -331,7 +331,9 @@ function PluginCard({ action, client, installation }: {
   return <article className="extension-card">
     <header><div><PackageSearch aria-hidden="true" size={17} />
       <div><strong>{installation.manifest.name}</strong>
-        <span>{installation.manifest.publisher} · v{installation.manifest.version}</span></div></div>
+        <span>{[installation.manifest.publisher, installation.manifest.version ?
+          `v${installation.manifest.version}` : ""].filter(Boolean).join(" · ") ||
+          t("未提供作者或版本", "No author or version provided")}</span></div></div>
       <ExtensionState state={installation.state} /></header>
     <dl className="extension-facts">
       <div><dt>{t("签名", "Signature")}</dt><dd>{installation.signature_valid ?
