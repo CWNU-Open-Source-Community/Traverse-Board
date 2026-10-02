@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
+import { LocaleProvider } from "../../lib/locale";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
 import type { WorkspaceFileAttachment } from "../../api/file-attachments";
@@ -10,6 +12,8 @@ import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { V2Composer } from "./composer";
 import { v2ImageReferenceKey } from "./image-input";
 import { V2PermissionControl } from "./permission-control";
+
+afterEach(() => window.localStorage.removeItem("prayu.locale.v1"));
 
 function permission(overrides: Partial<ThreadExecutionPermissionView> = {}):
 ThreadExecutionPermissionView {
@@ -56,14 +60,14 @@ describe("Composer permission integration", () => {
     render(<QueryClientProvider client={queries}><V2PermissionControl client={client} threadID="thread-1" /></QueryClientProvider>);
     await user.click(await screen.findByRole("button", { name: "请求批准" }));
     expect(get).not.toHaveBeenCalled(); expect(providerSearchReadiness).not.toHaveBeenCalled();
-    await user.click(screen.getByText("网页访问与搜索"));
+    await user.click(screen.getByRole("button", { name: "网页访问与搜索" }));
     expect(await screen.findByText("网页搜索 · 搜索待验证")).toBeInTheDocument();
     expect(screen.getByText("直接 URL 抓取")).toBeInTheDocument();
     expect(get).toHaveBeenCalledExactlyOnceWith("/runs/run-1", {}, expect.any(AbortSignal));
     expect(providerSearchReadiness).toHaveBeenCalledExactlyOnceWith("thread-1", expect.any(AbortSignal));
     expect(changeThreadExecutionPermission).not.toHaveBeenCalled();
     expect(expandRunNetworkAuthority).not.toHaveBeenCalled();
-    await user.click(screen.getByText("网页访问与搜索"));
+    await user.click(screen.getByRole("button", { name: "网页访问与搜索" }));
     await waitFor(() => expect(screen.queryByText("直接 URL 抓取")).not.toBeInTheDocument());
   });
 
@@ -146,7 +150,7 @@ describe("Composer permission integration", () => {
     fireEvent.change(textarea, { target: { value: "搜索文件不能代我发送" } });
     await user.click(screen.getByRole("button", { name: "添加附件" }));
     await user.click(screen.getByRole("menuitem", { name: /引用项目文件/u }));
-    const search = await screen.findByRole("searchbox", { name: "Search Workspace evidence" });
+    const search = await screen.findByRole("searchbox", { name: "搜索工作区证据" });
     await user.type(search, "README{Enter}");
     await waitFor(() => expect(workspaceSearch).toHaveBeenCalledExactlyOnceWith("workspace-1", "README", expect.any(AbortSignal)));
     expect(onSubmit).not.toHaveBeenCalled();
@@ -157,3 +161,9 @@ describe("Composer permission integration", () => {
   });
 
 });
+
+// Match the production locale boundary instead of the isolated English default.
+function render(ui: ReactNode) {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
+  return renderComponent(ui, { wrapper: LocaleProvider });
+}
