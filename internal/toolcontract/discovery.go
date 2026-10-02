@@ -12,8 +12,13 @@ import (
 )
 
 // DiscoveryScope authorizes a bounded protocol operation, not arbitrary calls.
-// Profile is B's supported negotiation profile; Methods is its exact outbound
-// subset. Inbound progress notifications do not consume this SEND budget.
+// Profile is the preferred MCP protocol revision, equal to the first entry in
+// the fingerprint-bound ResolvedLaunch.ProtocolVersions, NOT the negotiated
+// revision or a plugin format version. Methods is the exact outbound subset.
+// A 2026 profile can include legacy handshake methods for explicit fallback;
+// B must still validate every actual initialize / per-request _meta version
+// against that launch's allowed versions before sending. This method whitelist
+// does not authorize a protocol downgrade. Inbound progress uses no SEND budget.
 type DiscoveryScope struct {
 	OperationID           string
 	ConnectionFingerprint string // final endpoint/launch, credential revision, instance
@@ -25,21 +30,38 @@ type DiscoveryScope struct {
 }
 
 func (s DiscoveryScope) Validate() error {
+	methods := discoveryProfileMethods(s.Profile)
 	if !normalized(s.OperationID, 256) || !digest(s.ConnectionFingerprint) ||
-		!normalized(s.Profile, 128) || len(s.Methods) == 0 || len(s.Methods) > 7 ||
+		len(methods) == 0 || len(s.Methods) == 0 || len(s.Methods) > len(methods) ||
 		s.MaxRequests < 1 || s.MaxRequests > 1024 || s.MaxBytes < 1 || s.MaxBytes > 16*1024*1024 ||
 		s.ExpiresAt.IsZero() {
 		return errors.New("discovery scope identity or bounds are invalid")
 	}
 	seen := make(map[string]bool, len(s.Methods))
 	for _, method := range s.Methods {
-		if seen[method] || !slices.Contains([]string{"initialize", "notifications/initialized",
-			"tools/list", "resources/list", "resources/templates/list", "prompts/list", "ping"}, method) {
+		if seen[method] || !slices.Contains(methods, method) {
 			return errors.New("discovery scope contains an invalid or repeated method")
 		}
 		seen[method] = true
 	}
 	return nil
+}
+
+func discoveryProfileMethods(profile string) []string {
+	legacy := []string{"initialize", "notifications/initialized", "tools/list",
+		"resources/list", "resources/templates/list", "prompts/list", "ping"}
+	switch profile {
+	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25":
+		return legacy
+	case "2026-07-28":
+		// The modern lifecycle uses server/discover and per-request metadata.
+		// initialize/initialized and ping are only legacy fallback traffic;
+		// retaining them in this maximum set does not make them modern RPCs.
+		// See https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning
+		return append(legacy, "server/discover")
+	default:
+		return nil
+	}
 }
 
 func FingerprintDiscovery(scope DiscoveryScope) (string, error) {

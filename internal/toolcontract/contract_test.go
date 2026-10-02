@@ -224,7 +224,7 @@ func TestOperationFingerprintBindsFinalEffectAndAuthorityInputs(t *testing.T) {
 
 func discovery() DiscoveryScope {
 	return DiscoveryScope{OperationID: "discover", ConnectionFingerprint: testDigest,
-		Profile: "mcp-test-v1", Methods: []string{"initialize", "tools/list"},
+		Profile: "2025-06-18", Methods: []string{"initialize", "tools/list"},
 		MaxRequests: 3, MaxBytes: 100, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
@@ -315,7 +315,7 @@ func TestDiscoveryScopeFingerprintAndValidation(t *testing.T) {
 		func(s *DiscoveryScope) { s.MaxRequests++ }, func(s *DiscoveryScope) { s.MaxBytes++ },
 		func(s *DiscoveryScope) { s.ExpiresAt = s.ExpiresAt.Add(time.Second) },
 		func(s *DiscoveryScope) { s.ConnectionFingerprint = strings.Repeat("b", 64) },
-		func(s *DiscoveryScope) { s.Profile = "other-profile" },
+		func(s *DiscoveryScope) { s.Profile = "2025-11-25" },
 	} {
 		changed := scope
 		mutate(&changed)
