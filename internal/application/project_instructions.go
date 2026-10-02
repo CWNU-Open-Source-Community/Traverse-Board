@@ -93,6 +93,7 @@ func (s *ProjectInstructionService) Inspect(ctx context.Context, runID,
 	if err != nil {
 		return ProjectInstructionState{}, err
 	}
+	live = projectconfig.MatchLiveInstructionDelivery(pinned.Snapshot, live)
 	diff := projectconfig.DiffInstructionSnapshots(pinned.Snapshot, live)
 	history, err := s.store.ListRunInstructionSnapshots(ctx, run.ID, 100)
 	if err != nil {
@@ -107,6 +108,17 @@ func (s *ProjectInstructionService) Inspect(ctx context.Context, runID,
 func (s *ProjectInstructionService) Refresh(ctx context.Context, runID,
 	targetPath, expectedFingerprint, expectedLiveFingerprint, requestedBy string, confirm bool,
 ) (ProjectInstructionState, error) {
+	return s.RefreshWithDelivery(ctx, runID, targetPath, expectedFingerprint,
+		expectedLiveFingerprint, requestedBy, confirm, nil)
+}
+
+// RefreshWithDelivery confirms classifications with the reviewed pinned/live
+// fingerprints. Nil retains legacy refresh behavior. Classified sources cannot
+// lose their delivery contract through a later refresh of changed disk content.
+func (s *ProjectInstructionService) RefreshWithDelivery(ctx context.Context, runID,
+	targetPath, expectedFingerprint, expectedLiveFingerprint, requestedBy string, confirm bool,
+	classifications []projectconfig.InstructionSourceDelivery,
+) (ProjectInstructionState, error) {
 	state, err := s.Inspect(ctx, runID, targetPath)
 	if err != nil {
 		return ProjectInstructionState{}, err
@@ -115,7 +127,7 @@ func (s *ProjectInstructionService) Refresh(ctx context.Context, runID,
 		return ProjectInstructionState{}, apperror.New(apperror.CodeFailedPrecondition,
 			"project instruction refresh pinned fingerprint is stale")
 	}
-	if !state.Stale || !confirm {
+	if (!state.Stale && classifications == nil) || !confirm {
 		return state, nil
 	}
 	if strings.TrimSpace(expectedLiveFingerprint) != state.Live.Fingerprint {
@@ -125,8 +137,23 @@ func (s *ProjectInstructionService) Refresh(ctx context.Context, runID,
 	if err := contextmgr.ValidateMemoryActor(requestedBy); err != nil {
 		return ProjectInstructionState{}, err
 	}
+	next := state.Live
+	if classifications != nil {
+		next, err = projectconfig.ClassifyInstructionSnapshot(next, classifications)
+		if err != nil {
+			return ProjectInstructionState{}, apperror.Wrap(apperror.CodeInvalidArgument,
+				"project instruction delivery classification is invalid", err)
+		}
+	} else if state.Pinned.Snapshot.Delivery != nil && next.Delivery == nil {
+		return ProjectInstructionState{}, apperror.New(apperror.CodeFailedPrecondition,
+			"changed project instructions require renewed explicit delivery classification")
+	}
+	diff := projectconfig.DiffInstructionSnapshots(state.Pinned.Snapshot, next)
+	if !diff.RequiresConfirmation {
+		return state, nil
+	}
 	record, changed, err := s.store.ConfirmRunInstructionSnapshot(ctx, state.RunID,
-		expectedFingerprint, state.Live, state.Diff, requestedBy, time.Now().UTC())
+		expectedFingerprint, next, diff, requestedBy, time.Now().UTC())
 	if err != nil {
 		return ProjectInstructionState{}, err
 	}
@@ -135,6 +162,7 @@ func (s *ProjectInstructionService) Refresh(ctx context.Context, runID,
 	}
 	state.Pinned = record
 	state.PinnedPresent = true
+	state.Live = projectconfig.MatchLiveInstructionDelivery(record.Snapshot, state.Live)
 	state.Diff = projectconfig.DiffInstructionSnapshots(record.Snapshot, state.Live)
 	state.Stale = state.Diff.RequiresConfirmation
 	state.RefreshConfirmed = true

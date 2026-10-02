@@ -45,6 +45,13 @@ func newSpecialistMonetaryLedger(t *testing.T) (*SQLiteStore, domain.Run, domain
 	}
 	ref := attemptRef(active)
 	a := llm.ModelAttempt{SpecialistAttemptID: ref.AttemptID, Number: 1, TransportAttempt: 1, MaxAttempts: 2, Provider: "mock", Model: "mock-code"}
+	brief, err := st.PrepareSpecialistContext(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Context = &llm.ModelContextAudit{TokenBudget: 1, EstimatedTokens: 1, Included: []llm.ModelContextSource{
+		{Kind: "specialist_task_brief", SourceID: brief.TaskBrief.Fingerprint, Tokens: 1},
+	}}
 	if _, err := st.RecordSpecialistModelStarted(ctx, ref, a); err != nil {
 		t.Fatal(err)
 	}

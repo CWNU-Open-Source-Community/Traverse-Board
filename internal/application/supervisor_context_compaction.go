@@ -55,6 +55,13 @@ func supervisorContextWindowFailure(cause error) error {
 func (s *RunSupervisor) compactSupervisorHistory(ctx context.Context, turn *domain.SupervisorTurn,
 	preserveRecent int,
 ) (bool, error) {
+	privateHistory, err := s.requiresSupervisorPrivateHistory(turn.Run.Config.ModelRoute)
+	if err != nil {
+		return false, err
+	}
+	if privateHistory {
+		return false, apperror.New(apperror.CodeResourceExhausted, "native private assistant history cannot be replaced by a context summary")
+	}
 	store, ok := s.store.(supervisorContextCompactionStore)
 	if !ok {
 		return false, nil
@@ -118,6 +125,16 @@ func (s *RunSupervisor) supervisorConversationContext(ctx context.Context, turn 
 		return nil, contextmgr.Summary{}, false, didCompact, err
 	}
 	summary, hasSummary, err := s.store.LatestContextSummary(ctx, turn.Run.SessionID)
+	if err == nil && hasSummary {
+		privateHistory, scopeErr := s.requiresSupervisorPrivateHistory(turn.Run.Config.ModelRoute)
+		if scopeErr != nil {
+			return nil, summary, hasSummary, didCompact, scopeErr
+		}
+		if privateHistory {
+			return nil, summary, hasSummary, didCompact, apperror.New(apperror.CodeFailedPrecondition,
+				"summarized or imported history lacks the native private assistant replay required by this provider")
+		}
+	}
 	return history, summary, hasSummary, didCompact, err
 }
 

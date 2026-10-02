@@ -191,8 +191,8 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if !utf8.Valid(raw) {
 		return nil, openAIProtocolError(p.name, "returned non-UTF-8 JSON")
 	}
-	if GeminiThoughtSignatureScope(p.baseURL, wire.Model) && validateGeminiWireJSON(raw) != nil {
-		return nil, openAIProtocolError(p.name, "returned ambiguous Gemini native metadata")
+	if (GeminiThoughtSignatureScope(p.baseURL, wire.Model) || KimiReasoningScope(p.baseURL, wire.Model)) && validateGeminiWireJSON(raw) != nil {
+		return nil, openAIProtocolError(p.name, "returned ambiguous native metadata")
 	}
 	var parsed openAIChatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
@@ -202,11 +202,21 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 		return nil, openAIWireError(p.name, *parsed.Error)
 	}
 	result, err := p.normalizeResponse(model, parsed)
-	if err != nil || !GeminiThoughtSignatureScope(p.baseURL, wire.Model) {
+	if err != nil {
 		return result, err
 	}
-	if err := p.captureGeminiResponse(model, wire.Model, parsed, result); err != nil {
-		return nil, openAIProtocolError(p.name, "returned invalid Gemini signature replay")
+	if GeminiThoughtSignatureScope(p.baseURL, wire.Model) {
+		if err := p.captureGeminiResponse(model, wire.Model, parsed, result); err != nil {
+			return nil, openAIProtocolError(p.name, "returned invalid Gemini signature replay")
+		}
+	}
+	if KimiReasoningScope(p.baseURL, wire.Model) {
+		if err := p.captureKimiResponse(model, wire.Model, parsed, result); err != nil {
+			// A rejected replay cannot publish native state. Its already
+			// validated usage remains available for failure accounting.
+			result.Replay = nil
+			return result, openAIProtocolError(p.name, "returned invalid Kimi private replay")
+		}
 	}
 	return result, nil
 }
@@ -276,6 +286,9 @@ func (p *OpenAICompatibleProvider) DescribeModelHarness(model string) ModelHarne
 			// One-round qualifications predate native sequential signature replay.
 			binding = providerHarnessBinding(nil, binding, wireModel, "gemini-sequential-signature-probe-v1")
 		}
+		if wireModel, err := normalizeOpenAIModel(mappedModel); err == nil && KimiReasoningScope(p.baseURL, wireModel) {
+			binding = providerHarnessBinding(nil, binding, wireModel, "kimi-preserved-history-probe-v4")
+		}
 	}
 	return ModelHarness{
 		ProtocolVersion:   ModelHarnessProtocolVersion,
@@ -327,6 +340,11 @@ func (p *OpenAICompatibleProvider) prepareRequest(request ChatRequest, stream bo
 	}
 	if GeminiThoughtSignatureScope(p.baseURL, wireModel) {
 		wire.Messages, err = p.geminiMessages(request.Messages, selectedModel, wireModel)
+		if err != nil {
+			return "", openAIChatRequest{}, err
+		}
+	} else if KimiReasoningScope(p.baseURL, wireModel) {
+		wire.Messages, err = p.kimiMessages(request.Messages, selectedModel, wireModel)
 		if err != nil {
 			return "", openAIChatRequest{}, err
 		}
@@ -771,12 +789,14 @@ type openAIChatRequest struct {
 }
 
 type openAIMessage struct {
-	Role         string              `json:"role"`
-	Content      *string             `json:"content,omitempty"`
-	ToolCalls    []openAIToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID   string              `json:"tool_call_id,omitempty"`
-	Parts        []openAIContentPart `json:"-"`
-	ExtraContent json.RawMessage     `json:"extra_content,omitempty"`
+	Role             string              `json:"role"`
+	Content          *string             `json:"content,omitempty"`
+	ToolCalls        []openAIToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID       string              `json:"tool_call_id,omitempty"`
+	Parts            []openAIContentPart `json:"-"`
+	ExtraContent     json.RawMessage     `json:"extra_content,omitempty"`
+	ReasoningContent json.RawMessage     `json:"reasoning_content,omitempty"`
+	ContentRaw       json.RawMessage     `json:"-"`
 }
 
 type openAIImageURL struct {
@@ -791,6 +811,12 @@ type openAIContentPart struct {
 
 func (message openAIMessage) MarshalJSON() ([]byte, error) {
 	type plain openAIMessage
+	if len(message.ContentRaw) != 0 {
+		return json.Marshal(struct {
+			plain
+			Content json.RawMessage `json:"content"`
+		}{plain: plain(message), Content: message.ContentRaw})
+	}
 	if len(message.Parts) == 0 {
 		return json.Marshal(plain(message))
 	}
@@ -798,6 +824,24 @@ func (message openAIMessage) MarshalJSON() ([]byte, error) {
 		plain
 		Content []openAIContentPart `json:"content"`
 	}{plain: plain(message), Content: message.Parts})
+}
+
+func (message *openAIMessage) UnmarshalJSON(raw []byte) error {
+	type plain openAIMessage
+	var value plain
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	*message = openAIMessage(value)
+	message.ContentRaw = append(json.RawMessage(nil), fields["content"]...)
+	// Private native fields require exact wire spelling. encoding/json's
+	// case-insensitive fallback must not promote an unknown extension.
+	message.ReasoningContent = append(json.RawMessage(nil), fields["reasoning_content"]...)
+	return nil
 }
 
 type openAITool struct {
@@ -859,10 +903,26 @@ type openAIChoice struct {
 }
 
 type openAIStreamDelta struct {
-	Role         string                 `json:"role"`
-	Content      *string                `json:"content"`
-	ToolCalls    []openAIStreamToolCall `json:"tool_calls"`
-	ExtraContent json.RawMessage        `json:"extra_content,omitempty"`
+	Role             string                 `json:"role"`
+	Content          *string                `json:"content"`
+	ToolCalls        []openAIStreamToolCall `json:"tool_calls"`
+	ExtraContent     json.RawMessage        `json:"extra_content,omitempty"`
+	ReasoningContent json.RawMessage        `json:"reasoning_content,omitempty"`
+}
+
+func (delta *openAIStreamDelta) UnmarshalJSON(raw []byte) error {
+	type plain openAIStreamDelta
+	var value plain
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	*delta = openAIStreamDelta(value)
+	delta.ReasoningContent = append(json.RawMessage(nil), fields["reasoning_content"]...)
+	return nil
 }
 
 type openAIStreamToolCall struct {
@@ -908,6 +968,8 @@ type openAIStreamState struct {
 	events         providerStreamEvents
 	gemini         *geminiReplayBuilder
 	geminiProvider *OpenAICompatibleProvider
+	kimi           *kimiReplayBuilder
+	kimiProvider   *OpenAICompatibleProvider
 	wireModel      string
 }
 
@@ -915,8 +977,8 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	if !utf8.Valid(payload) {
 		return nil, openAIProtocolError(s.provider, "returned a non-UTF-8 stream event")
 	}
-	if s.gemini != nil && validateGeminiWireJSON(payload) != nil {
-		return nil, openAIProtocolError(s.provider, "returned ambiguous Gemini native metadata")
+	if (s.gemini != nil || s.kimi != nil) && validateGeminiWireJSON(payload) != nil {
+		return nil, openAIProtocolError(s.provider, "returned ambiguous native metadata")
 	}
 	var event openAIStreamResponse
 	if err := json.Unmarshal(payload, &event); err != nil {
@@ -937,6 +999,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	}
 	if s.gemini != nil && s.gemini.observeID(event.ID) != nil {
 		return nil, openAIProtocolError(s.provider, "stream returned invalid Gemini response identity")
+	}
+	if s.kimi != nil && s.kimi.observeID(event.ID) != nil {
+		return nil, openAIProtocolError(s.provider, "stream returned invalid Kimi response identity")
 	}
 	if len(event.Choices) == 0 {
 		if event.Usage == nil || s.usage != nil || !s.finished || !s.responseModel ||
@@ -964,6 +1029,12 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	if s.gemini != nil && s.gemini.capture(choice.Delta.ExtraContent, nil) != nil {
 		return nil, openAIProtocolError(s.provider, "stream returned invalid Gemini message signature")
 	}
+	if s.kimi != nil {
+		if s.kimi.capture(choice.Delta.ReasoningContent, true) != nil {
+			return nil, openAIProtocolError(s.provider, "stream returned invalid Kimi private reasoning")
+		}
+		s.kimi.observeContent(choice.Delta.Content)
+	}
 	streamEvents := s.ensureStreamStarted()
 	chunk := &ChatChunk{}
 	if choice.Delta.Content != nil && *choice.Delta.Content != "" {
@@ -975,6 +1046,9 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 		s.hasTextDelta = true
 		if s.gemini != nil {
 			s.gemini.text.WriteString(text)
+		}
+		if s.kimi != nil {
+			s.kimi.text.WriteString(text)
 		}
 		if !s.textItemSeen {
 			s.textItemSeen = true
@@ -1153,6 +1227,21 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 			return ChatChunk{}, openAIProtocolError(s.provider, "stream returned invalid Gemini signature replay")
 		}
 	}
+	if s.kimi != nil {
+		if (len(calls) == 0 && finishReason != FinishReasonStop) ||
+			(len(calls) != 0 && finishReason != FinishReasonToolCalls) {
+			return ChatChunk{}, openAIProtocolError(s.provider, "stream did not complete its Kimi native response")
+		}
+		for position, index := range indices {
+			if !replayIdentity(s.tools[index].id) || s.tools[index].id != calls[position].ID || s.tools[index].name != calls[position].Name {
+				return ChatChunk{}, openAIProtocolError(s.provider, "stream changed its Kimi native tool identity during acceptance")
+			}
+		}
+		replay, err = s.kimi.replay(s.kimiProvider, s.model, s.wireModel, s.upstreamModel, s.kimi.text.String(), calls)
+		if err != nil {
+			return ChatChunk{}, openAIProtocolError(s.provider, "stream returned invalid Kimi private replay")
+		}
+	}
 	events := make([]StreamEvent, 0, 3+len(calls)*2)
 	if s.textItemSeen {
 		events = append(events, s.events.emit(StreamEvent{
@@ -1208,6 +1297,9 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 	if GeminiThoughtSignatureScope(p.baseURL, wireModel) {
 		state.gemini, state.geminiProvider, state.wireModel = &geminiReplayBuilder{}, p, wireModel
 	}
+	if KimiReasoningScope(p.baseURL, wireModel) {
+		state.kimi, state.kimiProvider, state.wireModel = &kimiReplayBuilder{}, p, wireModel
+	}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
 	lines := providerStreamLines{}
@@ -1216,7 +1308,12 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 	eventBytes := 0
 	stopped := false
 	sendError := func(err error) bool {
-		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
+		chunk := state.events.failureChunk(err)
+		if state.kimi != nil && state.usage != nil {
+			usage := *state.usage
+			chunk.Usage = &usage
+		}
+		return p.sendStreamChunk(ctx, chunks, chunk)
 	}
 	flush := func() bool {
 		if len(dataLines) == 0 {

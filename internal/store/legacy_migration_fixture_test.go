@@ -189,12 +189,21 @@ func removeSchemaV157ForTestStatements() []string {
 		`CREATE TEMP TABLE legacy_fixture_empty_rejections (n INTEGER CHECK(n=0));`,
 		`INSERT INTO legacy_fixture_empty_rejections SELECT count(*) FROM run_supervisor_tool_rejections;`,
 		`DROP TABLE legacy_fixture_empty_rejections;`,
+		`CREATE TEMP TABLE legacy_fixture_empty_assistant_replay (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_assistant_replay SELECT count(*) FROM run_supervisor_assistant_replay;`,
+		`INSERT INTO legacy_fixture_empty_assistant_replay SELECT count(*) FROM run_supervisor_assistant_replay_bindings;`,
+		`DROP TABLE legacy_fixture_empty_assistant_replay;`,
+		`CREATE TEMP TABLE legacy_fixture_empty_task_briefs (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_task_briefs SELECT count(*) FROM specialist_task_briefs;`,
+		`INSERT INTO legacy_fixture_empty_task_briefs SELECT count(*) FROM agent_messages WHERE json_valid(payload_json) AND json_extract(payload_json,'$.version')='specialist_instruction.v2';`,
+		`DROP TABLE legacy_fixture_empty_task_briefs;`,
 		`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`,
 	}
 	// The v168 guards must reject modern queue history before any object or
 	// ledger mutation; a rejected downgrade leaves schema and ledger untouched.
 	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
 	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
+	statements = append(statements, removeSchemaV175ForTestStatements()...)
 	statements = append(statements,
 		`DROP TRIGGER trg_supervisor_tool_rejection_immutable;`,
 		`DROP TABLE run_supervisor_tool_rejections;`,

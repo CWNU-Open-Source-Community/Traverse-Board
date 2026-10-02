@@ -5936,6 +5936,29 @@ CREATE TABLE run_skill_selections (
 			AND instr(requested_by, char(0)) = 0)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_assistant_replay (
+		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+		turn INTEGER NOT NULL CHECK(turn > 0), attempt_id TEXT NOT NULL CHECK(length(attempt_id) > 0),
+		model_attempt INTEGER NOT NULL CHECK(model_attempt > 0),
+		tool_round INTEGER NOT NULL CHECK(tool_round BETWEEN 0 AND 4),
+		provider TEXT NOT NULL CHECK(length(provider) > 0), model TEXT NOT NULL CHECK(length(model) > 0),
+		replay_blob BLOB NOT NULL CHECK(length(replay_blob) BETWEEN 1 AND 1048576),
+		replay_sha256 TEXT NOT NULL CHECK(length(replay_sha256)=64 AND replay_sha256 NOT GLOB '*[^0-9a-f]*'),
+		created_at TEXT NOT NULL,
+		PRIMARY KEY(run_id,turn,attempt_id,model_attempt)
+	);
+-- traverse-board-clean-install-object-boundary --
+CREATE TABLE run_supervisor_assistant_replay_bindings (
+		session_message_id INTEGER PRIMARY KEY REFERENCES session_messages(id),
+		run_id TEXT NOT NULL, turn INTEGER NOT NULL CHECK(turn > 0), attempt_id TEXT NOT NULL,
+		model_attempt INTEGER NOT NULL CHECK(model_attempt > 0),
+		projected_content_sha256 TEXT NOT NULL CHECK(length(projected_content_sha256)=64 AND projected_content_sha256 NOT GLOB '*[^0-9a-f]*'),
+		replay_sha256 TEXT NOT NULL CHECK(length(replay_sha256)=64 AND replay_sha256 NOT GLOB '*[^0-9a-f]*'),
+		created_at TEXT NOT NULL, UNIQUE(run_id,turn,attempt_id),
+		FOREIGN KEY(run_id,turn,attempt_id,model_attempt)
+			REFERENCES run_supervisor_assistant_replay(run_id,turn,attempt_id,model_attempt) ON DELETE CASCADE
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE run_supervisor_checkpoints (
 		run_id TEXT PRIMARY KEY,
 		next_turn INTEGER NOT NULL,
@@ -11949,6 +11972,24 @@ CREATE TABLE specialist_skill_context_preparations (
 			AND length(mode_snapshot_id) BETWEEN 1 AND 256 AND instr(mode_snapshot_id, char(0)) = 0)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE specialist_task_briefs (
+   agent_attempt_id TEXT PRIMARY KEY REFERENCES agent_attempts(id) ON DELETE CASCADE,
+   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+   agent_id TEXT NOT NULL,
+   parent_agent_id TEXT NOT NULL,
+   turn_number INTEGER NOT NULL CHECK(turn_number > 0),
+   brief_json TEXT NOT NULL CHECK(json_valid(brief_json) AND length(CAST(brief_json AS BLOB)) BETWEEN 2 AND 131072),
+   fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+   prepared_at TEXT NOT NULL,
+   FOREIGN KEY(run_id, agent_id) REFERENCES agent_nodes(run_id,id) ON DELETE CASCADE,
+   FOREIGN KEY(run_id, parent_agent_id) REFERENCES agent_nodes(run_id,id) ON DELETE CASCADE,
+   CHECK(json_extract(brief_json,'$.version')='specialist_task_brief.v1'),
+   CHECK(json_extract(brief_json,'$.run_id')=run_id),
+   CHECK(json_extract(brief_json,'$.agent_id')=agent_id),
+   CHECK(json_extract(brief_json,'$.parent_agent_id')=parent_agent_id),
+   CHECK(json_extract(brief_json,'$.fingerprint')=fingerprint)
+  );
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE standard_code_deliveries (
 		id TEXT PRIMARY KEY,
 		operation_key_digest TEXT NOT NULL UNIQUE,
@@ -13966,6 +14007,8 @@ CREATE INDEX idx_specialist_schedule_run_started
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_specialist_skill_context_run_agent_turn
 		ON specialist_skill_context_preparations(run_id, agent_id, turn_number, prepared_at);
+-- traverse-board-clean-install-object-boundary --
+CREATE INDEX idx_specialist_task_brief_child ON specialist_task_briefs(run_id,agent_id,turn_number);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_standard_code_deliveries_run_event
 		ON standard_code_deliveries(run_id, event_sequence DESC);
@@ -23899,14 +23942,35 @@ CREATE TRIGGER trg_specialist_context_delivery_commit
 				AND message.status = 'pending'
 				AND json_valid(message.payload_json)
 				AND json_type(message.payload_json) = 'object'
-				AND json_extract(message.payload_json, '$.version') = 'specialist_instruction.v1'
+				AND (json_extract(message.payload_json, '$.version') = 'specialist_instruction.v1'
 				AND json_type(message.payload_json, '$.instruction') = 'text'
 				AND length(trim(json_extract(message.payload_json, '$.instruction'))) BETWEEN 1 AND 1200
 				AND (SELECT COUNT(*) FROM json_each(message.payload_json)) = 2
 				AND NOT EXISTS (
 					SELECT 1 FROM json_each(message.payload_json) field
 					WHERE field.key NOT IN ('version', 'instruction')
-				)
+				) OR (
+    json_extract(message.payload_json,'$.version')='specialist_instruction.v2'
+    AND json_type(message.payload_json,'$.instruction')='text'
+    AND ((json_extract(message.payload_json,'$.operation')='append'
+      AND length(trim(json_extract(message.payload_json,'$.instruction'))) BETWEEN 1 AND 1200
+      AND (SELECT COUNT(*) FROM json_each(message.payload_json))=3
+      AND NOT EXISTS(SELECT 1 FROM json_each(message.payload_json) WHERE key NOT IN ('version','instruction','operation')))
+     OR (json_extract(message.payload_json,'$.operation') IN ('replace','withdraw')
+      AND (SELECT COUNT(*) FROM json_each(message.payload_json))=5
+      AND NOT EXISTS(SELECT 1 FROM json_each(message.payload_json) WHERE key NOT IN ('version','instruction','operation','target_message_id','target_payload_sha256'))
+      AND json_type(message.payload_json,'$.target_message_id')='text'
+      AND length(json_extract(message.payload_json,'$.target_message_id'))>0
+      AND json_type(message.payload_json,'$.target_payload_sha256')='text'
+      AND length(json_extract(message.payload_json,'$.target_payload_sha256'))=64
+      AND json_extract(message.payload_json,'$.target_payload_sha256') NOT GLOB '*[^0-9a-f]*'
+      AND ((json_extract(message.payload_json,'$.operation')='replace' AND length(trim(json_extract(message.payload_json,'$.instruction'))) BETWEEN 1 AND 1200)
+       OR (json_extract(message.payload_json,'$.operation')='withdraw' AND json_extract(message.payload_json,'$.instruction')=''))
+      AND EXISTS(SELECT 1 FROM agent_messages target WHERE target.id=json_extract(message.payload_json,'$.target_message_id')
+       AND target.run_id=message.run_id AND target.sender_agent_id=message.sender_agent_id
+       AND target.recipient_agent_id=message.recipient_agent_id AND target.sequence<message.sequence
+       AND target.kind='instruction' AND target.semantic='message')))
+   ))
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'Specialist context commit requires its active usage-recorded attempt');
@@ -23948,14 +24012,35 @@ CREATE TRIGGER trg_specialist_context_delivery_insert
 				AND message.status = 'pending'
 				AND json_valid(message.payload_json)
 				AND json_type(message.payload_json) = 'object'
-				AND json_extract(message.payload_json, '$.version') = 'specialist_instruction.v1'
+				AND (json_extract(message.payload_json, '$.version') = 'specialist_instruction.v1'
 				AND json_type(message.payload_json, '$.instruction') = 'text'
 				AND length(trim(json_extract(message.payload_json, '$.instruction'))) BETWEEN 1 AND 1200
 				AND (SELECT COUNT(*) FROM json_each(message.payload_json)) = 2
 				AND NOT EXISTS (
 					SELECT 1 FROM json_each(message.payload_json) field
 					WHERE field.key NOT IN ('version', 'instruction')
-				)
+				) OR (
+    json_extract(message.payload_json,'$.version')='specialist_instruction.v2'
+    AND json_type(message.payload_json,'$.instruction')='text'
+    AND ((json_extract(message.payload_json,'$.operation')='append'
+      AND length(trim(json_extract(message.payload_json,'$.instruction'))) BETWEEN 1 AND 1200
+      AND (SELECT COUNT(*) FROM json_each(message.payload_json))=3
+      AND NOT EXISTS(SELECT 1 FROM json_each(message.payload_json) WHERE key NOT IN ('version','instruction','operation')))
+     OR (json_extract(message.payload_json,'$.operation') IN ('replace','withdraw')
+      AND (SELECT COUNT(*) FROM json_each(message.payload_json))=5
+      AND NOT EXISTS(SELECT 1 FROM json_each(message.payload_json) WHERE key NOT IN ('version','instruction','operation','target_message_id','target_payload_sha256'))
+      AND json_type(message.payload_json,'$.target_message_id')='text'
+      AND length(json_extract(message.payload_json,'$.target_message_id'))>0
+      AND json_type(message.payload_json,'$.target_payload_sha256')='text'
+      AND length(json_extract(message.payload_json,'$.target_payload_sha256'))=64
+      AND json_extract(message.payload_json,'$.target_payload_sha256') NOT GLOB '*[^0-9a-f]*'
+      AND ((json_extract(message.payload_json,'$.operation')='replace' AND length(trim(json_extract(message.payload_json,'$.instruction'))) BETWEEN 1 AND 1200)
+       OR (json_extract(message.payload_json,'$.operation')='withdraw' AND json_extract(message.payload_json,'$.instruction')=''))
+      AND EXISTS(SELECT 1 FROM agent_messages target WHERE target.id=json_extract(message.payload_json,'$.target_message_id')
+       AND target.run_id=message.run_id AND target.sender_agent_id=message.sender_agent_id
+       AND target.recipient_agent_id=message.recipient_agent_id AND target.sequence<message.sequence
+       AND target.kind='instruction' AND target.semantic='message')))
+   ))
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'Specialist context delivery requires an eligible pending parent instruction');
@@ -24409,6 +24494,16 @@ CREATE TRIGGER trg_specialist_external_skill_context_preparation_insert
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_specialist_external_skill_context_preparation_update_immutable BEFORE UPDATE ON specialist_external_skill_context_preparations
 		BEGIN SELECT RAISE(ABORT, 'external Specialist Skill context preparation cannot be updated'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_specialist_instruction_source_delete BEFORE DELETE ON agent_messages
+   WHEN EXISTS(SELECT 1 FROM runs WHERE id=OLD.run_id) AND json_valid(OLD.payload_json)
+    AND json_extract(OLD.payload_json,'$.version') IN ('specialist_instruction.v1','specialist_instruction.v2')
+   BEGIN SELECT RAISE(ABORT,'Specialist instruction and retirement sources must be retained'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_specialist_instruction_source_immutable
+   BEFORE UPDATE OF id,run_id,sender_agent_id,recipient_agent_id,sequence,kind,semantic,payload_json ON agent_messages
+   WHEN json_valid(OLD.payload_json) AND json_extract(OLD.payload_json,'$.version') IN ('specialist_instruction.v1','specialist_instruction.v2')
+   BEGIN SELECT RAISE(ABORT,'Specialist instruction source is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_specialist_model_call_identity_immutable
 		BEFORE UPDATE OF agent_attempt_id, run_id, agent_id, model_attempt_number,
@@ -25028,6 +25123,27 @@ CREATE TRIGGER trg_specialist_skill_context_preparation_update_immutable
 			SELECT RAISE(ABORT, 'Specialist Skill context preparation cannot be updated');
 		END;
 -- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_specialist_task_brief_delete BEFORE DELETE ON specialist_task_briefs
+   WHEN EXISTS(SELECT 1 FROM runs WHERE id=OLD.run_id)
+   BEGIN SELECT RAISE(ABORT,'Specialist task brief cannot be deleted while its Run exists'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_specialist_task_brief_immutable BEFORE UPDATE ON specialist_task_briefs
+   BEGIN SELECT RAISE(ABORT,'Specialist task brief is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_specialist_task_brief_insert BEFORE INSERT ON specialist_task_briefs
+   WHEN NOT EXISTS (
+    SELECT 1 FROM agent_attempts a JOIN agent_nodes c ON c.id=a.agent_id
+    JOIN agent_nodes p ON p.id=a.parent_agent_id JOIN runs r ON r.id=a.run_id
+    JOIN run_execution_leases l ON l.run_id=a.run_id
+    WHERE a.id=NEW.agent_attempt_id AND a.run_id=NEW.run_id AND a.agent_id=NEW.agent_id
+     AND a.parent_agent_id=NEW.parent_agent_id AND a.turn_number=NEW.turn_number
+     AND a.status='running' AND a.usage_recorded_at IS NULL AND r.status='running'
+     AND c.role='specialist' AND c.status='running' AND c.active_attempt_id=a.id AND c.parent_id=p.id
+     AND p.role='root' AND p.run_id=r.id AND p.status IN ('ready','running','waiting')
+     AND l.status='active' AND l.lease_id=a.lease_id AND l.generation=a.lease_generation
+     AND julianday(l.expires_at)>julianday('now'))
+   BEGIN SELECT RAISE(ABORT,'Specialist task brief requires its active attempt and lease'); END;
+-- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_standard_code_delivery_delete_immutable
 		BEFORE DELETE ON standard_code_deliveries BEGIN
 			SELECT RAISE(ABORT, 'Standard Code delivery receipts are immutable');
@@ -25414,6 +25530,59 @@ CREATE TRIGGER trg_structured_tool_operation_work_item_target
 		BEGIN
 			SELECT RAISE(ABORT, 'structured tool WorkItem target mismatch');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_binding_delete BEFORE DELETE ON run_supervisor_assistant_replay_bindings
+	WHEN EXISTS (SELECT 1 FROM runs WHERE id=OLD.run_id)
+	BEGIN SELECT RAISE(ABORT,'ordinary replay binding cannot be removed'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_binding_immutable BEFORE UPDATE ON run_supervisor_assistant_replay_bindings
+	BEGIN SELECT RAISE(ABORT,'ordinary replay binding is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_binding_source BEFORE INSERT ON run_supervisor_assistant_replay_bindings
+	WHEN NOT EXISTS (SELECT 1 FROM run_supervisor_assistant_replay p
+		JOIN runs r ON r.id=p.run_id JOIN session_messages m ON m.id=NEW.session_message_id
+		JOIN run_events e ON e.run_id=p.run_id
+		WHERE p.run_id=NEW.run_id AND p.turn=NEW.turn AND p.attempt_id=NEW.attempt_id
+		AND p.model_attempt=NEW.model_attempt AND p.replay_sha256=NEW.replay_sha256
+		AND m.session_id=r.session_id AND m.role='assistant' AND m.source_kind='model_response'
+		AND m.provenance_version='context_provenance.v1' AND m.instruction_authorized=0
+		AND m.content_sha256=NEW.projected_content_sha256
+		AND e.type='agent.turn_completed' AND e.source='run_supervisor' AND e.subject_id=NEW.attempt_id
+		AND json_extract(e.payload_json,'$.turn')=NEW.turn
+		AND json_extract(e.payload_json,'$.attempt_id')=NEW.attempt_id
+		AND json_extract(e.payload_json,'$.assistant_message_id')=NEW.session_message_id
+		AND json_extract(e.payload_json,'$.provider')=p.provider
+		AND json_extract(e.payload_json,'$.model')=p.model)
+	BEGIN SELECT RAISE(ABORT,'ordinary replay requires its accepted session projection'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_replay_delete BEFORE DELETE ON run_supervisor_assistant_replay
+	WHEN EXISTS (SELECT 1 FROM runs WHERE id=OLD.run_id)
+	BEGIN SELECT RAISE(ABORT,'ordinary provider replay cannot be removed'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_replay_immutable BEFORE UPDATE ON run_supervisor_assistant_replay
+	BEGIN SELECT RAISE(ABORT,'ordinary provider replay is immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_supervisor_assistant_replay_source BEFORE INSERT ON run_supervisor_assistant_replay
+	WHEN NOT EXISTS (SELECT 1 FROM run_events e WHERE e.run_id=NEW.run_id
+		AND e.type='model.completed' AND e.source='model_gateway'
+		AND e.subject_id=NEW.attempt_id||'/model/'||NEW.model_attempt
+		AND json_extract(e.payload_json,'$.turn')=NEW.turn
+		AND json_extract(e.payload_json,'$.attempt_id')=NEW.attempt_id
+		AND json_extract(e.payload_json,'$.model_attempt')=NEW.model_attempt
+		AND json_extract(e.payload_json,'$.tool_round')=NEW.tool_round
+		AND json_extract(e.payload_json,'$.provider')=NEW.provider
+		AND json_extract(e.payload_json,'$.model')=NEW.model
+		AND json_extract(e.payload_json,'$.outcome')='success'
+		AND json_extract(e.payload_json,'$.tool_call_count')=0
+		AND COALESCE(json_extract(e.payload_json,'$.purpose'),'')='')
+	OR COALESCE((json_valid(CAST(NEW.replay_blob AS TEXT))
+		AND json_extract(CAST(NEW.replay_blob AS TEXT),'$.version')=4
+		AND json_extract(CAST(NEW.replay_blob AS TEXT),'$.transport')='openai_chat_completions'
+		AND json_extract(CAST(NEW.replay_blob AS TEXT),'$.provider')=NEW.provider
+		AND json_extract(CAST(NEW.replay_blob AS TEXT),'$.model')=NEW.model
+		AND json_type(CAST(NEW.replay_blob AS TEXT),'$.calls')='array'
+		AND json_array_length(CAST(NEW.replay_blob AS TEXT),'$.calls')=0),0)=0
+	BEGIN SELECT RAISE(ABORT,'ordinary replay requires its successful primary model source'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_supervisor_context_recovery_immutable BEFORE UPDATE ON run_supervisor_context_recoveries
 	BEGIN SELECT RAISE(ABORT, 'context recovery claim is immutable'); END;
