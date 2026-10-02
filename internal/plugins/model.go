@@ -1,6 +1,6 @@
-// Package plugins implements inert, review-gated plugin.v1 packages. A plugin
-// can describe Skills, MCP servers, UI metadata, and declarative hooks; it can
-// never carry or execute install scripts, binaries, or native code.
+// Package plugins implements inert, review-gated plugin installation. Legacy
+// plugin.v1 archives reject executable assets. Portable source snapshots retain
+// original scripts and binary resources as data; acquisition never runs them.
 package plugins
 
 import (
