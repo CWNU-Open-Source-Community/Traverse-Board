@@ -92,9 +92,6 @@ func NewResolvedClient(launch toolcontract.ResolvedLaunch, hostKey []byte, conne
 		transport, remote = makeHTTPClientTransport(launch.HTTP.Endpoint, "", base)
 		remote.headers = make(http.Header, len(launch.HTTP.Headers))
 		for name, value := range launch.HTTP.Headers {
-			if slices.Contains([]string{"Host", "Content-Length", "Transfer-Encoding", "Connection", "Trailer", "Mcp-Protocol-Version", "Mcp-Session-Id", "Mcp-Method", "Mcp-Name"}, http.CanonicalHeaderKey(name)) {
-				return nil, errors.New("MCP launch contains a transport-controlled HTTP header")
-			}
 			remote.headers.Set(name, value)
 		}
 		remote.beforeConnect = func(ctx context.Context) error {

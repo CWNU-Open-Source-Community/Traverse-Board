@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -52,7 +53,8 @@ func makeHTTPClientTransport(endpoint, bearer string, base *http.Client) (*sdkCl
 	if base != nil && base.Transport != nil {
 		roundTripper = base.Transport
 	}
-	httpTransport := &mcpHTTPTransport{base: roundTripper, bearer: bearer}
+	origin, _ := url.Parse(endpoint) // Constructors validate the endpoint first.
+	httpTransport := &mcpHTTPTransport{base: roundTripper, bearer: bearer, origin: origin}
 	client := &http.Client{Transport: httpTransport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP redirects are forbidden") }}
 	if base != nil {
@@ -161,6 +163,7 @@ func (p *clientProcess) Close() error {
 // SSE is incremental and bounded per event by the SDK, not per stream.
 type mcpHTTPTransport struct {
 	protocolVersion atomic.Value
+	origin          *url.URL
 	base            http.RoundTripper
 	bearer          string
 	headers         http.Header
@@ -174,12 +177,21 @@ func (t *mcpHTTPTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if err := request.Context().Err(); err != nil {
 		return nil, err
 	}
+	// Check before resolving credentials or copying configured headers. SDK
+	// upgrades, redirects and endpoint events cannot silently change the origin.
+	if !sameMCPOrigin(t.origin, request.URL) || (request.Host != "" && !strings.EqualFold(request.Host, request.URL.Host)) {
+		return nil, errors.New("MCP request exceeds its bound origin")
+	}
 	request = request.Clone(request.Context())
+	generated := request.Header
+	request.Header = make(http.Header, len(generated)+len(t.headers))
 	for name, values := range t.headers {
-		if existing := request.Header.Values(name); len(existing) > 0 && strings.Join(existing, ", ") != strings.Join(values, ", ") {
-			return nil, errors.New("configured MCP header conflicts with SDK protocol framing")
+		if !hostControlledMCPHeader(name) {
+			request.Header[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 		}
-		request.Header[name] = append([]string(nil), values...)
+	}
+	for name, values := range generated {
+		request.Header[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 	}
 	if t.beforeConnect != nil {
 		t.connectOnce.Do(func() { t.connectErr = t.beforeConnect(request.Context()) })
@@ -247,6 +259,35 @@ func (t *mcpHTTPTransport) RoundTrip(request *http.Request) (*http.Response, err
 		response.Body = &limitedMCPBody{ReadCloser: response.Body, remaining: MaxMessageBytes}
 	}
 	return response, nil
+}
+
+func sameMCPOrigin(bound, actual *url.URL) bool {
+	if bound == nil || actual == nil || bound.Hostname() == "" || actual.Hostname() == "" || actual.User != nil || actual.Opaque != "" ||
+		!strings.EqualFold(bound.Scheme, actual.Scheme) || !strings.EqualFold(bound.Hostname(), actual.Hostname()) {
+		return false
+	}
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if strings.EqualFold(u.Scheme, "https") {
+			return "443"
+		}
+		return "80"
+	}
+	return port(bound) == port(actual)
+}
+
+// These values (including absence) belong to HTTP framing or the negotiated MCP
+// session. Keep literal configuration in the launch fingerprint, but never let
+// it supply a protocol/session header before the SDK has generated one.
+func hostControlledMCPHeader(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case "Host", "Content-Length", "Transfer-Encoding", "Connection", "Trailer", "Te", "Upgrade", "Proxy-Authorization",
+		"Accept", "Content-Type", "Mcp-Protocol-Version", "Mcp-Session-Id", "Mcp-Method", "Mcp-Name", "Last-Event-Id":
+		return true
+	}
+	return false
 }
 func (t *mcpHTTPTransport) CloseIdleConnections() {
 	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
