@@ -30,6 +30,7 @@ func (e *MCPClientToolExecutor) operationAuthorizer(ctx context.Context, scope t
 		return executionauth.SubjectRef{}, nil, nil, errors.New("MCP root actor is unavailable")
 	}
 	subject := executionauth.SubjectRef{RunID: scope.RunID, ActorID: root.ID}
+	component := toolcontract.ComponentRef{PackageID: mcp.ClientProtocolVersion, ComponentID: serverID}
 	readBinding := func(ctx context.Context) (string, domain.ExecutionApprovalMode, error) {
 		permission, err := e.currentExecutionScope(ctx, scope)
 		if err != nil {
@@ -64,6 +65,24 @@ func (e *MCPClientToolExecutor) operationAuthorizer(ctx context.Context, scope t
 	if err != nil {
 		return subject, nil, nil, err
 	}
+	// Capture the initial host binding before resolving component metadata.
+	// Revocation during that lookup is then observed by Manager's actual guard,
+	// preserving its not-dispatched receipt and existing call audit boundary.
+	if records, ok := e.store.(interface {
+		GetMCPClientServer(context.Context, string) (mcp.ServerRecord, error)
+	}); ok {
+		record, err := records.GetMCPClientServer(ctx, serverID)
+		if err != nil && apperror.CodeOf(err) != apperror.CodeNotFound {
+			return subject, nil, nil, err
+		}
+		if err == nil && record.Descriptor.NativeSource != nil {
+			source := *record.Descriptor.NativeSource
+			if source.Validate() != nil || source.Surface != string(scope.Surface) {
+				return subject, nil, nil, apperror.New(apperror.CodePolicyDenied, "native MCP surface does not match its host subject")
+			}
+			component = source.Component
+		}
+	}
 	recheck := func(ctx context.Context) error {
 		binding, _, err := readBinding(ctx)
 		if err == nil && binding != expected {
@@ -73,7 +92,7 @@ func (e *MCPClientToolExecutor) operationAuthorizer(ctx context.Context, scope t
 	}
 	authorizer := executionauth.NewPolicyAuthorizer(func(ctx context.Context, actual executionauth.SubjectRef, operation toolcontract.Operation, approvalRef string) (executionauth.OperationAuthority, error) {
 		if actual != subject || approvalRef != "" || operation.AdapterID != mcp.RuntimeAdapterID || operation.AdapterRevision != mcp.RuntimeAdapterRevision ||
-			operation.Component != (toolcontract.ComponentRef{PackageID: mcp.ClientProtocolVersion, ComponentID: serverID}) ||
+			operation.Component != component ||
 			(operation.Kind != toolcontract.OperationConnect && operation.Kind != toolcontract.OperationDiscovery && operation.Kind != toolcontract.OperationToolCall) {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "MCP host operation does not match its runtime")
 		}
