@@ -101,12 +101,24 @@ describe("SettingsView", () => {
   });
 
   it("never uses a stale selected Run as the Thread permission target", () => {
-    renderSettings({ capabilities, client, desktop: true, health,
+    const permissionClient = new CyberAgentClient("read-token", "/api/v1", "control-token", {
+      executionPermissionControlEnabled: true,
+    });
+    const get = vi.spyOn(permissionClient, "get");
+    const getPermission = vi.spyOn(permissionClient, "getThreadExecutionPermission");
+    const changePermission = vi.spyOn(permissionClient, "changeThreadExecutionPermission");
+    const postControl = vi.spyOn(permissionClient, "postControl");
+    renderSettings({ capabilities, client: permissionClient, desktop: true, health,
       selectedRunID: "run-stale-diagnostic", selectedThreadID: "", onBack: vi.fn(),
       onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
 
     fireEvent.click(screen.getByRole("button", { name: "权限" }));
-    expect(screen.getByText("从侧栏打开一个 Thread")).toBeInTheDocument();
+    expect(screen.getByText("先从侧栏打开一个对话。")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "执行权限档位" })).not.toBeInTheDocument();
+    expect(get).not.toHaveBeenCalled();
+    expect(getPermission).not.toHaveBeenCalled();
+    expect(changePermission).not.toHaveBeenCalled();
+    expect(postControl).not.toHaveBeenCalled();
     expect(screen.queryByText("选择一个 Run")).not.toBeInTheDocument();
     expect(screen.queryByText("run-stale-diagnostic")).not.toBeInTheDocument();
   });
