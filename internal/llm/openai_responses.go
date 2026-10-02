@@ -742,6 +742,60 @@ type openAIResponsesOutputItem struct {
 	Arguments        string                   `json:"arguments"`
 	EncryptedContent string                   `json:"encrypted_content,omitempty"`
 	Summary          json.RawMessage          `json:"summary,omitempty"`
+	statusRaw        json.RawMessage
+}
+
+func (item *openAIResponsesOutputItem) UnmarshalJSON(raw []byte) error {
+	type wireItem openAIResponsesOutputItem
+	var wire struct {
+		wireItem
+		Status json.RawMessage `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	if len(wire.Status) != 0 {
+		if err := json.Unmarshal(wire.Status, &wire.wireItem.Status); err != nil {
+			return err
+		}
+	}
+	*item = openAIResponsesOutputItem(wire.wireItem)
+	item.statusRaw = append(json.RawMessage(nil), wire.Status...)
+	return nil
+}
+
+// Reasoning status is optional (and nullable) in the official item schema.
+// Keep wire data unchanged and distinguish omission from an explicit empty string.
+func (item openAIResponsesOutputItem) reasoningStatusOmitted() bool {
+	return item.Type == "reasoning" && item.Status == "" &&
+		(len(item.statusRaw) == 0 || bytes.Equal(bytes.TrimSpace(item.statusRaw), []byte("null")))
+}
+
+func (item openAIResponsesOutputItem) completedStatus() bool {
+	return item.Status == "completed" || item.reasoningStatusOmitted()
+}
+
+// A done reasoning item and its terminal snapshot can differ only in whether
+// the optional completed status is present. Compare copies, preserving replay data.
+func responsesCompletedOutputEqual(done, terminal []openAIResponsesOutputItem) bool {
+	if len(done) != len(terminal) {
+		return false
+	}
+	for index, item := range done {
+		snapshot := terminal[index]
+		if item.Type == "reasoning" && snapshot.Type == "reasoning" {
+			if !item.completedStatus() || !snapshot.completedStatus() {
+				return false
+			}
+			item.Status, snapshot.Status = "", ""
+		}
+		left, leftErr := json.Marshal(item)
+		right, rightErr := json.Marshal(snapshot)
+		if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
+			return false
+		}
+	}
+	return true
 }
 
 type openAIResponsesIncompleteDetails struct {
@@ -945,7 +999,7 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses completion model")
 		}
 		for _, item := range s.items {
-			if !item.completed || item.final == nil || item.final.Status != "completed" {
+			if !item.completed || item.final == nil || !item.final.completedStatus() {
 				return nil, false, openAIProtocolError(s.provider, "completed Responses stream with unfinished items")
 			}
 		}
@@ -976,9 +1030,7 @@ func (s *responsesStreamState) consume(payload []byte) (*ChatChunk, bool, error)
 			return nil, false, openAIProtocolError(s.provider, "returned invalid completed Responses items")
 		}
 		if len(event.Response.Output) > 0 {
-			stored, storedErr := json.Marshal(output)
-			terminal, terminalErr := json.Marshal(event.Response.Output)
-			if storedErr != nil || terminalErr != nil || !bytes.Equal(stored, terminal) {
+			if !responsesCompletedOutputEqual(output, event.Response.Output) {
 				return nil, false, openAIProtocolError(s.provider,
 					"Responses terminal output changed after item completion")
 			}
@@ -1055,7 +1107,7 @@ func (s *responsesStreamState) startItem(item openAIResponsesOutputItem) (*ChatC
 		validateStreamIdentity(item.ID, "Responses output item") != nil || s.items[item.ID] != nil {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item start")
 	}
-	if item.Status != "in_progress" {
+	if item.Status != "in_progress" && !item.reasoningStatusOmitted() {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item status")
 	}
 	state := &responsesStreamItem{wireType: item.Type}
@@ -1150,7 +1202,7 @@ func (s *responsesStreamState) completeTool(id string, item *responsesStreamItem
 func (s *responsesStreamState) completeItem(wire openAIResponsesOutputItem) (*ChatChunk, bool, error) {
 	item := s.items[wire.ID]
 	if item == nil || item.completed || wire.Type == "" || wire.Type != item.wireType ||
-		(wire.Status != "completed" && wire.Status != "incomplete") {
+		(wire.Status != "completed" && wire.Status != "incomplete" && !wire.reasoningStatusOmitted()) {
 		return nil, false, openAIProtocolError(s.provider, "returned an invalid Responses output item completion")
 	}
 	incomplete := wire.Status == "incomplete"
@@ -1243,7 +1295,7 @@ func (s *responsesStreamState) completedOutput() ([]openAIResponsesOutputItem, e
 	output := make([]openAIResponsesOutputItem, 0, len(s.itemOrder))
 	for _, id := range s.itemOrder {
 		item := s.items[id]
-		if item == nil || !item.completed || item.final == nil || item.final.Status != "completed" {
+		if item == nil || !item.completed || item.final == nil || !item.final.completedStatus() {
 			return nil, errors.New("Responses output item is unfinished")
 		}
 		output = append(output, *item.final)
