@@ -15,7 +15,7 @@ import (
 func TestNativeMCPSourceChecksExactInstallationAndMaterialization(t *testing.T) {
 	for _, mutation := range []string{"bytes", "extra-file", "repository-administration", "root-replacement"} {
 		t.Run(mutation, func(t *testing.T) {
-			state, run, _, _, _ := newCommandRuntimeTestRuntime(t, t.Context())
+			state, run, _, _, _ := newMCPApprovalModeRuntime(t, t.Context())
 			config := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"peer":{"type":"streamable-http","url":"https://example.invalid/mcp"}}}`)
 			installed := importNativeMCPFixture(t, state, config, nil)
 			stateRoot := t.TempDir()

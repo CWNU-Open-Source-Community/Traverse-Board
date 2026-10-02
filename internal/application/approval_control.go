@@ -8,6 +8,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -152,10 +153,12 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 		}
 		_, _, err = webStore.DecideWebFetchAuthorization(ctx, value.ID, scope, approve,
 			request.OperationKey, request.ReviewedBy, request.Reason)
-	} else if record.ToolName == toolgateway.AgentBrowserApprovalTool {
-		st, ok := s.store.(agentBrowserApprovalStore)
+	} else if record.ToolName == toolgateway.AgentBrowserApprovalTool || record.ToolName == mcp.OperationApprovalTool {
+		st, ok := s.store.(interface {
+			DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
+		})
 		if !ok {
-			return DecideApprovalControlResult{}, agentBrowserUnavailable("browser approval store unavailable")
+			return DecideApprovalControlResult{}, mcpApprovalUnavailable("tool approval store unavailable")
 		}
 		action := approval.ActionDeny
 		if request.Action == ApprovalControlApproveOnce {
@@ -215,6 +218,18 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 ) error {
 	var decision policy.Decision
 	switch record.ToolName {
+	case mcp.OperationApprovalTool:
+		if err := RecheckMCPApproval(ctx, s.store, record); err != nil {
+			return err
+		}
+		st := s.store.(mcpApprovalStore)
+		source, err := readMCPApprovalSource(ctx, st, record.RunID, record.ProposalID)
+		if err != nil {
+			return err
+		}
+		p := source.payload
+		decision = s.checker.CheckToolCall(tools.Call{Name: mcp.OperationApprovalTool, Args: map[string]string{
+			"server_id": p.ServerID, "tool_name": p.ToolName, "capability_fingerprint": p.CapabilityFingerprint, "arguments": string(p.Arguments)}})
 	case toolgateway.AgentBrowserApprovalTool:
 		return recheckAgentBrowserApproval(ctx, s.store, record)
 	case ThreadPullRequestApprovalTool:
@@ -307,7 +322,7 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 	}
 	switch record.ToolName {
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
+		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.WebFetchTool):
 		return []ApprovalControlAction{ApprovalControlApproveOnce,
@@ -329,7 +344,7 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 	if record.Status != approval.StatusPending {
 		switch record.ToolName {
 		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
+			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool:
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny

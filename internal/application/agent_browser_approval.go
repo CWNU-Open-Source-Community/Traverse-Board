@@ -13,7 +13,7 @@ import (
 )
 
 type agentBrowserApprovalStore interface {
-	GetAgentBrowserCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+	GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
 	EnsureApproval(context.Context, approval.Proposal) (approval.Record, error)
 	GetApprovalByProposal(context.Context, string) (approval.Record, error)
 	DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
@@ -24,7 +24,7 @@ func recheckAgentBrowserApproval(ctx context.Context, base ApprovalControlStore,
 	if !ok {
 		return agentBrowserUnavailable("browser approval source unavailable")
 	}
-	call, started, e := st.GetAgentBrowserCall(ctx, record.RunID, record.ProposalID)
+	call, started, e := st.GetSupervisorApprovalCall(ctx, record.RunID, record.ProposalID)
 	if e != nil {
 		return e
 	}
@@ -57,7 +57,7 @@ func (s *RunSupervisor) preflightAgentBrowserApproval(ctx context.Context, call 
 	if !ok {
 		return false, nil, agentBrowserUnavailable("browser approval storage unavailable")
 	}
-	stored, started, e := st.GetAgentBrowserCall(ctx, call.RunID, call.CallID)
+	stored, started, e := st.GetSupervisorApprovalCall(ctx, call.RunID, call.CallID)
 	if e != nil {
 		return false, nil, e
 	}
@@ -128,7 +128,7 @@ func (s *AgentBrowserService) checkDurableDispatch(ctx context.Context, scope to
 	if !found || lease.Status != domain.RunExecutionLeaseActive || lease.LeaseID != scope.Call.LeaseID || lease.Generation != scope.Call.LeaseGeneration || !lease.ExpiresAt.After(time.Now()) {
 		return agentBrowserUnavailable("browser dispatch Run lease is no longer current")
 	}
-	c, started, e := st.GetAgentBrowserCall(ctx, scope.Authority.RunID, scope.Call.SupervisorToolCallID)
+	c, started, e := st.GetSupervisorApprovalCall(ctx, scope.Authority.RunID, scope.Call.SupervisorToolCallID)
 	if e != nil {
 		return e
 	}
@@ -148,53 +148,4 @@ func (s *AgentBrowserService) checkDurableDispatch(ctx context.Context, scope to
 		}
 	}
 	return nil
-}
-
-// Pending browser tools resume the same durable model turn under the ordinary
-// root lease. They cannot enter the completed-wait continuation protocol.
-func (s *ThreadTurnService) resumePendingAgentBrowserApproval(ctx context.Context, request ApprovalContinuationRequest) ApprovalContinuationResult {
-	st, ok := s.execution.store.(agentBrowserApprovalStore)
-	if !ok {
-		return approvalContinuationFailed(agentBrowserUnavailable("browser approval continuation unavailable"))
-	}
-	record, e := st.GetApprovalByProposal(ctx, request.ProposalID)
-	if e != nil {
-		return approvalContinuationFailed(e)
-	}
-	if record.ToolName != toolgateway.AgentBrowserApprovalTool || record.RunID != request.RunID || record.Status == approval.StatusPending {
-		return ApprovalContinuationResult{State: "not_started"}
-	}
-	call, _, e := st.GetAgentBrowserCall(ctx, request.RunID, request.ProposalID)
-	if e != nil {
-		return approvalContinuationFailed(e)
-	}
-	if record.RequestFingerprint != toolgateway.AgentBrowserApprovalFingerprint(call) {
-		return approvalContinuationFailed(agentBrowserUnavailable("browser approval continuation source mismatch"))
-	}
-	if call.Status.Terminal() {
-		return ApprovalContinuationResult{State: "completed", Replayed: true}
-	}
-	var result LifecycleResult
-	e = s.execution.supervisor.withRunExecutionLease(ctx, request.RunID, func(c context.Context, lease domain.RunExecutionLease) error {
-		checkpoint, found, e := s.execution.store.GetSupervisorCheckpoint(c, request.RunID)
-		if e != nil {
-			return e
-		}
-		if !found || checkpoint.Phase != domain.SupervisorTurnStarted || checkpoint.NextTurn != call.Turn || checkpoint.AttemptID != call.AttemptID {
-			return agentBrowserUnavailable("browser approval cannot resume a different Supervisor turn")
-		}
-		result, e = s.execution.supervisor.stepWithLease(c, lease, "")
-		return e
-	})
-	if e != nil {
-		failed := approvalContinuationFailed(e)
-		failed.ModelCalled = result.ModelAttempts > 0
-		failed.ToolCalled = result.ToolCalls > 0
-		return failed
-	}
-	state := "completed"
-	if result.RunStatus == domain.RunWaitingApproval {
-		state = "waiting_approval"
-	}
-	return ApprovalContinuationResult{State: state, ModelCalled: result.ModelAttempts > 0, ToolCalled: result.ToolCalls > 0}
 }

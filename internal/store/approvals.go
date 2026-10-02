@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -251,6 +252,8 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 		}
 	}
 	switch proposal.ToolName {
+	case mcp.OperationApprovalTool:
+		return validateMCPApprovalSourceTx(ctx, tx, proposal)
 	case toolgateway.AgentBrowserApprovalTool:
 		return validateAgentBrowserApprovalSourceTx(ctx, tx, proposal)
 	case "thread.git":
