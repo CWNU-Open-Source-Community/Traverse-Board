@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
+import { LocaleProvider } from "../lib/locale";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import type { RunDetailView, RunExecutionPermissionControlView, RunExecutionPermissionView,
@@ -9,7 +11,7 @@ import { v2QueryKeys } from "../v2/query-keys";
 import { V2PermissionControl } from "../v2/components/permission-control";
 import { ExecutionPermissionPanel } from "./run-permission-settings";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.localStorage.removeItem("prayu.locale.v1"); });
 
 function permission(full = false): RunExecutionPermissionView {
   return {
@@ -135,3 +137,9 @@ describe.each(["thread menu", "thread settings", "run panel"] as const)("%s targ
     expect(f.change).toHaveBeenCalledTimes(1);
   });
 });
+
+// Match the production locale boundary instead of the isolated English default.
+function render(ui: ReactNode) {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
+  return renderComponent(ui, { wrapper: LocaleProvider });
+}
