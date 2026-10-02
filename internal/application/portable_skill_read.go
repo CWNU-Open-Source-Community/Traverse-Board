@@ -36,38 +36,6 @@ func portableSkillEnabled(value plugins.Installation, mode domain.RunModeSnapsho
 		value.Source.Surface == string(mode.Surface) && slices.Contains(value.EnabledCapabilities, plugins.CapabilitySkills)
 }
 
-func portableSkillCatalog(ctx context.Context, source any, mode domain.RunModeSnapshot) ([]toolgateway.BuiltinSkillDescriptor, error) {
-	store, ok := source.(portableSkillReadStore)
-	if !ok {
-		return nil, nil
-	}
-	values, err := store.ListPluginInstallations(ctx, "", 1000)
-	if err != nil {
-		return nil, err
-	}
-	var result []toolgateway.BuiltinSkillDescriptor
-	for _, value := range values {
-		if !portableSkillEnabled(value, mode) {
-			continue
-		}
-		for _, skill := range value.Snapshot.Skills {
-			if len(result) >= 32 {
-				return nil, apperror.New(apperror.CodeResourceExhausted, "too many enabled installed Skills for the bounded catalog")
-			}
-			size := 0
-			for _, entry := range value.Snapshot.Inventory {
-				if entry.Path == skill.Instructions.Path {
-					size = entry.Bytes
-					break
-				}
-			}
-			result = append(result, toolgateway.BuiltinSkillDescriptor{SkillReadRequest: portableSkillPin(value, skill),
-				Description: skill.Name + ": " + redact.String(skill.Description), ContentBytes: size})
-		}
-	}
-	return result, nil
-}
-
 func currentPortableSkill(ctx context.Context, store portableSkillReadStore, pin toolgateway.SkillReadRequest,
 	mode domain.RunModeSnapshot,
 ) (plugins.Installation, error) {

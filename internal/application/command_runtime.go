@@ -309,12 +309,11 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 				return result, err
 			}
 		}
-		if _, err := s.loadAuthorizedBindings(ctx, scope, networkRequested); err != nil {
-			return result, errors.Join(err,
-				s.completeCommandRuntimeBoundary(ctx, boundaryRequest, err))
+		start, err := s.authorizedCommandStart(scope, bindings, scope.OperationKey, resolved)
+		if err != nil {
+			return result, errors.Join(err, s.completeCommandRuntimeBoundary(ctx, boundaryRequest, err))
 		}
-		job, replayed, err := s.manager.Start(ctx, runner.CommandRuntimeStartRequest{
-			Scope: s.runnerScope(scope, bindings, scope.OperationKey), Spec: resolved})
+		job, replayed, err := s.manager.Start(ctx, start)
 		if err != nil {
 			operationErr := commandRuntimeError(err)
 			return result, errors.Join(operationErr,
@@ -362,8 +361,12 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 		if _, err := s.authorizeActiveJob(ctx, input.JobID, bindings); err != nil {
 			return result, err
 		}
-		job, _, replayed, err := s.manager.WriteStdin(ctx, input.JobID,
-			scope.OperationKey, []byte(*input.Stdin), *input.CloseStdin)
+		guard, err := s.commandStdinDispatchCheck(scope, bindings, input)
+		if err != nil {
+			return result, err
+		}
+		job, _, replayed, err := s.manager.WriteStdinGuarded(ctx, input.JobID,
+			scope.OperationKey, []byte(*input.Stdin), *input.CloseStdin, guard)
 		if err != nil {
 			return result, commandRuntimeError(err)
 		}
@@ -520,13 +523,12 @@ func (s *CommandRuntimeService) runForeground(ctx context.Context,
 		resolvedCommands[index] = resolved
 	}
 	for index, resolved := range resolvedCommands {
-		if _, err := s.loadAuthorizedBindings(ctx, scope,
-			resolved.Spec.Network == runner.CommandRuntimeNetworkHost); err != nil {
+		operationKey := commandRuntimeBatchOperationKey(scope.OperationKey, index)
+		start, err := s.authorizedCommandStart(scope, bindings, operationKey, resolved)
+		if err != nil {
 			return result, err
 		}
-		operationKey := commandRuntimeBatchOperationKey(scope.OperationKey, index)
-		job, replayed, err := s.manager.Start(ctx, runner.CommandRuntimeStartRequest{
-			Scope: s.runnerScope(scope, bindings, operationKey), Spec: resolved})
+		job, replayed, err := s.manager.Start(ctx, start)
 		if err != nil {
 			return result, commandRuntimeError(err)
 		}

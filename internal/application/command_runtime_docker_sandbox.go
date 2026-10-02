@@ -156,6 +156,9 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 	}
 	executionCtx, output := withDockerCommandRuntimeOutput(ctx, scope.RunID,
 		spec.Spec.Output.ArtifactBytes)
+	if err := runner.CheckCommandRuntimeDispatch(executionCtx, spec); err != nil {
+		return runner.CommandRuntimeSandboxResult{}, err
+	}
 	executed, err := e.service.executeCommandRuntime(executionCtx,
 		StandardCodeDockerExecuteRequest{
 			RunID: scope.RunID, ExpectedGeneration: workspace.Generation,

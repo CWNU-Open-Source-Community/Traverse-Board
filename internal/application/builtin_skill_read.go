@@ -29,18 +29,18 @@ func skillExecution(mode domain.RunModeSnapshot) skills.ExecutionContext {
 	return skills.ExecutionContext{Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile, Role: domain.AgentRoleRoot}
 }
 
-func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, error) {
+func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, string, error) {
 	reader, ok := s.store.(builtinSkillReadStore)
 	if !ok || s.skillRegistry == nil || s.skillRegistryErr != nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	selected, _, err := reader.GetSkillSelectionByRun(ctx, turn.Run.ID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	manifests, err := s.skillRegistry.ListForContext(skillExecution(turn.Mode), skills.InvocationSourceModel, false)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var catalog []toolgateway.BuiltinSkillDescriptor
 	for _, manifest := range manifests {
@@ -51,11 +51,16 @@ func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.Sup
 			SkillReadRequest: toolgateway.SkillReadRequest{Name: manifest.Name, Version: manifest.Version, ContentSHA256: manifest.ContentSHA256},
 			Description:      manifest.Description, ContentBytes: manifest.ContentBytes})
 	}
-	portable, err := portableSkillCatalog(ctx, s.store, turn.Mode)
+	portable, err := portableSkillCatalog(ctx, s.store, turn.Mode, toolgateway.SkillReadRequest{Catalog: true})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return append(catalog, portable...), nil
+	diagnostic := portable.Diagnostic
+	if portable.Next != nil {
+		raw, _ := json.Marshal(portable.Next)
+		diagnostic += " Next skill_read request: " + string(raw)
+	}
+	return append(catalog, portable.Skills...), diagnostic, nil
 }
 
 func operatorSkillPin(selection skills.Selection, name string) *skills.SelectionItem {
@@ -173,6 +178,9 @@ func (e *builtinSkillReader) ReadBuiltinSkill(ctx context.Context, call toolgate
 	mode, err := e.validateScope(ctx, call)
 	if err != nil {
 		return nil, err
+	}
+	if pin.Catalog {
+		return e.readPortableSkillCatalog(ctx, call, pin, mode)
 	}
 	if pin.Portable() {
 		return e.readPortableSkill(ctx, call, pin, mode)

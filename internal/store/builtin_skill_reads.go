@@ -24,6 +24,7 @@ func (s *SQLiteStore) ListBuiltinSkillReadCalls(ctx context.Context, runID strin
 		FROM run_supervisor_tool_calls WHERE run_id=? AND tool_name='skill_read'
 		AND status='completed' AND completed_at IS NOT NULL
 		AND COALESCE(json_extract(payload_json,'$.resource'),'')=''
+		AND COALESCE(json_extract(payload_json,'$.catalog'),0)=0
 	) SELECT run_id,turn,attempt_id,round,position,model_attempt,call_id,
 		stream_response_id,stream_item_id,stream_call_id,tool_name,payload_json,
 		authority_json,status,result_json,error_code,created_at,completed_at

@@ -318,7 +318,10 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if name == toolgateway.SkillReadTool {
 			input, _, err := toolgateway.NormalizeSkillReadPayload(call.Arguments)
-			available := false
+			// Installed discovery is paged. Its first summary page is not an
+			// authority whitelist: the reader validates every exact enabled pin
+			// against current installation, surface, Run and attempt state.
+			available := len(configured.BuiltinSkills) > 0 && (input.Catalog || input.Portable())
 			for _, item := range configured.BuiltinSkills {
 				if item.SkillReadRequest == input.CatalogRequest() {
 					available = true

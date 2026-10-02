@@ -21,6 +21,9 @@ import (
 const SkillReadTool ToolName = "skill_read"
 
 type SkillReadRequest struct {
+	Catalog                bool   `json:"catalog,omitempty"`
+	Offset                 int    `json:"offset,omitempty"`
+	CatalogRevision        string `json:"catalog_revision,omitempty"`
 	Name                   string `json:"name,omitempty"`
 	Version                string `json:"version,omitempty"`
 	ContentSHA256          string `json:"content_sha256,omitempty"`
@@ -49,14 +52,14 @@ type SkillReadExecutor interface {
 }
 
 func SkillReadToolDefinition(catalog []BuiltinSkillDescriptor) ToolDefinition {
-	description := "Read a relevant workflow skill before using it. Choose by task and description; do not load every skill. Copy the exact read identity from the available catalog: bundled skills use name/version/content_sha256; installed skills use installation_id/package_id/component_id/revision/installation_generation. For an installed skill, omit resource to read its original SKILL.md, or set resource to an exact relative resource path mentioned there. Reading grants no tools or permissions. Bundled guidance is restored within its existing budget; installed activation references are restored so you can re-read exact source after compaction. Resource bodies are not automatically reinserted."
+	description := "Read a relevant workflow skill before using it. Choose by task and description; do not load every skill. The installed summary below is a bounded first page. Browse installed summaries with {\"catalog\":true}; copy the returned next_request to fetch subsequent pages. Catalog reads load no instructions and consume no activation slot. Copy the exact read identity from the available catalog or a catalog result: bundled skills use name/version/content_sha256; installed skills use installation_id/package_id/component_id/revision/installation_generation. For an installed skill, omit resource to read its original SKILL.md, or set resource to an exact relative resource path mentioned there. Reading grants no tools or permissions. Bundled guidance is restored within its existing budget; installed activation references are restored so you can re-read exact source after compaction. Resource bodies are not automatically reinserted."
 	if len(catalog) > 0 {
 		encoded, _ := json.Marshal(catalog)
 		description += " Available skills for this mode: " + string(encoded)
 	}
 	return ToolDefinition{Name: SkillReadTool, Class: ClassRunMemory, Approval: ApprovalAutomatic,
 		Description: description,
-		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","maxLength":64},"version":{"type":"string","maxLength":32},"content_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"installation_id":{"type":"string","maxLength":256},"package_id":{"type":"string","maxLength":256},"component_id":{"type":"string","maxLength":256},"revision":{"type":"string","pattern":"^[0-9a-f]{64}$"},"installation_generation":{"type":"integer","minimum":1},"resource":{"type":"string","maxLength":4096}},"oneOf":[{"required":["name","version","content_sha256"]},{"required":["installation_id","package_id","component_id","revision","installation_generation"]}]}`)}
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"catalog":{"const":true},"offset":{"type":"integer","minimum":0,"maximum":1048576},"catalog_revision":{"type":"string","pattern":"^[0-9a-f]{64}$"},"name":{"type":"string","maxLength":64},"version":{"type":"string","maxLength":32},"content_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"installation_id":{"type":"string","maxLength":256},"package_id":{"type":"string","maxLength":256},"component_id":{"type":"string","maxLength":256},"revision":{"type":"string","pattern":"^[0-9a-f]{64}$"},"installation_generation":{"type":"integer","minimum":1},"resource":{"type":"string","maxLength":4096}},"oneOf":[{"required":["catalog"]},{"required":["name","version","content_sha256"]},{"required":["installation_id","package_id","component_id","revision","installation_generation"]}]}`)}
 }
 
 func NormalizeSkillReadPayload(payload json.RawMessage) (SkillReadRequest, json.RawMessage, error) {
@@ -71,6 +74,21 @@ func NormalizeSkillReadPayload(payload json.RawMessage) (SkillReadRequest, json.
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return input, nil, errors.New("skill_read contains trailing data")
+	}
+	if input.Catalog {
+		if input.Name != "" || input.Version != "" || input.ContentSHA256 != "" ||
+			input.InstallationID != "" || input.PackageID != "" || input.ComponentID != "" ||
+			input.Revision != "" || input.InstallationGeneration != 0 || input.Resource != "" ||
+			input.Offset < 0 || input.Offset > 1048576 ||
+			(input.Offset != 0 && input.CatalogRevision == "") ||
+			(input.CatalogRevision != "" && !validAgentCodeDigest(input.CatalogRevision, false)) {
+			return input, nil, errors.New("skill catalog requires a bounded offset and the exact page revision; do not mix content selectors")
+		}
+		canonical, err := json.Marshal(input)
+		return input, canonical, err
+	}
+	if input.Offset != 0 || input.CatalogRevision != "" {
+		return input, nil, errors.New("catalog paging fields require catalog=true")
 	}
 	if input.Portable() {
 		component := toolcontract.ComponentRef{PackageID: input.PackageID, ComponentID: input.ComponentID}
@@ -138,7 +156,7 @@ func (g *Gateway) invokeSkillRead(ctx context.Context, call ToolCall) (Outcome, 
 	}
 	completed := time.Now().UTC()
 	backend := "embedded_skills"
-	if pin, _, _ := NormalizeSkillReadPayload(call.Payload); pin.Portable() {
+	if pin, _, _ := NormalizeSkillReadPayload(call.Payload); pin.Portable() || pin.Catalog {
 		backend = "installed_skills"
 	}
 	return validateOutcome(Outcome{Call: safeToolCall(call), Decision: decision,
