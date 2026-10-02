@@ -1,0 +1,4 @@
+# Upstream fixtures are byte-pinned; retain original bytes, including whitespace.
+.gitattributes text eol=lf
+testdata/upstream/agent-plugins-example/** -text -whitespace
+testdata/upstream/anthropic-skill-creator/** -text -whitespace
