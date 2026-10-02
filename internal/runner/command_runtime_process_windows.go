@@ -42,7 +42,7 @@ type windowsCommandRuntimeProcess struct {
 	closed  bool
 }
 
-func (windowsCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
+func (windowsCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeScope,
 	spec CommandRuntimeResolvedSpec,
 ) (
 	commandRuntimeProcess, error,
@@ -130,6 +130,15 @@ func (windowsCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeSco
 	processInfo := windows.ProcessInformation{}
 	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW |
 		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
+	if err := CheckCommandRuntimeDispatch(ctx, spec); err != nil {
+		return nil, err
+	}
+	// A host check may block while the executable or its cwd is replaced.
+	if validateCommandRuntimeLaunchDirectory(spec) != nil ||
+		commandRuntimeFileDigestMatches(spec.ExecutablePath, spec.ExecutableSHA256) != nil ||
+		commandRuntimeExecutableAttributes(spec.ExecutablePath) != nil {
+		return nil, ErrCommandRuntimeBoundary
+	}
 	if err := windows.CreateProcess(applicationName, commandLine, nil, nil, true,
 		flags, &environment[0], directory, &startup.StartupInfo, &processInfo); err != nil {
 		return nil, err

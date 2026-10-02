@@ -134,3 +134,41 @@ CLI, HTTP, and Desktop expose separate facts:
 Global runtime capabilities list installed adapter receipts without granting them.
 `run_capability_readiness.v1` adds the current-Run projection. Persisted readiness,
 an installed backend, or a selected permission never becomes execution authority.
+
+## Universal Code process dispatch increment
+
+New application `command_runtime` starts and stdin writes now use the common
+`executionauth.PolicyAuthorizer`. The host binds the final resolved executable,
+argv, environment, cwd, input, adapter generation and native scope to a transient
+operation. Secret-bearing inputs use a fresh private HMAC key, which is not
+persisted. Plugin declarations and a host working directory do not attest
+isolation: an unsandboxed process retains unknown effects. A sandbox is considered
+bounded only through the already installed, validated adapter and Drydock path.
+
+The Job manager checks the operation after durable preparation. Windows and POSIX
+host starters check again before creating the process, then revalidate executable
+bytes and the launch directory. Local and Docker sandbox bridges check before
+calling their existing execution boundary; their lower-level admission and lease
+checks remain in force. These are live checks, not an atomic lock shared with an
+OS syscall or container service. Revocation after dispatch can encounter an
+in-flight effect; existing process ownership, reconciliation and tree cleanup
+remain responsible for stopping owned work, without claiming to undo its effects.
+
+Background process lifetime may outlive a request, but detaching its context no
+longer erases the original request's cancellation before dispatch. Initial stdin
+and subsequent writes recheck authority; later writes do so after acquiring the
+per-Job input gate. Existing exact Job/input replays return their original receipt
+without consuming another dispatch grant. Failed or uncertain effects are not
+automatically retried. Cleanup-only cancellation remains usable after revocation.
+
+Retired in this increment: the application-only, pre-`Start` authorization checks
+in foreground and background launch paths, and the application's direct unguarded
+`WriteStdin` call. They are replaced by operation-bound checks at the effect
+boundary. The runner's compatibility methods remain for existing internal callers
+and tests; they do not decode grants from persisted state or model input.
+
+Still pending: production MCP transport wiring, public ask/auto/full writers, and
+retirement of the remaining legacy permission/Code/Deliver/Root admission rules.
+Old permission rows are only compatibility inputs here. This increment neither
+maps three UI buttons onto the old five choices nor declares that writer migration
+complete. It creates no new Run, Session, Job or approval database.

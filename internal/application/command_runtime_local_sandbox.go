@@ -172,6 +172,9 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 	}
 	var value sandbox.LocalExecutionResult
 	var runErr error
+	if err := runner.CheckCommandRuntimeDispatch(ctx, spec); err != nil {
+		return runner.CommandRuntimeSandboxResult{}, err
+	}
 	if spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe {
 		value, runErr = e.backend.RunWithStdin(ctx, request, stdin)
 	} else {
