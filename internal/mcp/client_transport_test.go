@@ -14,16 +14,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
 type blockingMCPWriteCloser struct {
 	closed chan struct{}
 }
 
-func (w *blockingMCPWriteCloser) Write([]byte) (int, error) {
+func (w *blockingMCPWriteCloser) Write(context.Context, jsonrpc.Message) error {
 	<-w.closed
-	return 0, io.ErrClosedPipe
+	return io.ErrClosedPipe
 }
+
+func (w *blockingMCPWriteCloser) Read(ctx context.Context) (jsonrpc.Message, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-w.closed:
+		return nil, io.EOF
+	}
+}
+func (*blockingMCPWriteCloser) SessionID() string { return "" }
 
 func (w *blockingMCPWriteCloser) Close() error {
 	select {
@@ -102,12 +114,10 @@ func TestStdioClientTransportRunsApprovedAbsoluteExecutable(t *testing.T) {
 
 func TestStdioClientTransportCancelsBlockedWrite(t *testing.T) {
 	writer := &blockingMCPWriteCloser{closed: make(chan struct{})}
-	transport := &stdioClientTransport{stdin: writer, done: writer.closed,
-		stderr: newBoundedBuffer(128)}
+	transport := &stdioSDKConnection{Connection: writer, writeGate: make(chan struct{}, 1)}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
-	err := transport.write(ctx, Envelope{JSONRPC: "2.0", ID: json.RawMessage(`1`),
-		Method: "tools/call"})
+	err := transport.Write(ctx, &jsonrpc.Request{Method: "notifications/initialized"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("blocked stdio write error=%v, want deadline exceeded", err)
 	}
