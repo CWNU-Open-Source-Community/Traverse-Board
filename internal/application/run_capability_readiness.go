@@ -462,40 +462,22 @@ func containsCommandRuntimeAdapter(installed []commandruntimeadapter.Identity,
 }
 
 func (p capabilityReadinessProjection) permissionOptions() []CapabilityReadinessOption {
-	modes := []domain.RunExecutionPermissionMode{
-		domain.RunExecutionPermissionConservative,
-		domain.RunExecutionPermissionWorkspaceAccess,
-		domain.RunExecutionPermissionApproval,
-		domain.RunExecutionPermissionFullAccess,
-		domain.RunExecutionPermissionDebug,
-	}
+	modes := []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull}
 	options := make([]CapabilityReadinessOption, 0, len(modes))
 	for _, target := range modes {
-		builder := newReadinessOption(string(target), p.permission.Mode == target)
-		selectable := p.runQuiescent()
-		p.addRunStateBlocker(builder)
-		gateAvailable := p.runtime.ExecutionPermissionCapabilities.Allows(target)
-		if !p.runtime.ExecutionPermissionControlEnabled || !gateAvailable {
+		builder := newReadinessOption(string(target), p.permission.Mode.ApprovalPreference() == domain.ExecutionApprovalMode(target))
+		selectable := p.runQuiescent() || domain.PermissionTransitionRevokes(p.permission.Mode, target)
+		if !selectable {
+			p.addRunStateBlocker(builder)
+		}
+		available := p.runtime.ExecutionPermissionCapabilities.Allows(target)
+		if !p.runtime.ExecutionPermissionControlEnabled || !available {
 			selectable = false
-			builder.add(CapabilityBlockerStartupGateClosed,
-				CapabilityRemediationRestartWithStartupGate)
+			builder.add(CapabilityBlockerStartupGateClosed, CapabilityRemediationRestartWithStartupGate)
 		}
-		runtimeAvailable := gateAvailable
-		if target == domain.RunExecutionPermissionConservative {
-			runtimeAvailable = true
-		}
-		if target == domain.RunExecutionPermissionWorkspaceAccess &&
-			!p.anyWorkspaceSandboxReady() {
-			runtimeAvailable = false
-			builder.add(CapabilityBlockerSandboxUnproven,
-				CapabilityRemediationVerifySandbox)
-		}
-		if target == domain.RunExecutionPermissionFullAccess &&
-			p.permission.Mode == target &&
-			!p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission) {
-			runtimeAvailable = false
-			builder.add(CapabilityBlockerPermissionMismatch,
-				CapabilityRemediationSelectRequiredPermission)
+		runtimeAvailable := available
+		if target == domain.RunExecutionPermissionFull {
+			runtimeAvailable = available && p.permission.Mode == target && p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission)
 		}
 		options = append(options, builder.finish(selectable, runtimeAvailable))
 	}

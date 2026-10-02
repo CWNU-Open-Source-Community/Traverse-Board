@@ -29593,6 +29593,9 @@
           },
           "value": {
             "enum": [
+              "ask",
+              "auto",
+              "full",
               "conservative",
               "workspace_access",
               "approval",
@@ -47071,25 +47074,14 @@
       "RunExecutionPermissionControlRequestView": {
         "additionalProperties": false,
         "properties": {
-          "confirm_danger_full_access": {
-            "type": "boolean"
-          },
-          "confirm_debug_access": {
-            "type": "boolean"
-          },
-          "confirm_user_approval": {
-            "type": "boolean"
-          },
-          "confirm_workspace_access": {
+          "confirm_full": {
             "type": "boolean"
           },
           "mode": {
             "enum": [
-              "conservative",
-              "workspace_access",
-              "approval",
-              "full_access",
-              "debug"
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -47099,7 +47091,8 @@
           }
         },
         "required": [
-          "mode"
+          "mode",
+          "confirm_full"
         ],
         "type": "object"
       },
@@ -47125,12 +47118,21 @@
           "agent_terminal_input": {
             "type": "boolean"
           },
+          "approval_mode": {
+            "enum": [
+              "ask",
+              "auto",
+              "full"
+            ],
+            "type": "string"
+          },
           "approval_policy": {
             "enum": [
               "fixed_templates",
               "out_of_scope_exact_once",
               "per_command",
-              "none"
+              "none",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47148,7 +47150,8 @@
               "fixed_templates",
               "sandboxed_workspace",
               "arbitrary_stateless",
-              "arbitrary_persistent"
+              "arbitrary_persistent",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47162,8 +47165,20 @@
           "filesystem_scope": {
             "enum": [
               "workspace_guarded",
-              "host_full"
+              "host_full",
+              "per_operation"
             ],
+            "type": "string"
+          },
+          "full_activation": {
+            "enum": [
+              "inactive",
+              "active",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "full_unavailable_reason": {
             "type": "string"
           },
           "mode": {
@@ -47172,14 +47187,18 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
           "network_scope": {
             "enum": [
               "disabled",
-              "host"
+              "host",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47191,7 +47210,8 @@
           },
           "policy_version": {
             "enum": [
-              "execution_permission_policy.v1"
+              "execution_permission_policy.v1",
+              "execution_permission_policy.v2"
             ],
             "type": "string"
           },
@@ -47200,7 +47220,8 @@
           },
           "protocol_version": {
             "enum": [
-              "run_execution_permission.v1"
+              "run_execution_permission.v1",
+              "run_execution_permission.v2"
             ],
             "type": "string"
           },
@@ -47210,7 +47231,8 @@
               "workspace_sandbox_adapter",
               "operator_approval",
               "danger_full_access",
-              "debug_maximum_access"
+              "debug_maximum_access",
+              "operation_authority"
             ],
             "type": "string"
           },
@@ -47238,6 +47260,8 @@
           "protocol_version",
           "revision",
           "mode",
+          "approval_mode",
+          "full_activation",
           "approval_policy",
           "command_scope",
           "filesystem_scope",
@@ -53647,25 +53671,14 @@
       "ThreadExecutionPermissionControlRequestView": {
         "additionalProperties": false,
         "properties": {
-          "confirm_danger_full_access": {
-            "type": "boolean"
-          },
-          "confirm_debug_access": {
-            "type": "boolean"
-          },
-          "confirm_user_approval": {
-            "type": "boolean"
-          },
-          "confirm_workspace_access": {
+          "confirm_full": {
             "type": "boolean"
           },
           "mode": {
             "enum": [
-              "conservative",
-              "workspace_access",
-              "approval",
-              "full_access",
-              "debug"
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -53675,7 +53688,8 @@
           }
         },
         "required": [
-          "mode"
+          "mode",
+          "confirm_full"
         ],
         "type": "object"
       },
@@ -53702,7 +53716,10 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -53735,12 +53752,21 @@
           "applies_to_future_successor_runs": {
             "type": "boolean"
           },
+          "approval_mode": {
+            "enum": [
+              "ask",
+              "auto",
+              "full"
+            ],
+            "type": "string"
+          },
           "approval_policy": {
             "enum": [
               "fixed_templates",
               "out_of_scope_exact_once",
               "per_command",
-              "none"
+              "none",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53758,7 +53784,8 @@
               "fixed_templates",
               "sandboxed_workspace",
               "arbitrary_stateless",
-              "arbitrary_persistent"
+              "arbitrary_persistent",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53772,8 +53799,20 @@
           "filesystem_scope": {
             "enum": [
               "workspace_guarded",
-              "host_full"
+              "host_full",
+              "per_operation"
             ],
+            "type": "string"
+          },
+          "full_activation": {
+            "enum": [
+              "inactive",
+              "active",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "full_unavailable_reason": {
             "type": "string"
           },
           "mode": {
@@ -53782,14 +53821,18 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
           "network_scope": {
             "enum": [
               "disabled",
-              "host"
+              "host",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53801,7 +53844,8 @@
           },
           "policy_version": {
             "enum": [
-              "execution_permission_policy.v1"
+              "execution_permission_policy.v1",
+              "execution_permission_policy.v2"
             ],
             "type": "string"
           },
@@ -53810,7 +53854,8 @@
           },
           "protocol_version": {
             "enum": [
-              "thread_execution_permission.v1"
+              "thread_execution_permission.v1",
+              "thread_execution_permission.v2"
             ],
             "type": "string"
           },
@@ -53820,7 +53865,8 @@
               "workspace_sandbox_adapter",
               "operator_approval",
               "danger_full_access",
-              "debug_maximum_access"
+              "debug_maximum_access",
+              "operation_authority"
             ],
             "type": "string"
           },
@@ -53853,6 +53899,8 @@
           "protocol_version",
           "revision",
           "mode",
+          "approval_mode",
+          "full_activation",
           "approval_policy",
           "command_scope",
           "filesystem_scope",

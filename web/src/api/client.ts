@@ -401,6 +401,34 @@ function parseEventPoll(value: unknown, expectedRunID: string, requestID: string
   return { ...poll, frames } as RunEventPollView;
 }
 
+function parseThreadApprovalPreference(value: unknown, threadID: string): ThreadExecutionPermissionControlView {
+  const fail = () => { throw new APIRequestError("Thread approval preference is invalid", "INVALID_RESPONSE", 502); };
+  if (!isRecord(value) || !isRecord(value.execution_permission)) return fail();
+  const permission = value.execution_permission;
+  const legacyModes = ["conservative", "workspace_access", "approval", "full_access", "debug"];
+  const modes = ["ask", "auto", "full"];
+  const legacy = permission.protocol_version === "thread_execution_permission.v1";
+  if ((!legacy && permission.protocol_version !== "thread_execution_permission.v2") ||
+    permission.thread_id !== threadID || typeof permission.mode !== "string" ||
+    !(legacy ? legacyModes : modes).includes(permission.mode) ||
+    permission.policy_version !== (legacy ? "execution_permission_policy.v1" : "execution_permission_policy.v2") ||
+    !Number.isSafeInteger(permission.revision) || Number(permission.revision) < 1 ||
+    permission.process_enabled !== false || permission.execution_authorized !== false || permission.capability_grant !== false ||
+    typeof permission.runtime_gate_available !== "boolean" || !isRecord(permission.runtime) ||
+    typeof value.replayed !== "boolean" || typeof value.current_run_synchronized !== "boolean") return fail();
+  const expectedMode = legacy ? ["full_access", "debug"].includes(permission.mode) ? "full" : "ask" : permission.mode;
+  // A legacy reader may supply no new presentation fields. Its startup flags
+  // cannot prove current-process Full activation, so the projection stays cold.
+  const approvalMode = permission.approval_mode ?? (legacy ? expectedMode : undefined);
+  const activation = permission.full_activation ?? (legacy ? "inactive" : undefined);
+  if (approvalMode !== expectedMode || typeof activation !== "string" ||
+    !["inactive", "active", "unavailable"].includes(activation) ||
+    (activation === "active" && (legacy || approvalMode !== "full" || !permission.runtime_gate_available)) ||
+    (permission.full_unavailable_reason !== undefined && typeof permission.full_unavailable_reason !== "string")) return fail();
+  return { ...value, execution_permission: { ...permission, approval_mode: approvalMode,
+    full_activation: activation } } as ThreadExecutionPermissionControlView;
+}
+
 function parseRunCreationControl(value: unknown,
   request: RunCreationControlRequestView, requestedModelRoute: string | null = ""): RunCreationControlView {
   if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session"]) ||
@@ -7988,8 +8016,8 @@ export class CyberAgentClient {
     if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
       throw new Error("A normalized Thread is required");
     }
-    return this.get<ThreadExecutionPermissionControlView>(
-      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal);
+    return parseThreadApprovalPreference(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal), threadID);
   }
 
   async changeThreadExecutionPermission(threadID: string,
@@ -7999,9 +8027,14 @@ export class CyberAgentClient {
       threadID.trim() !== threadID) {
       throw new Error("Thread execution permission capability is required");
     }
-    return this.sendControl<ThreadExecutionPermissionControlView>(
+    if (!["ask", "auto", "full"].includes(body.mode) ||
+      body.confirm_full !== (body.mode === "full") ||
+      Object.keys(body).some((key) => !["mode", "confirm_full", "reason"].includes(key))) {
+      throw new Error("An exact ask/auto/full selection and explicit Full confirmation are required");
+    }
+    return parseThreadApprovalPreference(await this.sendControl<unknown>(
       `/threads/${encodeURIComponent(threadID)}/execution-permission`, body,
-      idempotencyKey, signal);
+      idempotencyKey, signal), threadID);
   }
 
   async transitionThread(threadID: string, action: "archive" | "restore" | "delete",

@@ -163,7 +163,7 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 				return executionauth.OperationAuthority{}, err
 			}
 		}
-		projection, err := domain.ProjectLegacyExecutionPermission(current.permission)
+		projection, err := domain.ExecutionPermissionApproval(current.permission)
 		if err != nil {
 			return executionauth.OperationAuthority{}, err
 		}

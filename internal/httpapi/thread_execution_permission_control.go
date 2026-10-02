@@ -17,10 +17,11 @@ const ThreadExecutionPermissionControlPathTemplate = "/api/v1/threads/{thread_id
 type ThreadExecutionPermissionControlRequestView struct {
 	Mode                    string `json:"mode"`
 	Reason                  string `json:"reason,omitempty"`
-	ConfirmWorkspaceAccess  bool   `json:"confirm_workspace_access,omitempty"`
-	ConfirmUserApproval     bool   `json:"confirm_user_approval,omitempty"`
-	ConfirmDangerFullAccess bool   `json:"confirm_danger_full_access,omitempty"`
-	ConfirmDebugAccess      bool   `json:"confirm_debug_access,omitempty"`
+	ConfirmFull             bool   `json:"confirm_full"`
+	ConfirmWorkspaceAccess  bool   `json:"-"` // Retired wire fields; historical Go fixtures only.
+	ConfirmUserApproval     bool   `json:"-"`
+	ConfirmDangerFullAccess bool   `json:"-"`
+	ConfirmDebugAccess      bool   `json:"-"`
 }
 
 type ThreadExecutionPermissionView struct {
@@ -28,6 +29,9 @@ type ThreadExecutionPermissionView struct {
 	ProtocolVersion              string                                  `json:"protocol_version"`
 	Revision                     int64                                   `json:"revision"`
 	Mode                         string                                  `json:"mode"`
+	ApprovalMode                 string                                  `json:"approval_mode"`
+	FullActivation               string                                  `json:"full_activation"`
+	FullUnavailableReason        string                                  `json:"full_unavailable_reason,omitempty"`
 	ApprovalPolicy               string                                  `json:"approval_policy"`
 	CommandScope                 string                                  `json:"command_scope"`
 	FilesystemScope              string                                  `json:"filesystem_scope"`
@@ -175,6 +179,7 @@ func (a *API) serveThreadExecutionPermissionControl(writer http.ResponseWriter,
 		application.ChangeThreadExecutionPermissionRequest{
 			ThreadID: threadID, Mode: view.Mode, OperationKey: operationKey,
 			RequestedBy: "http_control", Reason: view.Reason,
+			ConfirmFull:             view.ConfirmFull,
 			ConfirmWorkspaceAccess:  view.ConfirmWorkspaceAccess,
 			ConfirmUserApproval:     view.ConfirmUserApproval,
 			ConfirmDangerFullAccess: view.ConfirmDangerFullAccess,
@@ -216,14 +221,16 @@ func threadExecutionPermissionView(value domain.ThreadExecutionPermissionSnapsho
 ) ThreadExecutionPermissionView {
 	matrix, _ := value.CapabilityMatrix()
 	runtimeGateAvailable := capabilities.Allows(value.Mode)
-	if value.Mode == domain.RunExecutionPermissionFullAccess &&
-		capabilities.FullAccessRequiresRuntimeGrant {
-		runtimeGateAvailable = capabilities.RuntimeAuthority != nil &&
+	if value.Mode.IsFullPreference() &&
+		(value.Mode == domain.RunExecutionPermissionFull || capabilities.FullAccessRequiresRuntimeGrant) {
+		runtimeGateAvailable = runtimeGateAvailable && capabilities.RuntimeAuthority != nil &&
 			capabilities.RuntimeAuthority.AllowsThreadFullAccess(value, currentRun)
 	}
+	activation, unavailable := approvalFullActivation(value.Mode, runtimeGateAvailable, capabilities)
 	return ThreadExecutionPermissionView{
 		ThreadID: value.ThreadID, ProtocolVersion: value.ProtocolVersion,
 		Revision: value.Revision, Mode: string(value.Mode),
+		ApprovalMode: string(value.Mode.ApprovalPreference()), FullActivation: activation, FullUnavailableReason: unavailable,
 		ApprovalPolicy: string(value.ApprovalPolicy), CommandScope: string(value.CommandScope),
 		FilesystemScope: string(value.FilesystemScope), NetworkScope: string(value.NetworkScope),
 		PersistentTerminal: value.PersistentTerminal,

@@ -58,7 +58,7 @@ func (e *MCPClientToolExecutor) operationAuthorizer(ctx context.Context, scope t
 			return "", "", err
 		}
 		sum := sha256.Sum256(raw)
-		projection, err := domain.ProjectLegacyExecutionPermission(permission)
+		projection, err := domain.ExecutionPermissionApproval(permission)
 		return hex.EncodeToString(sum[:]), projection.Mode, err
 	}
 	expected, _, err := readBinding(ctx)
