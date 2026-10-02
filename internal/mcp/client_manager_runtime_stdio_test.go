@@ -198,18 +198,31 @@ func newManagerStdioFixture(t *testing.T, scenario string) *managerStdioFixture 
 	f.authority = domain.NewExecutionPermissionRuntimeAuthority()
 	f.capabilities = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: f.authority}
-	if _, err := application.NewRunExecutionPermissionService(st, f.capabilities).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
-		RunID: f.run.ID, Mode: string(domain.RunExecutionPermissionFullAccess), OperationKey: "stdio-full-access", RequestedBy: "operator",
-		Reason: "controlled MCP acceptance", ConfirmDangerFullAccess: true}); err != nil {
-		t.Fatal(err)
+	initial, err := st.GetRunExecutionPermission(t.Context(), f.run.ID)
+	if err != nil || initial.Mode != domain.RunExecutionPermissionAsk || initial.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion {
+		t.Fatalf("new Run did not persist the v2 ask preference: %+v err=%v", initial, err)
 	}
-	permission, err := st.GetRunExecutionPermission(t.Context(), f.run.ID)
-	if err != nil {
-		t.Fatal(err)
+	permissions := application.NewRunExecutionPermissionService(st, f.capabilities)
+	legacy := f.fullRequest()
+	legacy.Mode, legacy.OperationKey = string(domain.RunExecutionPermissionFullAccess), "stdio-legacy-rejected"
+	legacy.ConfirmFull, legacy.ConfirmDangerFullAccess = false, true
+	if _, err := permissions.Change(t.Context(), legacy); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("legacy full_access writer must be rejected: %v", err)
 	}
-	if _, err := f.authority.ActivateRunFullAccess(permission); err != nil {
-		t.Fatal(err)
+	unconfirmed := f.fullRequest()
+	unconfirmed.ConfirmFull = false
+	if _, err := permissions.Change(t.Context(), unconfirmed); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("unconfirmed Full writer must be rejected: %v", err)
 	}
+	unchanged, err := st.GetRunExecutionPermission(t.Context(), f.run.ID)
+	if err != nil || unchanged != initial {
+		t.Fatalf("rejected writers changed the persisted preference: %+v err=%v", unchanged, err)
+	}
+	f.activateFull(t, false)
+	// Exercise the same public reactivation path used after reopening SQLite.
+	// Reading a persisted preference into a cold process must not grant Full.
+	f.restartPermissionAuthority(t)
+	f.activateFull(t, true)
 	f.run, err = runs.Start(t.Context(), f.run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -249,6 +262,49 @@ func newManagerStdioFixture(t *testing.T, scenario string) *managerStdioFixture 
 		t.Fatal(err)
 	}
 	return f
+}
+
+func (f *managerStdioFixture) fullRequest() application.ChangeRunExecutionPermissionRequest {
+	return application.ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: string(domain.RunExecutionPermissionFull),
+		OperationKey: "stdio-confirmed-full", RequestedBy: "operator", Reason: "controlled MCP acceptance", ConfirmFull: true}
+}
+
+func (f *managerStdioFixture) activateFull(t *testing.T, replay bool) {
+	t.Helper()
+	before, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A confirmed Change activates the exact persisted current snapshot through
+	// the application service. Exact operator replay reactivates it after restart;
+	// the fixture never writes SQL grants or calls the authority grant directly.
+	result, err := application.NewRunExecutionPermissionService(f.state, f.capabilities).Change(t.Context(), f.fullRequest())
+	if err != nil || result.Replayed != replay {
+		t.Fatalf("confirmed Full change/replay failed: replay=%t want=%t err=%v", result.Replayed, replay, err)
+	}
+	permission, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
+	if err != nil || permission != result.Permission || (replay && permission != before) ||
+		permission.Mode != domain.RunExecutionPermissionFull || permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.PolicyVersion != domain.OperationPermissionPolicyVersion || !permission.OperatorConfirmed ||
+		permission.ProcessEnabled || permission.ExecutionAuthorized || permission.CapabilityGrant {
+		t.Fatalf("Full writer persisted an invalid preference or replay: %+v err=%v", permission, err)
+	}
+	if generation, active := f.capabilities.FullAccessGeneration(permission); !active || generation == 0 {
+		t.Fatal("confirmed application change did not explicitly activate current Full")
+	}
+	t.Logf("real permission writer: mode=%s protocol=%s replay=%t; explicit Full activation present; persisted grant flags=false",
+		permission.Mode, permission.ProtocolVersion, replay)
+}
+
+func (f *managerStdioFixture) restartPermissionAuthority(t *testing.T) {
+	t.Helper()
+	f.authority = domain.NewExecutionPermissionRuntimeAuthority()
+	f.capabilities.RuntimeAuthority = f.authority
+	permission, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
+	if err != nil || permission.Mode != domain.RunExecutionPermissionFull || f.capabilities.AllowsSnapshot(permission) {
+		t.Fatalf("persisted Full was not inactive in the cold authority: %+v err=%v", permission, err)
+	}
+	t.Log("cold authority: persisted Full remains inactive until explicit operator replay")
 }
 
 func (f *managerStdioFixture) payload() toolgateway.MCPToolCallPayload {
@@ -394,6 +450,9 @@ func TestManagerRuntimeStdioProductionAuthorityAndReceipts(t *testing.T) {
 				t.Fatal("Manager did not finish bounded invocation")
 			}
 			events := managerStdioEvents(t, f.dir, "runtime")
+			t.Logf("ExecuteMCP completed: runtime spawn=%d initialize=%d tools/list=%d tools/call=%d err=%v",
+				countManagerStdioEvents(events, "spawn"), countManagerStdioEvents(events, "initialize"),
+				countManagerStdioEvents(events, "tools/list"), countManagerStdioEvents(events, "tools/call"), got.err)
 			if scenario != "deny_before_spawn" && (countManagerStdioEvents(events, "spawn") != 1 ||
 				countManagerStdioEvents(events, "initialize") != 1 || countManagerStdioEvents(events, "notifications/initialized") != 1) {
 				t.Fatal("runtime repeated or omitted process/handshake sends")
@@ -481,13 +540,15 @@ func TestManagerRuntimeStdioProductionAuthorityAndReceipts(t *testing.T) {
 // Manager invocation. It neither simulates the transport nor creates a ledger.
 type managerStdioReceiptFault struct {
 	*store.SQLiteStore
-	checkpoint domain.SupervisorCheckpoint
-	injected   bool
+	checkpoint  domain.SupervisorCheckpoint
+	injected    bool
+	interrupted domain.SupervisorToolResult
 }
 
 func (s *managerStdioReceiptFault) RecordSupervisorToolResult(ctx context.Context, checkpoint domain.SupervisorCheckpoint, result domain.SupervisorToolResult) (domain.SupervisorToolCall, bool, error) {
 	if !s.injected {
 		s.injected, s.checkpoint = true, checkpoint
+		s.interrupted = result
 		return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeInternal, "controlled receipt persistence interruption")
 	}
 	return s.SQLiteStore.RecordSupervisorToolResult(ctx, checkpoint, result)
@@ -547,6 +608,10 @@ func TestManagerRuntimeStdioSupervisorRecoveryDoesNotResend(t *testing.T) {
 			fault := &managerStdioReceiptFault{SQLiteStore: f.state.SQLiteStore}
 			supervisor := application.NewRunSupervisor(fault, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 			_, firstErr := supervisor.Step(t.Context(), f.run.ID)
+			t.Logf("first Supervisor receipt: runtime spawn=%d tools/call=%d injected=%t status=%s error_code=%s result=%s",
+				countManagerStdioEvents(managerStdioEvents(t, f.dir, "runtime"), "spawn"),
+				countManagerStdioEvents(managerStdioEvents(t, f.dir, "runtime"), "tools/call"),
+				fault.injected, fault.interrupted.Status, fault.interrupted.ErrorCode, fault.interrupted.ResultJSON)
 			if firstErr == nil || !fault.injected || countManagerStdioEvents(managerStdioEvents(t, f.dir, "runtime"), "tools/call") != 1 {
 				t.Fatalf("real Supervisor -> Manager dispatch did not reach receipt interruption: injected=%t err=%v", fault.injected, firstErr)
 			}
@@ -569,8 +634,7 @@ func TestManagerRuntimeStdioSupervisorRecoveryDoesNotResend(t *testing.T) {
 			}
 			// Recreate authority as well as Manager/Supervisor/SQLite handles. A
 			// cold persisted Full mode never by itself authorizes a retry.
-			f.authority = domain.NewExecutionPermissionRuntimeAuthority()
-			f.capabilities.RuntimeAuthority = f.authority
+			f.restartPermissionAuthority(t)
 			for resume := 0; resume < 2; resume++ {
 				run, err := st.GetRun(t.Context(), f.run.ID)
 				if err != nil {
@@ -581,13 +645,7 @@ func TestManagerRuntimeStdioSupervisorRecoveryDoesNotResend(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				permission, err := st.GetRunExecutionPermission(t.Context(), f.run.ID)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := f.authority.ActivateRunFullAccess(permission); err != nil {
-					t.Fatal(err)
-				}
+				f.activateFull(t, true)
 				supervisor = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 				step, err := supervisor.Step(t.Context(), f.run.ID)
 				if err != nil {
