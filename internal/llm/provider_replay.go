@@ -16,12 +16,14 @@ const MaxProviderReplayBytes = 1024 * 1024
 
 // ProviderReplay is adapter-owned protocol state, never public model output or
 // tool authority. Ordinary JSON and diagnostic formatting cannot reveal it.
-// Persistence must explicitly use EncodeForStore under the tool-round fence.
+// Persistence explicitly uses EncodeForStore under the successful-model fence
+// and, for ordinary history, the accepted session-message binding.
 type ProviderReplay struct {
 	version                             int
 	provider, model, transport, binding string
 	parts                               []providerReplayPart
 	calls                               []providerReplayCall
+	responseID                          string
 }
 
 type providerReplayPart struct {
@@ -41,13 +43,14 @@ type providerReplayCall struct {
 }
 
 type providerReplayStored struct {
-	Version   int                  `json:"version"`
-	Provider  string               `json:"provider"`
-	Model     string               `json:"model"`
-	Transport string               `json:"transport"`
-	Binding   string               `json:"binding"`
-	Parts     []providerReplayPart `json:"parts"`
-	Calls     []providerReplayCall `json:"calls"`
+	Version    int                  `json:"version"`
+	Provider   string               `json:"provider"`
+	Model      string               `json:"model"`
+	Transport  string               `json:"transport"`
+	Binding    string               `json:"binding"`
+	Parts      []providerReplayPart `json:"parts"`
+	Calls      []providerReplayCall `json:"calls"`
+	ResponseID *string              `json:"response_id,omitempty"`
 }
 
 func (*ProviderReplay) String() string   { return "<private provider replay>" }
@@ -190,6 +193,7 @@ func (r *ProviderReplay) ContextBytes() int {
 		return 0
 	}
 	total := 0
+	total += len(r.responseID)
 	for _, part := range r.parts {
 		total += len(part.Opaque) + len(part.ID) + len(part.Phase)
 	}
@@ -203,7 +207,15 @@ func (r *ProviderReplay) EncodeForStore() ([]byte, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(providerReplayStored{r.version, r.provider, r.model, r.transport, r.binding, r.parts, r.calls})
+	value := providerReplayStored{Version: r.version, Provider: r.provider, Model: r.model,
+		Transport: r.transport, Binding: r.binding, Parts: r.parts, Calls: r.calls}
+	if (r.version == 2 || r.version == 4) && value.Calls == nil {
+		value.Calls = []providerReplayCall{}
+	}
+	if r.responseID != "" {
+		value.ResponseID = &r.responseID
+	}
+	raw, err := json.Marshal(value)
 	if err != nil || len(raw) > MaxProviderReplayBytes {
 		return nil, errors.New("provider replay exceeds its storage bound")
 	}
@@ -220,7 +232,32 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 	if decoder.Decode(&value) != nil || ensureModelJSONEOF(decoder) != nil {
 		return nil, errors.New("provider replay encoding is invalid")
 	}
-	r := &ProviderReplay{value.Version, value.Provider, value.Model, value.Transport, value.Binding, value.Parts, value.Calls}
+	r := &ProviderReplay{version: value.Version, provider: value.Provider, model: value.Model,
+		transport: value.Transport, binding: value.Binding, parts: value.Parts, calls: value.Calls}
+	if value.Version != 2 && value.Version != 3 && value.Version != 4 {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(raw, &fields)
+		for key := range fields {
+			if strings.EqualFold(key, "response_id") {
+				return nil, errors.New("provider replay response identity is unsupported")
+			}
+		}
+	}
+	if value.ResponseID != nil {
+		if value.Version != 2 && value.Version != 3 && value.Version != 4 {
+			return nil, errors.New("provider replay response identity is unsupported")
+		}
+		r.responseID = *value.ResponseID
+	}
+	if value.Version == 2 && decodeAnthropicReplayJSON(raw, &value) != nil {
+		return nil, errors.New("provider replay encoding is invalid")
+	}
+	if value.Version == 3 && decodeGeminiReplayJSON(raw, &value) != nil {
+		return nil, errors.New("provider replay encoding is invalid")
+	}
+	if value.Version == 4 && decodeKimiReplayJSON(raw, &value) != nil {
+		return nil, errors.New("provider replay encoding is invalid")
+	}
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
@@ -228,7 +265,17 @@ func DecodeProviderReplay(raw []byte) (*ProviderReplay, error) {
 }
 
 func (r *ProviderReplay) validate() error {
+	if r != nil && r.version == 4 && r.transport == HarnessTransportOpenAIChatCompletions {
+		return validateKimiProviderReplay(r)
+	}
+	if r != nil && r.version == 3 && r.transport == HarnessTransportOpenAIChatCompletions {
+		return validateGeminiProviderReplay(r)
+	}
+	if r != nil && r.version == 2 && r.transport == HarnessTransportAnthropicMessages {
+		return validateAnthropicProviderReplay(r)
+	}
 	if r == nil || r.version != 1 || r.transport != HarnessTransportOpenAIResponses ||
+		r.responseID != "" ||
 		!replayIdentity(r.provider) || !replayIdentity(r.model) || !replayDigest(r.binding) ||
 		len(r.parts) == 0 || len(r.parts) > MaxProviderOutputItems || len(r.calls) > MaxProviderToolCalls {
 		return errors.New("provider replay envelope is invalid")

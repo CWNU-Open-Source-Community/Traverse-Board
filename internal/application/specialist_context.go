@@ -20,11 +20,12 @@ const (
 )
 
 type specialistContextEnvelope struct {
-	Version            string                         `json:"version"`
-	Mission            specialistMissionContext       `json:"mission"`
-	ParentInstructions []specialistInstructionContext `json:"parent_instructions"`
-	WorkItems          []specialistWorkItemContext    `json:"work_items"`
-	Notes              []specialistNoteContext        `json:"notes"`
+	Version              string                         `json:"version"`
+	Mission              specialistMissionContext       `json:"mission"`
+	ParentInstructions   []specialistInstructionContext `json:"parent_instructions"`
+	WorkItems            []specialistWorkItemContext    `json:"work_items"`
+	Notes                []specialistNoteContext        `json:"notes"`
+	TaskBriefFingerprint string                         `json:"task_brief_fingerprint,omitempty"`
 }
 
 type specialistMissionContext struct {
@@ -41,17 +42,7 @@ type specialistInstructionContext struct {
 	Instruction string `json:"instruction"`
 }
 
-type specialistWorkItemContext struct {
-	ID                 string                  `json:"id"`
-	Status             domain.WorkItemStatus   `json:"status"`
-	Priority           domain.WorkItemPriority `json:"priority"`
-	Title              string                  `json:"title"`
-	Description        string                  `json:"description,omitempty"`
-	AcceptanceCriteria []string                `json:"acceptance_criteria,omitempty"`
-	Dependencies       []string                `json:"dependencies,omitempty"`
-	BlockedReason      string                  `json:"blocked_reason,omitempty"`
-	Version            int64                   `json:"item_version"`
-}
+type specialistWorkItemContext = domain.SpecialistTaskWorkContext
 
 type specialistNoteContext struct {
 	ID          string                `json:"id"`
@@ -70,12 +61,42 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 	attempt domain.AgentAttempt, messages []domain.AgentMessage, workItems []domain.WorkItem,
 	notes []domain.Note,
 ) (string, contextmgr.Selection, error) {
+	return specialistTurnInputMode(mission, runScope, child, attempt, messages, workItems, notes, false, "")
+}
+
+func specialistTurnInputWithBrief(mission domain.Mission, runScope domain.Scope, child domain.AgentNode,
+	attempt domain.AgentAttempt, brief domain.SpecialistTaskBrief, notes []domain.Note,
+) (string, contextmgr.Selection, error) {
+	if err := brief.Validate(); err != nil {
+		return "", contextmgr.Selection{}, apperror.Wrap(apperror.CodeFailedPrecondition, "Specialist task brief is invalid", err)
+	}
+	if brief.RunID != child.RunID || brief.AgentID != child.ID || brief.ParentAgentID != child.ParentID {
+		return "", contextmgr.Selection{}, apperror.New(apperror.CodeFailedPrecondition, "Specialist task brief belongs to another child")
+	}
+	messages := make([]domain.AgentMessage, 0, len(brief.Instructions))
+	for _, instruction := range brief.Instructions {
+		payload, _ := json.Marshal(domain.AgentInstructionPayload{Version: domain.SpecialistInstructionVersion, Instruction: instruction.Instruction})
+		messages = append(messages, domain.AgentMessage{ID: instruction.SourceID, RunID: child.RunID,
+			RecipientAgentID: child.ID, SenderAgentID: child.ParentID, Kind: domain.AgentMessageInstruction,
+			Semantic: domain.AgentMessageSemanticMessage, Status: domain.AgentMessagePending, PayloadJSON: string(payload)})
+	}
+	return specialistTurnInputMode(mission, runScope, child, attempt, messages, brief.WorkItems, notes, true, brief.Fingerprint)
+}
+
+func specialistTurnInputMode(mission domain.Mission, runScope domain.Scope, child domain.AgentNode,
+	attempt domain.AgentAttempt, messages []domain.AgentMessage, workItems []domain.WorkItem,
+	notes []domain.Note, requiredWork bool, briefFingerprint string,
+) (string, contextmgr.Selection, error) {
 	if mission.ID == "" || child.ID == "" || child.RunID != attempt.RunID ||
 		child.ID != attempt.AgentID || child.ParentID != attempt.ParentAgentID {
 		return "", contextmgr.Selection{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Specialist context identities do not match the active attempt")
 	}
-	if len(messages) > domain.MaxSpecialistContextMessages || len(workItems) > maxSpecialistWorkItems ||
+	messageLimit := domain.MaxSpecialistContextMessages
+	if requiredWork {
+		messageLimit = domain.MaxSpecialistBriefInstructions
+	}
+	if len(messages) > messageLimit || len(workItems) > maxSpecialistWorkItems ||
 		len(notes) > maxSpecialistNotes {
 		return "", contextmgr.Selection{}, apperror.New(apperror.CodeResourceExhausted,
 			"Specialist context source count exceeds its bound")
@@ -94,8 +115,15 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 	}
 	sections = append(sections, contextmgr.Section{
 		Kind: "specialist_mission", SourceID: mission.ID, Content: missionContent, Priority: 1000,
+		Required: true,
 	})
 	mandatory := map[string]struct{}{specialistContextSourceKey("specialist_mission", mission.ID): {}}
+	if briefFingerprint != "" {
+		binding, _ := json.Marshal(map[string]string{"version": domain.SpecialistTaskBriefVersion, "fingerprint": briefFingerprint})
+		sections = append(sections, contextmgr.Section{Kind: "specialist_task_brief", SourceID: briefFingerprint,
+			Content: string(binding), Priority: 1000, Required: true})
+		mandatory[specialistContextSourceKey("specialist_task_brief", briefFingerprint)] = struct{}{}
+	}
 	instructions := make(map[string]specialistInstructionContext, len(messages))
 	for _, message := range messages {
 		if message.RunID != child.RunID || message.RecipientAgentID != child.ID ||
@@ -112,12 +140,16 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 			Instruction: truncateWorkBoardText(redact.String(payload.Instruction),
 				domain.MaxSpecialistInstructionRunes),
 		}
+		if requiredWork {
+			record.Instruction = domain.SpecialistTaskInstructionProjection(payload.Instruction)
+		}
 		content, err := marshalSpecialistContextRecord(record)
 		if err != nil {
 			return "", contextmgr.Selection{}, err
 		}
 		sections = append(sections, contextmgr.Section{
 			Kind: "parent_instruction", SourceID: message.ID, Content: content, Priority: 990,
+			Required: true,
 		})
 		key := specialistContextSourceKey("parent_instruction", message.ID)
 		mandatory[key] = struct{}{}
@@ -138,6 +170,10 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 			BlockedReason:      truncateWorkBoardText(redact.String(item.BlockedReason), 480),
 			Version:            item.Version,
 		}
+		if requiredWork {
+			record = domain.SpecialistTaskWorkProjection(item)
+			mandatory[specialistContextSourceKey("child_work_item", item.ID)] = struct{}{}
+		}
 		content, err := marshalSpecialistContextRecord(record)
 		if err != nil {
 			return "", contextmgr.Selection{}, err
@@ -145,6 +181,7 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 		sections = append(sections, contextmgr.Section{
 			Kind: "child_work_item", SourceID: item.ID, Content: content,
 			Priority: specialistWorkItemPriority(item),
+			Required: requiredWork,
 		})
 		workRecords[specialistContextSourceKey("child_work_item", item.ID)] = record
 	}
@@ -200,6 +237,7 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 		Version: domain.SpecialistContextVersion, Mission: missionRecord,
 		ParentInstructions: []specialistInstructionContext{},
 		WorkItems:          []specialistWorkItemContext{}, Notes: []specialistNoteContext{},
+		TaskBriefFingerprint: briefFingerprint,
 	}
 	for _, message := range messages {
 		key := specialistContextSourceKey("parent_instruction", message.ID)
@@ -219,7 +257,7 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 			envelope.Notes = append(envelope.Notes, noteRecords[key])
 		}
 	}
-	encoded, err := json.Marshal(envelope)
+	encoded, err := domain.MarshalSpecialistDeliveryContext(envelope)
 	if err != nil {
 		return "", contextmgr.Selection{}, err
 	}
@@ -231,7 +269,7 @@ func specialistTurnInput(mission domain.Mission, runScope domain.Scope, child do
 }
 
 func marshalSpecialistContextRecord(value any) (string, error) {
-	encoded, err := json.Marshal(value)
+	encoded, err := domain.MarshalSpecialistDeliveryContext(value)
 	if err != nil {
 		return "", err
 	}

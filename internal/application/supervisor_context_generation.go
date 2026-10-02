@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"cyberagent-workbench/internal/contextmgr"
@@ -54,10 +55,17 @@ func supervisorSummaryRequest(turn domain.SupervisorTurn, input contextmgr.Summa
 func supervisorSummaryRequestWithPolicy(turn domain.SupervisorTurn, input contextmgr.SummaryGenerationRequest,
 	ref llm.ModelRef, window llm.ContextWindow, jsonMode bool, prepared llm.ChatRequest,
 ) (llm.ChatRequest, error) {
+	request, _, err := supervisorSummaryRequestAndAudit(turn, input, ref, window, jsonMode, prepared)
+	return request, err
+}
+
+func supervisorSummaryRequestAndAudit(turn domain.SupervisorTurn, input contextmgr.SummaryGenerationRequest,
+	ref llm.ModelRef, window llm.ContextWindow, jsonMode bool, prepared llm.ChatRequest,
+) (llm.ChatRequest, *llm.ModelContextAudit, error) {
 	// Validate the pinned inheritance before presenting it as historical data.
 	continuity, err := continuityContextSections(turn.Run.Config)
 	if err != nil {
-		return llm.ChatRequest{}, errors.Join(contextmgr.ErrSummaryGenerationAborted, err)
+		return llm.ChatRequest{}, nil, errors.Join(contextmgr.ErrSummaryGenerationAborted, err)
 	}
 	payload, err := json.Marshal(struct {
 		OriginalGoal          string                              `json:"original_goal"`
@@ -66,22 +74,32 @@ func supervisorSummaryRequestWithPolicy(turn domain.SupervisorTurn, input contex
 		InstructionAuthorized bool                                `json:"instruction_authorized"`
 	}{OriginalGoal: turn.Mission.Goal, Inherited: continuity, History: input})
 	if err != nil {
-		return llm.ChatRequest{}, err
+		return llm.ChatRequest{}, nil, err
 	}
 	dataMessage, err := llm.ContextCompactionDataMessage(payload)
 	if err != nil {
-		return llm.ChatRequest{}, fmt.Errorf("generation_input_data: %w", err)
+		return llm.ChatRequest{}, nil, fmt.Errorf("generation_input_data: %w", err)
 	}
 	request := prepared
 	request.Model, request.JSONMode, request.MaxTokens = ref.Model, jsonMode, window.OutputLimit(2048)
 	request.Messages = []llm.Message{{Role: "system", Content: fmt.Sprintf(supervisorSummaryInstruction,
 		contextmgr.MaxGeneratedSummaryChars*3/4, contextmgr.MaxGeneratedSummaryChars)}, dataMessage}
 	request.Metadata = map[string]string{"purpose": "context_compaction", "source_sha256": input.SourceSHA256, "input_fingerprint": input.InputFingerprint}
+	selection, classified, err := supervisorSummaryProjectInstructions(turn.Run.Config, window, request.MaxTokens)
+	if err != nil {
+		return llm.ChatRequest{}, nil, err
+	}
+	for _, section := range selection.Sections {
+		request.Messages = append(request.Messages, llm.Message{Role: "user", Content: section.Content})
+	}
 	// No optional history slots: exceeding the model window causes a visible
 	// extractive fallback, never a silent slice of the material to summarize.
 	bounded, plan, err := constrainRequestToModelWindow(request, window, modelContextLayout{})
 	if err != nil {
-		return llm.ChatRequest{}, fmt.Errorf("generation_input_window: %w", err)
+		return llm.ChatRequest{}, nil, fmt.Errorf("generation_input_window: %w", err)
+	}
+	if err := requirePinnedProjectInstructionRequest(turn.Run.Config, bounded); err != nil {
+		return llm.ChatRequest{}, nil, fmt.Errorf("generation_project_instructions: %w", err)
 	}
 	if turn.Run.Budget.MaxTokens > 0 {
 		remaining := turn.Run.Budget.MaxTokens - turn.Checkpoint.TotalTokens
@@ -89,10 +107,57 @@ func supervisorSummaryRequestWithPolicy(turn domain.SupervisorTurn, input contex
 		// output allowance for the actual answer after this auxiliary call.
 		required := int64(plan.EstimatedInput) + int64(bounded.MaxTokens+window.DefaultOutputTokens)
 		if required > remaining {
-			return llm.ChatRequest{}, errors.New("generation_token_budget: insufficient remaining budget for summary and continuation")
+			return llm.ChatRequest{}, nil, errors.New("generation_token_budget: insufficient remaining budget for summary and continuation")
 		}
 	}
-	return bounded, nil
+	var audit *llm.ModelContextAudit
+	if classified {
+		audit = supervisorModelContextAudit(selection)
+	}
+	return bounded, audit, nil
+}
+
+// Auxiliary requests need the same complete mandatory envelopes. Optional rules
+// are outside this request's scope; their omission is not a budget failure.
+func supervisorSummaryProjectInstructions(config domain.RunConfig, window llm.ContextWindow,
+	outputTokens int,
+) (contextmgr.Selection, bool, error) {
+	sections, err := pinnedProjectInstructionContextSections(config)
+	if err != nil {
+		return contextmgr.Selection{}, false, errors.Join(contextmgr.ErrSummaryGenerationAborted, err)
+	}
+	var required []contextmgr.Section
+	var omitted []contextmgr.Source
+	classified := false
+	for _, section := range sections {
+		if !strings.HasPrefix(section.SourceID, "project-rule.v1/") {
+			continue
+		}
+		classified = true
+		if section.Required {
+			required = append(required, section)
+			continue
+		}
+		reason := "auxiliary_scope"
+		if section.Excluded {
+			reason = "operator_excluded"
+		}
+		omitted = append(omitted, contextmgr.Source{Kind: section.Kind, SourceID: section.SourceID,
+			Tokens: contextmgr.EstimateTokens(section.Content), OmissionReason: reason})
+	}
+	limit, err := window.InputLimit(outputTokens)
+	if err != nil {
+		return contextmgr.Selection{}, false, fmt.Errorf("generation_input_window: %w", err)
+	}
+	selection, err := contextmgr.SelectSections(required, limit)
+	if err != nil {
+		return contextmgr.Selection{}, false, fmt.Errorf("generation_project_instructions: %w", err)
+	}
+	selection.OmittedSources = append(selection.OmittedSources, omitted...)
+	if err := requirePinnedProjectInstructionSelection(config, selection); err != nil {
+		return contextmgr.Selection{}, false, fmt.Errorf("generation_project_instructions: %w", err)
+	}
+	return selection, classified, nil
 }
 
 func (g *supervisorSummaryGenerator) Generate(ctx context.Context, input contextmgr.SummaryGenerationRequest) (contextmgr.SummaryGenerationResponse, error) {
@@ -120,9 +185,12 @@ func (g *supervisorSummaryGenerator) Generate(ctx context.Context, input context
 		return result, err
 	}
 	modelWindow, _ := prepared.PreparedContextWindow()
-	request, err := supervisorSummaryRequestWithPolicy(*turn, input, ref, modelWindow, prepared.PreparedSupportsJSONMode(), prepared)
+	request, audit, err := supervisorSummaryRequestAndAudit(*turn, input, ref, modelWindow, prepared.PreparedSupportsJSONMode(), prepared)
 	if err != nil {
 		return result, err
+	}
+	if err := s.requireCurrentPinnedProjectInstructions(ctx, turn.Run); err != nil {
+		return result, errors.Join(contextmgr.ErrSummaryGenerationAborted, err)
 	}
 	number, err := g.store.NextSupervisorCompactionAttempt(ctx, turn.Checkpoint)
 	if err != nil {
@@ -130,7 +198,7 @@ func (g *supervisorSummaryGenerator) Generate(ctx context.Context, input context
 	}
 	attempt := llm.ModelAttempt{Number: number, TransportAttempt: 1, MaxAttempts: 1,
 		Purpose: "context_compaction", CompactionSourceSHA256: input.SourceSHA256,
-		Provider: ref.Provider, Model: ref.Model}
+		Provider: ref.Provider, Model: ref.Model, Context: audit}
 	lease, err := s.activeCalls.reserve(ctx, turn.Checkpoint, attempt, turn.Run.SessionID)
 	if err != nil {
 		return result, errors.Join(contextmgr.ErrSummaryGenerationAborted, err)

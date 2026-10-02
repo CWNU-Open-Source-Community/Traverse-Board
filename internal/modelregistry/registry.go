@@ -160,6 +160,8 @@ type Registry struct {
 	customDefinitionsLoaded bool
 	qualificationStatuses   map[string]persistedQualificationStatus
 	credentialRevisions     map[string]uint64
+	geminiSequentialProbes  map[llm.ModelRef]bool
+	kimiHistoryProbes       map[llm.ModelRef]bool
 }
 
 type anthropicEnvironment struct {
@@ -239,9 +241,11 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 		}},
 		available: map[string]struct{}{"mock": {}}, lookup: lookup,
 		credentials: credentials, generation: 1,
-		strictCredentialReads: strictCredentialReads,
-		qualificationStatuses: make(map[string]persistedQualificationStatus),
-		credentialRevisions:   make(map[string]uint64),
+		strictCredentialReads:  strictCredentialReads,
+		qualificationStatuses:  make(map[string]persistedQualificationStatus),
+		credentialRevisions:    make(map[string]uint64),
+		geminiSequentialProbes: make(map[llm.ModelRef]bool),
+		kimiHistoryProbes:      make(map[llm.ModelRef]bool),
 	}
 	configs := []anthropicEnvironment{
 		{name: "mimo", apiKeyEnv: "MIMO_API_KEY", baseURLEnv: "MIMO_BASE_URL",
@@ -817,6 +821,10 @@ func (r *Registry) registerCustomProvider(ctx context.Context,
 		availability.Status = ProviderAvailable
 		r.router.RegisterProvider(provider)
 		r.available[definition.ID] = struct{}{}
+		if definition.Transport == ProviderTransportOpenAIChatCompletions {
+			r.freezeGeminiProbe(definition.ID, definition.EndpointURL, definition.Models, runtime)
+			r.freezeKimiProbe(definition.ID, definition.EndpointURL, definition.Models, runtime)
+		}
 	}
 	r.providers = append(r.providers, availability)
 	return nil
@@ -947,9 +955,10 @@ func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIE
 			status = ProviderInvalidConfiguration
 			configurationError = true
 		} else {
+			baseURL := environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL)
 			provider, err := llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
 				Name:    config.name,
-				BaseURL: environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL),
+				BaseURL: baseURL,
 				APIKey:  key, DefaultModel: model,
 				HTTPClient: &http.Client{Timeout: requestTimeout},
 			})
@@ -960,6 +969,8 @@ func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIE
 				status = ProviderAvailable
 				r.router.RegisterProvider(provider)
 				r.available[config.name] = struct{}{}
+				r.freezeGeminiProbe(config.name, baseURL, models, nil)
+				r.freezeKimiProbe(config.name, baseURL, models, nil)
 			}
 		}
 	} else if present && key != strings.TrimSpace(key) {

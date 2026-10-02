@@ -8207,6 +8207,10 @@ export interface components {
             lower_precedence_path: string;
             resolution: string;
         };
+        InstructionDelivery: {
+            protocol_version: string;
+            sources: components["schemas"]["InstructionSourceDelivery"][];
+        };
         InstructionLimits: {
             /** Format: int32 */
             max_depth: number;
@@ -8219,6 +8223,7 @@ export interface components {
         };
         InstructionSnapshot: {
             conflicts: components["schemas"]["InstructionConflict"][];
+            delivery?: components["schemas"]["InstructionDelivery"];
             fingerprint: string;
             ignored: components["schemas"]["IgnoredInstruction"][];
             limits: components["schemas"]["InstructionLimits"];
@@ -8256,6 +8261,12 @@ export interface components {
             scope: string;
             trust: string;
             why_effective: string;
+        };
+        InstructionSourceDelivery: {
+            content_sha256: string;
+            exclusion_reason?: string;
+            path: string;
+            requirement: string;
         };
         Inventory: {
             citations: components["schemas"]["CitationPresentation"][];
@@ -13167,6 +13178,7 @@ export interface components {
             spec: components["schemas"]["GitHubReviewWriteSpec"];
         };
         projectInstructionRefreshRequestView: {
+            classifications?: components["schemas"]["InstructionSourceDelivery"][];
             confirm: boolean;
             expected_fingerprint: string;
             expected_live_fingerprint: string;

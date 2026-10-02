@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -37,7 +36,7 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	const providerSecret = "api-agent-browser-wiring-secret"
 	const readToken = "api-agent-browser-read-token-0123456789"
 	const controlToken = "api-agent-browser-control-token-012345"
-	qualificationNonce := regexp.MustCompile(`Call prayu_harness_echo exactly once with nonce ([0-9a-f]{32})\.`)
+	qualificationFixture := &anthropicHarnessFixture{}
 
 	var requestMu sync.Mutex
 	modelRequests := make([]apiAgentBrowserProviderRequest, 0, 2)
@@ -65,25 +64,18 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		body := string(raw)
-		switch {
-		case strings.Contains(body, "Return exactly one JSON object with version model_harness_probe.v1"):
-			nonce := regexp.MustCompile(`[0-9a-f]{32}`).FindString(body)
-			if nonce == "" {
-				t.Errorf("qualification result nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
+		phase, nonce, err := qualificationFixture.phase(raw)
+		if err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch phase {
+		case "tool_result":
 			writeAPIAgentBrowserAnthropicTextSSE(t, writer, model, fmt.Sprintf(
 				`{"version":"model_harness_probe.v1","status":"ok","nonce":"%s"}`, nonce))
-		case strings.Contains(body, "Call prayu_harness_echo exactly once"):
-			match := qualificationNonce.FindStringSubmatch(body)
-			if len(match) != 2 {
-				t.Errorf("qualification tool nonce was not found in %s", body)
-				writer.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			writeAPIAgentBrowserAnthropicToolSSE(t, writer, model, match[1])
+		case "tool_call":
+			writeAPIAgentBrowserAnthropicToolSSE(t, writer, model, nonce)
 		default:
 			requestMu.Lock()
 			modelRequests = append(modelRequests, captured)
@@ -150,7 +142,7 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 		"api-agent-browser-harness-0001", []byte(fmt.Sprintf(
 			`{"version":%q,"provider":"anthropic","model":%q,"confirm_qualification":true}`,
 			modelregistry.HarnessQualificationProtocolVersion, model)), http.StatusAccepted, &qualification)
-	if qualification.Status != modelregistry.HarnessDiagnosticQualified || !qualification.Harness.RootEligible {
+	if qualification.Status != modelregistry.HarnessDiagnosticQualified || qualification.ModelCalls != 2 || qualification.SyntheticToolCalls != 1 || !qualification.Harness.RootEligible {
 		t.Fatalf("Harness qualification did not become root eligible: %#v", qualification)
 	}
 	apiAgentBrowserControlJSON(t, client, baseURL+"/models/routes/code", controlToken,

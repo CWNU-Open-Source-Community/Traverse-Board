@@ -11,6 +11,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/contextmgr"
+	"cyberagent-workbench/internal/projectconfig"
 )
 
 const MaxContextContinuityRequestBodyBytes = 128 * 1024
@@ -42,10 +43,11 @@ type contextMemoryDeleteRequestView struct {
 }
 
 type projectInstructionRefreshRequestView struct {
-	TargetPath              string `json:"target_path,omitempty"`
-	ExpectedFingerprint     string `json:"expected_fingerprint"`
-	ExpectedLiveFingerprint string `json:"expected_live_fingerprint"`
-	Confirm                 bool   `json:"confirm"`
+	TargetPath              string                                    `json:"target_path,omitempty"`
+	ExpectedFingerprint     string                                    `json:"expected_fingerprint"`
+	ExpectedLiveFingerprint string                                    `json:"expected_live_fingerprint"`
+	Confirm                 bool                                      `json:"confirm"`
+	Classifications         []projectconfig.InstructionSourceDelivery `json:"classifications,omitempty"`
 }
 
 type continuityCheckpointRequestView struct {
@@ -263,9 +265,9 @@ func (a *API) serveProjectInstructionRefresh(writer http.ResponseWriter, request
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	state, err := application.NewProjectInstructionService(store).Refresh(request.Context(),
+	state, err := application.NewProjectInstructionService(store).RefreshWithDelivery(request.Context(),
 		runID, view.TargetPath, view.ExpectedFingerprint, view.ExpectedLiveFingerprint,
-		"http_control", view.Confirm)
+		"http_control", view.Confirm, view.Classifications)
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
 		return
