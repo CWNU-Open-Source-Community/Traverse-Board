@@ -243,5 +243,7 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v172 | 原子转换排队文字为当前引导，持久保存原消息、替代消息和执行身份的不可变关联收据 | atomically promote queued text to steering with immutable source, replacement and execution identity receipts |
 | v173 | 将只读内置技能发现与读取纳入已有 Supervisor 账本，保留旧行身份与权限约束，并从成功收据重建精确版本指导 | admit read-only built-in skill discovery and reads to the existing Supervisor ledger, preserve row identities and authority guards, and reconstruct exact-version guidance from successful receipts |
 | v174 | 在原协议失败事务中原子保存有界脱敏的原生工具请求拒绝诊断，保持原 attempt 身份，不生成可执行调用、Provider 回放或历史回填 | atomically preserve bounded redacted rejected native request diagnostics in the original protocol-failure transaction, retaining attempt identity without executable calls, Provider replay or historical backfill |
+| v175 | 为 Specialist 固定有界的 attempt 任务快照与原始来源绑定，保留完整有效委托和工作项，并支持精确替代或撤回；投递与消费仍绑定当前 attempt | pin bounded per-attempt Specialist task briefs and original source bindings, retain complete effective instructions and owned work, and support exact replacement or withdrawal while delivery and consumption stay attempt-bound |
+| v176 | 将普通 assistant 的私有原生回放绑定到成功模型结果和已接受的 Root 历史，保持工具配对与重新打开时的来源，不回填旧历史 | bind private native ordinary assistant replay to successful model results and accepted Root history, preserving tool pairing and reopen provenance without backfilling old history |
 
 </details>

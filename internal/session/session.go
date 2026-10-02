@@ -599,6 +599,14 @@ func (m *Manager) workspaceInfo(ctx context.Context, sess Session) (WorkspaceInf
 }
 
 func (m *Manager) chat(ctx context.Context, sess Session, userMsg Message) (SendResult, error) {
+	ref, err := m.resolveModelRef(sess.Route)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if m.router.RequiresPrivateAssistantHistory(ref) {
+		return SendResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"this provider requires Root Supervisor private assistant history; legacy Session chat is unsupported")
+	}
 	active, err := m.store.ListSessionMessages(ctx, sess.ID, false)
 	if err != nil {
 		return SendResult{}, err

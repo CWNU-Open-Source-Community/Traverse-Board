@@ -178,6 +178,9 @@ func (s *SQLiteStore) RecordSpecialistModelStarted(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
+	if err := requireSpecialistBriefModelStartTx(ctx, tx, attempt, modelAttempt); err != nil {
+		return false, err
+	}
 	if found {
 		if err := requireSpecialistMonetaryStartTx(ctx, tx, ref.RunID, ref.AttemptID, modelAttempt); err != nil {
 			return false, err
@@ -471,6 +474,11 @@ func (s *SQLiteStore) recordSpecialistModelTerminal(ctx context.Context,
 	}
 	if err := requireSpecialistMonetaryStartTx(ctx, tx, ref.RunID, ref.AttemptID, modelAttempt); err != nil {
 		return domain.AgentAttempt{}, err
+	}
+	if modelAttempt.SpecialistAttemptID != "" && terminal.input != "" {
+		if err := validateSpecialistBriefCompletedInputTx(ctx, tx, currentAttempt, terminal.input); err != nil {
+			return domain.AgentAttempt{}, err
+		}
 	}
 	if call.Status != "started" {
 		var dispatch string

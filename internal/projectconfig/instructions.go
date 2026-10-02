@@ -101,6 +101,7 @@ type InstructionSnapshot struct {
 	Fingerprint     string                `json:"fingerprint"`
 	LoadedAt        time.Time             `json:"loaded_at"`
 	Limits          InstructionLimits     `json:"limits"`
+	Delivery        *InstructionDelivery  `json:"delivery,omitempty"`
 }
 
 type InstructionSnapshotDiff struct {
@@ -276,6 +277,9 @@ func (s InstructionSnapshot) Validate() error {
 	if total > MaxInstructionTotalBytes || s.LoadedAt.IsZero() {
 		return errors.New("project instruction snapshot size or load time is invalid")
 	}
+	if err := s.validateDelivery(); err != nil {
+		return err
+	}
 	if s.Fingerprint == "" || s.Fingerprint != s.stableFingerprint() {
 		return errors.New("project instruction snapshot fingerprint mismatch")
 	}
@@ -287,6 +291,18 @@ func DiffInstructionSnapshots(before, after InstructionSnapshot) InstructionSnap
 		Added: []string{}, Removed: []string{}, Changed: []string{}}
 	left := make(map[string]InstructionSource, len(before.Sources))
 	right := make(map[string]InstructionSource, len(after.Sources))
+	leftDelivery := make(map[string]InstructionSourceDelivery)
+	rightDelivery := make(map[string]InstructionSourceDelivery)
+	if before.Delivery != nil {
+		for _, item := range before.Delivery.Sources {
+			leftDelivery[item.Path] = item
+		}
+	}
+	if after.Delivery != nil {
+		for _, item := range after.Delivery.Sources {
+			rightDelivery[item.Path] = item
+		}
+	}
 	leftOrder := make([]string, len(before.Sources))
 	rightOrder := make([]string, len(after.Sources))
 	for index, source := range before.Sources {
@@ -299,7 +315,8 @@ func DiffInstructionSnapshots(before, after InstructionSnapshot) InstructionSnap
 		if prior, ok := left[source.Path]; !ok {
 			diff.Added = append(diff.Added, source.Path)
 		} else if prior.ContentSHA256 != source.ContentSHA256 || prior.Scope != source.Scope ||
-			prior.Kind != source.Kind || prior.Precedence != source.Precedence {
+			prior.Kind != source.Kind || prior.Precedence != source.Precedence ||
+			leftDelivery[source.Path] != rightDelivery[source.Path] {
 			diff.Changed = append(diff.Changed, source.Path)
 		}
 	}
@@ -661,9 +678,10 @@ func (s InstructionSnapshot) stableFingerprint() string {
 		Ignored         []IgnoredInstruction  `json:"ignored"`
 		Conflicts       []InstructionConflict `json:"conflicts"`
 		Limits          InstructionLimits     `json:"limits"`
+		Delivery        *InstructionDelivery  `json:"delivery,omitempty"`
 	}{ProtocolVersion: s.ProtocolVersion, TargetPath: s.TargetPath,
 		Ignored: s.Ignored, Conflicts: s.Conflicts, Limits: s.Limits,
-		Sources: make([]stableSource, len(s.Sources))}
+		Sources: make([]stableSource, len(s.Sources)), Delivery: s.Delivery}
 	for index, source := range s.Sources {
 		stable.Sources[index] = stableSource{Ordinal: source.Ordinal, Path: source.Path,
 			Kind: source.Kind, Scope: source.Scope, Depth: source.Depth,

@@ -67,6 +67,12 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 	}
 	omitted := 0
 	estimated := estimateModelRequestTokens(request)
+	for _, message := range request.Messages {
+		if message.Replay.RequiresPrivateAssistantHistory() && estimated > inputLimit {
+			return llm.ChatRequest{}, modelContextPlan{}, apperror.New(apperror.CodeResourceExhausted,
+				"native private assistant history exceeds the conservative input window; history truncation is unsupported")
+		}
+	}
 	for estimated > inputLimit && layout.HistoryCount > 0 {
 		request.Messages = append(request.Messages[:layout.HistoryStart],
 			request.Messages[layout.HistoryStart+1:]...)
