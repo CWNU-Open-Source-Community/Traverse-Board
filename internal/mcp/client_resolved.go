@@ -28,6 +28,7 @@ type resolvedClient struct {
 	fingerprint string
 	mu          sync.Mutex
 	capability  string
+	negotiated  string
 }
 type resolvedDiscoveryKey struct{}
 type resolvedDiscovery struct {
@@ -122,6 +123,15 @@ func NewResolvedClient(launch toolcontract.ResolvedLaunch, hostKey []byte, conne
 		}
 		return nil
 	}
+	negotiated := transport.tap.negotiated
+	transport.tap.negotiated = func(version string) {
+		r.mu.Lock()
+		r.negotiated = version
+		r.mu.Unlock()
+		if negotiated != nil {
+			negotiated(version)
+		}
+	}
 	client := newClient(transport, ServerDescriptor{DeclaredCapabilities: []CapabilityKind{CapabilityTools, CapabilityResources, CapabilityPrompts}})
 	client.resolved = r
 	return client, nil
@@ -184,6 +194,12 @@ func (r *resolvedClient) beforeConnect(ctx context.Context) error {
 }
 
 func (r *resolvedClient) beforeSend(ctx context.Context, frame Envelope, size int64) error {
+	if err := r.validateFrameProtocol(frame); err != nil {
+		if attempt, _ := ctx.Value(sdkCallAttemptKey{}).(*sdkCallAttempt); attempt != nil {
+			return attempt.reject(err)
+		}
+		return err
+	}
 	if frame.Method == "tools/call" {
 		attempt, _ := ctx.Value(sdkCallAttemptKey{}).(*sdkCallAttempt)
 		call, _ := ctx.Value(resolvedCallKey{}).(*resolvedCall)
@@ -248,15 +264,39 @@ func (r *resolvedClient) beforeSend(ctx context.Context, frame Envelope, size in
 	if discovery == nil || discovery.guard == nil {
 		return errors.New("MCP protocol send requires a bounded discovery scope")
 	}
+	return discovery.guard(ctx, toolcontract.DiscoverySend{ConnectionFingerprint: r.fingerprint, Method: frame.Method, Bytes: size})
+}
+
+// Check the final SDK frame, not just the preferred version or method whitelist.
+// In particular the SDK's legacy fallback must not emit an unapproved initialize.
+func (r *resolvedClient) validateFrameProtocol(frame Envelope) error {
+	var params struct {
+		ProtocolVersion string                     `json:"protocolVersion"`
+		Meta            map[string]json.RawMessage `json:"_meta"`
+	}
+	if len(frame.Params) > 0 && json.Unmarshal(frame.Params, &params) != nil {
+		return errors.New("MCP frame has invalid protocol parameters")
+	}
+	r.mu.Lock()
+	negotiated := r.negotiated
+	r.mu.Unlock()
 	if frame.Method == "initialize" {
-		var params struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if json.Unmarshal(frame.Params, &params) != nil || !slices.Contains(r.launch.ProtocolVersions, params.ProtocolVersion) {
+		if !slices.Contains(r.launch.ProtocolVersions, params.ProtocolVersion) || params.ProtocolVersion == preferredClientProtocolVersion {
 			return errors.New("MCP negotiation exceeds permitted protocol versions")
 		}
 	}
-	return discovery.guard(ctx, toolcontract.DiscoverySend{ConnectionFingerprint: r.fingerprint, Method: frame.Method, Bytes: size})
+	meta, present := params.Meta[sdk.MetaKeyProtocolVersion]
+	if present {
+		var version string
+		if json.Unmarshal(meta, &version) != nil || version != preferredClientProtocolVersion || !slices.Contains(r.launch.ProtocolVersions, version) ||
+			(negotiated != "" && version != negotiated) || frame.Method == "initialize" {
+			return errors.New("MCP frame metadata exceeds its authorized protocol")
+		}
+	}
+	if (frame.Method == "server/discover" || (negotiated == preferredClientProtocolVersion && len(frame.ID) > 0)) && !present {
+		return errors.New("modern MCP request is missing protocol metadata")
+	}
+	return nil
 }
 
 // DiscoverWithScope authorizes negotiation plus bounded pagination once and
