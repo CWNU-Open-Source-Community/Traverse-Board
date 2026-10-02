@@ -26,6 +26,14 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 
 	var requestMu sync.Mutex
 	modelRequests := make([]desktopSourceWiringRequest, 0, 2)
+	t.Cleanup(func() {
+		if t.Failed() {
+			requestMu.Lock()
+			count := len(modelRequests)
+			requestMu.Unlock()
+			t.Logf("ordinary browser wiring Provider requests=%d", count)
+		}
+	})
 	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/messages" || request.Method != http.MethodPost {
 			t.Errorf("unexpected Provider request %s %s", request.Method, request.URL.Path)
