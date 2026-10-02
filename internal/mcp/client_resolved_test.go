@@ -37,9 +37,9 @@ func testResolvedDeclaration(t *testing.T) (toolcontract.LaunchDeclaration, tool
 		base["SystemRoot"] = os.Getenv("SystemRoot")
 	}
 	return toolcontract.LaunchDeclaration{Component: toolcontract.ComponentRef{PackageID: "fixture-package", ComponentID: "mcp-fixture"},
-			Format: "agent-plugins", FormatVersion: "1", Transport: toolcontract.TransportStdio,
+			Format: "agent-plugins", FormatVersion: "1.0.0", Transport: toolcontract.TransportStdio,
 			Stdio: &toolcontract.StdioLaunch{Command: filepath.Base(executable), Args: []string{"-test.run=^TestResolvedStdioHelper$", "--", "resolved-helper", "${PLUGIN_DATA}", "literal arg"},
-				Env: map[string]string{"MCP_FIXTURE_VALUE": "${HOST_VALUE}"}, Cwd: "${PLUGIN_ROOT}"}},
+				Env: map[string]string{"MCP_FIXTURE_VALUE": "frozen-value"}, Cwd: "${PLUGIN_ROOT}"}},
 		toolcontract.LaunchContext{InstanceID: "fixture-instance", InstallRoot: root, DataRoot: root, BaseEnv: base, ProtocolVersions: []string{legacyClientProtocolVersion}}
 }
 
@@ -173,11 +173,11 @@ func TestResolvedStdioRunsFrozenEnvironmentCwdAndArguments(t *testing.T) {
 	}
 }
 
-func TestResolveLaunchRejectsMissingVariablesAndWindowsEnvironmentAliases(t *testing.T) {
+func TestResolveLaunchPreservesUnknownVariablesAndRejectsWindowsEnvironmentAliases(t *testing.T) {
 	declaration, host := testResolvedDeclaration(t)
 	declaration.Stdio.Args = []string{"${MISSING}"}
-	if _, err := ResolveLaunch(declaration, host); err == nil {
-		t.Fatal("missing host variable was silently erased")
+	if resolved, err := ResolveLaunch(declaration, host); err != nil || resolved.Stdio.Args[0] != "${MISSING}" {
+		t.Fatal("unknown placeholder did not remain literal")
 	}
 	if runtime.GOOS == "windows" {
 		declaration.Stdio.Args = nil
@@ -194,7 +194,7 @@ func TestResolvedLaunchRechecksExecutableAfterPreparation(t *testing.T) {
 	if err := os.WriteFile(fake, []byte("prepared executable"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	declaration.Stdio.Command = fake
+	declaration.Stdio.Command = "./fixture.exe"
 	launch, err := ResolveLaunch(declaration, host)
 	if err != nil {
 		t.Fatal(err)

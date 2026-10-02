@@ -7,6 +7,8 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +26,15 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 	if declaration.Validate() != nil || host.Validate() != nil {
 		return toolcontract.ResolvedLaunch{}, errors.New("invalid MCP declaration or host launch context")
 	}
+	// Native ecosystems require their own reviewed rules, not this portable codec.
+	switch declaration.Format {
+	case "agent-plugins":
+		if declaration.FormatVersion != "1.0.0" {
+			return toolcontract.ResolvedLaunch{}, errors.New("unsupported Agent Plugins launch version")
+		}
+	default:
+		return toolcontract.ResolvedLaunch{}, errors.New("unsupported MCP launch declaration format")
+	}
 	root, err := canonicalLaunchDirectory(host.InstallRoot)
 	if err != nil {
 		return toolcontract.ResolvedLaunch{}, err
@@ -36,8 +47,6 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 	if err != nil {
 		return toolcontract.ResolvedLaunch{}, err
 	}
-	variables := maps.Clone(base)
-	variables["PLUGIN_ROOT"], variables["PLUGIN_DATA"] = root, data
 	versions := slices.Clone(declaration.ProtocolVersions)
 	if len(versions) == 0 {
 		versions = slices.Clone(host.ProtocolVersions)
@@ -57,35 +66,28 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 			return toolcontract.ResolvedLaunch{}, err
 		}
 		for key, value := range local.Env {
-			value, err = expandLaunchValue(value, variables)
+			if key == "PLUGIN_ROOT" || key == "PLUGIN_DATA" {
+				return toolcontract.ResolvedLaunch{}, errors.New("Agent Plugins configuration cannot supply reserved environment variables")
+			}
+			value, err = expandAgentPluginValue(value, root, data)
 			if err != nil {
 				return toolcontract.ResolvedLaunch{}, err
 			}
 			base[key] = value
 		}
+		base["PLUGIN_ROOT"], base["PLUGIN_DATA"] = root, data
 		local.Env = base
 		// os/exec would otherwise silently inherit SystemRoot on Windows.
 		if runtime.GOOS == "windows" && local.Env["SYSTEMROOT"] == "" {
 			return toolcontract.ResolvedLaunch{}, errors.New("Windows stdio launch requires host-supplied SystemRoot")
 		}
-		local.Cwd, err = expandLaunchValue(local.Cwd, variables)
+		local.Cwd, err = resolveAgentPluginCwd(local.Cwd, root, data)
 		if err != nil {
 			return toolcontract.ResolvedLaunch{}, err
 		}
-		if local.Cwd == "" {
-			local.Cwd = root
-		} else if !filepath.IsAbs(local.Cwd) {
-			local.Cwd = filepath.Join(root, local.Cwd)
-		}
-		local.Cwd, err = canonicalLaunchDirectory(local.Cwd)
-		if err != nil {
-			return toolcontract.ResolvedLaunch{}, err
-		}
-		local.Command, err = expandLaunchValue(local.Command, variables)
-		if err != nil {
-			return toolcontract.ResolvedLaunch{}, err
-		}
-		local.Command, err = resolveLaunchExecutable(local.Command, local.Cwd, local.Env)
+		// Portable commands never expand placeholders and ./ always means root,
+		// even when cwd selects the separately managed data directory.
+		local.Command, err = resolveAgentPluginCommand(local.Command, root, local.Env)
 		if err != nil {
 			return toolcontract.ResolvedLaunch{}, err
 		}
@@ -95,7 +97,7 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 		}
 		local.Args = slices.Clone(local.Args)
 		for i, arg := range local.Args {
-			local.Args[i], err = expandLaunchValue(arg, variables)
+			local.Args[i], err = expandAgentPluginValue(arg, root, data)
 			if err != nil {
 				return toolcontract.ResolvedLaunch{}, err
 			}
@@ -103,16 +105,11 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 		resolved.Stdio = &local
 	case toolcontract.TransportStreamableHTTP:
 		remote := *declaration.HTTP
-		remote.Endpoint, err = expandLaunchValue(remote.Endpoint, variables)
-		if err != nil {
-			return toolcontract.ResolvedLaunch{}, err
+		if !agentPluginEndpoint(remote.Endpoint) {
+			return toolcontract.ResolvedLaunch{}, errors.New("Agent Plugins HTTP endpoint is invalid")
 		}
 		remote.Headers = make(map[string]string, len(declaration.HTTP.Headers))
 		for name, value := range declaration.HTTP.Headers {
-			value, err = expandLaunchValue(value, variables)
-			if err != nil {
-				return toolcontract.ResolvedLaunch{}, err
-			}
 			remote.Headers[http.CanonicalHeaderKey(name)] = value
 		}
 		if remote.Credential != nil {
@@ -127,35 +124,89 @@ func ResolveLaunch(declaration toolcontract.LaunchDeclaration, host toolcontract
 	return resolved, nil
 }
 
-func expandLaunchValue(value string, variables map[string]string) (string, error) {
-	var result strings.Builder
-	for {
-		start := strings.Index(value, "${")
-		if start < 0 {
-			result.WriteString(value)
-			break
-		}
-		result.WriteString(value[:start])
-		value = value[start+2:]
-		end := strings.IndexByte(value, '}')
-		if end < 0 {
-			return "", errors.New("MCP launch has an unterminated variable")
-		}
-		key := value[:end]
-		if runtime.GOOS == "windows" {
-			key = strings.ToUpper(key)
-		}
-		replacement, exists := variables[key]
-		if !exists || key == "" {
-			return "", errors.New("MCP launch references a variable absent from its trusted context")
-		}
-		result.WriteString(replacement) // one expansion pass; never interpret replacement text
-		value = value[end+1:]
-	}
-	if result.Len() > 65536 {
+func expandAgentPluginValue(value, root, data string) (string, error) {
+	// strings.Replacer consumes only the original input. Replacement text is not
+	// rescanned, and unrecognized/case-varied/malformed placeholders stay literal.
+	result := strings.NewReplacer("${PLUGIN_ROOT}", root, "${PLUGIN_DATA}", data).Replace(value)
+	if len(result) > 65536 {
 		return "", errors.New("expanded MCP launch field exceeds its limit")
 	}
-	return result.String(), nil
+	return result, nil
+}
+
+func resolveAgentPluginCwd(value, root, data string) (string, error) {
+	boundary := root
+	switch {
+	case value == "":
+		return root, nil
+	case strings.HasPrefix(value, "./"):
+	case value == "${PLUGIN_ROOT}", strings.HasPrefix(value, "${PLUGIN_ROOT}/"):
+	case value == "${PLUGIN_DATA}", strings.HasPrefix(value, "${PLUGIN_DATA}/"):
+		boundary = data
+	default:
+		return "", errors.New("Agent Plugins cwd has an unsupported form")
+	}
+	expanded, err := expandAgentPluginValue(value, root, data)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(value, "./") {
+		expanded = filepath.Join(root, expanded)
+	}
+	if !launchPathWithin(boundary, expanded) {
+		return "", errors.New("Agent Plugins cwd escapes its declared root")
+	}
+	resolved, err := canonicalLaunchDirectory(expanded)
+	if err != nil {
+		return "", err
+	}
+	if !launchPathWithin(boundary, resolved) {
+		return "", errors.New("Agent Plugins cwd resolves outside its declared root")
+	}
+	return resolved, nil
+}
+
+func resolveAgentPluginCommand(command, root string, env map[string]string) (string, error) {
+	packaged := strings.HasPrefix(command, "./")
+	if packaged {
+		command = filepath.Join(root, command)
+		if !launchPathWithin(root, command) {
+			return "", errors.New("Agent Plugins command escapes its plugin root")
+		}
+	} else if command == "." || command == ".." || strings.ContainsAny(command, "/\\:") {
+		return "", errors.New("Agent Plugins command must be a bare name or ./ package path")
+	}
+	resolved, err := resolveLaunchExecutable(command, root, env)
+	if err != nil {
+		return "", err
+	}
+	if packaged && !launchPathWithin(root, resolved) {
+		return "", errors.New("Agent Plugins command resolves outside its plugin root")
+	}
+	return resolved, nil
+}
+
+func launchPathWithin(root, value string) bool {
+	relative, err := filepath.Rel(root, value)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+func agentPluginEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	if err != nil || u.Hostname() == "" || u.User != nil || strings.Contains(value, "#") || u.Opaque != "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	if u.Hostname() == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(u.Hostname())
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 func normalizeLaunchEnvironment(env map[string]string) (map[string]string, error) {
@@ -173,7 +224,7 @@ func normalizeLaunchEnvironment(env map[string]string) (map[string]string, error
 }
 
 func canonicalLaunchDirectory(value string) (string, error) {
-	value, err := filepath.EvalSymlinks(value)
+	value, err := canonicalLaunchPath(value)
 	if err != nil {
 		return "", errors.New("MCP launch directory is unavailable")
 	}
@@ -206,23 +257,26 @@ func resolveLaunchExecutable(command, cwd string, env map[string]string) (string
 			paths = nil
 			extensions := env["PATHEXT"]
 			if extensions == "" {
-				extensions = ".COM;.EXE"
+				extensions = ".COM;.EXE;.BAT;.CMD"
 			}
 			for _, ext := range strings.Split(extensions, ";") {
-				if strings.EqualFold(ext, ".exe") || strings.EqualFold(ext, ".com") {
+				if slices.Contains([]string{".exe", ".com", ".cmd", ".bat"}, strings.ToLower(ext)) {
 					paths = append(paths, candidate+ext)
 				}
 			}
 		}
 		for _, path := range paths {
 			if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(path), ".exe") && !strings.EqualFold(filepath.Ext(path), ".com") {
+				if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+					return "", errors.New("MCP executable requires an interpreter; implicit Windows script launch is unsupported")
+				}
 				continue // shell scripts require an explicitly declared interpreter
 			}
 			info, err := os.Stat(path)
 			if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode()&0111 == 0) {
 				continue
 			}
-			canonical, err := filepath.EvalSymlinks(path)
+			canonical, err := canonicalLaunchPath(path)
 			if err == nil {
 				return filepath.Clean(canonical), nil
 			}
