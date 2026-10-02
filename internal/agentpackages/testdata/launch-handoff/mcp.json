@@ -1,0 +1,41 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "command-versus-data-cwd": {
+      "type": "stdio",
+      "command": "./bin/helper.exe",
+      "cwd": "${PLUGIN_DATA}/work",
+      "args": ["${PLUGIN_ROOT}/entry", "${PLUGIN_DATA}/cache", "${UNKNOWN}", "$HOME", "%TEMP%"],
+      "env": {"VALUE": "${PLUGIN_ROOT}|${PLUGIN_DATA}|${UNKNOWN}|$HOME|%TEMP%"}
+    },
+    "command-versus-plugin-cwd": {
+      "type": "stdio",
+      "command": "./bin/helper.exe",
+      "cwd": "./work"
+    },
+    "default-cwd": {
+      "type": "stdio",
+      "command": "./bin/helper.exe"
+    },
+    "http-literals": {
+      "type": "streamable-http",
+      "url": "https://example.invalid/mcp?root=${PLUGIN_ROOT}&data=${PLUGIN_DATA}&unknown=${UNKNOWN}",
+      "headers": {"X-Literal": "${PLUGIN_ROOT}|${PLUGIN_DATA}|${UNKNOWN}|$HOME|%TEMP%"}
+    },
+    "escape-command": {
+      "type": "stdio",
+      "command": "./../outside/helper.exe",
+      "cwd": "${PLUGIN_DATA}/work"
+    },
+    "escape-data-cwd": {
+      "type": "stdio",
+      "command": "./bin/helper.exe",
+      "cwd": "${PLUGIN_DATA}/../outside"
+    },
+    "invalid-unknown-cwd": {
+      "type": "stdio",
+      "command": "./bin/helper.exe",
+      "cwd": "${UNKNOWN}/work"
+    }
+  }
+}
