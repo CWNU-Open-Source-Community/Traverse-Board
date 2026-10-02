@@ -198,9 +198,10 @@ func (m *Manager) invokeResolved(ctx context.Context, request InvokeRequest, rec
 			return apperror.New(apperror.CodePolicyDenied, "MCP server review or scope changed before dispatch")
 		}
 		if launch.HTTP != nil && launch.HTTP.Credential != nil {
-			_, err = credential(ctx, *launch.HTTP.Credential)
+			_, credentialErr := credential(ctx, *launch.HTTP.Credential)
+			return credentialErr
 		}
-		return err
+		return nil
 	}
 	// One host decision per connect/discovery/call; later discovery sends recheck
 	// that exact decision without consuming another grant or trusting annotations.
