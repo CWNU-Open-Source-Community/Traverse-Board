@@ -46,12 +46,15 @@ successful zero-tool candidates from accepted session-message bindings:
 `run_supervisor_assistant_replay` and
 `run_supervisor_assistant_replay_bindings`. The primary model terminal writes a
 candidate atomically with its successful receipt and accounting. Root completion
-requires the latest exact candidate and matching native lifecycle action, then
-binds it to the public assistant message in that same completion transaction.
+requires the latest exact native candidate, then binds it to the public assistant
+message in that same completion transaction. The immutable completion event
+separately seals the sanitized Go-accepted action with `accepted_action_sha256`,
+preserving existing interactive parsing, plain-text recovery and verified
+delivery projections without reparsing native text at the storage boundary.
 Policy rejection, cancellation, stale leases, auxiliary/accounting-only calls
 and unaccepted candidates cannot create historical bindings. Exact retries
 verify stored private bytes and source/projection integrity; dropping or changing
-replay conflicts.
+replay conflicts, including a changed accepted action on completion retry.
 
 History loading re-reads selected source messages under the current active
 Root lease. It verifies session provenance, immutable completion/source tuples,

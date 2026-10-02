@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
@@ -84,10 +83,11 @@ func latestSupervisorPrimaryModelTx(ctx context.Context, tx *sql.Tx, checkpoint 
 	return number, eventType, err
 }
 
-// Bind the original native response before Go replaces the lifecycle JSON with
-// its public message. Lifecycle/steering/progress decisions remain Go-owned.
+// Bind the original native response before Go projects its public message.
+// Parsing, recovery and verified-delivery projections remain Go-owned; the
+// accepted action is sealed separately in the immutable completion event.
 func prepareSupervisorAssistantBindingTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint,
-	native llm.ChatResponse, action domain.RootAction,
+	native llm.ChatResponse,
 ) (int, string, error) {
 	exists, err := hasSupervisorAssistantReplayTx(ctx, tx)
 	if err != nil || !exists && !native.Replay.RequiresPrivateAssistantHistory() {
@@ -126,9 +126,6 @@ func prepareSupervisorAssistantBindingTx(ctx context.Context, tx *sql.Tx, checkp
 	if err != nil || !bytes.Equal(raw, expected) {
 		return 0, "", apperror.New(apperror.CodeConflict, "ordinary replay source changed before turn completion")
 	}
-	if !supervisorNativeActionMatches(native.Text, action) {
-		return 0, "", apperror.New(apperror.CodeConflict, "ordinary replay does not match the accepted lifecycle action")
-	}
 	return number, digest, nil
 }
 
@@ -156,16 +153,20 @@ func requireSupervisorAssistantCompletionReplayTx(ctx context.Context, tx *sql.T
 		return apperror.New(apperror.CodeFailedPrecondition, "ordinary provider replay requires the current schema")
 	}
 	var number int
-	var contentDigest, replayDigest, projected string
-	err = tx.QueryRowContext(ctx, `SELECT b.model_attempt,b.projected_content_sha256,b.replay_sha256,m.content
+	var contentDigest, replayDigest, projected, actionDigest string
+	err = tx.QueryRowContext(ctx, `SELECT b.model_attempt,b.projected_content_sha256,b.replay_sha256,m.content,
+		json_extract(e.payload_json,'$.accepted_action_sha256')
 		FROM run_supervisor_assistant_replay_bindings b JOIN session_messages m ON m.id=b.session_message_id
-		WHERE b.run_id=? AND b.turn=? AND b.attempt_id=?`, checkpoint.RunID, checkpoint.NextTurn, checkpoint.AttemptID).
-		Scan(&number, &contentDigest, &replayDigest, &projected)
+		JOIN run_events e ON e.run_id=b.run_id AND e.type=? AND e.source='run_supervisor' AND e.subject_id=b.attempt_id
+		AND json_extract(e.payload_json,'$.turn')=b.turn AND json_extract(e.payload_json,'$.attempt_id')=b.attempt_id
+		AND json_extract(e.payload_json,'$.assistant_message_id')=b.session_message_id
+		WHERE b.run_id=? AND b.turn=? AND b.attempt_id=?`, events.AgentTurnCompletedEvent, checkpoint.RunID, checkpoint.NextTurn, checkpoint.AttemptID).
+		Scan(&number, &contentDigest, &replayDigest, &projected, &actionDigest)
 	if errors.Is(err, sql.ErrNoRows) && !native.Replay.RequiresPrivateAssistantHistory() {
 		return nil
 	}
 	if err != nil || !native.Replay.RequiresPrivateAssistantHistory() || native.Text != native.Replay.AssistantText() ||
-		contentDigest != session.ContentSHA256(projected) || len(native.ToolCalls) != 0 || !supervisorNativeActionMatches(native.Text, action) {
+		contentDigest != session.ContentSHA256(projected) || len(native.ToolCalls) != 0 || actionDigest != supervisorAcceptedActionSHA(action) {
 		return apperror.New(apperror.CodeConflict, "turn completion replay changed ordinary private history")
 	}
 	raw, err := encodeSupervisorProviderReplay(native.Replay, llm.ModelAttempt{Provider: native.Provider, Model: native.Model}, nil)
@@ -176,11 +177,11 @@ func requireSupervisorAssistantCompletionReplayTx(ctx context.Context, tx *sql.T
 		llm.ModelAttempt{Number: number, Provider: native.Provider, Model: native.Model}, native.Replay)
 }
 
-func supervisorNativeActionMatches(text string, action domain.RootAction) bool {
-	var decoded domain.RootAction
-	decoder := json.NewDecoder(strings.NewReader(text))
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(&decoded) == nil && decoded.Validate() == nil && sanitizeRootAction(decoded) == action
+func supervisorAcceptedActionSHA(action domain.RootAction) string {
+	// RootAction contains only scalar strings. Seal the already accepted public
+	// action rather than reparse native text or include private reasoning.
+	raw, _ := json.Marshal(sanitizeRootAction(action))
+	return providerReplaySHA(raw)
 }
 
 // Selected message IDs are re-read under the current lease. Historical replay
@@ -240,7 +241,9 @@ func (s *SQLiteStore) LoadSupervisorAssistantHistory(ctx context.Context, checkp
 		err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_events WHERE run_id=? AND type=? AND source='run_supervisor'
 			AND subject_id=? AND json_extract(payload_json,'$.turn')=? AND json_extract(payload_json,'$.attempt_id')=?
 			AND json_extract(payload_json,'$.assistant_message_id')=? AND json_extract(payload_json,'$.provider')=?
-			AND json_extract(payload_json,'$.model')=?`, source.RunID, events.AgentTurnCompletedEvent, source.AttemptID,
+			AND json_extract(payload_json,'$.model')=? AND json_type(payload_json,'$.accepted_action_sha256')='text'
+			AND length(json_extract(payload_json,'$.accepted_action_sha256'))=64
+			AND json_extract(payload_json,'$.accepted_action_sha256') NOT GLOB '*[^0-9a-f]*'`, source.RunID, events.AgentTurnCompletedEvent, source.AttemptID,
 			source.NextTurn, source.AttemptID, id, provider, model).Scan(&completed)
 		if err != nil {
 			return nil, err

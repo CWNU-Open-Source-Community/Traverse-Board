@@ -1693,7 +1693,7 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 	if err := action.Validate(); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid root lifecycle action", err)
 	}
-	nativeResponse, nativeAction := response, action
+	nativeResponse, acceptedAction := response, action
 	response.Text = action.Message
 	if _, _, _, err := supervisorUsage(response.Usage); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
@@ -1747,7 +1747,7 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 		}
 	}
 	if completionReplay {
-		if err := requireSupervisorAssistantCompletionReplayTx(ctx, tx, checkpoint, nativeResponse, nativeAction); err != nil {
+		if err := requireSupervisorAssistantCompletionReplayTx(ctx, tx, checkpoint, nativeResponse, acceptedAction); err != nil {
 			return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -1788,7 +1788,7 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 	if err := requireLatestSupervisorModelCompletedTx(ctx, tx, run.ID, checkpoint); err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
-	privateModelAttempt, privateReplayDigest, err := prepareSupervisorAssistantBindingTx(ctx, tx, checkpoint, nativeResponse, nativeAction)
+	privateModelAttempt, privateReplayDigest, err := prepareSupervisorAssistantBindingTx(ctx, tx, checkpoint, nativeResponse)
 	if err != nil {
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
@@ -1920,6 +1920,9 @@ func (s *SQLiteStore) completeSupervisorTurn(ctx context.Context, checkpoint dom
 		"provider": response.Provider, "model": response.Model, "usage": response.Usage,
 		"lifecycle_action": action.Kind, "requested_lifecycle_action": requestedAction,
 		"inbox_messages_committed": committedInboxMessages,
+	}
+	if privateModelAttempt > 0 {
+		completionPayload["accepted_action_sha256"] = supervisorAcceptedActionSHA(acceptedAction)
 	}
 	if retainBackgroundJobs {
 		completionPayload["background_jobs_retained"] = true

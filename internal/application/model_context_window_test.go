@@ -18,17 +18,17 @@ func TestKimiNativeHistoryCannotBeOmittedToFitWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	window := llm.ContextWindow{ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: 256, SafetyMarginTokens: 16, DefaultOutputTokens: 64, MaxOutputTokens: 64, Source: "test"}
+	window := llm.ContextWindow{ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: 4096, SafetyMarginTokens: 128, DefaultOutputTokens: 64, MaxOutputTokens: 64, Source: "test"}
 	request := llm.ChatRequest{Messages: []llm.Message{{Role: "system", Content: "fixed"}, {Role: "user", Content: "earlier"}, {Role: "assistant", Replay: replay}, {Role: "user", Content: "current"}}, MaxTokens: 64}
 	layout := modelContextLayout{HistoryStart: 1, HistoryCount: 2}
-	if _, _, err := constrainRequestToModelWindow(request, window, layout); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+	if _, _, err := constrainRequestToModelWindow(request, window, layout, 256); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
 		t.Fatal("private history was silently omitted", err)
 	}
 	if len(request.Messages) != 4 || request.Messages[2].Replay != replay {
 		t.Fatal("failed planning changed native history")
 	}
 	request.Messages[2].Replay = nil
-	if _, plan, err := constrainRequestToModelWindow(request, window, layout); err != nil || plan.HistoryOmitted != 0 {
+	if _, plan, err := constrainRequestToModelWindow(request, window, layout, 256); err != nil || plan.HistoryOmitted != 0 {
 		t.Fatal("ordinary context changed under the scoped refusal", err)
 	}
 }
