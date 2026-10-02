@@ -34168,6 +34168,45 @@
         ],
         "type": "object"
       },
+      "ExtensionMCPNativeSourceView": {
+        "additionalProperties": false,
+        "properties": {
+          "component_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installation_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "package_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "package_id",
+          "component_id",
+          "revision",
+          "installation_generation",
+          "surface"
+        ],
+        "type": "object"
+      },
       "ExtensionMCPReviewRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -34232,6 +34271,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "native_source": {
+            "$ref": "#/components/schemas/ExtensionMCPNativeSourceView"
           },
           "protocol_version": {
             "type": "string"
