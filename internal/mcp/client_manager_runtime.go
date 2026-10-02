@@ -19,7 +19,9 @@ import (
 )
 
 const RuntimeAdapterID = "mcp-sdk"
-const RuntimeAdapterRevision = "resolved-guards.v1"
+
+// Host adapter revision, not a new persisted or wire protocol identifier.
+const RuntimeAdapterRevision = "1"
 
 // InvocationError preserves dispatch evidence through the existing error and
 // audit paths. A received error is not success; an unknown outcome is not retryable.
