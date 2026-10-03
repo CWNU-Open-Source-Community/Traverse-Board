@@ -65,25 +65,37 @@ func (s *runtimeFenceRunPermissionStore) TransitionRunExecutionPermission(
 	return snapshot, false, nil
 }
 
-func TestWorkspaceAccessPermissionRequiresExactOperatorConfirmation(t *testing.T) {
-	base := ChangeRunExecutionPermissionRequest{RunID: "run-workspace-access",
-		Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
-		OperationKey: "workspace-access-confirmation-0001", RequestedBy: "operator",
-		Reason: "select the bounded Workspace permission"}
-	if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(base); err == nil ||
-		!strings.Contains(err.Error(), "exact sandbox-boundary confirmation") {
-		t.Fatalf("missing Workspace confirmation error=%v", err)
-	}
-	base.ConfirmWorkspaceAccess = true
-	normalized, mode, confirmed, err := normalizeChangeRunExecutionPermissionRequest(base)
-	if err != nil || mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		!confirmed || normalized.Mode != string(mode) {
-		t.Fatalf("normalized=%+v mode=%s confirmed=%t err=%v",
-			normalized, mode, confirmed, err)
-	}
-	base.ConfirmUserApproval = true
-	if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(base); err == nil {
-		t.Fatal("Workspace confirmation accepted an unrelated approval flag")
+func TestRunExecutionPermissionRequiresExactCurrentConfirmation(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			base := ChangeRunExecutionPermissionRequest{RunID: "run-current-permission",
+				Mode: string(mode), OperationKey: "current-permission-confirmation-0001",
+				RequestedBy: "operator", Reason: "select the current approval preference",
+				ConfirmFull: mode == domain.RunExecutionPermissionFull}
+			normalized, actual, confirmed, err := normalizeChangeRunExecutionPermissionRequest(base)
+			if err != nil || actual != mode || confirmed != base.ConfirmFull || normalized.Mode != string(mode) {
+				t.Fatalf("normalized=%+v mode=%s confirmed=%t err=%v", normalized, actual, confirmed, err)
+			}
+			invalid := base
+			invalid.ConfirmFull = !base.ConfirmFull
+			if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(invalid); err == nil {
+				t.Fatal("mode accepted an inexact Full confirmation")
+			}
+			for _, legacyFlag := range []func(*ChangeRunExecutionPermissionRequest){
+				func(r *ChangeRunExecutionPermissionRequest) { r.ConfirmWorkspaceAccess = true },
+				func(r *ChangeRunExecutionPermissionRequest) { r.ConfirmUserApproval = true },
+				func(r *ChangeRunExecutionPermissionRequest) { r.ConfirmDangerFullAccess = true },
+				func(r *ChangeRunExecutionPermissionRequest) { r.ConfirmDebugAccess = true },
+			} {
+				invalid = base
+				legacyFlag(&invalid)
+				if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(invalid); err == nil {
+					t.Fatal("current mode accepted a retired confirmation flag")
+				}
+			}
+		})
 	}
 }
 
@@ -91,19 +103,19 @@ func TestExecutionPermissionRejectsNonOperatorAuthoritySources(t *testing.T) {
 	for _, requester := range []string{"model", "agent", "skill", "repository",
 		"project_config", "recovery_data", "mcp", "plugin", "hook"} {
 		request := ChangeRunExecutionPermissionRequest{RunID: "run-authority-source",
-			Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
+			Mode:         string(domain.RunExecutionPermissionAuto),
 			OperationKey: "permission-source-" + requester + "-0001",
-			RequestedBy:  requester, Reason: "attempt unauthorized selection",
-			ConfirmWorkspaceAccess: true}
-		if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(request); err == nil {
-			t.Fatalf("requester %q selected a permission mode", requester)
+			RequestedBy:  requester, Reason: "attempt unauthorized selection"}
+		if _, _, _, err := normalizeChangeRunExecutionPermissionRequest(request); err == nil ||
+			!strings.Contains(err.Error(), "cannot select execution permission modes") {
+			t.Fatalf("requester %q authority rejection=%v", requester, err)
 		}
 	}
 }
 
-func TestRunExecutionPermissionDebugToFullRotatesChildAuthorityFence(t *testing.T) {
+func TestRunExecutionPermissionAutoToFullRotatesChildAuthorityFence(t *testing.T) {
 	now := time.Now().UTC().Round(time.Millisecond)
-	run := domain.Run{ID: "run-debug-to-full", MissionID: "mission-debug-to-full",
+	run := domain.Run{ID: "run-auto-to-full", MissionID: "mission-auto-to-full",
 		Status: domain.RunCreated, CreatedAt: now, UpdatedAt: now}
 	mission := domain.Mission{ID: run.MissionID, CreatedAt: now}
 	initial, err := domain.NewInitialRunExecutionPermissionSnapshot(
@@ -111,13 +123,13 @@ func TestRunExecutionPermissionDebugToFullRotatesChildAuthorityFence(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	debug, err := initial.Next("run-permission-debug",
-		domain.RunExecutionPermissionDebug, true, "operator",
-		"enable bounded debug runtime", now)
+	auto, err := initial.Next("run-permission-auto",
+		domain.RunExecutionPermissionAuto, false, "operator",
+		"select the Auto preference", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := &runtimeFenceRunPermissionStore{run: run, permission: debug}
+	state := &runtimeFenceRunPermissionStore{run: run, permission: auto}
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	oldFence, err := authority.IssueRunAuthorizationFence(run.ID)
 	if err != nil {
@@ -125,34 +137,34 @@ func TestRunExecutionPermissionDebugToFullRotatesChildAuthorityFence(t *testing.
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: authority,
+		FullAccessRequiresRuntimeGrant: true,
+		RuntimeAuthority:               authority,
 	}
 	service := NewRunExecutionPermissionService(state, capabilities)
 	result, err := service.Change(t.Context(), ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-		OperationKey: "debug-to-full-fence-operation-0001",
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+		OperationKey: "auto-to-full-fence-operation-0001",
 		RequestedBy:  "operator", Reason: "switch current task to full access",
-		ConfirmDangerFullAccess: true,
+		ConfirmFull: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if authority.AllowsRunAuthorizationFence(run.ID, oldFence) {
-		t.Fatal("Debug child authorization fence survived the Full revision")
+		t.Fatal("Auto child authorization fence survived the Full revision")
 	}
 	if !capabilities.AllowsSnapshot(result.Permission) {
 		t.Fatal("new Full revision was not rebound to dynamic runtime authority")
 	}
 }
 
-func TestRunExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t *testing.T) {
+func TestRunExecutionPermissionExactAutoReplayPreservesAuthorizationFence(t *testing.T) {
 	now := time.Now().UTC().Round(time.Millisecond)
-	run := domain.Run{ID: "run-debug-replay", MissionID: "mission-debug-replay",
+	run := domain.Run{ID: "run-auto-replay", MissionID: "mission-auto-replay",
 		Status: domain.RunCreated, CreatedAt: now, UpdatedAt: now}
 	mission := domain.Mission{ID: run.MissionID, CreatedAt: now}
 	initial, err := domain.NewInitialRunExecutionPermissionSnapshot(
-		"run-debug-replay-initial", run, mission, "operator", now)
+		"run-auto-replay-initial", run, mission, "operator", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,13 +173,13 @@ func TestRunExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t *te
 	service := NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-			RuntimeAuthority: authority,
+			FullAccessRequiresRuntimeGrant: true,
+			RuntimeAuthority:               authority,
 		})
 	request := ChangeRunExecutionPermissionRequest{RunID: run.ID,
-		Mode:         string(domain.RunExecutionPermissionDebug),
-		OperationKey: "run-debug-replay-operation-0001", RequestedBy: "operator",
-		Reason: "select Debug for this Run", ConfirmDebugAccess: true}
+		Mode:         string(domain.RunExecutionPermissionAuto),
+		OperationKey: "run-auto-replay-operation-0001", RequestedBy: "operator",
+		Reason: "select Auto for this Run"}
 	first, err := service.Change(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -178,10 +190,10 @@ func TestRunExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t *te
 	}
 	replayed, err := service.Change(t.Context(), request)
 	if err != nil || !replayed.Replayed || replayed.Permission.ID != first.Permission.ID {
-		t.Fatalf("exact Debug replay=%+v err=%v", replayed, err)
+		t.Fatalf("exact Auto replay=%+v err=%v", replayed, err)
 	}
 	if !authority.AllowsRunAuthorizationFence(run.ID, fence) {
-		t.Fatal("exact Debug replay rotated its live authorization fence")
+		t.Fatal("exact Auto replay rotated its live authorization fence")
 	}
 }
 
@@ -196,8 +208,8 @@ func TestRunExecutionPermissionSameModeFullReconfirmsWithoutReplayRevocation(t *
 		t.Fatal(err)
 	}
 	durableFull, err := initial.Next("run-permission-cold-full",
-		domain.RunExecutionPermissionFullAccess, true, "operator",
-		"historical Full Access selection", now)
+		domain.RunExecutionPermissionFull, true, "operator",
+		"durable Full preference without a live activation", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +227,10 @@ func TestRunExecutionPermissionSameModeFullReconfirmsWithoutReplayRevocation(t *
 	}
 	service := NewRunExecutionPermissionService(state, capabilities)
 	request := ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "run-full-reconfirm-cold-0001", RequestedBy: "operator",
-		Reason:                  "explicitly reactivate Full Access for this Run",
-		ConfirmDangerFullAccess: true,
+		Reason:      "explicitly reactivate Full Access for this Run",
+		ConfirmFull: true,
 	}
 	first, err := service.Change(t.Context(), request)
 	if err != nil {
@@ -271,7 +283,7 @@ func TestRunExecutionPermissionSameModeFullReconfirmsWithoutReplayRevocation(t *
 	}
 	invalid := request
 	invalid.OperationKey = "run-full-reconfirm-invalid-0003"
-	invalid.ConfirmDangerFullAccess = false
+	invalid.ConfirmFull = false
 	if _, err := service.Change(t.Context(), invalid); err == nil {
 		t.Fatal("Full reconfirmation without confirmation succeeded")
 	}

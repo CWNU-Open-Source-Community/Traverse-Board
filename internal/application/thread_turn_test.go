@@ -686,23 +686,20 @@ func TestThreadTurnAutomaticallyAppliesPendingPermissionAtNextExplicitMessage(t 
 		t.Fatal(err)
 	}
 	threadID := domain.InitialThreadID(started.ID)
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		WorkspaceSandboxEnabled: true,
-	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{}
 	changed, err := application.NewThreadExecutionPermissionService(st, capabilities).Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
-			OperationKey:           "thread-turn-select-next-permission-0001",
-			RequestedBy:            "thread_turn_test_operator",
-			Reason:                 "use bounded Workspace Access on the next execution epoch",
-			ConfirmWorkspaceAccess: true,
+			ThreadID: threadID, Mode: string(domain.RunExecutionPermissionAuto),
+			OperationKey: "thread-turn-select-next-permission-0001",
+			RequestedBy:  "thread_turn_test_operator",
+			Reason:       "use the Auto preference on the next execution epoch",
 		})
 	if err != nil || changed.CurrentRunID != started.ID ||
 		changed.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
 		t.Fatalf("pending permission change=%+v err=%v", changed, err)
 	}
 	provider := &lifecycleProvider{responses: []string{
-		rootActionResponse(domain.RootActionWait, "Workspace Access is active.", "",
+		rootActionResponse(domain.RootActionWait, "Auto preference is active.", "",
 			"operator boundary"),
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
@@ -713,7 +710,7 @@ func TestThreadTurnAutomaticallyAppliesPendingPermissionAtNextExplicitMessage(t 
 		capabilities)
 	result, err := turns.Execute(ctx, application.ExecuteThreadTurnRequest{
 		Version: domain.ThreadMessageProtocolVersion, ThreadID: threadID,
-		Content:      "Continue with Workspace Access.",
+		Content:      "Continue with Auto preference.",
 		OperationKey: "thread-turn-pending-permission-message-0001",
 		RequestedBy:  "thread_turn_test_operator",
 	})
@@ -729,11 +726,11 @@ func TestThreadTurnAutomaticallyAppliesPendingPermissionAtNextExplicitMessage(t 
 	}
 	successorPermission, err := st.GetRunExecutionPermission(ctx,
 		result.Submission.Run.ID)
-	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionAuto {
 		t.Fatalf("successor permission=%+v err=%v", successorPermission, err)
 	}
 	predecessorPermission, err := st.GetRunExecutionPermission(ctx, started.ID)
-	if err != nil || predecessorPermission.Mode != domain.RunExecutionPermissionConservative {
+	if err != nil || predecessorPermission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("predecessor permission mutated=%+v err=%v", predecessorPermission, err)
 	}
 }
@@ -757,16 +754,13 @@ func TestThreadTurnPendingConfigurationNeverTerminatesRunWithActiveLease(t *test
 		t.Fatal(err)
 	}
 	threadID := domain.InitialThreadID(started.ID)
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		WorkspaceSandboxEnabled: true,
-	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{}
 	changed, err := application.NewThreadExecutionPermissionService(st, capabilities).Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
-			OperationKey:           "thread-turn-active-lease-permission-0001",
-			RequestedBy:            "thread_turn_test_operator",
-			Reason:                 "defer Workspace Access until the next execution epoch",
-			ConfirmWorkspaceAccess: true,
+			ThreadID: threadID, Mode: string(domain.RunExecutionPermissionAuto),
+			OperationKey: "thread-turn-active-lease-permission-0001",
+			RequestedBy:  "thread_turn_test_operator",
+			Reason:       "defer Auto preference until the next execution epoch",
 		})
 	if err != nil || changed.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
 		t.Fatalf("active-lease pending permission=%+v err=%v", changed, err)
@@ -825,7 +819,7 @@ func TestThreadTurnPendingConfigurationNeverTerminatesRunWithActiveLease(t *test
 		t.Fatalf("post-lease predecessor=%+v err=%v", oldRun, err)
 	}
 	successorPermission, err := st.GetRunExecutionPermission(ctx, retried.Submission.Run.ID)
-	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionAuto {
 		t.Fatalf("post-lease successor permission=%+v err=%v", successorPermission, err)
 	}
 }

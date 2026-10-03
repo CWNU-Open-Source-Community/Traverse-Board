@@ -52,13 +52,13 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewThreadExecutionPermissionService(st, f.capabilities).Change(ctx, ChangeThreadExecutionPermissionRequest{ThreadID: thread.ID, Mode: "conservative", OperationKey: "carry-current-conservative", RequestedBy: "operator", Reason: "Current Thread permission must remain conservative"}); err != nil {
+	if _, err := NewThreadExecutionPermissionService(st, f.capabilities).Change(ctx, ChangeThreadExecutionPermissionRequest{ThreadID: thread.ID, Mode: "ask", OperationKey: "carry-current-ask", RequestedBy: "operator", Reason: "Current Thread permission must remain Ask"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewRunService(st).Fail(ctx, f.base.run.ID, "retire fixture execution"); err != nil {
 		t.Fatal(err)
 	}
-	request := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, Content: "Continue in the current coding workspace", OperationKey: "next-conservative-code-turn", RequestedBy: "operator"}
+	request := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, Content: "Continue in the current coding workspace", OperationKey: "next-ask-code-turn", RequestedBy: "operator"}
 	result, err := NewThreadServiceWithExecutionCapabilities(st, f.capabilities).WithDrydock(f.base.service).Submit(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 		t.Fatalf("new preset lost exact source/backend: %#v %v", preset, err)
 	}
 	permission, err := st.GetRunExecutionPermission(ctx, result.Run.ID)
-	if err != nil || permission.Mode != domain.RunExecutionPermissionConservative || permission.CapabilityGrant || permission.ProcessEnabled || permission.ExecutionAuthorized {
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk || permission.CapabilityGrant || permission.ProcessEnabled || permission.ExecutionAuthorized {
 		t.Fatalf("continuation raised permission: %#v %v", permission, err)
 	}
 	profile, err := st.GetRunExecutionProfile(ctx, result.Run.ID)
@@ -107,7 +107,7 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 	}
 	// The exact same real Run/Drydock/snapshot tuple cannot be fabricated by an
 	// ordinary preset intent. Only its existing proven Thread continuation may
-	// carry Deliver/conservative instead of the original Plan/workspace_access.
+	// carry the current Deliver phase and Ask preference.
 	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatal(err)

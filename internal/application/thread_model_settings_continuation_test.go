@@ -27,16 +27,16 @@ func TestThreadModelSwitchPreservesExecutionSettingsWithoutAuthority(t *testing.
 			ctx := t.Context()
 			setThreadModelTestProfile(t, st, created.ID, backend, "select-backend")
 			setThreadModelTestInteraction(t, st, created.ID, "controlled", "trust-project")
-			expectedPermission := domain.RunExecutionPermissionConservative
+			expectedPermission := domain.RunExecutionPermissionAsk
 			if backend == "local" {
 				_, err := application.NewThreadExecutionPermissionService(st, domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx,
 					application.ChangeThreadExecutionPermissionRequest{ThreadID: domain.InitialThreadID(created.ID),
-						Mode: "approval", ConfirmUserApproval: true, OperationKey: "model-settings-per-command",
-						RequestedBy: "operator", Reason: "Keep per-command review across model switches"})
+						Mode: "auto", OperationKey: "model-settings-auto",
+						RequestedBy: "operator", Reason: "Keep the selected Auto preference across model switches"})
 				if err != nil {
 					t.Fatal(err)
 				}
-				expectedPermission = domain.RunExecutionPermissionApproval
+				expectedPermission = domain.RunExecutionPermissionAuto
 			}
 			oldProfile, _ := st.GetRunExecutionProfile(ctx, created.ID)
 			oldInteraction, _ := st.GetRunExecutionInteraction(ctx, created.ID)

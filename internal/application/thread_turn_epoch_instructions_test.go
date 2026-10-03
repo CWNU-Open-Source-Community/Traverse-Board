@@ -33,7 +33,7 @@ func TestThreadTurnEpochPreservesUnexecutedRequirementsAndExcludesUserCancellati
 			provider := &scriptedToolProvider{responses: []*llm.ChatResponse{textResponse(rootActionResponse(domain.RootActionFinish, "First turn complete", "done", "")), textResponse(rootActionResponse(domain.RootActionFinish, "New requirement handled", "done", ""))}}
 			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 			router.RegisterProvider(provider)
-			caps := domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}
+			caps := domain.ExecutionPermissionRuntimeCapabilities{}
 			turns := application.NewThreadTurnServiceWithExecutionCapabilities(st, application.NewRunLifecycleControlService(st), application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()), caps)
 			request := application.ExecuteThreadTurnRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: domain.InitialThreadID(run.ID), Content: "Finish the initial review", OperationKey: "epoch-first-turn", RequestedBy: "test_operator"}
 			if _, err := turns.Execute(t.Context(), request); err != nil {
@@ -51,7 +51,7 @@ func TestThreadTurnEpochPreservesUnexecutedRequirementsAndExcludesUserCancellati
 				t.Fatal(err)
 			}
 			if kind == "configuration" {
-				if _, err := application.NewThreadExecutionPermissionService(st, caps).Change(t.Context(), application.ChangeThreadExecutionPermissionRequest{ThreadID: request.ThreadID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess), OperationKey: "epoch-new-permission", RequestedBy: "test_operator", Reason: "Use the requested workspace permission", ConfirmWorkspaceAccess: true}); err != nil {
+				if _, err := application.NewThreadExecutionPermissionService(st, caps).Change(t.Context(), application.ChangeThreadExecutionPermissionRequest{ThreadID: request.ThreadID, Mode: string(domain.RunExecutionPermissionAuto), OperationKey: "epoch-new-permission", RequestedBy: "test_operator", Reason: "Use the requested Auto preference"}); err != nil {
 					t.Fatal(err)
 				}
 			}
