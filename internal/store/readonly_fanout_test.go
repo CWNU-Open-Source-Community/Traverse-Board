@@ -247,10 +247,16 @@ func TestReadOnlyFanoutPolicyDenialAndSchemaV32Upgrade(t *testing.T) {
 }
 
 func createReadOnlyFanoutFixture(t *testing.T, databaseName string,
-	fileCount int,
+	fileCount int, historicalVersion ...int,
 ) (*SQLiteStore, domain.Run, string) {
 	t.Helper()
-	st, err := Open(filepath.Join(t.TempDir(), databaseName))
+	var st *SQLiteStore
+	var err error
+	if len(historicalVersion) == 0 {
+		st, err = Open(filepath.Join(t.TempDir(), databaseName))
+	} else {
+		st, err = openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), databaseName), historicalVersion[0])
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +274,7 @@ func createReadOnlyFanoutFixture(t *testing.T, databaseName string,
 		name := filepath.Join("src", "module-"+string(rune('a'+index))+".go")
 		writeReadOnlyFanoutFile(t, root, name, "package source\n// bounded fixture\n")
 	}
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "read-only fan-out fixture", Profile: "review", WorkspaceID: workspaceID,
 		Budget: domain.Budget{MaxTurns: 20, MaxTokens: 20_000},
 	})

@@ -254,7 +254,7 @@ func TestSchemaV110AddsPhaseAwareRootSkillContextLedger(t *testing.T) {
 
 func TestSchemaV39SkillSelectionSurvivesRootContextMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v39-root-skill-context.db")
-	st, run := createSkillSelectionRun(t, path, "code")
+	st, run := createSkillSelectionRun(t, path, "code", 177)
 	ctx := context.Background()
 	registry, err := skills.BuiltinRegistry()
 	if err != nil {

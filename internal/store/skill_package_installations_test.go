@@ -221,7 +221,7 @@ func TestSkillPackageInstallationPersistsModeMetadata(t *testing.T) {
 func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-package-v110.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,15 +259,9 @@ func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-packages-v68.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 68)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV69ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v69 with %q: %v", statement, err)
-		}
 	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
@@ -289,15 +283,9 @@ func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T)
 func TestSchemaV70UpgradeDoesNotFabricateExternalSkillSelections(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "external-skill-selections-v69.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 69)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV70ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v70 with %q: %v", statement, err)
-		}
 	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
