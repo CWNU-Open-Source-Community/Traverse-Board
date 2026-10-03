@@ -232,15 +232,11 @@ func TestModeBoundRootSkillContextPersistsEmptyDeliverSubset(t *testing.T) {
 
 func TestSchemaV110AddsPhaseAwareRootSkillContextLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v109-root-mode-skill-context.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 109)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV110ForTestStatements() {
-		if _, err := st.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v110 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

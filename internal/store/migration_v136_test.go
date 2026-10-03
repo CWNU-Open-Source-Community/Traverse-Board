@@ -79,16 +79,11 @@ func removeSchemaV136ForTestStatements() []string {
 func TestSchemaV136AddsDurableRiskEscalationLedger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "risk-escalation-v135.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 135)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV136ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			state.Close()
-			t.Fatalf("restore schema v135 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 135 {
 		state.Close()
 		t.Fatalf("restored schema version=%d want=135 err=%v", version, err)

@@ -165,16 +165,12 @@ func TestControlledCommandExecutionAuditIsImmutableAndMetadataOnly(t *testing.T)
 
 func TestSchemaV87AddsControlledCommandExecutionAudit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v86-controlled-execution.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 86)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, statement := range removeSchemaV87ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v87 fixture with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
