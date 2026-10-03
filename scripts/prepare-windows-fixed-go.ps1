@@ -105,6 +105,9 @@ if (Test-Path -LiteralPath $installRoot) {
 if ((Get-Item -LiteralPath $installedGo).Attributes -band [IO.FileAttributes]::ReparsePoint) {
     throw 'Installed Go executable is a reparse point.'
 }
+if ((Get-FileHash -LiteralPath $installedGo -Algorithm SHA256).Hash -ne $officialExeHash) {
+    throw 'Installed Go executable differs from the verified official archive.'
+}
 $reportedVersion = (& $installedGo version).Trim()
 if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne "go version $goVersion windows/amd64") {
     throw 'Installed fixed Go executable did not report the selected version.'
