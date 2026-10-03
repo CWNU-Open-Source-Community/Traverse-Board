@@ -2,8 +2,11 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -14,6 +17,7 @@ import (
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const DesktopUserTerminalProtocolVersion = "desktop_user_terminal.v1"
@@ -138,92 +142,53 @@ func (s *desktopUserTerminalService) Start(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"desktop user terminal requires an explicit Debug confirmation")
 	}
-	run, err := s.store.GetRun(ctx, request.RunID)
+	binding, err := s.loadTerminalBinding(ctx, request.RunID)
 	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal Run lookup failed")
+		return DesktopTerminalSession{}, err
 	}
-	if run.Terminal() {
-		return DesktopTerminalSession{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"desktop terminal cannot start for a terminal Run")
-	}
-	mission, err := s.store.GetMission(ctx, run.MissionID)
+	sessionID := idgen.New("user-terminal")
+	expected, err := terminalBindingFingerprint(binding)
 	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal Mission lookup failed")
+		return DesktopTerminalSession{}, err
 	}
-	if !validWorkspaceIdentity(mission.WorkspaceID) {
-		return DesktopTerminalSession{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"desktop terminal Run has no registered Workspace")
-	}
-	workspace, err := s.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	rootSHA256, err := terminalruntime.WorkspaceRootSHA256(binding.Root)
 	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal Workspace lookup failed")
+		return DesktopTerminalSession{}, err
 	}
-	mode, err := s.store.GetRunMode(ctx, run.ID)
-	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal mode lookup failed")
-	}
-	profile, err := s.store.GetRunExecutionProfile(ctx, run.ID)
-	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal profile lookup failed")
-	}
-	interaction, err := s.store.GetRunExecutionInteraction(ctx, run.ID)
-	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal interaction lookup failed")
-	}
-	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		return DesktopTerminalSession{}, classifyTerminalLookup(err,
-			"desktop terminal permission lookup failed")
-	}
-	decision, err := executionauth.EvaluateExecutionPermission(
-		permission, s.capabilities, executionauth.PermissionRequest{
-			Kind:              executionauth.PermissionOperationPersistentTerminal,
-			HostFilesystem:    true,
-			Network:           true,
-			BackgroundProcess: true,
-		})
-	if err != nil {
-		return DesktopTerminalSession{}, apperror.Wrap(
-			apperror.CodeFailedPrecondition,
-			"desktop terminal permission request is invalid", err)
-	}
-	if mode.Surface != domain.ExecutionSurfaceCode ||
-		profile.Profile != domain.RunExecutionProfileLocal ||
-		interaction.Mode != domain.RunExecutionInteractionDebug ||
-		interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
-		permission.Mode != domain.RunExecutionPermissionDebug ||
-		!decision.Allowed || !decision.PersistentTerminal ||
-		!decision.BackgroundProcess {
-		return DesktopTerminalSession{}, apperror.New(
-			apperror.CodePolicyDenied,
-			"desktop user terminal requires Code/Local/Debug and the current debug maximum-access process gate")
-	}
-	root := filepath.Clean(workspace.RootPath)
+	subject := executionauth.SubjectRef{RunID: request.RunID, ActorID: "desktop_operator"}
+	authorizer := executionauth.NewPolicyAuthorizer(func(checkCtx context.Context,
+		actual executionauth.SubjectRef, operation toolcontract.Operation, approvalRef string,
+	) (executionauth.OperationAuthority, error) {
+		if actual != subject || approvalRef != "" || operation.ID != sessionID ||
+			operation.ToolID != "user_terminal" || operation.Kind != toolcontract.OperationProcess ||
+			operation.Component != (toolcontract.ComponentRef{PackageID: "builtin", ComponentID: "user_terminal"}) ||
+			len(operation.Targets) != 2 ||
+			operation.Targets[0] != (toolcontract.Target{Kind: "process", Locator: sessionID}) ||
+			operation.Targets[1] != (toolcontract.Target{Kind: "directory", Locator: "workspace:" + binding.Scope.WorkspaceID + ":" + rootSHA256}) {
+			return executionauth.OperationAuthority{}, terminalBindingDenied()
+		}
+		current, err := s.loadTerminalBinding(checkCtx, request.RunID)
+		if err != nil {
+			return executionauth.OperationAuthority{}, err
+		}
+		fingerprint, err := terminalBindingFingerprint(current)
+		if err != nil || fingerprint != expected {
+			return executionauth.OperationAuthority{}, terminalBindingDenied()
+		}
+		return executionauth.OperationAuthority{
+			Mode: domain.ExecutionApprovalFull, BindingFingerprint: fingerprint,
+			RuntimeAvailable: s.manager.Available(), FullActivated: true,
+			// A user-owned host terminal has unrestricted effects. Its cwd is
+			// not isolation evidence for Ask or Auto.
+			EffectsVerified: false,
+		}, nil
+	})
 	session, err := s.manager.Start(ctx, terminalruntime.StartRequest{
-		ID: idgen.New("user-terminal"),
-		Scope: terminalruntime.SessionScope{
-			WorkspaceID:              mission.WorkspaceID,
-			RunID:                    run.ID,
-			InteractionSnapshotID:    interaction.ID,
-			InteractionRevision:      interaction.Revision,
-			ExecutionProfileRevision: profile.Revision,
-			PermissionSnapshotID:     permission.ID,
-			PermissionRevision:       permission.Revision,
-			PermissionMode:           permission.Mode,
-			Mode:                     interaction.Mode,
-		},
-		WorkspaceRoot: root, Interaction: interaction,
-		CurrentProfile: profile, CurrentPermission: permission,
+		ID: sessionID, Scope: binding.Scope, WorkspaceRoot: binding.Root,
+		Interaction: binding.Interaction, CurrentProfile: binding.Profile,
+		CurrentPermission: binding.Permission, Authorizer: authorizer,
 		Columns: request.Columns, Rows: request.Rows,
-		RequestedBy: "desktop_operator", OperatorConfirmed: true,
+		RequestedBy: subject.ActorID, OperatorConfirmed: true,
 		ReplaceExisting: request.ReplaceExisting,
 	})
 	if err != nil {
@@ -232,6 +197,109 @@ func (s *desktopUserTerminalService) Start(ctx context.Context,
 			"desktop user terminal start was denied", err)
 	}
 	return projectDesktopTerminalSession(session), nil
+}
+
+// This binding is private process state. The durable preference and the
+// renderer's confirmation cannot recreate its runtime epoch or generation.
+type desktopTerminalBinding struct {
+	Scope       terminalruntime.SessionScope
+	Root        string
+	MissionID   string
+	SessionID   string
+	Mode        domain.RunModeSnapshot
+	Profile     domain.RunExecutionProfileSnapshot
+	Interaction domain.RunExecutionInteractionSnapshot
+	Permission  domain.RunExecutionPermissionSnapshot
+	Epoch       string
+	Generation  uint64
+}
+
+func (s *desktopUserTerminalService) loadTerminalBinding(ctx context.Context,
+	runID string,
+) (desktopTerminalBinding, error) {
+	if ctx == nil {
+		return desktopTerminalBinding{}, terminalBindingDenied()
+	}
+	if err := ctx.Err(); err != nil {
+		return desktopTerminalBinding{}, err
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal Run lookup failed")
+	}
+	if run.Terminal() {
+		return desktopTerminalBinding{}, terminalBindingDenied()
+	}
+	mission, err := s.store.GetMission(ctx, run.MissionID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal Mission lookup failed")
+	}
+	workspace, err := s.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal Workspace lookup failed")
+	}
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal mode lookup failed")
+	}
+	profile, err := s.store.GetRunExecutionProfile(ctx, run.ID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal profile lookup failed")
+	}
+	interaction, err := s.store.GetRunExecutionInteraction(ctx, run.ID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal interaction lookup failed")
+	}
+	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		return desktopTerminalBinding{}, classifyTerminalLookup(err, "desktop terminal permission lookup failed")
+	}
+	generation, active := s.capabilities.FullAccessGeneration(permission)
+	epoch := s.capabilities.RuntimeAuthority.RuntimeEpoch()
+	root := filepath.Clean(workspace.RootPath)
+	_, rootErr := terminalruntime.WorkspaceRootSHA256(root)
+	if rootErr != nil || !validWorkspaceIdentity(mission.WorkspaceID) ||
+		workspace.ID != mission.WorkspaceID || mode.Validate() != nil ||
+		profile.Validate() != nil || interaction.Validate() != nil || permission.Validate() != nil ||
+		mode.RunID != run.ID || mode.MissionID != mission.ID ||
+		profile.RunID != run.ID || profile.MissionID != mission.ID ||
+		interaction.RunID != run.ID || interaction.MissionID != mission.ID ||
+		permission.RunID != run.ID || permission.MissionID != mission.ID ||
+		mode.Surface != domain.ExecutionSurfaceCode ||
+		profile.Profile != domain.RunExecutionProfileLocal ||
+		interaction.Mode != domain.RunExecutionInteractionDebug ||
+		interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
+		interaction.ExecutionProfileRevision != profile.Revision ||
+		permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.Mode != domain.RunExecutionPermissionFull || !active || generation == 0 || epoch == "" {
+		return desktopTerminalBinding{}, terminalBindingDenied()
+	}
+	return desktopTerminalBinding{
+		Scope: terminalruntime.SessionScope{
+			WorkspaceID: mission.WorkspaceID, RunID: run.ID,
+			InteractionSnapshotID: interaction.ID, InteractionRevision: interaction.Revision,
+			ExecutionProfileRevision: profile.Revision,
+			PermissionSnapshotID:     permission.ID, PermissionRevision: permission.Revision,
+			PermissionMode: permission.Mode, Mode: interaction.Mode,
+		},
+		Root: root, MissionID: mission.ID, SessionID: run.SessionID,
+		Mode: mode, Profile: profile, Interaction: interaction, Permission: permission,
+		Epoch: epoch, Generation: generation,
+	}, nil
+}
+
+func terminalBindingFingerprint(binding desktopTerminalBinding) (string, error) {
+	raw, err := json.Marshal(binding)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func terminalBindingDenied() error {
+	return apperror.New(apperror.CodePolicyDenied,
+		"desktop user terminal requires current Code/Local/Debug bindings and activated Full")
 }
 
 func (s *desktopUserTerminalService) Get(_ context.Context,
@@ -317,72 +385,23 @@ func (s *desktopUserTerminalService) Close(_ context.Context,
 }
 
 func (s *desktopUserTerminalService) reconcileBindings(ctx context.Context) int {
-	if s == nil || s.store == nil || s.manager == nil ||
-		ctx == nil || ctx.Err() != nil {
+	if s == nil || s.store == nil || s.manager == nil || ctx == nil || ctx.Err() != nil {
 		return 0
 	}
+	// Preserve Run-wide lease revocation on termination, including leases for
+	// a terminal that has already exited. Other drift uses the pinned resolver.
 	closed := 0
 	for _, session := range s.manager.ActiveSessions() {
 		run, err := s.store.GetRun(ctx, session.Scope.RunID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				_ = s.manager.CloseForBindingInvalidation(session.ID)
-				closed++
-			}
-			continue
+		if ctx.Err() != nil {
+			return closed
 		}
-		if run.Terminal() {
+		if err == nil && run.Terminal() {
 			_ = s.manager.CloseForRunTermination(run.ID)
-			closed++
-			continue
-		}
-		mode, modeErr := s.store.GetRunMode(ctx, run.ID)
-		mission, missionErr := s.store.GetMission(ctx, run.MissionID)
-		var workspace store.WorkspaceRecord
-		var workspaceErr error
-		if missionErr == nil {
-			workspace, workspaceErr = s.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
-		}
-		profile, profileErr := s.store.GetRunExecutionProfile(ctx, run.ID)
-		interaction, interactionErr := s.store.GetRunExecutionInteraction(ctx, run.ID)
-		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, run.ID)
-		if modeErr != nil || missionErr != nil || workspaceErr != nil ||
-			profileErr != nil || interactionErr != nil ||
-			permissionErr != nil {
-			if errors.Is(modeErr, sql.ErrNoRows) ||
-				errors.Is(missionErr, sql.ErrNoRows) ||
-				errors.Is(workspaceErr, sql.ErrNoRows) ||
-				errors.Is(profileErr, sql.ErrNoRows) ||
-				errors.Is(interactionErr, sql.ErrNoRows) ||
-				errors.Is(permissionErr, sql.ErrNoRows) {
-				_ = s.manager.CloseForBindingInvalidation(session.ID)
-				closed++
-			}
-			continue
-		}
-		workspaceRootSHA256, rootErr := terminalruntime.WorkspaceRootSHA256(
-			filepath.Clean(workspace.RootPath))
-		if mode.Surface != domain.ExecutionSurfaceCode ||
-			rootErr != nil || mission.WorkspaceID != session.Scope.WorkspaceID ||
-			workspace.ID != session.Scope.WorkspaceID ||
-			workspaceRootSHA256 != session.WorkspaceRootSHA256 ||
-			profile.Profile != domain.RunExecutionProfileLocal ||
-			interaction.ID != session.Scope.InteractionSnapshotID ||
-			interaction.Revision != session.Scope.InteractionRevision ||
-			profile.Revision != session.Scope.ExecutionProfileRevision ||
-			permission.ID != session.Scope.PermissionSnapshotID ||
-			permission.Revision != session.Scope.PermissionRevision ||
-			permission.Mode != session.Scope.PermissionMode ||
-			permission.Mode != domain.RunExecutionPermissionDebug ||
-			!s.capabilities.Allows(permission.Mode) ||
-			interaction.Mode != session.Scope.Mode ||
-			interaction.Mode != domain.RunExecutionInteractionDebug ||
-			interaction.ExecutionProfileRevision != profile.Revision {
-			_ = s.manager.CloseForBindingInvalidation(session.ID)
 			closed++
 		}
 	}
-	return closed
+	return closed + s.manager.ReconcileBindings(ctx)
 }
 
 func projectDesktopTerminalSession(
