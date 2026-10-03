@@ -570,8 +570,10 @@ func (s *HostCommandProposalReviewService) reviewRiskEscalation(ctx context.Cont
 			return ReviewHostCommandProposalResult{}, apperror.New(
 				apperror.CodeConflict, "risk escalation was already denied")
 		}
-		_, _, _ = s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
-			"operator denied exact risk escalation")
+		if _, _, err := s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
+			"operator denied exact risk escalation"); err != nil {
+			return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+		}
 		view, loadErr := s.loadRiskEscalationView(ctx, proposal)
 		return ReviewHostCommandProposalResult{View: view, ReviewReplayed: true}, loadErr
 	}
@@ -623,8 +625,10 @@ func (s *HostCommandProposalReviewService) reviewRiskEscalation(ctx context.Cont
 		if _, found, loadErr := s.riskStore.GetRiskEscalationResult(ctx, proposal.ID); loadErr != nil {
 			return ReviewHostCommandProposalResult{}, apperror.Normalize(loadErr)
 		} else if found {
-			_, _, _ = s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
-				"approved risk escalation result is durable")
+			if _, _, err := s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
+				"approved risk escalation result is durable"); err != nil {
+				return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+			}
 			view, viewErr := s.loadRiskEscalationView(ctx, proposal)
 			return ReviewHostCommandProposalResult{View: view, ReviewReplayed: true,
 				ExecutionReplayed: true}, viewErr
@@ -637,11 +641,15 @@ func (s *HostCommandProposalReviewService) reviewRiskEscalation(ctx context.Cont
 				ctx, proposal.ID); invalidationErr != nil {
 				return ReviewHostCommandProposalResult{}, apperror.Normalize(invalidationErr)
 			} else if !invalidated {
-				_, _ = s.invalidateRiskEscalation(ctx, proposal, record.GrantID,
-					"execution_uncertain", "write-ahead execution intent has no durable result; automatic retry is disabled")
+				if _, err := s.invalidateRiskEscalation(ctx, proposal, record.GrantID,
+					"execution_uncertain", "write-ahead execution intent has no durable result; automatic retry is disabled"); err != nil {
+					return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+				}
 			}
-			_, _, _ = s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
-				"risk escalation execution result is uncertain")
+			if _, _, err := s.riskStore.ResumeRiskEscalationRun(ctx, proposal.ID,
+				"risk escalation execution result is uncertain"); err != nil {
+				return ReviewHostCommandProposalResult{}, apperror.Normalize(err)
+			}
 			view, viewErr := s.loadRiskEscalationView(ctx, proposal)
 			return ReviewHostCommandProposalResult{View: view, ReviewReplayed: true,
 				ExecutionReplayed: true}, viewErr
