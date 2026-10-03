@@ -402,6 +402,9 @@ func (m *AuthManager) postOAuth(ctx context.Context, path string, form url.Value
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("User-Agent", "Prayu-GitHub-Review/"+ProtocolVersion)
+	if err := checkDraftDispatch(ctx); err != nil {
+		return err
+	}
 	response, err := m.httpClient.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {

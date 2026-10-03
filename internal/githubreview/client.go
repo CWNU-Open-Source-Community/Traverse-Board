@@ -67,6 +67,9 @@ func NewClientForTestWithNetwork(resolver tokenResolver, network NetworkScope, b
 }
 
 func (c *Client) checkRedirect(request *http.Request, via []*http.Request) error {
+	if _, guarded := request.Context().Value(draftDispatchKey{}).(*draftDispatch); guarded {
+		return &Error{Code: FailureNetworkPolicy, Message: "draft operation requests must not redirect or repeat a POST"}
+	}
 	if len(via) > 1 {
 		return &Error{Code: FailureNetworkPolicy, Message: "GitHub response exceeded one redirect"}
 	}
@@ -188,6 +191,9 @@ func (c *Client) doBytes(ctx context.Context, target string, ref CredentialRefer
 func (c *Client) do(ctx context.Context, method, target string, body io.Reader,
 	ref CredentialReference, limit int, requireJSON bool,
 ) (apiResponse, error) {
+	if err := checkDraftDispatch(ctx); err != nil {
+		return apiResponse{}, err
+	}
 	lease, err := c.resolver.resolve(ctx, ref)
 	if err != nil {
 		return apiResponse{}, err
@@ -202,6 +208,12 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader,
 	request.Header.Set("Authorization", "Bearer "+lease.value)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if err := checkDraftDispatch(ctx); err != nil {
+		return apiResponse{}, err
+	}
+	if state, guarded := ctx.Value(draftDispatchKey{}).(*draftDispatch); guarded && method == http.MethodPost {
+		state.posted.Store(true)
 	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
