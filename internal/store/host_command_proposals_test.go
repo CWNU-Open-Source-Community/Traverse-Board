@@ -242,16 +242,12 @@ func hostCommandStoreOutput(data []byte) runner.ControlledOutput {
 
 func TestSchemaV96AddsImmutableHostCommandProposalLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v95-host-proposals.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 95)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, statement := range removeSchemaV96ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v96 fixture with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

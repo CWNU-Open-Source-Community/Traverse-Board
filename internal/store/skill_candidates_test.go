@@ -219,15 +219,11 @@ func seedSkillCandidateInvocation(t *testing.T, st *SQLiteStore, run domain.Run,
 
 func TestSchemaV112AddsEmptySkillCandidateLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v111-skill-candidates.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 111)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV112ForTestStatements() {
-		if _, err := st.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v112 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

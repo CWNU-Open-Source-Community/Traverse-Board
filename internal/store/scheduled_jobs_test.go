@@ -21,15 +21,11 @@ func removeSchemaV122ForTestStatements() []string {
 
 func TestSchemaV122UpgradesV121Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scheduled-jobs-v121.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 121)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV122ForTestStatements() {
-		if _, err := state.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v122 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

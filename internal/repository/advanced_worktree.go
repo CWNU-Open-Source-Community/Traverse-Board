@@ -257,6 +257,9 @@ func (e *AdvancedExecutor) executeManagedWorktree(ctx context.Context, root stri
 	}
 	switch spec.Operation {
 	case gitadvanced.WorktreeCreate:
+		if err := checkAdvancedDispatch(ctx); err != nil {
+			return "", "", 0, err
+		}
 		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 			return "", "", 0, err
 		}

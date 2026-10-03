@@ -266,6 +266,19 @@ func (a *ExecutionPermissionRuntimeAuthority) RotateRunAuthorizationFence(
 	return generation, nil
 }
 
+// RunAuthorizationFence observes the existing epoch without issuing authority.
+// Native approvals can bind it at review and fail closed after revocation or
+// restart; executing an old approval must not recreate a missing epoch.
+func (a *ExecutionPermissionRuntimeAuthority) RunAuthorizationFence(runID string) (uint64, bool) {
+	if a == nil {
+		return 0, false
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	generation := a.runFences[strings.TrimSpace(runID)]
+	return generation, generation != 0
+}
+
 func (a *ExecutionPermissionRuntimeAuthority) AllowsRunAuthorizationFence(
 	runID string, generation uint64,
 ) bool {

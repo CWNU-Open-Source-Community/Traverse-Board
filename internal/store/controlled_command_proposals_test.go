@@ -8,16 +8,12 @@ import (
 
 func TestSchemaV89AddsImmutableControlledCommandProposalLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v88-command-proposals.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 88)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, statement := range removeSchemaV89ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v89 fixture with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
