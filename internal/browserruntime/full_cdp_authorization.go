@@ -110,14 +110,14 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		!permissionCapabilities.FullDebugEnabled || !runtimeCapabilities.TransportEnabled ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!executionAllowed || executionCapabilities.RuntimeAuthority == nil ||
 		executionFence == 0 || !executionCapabilities.RuntimeAuthority.
 		AllowsRunAuthorizationFence(session.RunID, executionFence) ||
 		!confirmed || now.IsZero() {
 		return FullCDPAuthorization{}, errors.New(
-			"full CDP requires live Full Access or Debug authority, its confirmed sub-permission, per-call confirmation, and a restricted-CDP runtime")
+			"full CDP requires live Full authority, its confirmed sub-permission, per-call confirmation, and a restricted-CDP runtime")
 	}
 	expiresAt := now.Add(FullCDPCapabilityTTL)
 	authorization := FullCDPAuthorization{
@@ -203,7 +203,7 @@ func ValidateFullCDPAuthorization(authorization FullCDPAuthorization,
 		permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!authorization.NavigateAuthorized || !authorization.DOMMetadataAuthorized ||
 		!authorization.ScreenshotAuthorized || !authorization.RequestCaptureAuthorized ||

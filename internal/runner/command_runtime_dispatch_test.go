@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestCommandRuntimeDispatchDeniedReceiptReplaysWithoutNewGrant(t *testing.T) {
@@ -41,6 +42,80 @@ func TestCommandRuntimeDispatchRetainsCancellationAcrossDetachedLifetime(t *test
 	cancel()
 	if err := CheckCommandRuntimeDispatch(detached, CommandRuntimeResolvedSpec{}); !errors.Is(err, context.Canceled) || checks != 0 {
 		t.Fatalf("detaching Job lifetime lost request cancellation: checks=%d err=%v", checks, err)
+	}
+}
+
+func TestCommandRuntimeOwnedDispatchKeepsAuthorityAndJobCancellation(t *testing.T) {
+	request, endRequest := context.WithCancel(t.Context())
+	revoked := false
+	denied := errors.New("authority changed after ownership transfer")
+	checks := 0
+	bound := withCommandRuntimeDispatchCheck(request, func(ctx context.Context, _ CommandRuntimeResolvedSpec) error {
+		checks++
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if revoked {
+			return denied
+		}
+		return nil
+	})
+	owned, err := ownedCommandRuntimeDispatchContext(bound, CommandRuntimeResolvedSpec{})
+	if err != nil || checks != 1 {
+		t.Fatalf("handoff skipped admission: checks=%d err=%v", checks, err)
+	}
+	job, cancelJob := context.WithCancel(owned)
+	defer cancelJob()
+	endRequest()
+	if err := CheckCommandRuntimeDispatch(job, CommandRuntimeResolvedSpec{}); err != nil || checks != 2 {
+		t.Fatalf("ended start request canceled its owned job: checks=%d err=%v", checks, err)
+	}
+	revoked = true
+	if err := CheckCommandRuntimeDispatch(job, CommandRuntimeResolvedSpec{}); !errors.Is(err, denied) || checks != 3 {
+		t.Fatalf("owned job did not recheck authority: checks=%d err=%v", checks, err)
+	}
+	cancelJob()
+	if err := CheckCommandRuntimeDispatch(job, CommandRuntimeResolvedSpec{}); !errors.Is(err, context.Canceled) || checks != 3 {
+		t.Fatalf("owned job lost cancellation: checks=%d err=%v", checks, err)
+	}
+	if _, err := ownedCommandRuntimeDispatchContext(bound, CommandRuntimeResolvedSpec{}); !errors.Is(err, context.Canceled) || checks != 3 {
+		t.Fatalf("canceled request transferred ownership: checks=%d err=%v", checks, err)
+	}
+}
+
+func TestCommandRuntimeDispatchCancellationDuringCheckDeniesHandoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	bound := withCommandRuntimeDispatchCheck(ctx, func(context.Context, CommandRuntimeResolvedSpec) error {
+		cancel()
+		return nil
+	})
+	if _, err := ownedCommandRuntimeDispatchContext(bound, CommandRuntimeResolvedSpec{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("request canceled by recheck still transferred ownership: %v", err)
+	}
+}
+
+func TestCommandRuntimeDetachedRecheckStillObservesRequestCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	entered := make(chan struct{})
+	bound := withCommandRuntimeDispatchCheck(ctx, func(ctx context.Context, _ CommandRuntimeResolvedSpec) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	result := make(chan error, 1)
+	go func() {
+		result <- CheckCommandRuntimeDispatch(context.WithoutCancel(bound), CommandRuntimeResolvedSpec{})
+	}()
+	<-entered
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("detached recheck lost original cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("original request cancellation did not interrupt the live recheck")
 	}
 }
 

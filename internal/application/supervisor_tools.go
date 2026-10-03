@@ -628,7 +628,7 @@ func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 		return s.agentBrowserCapabilities(ctx, turn)
 	}
 	if s == nil || s.browserActions == nil || turn.Agent.Role != domain.AgentRoleRoot ||
-		(permission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!permission.Mode.IsFullPreference() &&
 			permission.Mode != domain.RunExecutionPermissionDebug) {
 		return toolgateway.BrowserActionCapabilities{}, nil, nil
 	}

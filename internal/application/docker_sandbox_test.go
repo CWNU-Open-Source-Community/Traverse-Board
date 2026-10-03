@@ -173,10 +173,10 @@ func TestDockerSandboxAdmissionRequiresExactLiveFullSnapshotAndAllowsDebug(t *te
 	}
 	permissions := NewRunExecutionPermissionService(fixture.store, capabilities)
 	full, err := permissions.Change(ctx, ChangeRunExecutionPermissionRequest{
-		RunID: fixture.plan.RunID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: fixture.plan.RunID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "product-exact-live-full-permission-0001",
 		RequestedBy:  fixture.requestedBy, Reason: "select exact Full Access",
-		ConfirmDangerFullAccess: true,
+		ConfirmFull: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,16 +209,10 @@ func TestDockerSandboxAdmissionRequiresExactLiveFullSnapshotAndAllowsDebug(t *te
 	if err != nil || !live.Allowed || live.Admission == nil {
 		t.Fatalf("live Full Docker admission=%+v err=%v", live, err)
 	}
-	debugFixture := newDockerSandboxServiceFixture(t, "product-exact-live-debug")
-	debugPermissions := NewRunExecutionPermissionService(debugFixture.store, capabilities)
-	debug, err := debugPermissions.Change(ctx, ChangeRunExecutionPermissionRequest{
-		RunID: debugFixture.plan.RunID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "product-exact-live-debug-permission-0003",
-		RequestedBy:  debugFixture.requestedBy, Reason: "select Debug inheritance",
-		ConfirmDebugAccess: true,
-	})
-	if err != nil || debug.Permission.Mode != domain.RunExecutionPermissionDebug {
-		t.Fatalf("Debug selection=%+v err=%v", debug, err)
+	debugFixture := newDockerSandboxServiceFixture(t, "product-exact-live-debug", domain.RunExecutionPermissionDebug)
+	debug, err := debugFixture.store.GetRunExecutionPermission(ctx, debugFixture.plan.RunID)
+	if err != nil || debug.Mode != domain.RunExecutionPermissionDebug {
+		t.Fatalf("retained Debug=%+v err=%v", debug, err)
 	}
 	debugService, err := NewDockerSandboxService(debugFixture.store, debugFixture.readiness,
 		policy.NewDefaultChecker(), sandbox.DockerRuntimeCapabilities{Enabled: true},
@@ -247,10 +241,10 @@ func TestDockerSandboxArtifactCommitRequiresExactLiveFullSnapshotAndAllowsDebug(
 	}
 	permissions := NewRunExecutionPermissionService(fixture.store, capabilities)
 	full, err := permissions.Change(ctx, ChangeRunExecutionPermissionRequest{
-		RunID: fixture.plan.RunID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: fixture.plan.RunID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "product-artifact-full-permission-0001",
 		RequestedBy:  fixture.requestedBy, Reason: "authorize bounded artifact output",
-		ConfirmDangerFullAccess: true,
+		ConfirmFull: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,18 +288,12 @@ func TestDockerSandboxArtifactCommitRequiresExactLiveFullSnapshotAndAllowsDebug(
 		t.Fatal("cold Full artifact authority was restored from its durable snapshot")
 	}
 
-	debugFixture := newDockerSandboxServiceFixture(t, "product-artifact-debug")
+	debugFixture := newDockerSandboxServiceFixture(t, "product-artifact-debug", domain.RunExecutionPermissionDebug)
 	debugCapabilities := capabilities
 	debugCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
-	debugPermissions := NewRunExecutionPermissionService(debugFixture.store,
-		debugCapabilities)
-	if _, err := debugPermissions.Change(ctx, ChangeRunExecutionPermissionRequest{
-		RunID: debugFixture.plan.RunID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "product-artifact-debug-permission-0003",
-		RequestedBy:  debugFixture.requestedBy, Reason: "verify Debug artifact inheritance",
-		ConfirmDebugAccess: true,
-	}); err != nil {
-		t.Fatal(err)
+	retainedDebug, err := debugFixture.store.GetRunExecutionPermission(ctx, debugFixture.plan.RunID)
+	if err != nil || retainedDebug.Mode != domain.RunExecutionPermissionDebug {
+		t.Fatalf("retained Debug=%+v err=%v", retainedDebug, err)
 	}
 	debugService, err := NewDockerSandboxService(debugFixture.store, debugFixture.readiness,
 		policy.NewDefaultChecker(), sandbox.DockerRuntimeCapabilities{Enabled: true},
@@ -565,11 +553,11 @@ type dockerSandboxServiceFixture struct {
 }
 
 func newDockerSandboxServiceFixture(t *testing.T,
-	prefix string,
+	prefix string, retained ...domain.RunExecutionPermissionMode,
 ) dockerSandboxServiceFixture {
 	t.Helper()
 	ctx := context.Background()
-	st, run, root := newSandboxManifestTestRuntime(t, ctx)
+	st, run, root := newSandboxManifestTestRuntime(t, ctx, retained...)
 	manifestService := NewSandboxManifestService(st, policy.NewDefaultChecker())
 	requestedBy := "docker_product_operator"
 	manifest, observation := prepareDockerContainerPlanAuthority(t, ctx,
@@ -591,11 +579,13 @@ func newDockerSandboxServiceFixture(t *testing.T,
 	permission := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true,
 	}
-	if _, err := NewRunExecutionPermissionService(st, permission).Change(ctx,
-		ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "approval",
-			OperationKey: prefix + "-permission", RequestedBy: requestedBy,
-			Reason: "execute approved Docker Sandbox", ConfirmUserApproval: true}); err != nil {
-		t.Fatal(err)
+	if len(retained) == 0 {
+		if _, err := NewRunExecutionPermissionService(st, permission).Change(ctx,
+			ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "auto",
+				OperationKey: prefix + "-permission", RequestedBy: requestedBy,
+				Reason: "execute approved Docker Sandbox", ConfirmFull: false}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	endpoint, err := sandbox.NewDockerObservationEndpoint(
 		sandbox.DockerObservationEndpointLocalUnix)
