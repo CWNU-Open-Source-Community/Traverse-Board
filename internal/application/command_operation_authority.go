@@ -209,6 +209,12 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 					owned.LeaseOwnerID != expectedScope.LeaseOwnerID {
 					return executionauth.OperationAuthority{}, errors.New("completed command start no longer owns its exact active Job")
 				}
+				// Stop revokes continuation in memory before the terminal record is
+				// persisted. Ownership alone also permits stopping Jobs for cleanup.
+				live, err := s.manager.Get(ctx, ownedID)
+				if err != nil || live.State != runner.CommandRuntimeJobRunning {
+					return executionauth.OperationAuthority{}, errors.New("completed command start no longer owns its exact active Job")
+				}
 			}
 			policyInput = source.input
 			record, err := st.GetApprovalByProposal(ctx, source.call.CallID)
