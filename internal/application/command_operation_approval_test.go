@@ -646,9 +646,12 @@ func TestCommandOperationApprovalCompletedStartOnlyContinuesItsOwnedJob(t *testi
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = cold.Shutdown(context.Background()) })
-			coldService := *f.service
-			coldService.manager = cold
-			if err := check(&coldService, scope); err == nil {
+			coldService, err := NewCommandRuntimeService(f.st, cold, f.caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			coldService.SetCommandRuntimePolicy(f.checker)
+			if err := check(coldService, scope); err == nil {
 				t.Fatal("durable start receipt reactivated authority in a different manager")
 			}
 			if _, err := f.manager.Stop(t.Context(), jobs[0].ID, true, 0); err != nil {
