@@ -2744,6 +2744,14 @@
           "mode": "write-new"
         },
         {
+          "id": "native-github-review-authority-writer",
+          "source": "internal/application/github_review_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
+        },
+        {
           "id": "tool-mutation-ledgers-writer",
           "source": "internal/application",
           "versions": [
@@ -2756,6 +2764,14 @@
         {
           "id": "native-git-reviewed-authority-reader",
           "source": "internal/application/git_advanced_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        },
+        {
+          "id": "native-github-review-authority-reader",
+          "source": "internal/application/github_review_operation_authority.go",
           "versions": [
             2
           ],
@@ -2813,6 +2829,7 @@
         "github-review-snapshot.v1",
         "github-review-write.v1",
         "github_review_write.v1",
+        "native-github-review-approval.v2",
         "note_create.v1",
         "repository_mutation.v1",
         "repository_mutation_binding.v1",

@@ -40,7 +40,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 40 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 41 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
 | [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
@@ -1665,12 +1665,14 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `native-git-reviewed-authority-writer` (`v2`, write-new) at `internal/application/git_advanced_operation_authority.go`
+  - `native-github-review-authority-writer` (`v2`, write-new) at `internal/application/github_review_operation_authority.go`
   - `tool-mutation-ledgers-writer` (`v1`, write-current) at `internal/application`
 - Readers:
   - `native-git-reviewed-authority-reader` (`v2`, active) at `internal/application/git_advanced_operation_authority.go`
+  - `native-github-review-authority-reader` (`v2`, active) at `internal/application/github_review_operation_authority.go`
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>40 active identifiers</summary>
+<details><summary>41 active identifiers</summary>
 
 - `agent_code_file_edit_proposal.v1`
 - `agent_code_file_edit_source.v1`
@@ -1703,6 +1705,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `github-review-snapshot.v1`
 - `github-review-write.v1`
 - `github_review_write.v1`
+- `native-github-review-approval.v2`
 - `note_create.v1`
 - `repository_mutation.v1`
 - `repository_mutation_binding.v1`
