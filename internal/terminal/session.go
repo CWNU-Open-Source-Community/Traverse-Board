@@ -608,11 +608,11 @@ func (m *Manager) Shutdown() error {
 	return result
 }
 
-func (m *Manager) writeAuthorized(sessionID string, data []byte) (int, error) {
+func (m *Manager) writeAuthorized(ctx context.Context, sessionID string, data []byte) (int, error) {
 	if err := validateTerminalInput(data); err != nil {
 		return 0, err
 	}
-	return m.write(context.Background(), sessionID, data)
+	return m.write(ctx, sessionID, data)
 }
 
 func (m *Manager) write(ctx context.Context, sessionID string, data []byte) (int, error) {

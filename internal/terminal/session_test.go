@@ -859,3 +859,79 @@ func TestTerminalCancelledMutationDoesNotRevokeValidUserSession(t *testing.T) {
 		t.Fatal("valid later input did not reach existing terminal")
 	}
 }
+
+func TestAgentInputBridgeCancellationBeforeNativeWrite(t *testing.T) {
+	for _, cancelAt := range []int{1, 3} {
+		t.Run(fmt.Sprintf("cancel_at_native_check_%d", cancelAt), func(t *testing.T) {
+			backend := &terminalBackendStub{}
+			broker := executionauth.NewTerminalInputBroker()
+			manager, err := NewManager(backend, broker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Shutdown()
+			request := terminalStartTestRequest(t)
+			authority := newTerminalAuthorityFixture(t, request, true)
+			request.Authorizer = authority.authorizer()
+			session, err := manager.Start(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bridge, err := NewAgentInputBridge(manager, broker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issued, err := bridge.Issue(context.Background(), IssueAgentInputRequest{
+				SessionID: session.ID, RequestedBy: request.RequestedBy, OperatorConfirmed: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			authority.mu.Lock()
+			authority.calls = 0
+			authority.onResolve = func(call int) {
+				// This resolver is reached only after Bridge.Write has validated
+				// the exact live lease and matched the current terminal session.
+				if call == cancelAt {
+					cancel()
+				}
+			}
+			authority.mu.Unlock()
+			result, writeErr := bridge.Write(ctx, AgentWriteRequest{
+				Token: issued.Token, Scope: issued.Lease.Scope, Data: []byte("cancelled-agent-input\r"),
+			})
+			nativeInput := backend.process.inputString()
+			backend.process.mu.Lock()
+			nativeWrites := backend.process.writes
+			backend.process.mu.Unlock()
+			if !errors.Is(ctx.Err(), context.Canceled) {
+				t.Fatal("fixture did not cancel the original request")
+			}
+			t.Logf("request_error=%v result_bytes=%d write_error=%v native_writes=%d native_input=%q",
+				ctx.Err(), result.BytesWritten, writeErr, nativeWrites, nativeInput)
+			if writeErr == nil || result.BytesWritten != 0 || nativeWrites != 0 || nativeInput != "" {
+				t.Fatalf("cancelled Agent request reached native input: result=%#v err=%v writes=%d input=%q",
+					result, writeErr, nativeWrites, nativeInput)
+			}
+			current, err := manager.Get(session.ID)
+			if err != nil || current.State != SessionRunning {
+				t.Fatalf("request cancellation revoked the valid user-owned session: state=%#v err=%v", current, err)
+			}
+			if _, err := broker.Authorize(issued.Token, issued.Lease.Scope); err != nil {
+				t.Fatalf("request cancellation revoked the valid input lease: %v", err)
+			}
+			authority.mu.Lock()
+			authority.onResolve = nil
+			authority.mu.Unlock()
+			later, err := bridge.Write(context.Background(), AgentWriteRequest{
+				Token: issued.Token, Scope: issued.Lease.Scope, Data: []byte("later-agent-input\r"),
+			})
+			if err != nil || later.BytesWritten != len("later-agent-input\r") ||
+				backend.process.inputString() != "later-agent-input\r" {
+				t.Fatalf("fresh request could not use still-valid terminal and lease: result=%#v err=%v", later, err)
+			}
+		})
+	}
+}

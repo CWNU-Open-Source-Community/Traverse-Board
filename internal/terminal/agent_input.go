@@ -123,7 +123,7 @@ func (b *AgentInputBridge) Write(ctx context.Context,
 		session.ID != lease.Scope.TerminalSessionID {
 		return AgentWriteResult{}, ErrAgentInputBridgeDenied
 	}
-	count, err := b.manager.writeAuthorized(session.ID, request.Data)
+	count, err := b.manager.writeAuthorized(ctx, session.ID, request.Data)
 	if err != nil {
 		return AgentWriteResult{}, err
 	}
