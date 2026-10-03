@@ -116,7 +116,7 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 	addCurrentSupervisorToolStreamColumns(t, ctx, db)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 
-	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v112 Supervisor tools", Profile: "code",
 		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
 	})
@@ -230,7 +230,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	}
 	addCurrentSupervisorToolStreamColumns(t, ctx, db)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
-	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v115 workspace authority", Profile: "code",
 		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
 	})

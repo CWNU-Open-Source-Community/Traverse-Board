@@ -99,7 +99,7 @@ func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T
 func populateV155PlanDeliveryFixture(t *testing.T, st *SQLiteStore) (domain.Run, application.SelectPlanDeliveryDirectionResult) {
 	t.Helper()
 	ctx := t.Context()
-	runs := application.NewRunService(st)
+	runs := newMigrationFixtureRunService(t, st)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "exercise Delivery gates v156-legacy", Profile: "review", Phase: "plan",
 		ModelRoute: "store-plan/model", Budget: domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 4},

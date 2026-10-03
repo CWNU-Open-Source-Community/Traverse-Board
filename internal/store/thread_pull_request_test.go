@@ -24,7 +24,7 @@ func TestRemoteOperationStartedClaimAndV159MigrationPreserveHistory(t *testing.T
 	if err := st.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{Goal: "started migration fixture", Profile: "code", WorkspaceID: workspace.ID})
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{Goal: "started migration fixture", Profile: "code", WorkspaceID: workspace.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
