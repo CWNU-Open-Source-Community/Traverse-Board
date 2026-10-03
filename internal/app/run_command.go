@@ -15,7 +15,6 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/coordinator"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/projectconfig"

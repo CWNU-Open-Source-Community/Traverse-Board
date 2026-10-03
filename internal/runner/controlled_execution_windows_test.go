@@ -46,6 +46,11 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 			adapter, _ := manager.AdapterIdentity()
 			scope := CommandRuntimeScope{AttributionSource: domain.AgentAttributionOperatorRoot, Adapter: adapter}
 			ctx := withCommandRuntimeDispatchCheck(t.Context(), func(context.Context, CommandRuntimeResolvedSpec) error { return nil })
+			forged := scope
+			forged.AttributionSource = domain.AgentAttributionRecorded
+			if _, err := manager.starter.Start(ctx, forged, resolved); err == nil {
+				t.Fatal("fixed native starter accepted an agent source")
+			}
 			process, err := manager.starter.Start(ctx, scope, resolved)
 			if err != nil {
 				t.Fatal(err)
@@ -93,6 +98,20 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 			}
 			if reaped, err := waitControlledJobReaped(t.Context(), native.job, time.Second); err != nil || !reaped {
 				t.Fatal("fixed process tree remained", reaped, err)
+			}
+			cancelled, err := manager.starter.Start(ctx, scope, resolved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cancelled.Close()
+			if err := cancelled.Cancel(0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := cancelled.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			if reaped, err := waitControlledJobReaped(t.Context(), cancelled.(*windowsCommandRuntimeProcess).job, time.Second); err != nil || !reaped {
+				t.Fatal("cancelled fixed process tree remained", reaped, err)
 			}
 		})
 	}

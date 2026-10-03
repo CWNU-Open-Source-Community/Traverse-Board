@@ -54,7 +54,7 @@ func NewFixedCommandRuntimeManager(store CommandRuntimeStore, owner string, plan
 	manager.fixed = fixed
 	manager.adapter.BackendIdentity = RestrictedFixedCommandBackend
 	intent = fixed.intent
-	intent.Arguments = append([]string{}, intent.Arguments...)
+	intent.Arguments = append(intent.Arguments[:0:0], intent.Arguments...)
 	intent.Environment = append([]CommandRuntimeEnvironment{}, intent.Environment...)
 	return manager, intent, nil
 }

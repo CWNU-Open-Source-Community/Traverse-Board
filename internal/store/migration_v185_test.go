@@ -14,6 +14,9 @@ import (
 )
 
 func TestSchemaV185PreservesRealV184CommandJobs(t *testing.T) {
+	if got := migrationPlanDigest(migrationPlan()[:184]); got != "334bb197038c5b66a1ab0d176186fe8dd831be1b4d4fa8ac77e3b1212c2567d3" {
+		t.Fatalf("published v1-v184 prefix changed: %s", got)
+	}
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "actual-v184.db")
 	st := openUnmigratedSQLiteStore(t, path)

@@ -231,6 +231,10 @@ func TestOperatorCommandStoppedRunRequiresPrivateConsentAndPreservesState(t *tes
 				limit := request.Command.Output.InlineBytes
 				input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionRun,
 					Commands: []runner.CommandRuntimeSpec{request.Command}, FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &limit}
+				boundary := f.service.commandRuntimeBoundaryRequest(scope, "public-checkpoint-key", "public-checkpoint-receipt")
+				if _, err := f.service.checkpoints.BeginBoundary(t.Context(), boundary); err == nil || !strings.Contains(err.Error(), "execution lease is stale") {
+					t.Fatal("checkpoint accepted a stopped Run without private consent", err)
+				}
 				for _, source := range []string{"run_supervisor", toolgateway.CommandRuntimeRequestedByOperator} {
 					scope.RequestedBy = source
 					scope.AgentAttemptID = ""
@@ -291,10 +295,19 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 	}
 	for _, status := range []domain.RunStatus{domain.RunCreated, domain.RunPaused, domain.RunRunning} {
 		t.Run(string(status), func(t *testing.T) {
-			f := newOperatorCommandFixtureAtStatus(t, domain.RunExecutionPermissionAsk, status)
+			initial := status
+			if status == domain.RunRunning {
+				initial = domain.RunCreated
+			}
+			f := newOperatorCommandFixtureAtStatus(t, domain.RunExecutionPermissionAsk, initial)
 			interaction, err := NewRunExecutionInteractionService(f.st).Change(t.Context(), ChangeRunExecutionInteractionRequest{RunID: f.run.ID, Mode: "controlled", Trust: "trusted", ConfirmWorkspaceTrust: true, OperationKey: "fixed-command-interaction", RequestedBy: "operator"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if status == domain.RunRunning {
+				if f.run, err = NewRunService(f.st).Start(t.Context(), f.run.ID); err != nil {
+					t.Fatal(err)
+				}
 			}
 			profile, err := f.st.GetRunExecutionProfile(t.Context(), f.run.ID)
 			if err != nil {
@@ -314,6 +327,7 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.caps.DangerFullAccessEnabled = false
+			f.caps.FullAccessRequiresRuntimeGrant = false
 			f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
 			if err != nil {
 				t.Fatal(err)
