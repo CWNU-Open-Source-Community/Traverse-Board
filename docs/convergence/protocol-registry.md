@@ -823,8 +823,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `skill.v1`
 - `skill_candidate.v1`
 - `skill_candidate_import.v1`
+- `skill_candidate_import.v2`
 - `skill_candidate_import_operation.v1`
 - `skill_candidate_import_request.v1`
+- `skill_candidate_import_request.v2`
 - `skill_candidate_proposal.v1`
 - `skill_candidate_request.v1`
 - `skill_candidate_review.v1`

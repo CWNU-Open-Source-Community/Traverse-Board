@@ -29,7 +29,7 @@ describe("DesktopSkillPreviewDialog", () => {
     bridgeMocks.select.mockResolvedValue(skillPreview());
     const user = userEvent.setup();
     const { container } = render(<DesktopSkillPreviewDialog open onClose={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: "选择 .zip" }));
+    await user.click(screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" }));
 
     expect(await screen.findByText("review-helper")).toBeInTheDocument();
     expect(screen.getByText("已验证，未安装")).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe("DesktopSkillPreviewDialog", () => {
     });
     const user = userEvent.setup();
     render(<DesktopSkillPreviewDialog installationEnabled open onClose={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: "选择 .zip" }));
+    await user.click(screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" }));
     const install = await screen.findByRole("button", { name: "安装" });
     expect(install).toBeDisabled();
     await user.click(screen.getByRole("checkbox"));
@@ -66,11 +66,28 @@ describe("DesktopSkillPreviewDialog", () => {
     expect(await screen.findByText(/已登记到 code/)).toBeInTheDocument();
   });
 
+  it("shows native staging as awaiting separate review without a fabricated receipt", async () => {
+    bridgeMocks.select.mockResolvedValue({ protocol_version: "desktop_skill_package_preview.v1",
+      package_protocol: "plugin-installation.v2", format: "agent-skills", name: "native-skill", version: "",
+      archive_sha256: "a".repeat(64), archive_bytes: 2048, entry_count: 4, skill_count: 1,
+      validated: true, confirmation_handle: "D".repeat(43), confirmation_expires_at: "2026-10-03T01:00:00Z" });
+    bridgeMocks.install.mockResolvedValue({ protocol_version: "plugin-installation.v2", replayed: false,
+      installation: { manifest: { name: "native-skill" }, state: "staged" } });
+    const user = userEvent.setup();
+    render(<DesktopSkillPreviewDialog installationEnabled open onClose={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" }));
+    expect(await screen.findByText("原文件已保留。安装后需审阅并启用。")).toBeInTheDocument();
+    expect(screen.queryByText("配置档")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "安装" }));
+    expect(await screen.findByText(/请到扩展设置审阅并启用/)).toBeInTheDocument();
+  });
+
   it("keeps cancellation inert and reports bounded errors", async () => {
     const user = userEvent.setup();
     bridgeMocks.select.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("selection unavailable"));
     render(<DesktopSkillPreviewDialog open onClose={vi.fn()} />);
-    const choose = screen.getByRole("button", { name: "选择 .zip" });
+    const choose = screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" });
     await user.click(choose);
     expect(screen.queryByText("已验证，未安装")).not.toBeInTheDocument();
     await user.click(choose);

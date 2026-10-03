@@ -32,6 +32,14 @@ func portableSkillPin(value plugins.Installation, skill plugins.SnapshotSkill) t
 }
 
 func portableSkillEnabled(value plugins.Installation, mode domain.RunModeSnapshot) bool {
+	if value.Snapshot != nil && value.Snapshot.Legacy != nil {
+		manifest := value.Snapshot.Legacy.Manifest
+		// Enabling a Plugin does not replace a legacy explicit per-Run selection.
+		// Model discovery/read keeps the manifest's mode and invocation policy.
+		if !manifest.SupportsContext(skillExecution(mode)) || !manifest.AllowsInvocation(skills.InvocationSourceModel, false) {
+			return false
+		}
+	}
 	return value.Validate() == nil && value.Snapshot != nil && value.State == plugins.StateEnabled &&
 		value.Source.Surface == string(mode.Surface) && slices.Contains(value.EnabledCapabilities, plugins.CapabilitySkills)
 }

@@ -1,3 +1,5 @@
+import { parsePluginSkillInstall } from "../api/client";
+import type { PluginSkillInstallView } from "../api/types";
 import { validImageAttachments, type WorkspaceImageAttachment } from "../api/image-attachments";
 import { validFileAttachments, type WorkspaceFileAttachment } from "../api/file-attachments";
 
@@ -237,7 +239,7 @@ export interface DesktopSkillDialogResult {
   selection: DesktopSkillSelection | null;
 }
 
-export interface DesktopSkillPreview {
+export interface DesktopLegacySkillPreview {
   protocol_version: typeof desktopSkillPreviewProtocol;
   package_protocol: string;
   skill_protocol: string;
@@ -267,6 +269,22 @@ export interface DesktopSkillPreview {
   confirmation_expires_at: string;
 }
 
+export interface DesktopNativeSkillPreview {
+  protocol_version: typeof desktopSkillPreviewProtocol;
+  package_protocol: "plugin-installation.v2";
+  format: "agent-skills" | "agent-plugins";
+  name: string;
+  version: string;
+  archive_sha256: string;
+  archive_bytes: number;
+  entry_count: number;
+  skill_count: number;
+  validated: true;
+  confirmation_handle: string;
+  confirmation_expires_at: string;
+}
+export type DesktopSkillPreview = DesktopLegacySkillPreview | DesktopNativeSkillPreview;
+
 export interface DesktopSkillInstallRequest {
   protocol_version: typeof desktopSkillInstallProtocol;
   confirmation_handle: string;
@@ -275,7 +293,9 @@ export interface DesktopSkillInstallRequest {
   confirm_untrusted: true;
 }
 
-export interface DesktopSkillInstallResult {
+export type DesktopSkillInstallResult = DesktopLegacySkillInstallResult | PluginSkillInstallView;
+
+export interface DesktopLegacySkillInstallResult {
   protocol_version: typeof desktopSkillInstallProtocol;
   name: string;
   version: string;
@@ -1172,6 +1192,18 @@ function validSelection(value: unknown): value is DesktopSkillSelection {
 }
 
 function validPreview(value: unknown): value is DesktopSkillPreview {
+  if (isRecord(value) && value.package_protocol === "plugin-installation.v2") {
+    return hasExactKeys(value, ["protocol_version", "package_protocol", "format", "name", "version",
+      "archive_sha256", "archive_bytes", "entry_count", "skill_count", "validated",
+      "confirmation_handle", "confirmation_expires_at"]) &&
+      value.protocol_version === desktopSkillPreviewProtocol &&
+      ["agent-skills", "agent-plugins"].includes(String(value.format)) &&
+      boundedText(value.name, 1, 256) && (value.version === "" || boundedText(value.version, 1, 256)) &&
+      isSHA256(value.archive_sha256) && safeCount(value.archive_bytes) && safeCount(value.entry_count) &&
+      safeCount(value.skill_count) && value.validated === true &&
+      typeof value.confirmation_handle === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.confirmation_handle) &&
+      typeof value.confirmation_expires_at === "string" && Number.isFinite(Date.parse(value.confirmation_expires_at));
+  }
   if (!hasExactKeys(value, [
     "archive_bytes", "archive_sha256", "confirmation_expires_at", "confirmation_handle",
     "content_bytes", "content_token_upper_bound",
@@ -1204,7 +1236,15 @@ function validPreview(value: unknown): value is DesktopSkillPreview {
 
 function validInstallResult(value: unknown, preview: DesktopSkillPreview,
   surface: "code" | "cyber"): value is DesktopSkillInstallResult {
-  return hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
+  if (isRecord(value) && value.protocol_version === "plugin-installation.v2") {
+    try {
+      const { installation } = parsePluginSkillInstall(value, surface, true);
+      return installation.archive_sha256 === preview.archive_sha256 &&
+        installation.manifest.name === preview.name && installation.manifest.version === preview.version &&
+        (installation.source.kind !== "local_directory" || installation.source.uri === "");
+    } catch { return false; }
+  }
+  return "package_fingerprint" in preview && hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
     "import_command_execution", "import_network_access", "import_provider_calls", "name",
     "package_fingerprint", "protocol_version", "receipt", "recovered_pending", "replayed",
     "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"]) &&

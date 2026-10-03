@@ -231,7 +231,7 @@ type InstallSource struct {
 
 func (s InstallSource) Validate() error {
 	if s.Kind != "local_file" && s.Kind != "https" && s.Kind != "git" &&
-		s.Kind != "catalog" && s.Kind != "local_directory" {
+		s.Kind != "catalog" && s.Kind != "local_directory" && s.Kind != "upload" {
 		return errors.New("plugin install source kind is invalid")
 	}
 	if !validText(s.URI, 4096, false) || !validDigest(s.SHA256) ||
@@ -240,6 +240,10 @@ func (s InstallSource) Validate() error {
 		return errors.New("plugin install source is invalid")
 	}
 	switch s.Kind {
+	case "upload":
+		if s.URI != "sha256:"+s.SHA256 || s.Commit != "" {
+			return errors.New("uploaded plugin source must identify its exact archive digest")
+		}
 	case "local_file", "local_directory":
 		if !filepath.IsAbs(s.URI) || s.Commit != "" {
 			return errors.New("local plugin source requires an absolute path and no commit")

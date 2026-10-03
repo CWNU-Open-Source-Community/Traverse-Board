@@ -432,8 +432,10 @@ func migrationPlan() []migration {
 		Statements: commandOperationApprovalStatements(), DisableForeignKeys: true})
 	previous = append(previous, migration{Version: 181, Name: "Operation approval preferences in existing Docker product admissions",
 		Statements: dockerOperationApprovalStatements(), DisableForeignKeys: true})
-	return append(previous, migration{Version: 182, Name: "Live Sandbox candidate budgets under exact active Run leases",
+	previous = append(previous, migration{Version: 182, Name: "Live Sandbox candidate budgets under exact active Run leases",
 		Statements: sandboxLiveCandidateBudgetStatements(previous)})
+	return append(previous, migration{Version: 183, Name: "Candidate receipts bound to the unified Plugin installation lifecycle",
+		Statements: skillCandidatePluginReceiptStatements()})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

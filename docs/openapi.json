@@ -20582,7 +20582,7 @@
       "post": {
         "operationId": "installSkillPackage",
         "summary": "Install one inert Skill package",
-        "description": "Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.",
+        "description": "Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.",
         "tags": [
           "Control"
         ],
@@ -20609,7 +20609,14 @@
                   "additionalProperties": false,
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/SkillPackageInstallView"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SkillPackageInstallView"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginSkillInstallView"
+                        }
+                      ]
                     },
                     "request_id": {
                       "maxLength": 256,
@@ -42407,6 +42414,86 @@
         ],
         "type": "object"
       },
+      "PackagePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "ArchiveBytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ArchiveSHA256": {
+            "type": "string"
+          },
+          "EntryCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ExecutableAssetCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ImportCommandExecution": {
+            "type": "boolean"
+          },
+          "ImportNetworkAccess": {
+            "type": "boolean"
+          },
+          "ImportProviderCalls": {
+            "type": "boolean"
+          },
+          "InstallHookCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "InstallationAuthorized": {
+            "type": "boolean"
+          },
+          "Manifest": {
+            "$ref": "#/components/schemas/SkillPackageManifest"
+          },
+          "PackageFingerprint": {
+            "type": "string"
+          },
+          "ProtocolVersion": {
+            "type": "string"
+          },
+          "RiskCodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ToolCapabilityGrant": {
+            "type": "boolean"
+          },
+          "TrustClass": {
+            "type": "string"
+          },
+          "UncompressedBytes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ProtocolVersion",
+          "Manifest",
+          "ArchiveSHA256",
+          "PackageFingerprint",
+          "ArchiveBytes",
+          "UncompressedBytes",
+          "EntryCount",
+          "TrustClass",
+          "RiskCodes",
+          "ExecutableAssetCount",
+          "InstallHookCount",
+          "ImportCommandExecution",
+          "ImportNetworkAccess",
+          "ImportProviderCalls",
+          "ToolCapabilityGrant",
+          "InstallationAuthorized"
+        ],
+        "type": "object"
+      },
       "Page": {
         "additionalProperties": false,
         "properties": {
@@ -43181,6 +43268,97 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "PluginSkillInstallView": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+          },
+          "protocol_version": {
+            "enum": [
+              "plugin-installation.v2"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "installation",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "PortableSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "author_version": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ToolContractDiagnostic"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "string"
+          },
+          "inventory": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotEntry"
+            },
+            "type": "array"
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/PackagePreview"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ToolContractContentRef"
+          },
+          "name": {
+            "type": "string"
+          },
+          "package_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "root_name": {
+            "type": "string"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotSkill"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ToolContractSourceRef"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "package_id",
+          "revision",
+          "root_name",
+          "format",
+          "name",
+          "source",
+          "manifest",
+          "inventory",
+          "skills"
         ],
         "type": "object"
       },
@@ -50527,11 +50705,14 @@
         "additionalProperties": false,
         "properties": {
           "archive_base64": {
-            "maxLength": 87384,
+            "maxLength": 5592408,
             "type": "string"
           },
           "confirm_untrusted": {
             "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/PortableSnapshot"
           },
           "surface": {
             "enum": [
@@ -50542,7 +50723,8 @@
           },
           "version": {
             "enum": [
-              "skill_package_installation.v1"
+              "skill_package_installation.v1",
+              "plugin-installation.v2"
             ],
             "type": "string"
           }
@@ -50677,6 +50859,93 @@
         ],
         "type": "object"
       },
+      "SkillPackageManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "content_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "content_path": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "content_token_upper_bound": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "explicit_only": {
+            "type": "boolean"
+          },
+          "model_invocable": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "surfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tool_dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user_invocable": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol",
+          "name",
+          "version",
+          "description",
+          "profiles",
+          "tool_dependencies",
+          "content_path",
+          "content_sha256",
+          "content_bytes",
+          "content_token_upper_bound"
+        ],
+        "type": "object"
+      },
       "Snapshot": {
         "additionalProperties": false,
         "properties": {
@@ -50705,6 +50974,35 @@
           "Generation",
           "Providers",
           "Routes"
+        ],
+        "type": "object"
+      },
+      "SnapshotEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mode": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "bytes",
+          "mode"
         ],
         "type": "object"
       },
@@ -50786,6 +51084,26 @@
           "citeable",
           "untrusted",
           "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "SnapshotSkill": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "$ref": "#/components/schemas/ToolContractContentRef"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instructions",
+          "name",
+          "description"
         ],
         "type": "object"
       },
@@ -56596,6 +56914,86 @@
           "citeable",
           "untrusted",
           "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "ToolContractComponentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "ComponentID": {
+            "type": "string"
+          },
+          "PackageID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "PackageID",
+          "ComponentID"
+        ],
+        "type": "object"
+      },
+      "ToolContractContentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "Component": {
+            "$ref": "#/components/schemas/ToolContractComponentRef"
+          },
+          "Path": {
+            "type": "string"
+          },
+          "SHA256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Component",
+          "Path",
+          "SHA256"
+        ],
+        "type": "object"
+      },
+      "ToolContractDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "Code": {
+            "type": "string"
+          },
+          "Component": {
+            "$ref": "#/components/schemas/ToolContractComponentRef"
+          },
+          "Message": {
+            "type": "string"
+          },
+          "Severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Component",
+          "Code",
+          "Severity",
+          "Message"
+        ],
+        "type": "object"
+      },
+      "ToolContractSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "Revision": {
+            "type": "string"
+          },
+          "SHA256": {
+            "type": "string"
+          },
+          "URI": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "URI",
+          "Revision",
+          "SHA256"
         ],
         "type": "object"
       },

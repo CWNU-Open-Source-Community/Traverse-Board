@@ -12,6 +12,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/plugins"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 // Historical fixtures must not retain the widened v2 table or erase native
@@ -135,7 +136,11 @@ func TestSchemaV177RejectsMalformedV2Descriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, _, err := svc.StageDirectory(t.Context(), directory, "portable-constraint-fixture", plugins.InstallSource{Kind: "local_directory", URI: directory, Surface: "code", OperationKeyDigest: strings.Repeat("a", 64)}, "", "operator", t.TempDir())
+	pkg, err := plugins.CapturePortableDirectory(t.Context(), directory, "portable-constraint-fixture", toolcontract.SourceRef{URI: directory}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, _, err := svc.StageSnapshot(t.Context(), pkg.Snapshot, pkg.Archive(), plugins.InstallSource{Kind: "local_directory", URI: directory, Surface: "code", OperationKeyDigest: strings.Repeat("a", 64)}, "", "operator", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

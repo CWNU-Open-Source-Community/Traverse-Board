@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
@@ -171,6 +172,7 @@ type ImportSkillCandidateRequest struct {
 }
 
 type ImportSkillCandidateResult struct {
+	Installation     *plugins.Installation
 	Record           skills.SkillCandidateRecord
 	InstalledPackage skills.InstalledPackage
 	Replayed         bool
@@ -270,12 +272,28 @@ func (s *SkillCandidateService) Import(ctx context.Context,
 		ImportedBy:           normalized.ImportedBy,
 	}
 	if record.Import != nil {
+		intent.ProtocolVersion = record.Import.ProtocolVersion
 		intent.ReviewFingerprint = record.Import.ReviewFingerprint
 		intent.RequestFingerprint = skills.SkillCandidateImportRequestFingerprint(intent)
 		if record.Import.OperationKeyDigest != operationDigest ||
 			record.Import.RequestFingerprint != intent.RequestFingerprint {
 			return ImportSkillCandidateResult{}, apperror.New(apperror.CodeConflict,
 				"Skill candidate already has a different immutable import receipt")
+		}
+		if record.Import.ProtocolVersion == skills.SkillCandidatePluginImportProtocolVersion {
+			pluginStore, ok := s.registry.store.(plugins.Store)
+			if !ok {
+				return ImportSkillCandidateResult{}, apperror.New(apperror.CodeFailedPrecondition, "Plugin installation store is unavailable")
+			}
+			installed, err := pluginStore.GetPluginInstallation(ctx, record.Import.InstallationID)
+			if err != nil {
+				return ImportSkillCandidateResult{}, err
+			}
+			if installed.PackageFingerprint != record.Import.PackageFingerprint || installed.ArchiveSHA256 != record.Import.ArchiveSHA256 ||
+				installed.Generation < record.Import.InstallationGeneration {
+				return ImportSkillCandidateResult{}, apperror.New(apperror.CodeConflict, "candidate Plugin installation binding changed")
+			}
+			return ImportSkillCandidateResult{Record: record, Installation: &installed, Replayed: true}, nil
 		}
 		installed, err := s.registry.Get(ctx, record.Candidate.Manifest.Name,
 			record.Candidate.Manifest.Version)
@@ -296,7 +314,7 @@ func (s *SkillCandidateService) Import(ctx context.Context,
 			apperror.CodeInternal, "approved Skill candidate failed package reconstruction", err)
 	}
 	installed, err := s.registry.Import(ctx, ImportSkillPackageRequest{
-		Raw: raw, Surface: domain.ExecutionSurfaceCode,
+		Raw: raw, Source: plugins.InstallSource{Kind: "catalog", URI: record.Candidate.ID}, Surface: domain.ExecutionSurfaceCode,
 		OperationKey: "candidate-" + operationDigest[:48], InstalledBy: normalized.ImportedBy,
 		ConfirmUntrusted: true,
 	})
@@ -313,15 +331,23 @@ func (s *SkillCandidateService) Import(ctx context.Context,
 		InstallationFingerprint: installed.Package.Installation.InstallationFingerprint,
 		ImportedBy:              normalized.ImportedBy, CreatedAt: now,
 	}
+	if installed.Installation != nil {
+		value := installed.Installation
+		receipt.ProtocolVersion = skills.SkillCandidatePluginImportProtocolVersion
+		receipt.InstallationID = value.ID
+		receipt.InstallationFingerprint = plugins.InstallationFingerprint(*value)
+		receipt.InstallationGeneration = value.Generation
+		receipt.PackageFingerprint, receipt.ArchiveSHA256 = value.PackageFingerprint, value.ArchiveSHA256
+	}
 	receipt.RequestFingerprint = skills.SkillCandidateImportRequestFingerprint(receipt)
 	receipt.ImportFingerprint = skills.SkillCandidateImportFingerprint(receipt)
 	stored, replayed, err := s.store.CreateSkillCandidateImport(ctx, receipt)
 	if err != nil {
 		return ImportSkillCandidateResult{}, apperror.Normalize(err)
 	}
-	return ImportSkillCandidateResult{Record: stored, InstalledPackage: installed.Package,
+	return ImportSkillCandidateResult{Record: stored, Installation: installed.Installation, InstalledPackage: installed.Package,
 		Replayed:         replayed || installed.Replayed,
-		RecoveredPending: installed.RecoveredPending}, nil
+		RecoveredPending: installed.RecoveredPending || (installed.Installation != nil && installed.Replayed && !replayed)}, nil
 }
 
 func normalizeReviewSkillCandidateRequest(request ReviewSkillCandidateRequest) (

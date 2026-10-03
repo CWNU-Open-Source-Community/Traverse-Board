@@ -127,6 +127,9 @@ func (a *App) skillCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		if result.Installation != nil {
+			return a.writeStagedPlugin(*result.Installation, result.Replayed)
+		}
 		printInstalledSkillPackage(a, result.Package)
 		fmt.Fprintf(a.out, "replayed: %t\nrecovered_pending: %t\n",
 			result.Replayed, result.RecoveredPending)

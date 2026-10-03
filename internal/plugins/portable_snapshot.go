@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/agentpackages"
+	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolcontract"
 )
 
@@ -64,6 +65,7 @@ type PortableSnapshot struct {
 	Inventory       []SnapshotEntry           `json:"inventory"`
 	Skills          []SnapshotSkill           `json:"skills"`
 	Diagnostics     []toolcontract.Diagnostic `json:"diagnostics,omitempty"`
+	Legacy          *skills.PackagePreview    `json:"legacy,omitempty"`
 }
 
 type PortablePackage struct {
@@ -87,7 +89,8 @@ func (s PortableSnapshot) Validate() error {
 	if s.ProtocolVersion != PortableSnapshotProtocol || !validDigest(s.Revision) ||
 		(toolcontract.ComponentRef{PackageID: s.PackageID, ComponentID: "package"}).Validate() != nil ||
 		!snapshotPath(s.RootName) || strings.Contains(s.RootName, "/") || s.Source.Validate() != nil ||
-		(s.Format != agentpackages.FormatAgentSkill && s.Format != agentpackages.FormatAgentPlugin) ||
+		(s.Format != agentpackages.FormatAgentSkill && s.Format != agentpackages.FormatAgentPlugin && s.Format != agentpackages.FormatLegacySkill) ||
+		((s.Format == agentpackages.FormatLegacySkill) != (s.Legacy != nil)) ||
 		s.Manifest.Validate() != nil || s.Manifest.Component.PackageID != s.PackageID ||
 		len(s.Inventory) < 1 || len(s.Inventory) > MaxSnapshotEntries {
 		return errors.New("portable snapshot identity is invalid")
@@ -367,6 +370,7 @@ func encodeSnapshot(ctx context.Context, rootName string, entries []SnapshotEntr
 // returning content. This object grants no permission or executable capability.
 type PortableReader struct {
 	pkg       *agentpackages.Package
+	legacy    []byte
 	snapshot  PortableSnapshot
 	directory string
 	cleanup   func()
@@ -381,6 +385,9 @@ func OpenPortableSnapshot(ctx context.Context, snapshot PortableSnapshot, raw []
 	var frozen PortableSnapshot
 	if err := json.Unmarshal(encoded, &frozen); err != nil {
 		return nil, err
+	}
+	if frozen.Format == agentpackages.FormatLegacySkill {
+		return openLegacySkillSnapshot(ctx, frozen, raw)
 	}
 	directory, cleanup, err := materializeSnapshot(ctx, frozen, raw, scratchRoot)
 	if err != nil {
@@ -402,6 +409,10 @@ func OpenPortableSnapshot(ctx context.Context, snapshot PortableSnapshot, raw []
 }
 
 func (r *PortableReader) Close() error {
+	if r != nil && r.legacy != nil {
+		r.legacy = nil
+		return nil
+	}
 	if r == nil || r.pkg == nil {
 		return nil
 	}
@@ -412,6 +423,16 @@ func (r *PortableReader) Close() error {
 }
 
 func (r *PortableReader) Read(ctx context.Context, component toolcontract.ComponentRef, resource string, limit int) ([]byte, toolcontract.ContentRef, error) {
+	if r != nil && r.legacy != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, toolcontract.ContentRef{}, err
+		}
+		ref := r.snapshot.Skills[0].Instructions
+		if component != ref.Component || resource != "" || len(r.legacy) > limit {
+			return nil, toolcontract.ContentRef{}, errors.New("legacy Skill read does not match its acquired instructions")
+		}
+		return bytes.Clone(r.legacy), ref, nil
+	}
 	if r == nil || r.pkg == nil {
 		return nil, toolcontract.ContentRef{}, errors.New("portable reader is closed")
 	}

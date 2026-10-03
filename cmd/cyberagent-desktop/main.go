@@ -128,9 +128,9 @@ func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, e
 		return "", errors.New("desktop lifecycle is unavailable")
 	}
 	return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Select Traverse Board Skill package",
+		Title: "Select SKILL.md, plugin.json or a legacy Skill archive",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Traverse Board Skill package (*.zip)", Pattern: "*.zip"},
+			{DisplayName: "Skills and Agent Plugins", Pattern: "SKILL.md;plugin.json;*.zip"},
 		},
 		ShowHiddenFiles:      false,
 		CanCreateDirectories: false,

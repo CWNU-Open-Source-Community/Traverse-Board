@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	SkillCandidateProtocolVersion       = "skill_candidate.v1"
-	SkillCandidateReviewProtocolVersion = "skill_candidate_review.v1"
-	SkillCandidateImportProtocolVersion = "skill_candidate_import.v1"
-	MaxSkillCandidates                  = 64
-	MaxSkillCandidatesPerRun            = 4
-	MaxSkillCandidateReviewReasonRunes  = 2048
+	SkillCandidateProtocolVersion             = "skill_candidate.v1"
+	SkillCandidateReviewProtocolVersion       = "skill_candidate_review.v1"
+	SkillCandidateImportProtocolVersion       = "skill_candidate_import.v1"
+	SkillCandidatePluginImportProtocolVersion = "skill_candidate_import.v2"
+	MaxSkillCandidates                        = 64
+	MaxSkillCandidatesPerRun                  = 4
+	MaxSkillCandidateReviewReasonRunes        = 2048
 )
 
 type SkillCandidateStatus string
@@ -90,6 +91,9 @@ type SkillCandidateImport struct {
 	ReviewFingerprint       string
 	InstallationID          string
 	InstallationFingerprint string
+	InstallationGeneration  int64
+	PackageFingerprint      string
+	ArchiveSHA256           string
 	ImportedBy              string
 	ImportFingerprint       string
 	CreatedAt               time.Time
@@ -177,7 +181,7 @@ func SkillCandidateReviewFingerprint(r SkillCandidateReview) string {
 }
 
 func (i SkillCandidateImport) Validate() error {
-	if !validPackageIdentity(i.ID) || i.ProtocolVersion != SkillCandidateImportProtocolVersion ||
+	if !validPackageIdentity(i.ID) || (i.ProtocolVersion != SkillCandidateImportProtocolVersion && i.ProtocolVersion != SkillCandidatePluginImportProtocolVersion) ||
 		!validSHA256(i.OperationKeyDigest) || !validSHA256(i.RequestFingerprint) ||
 		!validPackageIdentity(i.CandidateID) || !validSHA256(i.CandidateFingerprint) ||
 		!validSHA256(i.ReviewFingerprint) || !validPackageIdentity(i.InstallationID) ||
@@ -188,15 +192,31 @@ func (i SkillCandidateImport) Validate() error {
 		i.ImportFingerprint != SkillCandidateImportFingerprint(i) {
 		return errors.New("Skill candidate import is invalid")
 	}
+	if i.ProtocolVersion == SkillCandidatePluginImportProtocolVersion {
+		if i.InstallationGeneration < 1 || !validSHA256(i.PackageFingerprint) || !validSHA256(i.ArchiveSHA256) {
+			return errors.New("Skill candidate Plugin receipt is incomplete")
+		}
+	} else if i.InstallationGeneration != 0 || i.PackageFingerprint != "" || i.ArchiveSHA256 != "" {
+		return errors.New("legacy Skill candidate receipt cannot carry Plugin identity")
+	}
 	return nil
 }
 
 func SkillCandidateImportRequestFingerprint(i SkillCandidateImport) string {
+	if i.ProtocolVersion == SkillCandidatePluginImportProtocolVersion {
+		return runmutation.Fingerprint("skill_candidate_import_request.v2", i.CandidateID,
+			i.CandidateFingerprint, i.ReviewFingerprint, i.ImportedBy)
+	}
 	return runmutation.Fingerprint("skill_candidate_import_request.v1", i.CandidateID,
 		i.CandidateFingerprint, i.ReviewFingerprint, i.ImportedBy)
 }
 
 func SkillCandidateImportFingerprint(i SkillCandidateImport) string {
+	if i.ProtocolVersion == SkillCandidatePluginImportProtocolVersion {
+		return runmutation.Fingerprint(i.ProtocolVersion, i.ID, i.OperationKeyDigest, i.RequestFingerprint,
+			i.InstallationID, i.InstallationFingerprint, strconv.FormatInt(i.InstallationGeneration, 10),
+			i.PackageFingerprint, i.ArchiveSHA256, i.CreatedAt.UTC().Format(time.RFC3339Nano))
+	}
 	return runmutation.Fingerprint(SkillCandidateImportProtocolVersion, i.ID,
 		i.OperationKeyDigest, i.RequestFingerprint, i.InstallationID,
 		i.InstallationFingerprint, i.CreatedAt.UTC().Format(time.RFC3339Nano))

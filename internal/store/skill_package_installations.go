@@ -32,117 +32,6 @@ type skillPackageQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
-func (s *SQLiteStore) PreparePackageInstallation(ctx context.Context,
-	installation skills.PackageInstallation, operation skills.PackageInstallOperation,
-) (skills.PackageInstallation, *skills.PackageInstallResult, bool, error) {
-	installation = skills.ClonePackageInstallation(installation)
-	if err := validatePackageInstallMutation(installation, operation); err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	if err := ctx.Err(); err != nil {
-		return skills.PackageInstallation{}, nil, false, apperror.Normalize(err)
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if existing, found, lookupErr := getPackageInstallOperation(ctx, tx,
-		operation.KeyDigest); lookupErr != nil {
-		return skills.PackageInstallation{}, nil, false, lookupErr
-	} else if found {
-		if !samePackageInstallOperation(existing, operation) {
-			return skills.PackageInstallation{}, nil, false, apperror.New(
-				apperror.CodeConflict,
-				"Skill package installation operation key was already used for different intent")
-		}
-		stored, err := getPackageInstallation(ctx, tx, existing.InstallationID)
-		if err != nil {
-			return skills.PackageInstallation{}, nil, false, err
-		}
-		if err := validateStoredPackageInstallBinding(existing, stored); err != nil {
-			return skills.PackageInstallation{}, nil, false, err
-		}
-		result, found, err := getPackageInstallResult(ctx, tx, stored.ID)
-		if err != nil {
-			return skills.PackageInstallation{}, nil, false, err
-		}
-		if found {
-			if err := validatePackageInstallResultBinding(stored, result); err != nil {
-				return skills.PackageInstallation{}, nil, false, err
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			return skills.PackageInstallation{}, nil, false, err
-		}
-		if !found {
-			return stored, nil, true, nil
-		}
-		return stored, &result, true, nil
-	}
-	if existing, found, lookupErr := getPackageInstallationByRef(ctx, tx,
-		installation.Name, installation.Version); lookupErr != nil {
-		return skills.PackageInstallation{}, nil, false, lookupErr
-	} else if found {
-		return skills.PackageInstallation{}, nil, false, apperror.New(
-			apperror.CodeConflict,
-			"Skill package name and version already have an immutable installation: "+
-				skills.FormatInstalledPackageRef(existing.Name, existing.Version))
-	}
-	if installation.CreatedAt.After(time.Now().UTC()) {
-		return skills.PackageInstallation{}, nil, false, apperror.New(
-			apperror.CodeInvalidArgument, "Skill package installation timestamp is in the future")
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_package_install_operations
-		(key_digest, request_fingerprint, installation_id, name, version, surface,
-		installed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, operation.KeyDigest,
-		operation.RequestFingerprint, operation.InstallationID, operation.Name,
-		operation.Version, operation.Surface, operation.InstalledBy,
-		ts(operation.CreatedAt)); err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	profilesJSON, surfacesJSON, phasesJSON, rolesJSON, dependenciesJSON, risksJSON, err :=
-		packageInstallationJSON(installation)
-	if err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	manifest := installation.Manifest
-	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_package_installations
-		(id, protocol_version, operation_key_digest, request_fingerprint, name, version,
-		surface, manifest_protocol, description, profiles_json, surfaces_json, phases_json,
-		roles_json, user_invocable, model_invocable, explicit_only, tool_dependencies_json,
-		content_path, content_sha256, content_bytes, content_token_upper_bound,
-		archive_sha256, package_fingerprint, archive_bytes, uncompressed_bytes,
-		entry_count, trust_class, risk_codes_json, executable_asset_count,
-		install_hook_count, import_command_execution, import_network_access,
-		import_provider_calls, tool_capability_grant, run_selection_authorized,
-		context_injection_authorized, operator_confirmed, installation_fingerprint,
-		installed_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, installation.ID, installation.ProtocolVersion,
-		installation.OperationKeyDigest, installation.RequestFingerprint, installation.Name,
-		installation.Version, installation.Surface, manifest.Protocol, manifest.Description,
-		profilesJSON, surfacesJSON, phasesJSON, rolesJSON, boolInt(manifest.UserInvocable),
-		boolInt(manifest.ModelInvocable), boolInt(manifest.ExplicitOnly), dependenciesJSON,
-		manifest.ContentPath, manifest.ContentSHA256,
-		manifest.ContentBytes, manifest.ContentTokenUpperBound, installation.ArchiveSHA256,
-		installation.PackageFingerprint, installation.ArchiveBytes,
-		installation.UncompressedBytes, installation.EntryCount, installation.TrustClass,
-		risksJSON, installation.ExecutableAssetCount, installation.InstallHookCount,
-		boolInt(installation.ImportCommandExecution), boolInt(installation.ImportNetworkAccess),
-		boolInt(installation.ImportProviderCalls), boolInt(installation.ToolCapabilityGrant),
-		boolInt(installation.RunSelectionAuthorized),
-		boolInt(installation.ContextInjectionAuthorized), boolInt(installation.OperatorConfirmed),
-		installation.InstallationFingerprint, installation.InstalledBy,
-		ts(installation.CreatedAt)); err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return skills.PackageInstallation{}, nil, false, err
-	}
-	return skills.ClonePackageInstallation(installation), nil, false, nil
-}
-
 func (s *SQLiteStore) CompletePackageInstallation(ctx context.Context,
 	result skills.PackageInstallResult,
 ) (skills.InstalledPackage, bool, error) {
@@ -669,29 +558,6 @@ func getInstalledPackage(ctx context.Context, queryer skillPackageQueryer,
 	return value, nil
 }
 
-func validatePackageInstallMutation(installation skills.PackageInstallation,
-	operation skills.PackageInstallOperation,
-) error {
-	if err := installation.Validate(); err != nil {
-		return apperror.Wrap(apperror.CodeInvalidArgument,
-			"Skill package installation is invalid", err)
-	}
-	if err := operation.Validate(); err != nil {
-		return apperror.Wrap(apperror.CodeInvalidArgument,
-			"Skill package installation operation is invalid", err)
-	}
-	if installation.OperationKeyDigest != operation.KeyDigest ||
-		installation.RequestFingerprint != operation.RequestFingerprint ||
-		installation.ID != operation.InstallationID || installation.Name != operation.Name ||
-		installation.Version != operation.Version || installation.Surface != operation.Surface ||
-		installation.InstalledBy != operation.InstalledBy ||
-		!installation.CreatedAt.Equal(operation.CreatedAt) {
-		return apperror.New(apperror.CodeConflict,
-			"Skill package installation operation does not match its intent")
-	}
-	return nil
-}
-
 func validatePackageInstallResultBinding(installation skills.PackageInstallation,
 	result skills.PackageInstallResult,
 ) error {
@@ -740,21 +606,6 @@ func validatePackageRemovalInstallationBinding(installed skills.InstalledPackage
 	return nil
 }
 
-func validateStoredPackageInstallBinding(operation skills.PackageInstallOperation,
-	installation skills.PackageInstallation,
-) error {
-	if installation.OperationKeyDigest != operation.KeyDigest ||
-		installation.RequestFingerprint != operation.RequestFingerprint ||
-		installation.ID != operation.InstallationID || installation.Name != operation.Name ||
-		installation.Version != operation.Version || installation.Surface != operation.Surface ||
-		installation.InstalledBy != operation.InstalledBy ||
-		!installation.CreatedAt.Equal(operation.CreatedAt) {
-		return apperror.New(apperror.CodeInternal,
-			"stored Skill package installation operation binding is invalid")
-	}
-	return nil
-}
-
 func validateStoredPackageRemovalBinding(operation skills.PackageRemoveOperation,
 	removal skills.PackageRemoval,
 ) error {
@@ -770,57 +621,12 @@ func validateStoredPackageRemovalBinding(operation skills.PackageRemoveOperation
 	return nil
 }
 
-func samePackageInstallOperation(left, right skills.PackageInstallOperation) bool {
-	return left.KeyDigest == right.KeyDigest &&
-		left.RequestFingerprint == right.RequestFingerprint &&
-		left.Name == right.Name && left.Version == right.Version &&
-		left.Surface == right.Surface && left.InstalledBy == right.InstalledBy
-}
-
 func samePackageRemoveOperation(left, right skills.PackageRemoveOperation) bool {
 	return left.KeyDigest == right.KeyDigest &&
 		left.RequestFingerprint == right.RequestFingerprint &&
 		left.InstallationID == right.InstallationID && left.Name == right.Name &&
 		left.Version == right.Version && left.Surface == right.Surface &&
 		left.RemovedBy == right.RemovedBy
-}
-
-func packageInstallationJSON(value skills.PackageInstallation) (string, string, string, string, string, string, error) {
-	if value.Manifest.Surfaces == nil {
-		value.Manifest.Surfaces = []domain.ExecutionSurface{}
-	}
-	if value.Manifest.Phases == nil {
-		value.Manifest.Phases = []domain.ExecutionPhase{}
-	}
-	if value.Manifest.Roles == nil {
-		value.Manifest.Roles = []domain.AgentRole{}
-	}
-	profiles, err := json.Marshal(value.Manifest.Profiles)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	surfaces, err := json.Marshal(value.Manifest.Surfaces)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	phases, err := json.Marshal(value.Manifest.Phases)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	roles, err := json.Marshal(value.Manifest.Roles)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	dependencies, err := json.Marshal(value.Manifest.ToolDependencies)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	risks, err := json.Marshal(value.RiskCodes)
-	if err != nil {
-		return "", "", "", "", "", "", err
-	}
-	return string(profiles), string(surfaces), string(phases), string(roles),
-		string(dependencies), string(risks), nil
 }
 
 func decodeCanonicalPackageJSON[T ~string](raw string, target *[]T, requireSorted bool) error {

@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 )
 
 func TestExternalSkillSelectionIsImmutableAndPinsInstallation(t *testing.T) {
@@ -22,11 +23,10 @@ func TestExternalSkillSelectionIsImmutableAndPinsInstallation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	installation, installOperation, installResult := fixturePackageInstallation(t,
+	installation, _, installResult := fixturePackageInstallation(t,
 		"external-selection-review", "1.0.0", "external-install-operation",
 		time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation,
-		installOperation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := st.CompletePackageInstallation(ctx, installResult); err != nil {
@@ -88,10 +88,9 @@ func TestExternalSkillSelectionFreezesHistoricalBuiltinNameCollision(t *testing.
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	installation, installOperation, installResult := fixturePackageInstallation(t,
+	installation, _, installResult := fixturePackageInstallation(t,
 		"doctor", "0.9.0", "historical-doctor-install", time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation,
-		installOperation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		t.Fatal(err)
 	}
 	installed, _, err := st.CompletePackageInstallation(ctx, installResult)

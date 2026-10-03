@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -10,15 +11,14 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 type SkillPackageRegistryStore interface {
-	PreparePackageInstallation(context.Context, skills.PackageInstallation,
-		skills.PackageInstallOperation) (skills.PackageInstallation,
-		*skills.PackageInstallResult, bool, error)
 	CompletePackageInstallation(context.Context, skills.PackageInstallResult) (
 		skills.InstalledPackage, bool, error)
 	GetPackageInstallOperation(context.Context, string) (
@@ -42,6 +42,9 @@ type SkillPackageRegistryService struct {
 
 type ImportSkillPackageRequest struct {
 	Raw              []byte
+	Snapshot         *plugins.PortableSnapshot
+	Source           plugins.InstallSource
+	EnableSkills     bool
 	Surface          domain.ExecutionSurface
 	OperationKey     string
 	InstalledBy      string
@@ -49,6 +52,7 @@ type ImportSkillPackageRequest struct {
 }
 
 type ImportSkillPackageResult struct {
+	Installation     *plugins.Installation
 	Package          skills.InstalledPackage
 	Replayed         bool
 	RecoveredPending bool
@@ -95,114 +99,153 @@ func (s *SkillPackageRegistryService) Import(ctx context.Context,
 		return ImportSkillPackageResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Skill package installation surface is invalid")
 	}
-	operationKey, err := normalizeSkillPackageOperationKey(request.OperationKey)
-	if err != nil {
+	operationKey := request.OperationKey
+	if request.Snapshot != nil {
+		// Existing native-directory operations accepted 1..512 bytes. Keep the
+		// exact key/digest stable when their writer moves into this service.
+		if operationKey == "" || len(operationKey) > 512 || strings.TrimSpace(operationKey) != operationKey || !utf8.ValidString(operationKey) {
+			return ImportSkillPackageResult{}, apperror.New(apperror.CodeInvalidArgument, "portable import operation key is invalid")
+		}
+	} else if operationKey, err = normalizeSkillPackageOperationKey(operationKey); err != nil {
 		return ImportSkillPackageResult{}, err
 	}
 	installedBy, err := normalizeSkillPackageActor(request.InstalledBy, "cli_operator")
 	if err != nil {
 		return ImportSkillPackageResult{}, err
 	}
-	parsed, err := skills.ParsePackageAny(request.Raw)
-	if err != nil {
-		return ImportSkillPackageResult{}, apperror.Wrap(
-			apperror.CodeInvalidArgument, "Skill package failed strict validation", err)
-	}
-	preview := parsed.Preview()
-	if _, reserved := s.builtins.Get(preview.Manifest.Name); reserved {
-		return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict,
-			"external Skill packages cannot use a built-in Skill name")
-	}
 	keyDigest := runmutation.Fingerprint("skill_package_install_operation.v1", operationKey)
-	now := time.Now().UTC()
-	candidate, err := skills.NewPackageInstallation(idgen.New("skill-install"),
-		parsed.Package(), surface, keyDigest, installedBy, now)
-	if err != nil {
-		return ImportSkillPackageResult{}, apperror.Wrap(
-			apperror.CodeInvalidArgument, "Skill package installation intent is invalid", err)
-	}
-	operation := skills.PackageInstallOperation{
-		KeyDigest: keyDigest, RequestFingerprint: candidate.RequestFingerprint,
-		InstallationID: candidate.ID, Name: candidate.Name, Version: candidate.Version,
-		Surface: candidate.Surface, InstalledBy: candidate.InstalledBy,
-		CreatedAt: candidate.CreatedAt,
-	}
-	if existing, found, lookupErr := s.store.GetPackageInstallOperation(ctx,
-		keyDigest); lookupErr != nil {
-		return ImportSkillPackageResult{}, apperror.Normalize(lookupErr)
-	} else if found {
-		if existing.RequestFingerprint != candidate.RequestFingerprint ||
-			existing.Name != candidate.Name || existing.Version != candidate.Version ||
-			existing.Surface != candidate.Surface || existing.InstalledBy != candidate.InstalledBy {
-			return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict,
-				"Skill package installation operation key was already used for different intent")
-		}
-		candidate, err = s.store.GetPackageInstallation(ctx, existing.InstallationID)
-		if err != nil {
-			return ImportSkillPackageResult{}, apperror.Normalize(err)
-		}
-		operation = existing
-	}
-	prepared, existingResult, preparedReplay, err := s.store.PreparePackageInstallation(
-		ctx, candidate, operation)
+	existing, found, err := s.store.GetPackageInstallOperation(ctx, keyDigest)
 	if err != nil {
 		return ImportSkillPackageResult{}, apperror.Normalize(err)
 	}
+	if !found {
+		return s.importPlugin(ctx, request, operationKey, installedBy)
+	}
+	if request.Snapshot != nil {
+		return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict, "operation key belongs to a legacy installation")
+	}
+	// Only an already durable legacy intent can reach the old object/result
+	// recovery path. New imports never create a legacy installation or intent.
+	unsigned, err := skills.UnsignedForm(request.Raw)
+	if err != nil {
+		return ImportSkillPackageResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "legacy recovery archive is invalid", err)
+	}
+	parsed, err := skills.ParsePackageAny(unsigned)
+	if err != nil {
+		return ImportSkillPackageResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "legacy recovery archive is invalid", err)
+	}
+	prepared, err := s.store.GetPackageInstallation(ctx, existing.InstallationID)
+	if err != nil {
+		return ImportSkillPackageResult{}, apperror.Normalize(err)
+	}
+	candidate, err := skills.NewPackageInstallation(prepared.ID, parsed.Package(), surface, keyDigest, installedBy, prepared.CreatedAt)
+	// Historical installation rows require exactly two entries. Catalog
+	// signatures were verified before storing this unsigned object.
+	request.Raw = unsigned
+	if err != nil || candidate.RequestFingerprint != existing.RequestFingerprint ||
+		candidate.Name != existing.Name || candidate.Version != existing.Version ||
+		candidate.Surface != existing.Surface || candidate.InstalledBy != existing.InstalledBy {
+		return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict, "legacy recovery operation does not match its durable intent")
+	}
 	descriptor := skills.DescriptorForInstallation(prepared)
-	if existingResult != nil {
-		stored, found, lookupErr := s.store.GetInstalledPackageByRef(ctx,
-			prepared.Name, prepared.Version)
-		if lookupErr != nil {
-			return ImportSkillPackageResult{}, apperror.Normalize(lookupErr)
-		}
-		if !found || stored.Installation.ID != prepared.ID {
-			return ImportSkillPackageResult{}, apperror.New(apperror.CodeInternal,
-				"stored Skill package installation result binding is invalid")
+	stored, completed, err := s.store.GetInstalledPackageByRef(ctx, prepared.Name, prepared.Version)
+	if err != nil {
+		return ImportSkillPackageResult{}, apperror.Normalize(err)
+	}
+	if completed {
+		if stored.Installation.ID != prepared.ID {
+			return ImportSkillPackageResult{}, apperror.New(apperror.CodeInternal, "stored Skill package installation result binding is invalid")
 		}
 		if stored.Removal != nil {
-			return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict,
-				"removed Skill package cannot be reinstalled without an explicit restore protocol")
+			return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict, "removed Skill package cannot be reinstalled without an explicit restore protocol")
 		}
-		receipt, verifyErr := s.objects.Verify(ctx, descriptor)
-		if verifyErr != nil {
-			return ImportSkillPackageResult{}, apperror.Wrap(
-				apperror.CodeFailedPrecondition,
-				"installed Skill package object failed readback verification", verifyErr)
+		receipt, err := s.objects.Verify(ctx, descriptor)
+		if err != nil || skills.ValidatePackageObjectReceipt(descriptor, receipt) != nil || receipt.ObjectKey != stored.Result.ObjectKey {
+			return ImportSkillPackageResult{}, apperror.New(apperror.CodeFailedPrecondition, "legacy installation object failed readback verification")
 		}
-		if receiptErr := skills.ValidatePackageObjectReceipt(descriptor, receipt); receiptErr != nil ||
-			receipt.ObjectKey != existingResult.ObjectKey {
-			return ImportSkillPackageResult{}, apperror.Wrap(
-				apperror.CodeFailedPrecondition,
-				"installed Skill package object receipt binding is invalid", receiptErr)
+		stored.Replayed = true
+		if err := stored.Validate(); err != nil {
+			return ImportSkillPackageResult{}, apperror.Normalize(err)
 		}
-		value := stored
-		value.Replayed = true
-		if err := value.Validate(); err != nil {
-			return ImportSkillPackageResult{}, apperror.Wrap(
-				apperror.CodeInternal, "installed Skill package binding is invalid", err)
-		}
-		return ImportSkillPackageResult{Package: value, Replayed: true}, nil
+		return ImportSkillPackageResult{Package: stored, Replayed: true}, nil
 	}
 	receipt, err := s.objects.Put(ctx, request.Raw, descriptor)
 	if err != nil {
-		return ImportSkillPackageResult{}, apperror.Wrap(
-			apperror.CodeFailedPrecondition,
-			"Skill package object could not be published and verified", err)
+		return ImportSkillPackageResult{}, apperror.Wrap(apperror.CodeFailedPrecondition, "legacy installation object could not be recovered", err)
 	}
 	result, err := skills.NewPackageInstallResult(prepared, receipt, time.Now().UTC())
 	if err != nil {
-		return ImportSkillPackageResult{}, apperror.Wrap(
-			apperror.CodeInternal, "Skill package installation result could not be built", err)
+		return ImportSkillPackageResult{}, apperror.Normalize(err)
 	}
 	installed, completedReplay, err := s.store.CompletePackageInstallation(ctx, result)
 	if err != nil {
 		return ImportSkillPackageResult{}, apperror.Normalize(err)
 	}
-	installed.Replayed = preparedReplay || completedReplay
-	return ImportSkillPackageResult{
-		Package: installed, Replayed: installed.Replayed,
-		RecoveredPending: preparedReplay && !completedReplay,
-	}, nil
+	installed.Replayed = true
+	return ImportSkillPackageResult{Package: installed, Replayed: true, RecoveredPending: !completedReplay}, nil
+}
+
+func (s *SkillPackageRegistryService) importPlugin(ctx context.Context, request ImportSkillPackageRequest,
+	operationKey, actor string,
+) (ImportSkillPackageResult, error) {
+	pluginStore, ok := s.store.(plugins.Store)
+	if !ok {
+		return ImportSkillPackageResult{}, apperror.New(apperror.CodeFailedPrecondition, "Plugin installation store is unavailable")
+	}
+	service, err := plugins.NewService(pluginStore)
+	if err != nil {
+		return ImportSkillPackageResult{}, err
+	}
+	source := request.Source
+	if source.Kind == "" {
+		source = plugins.InstallSource{Kind: "upload", URI: "sha256:" + portableIdentity(string(request.Raw))}
+	}
+	source.Surface = string(request.Surface)
+	source.OperationKeyDigest = portableIdentity("skill-directory-import\x00" + actor + "\x00" + operationKey)
+	var snapshot plugins.PortableSnapshot
+	if request.Snapshot != nil {
+		snapshot = *request.Snapshot
+		if source.Kind == "upload" {
+			snapshot.Source = toolcontract.SourceRef{URI: source.URI, SHA256: portableIdentity(string(request.Raw))}
+		}
+	} else {
+		parsed, err := skills.ParsePackageAny(request.Raw)
+		if err != nil {
+			return ImportSkillPackageResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "Skill package failed strict validation", err)
+		}
+		manifest := parsed.Preview().Manifest
+		if _, reserved := s.builtins.Get(manifest.Name); reserved {
+			return ImportSkillPackageResult{}, apperror.New(apperror.CodeConflict, "external Skills cannot use a built-in Skill name")
+		}
+		pkg, err := plugins.CaptureLegacySkill(ctx, request.Raw, "legacy-skill-"+portableIdentity(manifest.Name+"@"+manifest.Version),
+			toolcontract.SourceRef{URI: source.URI, Revision: source.Commit, SHA256: portableIdentity(string(request.Raw))})
+		if err != nil {
+			return ImportSkillPackageResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "Skill package acquisition failed", err)
+		}
+		snapshot = pkg.Snapshot
+	}
+	installed, replayed, err := service.StageSnapshot(ctx, snapshot, request.Raw, source, "", actor, "")
+	if err != nil {
+		return ImportSkillPackageResult{}, apperror.Normalize(err)
+	}
+	// Only the explicit native-instruction import path requests activation.
+	// A legacy archive or approved candidate is staged for Plugin review.
+	if request.EnableSkills && snapshot.Legacy == nil {
+		for _, action := range []plugins.ReviewAction{plugins.ReviewApprove, plugins.ReviewEnable} {
+			if (action == plugins.ReviewApprove && installed.State != plugins.StateStaged) ||
+				(action == plugins.ReviewEnable && installed.State != plugins.StateApproved) ||
+				!slices.Contains(installed.Capabilities(), plugins.CapabilitySkills) {
+				continue
+			}
+			installed, err = service.Review(ctx, installed.ID, plugins.ReviewRequest{Action: action,
+				ExpectedPackageFingerprint: installed.PackageFingerprint, ExpectedGeneration: installed.Generation,
+				Capabilities: []plugins.Capability{plugins.CapabilitySkills}, ConfirmUntrusted: true, ReviewedBy: actor})
+			if err != nil {
+				return ImportSkillPackageResult{}, err
+			}
+		}
+	}
+	return ImportSkillPackageResult{Installation: &installed, Replayed: replayed}, nil
 }
 
 func (s *SkillPackageRegistryService) List(ctx context.Context,

@@ -95,7 +95,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
               <FileArchive aria-hidden="true" size={28} />
               <button className="desktop-select-command" disabled={loading} onClick={() => void select()} type="button">
                 {loading ? <LoaderCircle aria-hidden="true" className="spin" size={17} /> : <FolderOpen aria-hidden="true" size={17} />}
-                {t("选择 .zip", "Select .zip")}
+                {t("选择 SKILL.md、plugin.json 或 .zip", "Select SKILL.md, plugin.json or .zip")}
               </button>
             </div>
           )}
@@ -115,9 +115,12 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
           </div>}
           {installed && <div className="desktop-install-success" role="status">
             <PackageCheck aria-hidden="true" size={17} />
-            <span>{t(`${installed.name} ${installed.version} 已登记到 ${installed.surface}`, `${installed.name} ${installed.version} registered for ${installed.surface}`)}</span>
+            <span>{"installation" in installed
+              ? t(`${installed.installation.manifest.name} 已登记（${installed.installation.state}）。请到扩展设置审阅并启用。`,
+                `${installed.installation.manifest.name} registered (${installed.installation.state}). Review and enable it in Extensions.`)
+              : t(`${installed.name} ${installed.version} 已登记到 ${installed.surface}`, `${installed.name} ${installed.version} registered for ${installed.surface}`)}</span>
           </div>}
-          {installed && <OperationReceipt receipt={installed.receipt} />}
+          {installed && "receipt" in installed && <OperationReceipt receipt={installed.receipt} />}
           {error && <div className="connection-error" role="alert">{error}</div>}
         </div>
 
@@ -144,6 +147,19 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
 
 function SkillPreviewDetails({ preview }: { preview: DesktopSkillPreview }) {
   const { t } = useLocale();
+  if ("skill_count" in preview) {
+    return <div className="desktop-package-preview">
+      <div className="desktop-package-heading"><strong>{preview.name}</strong><span>{preview.version}</span></div>
+      <dl className="desktop-package-metrics">
+        <div><dt>{t("格式", "Format")}</dt><dd>{preview.format}</dd></div>
+        <div><dt>Skills</dt><dd>{formatNumber(preview.skill_count)}</dd></div>
+        <div><dt>{t("文件条目", "Entries")}</dt><dd>{formatNumber(preview.entry_count)}</dd></div>
+        <div><dt>{t("归档大小", "Archive")}</dt><dd>{formatBytes(preview.archive_bytes)}</dd></div>
+      </dl>
+      <small>{t("原文件已保留。安装后需审阅并启用。", "Original files retained. Review and enable after installation.")}</small>
+      <code>{preview.archive_sha256.slice(0, 12)}</code>
+    </div>;
+  }
   return (
     <div className="desktop-package-preview">
       <div className="desktop-package-heading">

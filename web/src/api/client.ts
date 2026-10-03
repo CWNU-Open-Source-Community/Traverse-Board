@@ -205,6 +205,8 @@ import type {
   UIEvidenceStartView,
   SkillPackageInstallRequestView,
   SkillPackageInstallView,
+  PluginSkillInstallView,
+  SkillPackageInstallResult,
   RunEventPollView,
   RunEventStreamView,
   SessionMessageControlRequestView,
@@ -3809,11 +3811,16 @@ function parseRunWakeExecution(value: unknown, runID: string): RunWakeExecutionV
 }
 
 function parseSkillPackageInstall(value: unknown,
-  request: SkillPackageInstallRequestView): SkillPackageInstallView {
-  if (!hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
+  request: SkillPackageInstallRequestView): SkillPackageInstallResult {
+  if (isRecord(value) && value.protocol_version === "plugin-installation.v2") {
+    return parsePluginSkillInstall(value, request.surface);
+  }
+  const legacyKeys = ["archive_sha256", "context_injection_authorized",
     "import_command_execution", "import_network_access", "import_provider_calls", "name",
     "package_fingerprint", "protocol_version", "receipt", "recovered_pending", "replayed",
-    "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"]) ||
+    "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"];
+  const modeKeys = ["profiles", "surfaces", "phases", "roles", "user_invocable", "model_invocable", "explicit_only"];
+  if ((!hasExactKeys(value, legacyKeys) && !hasExactKeys(value, [...legacyKeys, ...modeKeys])) ||
     value.protocol_version !== "skill_package_installation.v1" ||
     value.surface !== request.surface || value.trust_class !== "operator_installed_untrusted" ||
     !boundedText(value.name, 128) || !boundedText(value.version, 64) ||
@@ -3824,6 +3831,12 @@ function parseSkillPackageInstall(value: unknown,
     value.run_selection_authorized !== false || value.context_injection_authorized !== false) {
     throw new APIRequestError("Skill package installation widened inert Registry authority",
       "INVALID_RESPONSE", 502);
+  }
+  if ("profiles" in value && (!boundedStringArray(value.profiles, 8, 64) ||
+    !boundedStringArray(value.surfaces, 2, 64) || !boundedStringArray(value.phases, 4, 64) ||
+    !boundedStringArray(value.roles, 4, 64) || typeof value.user_invocable !== "boolean" ||
+    typeof value.model_invocable !== "boolean" || typeof value.explicit_only !== "boolean")) {
+    throw new APIRequestError("Legacy Skill recovery metadata is invalid", "INVALID_RESPONSE", 502);
   }
   const receipt = parseOperationReceipt(value.receipt, "skill_package_install", "installed",
     value.replayed);
@@ -6108,7 +6121,7 @@ function parseCodeIntelInventory(value: unknown): CodeIntelInventoryView {
   return value as unknown as CodeIntelInventoryView;
 }
 
-function parseExtensionInventory(value: unknown): ExtensionInventoryView {
+function parseExtensionInventory(value: unknown, hiddenLocalSource = false): ExtensionInventoryView {
   if (!isRecord(value) || value.protocol_version !== "extension-inventory.v1" ||
     containsForbiddenExtensionField(value) ||
     !Array.isArray(value.mcp_servers) || value.mcp_servers.length > 64 ||
@@ -6159,11 +6172,12 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
       (item.protocol_version === "plugin-installation.v1" && !boundedText(item.manifest.publisher, 256)) ||
       !boundedStringArray(item.manifest.capabilities, 4, 32) ||
       !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
-      !boundedText(item.source.uri, 4_096)) {
+      !(boundedText(item.source.uri, 4_096) ||
+        (hiddenLocalSource && item.source.kind === "local_directory" && item.source.uri === ""))) {
       throw new APIRequestError("Plugin installation projection is invalid", "INVALID_RESPONSE", 502);
     }
     if (item.protocol_version === "plugin-installation.v2" &&
-      (!isRecord(item.snapshot) || !["agent-skills", "agent-plugins"].includes(String(item.snapshot.format)) ||
+      (!isRecord(item.snapshot) || !["agent-skills", "agent-plugins", "traverse-skill"].includes(String(item.snapshot.format)) ||
         !isSHA256(item.snapshot.revision) || item.snapshot.revision !== item.archive_sha256 ||
         !["code", "cyber"].includes(String(item.snapshot.surface)) ||
         (item.manifest.version !== "" && !boundedText(item.manifest.version, 256)) || item.manifest.publisher !== "" ||
@@ -6192,6 +6206,24 @@ function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [], mcp_calls: [], plugins: [value] }).plugins[0];
+}
+
+// Shared HTTP/Desktop decoder for the actual Plugin lifecycle response.
+export function parsePluginSkillInstall(value: unknown, surface: string,
+  hiddenLocalSource = false): PluginSkillInstallView {
+  if (!hasExactKeys(value, ["protocol_version", "installation", "replayed"]) ||
+    value.protocol_version !== "plugin-installation.v2" || typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Plugin import response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const installation = parseExtensionInventory({ protocol_version: "extension-inventory.v1",
+    mcp_servers: [], mcp_calls: [], plugins: [value.installation] }, hiddenLocalSource).plugins[0];
+  if (installation.protocol_version !== "plugin-installation.v2" || installation.snapshot?.surface !== surface ||
+    !["staged", "approved", "enabled", "disabled", "revoked", "rolled_back", "quarantined"].includes(installation.state) ||
+    (!value.replayed && (installation.state !== "staged" || installation.generation !== 1 ||
+      installation.enabled_capabilities.length !== 0))) {
+    throw new APIRequestError("Plugin import lifecycle binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { protocol_version: "plugin-installation.v2", installation, replayed: value.replayed };
 }
 
 export class CyberAgentClient {
@@ -7756,7 +7788,7 @@ export class CyberAgentClient {
   }
 
   async installSkillPackage(body: SkillPackageInstallRequestView,
-    idempotencyKey: string, signal?: AbortSignal): Promise<SkillPackageInstallView> {
+    idempotencyKey: string, signal?: AbortSignal): Promise<SkillPackageInstallResult> {
     if (!this.hasSkillInstallation || body.confirm_untrusted !== true) {
       throw new Error("Explicit untrusted Skill installation capability is required");
     }
