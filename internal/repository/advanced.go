@@ -483,6 +483,9 @@ func (e *AdvancedExecutor) git(ctx context.Context, root string, stdin []byte,
 	if err := checkAdvancedDispatch(commandCtx); err != nil {
 		return "", "", 0, err
 	}
+	if err := checkThreadGitDispatch(commandCtx); err != nil {
+		return "", "", 0, err
+	}
 	err := command.Run()
 	if commandCtx.Err() != nil {
 		return stdout.String(), stderr.String(), 0, commandCtx.Err()

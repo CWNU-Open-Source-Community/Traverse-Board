@@ -17,6 +17,14 @@ func threadWorktreeSpec(spec ThreadGitSpec, head string) gitadvanced.Spec {
 	return gitadvanced.Spec{ProtocolVersion: gitadvanced.ProtocolVersion, Operation: gitadvanced.WorktreeCreate, WorktreeName: spec.WorktreeName, Branch: spec.Branch, Commit: head}
 }
 
+// The original Thread review is retained in the existing immutable advanced
+// operation, so recovery never needs a fresh runtime fence to match a retry.
+// Historical records without this private field keep their original reader.
+type threadGitWorktreeIntent struct {
+	gitadvanced.Preview
+	ThreadPreviewFingerprint string `json:"thread_preview_fingerprint,omitempty"`
+}
+
 func (s *ThreadGitService) threadWorktreePreview(ctx context.Context, bound threadGitBinding, spec ThreadGitSpec) (gitadvanced.Preview, error) {
 	if s.advanced == nil || s.advanced.executor == nil {
 		return gitadvanced.Preview{}, apperror.New(apperror.CodeFailedPrecondition, "managed Git worktrees are unavailable")
@@ -36,6 +44,7 @@ func (s *ThreadGitService) executeWorktree(ctx context.Context, bound threadGitB
 	}
 	service := *s.advanced
 	service.operatorThreadID = bound.thread.ID
+	service.operatorThreadPreviewFingerprint = request.ExpectedPreviewFingerprint
 	checkpoints := *service.checkpoints
 	checkpoints.operatorGitThreadID = bound.thread.ID
 	service.checkpoints = &checkpoints
@@ -91,16 +100,23 @@ func (s *ThreadGitService) replayWorktree(ctx context.Context, threadID, key str
 	if err != nil || thread.ID != threadID {
 		return result, true, apperror.New(apperror.CodeConflict, "managed worktree request belongs to another task")
 	}
-	var preview gitadvanced.Preview
-	if json.Unmarshal([]byte(record.PreviewJSON), &preview) != nil || record.Operation != gitadvanced.WorktreeCreate {
+	var intent threadGitWorktreeIntent
+	if json.Unmarshal([]byte(record.PreviewJSON), &intent) != nil || record.Operation != gitadvanced.WorktreeCreate {
 		return result, true, apperror.New(apperror.CodeConflict, "stored managed worktree intent is invalid")
 	}
+	preview := intent.Preview
 	spec := ThreadGitSpec{Operation: "worktree_create", Branch: preview.Spec.Branch, WorktreeName: preview.Spec.WorktreeName}
 	if request != nil {
 		requested, _ := json.Marshal(request.Spec)
 		stored, _ := json.Marshal(spec)
 		specJSON, _ := json.Marshal(spec)
 		fingerprint := runmutation.Fingerprint(ThreadGitProtocolVersion, threadID, record.RunID, record.SessionID, record.WorkspaceID, preview.Binding.Fingerprint(), record.PermissionSnapshotID, fmt.Sprint(record.PermissionRevision), string(specJSON), "null", preview.Target, "")
+		if intent.ThreadPreviewFingerprint != "" {
+			if !gitadvanced.ValidDigest(intent.ThreadPreviewFingerprint) {
+				return result, true, apperror.New(apperror.CodeConflict, "stored task Git review is invalid")
+			}
+			fingerprint = intent.ThreadPreviewFingerprint
+		}
 		approve, approvalErr := s.store.GetApprovalByProposal(ctx, id)
 		if request.RunID != record.RunID || string(requested) != string(stored) || request.ExpectedPreviewFingerprint != fingerprint || approvalErr != nil || request.RequestedBy != approve.RequestedBy {
 			return result, true, apperror.New(apperror.CodeConflict, "managed worktree key was used for a different request")

@@ -267,6 +267,9 @@ func (e *MutationExecutor) runGit(ctx context.Context, root string, spec Mutatio
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+	if err := checkThreadGitDispatch(commandCtx); err != nil {
+		return "", "", 0, err
+	}
 	err = command.Run()
 	if commandErr := commandCtx.Err(); commandErr != nil {
 		return stdout.String(), stderr.String(), 0, commandErr

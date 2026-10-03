@@ -100,6 +100,9 @@ func (e *MutationExecutor) readIdentityConfig(ctx context.Context, root, key str
 	}
 	var stdout, stderr boundedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", false, err
+	}
 	err := cmd.Run()
 	if err != nil {
 		var exit *exec.ExitError
