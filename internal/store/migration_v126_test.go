@@ -191,16 +191,25 @@ func TestWorkspaceAccessPermissionChangeRevokesActiveLease(t *testing.T) {
 	if _, err := runs.Pause(ctx, running.ID); err != nil {
 		t.Fatal(err)
 	}
+	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
+	fence, err := runtimeAuthority.IssueRunAuthorizationFence(running.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	selected, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}).Change(
+		domain.ExecutionPermissionRuntimeCapabilities{RuntimeAuthority: runtimeAuthority}).Change(
 		ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: running.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+			RunID: running.ID, Mode: string(domain.RunExecutionPermissionAuto),
 			OperationKey: "workspace-access-revoke-lease-0001",
 			RequestedBy:  "test_operator", Reason: "invalidate old execution owner",
-			ConfirmWorkspaceAccess: true,
 		})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if selected.Permission.Mode != domain.RunExecutionPermissionAuto ||
+		selected.Permission.ProcessEnabled || selected.Permission.ExecutionAuthorized ||
+		selected.Permission.CapabilityGrant || runtimeAuthority.AllowsRunAuthorizationFence(running.ID, fence) {
+		t.Fatalf("permission change retained old runtime authority: %+v", selected)
 	}
 	current, found, err := state.GetRunExecutionLease(ctx, running.ID)
 	if err != nil || !found || current.Status != domain.RunExecutionLeaseReleased ||
