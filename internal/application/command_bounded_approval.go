@@ -13,6 +13,7 @@ import (
 type commandBoundedApprovalStore interface {
 	commandApprovalStore
 	GetCommandApprovalGrantScope(context.Context, string) (approval.GrantQuery, error)
+	FindActiveSessionGrant(context.Context, approval.GrantQuery) (approval.SessionGrant, bool, error)
 	CreateSessionGrant(context.Context, approval.CreateGrantRequest) (approval.GrantResult, error)
 	ListSessionGrants(context.Context, approval.GrantListFilter) ([]approval.SessionGrant, error)
 	GetSessionGrant(context.Context, string) (approval.SessionGrant, error)
@@ -50,23 +51,29 @@ func (s *ApprovalControlService) decideBoundedCommand(ctx context.Context, run d
 		if err != nil {
 			return result, apperror.Normalize(err)
 		}
-		grants, err := st.ListSessionGrants(ctx, approval.GrantListFilter{RunID: run.ID, ToolName: record.ToolName, Limit: 500})
+		// A recent-history page is not an authority lookup: an older active
+		// scope can remain valid after more than 500 other grants are written.
+		existing, found, err := st.FindActiveSessionGrant(ctx, query)
 		if err != nil {
 			return result, apperror.Normalize(err)
 		}
-		generation := int64(1)
-		for _, existing := range grants {
-			if existing.Generation >= generation {
-				generation = existing.Generation + 1
+		if found {
+			if !commandGrantLimitsMatch(existing, request) {
+				return result, apperror.New(apperror.CodeConflict, "active bounded command scope has different limits")
 			}
-			if existing.Status == approval.GrantActive && existing.ExpiresAt != nil && time.Now().UTC().Before(*existing.ExpiresAt) && existing.UsesRemaining > 0 && approval.MatchesBoundedGrantScope(existing, query) {
-				if !commandGrantLimitsMatch(existing, request) {
-					return result, apperror.New(apperror.CodeConflict, "active bounded command scope has different limits")
-				}
-				grant = existing
-			}
+			grant = existing
 		}
 		if grant.ID == "" {
+			grants, err := st.ListSessionGrants(ctx, approval.GrantListFilter{RunID: run.ID, ToolName: record.ToolName, Limit: 500})
+			if err != nil {
+				return result, apperror.Normalize(err)
+			}
+			generation := int64(1)
+			for _, previous := range grants {
+				if previous.Generation >= generation {
+					generation = previous.Generation + 1
+				}
+			}
 			created, err := st.CreateSessionGrant(ctx, approval.CreateGrantRequest{
 				SessionID: query.SessionID, WorkspaceID: query.WorkspaceID, ToolName: query.ToolName, ActionClass: query.ActionClass,
 				Reason: request.Reason, GrantedBy: request.ReviewedBy, IdempotencyKey: "command-grant:" + request.OperationKey,

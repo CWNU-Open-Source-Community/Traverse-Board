@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -89,15 +90,22 @@ func (c commandApprovalHTTPChecker) CheckToolCall(call tools.Call) policy.Decisi
 }
 
 func TestCommandApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
-	testCommandApprovalHTTPProduct(t, false)
+	testCommandApprovalHTTPProduct(t, false, false)
 }
 
 func TestCommandBoundedApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
-	testCommandApprovalHTTPProduct(t, true)
+	testCommandApprovalHTTPProduct(t, true, false)
 }
 
-func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
+func TestCommandBoundedApprovalHTTPPreviewFindsOlderActiveScope(t *testing.T) {
+	testCommandApprovalHTTPProduct(t, true, true)
+}
+
+func testCommandApprovalHTTPProduct(t *testing.T, bounded, olderActiveScope bool) {
 	for _, mode := range []string{"ask", "auto", "full"} {
+		if olderActiveScope && mode != "ask" {
+			continue
+		}
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			st, err := store.Open(filepath.Join(t.TempDir(), "command-http.db"))
@@ -189,6 +197,12 @@ func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
 			if err != nil || len(approvals) != 1 {
 				t.Fatalf("approvals %+v %v", approvals, err)
 			}
+			ttl, uses := 120, 2
+			var seeded approval.SessionGrant
+			if olderActiveScope {
+				ttl, uses = 211, 3
+				seeded = seedOlderActiveCommandGrant(t, st, approvals[0])
+			}
 			base := "/api/v1/runs/" + run.ID + "/approvals/" + approvals[0].ID
 			queueResponse := performRequest(t, api, http.MethodGet, "/api/v1/runs/"+run.ID+"/approvals", testAccessToken, "127.0.0.1:8765", "127.0.0.1:45000", nil)
 			var queue ApprovalQueueView
@@ -206,15 +220,24 @@ func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
 			if !preview.SourceCurrent || preview.Effect != "command_process" || !strings.Contains(previewResponse.Body.String(), "exact review intent") {
 				t.Fatalf("preview %+v", preview)
 			}
+			if olderActiveScope {
+				fields := map[string]string{}
+				for _, field := range preview.Fields {
+					fields[field.Name] = field.Value
+				}
+				if fields["grant_ttl_seconds"] != "211" || fields["grant_max_uses"] != "3" || fields["grant_uses_remaining"] != "3" || fields["grant_expires_at"] != seeded.ExpiresAt.Format(time.RFC3339) {
+					t.Fatalf("preview omitted original limits beyond the 500-row list: %+v", fields)
+				}
+			}
 			var decision ApprovalDecisionControlView
 			for replay := 0; replay < 2; replay++ {
 				body := `{"version":"approval_control.v1","action":"approve_once"}`
 				if bounded {
-					body = `{"version":"approval_control.v1","action":"approve_for_run","grant_ttl_seconds":120,"grant_max_uses":2}`
+					body = fmt.Sprintf(`{"version":"approval_control.v1","action":"approve_for_run","grant_ttl_seconds":%d,"grant_max_uses":%d}`, ttl, uses)
 				}
 				response := performControlPathRequest(t, api, base+"/decision", "http-command-approve-once", strings.NewReader(body))
 				decodeDataStatus(t, response, http.StatusAccepted, &decision)
-				if bounded && (decision.BoundedGrant == nil || decision.BoundedGrant.UsesRemaining != 1 || decision.BoundedGrant.UseOrdinal != 1 || !decision.BoundedGrant.EachCommandRequiresReview || decision.SessionGrantCreated != (replay == 0)) {
+				if bounded && (decision.BoundedGrant == nil || decision.BoundedGrant.UsesRemaining != uses-1 || decision.BoundedGrant.UseOrdinal != 1 || !decision.BoundedGrant.EachCommandRequiresReview || decision.SessionGrantCreated != (replay == 0 && !olderActiveScope)) {
 					t.Fatalf("invalid bounded projection: %+v", decision)
 				}
 				if !bounded && (decision.BoundedGrant != nil || decision.SessionGrantCreated) {
@@ -233,6 +256,12 @@ func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
 				if replay == 1 && (!decision.Replayed || !decision.Continuation.Replayed) {
 					t.Fatal("review replay not idempotent")
 				}
+				if olderActiveScope {
+					grant, err := st.GetSessionGrant(ctx, seeded.ID)
+					if err != nil || grant.UsesRemaining != 2 || !grant.ExpiresAt.Equal(*seeded.ExpiresAt) || !grant.CreatedAt.Equal(seeded.CreatedAt) {
+						t.Fatalf("HTTP decision renewed an older active scope: %+v %v", grant, err)
+					}
+				}
 			}
 			if output := os.Getenv("UC_COMMAND_HTTP_EVIDENCE"); output != "" {
 				raw, _ := json.MarshalIndent(map[string]any{"queue": queue, "preview": preview, "decision": decision, "process_dispatches": 1, "model_calls": provider.requests}, "", "  ")
@@ -242,4 +271,44 @@ func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
 			}
 		})
 	}
+}
+
+func seedOlderActiveCommandGrant(t *testing.T, st *store.SQLiteStore, record approval.Record) approval.SessionGrant {
+	t.Helper()
+	query, err := st.GetCommandApprovalGrantScope(t.Context(), record.ProposalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := approval.CreateGrantRequest{SessionID: query.SessionID, WorkspaceID: query.WorkspaceID, ToolName: query.ToolName, ActionClass: query.ActionClass,
+		Reason: "retain the original operator limits", GrantedBy: "operator", ScopeFingerprint: query.ScopeFingerprint,
+		MaxUses: 3, TTL: 211 * time.Second, ModeSnapshotID: query.ModeSnapshotID, ModeRevision: query.ModeRevision,
+		InteractionSnapshotID: query.InteractionSnapshotID, InteractionRevision: query.InteractionRevision,
+		ExecutionProfileSnapshotID: query.ExecutionProfileSnapshotID, ExecutionProfileRevision: query.ExecutionProfileRevision,
+		PermissionSnapshotID: query.PermissionSnapshotID, PermissionRevision: query.PermissionRevision, PermissionMode: query.PermissionMode,
+		WorkspaceRootFingerprint: query.WorkspaceRootFingerprint, CapabilityGeneration: query.CapabilityGeneration}
+	var original approval.SessionGrant
+	for i := 0; i <= 500; i++ {
+		request.Generation = int64(i + 1)
+		request.IdempotencyKey = fmt.Sprintf("http-history-scope-%d", i)
+		if i > 0 {
+			request.ScopeFingerprint = approval.Fingerprint("http-unrelated-scope", fmt.Sprint(i))
+		}
+		result, err := st.CreateSessionGrant(t.Context(), request)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		if i == 0 {
+			original = result.Grant
+		}
+	}
+	listed, err := st.ListSessionGrants(t.Context(), approval.GrantListFilter{RunID: record.RunID, ToolName: record.ToolName, Limit: 500})
+	if err != nil || len(listed) != 500 {
+		t.Fatal(len(listed), err)
+	}
+	for _, grant := range listed {
+		if grant.ID == original.ID {
+			t.Fatal("fixture did not place the active scope beyond the list limit")
+		}
+	}
+	return original
 }

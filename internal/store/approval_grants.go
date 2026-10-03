@@ -58,12 +58,19 @@ func (s *SQLiteStore) CreateSessionGrant(ctx context.Context, request approval.C
 		return approval.GrantResult{}, err
 	}
 	if found {
-		if operation.Action != "grant" || operation.RequestFingerprint != fingerprint || operation.ResultStatus != approval.GrantActive {
-			return approval.GrantResult{}, errors.New("approval grant idempotency key was already used for a different operation")
-		}
 		grant, err := getSessionGrantTx(ctx, tx, operation.GrantID)
 		if err != nil {
 			return approval.GrantResult{}, err
+		}
+		if normalized.ToolName == "command_runtime" {
+			// Command generation is host bookkeeping, estimated before this
+			// transaction. A racing replay uses the saved generation; all
+			// requested scope, limits and review metadata still bind the key.
+			normalized.Generation = grant.Generation
+			fingerprint = approval.GrantRequestFingerprint(normalized)
+		}
+		if operation.Action != "grant" || operation.RequestFingerprint != fingerprint || operation.ResultStatus != approval.GrantActive {
+			return approval.GrantResult{}, errors.New("approval grant idempotency key was already used for a different operation")
 		}
 		if err := tx.Commit(); err != nil {
 			return approval.GrantResult{}, err
@@ -97,10 +104,19 @@ func (s *SQLiteStore) CreateSessionGrant(ctx context.Context, request approval.C
 	if err != nil {
 		return approval.GrantResult{}, err
 	}
-	if found && normalized.ScopeFingerprint != "" &&
-		grant.RequestFingerprint != fingerprint {
-		return approval.GrantResult{}, errors.New(
-			"active bounded approval grant has different limits or authority")
+	if found && normalized.ScopeFingerprint != "" {
+		if normalized.ToolName == "command_runtime" {
+			// The exact query above already binds every authority/scope field.
+			// A different exact command can supply different review metadata,
+			// but reusing its group must retain the original TTL and use cap.
+			if grant.ExpiresAt == nil || grant.MaxUses != normalized.MaxUses || grant.ExpiresAt.Sub(grant.CreatedAt) != normalized.TTL {
+				return approval.GrantResult{}, errors.New("active bounded approval grant has different limits or authority")
+			}
+			normalized.Generation = grant.Generation
+			fingerprint = approval.GrantRequestFingerprint(normalized)
+		} else if grant.RequestFingerprint != fingerprint {
+			return approval.GrantResult{}, errors.New("active bounded approval grant has different limits or authority")
+		}
 	}
 	if !found {
 		now := time.Now().UTC()
