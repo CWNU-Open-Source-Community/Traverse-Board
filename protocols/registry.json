@@ -1837,6 +1837,8 @@
         "host_command_proposal_review_operation.v1",
         "host_command_review.v1",
         "once_execution.v1",
+        "operator_command_key.v1",
+        "operator_command_request.v1",
         "permission_runtime_epoch.v1",
         "risk_escalation.v1",
         "risk_escalation_execution.v1",
