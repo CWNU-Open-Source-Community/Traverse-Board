@@ -290,7 +290,7 @@ func restoreDesktopLegacyPermissionFixture(t *testing.T, path string) desktopLeg
 	var first, last, count int
 	if err := db.QueryRowContext(t.Context(),
 		"SELECT MIN(version),MAX(version),COUNT(*) FROM schema_migrations").Scan(&first, &last, &count); err != nil || first != 1 || last != 177 || count != 177 {
-		t.Fatalf("fixture ledger is not exactly v1..v177: %d/%d/%d err=%v", first, last, count, err)
+		t.Fatalf("fixture ledger is not exactly schema versions 1 through 177: %d/%d/%d err=%v", first, last, count, err)
 	}
 	rows, err := db.QueryContext(t.Context(), "PRAGMA foreign_key_check")
 	if err != nil {
