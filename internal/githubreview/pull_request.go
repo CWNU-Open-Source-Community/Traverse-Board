@@ -210,7 +210,7 @@ func (c *Client) CreateDraft(ctx context.Context, d PullRequestDraft, guards ...
 		if dispatch.posted.Load() {
 			state = toolcontract.ReceiptOutcomeUnknown
 		}
-		resultErr = &draftDispatchError{err: resultErr, state: state}
+		resultErr = &nativeWriteDispatchError{err: resultErr, state: state}
 	}()
 	for branch, expected := range map[string]string{d.HeadBranch: d.HeadSHA, d.BaseBranch: d.BaseSHA} {
 		actual, err := c.BranchSHA(ctx, d.Repository, branch, d.Credential)

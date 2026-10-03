@@ -29,53 +29,66 @@ func DraftOperation(d PullRequestDraft) (toolcontract.Operation, error) {
 	return op, op.Validate()
 }
 
-type draftDispatchKey struct{}
+type nativeWriteDispatchKey struct{}
 
-type draftDispatch struct {
+type nativeWriteDispatch struct {
 	guard       toolcontract.DispatchGuard
 	fingerprint string
 	posted      atomic.Bool
+	mutation    atomic.Bool
 }
 
-type draftDispatchError struct {
+type nativeWriteDispatchError struct {
 	err   error
 	state toolcontract.ReceiptState
 }
 
-func (e *draftDispatchError) Error() string { return e.err.Error() }
-func (e *draftDispatchError) Unwrap() error { return e.err }
+func (e *nativeWriteDispatchError) Error() string { return e.err.Error() }
+func (e *nativeWriteDispatchError) Unwrap() error { return e.err }
 
 // DraftDispatchState distinguishes a locally blocked POST from a dispatched
 // write whose response cannot establish its outcome. It never authorizes retry.
 func DraftDispatchState(err error) (toolcontract.ReceiptState, bool) {
-	var result *draftDispatchError
+	return WriteDispatchState(err)
+}
+
+// WriteDispatchState also covers review writes. GraphQL observation POSTs do
+// not mark a mutation as sent; a failed mutation response stays outcome_unknown.
+func WriteDispatchState(err error) (toolcontract.ReceiptState, bool) {
+	var result *nativeWriteDispatchError
 	if errors.As(err, &result) {
 		return result.state, true
 	}
 	return "", false
 }
 
-func bindDraftDispatch(ctx context.Context, d PullRequestDraft, guards []toolcontract.DispatchGuard) (context.Context, *draftDispatch, error) {
+func bindDraftDispatch(ctx context.Context, d PullRequestDraft, guards []toolcontract.DispatchGuard) (context.Context, *nativeWriteDispatch, error) {
+	op, err := DraftOperation(d)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bindNativeWriteDispatch(ctx, op, guards, true)
+}
+
+// Draft creation and review writes share the credential/HTTP final boundary.
+func bindNativeWriteDispatch(ctx context.Context, op toolcontract.Operation, guards []toolcontract.DispatchGuard, mutation bool) (context.Context, *nativeWriteDispatch, error) {
 	if len(guards) == 0 {
 		return ctx, nil, nil // Retained native callers keep their existing path.
 	}
 	if len(guards) != 1 || guards[0] == nil {
-		return nil, nil, errors.New("draft creation requires exactly one host dispatch guard")
-	}
-	op, err := DraftOperation(d)
-	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.New("native GitHub write requires exactly one host dispatch guard")
 	}
 	fingerprint, err := toolcontract.FingerprintOperation(op)
 	if err != nil {
 		return nil, nil, err
 	}
-	state := &draftDispatch{guard: guards[0], fingerprint: fingerprint}
-	return context.WithValue(ctx, draftDispatchKey{}, state), state, nil
+	state := &nativeWriteDispatch{guard: guards[0], fingerprint: fingerprint}
+	state.mutation.Store(mutation)
+	return context.WithValue(ctx, nativeWriteDispatchKey{}, state), state, nil
 }
 
-func checkDraftDispatch(ctx context.Context) error {
-	if state, ok := ctx.Value(draftDispatchKey{}).(*draftDispatch); ok {
+func checkNativeWriteDispatch(ctx context.Context) error {
+	if state, ok := ctx.Value(nativeWriteDispatchKey{}).(*nativeWriteDispatch); ok {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

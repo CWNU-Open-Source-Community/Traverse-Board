@@ -47,12 +47,12 @@ type tokenResolver interface {
 }
 
 type DeviceAuthorization struct {
-	ProtocolVersion string        `json:"protocol_version"`
-	SessionID       string        `json:"session_id"`
-	UserCode        string        `json:"user_code"`
-	VerificationURI string        `json:"verification_uri"`
-	ExpiresAt       time.Time     `json:"expires_at"`
-	PollIntervalMS  int64         `json:"poll_interval_ms"`
+	ProtocolVersion string    `json:"protocol_version"`
+	SessionID       string    `json:"session_id"`
+	UserCode        string    `json:"user_code"`
+	VerificationURI string    `json:"verification_uri"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	PollIntervalMS  int64     `json:"poll_interval_ms"`
 }
 
 type DevicePollState string
@@ -402,7 +402,7 @@ func (m *AuthManager) postOAuth(ctx context.Context, path string, form url.Value
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("User-Agent", "Prayu-GitHub-Review/"+ProtocolVersion)
-	if err := checkDraftDispatch(ctx); err != nil {
+	if err := checkNativeWriteDispatch(ctx); err != nil {
 		return err
 	}
 	response, err := m.httpClient.Do(request)

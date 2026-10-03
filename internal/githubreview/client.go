@@ -67,8 +67,8 @@ func NewClientForTestWithNetwork(resolver tokenResolver, network NetworkScope, b
 }
 
 func (c *Client) checkRedirect(request *http.Request, via []*http.Request) error {
-	if _, guarded := request.Context().Value(draftDispatchKey{}).(*draftDispatch); guarded {
-		return &Error{Code: FailureNetworkPolicy, Message: "draft operation requests must not redirect or repeat a POST"}
+	if _, guarded := request.Context().Value(nativeWriteDispatchKey{}).(*nativeWriteDispatch); guarded {
+		return &Error{Code: FailureNetworkPolicy, Message: "native GitHub write requests must not redirect or repeat a mutation"}
 	}
 	if len(via) > 1 {
 		return &Error{Code: FailureNetworkPolicy, Message: "GitHub response exceeded one redirect"}
@@ -191,7 +191,7 @@ func (c *Client) doBytes(ctx context.Context, target string, ref CredentialRefer
 func (c *Client) do(ctx context.Context, method, target string, body io.Reader,
 	ref CredentialReference, limit int, requireJSON bool,
 ) (apiResponse, error) {
-	if err := checkDraftDispatch(ctx); err != nil {
+	if err := checkNativeWriteDispatch(ctx); err != nil {
 		return apiResponse{}, err
 	}
 	lease, err := c.resolver.resolve(ctx, ref)
@@ -209,10 +209,10 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader,
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if err := checkDraftDispatch(ctx); err != nil {
+	if err := checkNativeWriteDispatch(ctx); err != nil {
 		return apiResponse{}, err
 	}
-	if state, guarded := ctx.Value(draftDispatchKey{}).(*draftDispatch); guarded && method == http.MethodPost {
+	if state, guarded := ctx.Value(nativeWriteDispatchKey{}).(*nativeWriteDispatch); guarded && state.mutation.Load() && (method == http.MethodPost || method == http.MethodPatch) {
 		state.posted.Store(true)
 	}
 	response, err := c.httpClient.Do(request)
