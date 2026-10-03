@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -807,7 +808,7 @@ func TestCommandRuntimeBackgroundJobSurvivesTurnAndFailsClosedOnDurableDrift(t *
 	}
 	changedPermission, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 		ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionConservative),
+			Mode:         string(domain.RunExecutionPermissionAsk),
 			OperationKey: "command-runtime-permission-drift-0001",
 			RequestedBy:  "test_operator", Reason: "revoke managed command authority"})
 	if err != nil {
@@ -900,16 +901,16 @@ func TestCommandRuntimeBindingBecomesStaleWhenRunningDowngradeCommits(t *testing
 	}
 	transition, transitionErr := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 		ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionConservative),
+			Mode:         string(domain.RunExecutionPermissionAsk),
 			OperationKey: "command-runtime-failed-revoke-0001", RequestedBy: "test_operator",
 			Reason: "immediately lower permission while the Run is active"})
 	if transitionErr != nil ||
-		transition.Permission.Mode != domain.RunExecutionPermissionConservative {
+		transition.Permission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("running permission downgrade=%+v err=%v", transition, transitionErr)
 	}
 	durable, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil || durable.ID == permission.ID ||
-		durable.Mode != domain.RunExecutionPermissionConservative {
+		durable.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("running downgrade was not durable: %+v err=%v", durable, err)
 	}
 	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, job); err != nil || current {
@@ -939,10 +940,10 @@ func TestCommandRuntimeBindingBecomesStaleAcrossThreadFullReconfirmation(t *test
 	}
 	threadPermissions := NewThreadExecutionPermissionService(state, capabilities)
 	_, err = threadPermissions.Change(ctx, ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "command-runtime-thread-full-first-0001",
 		RequestedBy:  "test_operator", Reason: "bind Full Access to the current task",
-		ConfirmDangerFullAccess: true,
+		ConfirmFull: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1007,6 +1008,10 @@ func TestCommandRuntimeBindingBecomesStaleAcrossThreadFullReconfirmation(t *test
 	}
 	oldJob.PermissionGeneration, _ = capabilities.FullAccessGeneration(permission)
 	oldJob.PermissionRuntimeEpoch = authority.RuntimeEpoch()
+	oldJob.RunAuthorizationFence, err = authority.IssueRunAuthorizationFence(runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, oldJob); err != nil || !current {
 		t.Fatalf("old Full job binding current=%t err=%v", current, err)
 	}
@@ -1016,10 +1021,10 @@ func TestCommandRuntimeBindingBecomesStaleAcrossThreadFullReconfirmation(t *test
 
 	reconfirmed, err := threadPermissions.Change(ctx,
 		ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "command-runtime-thread-full-reconfirm-0001",
 			RequestedBy:  "test_operator", Reason: "reconfirm Full Access for the current task",
-			ConfirmDangerFullAccess: true,
+			ConfirmFull: true,
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -1223,7 +1228,8 @@ func newCommandRuntimeTestRuntimeWithPermission(t *testing.T, ctx context.Contex
 	domain.ExecutionPermissionRuntimeCapabilities,
 ) {
 	t.Helper()
-	state, err := store.Open(filepath.Join(t.TempDir(), "command-runtime-application.db"))
+	databasePath := filepath.Join(t.TempDir(), "command-runtime-application.db")
+	state, err := store.Open(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1252,17 +1258,16 @@ func newCommandRuntimeTestRuntimeWithPermission(t *testing.T, ctx context.Contex
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		DebugMaximumAccessEnabled: true,
 	}
-	permissionRequest := ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-		Mode:         string(permissionMode),
-		OperationKey: "command-runtime-permission-app-0001",
-		RequestedBy:  "test_operator", Reason: "exercise managed commands"}
-	if permissionMode == domain.RunExecutionPermissionDebug {
-		permissionRequest.ConfirmDebugAccess = true
-	} else {
-		permissionRequest.ConfirmDangerFullAccess = true
+	current, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
-		permissionRequest); err != nil {
+	raw, err := sql.Open("sqlite3", databasePath+"?_foreign_keys=on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRetainedCommandPermission(t, raw, current, permissionMode)
+	if err := raw.Close(); err != nil {
 		t.Fatal(err)
 	}
 	runRecord, err = runs.Start(ctx, runRecord.ID)

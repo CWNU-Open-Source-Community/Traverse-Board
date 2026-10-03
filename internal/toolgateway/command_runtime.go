@@ -18,7 +18,6 @@ import (
 	"cyberagent-workbench/internal/outputsafe"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
-	"cyberagent-workbench/internal/tools"
 )
 
 const (
@@ -167,6 +166,8 @@ type CommandRuntimeContext struct {
 	PermissionSnapshotID   string
 	PermissionGeneration   uint64
 	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
+	SupervisorToolCallID   string
 	LeaseID                string
 	LeaseGeneration        int64
 	RequestedBy            string
@@ -206,10 +207,14 @@ func (c CommandRuntimeContext) Validate() error {
 		c.ModeRevision <= 0 || c.PermissionRevision <= 0) {
 		return errors.New("command runtime authority tuple is invalid or partial")
 	}
-	if c.PermissionSnapshotID != "" || c.PermissionGeneration != 0 ||
-		c.PermissionRuntimeEpoch != "" {
+	if c.PermissionMode.IsApprovalMode() {
+		if !domain.ValidAgentID(c.PermissionSnapshotID) || !commandruntimeadapter.ValidRuntimeBinding(c.PermissionMode, c.PermissionRuntimeEpoch, c.PermissionGeneration, c.RunAuthorizationFence) {
+			return errors.New("command runtime operation authority is invalid or partial")
+		}
+	} else if c.PermissionSnapshotID != "" || c.PermissionGeneration != 0 ||
+		c.PermissionRuntimeEpoch != "" || c.RunAuthorizationFence != 0 {
 		if !domain.ValidAgentID(c.PermissionSnapshotID) ||
-			c.PermissionGeneration == 0 || c.PermissionRuntimeEpoch == "" ||
+			c.PermissionGeneration == 0 || c.PermissionRuntimeEpoch == "" || c.RunAuthorizationFence != 0 ||
 			!c.PermissionMode.IncludesFullAccess() {
 			return errors.New("command runtime live Full Access authority is invalid or partial")
 		}
@@ -326,8 +331,8 @@ var commandRuntimeDefinition = ToolDefinition{
 }
 
 // The host adapter already has host networking. Advertise that fact only to
-// a Run whose current Full Access authority selected this adapter; the
-// Workspace Sandbox retains the disabled-network contract.
+// a Run whose host authority selected this adapter. Per-operation policy and
+// exact review still apply; Workspace Sandbox retains denied networking.
 func CommandRuntimeDefinitionForAdapter(adapter commandruntimeadapter.Identity) ToolDefinition {
 	if adapter.Kind != commandruntimeadapter.KindHostUnsandboxed {
 		return commandRuntimeDefinition
@@ -517,6 +522,9 @@ func validateCommandRuntimeCommandShape(fields map[string]json.RawMessage,
 func (g *Gateway) WithCommandRuntimeExecutor(executor CommandRuntimeExecutor) *Gateway {
 	if g != nil {
 		g.commandRuntime = executor
+		if host, ok := executor.(interface{ SetCommandRuntimePolicy(policy.Checker) }); ok {
+			host.SetCommandRuntimePolicy(g.checker)
+		}
 	}
 	return g
 }
@@ -537,23 +545,12 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 			commandDecision := policy.Decision{}
 			if command.Network == runner.CommandRuntimeNetworkHost &&
 				(call.CommandRuntimeAdapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-					!call.PermissionMode.IncludesFullAccess()) {
+					!call.CommandRuntimeAdapter.AllowsPermission(call.PermissionMode)) {
 				commandDecision = policy.Decision{Allowed: false, Risk: "high",
-					Reason: "host network requires current Full Access runtime authority"}
-			} else if networkReason := commandRuntimeNetworkViolation(command); networkReason != "" {
-				commandDecision = policy.Decision{Allowed: false, Risk: "high",
-					Reason: networkReason}
+					Reason: "host network requires an available host adapter and operation authorization"}
 			} else {
-				encoded, _ := json.Marshal(command)
-				policyTool := ShellTool
-				argumentName := "command"
-				if command.Profile == runner.CommandRuntimeProcess {
-					policyTool = ScriptProcessTool
-					argumentName = "proposal"
-				}
-				commandDecision = g.checker.CheckToolCall(tools.Call{
-					Name: string(policyTool), Args: map[string]string{argumentName: string(encoded)}})
-				if commandDecision.NeedsApproval {
+				commandDecision = CommandRuntimeCommandPolicy(g.checker, command)
+				if commandDecision.NeedsApproval && (!call.PermissionMode.IsApprovalMode() || call.SupervisorToolCallID == "") {
 					commandDecision.Allowed = false
 					commandDecision.Reason = "command runtime cannot bypass a required per-command review: " + commandDecision.Reason
 				}
@@ -591,6 +588,8 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		PermissionSnapshotID:   call.PermissionSnapshotID,
 		PermissionGeneration:   call.PermissionGeneration,
 		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  call.RunAuthorizationFence,
+		SupervisorToolCallID:   call.SupervisorToolCallID,
 		LeaseID:                call.LeaseID, LeaseGeneration: call.LeaseGeneration,
 		RequestedBy: call.RequestedBy, PolicyDecision: decision,
 		Adapter: call.CommandRuntimeAdapter}

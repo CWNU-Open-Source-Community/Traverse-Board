@@ -5,12 +5,14 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sync"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
@@ -19,9 +21,8 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-// This bridge moves actual process effects through the same authorizer as
-// file edits. Old durable permissions remain compatibility inputs during C3;
-// their existing gates are re-read, not translated into newly issued grants.
+// Actual process and stdin effects use the common authorizer. Native immutable
+// input pins and existing approval/job ledgers supply the host's evidence.
 func (s *CommandRuntimeService) authorizedCommandStart(scope toolgateway.CommandRuntimeContext,
 	bindings commandRuntimeBindings, operationKey string, spec runner.CommandRuntimeResolvedSpec,
 ) (runner.CommandRuntimeStartRequest, error) {
@@ -43,7 +44,23 @@ func (s *CommandRuntimeService) authorizedCommandStart(scope toolgateway.Command
 	if err != nil {
 		return runner.CommandRuntimeStartRequest{}, err
 	}
-	check, err := s.commandOperationCheck(scope, bindings, operation, spec.Spec.Network, "")
+	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+		Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{spec.Spec}}
+	check, err := s.commandOperationCheck(scope, bindings, operation, spec.Spec.Network, "", input, func(source commandApprovalSource) bool {
+		index := 0
+		if source.input.Action == toolgateway.CommandRuntimeActionRun {
+			index = -1
+			for i := range source.input.Commands {
+				if commandRuntimeBatchOperationKey(scope.OperationKey, i) == operationKey {
+					index = i
+					break
+				}
+			}
+		} else if source.input.Action != toolgateway.CommandRuntimeActionStart || operationKey != scope.OperationKey {
+			return false
+		}
+		return index >= 0 && index < len(source.authority.CommandFingerprints) && source.authority.CommandFingerprints[index] == runner.CommandRuntimeSpecFingerprint(spec)
+	})
 	if err != nil {
 		return runner.CommandRuntimeStartRequest{}, err
 	}
@@ -78,7 +95,10 @@ func (s *CommandRuntimeService) commandStdinDispatchCheck(scope toolgateway.Comm
 		return nil, err
 	}
 	check, err := s.commandOperationCheck(scope, bindings, operation,
-		runner.CommandRuntimeNetworkDisabled, input.JobID)
+		runner.CommandRuntimeNetworkDisabled, input.JobID, input, func(source commandApprovalSource) bool {
+			return source.input.Action == input.Action && source.input.JobID == input.JobID && source.input.Stdin != nil && source.input.CloseStdin != nil &&
+				*source.input.Stdin == *input.Stdin && *source.input.CloseStdin == *input.CloseStdin
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +140,7 @@ func commandOperation(key []byte, id string, adapter commandruntimeadapter.Ident
 
 func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandRuntimeContext,
 	bindings commandRuntimeBindings, operation toolcontract.Operation, network runner.CommandRuntimeNetwork, jobID string,
+	input toolgateway.CommandRuntimeInput, pinned func(commandApprovalSource) bool,
 ) (func(context.Context, toolcontract.Operation) error, error) {
 	actor := scope.AgentID
 	if actor == "" {
@@ -158,18 +179,61 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 		if err != nil || binding != expectedBinding {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeConflict, "command operation scope changed before dispatch")
 		}
+		var activeJob runner.CommandRuntimeJob
 		if jobID != "" {
 			if _, err := s.authorizeActiveJob(ctx, jobID, current); err != nil {
 				return executionauth.OperationAuthority{}, err
 			}
+			activeJob, err = s.store.GetCommandRuntimeJob(ctx, jobID)
+			if err != nil {
+				return executionauth.OperationAuthority{}, err
+			}
+		}
+		var proof *approval.Record
+		policyInput := input
+		if current.permission.Mode.IsApprovalMode() && scope.RequestedBy == "run_supervisor" {
+			st, ok := s.store.(commandApprovalStore)
+			if !ok || scope.SupervisorToolCallID == "" {
+				return executionauth.OperationAuthority{}, errors.New("command operation source is unavailable")
+			}
+			source, err := readCommandApprovalSource(ctx, st, scope.RunID, scope.SupervisorToolCallID)
+			if err != nil {
+				return executionauth.OperationAuthority{}, err
+			}
+			if !commandSourceMatchesScope(source, scope, current, s.adapter) || pinned == nil || !pinned(source) ||
+				(jobID != "" && source.authority.JobFingerprint != commandRuntimeJobFingerprint(activeJob)) {
+				return executionauth.OperationAuthority{}, errors.New("command operation input or native source changed")
+			}
+			policyInput = source.input
+			record, err := st.GetApprovalByProposal(ctx, source.call.CallID)
+			if err == nil {
+				if !commandApprovalMatches(record, source) {
+					return executionauth.OperationAuthority{}, errors.New("command operation approval identity changed")
+				}
+				proof = &record
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return executionauth.OperationAuthority{}, err
+			}
+		}
+		policy := toolgateway.CommandRuntimePolicyDecision(s.commandRuntimePolicy(), policyInput)
+		if !policy.Allowed || (policy.NeedsApproval && proof == nil) {
+			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "current command host policy requires denial or exact review")
 		}
 		projection, err := domain.ExecutionPermissionApproval(current.permission)
 		if err != nil {
 			return executionauth.OperationAuthority{}, err
 		}
-		return executionauth.OperationAuthority{Mode: projection.Mode, BindingFingerprint: binding,
+		value := executionauth.OperationAuthority{Mode: projection.Mode, BindingFingerprint: binding,
 			RuntimeAvailable: true, FullActivated: projection.Mode == domain.ExecutionApprovalFull,
-			EffectsVerified: s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace}, nil
+			EffectsVerified: s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace}
+		if proof != nil {
+			fingerprint, err := toolcontract.FingerprintOperation(operation)
+			if err != nil {
+				return executionauth.OperationAuthority{}, err
+			}
+			value.Approval = &executionauth.BoundApproval{Ref: proof.ID, Subject: subject, OperationFingerprint: fingerprint, Status: string(proof.Status)}
+		}
+		return value, nil
 	})
 	var mu sync.Mutex
 	var decision executionauth.Decision

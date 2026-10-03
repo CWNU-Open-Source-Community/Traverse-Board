@@ -333,14 +333,14 @@ func removeSchemaV162ForTestStatements() []string {
 	}
 	const jobs = "command_runtime_jobs_v162_restore"
 	createJobs := strings.Replace(requireMigrationStatement("CREATE TABLE command_runtime_jobs_v142 (", debugFullAccessInheritanceStatements), "command_runtime_jobs_v142", jobs, 1)
-	columns := strings.TrimSuffix(commandRuntimeJobColumns, ",\n\tpermission_runtime_epoch, permission_generation")
+	columns := strings.TrimSuffix(commandRuntimeJobColumns, ",\n\tpermission_runtime_epoch, permission_generation, run_authorization_fence")
 	if columns == commandRuntimeJobColumns {
 		panic("legacy command runtime columns changed")
 	}
 	columns = "rowid,protocol_version," + columns
 	statements = append(statements,
 		`CREATE TEMP TABLE legacy_fixture_empty_grant (n INTEGER CHECK(n=0));`,
-		`INSERT INTO legacy_fixture_empty_grant SELECT count(*) FROM command_runtime_jobs WHERE permission_runtime_epoch<>'' OR permission_generation<>0;`,
+		`INSERT INTO legacy_fixture_empty_grant SELECT count(*) FROM command_runtime_jobs WHERE permission_runtime_epoch<>'' OR permission_generation<>0 OR run_authorization_fence<>0 OR permission_mode IN ('ask','auto','full');`,
 		`DROP TABLE legacy_fixture_empty_grant;`,
 		createJobs,
 		"INSERT INTO "+jobs+" ("+columns+") SELECT "+columns+" FROM command_runtime_jobs;",
@@ -371,9 +371,11 @@ func addCurrentCommandGrantColumnsForLegacySeed(t testing.TB, state *SQLiteStore
 	return withLegacySeedSchema(t, state, []string{
 		`ALTER TABLE command_runtime_jobs ADD COLUMN permission_runtime_epoch TEXT NOT NULL DEFAULT '' CHECK(permission_runtime_epoch='');`,
 		`ALTER TABLE command_runtime_jobs ADD COLUMN permission_generation INTEGER NOT NULL DEFAULT 0 CHECK(permission_generation=0);`,
+		`ALTER TABLE command_runtime_jobs ADD COLUMN run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence=0);`,
 	}, []string{
 		`ALTER TABLE command_runtime_jobs DROP COLUMN permission_runtime_epoch;`,
 		`ALTER TABLE command_runtime_jobs DROP COLUMN permission_generation;`,
+		`ALTER TABLE command_runtime_jobs DROP COLUMN run_authorization_fence;`,
 	})
 }
 

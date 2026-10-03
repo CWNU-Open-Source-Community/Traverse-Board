@@ -239,16 +239,11 @@ func TestThreadLifecycleFailsClosedForRunningCommandRuntimeJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	permission, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled: true}).Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "thread-command-permission-0001", RequestedBy: "test_operator",
-			Reason: "prepare a persistent command fixture", ConfirmDangerFullAccess: true})
+	currentPermission, err := state.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	permission := application.ChangeRunExecutionPermissionResult{Permission: seedRetainedCommandPermission(t, state.db, currentPermission, domain.RunExecutionPermissionFullAccess)}
 	run, err = runs.Start(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)

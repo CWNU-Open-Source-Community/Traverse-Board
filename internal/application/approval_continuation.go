@@ -41,7 +41,7 @@ func (s *ThreadTurnService) ResumeApproval(ctx context.Context, request Approval
 	if s == nil || s.threads == nil || s.execution == nil {
 		return approvalContinuationFailed(apperror.New(apperror.CodeUnavailable, "Approval continuation is unavailable"))
 	}
-	if !validControlIdentity(request.RunID) || !validControlIdentity(request.ProposalID) || (request.Kind != "file_edit" && request.Kind != "host_command" && request.Kind != "agent_browser" && request.Kind != "mcp") {
+	if !validControlIdentity(request.RunID) || !validControlIdentity(request.ProposalID) || (request.Kind != "file_edit" && request.Kind != "host_command" && request.Kind != "agent_browser" && request.Kind != "mcp" && request.Kind != "command_runtime") {
 		return approvalContinuationFailed(apperror.New(apperror.CodeInvalidArgument, "Approval continuation identity is invalid"))
 	}
 	thread, err := s.threads.store.GetThreadByRun(ctx, request.RunID)
@@ -132,7 +132,7 @@ func approvalContinuationFailed(err error) ApprovalContinuationResult {
 }
 
 func (s *ThreadTurnService) resumeApprovalWithOwner(ctx context.Context, request ApprovalContinuationRequest) ApprovalContinuationResult {
-	if request.Kind == "agent_browser" || request.Kind == "mcp" {
+	if request.Kind == "agent_browser" || request.Kind == "mcp" || request.Kind == "command_runtime" {
 		return s.resumePendingToolApproval(ctx, request)
 	}
 	store, ok := s.execution.store.(approvalContinuationStore)

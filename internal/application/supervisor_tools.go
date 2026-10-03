@@ -34,11 +34,14 @@ const (
 
 var errSupervisorWaitingApproval = errors.New("Supervisor tool is waiting for operator approval")
 
-func commandRuntimeFullAuthorityCurrent(
+func commandRuntimeAuthorityCurrent(
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 	authority commandruntimeadapter.Authority,
 	permission domain.RunExecutionPermissionSnapshot,
 ) bool {
+	if permission.Mode.IsApprovalMode() {
+		return authority.ProtocolVersion == commandruntimeadapter.OperationAuthorityVersion && authority.PermissionMode == permission.Mode && authority.PermissionRevision == permission.Revision && agentCodeRuntimeCurrent(capabilities, permission, authority.PermissionSnapshotID, authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
+	}
 	if permission.Mode != domain.RunExecutionPermissionFullAccess ||
 		!capabilities.FullAccessRequiresRuntimeGrant {
 		return authority.PermissionSnapshotID == "" &&
@@ -973,6 +976,18 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 					decision.Allowed, decision.Result, preflightStopped = false, denial, true
 				}
 			}
+			if toolgateway.ToolName(call.ToolName) == toolgateway.CommandRuntimeTool && decision.Allowed {
+				waiting, denial, preflightErr := s.preflightCommandApproval(ctx, call)
+				if preflightErr != nil {
+					return rounds, false, preflightErr
+				}
+				if waiting {
+					return rounds, true, nil
+				}
+				if denial != nil {
+					decision.Allowed, decision.Result, preflightStopped = false, denial, true
+				}
+			}
 			fresh := true
 			if !preflightStopped {
 				var startedErr error
@@ -996,6 +1011,8 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 				result = agentBrowserStoppedResult(call, "outcome_unknown", "A prior browser dispatch started without a completed receipt. Do not automatically repeat the action.", domain.SupervisorToolFailed)
 			} else if toolgateway.ToolName(call.ToolName) == toolgateway.MCPToolCallTool && !fresh {
 				result = mcpStoppedResult(call, "outcome_unknown", "A prior MCP dispatch started without a completed receipt. Inspect existing call evidence; do not automatically repeat the action.", nil)
+			} else if commandCallOutcomeUnknown(call) && !fresh {
+				result = commandPreflightResult(call, "outcome_unknown", "A prior command dispatch started without a completed receipt. Inspect the existing Run-owned jobs; do not repeat the command or stdin action.", domain.SupervisorToolFailed)
 			} else if decision.Allowed {
 				result, err = s.invokeSupervisorTool(ctx, turn, call)
 				if err != nil {
@@ -1131,7 +1148,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
 		if authorityErr != nil || permissionErr != nil || authority.RunID != call.RunID ||
 			!authority.Adapter.AllowsPermission(permission.Mode) ||
-			!commandRuntimeFullAuthorityCurrent(s.executionCapabilities,
+			!commandRuntimeAuthorityCurrent(s.executionCapabilities,
 				authority, permission) {
 			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
 				"durable command runtime adapter authority does not match the active Supervisor turn")
@@ -1149,6 +1166,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
 		toolCall.PermissionGeneration = authority.PermissionGeneration
 		toolCall.PermissionRuntimeEpoch = authority.PermissionRuntimeEpoch
+		toolCall.RunAuthorizationFence = authority.RunAuthorizationFence
+		toolCall.SupervisorToolCallID = call.CallID
+		toolCall.SupervisorTurn = call.Turn
 	}
 	if name == toolgateway.MCPToolCallTool {
 		authority, authorityErr := mcp.DecodeSupervisorCallAuthority(

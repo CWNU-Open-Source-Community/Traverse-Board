@@ -9,6 +9,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/mcp"
@@ -80,6 +81,30 @@ func (a *API) runApprovalPreview(request *http.Request, runID, approvalID string
 	view.SourceCurrent = !run.Terminal() && record.Status == approval.StatusPending &&
 		record.GrantID == "" && record.Mode != "never"
 	switch record.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		source, ok := a.store.(interface {
+			GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+		})
+		if !ok {
+			return stale()
+		}
+		call, started, err := source.GetSupervisorApprovalCall(ctx, run.ID, record.ProposalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		input, _, err := toolgateway.NormalizeCommandRuntimePayload(json.RawMessage(call.PayloadJSON))
+		if err != nil || record.RequestFingerprint != commandruntimeadapter.OperationApprovalFingerprint(call) || call.ToolName != string(toolgateway.CommandRuntimeTool) {
+			return stale()
+		}
+		base, ok := a.store.(application.ApprovalControlStore)
+		view.SourceCurrent = view.SourceCurrent && !started && ok
+		if view.SourceCurrent {
+			view.SourceCurrent = application.RecheckCommandApproval(ctx, base, record) == nil
+		}
+		view.Effect = "command_process"
+		add("action", input.Action)
+		add("intent", call.PayloadJSON)
+		add("summary", "Approve only this pinned command batch or these stdin bytes for the original Run-owned process. A host working directory and network declaration do not enforce isolation; changed inputs require a new proposal.")
 	case mcp.OperationApprovalTool:
 		source, ok := a.store.(interface {
 			GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)

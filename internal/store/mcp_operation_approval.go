@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"cyberagent-workbench/internal/approval"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/toolgateway"
@@ -79,10 +80,17 @@ func validateMCPApprovalSourceTx(ctx context.Context, tx *sql.Tx, p approval.Pro
 
 // Only negative results may settle an undispatched intent. This exception does
 // not manufacture an execution start or authorize a successful operation.
-func validateMCPPreflightResultTx(ctx context.Context, tx *sql.Tx, call domain.SupervisorToolCall, result domain.SupervisorToolResult) (bool, error) {
-	if call.ToolName != mcp.OperationApprovalTool ||
-		!((result.Status == domain.SupervisorToolDenied && result.ErrorCode == "policy_denied") ||
-			(result.Status == domain.SupervisorToolFailed && result.ErrorCode == "mcp_authority_expired")) {
+func validatePendingOperationPreflightResultTx(ctx context.Context, tx *sql.Tx, call domain.SupervisorToolCall, result domain.SupervisorToolResult) (bool, error) {
+	prefix, expired, fingerprint := "mcp", "mcp_authority_expired", mcp.OperationApprovalFingerprint
+	switch call.ToolName {
+	case mcp.OperationApprovalTool:
+	case string(toolgateway.CommandRuntimeTool):
+		prefix, expired, fingerprint = "command", "command_authority_expired", commandruntimeadapter.OperationApprovalFingerprint
+	default:
+		return false, nil
+	}
+	if !((result.Status == domain.SupervisorToolDenied && result.ErrorCode == "policy_denied") ||
+		(result.Status == domain.SupervisorToolFailed && result.ErrorCode == expired)) {
 		return false, nil
 	}
 	exact, started, err := getSupervisorApprovalCallTx(ctx, tx, call.RunID, call.CallID)
@@ -101,6 +109,6 @@ func validateMCPPreflightResultTx(ctx context.Context, tx *sql.Tx, call domain.S
 	}
 	return json.Unmarshal([]byte(result.ResultJSON), &envelope) == nil && envelope.Version == "supervisor_tool_result.v1" &&
 		envelope.Tool == exact.ToolName && envelope.Status == string(result.Status) && envelope.Code == result.ErrorCode &&
-		envelope.Metadata["mcp_preflight"] == "not_dispatched" &&
-		envelope.Metadata["mcp_source_fingerprint"] == mcp.OperationApprovalFingerprint(exact), nil
+		envelope.Metadata[prefix+"_preflight"] == "not_dispatched" &&
+		envelope.Metadata[prefix+"_source_fingerprint"] == fingerprint(exact), nil
 }

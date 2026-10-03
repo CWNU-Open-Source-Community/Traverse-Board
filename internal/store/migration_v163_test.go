@@ -41,7 +41,7 @@ func TestSchemaV163PreservesDisabledLegacyJobRowidAndAgent(t *testing.T) {
 	if err := state.applyMigration(ctx, migrationPlan()[162]); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := state.GetCommandRuntimeJob(ctx, job.ID)
+	loaded, err := readPreV180CommandRuntimeJob(t, state, job.ID)
 	if err != nil || loaded.Network != runner.CommandRuntimeNetworkDisabled ||
 		loaded.PermissionRuntimeEpoch != "" || loaded.PermissionGeneration != 0 {
 		t.Fatalf("legacy disabled job=%#v err=%v", loaded, err)
@@ -67,10 +67,11 @@ func TestSchemaV163PreservesDisabledLegacyJobRowidAndAgent(t *testing.T) {
 
 func insertV162CommandRuntimeJob(t *testing.T, state *SQLiteStore,
 	job runner.CommandRuntimeJob,
+	rowid ...int64,
 ) {
 	t.Helper()
 	columns := strings.TrimSuffix(commandRuntimeJobColumns,
-		",\n\tpermission_runtime_epoch, permission_generation")
+		",\n\tpermission_runtime_epoch, permission_generation, run_authorization_fence")
 	if columns == commandRuntimeJobColumns {
 		t.Fatal("v163 command Job columns changed unexpectedly")
 	}
@@ -99,9 +100,14 @@ func insertV162CommandRuntimeJob(t *testing.T, state *SQLiteStore,
 		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
 		job.Adapter.CredentialPolicy,
 	}
+	columns = "protocol_version, " + columns
+	if len(rowid) != 0 {
+		columns = "rowid, " + columns
+		values = append([]any{rowid[0]}, values...)
+	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
 	if _, err := state.db.ExecContext(context.Background(),
-		`INSERT INTO command_runtime_jobs (protocol_version, `+columns+
+		`INSERT INTO command_runtime_jobs (`+columns+
 			`) VALUES (`+placeholders+`)`, values...); err != nil {
 		t.Fatal(err)
 	}

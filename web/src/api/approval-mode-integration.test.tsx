@@ -1,12 +1,14 @@
+import type { ReactNode } from "react";
+import { LocaleProvider } from "../lib/locale";
 import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberAgentClient } from "./client";
 import { V2PermissionControl } from "../v2/components/permission-control";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.localStorage.removeItem("prayu.locale.v1"); });
 
 function states() {
   const path = process.env.TRAVERSE_TEST_APPROVAL_MODE_OUTPUT;
@@ -113,3 +115,9 @@ describe("actual permission API to shared selector", () => {
     await expect(fixture.client.getThreadExecutionPermission(fixture.threadID)).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 });
+
+// Use the same explicit locale boundary as the real application.
+function render(ui: ReactNode) {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
+  return renderComponent(ui, { wrapper: LocaleProvider });
+}

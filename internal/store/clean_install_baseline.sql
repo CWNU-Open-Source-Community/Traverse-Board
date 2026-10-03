@@ -1405,6 +1405,7 @@ CREATE TABLE "command_runtime_jobs" (
 		adapter_credential_policy TEXT NOT NULL,
 		permission_runtime_epoch TEXT NOT NULL DEFAULT '',
 		permission_generation INTEGER NOT NULL DEFAULT 0,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
@@ -1414,14 +1415,22 @@ CREATE TABLE "command_runtime_jobs" (
 		FOREIGN KEY(profile_snapshot_id) REFERENCES run_execution_profile_snapshots(id) ON DELETE RESTRICT,
 		FOREIGN KEY(permission_snapshot_id) REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'command-runtime.v2'),
-		CHECK((permission_runtime_epoch = '' AND permission_generation = 0) OR (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_runtime_epoch = trim(permission_runtime_epoch) AND instr(permission_runtime_epoch, char(0)) = 0 AND permission_generation > 0)),
+		CHECK((permission_mode NOT IN ('ask','auto','full') AND run_authorization_fence=0 AND
+			((permission_runtime_epoch='' AND permission_generation=0) OR
+			(length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_generation>0))) OR
+			(permission_mode IN ('ask','auto','full') AND
+			 ((permission_mode IN ('ask','auto') AND permission_generation=0) OR
+			  (permission_mode='full' AND permission_generation>0 AND length(permission_runtime_epoch)>0)) AND
+			 ((permission_runtime_epoch='' AND run_authorization_fence=0) OR
+			  (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND run_authorization_fence>0)))),
+		CHECK(permission_runtime_epoch=trim(permission_runtime_epoch) AND instr(permission_runtime_epoch,char(0))=0),
 		CHECK(profile IN ('powershell', 'bash', 'process')),
 		CHECK(stdin_policy IN ('closed', 'pipe')),
-		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug') AND adapter_network_policy = 'host_available'))),
-		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode = 'workspace_access'
+		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full') AND adapter_network_policy = 'host_available'))),
+		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode IN ('workspace_access','ask','auto','full')
 				AND adapter_isolation_grade = 'workspace_sandbox'
 				AND adapter_network_policy = 'denied' AND adapter_credential_policy = 'none')
-			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug')
+			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full')
 				AND adapter_isolation_grade = 'host_unsandboxed'
 				AND adapter_network_policy = 'host_available'
 				AND adapter_credential_policy = 'host_available')
@@ -15148,9 +15157,9 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 				AND permission.run_id = run.id AND permission.mission_id = mission.id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode
-				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access', 'debug'))
+				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access','debug','ask','auto','full'))
 					OR (NEW.adapter_kind = 'sandboxed_workspace'
-						AND permission.mode = 'workspace_access'))
+						AND permission.mode IN ('workspace_access','ask','auto','full')))
 				AND permission.revision = (SELECT MAX(current.revision)
 					FROM run_execution_permission_snapshots current WHERE current.run_id = run.id)
 				AND lease.lease_id = NEW.lease_id AND lease.generation = NEW.lease_generation
@@ -15184,7 +15193,7 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 			OR NEW.adapter_network_policy != OLD.adapter_network_policy
 			OR NEW.adapter_credential_policy != OLD.adapter_credential_policy
 			OR NEW.permission_runtime_epoch != OLD.permission_runtime_epoch
-			OR NEW.permission_generation != OLD.permission_generation
+			OR NEW.permission_generation != OLD.permission_generation OR NEW.run_authorization_fence != OLD.run_authorization_fence
 			OR NEW.owner_id != OLD.owner_id
 			OR NEW.owner_generation != OLD.owner_generation
 			OR julianday(NEW.owner_renewed_at) < julianday(OLD.owner_renewed_at)

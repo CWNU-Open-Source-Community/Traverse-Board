@@ -237,7 +237,7 @@ func seedV149StructuredToolRun(t *testing.T, state *SQLiteStore) domain.Run {
 	return seedLegacyStructuredToolRun(t, state, "ws-structured", domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
 }
 
-func seedLegacyStructuredToolRun(t *testing.T, state *SQLiteStore, workspaceID string, phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode) domain.Run {
+func seedLegacyStructuredToolRun(t testing.TB, state *SQLiteStore, workspaceID string, phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode) domain.Run {
 	t.Helper()
 	ctx, now := t.Context(), time.Now().UTC().Truncate(time.Millisecond)
 	tx, err := state.db.BeginTx(ctx, nil)
