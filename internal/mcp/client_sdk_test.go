@@ -17,10 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func sdkHTTPFixture(t *testing.T, tool func(http.ResponseWriter, *http.Request, Envelope), catalogs ...func() string) (*sdkClientTransport, *atomic.Int32) {
+func sdkHTTPFixture(t *testing.T, tool func(http.ResponseWriter, *http.Request, Envelope), catalogs ...func() string) (*Client, *atomic.Int32) {
 	t.Helper()
 	calls := &atomic.Int32{}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +76,7 @@ func sdkHTTPFixture(t *testing.T, tool func(http.ResponseWriter, *http.Request, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := transport.(*sdkClientTransport)
+	adapter := transport
 	adapter.protocolVersion = preferredClientProtocolVersion
 	t.Cleanup(func() { _ = adapter.Close() })
 	return adapter, calls
@@ -85,8 +86,18 @@ func sdkWriteResponse(w http.ResponseWriter, id json.RawMessage, result string) 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id, result)
 }
-func sdkTestRequest(params string) Envelope {
-	return Envelope{JSONRPC: "2.0", ID: json.RawMessage("77"), Method: "tools/call", Params: json.RawMessage(params)}
+func sdkTestParams(params string) *sdk.CallToolParams {
+	var result sdk.CallToolParams
+	decoder := json.NewDecoder(strings.NewReader(params))
+	decoder.UseNumber()
+	if err := decoder.Decode(&result); err != nil {
+		panic(err)
+	}
+	return &result
+}
+func callSDKTest(ctx context.Context, client *Client, params *sdk.CallToolParams) (json.RawMessage, error) {
+	_, raw, err := client.callTool(ctx, params)
+	return raw, err
 }
 func TestSDKModernHTTPPreservesNativeJSON(t *testing.T) {
 	raw := "{\"content\":[{\"type\":\"text\",\"text\":\"ok\",\"_meta\":{\"vendor\":\"native\"}},{\"type\":\"image\",\"data\":\"aGVsbG8=\",\"mimeType\":\"image/png\"},{\"type\":\"audio\",\"data\":\"aGVsbG8=\",\"mimeType\":\"audio/wav\"},{\"type\":\"resource_link\",\"uri\":\"fixture://one\",\"name\":\"one\"},{\"type\":\"resource\",\"resource\":{\"uri\":\"fixture://two\",\"text\":\"two\"}}],\"structuredContent\":{\"large\":9007199254740993},\"_meta\":{\"vendor\":{\"large\":9007199254740993}},\"vendorExtension\":{\"keep\":true},\"resultType\":\"complete\"}"
@@ -96,19 +107,19 @@ func TestSDKModernHTTPPreservesNativeJSON(t *testing.T) {
 		}
 		sdkWriteResponse(w, request.ID, raw)
 	})
-	result, err := transport.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{\"large\":9007199254740993}}"))
+	result, err := callSDKTest(t.Context(), transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{\"large\":9007199254740993}}"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(result.Result) != raw || calls.Load() != 1 {
-		t.Fatalf("native result changed or repeated: %s calls=%d", result.Result, calls.Load())
+	if string(result) != raw || calls.Load() != 1 {
+		t.Fatalf("native result changed or repeated: %s calls=%d", result, calls.Load())
 	}
 }
 func TestSDKDoesNotAutomaticallyRetryInputRequired(t *testing.T) {
 	transport, calls := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) {
 		sdkWriteResponse(w, request.ID, "{\"resultType\":\"input_required\",\"inputRequests\":{},\"requestState\":\"opaque-native-state\"}")
 	})
-	_, err := transport.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
+	_, err := callSDKTest(t.Context(), transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
 	var required *sdkInputRequiredError
 	if !errors.As(err, &required) || !bytes.Contains(required.raw, []byte("opaque-native-state")) || calls.Load() != 1 {
 		t.Fatalf("input-required must be retained without automatic interaction/replay: %v calls=%d", err, calls.Load())
@@ -125,7 +136,7 @@ func TestSDKLostHTTPResponseIsUnknownAndNeverRepeated(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
-	_, err := transport.Exchange(ctx, sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
+	_, err := callSDKTest(ctx, transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
 	var unknown *sdkOutcomeUnknownError
 	if !errors.As(err, &unknown) || calls.Load() != 1 {
 		t.Fatalf("lost response=%v calls=%d; want unknown, once", err, calls.Load())
@@ -136,16 +147,31 @@ func TestSDKRemoteRPCErrorIsAReceivedResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32602,\"message\":\"fixture rejection\"}}", request.ID)
 	})
-	response, err := transport.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
-	if err != nil || response.Error == nil || response.Error.Code != -32602 || calls.Load() != 1 {
+	response, err := callSDKTest(t.Context(), transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
+	var rpcError *jsonrpc.Error
+	var unknown *sdkOutcomeUnknownError
+	if !errors.As(err, &rpcError) || rpcError.Code != -32602 || errors.As(err, &unknown) || calls.Load() != 1 {
 		t.Fatalf("wire error must be a received response: %#v %v calls=%d", response, err, calls.Load())
+	}
+}
+func TestClientRemoteRPCErrorDoesNotExposePeerMessage(t *testing.T) {
+	const peerMessage = "ordinary private peer diagnostic"
+	client, calls := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":{"code":-32602,"message":%q}}`, request.ID, peerMessage)
+	})
+	_, err := client.CallTool(t.Context(), "lookup", json.RawMessage(`{}`), 128)
+	var rpcError *jsonrpc.Error
+	if !errors.As(err, &rpcError) || rpcError.Code != -32602 || rpcError.Message != peerMessage ||
+		strings.Contains(err.Error(), peerMessage) || !strings.Contains(err.Error(), "-32602") || calls.Load() != 1 {
+		t.Fatalf("remote error must keep its type and code without exposing peer text: %v calls=%d", err, calls.Load())
 	}
 }
 func TestSDKOversizedHTTPResultIsUnknownWithoutRetry(t *testing.T) {
 	transport, calls := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) {
 		sdkWriteResponse(w, request.ID, "{\"content\":[{\"type\":\"text\",\"text\":\""+strings.Repeat("x", MaxMessageBytes)+"\"}]}")
 	})
-	_, err := transport.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
+	_, err := callSDKTest(t.Context(), transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
 	var unknown *sdkOutcomeUnknownError
 	if !errors.As(err, &unknown) || calls.Load() != 1 {
 		t.Fatalf("oversized result=%v calls=%d; must not claim no side effect", err, calls.Load())
@@ -159,9 +185,16 @@ func TestSDKCatalogRefreshPreservesNativeJSONAndIgnoresSDKCache(t *testing.T) {
 		return raw
 	})
 	for i := 0; i < 2; i++ {
-		response, err := transport.Exchange(t.Context(), Envelope{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/list", Params: json.RawMessage("{}")})
-		if err != nil || string(response.Result) != raw {
-			t.Fatalf("catalog %d lost native JSON: %s %v", i, response.Result, err)
+		session, err := transport.connect(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		capture := &sdkRawResponse{}
+		ctx := context.WithValue(t.Context(), sdkRawResponseKey{}, capture)
+		_, err = session.ListTools(ctx, &sdk.ListToolsParams{})
+		response, _ := capture.result()
+		if err != nil || string(response) != raw {
+			t.Fatalf("catalog %d lost native JSON: %s %v", i, response, err)
 		}
 	}
 	if lists.Load() != 2 {
@@ -188,7 +221,7 @@ func TestSDKModernHTTPCancellationClosesOnlyTheRequestStream(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
-		_, err := transport.Exchange(blocked, sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{\"mode\":\"wait\"}}"))
+		_, err := callSDKTest(blocked, transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{\"mode\":\"wait\"}}"))
 		result <- err
 	}()
 	select {
@@ -211,22 +244,22 @@ func TestSDKModernHTTPCancellationClosesOnlyTheRequestStream(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("HTTP response stream was not cancelled")
 	}
-	response, err := transport.Exchange(ctx, sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
-	if err != nil || !bytes.Contains(response.Result, []byte("alive")) || calls.Load() != 2 {
-		t.Fatalf("subsequent request failed: %s %v calls=%d", response.Result, err, calls.Load())
+	response, err := callSDKTest(ctx, transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
+	if err != nil || !bytes.Contains(response, []byte("alive")) || calls.Load() != 2 {
+		t.Fatalf("subsequent request failed: %s %v calls=%d", response, err, calls.Load())
 	}
 }
 func TestSDKGuardsRunBeforeStartupAndFinalDispatch(t *testing.T) {
 	denied := errors.New("host authorization revoked")
 	transport, calls := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) { t.Error("guarded call reached server") })
 	transport.beforeConnect = func(context.Context) error { return denied }
-	_, err := transport.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
+	_, err := callSDKTest(t.Context(), transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
 	if !errors.Is(err, denied) || calls.Load() != 0 {
 		t.Fatalf("startup guard: %v calls=%d", err, calls.Load())
 	}
 	transport2, calls2 := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) { t.Error("guarded call reached server") })
 	transport2.beforeCall = func(context.Context) error { return denied }
-	_, err = transport2.Exchange(t.Context(), sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{}}"))
+	_, err = callSDKTest(t.Context(), transport2, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{}}"))
 	var unknown *sdkOutcomeUnknownError
 	if !errors.Is(err, denied) || errors.As(err, &unknown) || calls2.Load() != 0 {
 		t.Fatalf("dispatch guard: %v calls=%d", err, calls2.Load())
@@ -242,7 +275,7 @@ func TestSDKCancellationKeepsOtherStdioCallsAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := tr.(*sdkClientTransport)
+	transport := tr
 	defer transport.Close()
 	ready := make(chan struct{})
 	var once sync.Once
@@ -256,7 +289,7 @@ func TestSDKCancellationKeepsOtherStdioCallsAlive(t *testing.T) {
 	blocked, cancel := context.WithCancel(ctx)
 	cancelled := make(chan error, 1)
 	go func() {
-		_, err := transport.Exchange(blocked, sdkTestRequest("{\"name\":\"lookup\",\"arguments\":{\"mode\":\"wait\"},\"_meta\":{\"progressToken\":\"blocked\"}}"))
+		_, err := callSDKTest(blocked, transport, sdkTestParams("{\"name\":\"lookup\",\"arguments\":{\"mode\":\"wait\"},\"_meta\":{\"progressToken\":\"blocked\"}}"))
 		cancelled <- err
 	}()
 	select {

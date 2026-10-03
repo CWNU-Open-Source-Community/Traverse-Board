@@ -9,31 +9,23 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"cyberagent-workbench/internal/toolcontract"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-type clientTransport interface {
-	Exchange(context.Context, Envelope) (Envelope, error)
-	Notify(context.Context, Envelope) error
-	Close() error
-}
 
 func newStdioClientTransport(descriptor ServerDescriptor) (clientTransport, error) {
 	if descriptor.Transport != TransportStdio || descriptor.Validate() != nil {
 		return nil, errors.New("valid stdio MCP descriptor is required")
 	}
-	cmd := exec.Command(descriptor.Target, descriptor.Arguments...)
-	cmd.Env = minimalMCPEnvironment()
-	cmd.Dir = os.TempDir()
-	transport := newSDKClientTransport(&commandClientTransport{cmd: cmd})
-	// Historical descriptors retain their exact negotiated profile.
-	transport.protocolVersion = legacyClientProtocolVersion
-	return transport, nil
+	return newLegacyLaunchClient(descriptor, "", nil)
 }
 
 func newRemoteClientTransport(descriptor ServerDescriptor, bearer string, base *http.Client) (clientTransport, error) {
@@ -43,12 +35,115 @@ func newRemoteClientTransport(descriptor ServerDescriptor, bearer string, base *
 	if descriptor.CredentialRef != "" && bearer == "" {
 		return nil, errors.New("configured MCP credential is unavailable")
 	}
-	transport, _ := makeHTTPClientTransport(descriptor.Target, bearer, base)
-	transport.protocolVersion = legacyClientProtocolVersion
-	return transport, nil
+	return newLegacyLaunchClient(descriptor, bearer, base)
 }
 
-func makeHTTPClientTransport(endpoint, bearer string, base *http.Client) (*sdkClientTransport, *mcpHTTPTransport) {
+// Historical descriptors are input adapters, not another client runtime.
+// Manager owns their review/authority semantics and persisted representation.
+func newLegacyLaunchClient(d ServerDescriptor, bearer string, base *http.Client) (*Client, error) {
+	launch := toolcontract.ResolvedLaunch{
+		Component:  toolcontract.ComponentRef{PackageID: ClientProtocolVersion, ComponentID: d.ID},
+		InstanceID: d.Fingerprint(), Format: "mcp-client", FormatVersion: "1",
+		Transport: toolcontract.Transport(d.Transport),
+		// Keep the historical preferred version and supported negotiation set.
+		ProtocolVersions: []string{legacyClientProtocolVersion, "2024-11-05", "2025-03-26", "2025-11-25", preferredClientProtocolVersion},
+	}
+	if d.Transport == TransportStdio {
+		env := map[string]string{}
+		for _, entry := range minimalMCPEnvironment() {
+			key, value, ok := strings.Cut(entry, "=")
+			if ok {
+				env[key] = value
+			}
+		}
+		var err error
+		env, err = normalizeLaunchEnvironment(env)
+		if err != nil {
+			return nil, err
+		}
+		cwd, err := canonicalLaunchDirectory(os.TempDir())
+		if err != nil {
+			return nil, err
+		}
+		command, err := resolveLaunchExecutable(d.Target, cwd, env)
+		if err != nil {
+			return nil, err
+		}
+		digest, err := launchExecutableDigest(command)
+		if err != nil {
+			return nil, err
+		}
+		launch.Stdio = &toolcontract.StdioLaunch{Command: command, Args: slices.Clone(d.Arguments), Env: env, Cwd: cwd, ExecutableSHA256: digest}
+	} else {
+		launch.HTTP = &toolcontract.HTTPLaunch{Endpoint: d.Target}
+		if base == nil {
+			// Preserve the legacy descriptor's existing HTTP client selection.
+			base = &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()}
+		}
+	}
+	client, remote, err := newLaunchClient(launch, base, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if remote != nil {
+		remote.bearer = bearer
+	}
+	return client, nil
+}
+
+// Both descriptor adapters and host-resolved launches construct this same SDK
+// session. Supplied callbacks retain the caller's existing authority boundary.
+func newLaunchClient(launch toolcontract.ResolvedLaunch, base *http.Client,
+	beforeStart func(context.Context) error,
+	beforeSend func(context.Context, *jsonrpc.Request, int64) error,
+) (*Client, *mcpHTTPTransport, error) {
+	if err := launch.Validate(); err != nil {
+		return nil, nil, err
+	}
+	var client *Client
+	var remote *mcpHTTPTransport
+	switch launch.Transport {
+	case toolcontract.TransportStdio:
+		env, err := normalizeLaunchEnvironment(launch.Stdio.Env)
+		if err != nil || len(env) != len(launch.Stdio.Env) {
+			return nil, nil, errors.New("resolved MCP environment is ambiguous")
+		}
+		for key, value := range env {
+			if original, exists := launch.Stdio.Env[key]; !exists || original != value {
+				return nil, nil, errors.New("resolved MCP environment was not normalized")
+			}
+		}
+		if runtime.GOOS == "windows" && env["SYSTEMROOT"] == "" {
+			return nil, nil, errors.New("resolved Windows launch is missing SystemRoot")
+		}
+		cmd := exec.Command(launch.Stdio.Command, launch.Stdio.Args...)
+		cmd.Dir, cmd.Env = launch.Stdio.Cwd, launchEnvironmentEntries(env)
+		client = newSDKClient(&commandClientTransport{cmd: cmd, beforeStart: beforeStart, beforeSend: beforeSend})
+	case toolcontract.TransportStreamableHTTP:
+		if base == nil {
+			configured := http.DefaultTransport.(*http.Transport).Clone()
+			configured.Proxy = nil
+			base = &http.Client{Transport: configured}
+		}
+		client, remote = makeHTTPClientTransport(launch.HTTP.Endpoint, "", base)
+		remote.headers = make(http.Header, len(launch.HTTP.Headers))
+		for name, value := range launch.HTTP.Headers {
+			remote.headers.Set(name, value)
+		}
+		remote.beforeConnect, remote.beforeSend = beforeStart, beforeSend
+	}
+	client.protocolVersion = launch.ProtocolVersions[0]
+	client.allowedVersions = slices.Clone(launch.ProtocolVersions)
+	client.tap.acceptProtocol = func(version string) error {
+		if !slices.Contains(launch.ProtocolVersions, version) {
+			return errors.New("MCP peer selected an unauthorized profile")
+		}
+		return nil
+	}
+	return client, remote, nil
+}
+
+func makeHTTPClientTransport(endpoint, bearer string, base *http.Client) (*Client, *mcpHTTPTransport) {
 	var roundTripper http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
 	if base != nil && base.Transport != nil {
 		roundTripper = base.Transport
@@ -60,7 +155,7 @@ func makeHTTPClientTransport(endpoint, bearer string, base *http.Client) (*sdkCl
 	if base != nil {
 		client.Timeout = base.Timeout
 	}
-	transport := newSDKClientTransport(&sdk.StreamableClientTransport{
+	transport := newSDKClient(&sdk.StreamableClientTransport{
 		Endpoint: endpoint, HTTPClient: client, MaxEventSize: MaxMessageBytes,
 		// The host owns reconciliation or explicit retry under fresh authority.
 		MaxRetries: -1, DisableStandaloneSSE: true,
@@ -78,7 +173,7 @@ func makeHTTPClientTransport(endpoint, bearer string, base *http.Client) (*sdkCl
 type commandClientTransport struct {
 	cmd         *exec.Cmd
 	beforeStart func(context.Context) error
-	beforeSend  func(context.Context, Envelope, int64) error
+	beforeSend  func(context.Context, *jsonrpc.Request, int64) error
 }
 
 func (t *commandClientTransport) Connect(ctx context.Context) (sdk.Connection, error) {
@@ -168,7 +263,7 @@ type mcpHTTPTransport struct {
 	bearer          string
 	headers         http.Header
 	beforeConnect   func(context.Context) error
-	beforeSend      func(context.Context, Envelope, int64) error
+	beforeSend      func(context.Context, *jsonrpc.Request, int64) error
 	connectOnce     sync.Once
 	connectErr      error
 }
@@ -203,7 +298,7 @@ func (t *mcpHTTPTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if request.Header.Get("MCP-Protocol-Version") == "" && version != "" {
 		request.Header.Set("MCP-Protocol-Version", version)
 	}
-	var envelope Envelope
+	var envelope *jsonrpc.Request
 	var wireBytes int64
 	if request.Method == http.MethodPost {
 		if request.GetBody == nil {
@@ -221,9 +316,14 @@ func (t *mcpHTTPTransport) RoundTrip(request *http.Request) (*http.Response, err
 		if len(raw) > MaxMessageBytes {
 			return nil, errors.New("MCP request exceeds the transport limit")
 		}
-		envelope, err = DecodeEnvelope(raw)
+		message, err := jsonrpc.DecodeMessage(raw)
 		if err != nil {
 			return nil, err
+		}
+		var ok bool
+		envelope, ok = message.(*jsonrpc.Request)
+		if !ok {
+			return nil, errors.New("MCP client dispatch requires a request")
 		}
 		// Modern HTTP cancellation is closing the request stream. SDK v1.8.0
 		// also emits a legacy cancellation notification; do not send it on
