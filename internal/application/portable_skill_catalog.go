@@ -42,20 +42,29 @@ func portableSkillCatalog(ctx context.Context, source any, mode domain.RunModeSn
 	// Stable ordering plus a revision prevents continuation across changed
 	// enablement/generation from silently skipping or substituting a component.
 	slices.SortFunc(values, func(a, b plugins.Installation) int { return strings.Compare(a.ID, b.ID) })
-	bindings := []string{string(mode.Surface)}
+	bindings := []string{mode.RunID, mode.ID, string(mode.Surface), string(mode.Phase), string(mode.Profile)}
 	for _, value := range values {
 		if err := ctx.Err(); err != nil {
 			return page, err
 		}
-		if !portableSkillEnabled(value, mode) {
+		if !portableSkillAvailable(value, mode) {
 			continue
 		}
-		bindings = append(bindings, plugins.InstallationFingerprint(value))
+		automatic := portableSkillEnabled(value, mode)
 		skills := slices.Clone(value.Snapshot.Skills)
 		slices.SortFunc(skills, func(a, b plugins.SnapshotSkill) int {
 			return strings.Compare(a.Instructions.Component.ComponentID, b.Instructions.Component.ComponentID)
 		})
 		for _, skill := range skills {
+			if !automatic {
+				if _, _, err := selectedPortableSkill(ctx, source, value, portableSkillPin(value, skill), mode, domain.AgentRoleRoot); err != nil {
+					if apperror.CodeOf(err) != apperror.CodePolicyDenied {
+						return page, err
+					}
+					continue
+				}
+			}
+			bindings = append(bindings, plugins.InstallationFingerprint(value), skill.Instructions.Component.ComponentID)
 			position := page.Total
 			page.Total++
 			if position < request.Offset || len(page.Skills) >= portableSkillCatalogPageSize {

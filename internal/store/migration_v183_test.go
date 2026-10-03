@@ -80,14 +80,10 @@ func TestSchemaV183PreservesHistoricalCandidateReceiptsAndPendingRecovery(t *tes
 	if err := st.db.QueryRowContext(t.Context(), oldRow, receipt.ID).Scan(&beforeRow); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Close(); err != nil {
+	// Compare v182 with exactly v183 before applying later authorized migrations.
+	if err := st.applyMigration(t.Context(), migrationPlan()[182]); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
 	afterSchema := schemaObjectsV183(t, st)
 	for name, definition := range beforeSchema {
 		if afterSchema[name] != definition {
@@ -107,6 +103,14 @@ func TestSchemaV183PreservesHistoricalCandidateReceiptsAndPendingRecovery(t *tes
 	if err := st.db.QueryRowContext(t.Context(), oldRow, receipt.ID).Scan(&afterRow); err != nil || afterRow != beforeRow {
 		t.Fatalf("historical receipt bytes or rowid changed: %v", err)
 	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
 	service := candidateServiceV183(t, st, objects)
 	got, err := service.Import(t.Context(), oldRequest)
 	if err != nil || !got.Replayed || got.Installation != nil || !reflect.DeepEqual(*got.Record.Import, receipt) {

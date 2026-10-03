@@ -25,6 +25,7 @@ const (
 // installation/object provenance is pinned without treating declared tools as
 // grants or persisting the body.
 type ExternalContextItem struct {
+	Plugin                   *PluginSkillBinding `json:",omitempty"`
 	Ordinal                  int
 	InstallationID           string
 	InstallationFingerprint  string
@@ -190,19 +191,37 @@ func AssembleExternalContext(ctx context.Context, selection ExternalSelection,
 func loadExternalContextItem(ctx context.Context, selected ExternalSelectionItem,
 	loader PackageObjectLoader,
 ) (ExternalContextItem, error) {
-	descriptor := PackageObjectDescriptor{
-		ProtocolVersion: PackageObjectProtocolVersion, ArchiveSHA256: selected.ArchiveSHA256,
-		PackageFingerprint: selected.PackageFingerprint, ArchiveBytes: selected.ArchiveBytes,
+	var manifest Manifest
+	var content []byte
+	if selected.Plugin != nil {
+		selectedLoader, ok := loader.(interface {
+			LoadSelectedSkill(context.Context, ExternalSelectionItem) (Manifest, []byte, error)
+		})
+		if !ok {
+			return ExternalContextItem{}, errors.New("selected Plugin Skill reader is required")
+		}
+		var err error
+		manifest, content, err = selectedLoader.LoadSelectedSkill(ctx, selected)
+		if err != nil {
+			return ExternalContextItem{}, err
+		}
+	} else {
+		descriptor := PackageObjectDescriptor{
+			ProtocolVersion: PackageObjectProtocolVersion, ArchiveSHA256: selected.ArchiveSHA256,
+			PackageFingerprint: selected.PackageFingerprint, ArchiveBytes: selected.ArchiveBytes,
+		}
+		loaded, err := loader.Load(ctx, descriptor)
+		if err != nil {
+			return ExternalContextItem{}, fmt.Errorf("load selected external Skill %q: %w", FormatInstalledPackageRef(selected.Name, selected.Version), err)
+		}
+		if err := loaded.Validate(descriptor); err != nil {
+			return ExternalContextItem{}, err
+		}
+		manifest, content = loaded.Manifest, loaded.Content
 	}
-	loaded, err := loader.Load(ctx, descriptor)
-	if err != nil {
-		return ExternalContextItem{}, fmt.Errorf("load selected external Skill %q: %w",
-			FormatInstalledPackageRef(selected.Name, selected.Version), err)
-	}
-	if err := loaded.Validate(descriptor); err != nil {
+	if err := manifest.Validate(content); err != nil {
 		return ExternalContextItem{}, err
 	}
-	manifest := loaded.Manifest
 	if manifest.Name != selected.Name || manifest.Version != selected.Version ||
 		manifest.ContentSHA256 != selected.ContentSHA256 ||
 		manifest.ContentBytes != selected.ContentBytes ||
@@ -210,7 +229,7 @@ func loadExternalContextItem(ctx context.Context, selected ExternalSelectionItem
 		len(manifest.ToolDependencies) != selected.ToolDependencyCount {
 		return ExternalContextItem{}, errors.New("loaded external Skill does not match its pinned manifest")
 	}
-	redacted := redact.Text(string(loaded.Content))
+	redacted := redact.Text(string(content))
 	delivered := []byte(redacted.Text)
 	if err := validateContextContent(delivered); err != nil {
 		return ExternalContextItem{}, fmt.Errorf("external Skill redacted context is invalid: %w", err)
@@ -224,6 +243,7 @@ func loadExternalContextItem(ctx context.Context, selected ExternalSelectionItem
 	}
 	digest := sha256.Sum256(delivered)
 	return ExternalContextItem{
+		Plugin:                   clonePluginSkillBinding(selected.Plugin),
 		InstallationID:           selected.InstallationID,
 		InstallationFingerprint:  selected.InstallationFingerprint,
 		InstallResultFingerprint: selected.InstallResultFingerprint,
@@ -275,16 +295,20 @@ func validateExternalContextItems(items []ExternalContextItem, totalTokens,
 		content := []byte(item.Content)
 		digest := sha256.Sum256(content)
 		wantKey, keyErr := PackageObjectKey(item.ArchiveSHA256)
+		objectValid := validSHA256(item.InstallResultFingerprint) && keyErr == nil && item.ObjectKey == wantKey
+		if item.Plugin != nil {
+			objectValid = item.Plugin.Validate() == nil && item.Plugin.Revision == item.ArchiveSHA256 && item.InstallResultFingerprint == "" && item.ObjectKey == ""
+		}
 		if item.Ordinal != index+1 || !validPackageIdentity(item.InstallationID) ||
 			!validSHA256(item.InstallationFingerprint) ||
-			!validSHA256(item.InstallResultFingerprint) || !validName(item.Name) ||
+			!objectValid || !validName(item.Name) ||
 			!validCoreVersion(item.Version) || !validSHA256(item.SourceSHA256) ||
 			item.SourceBytes <= 0 || item.SourceBytes > MaxContentBytes ||
 			item.SourceTokenUpperBound != item.SourceBytes ||
 			item.DeliveredBytes <= 0 || item.DeliveredBytes != len(content) ||
 			item.TokenUpperBound != item.DeliveredBytes ||
 			item.TokenUpperBound > item.SourceTokenUpperBound || item.RedactionCount < 0 ||
-			!validSHA256(item.PackageFingerprint) || keyErr != nil || item.ObjectKey != wantKey ||
+			!validSHA256(item.PackageFingerprint) ||
 			!validSHA256(item.DeliveredSHA256) ||
 			item.DeliveredSHA256 != hex.EncodeToString(digest[:]) ||
 			validateContextContent(content) != nil || (previousRef != "" && previousRef >= ref) {
@@ -317,6 +341,7 @@ func externalContextFingerprintParts(items []ExternalContextItem) []string {
 			item.PackageFingerprint, item.ObjectKey, item.DeliveredSHA256,
 			strconv.Itoa(item.DeliveredBytes), strconv.Itoa(item.TokenUpperBound),
 			strconv.Itoa(item.RedactionCount))
+		parts = append(parts, pluginSelectionFingerprintParts(item.Plugin)...)
 	}
 	return parts
 }
@@ -540,6 +565,9 @@ func (c ExternalSpecialistContextCommit) Validate() error {
 
 func CloneExternalContextAssembly(value ExternalContextAssembly) ExternalContextAssembly {
 	value.Items = append([]ExternalContextItem(nil), value.Items...)
+	for i := range value.Items {
+		value.Items[i].Plugin = clonePluginSkillBinding(value.Items[i].Plugin)
+	}
 	return value
 }
 
@@ -547,6 +575,9 @@ func CloneExternalSpecialistContextAssembly(
 	value ExternalSpecialistContextAssembly,
 ) ExternalSpecialistContextAssembly {
 	value.Items = append([]ExternalContextItem(nil), value.Items...)
+	for i := range value.Items {
+		value.Items[i].Plugin = clonePluginSkillBinding(value.Items[i].Plugin)
+	}
 	return value
 }
 

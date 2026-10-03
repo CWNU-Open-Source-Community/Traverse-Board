@@ -31,7 +31,15 @@ func portableSkillPin(value plugins.Installation, skill plugins.SnapshotSkill) t
 		ComponentID: skill.Instructions.Component.ComponentID, Revision: value.Revision(), InstallationGeneration: value.Generation}
 }
 
+func portableSkillAvailable(value plugins.Installation, mode domain.RunModeSnapshot) bool {
+	return value.Validate() == nil && value.Snapshot != nil && value.State == plugins.StateEnabled &&
+		value.Source.Surface == string(mode.Surface) && slices.Contains(value.EnabledCapabilities, plugins.CapabilitySkills)
+}
+
 func portableSkillEnabled(value plugins.Installation, mode domain.RunModeSnapshot) bool {
+	if !portableSkillAvailable(value, mode) {
+		return false
+	}
 	if value.Snapshot != nil && value.Snapshot.Legacy != nil {
 		manifest := value.Snapshot.Legacy.Manifest
 		// Enabling a Plugin does not replace a legacy explicit per-Run selection.
@@ -40,8 +48,7 @@ func portableSkillEnabled(value plugins.Installation, mode domain.RunModeSnapsho
 			return false
 		}
 	}
-	return value.Validate() == nil && value.Snapshot != nil && value.State == plugins.StateEnabled &&
-		value.Source.Surface == string(mode.Surface) && slices.Contains(value.EnabledCapabilities, plugins.CapabilitySkills)
+	return true
 }
 
 func currentPortableSkill(ctx context.Context, store portableSkillReadStore, pin toolgateway.SkillReadRequest,
@@ -51,8 +58,13 @@ func currentPortableSkill(ctx context.Context, store portableSkillReadStore, pin
 	if err != nil {
 		return plugins.Installation{}, err
 	}
-	if !portableSkillEnabled(value, mode) || value.PackageID() != pin.PackageID || value.Revision() != pin.Revision || value.Generation != pin.InstallationGeneration {
+	if !portableSkillAvailable(value, mode) || value.PackageID() != pin.PackageID || value.Revision() != pin.Revision || value.Generation != pin.InstallationGeneration {
 		return plugins.Installation{}, apperror.New(apperror.CodePolicyDenied, "installed Skill scope, revision or enablement is no longer current")
+	}
+	if !portableSkillEnabled(value, mode) {
+		if _, _, err := selectedPortableSkill(ctx, store, value, pin, mode, domain.AgentRoleRoot); err != nil {
+			return plugins.Installation{}, err
+		}
 	}
 	if !slices.ContainsFunc(value.Snapshot.Skills, func(s plugins.SnapshotSkill) bool { return s.Instructions.Component.ComponentID == pin.ComponentID }) {
 		return plugins.Installation{}, apperror.New(apperror.CodeNotFound, "installed Skill component is absent")
@@ -109,27 +121,9 @@ func (e *builtinSkillReader) readPortableSkill(ctx context.Context, call toolgat
 		}
 		return ctx.Err()
 	}
-	if err := recheck(); err != nil {
-		return nil, err
-	}
-	archive, err := store.LoadPluginObject(ctx, installed.ID)
+	raw, ref, err := readPortableSkillContent(ctx, store, installed, pin, recheck)
 	if err != nil {
 		return nil, err
-	}
-	if err := recheck(); err != nil {
-		return nil, err
-	}
-	reader, err := plugins.OpenPortableSnapshot(ctx, *installed.Snapshot, archive, "")
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeFailedPrecondition, "installed Skill snapshot is unavailable", err)
-	}
-	defer reader.Close()
-	if err := recheck(); err != nil {
-		return nil, err
-	}
-	raw, ref, err := reader.Read(ctx, toolcontract.ComponentRef{PackageID: pin.PackageID, ComponentID: pin.ComponentID}, pin.Resource, maxPortableSkillReadBytes)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeFailedPrecondition, "installed Skill content cannot be read", err)
 	}
 	// Apply the existing redaction boundary before either text or base64 encoding.
 	// Redaction is not a claim that arbitrary package data contains no secrets.
@@ -204,4 +198,35 @@ func portableSkillReadReferences(ctx context.Context, source builtinSkillReadSto
 		result = append(result, llm.Message{Role: "system", Content: "Some previously activated installed Skills are unavailable under current installation/surface authority. Historical excerpts do not restore their activation; do not substitute a newer revision."})
 	}
 	return result, nil
+}
+
+// Read one verified snapshot component with the caller's live Run/role fence.
+// Automatic discovery and explicit context delivery share this exact read path.
+func readPortableSkillContent(ctx context.Context, store portableSkillReadStore, installed plugins.Installation,
+	pin toolgateway.SkillReadRequest, recheck func() error,
+) ([]byte, toolcontract.ContentRef, error) {
+	empty := toolcontract.ContentRef{}
+	if err := recheck(); err != nil {
+		return nil, empty, err
+	}
+	archive, err := store.LoadPluginObject(ctx, installed.ID)
+	if err != nil {
+		return nil, empty, err
+	}
+	if err := recheck(); err != nil {
+		return nil, empty, err
+	}
+	reader, err := plugins.OpenPortableSnapshot(ctx, *installed.Snapshot, archive, "")
+	if err != nil {
+		return nil, empty, apperror.Wrap(apperror.CodeFailedPrecondition, "installed Skill snapshot is unavailable", err)
+	}
+	defer reader.Close()
+	raw, ref, err := reader.Read(ctx, toolcontract.ComponentRef{PackageID: pin.PackageID, ComponentID: pin.ComponentID}, pin.Resource, maxPortableSkillReadBytes)
+	if err != nil {
+		return nil, empty, apperror.Wrap(apperror.CodeFailedPrecondition, "installed Skill content cannot be read", err)
+	}
+	if err := recheck(); err != nil {
+		return nil, empty, err
+	}
+	return raw, ref, nil
 }

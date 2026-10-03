@@ -803,7 +803,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `extension-package-contracts-reader` (`v1, v2`, active) at `internal/skills`
   - `plugin-installation-reader` (`v1, v2`, active) at `internal/plugins`
 
-<details><summary>43 active identifiers</summary>
+<details><summary>45 active identifiers</summary>
 
 - `agent-package-snapshot.v1`
 - `extension-control.v1`
@@ -811,7 +811,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `external_skill_context.v1`
 - `external_skill_guidance.v1`
 - `external_skill_selection.v1`
+- `external_skill_selection.v2`
 - `external_skill_selection_intent.v1`
+- `external_skill_selection_intent.v2`
 - `external_skill_selection_operation.v1`
 - `external_specialist_skill_context.v1`
 - `plugin-installation.v1`

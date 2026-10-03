@@ -75,6 +75,9 @@ func (s *SQLiteStore) PrepareExternalRootSkillContext(ctx context.Context,
 	if err := validateExternalRootContextSelection(selection, request); err != nil {
 		return skills.ExternalRootContextPreparation{}, err
 	}
+	if err := validatePluginSkillSelectionTx(ctx, tx, selection, domain.AgentRoleRoot); err != nil {
+		return skills.ExternalRootContextPreparation{}, err
+	}
 	existing, found, err := getExternalRootContextPreparationByAttemptTx(ctx, tx,
 		run.ID, current.AttemptID)
 	if err != nil {
@@ -149,6 +152,9 @@ func commitExternalRootSkillContextTx(ctx context.Context, tx *sql.Tx,
 	}
 	if err := validateExternalRootContextSelection(selection,
 		preparation.ExternalRootContextPreparationRequest); err != nil {
+		return err
+	}
+	if err := validatePluginSkillSelectionTx(ctx, tx, selection, domain.AgentRoleRoot); err != nil {
 		return err
 	}
 	root, found, err := getRootAgentTx(ctx, tx, run.ID)

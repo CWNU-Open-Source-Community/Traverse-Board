@@ -2715,7 +2715,7 @@ func (s *RunSupervisor) prepareRootExternalSkillContext(ctx context.Context,
 			apperror.New(apperror.CodeFailedPrecondition,
 				"persisted external Skill selection does not match the active Run")
 	}
-	assembly, err := skills.AssembleExternalContext(ctx, selection, loader)
+	assembly, err := skills.AssembleExternalContext(ctx, selection, selectedSkillLoader{PackageObjectLoader: loader, source: s.store, mode: turn.Mode, role: domain.AgentRoleRoot})
 	if err != nil {
 		return skills.ExternalContextAssembly{}, skills.ExternalRootContextPreparation{},
 			apperror.Wrap(apperror.CodeFailedPrecondition,
