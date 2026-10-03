@@ -174,7 +174,11 @@ func createExternalSkillProjectionFixture(t *testing.T, path string, historicalV
 		_ = st.Close()
 		t.Fatal(err)
 	}
-	selected, err := application.NewExternalSkillSelectionService(st).Select(ctx,
+	var selectionStore application.ExternalSkillSelectionStore = st
+	if len(historicalVersion) != 0 {
+		selectionStore = historicalExternalSelectionSeedStore{st}
+	}
+	selected, err := application.NewExternalSkillSelectionService(selectionStore).Select(ctx,
 		application.SelectExternalSkillsRequest{
 			RunID: run.ID, PackageRefs: []string{"projection-review@1.0.0"},
 			SpecialistRef: "projection-review@1.0.0", TokenBudget: 1024,
