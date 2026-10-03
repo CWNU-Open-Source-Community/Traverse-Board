@@ -114,7 +114,9 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	defer manager.Shutdown()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
+		DebugMaximumAccessEnabled:      true,
+		FullAccessRequiresRuntimeGrant: true,
+		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	service, err := newDesktopUserTerminalService(state, manager, capabilities)
 	if err != nil {
@@ -146,19 +148,27 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := service.Start(ctx, start); err == nil {
-		t.Fatal("debug interaction without debug permission started a user terminal")
+		t.Fatal("debug interaction without explicit Full activation started a user terminal")
 	}
 	permissionService := application.NewRunExecutionPermissionService(
 		state, capabilities)
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "debug",
-			OperationKey:       "desktop-terminal-permission-0001",
-			RequestedBy:        "test_operator",
-			Reason:             "enable user-owned debug terminal",
-			ConfirmDebugAccess: true,
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "desktop-terminal-permission-0001",
+			RequestedBy:  "test_operator",
+			Reason:       "enable user-owned debug terminal",
+			ConfirmFull:  true,
 		}); err != nil {
 		t.Fatal(err)
+	}
+	selected, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || selected.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		selected.Mode != domain.RunExecutionPermissionFull {
+		t.Fatalf("current terminal preference=%#v err=%v", selected, err)
+	}
+	if _, activated := capabilities.RuntimeAuthority.AllowsFullAccess(selected); !activated {
+		t.Fatal("terminal fixture did not activate Full in the shared runtime authority")
 	}
 	session, err := service.Start(ctx, start)
 	if err != nil {
@@ -186,7 +196,7 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	}
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "conservative",
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 			OperationKey: "desktop-terminal-permission-0002",
 			RequestedBy:  "test_operator", Reason: "leave maximum access",
 		}); err != nil {
@@ -200,11 +210,11 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	}
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "debug",
-			OperationKey:       "desktop-terminal-permission-0003",
-			RequestedBy:        "test_operator",
-			Reason:             "restore maximum access",
-			ConfirmDebugAccess: true,
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "desktop-terminal-permission-0003",
+			RequestedBy:  "test_operator",
+			Reason:       "restore maximum access",
+			ConfirmFull:  true,
 		}); err != nil {
 		t.Fatal(err)
 	}
