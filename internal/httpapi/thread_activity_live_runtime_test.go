@@ -26,7 +26,7 @@ import (
 
 func TestThreadActivityHTTPReadsLiveProcessRingBeforeDurableHeartbeat(t *testing.T) {
 	fixture := newAPIFixture(t)
-	runRecord, root, lease, checkpoint, attempt :=
+	runRecord, root, lease, checkpoint, attempt, capabilities :=
 		newThreadActivityCommandRuntimeFixture(t, fixture)
 	profile := runner.CommandRuntimeBash
 	const environmentValue = "ordinary-value-never-public"
@@ -82,8 +82,24 @@ func TestThreadActivityHTTPReadsLiveProcessRingBeforeDurableHeartbeat(t *testing
 		_ = manager.Shutdown(ctx)
 	})
 	adapter, _ := manager.AdapterIdentity()
-	authority, err := commandruntimeadapter.EncodeAuthority(
-		commandruntimeadapter.NewAuthority(runRecord.ID, adapter))
+	permission, err := fixture.store.GetRunExecutionPermission(t.Context(), runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, live := capabilities.FullAccessGeneration(permission)
+	if !live || generation == 0 {
+		t.Fatal("fixture has no current Full grant")
+	}
+	fence, err := capabilities.RuntimeAuthority.IssueRunAuthorizationFence(runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := commandruntimeadapter.EncodeAuthority(commandruntimeadapter.Authority{
+		ProtocolVersion: commandruntimeadapter.OperationAuthorityVersion, RunID: runRecord.ID, Adapter: adapter,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision, PermissionMode: permission.Mode,
+		PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+		RunAuthorizationFence: fence,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,10 +136,8 @@ func TestThreadActivityHTTPReadsLiveProcessRingBeforeDurableHeartbeat(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	permission, err := fixture.store.GetRunExecutionPermission(t.Context(), runRecord.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// This projection fixture starts the native manager directly. It tests live
+	// output and durable bindings, not the application operation authorizer.
 	snapshot, _, err := manager.Start(t.Context(), runner.CommandRuntimeStartRequest{
 		Scope: runner.CommandRuntimeScope{InvocationID: "thread-activity-live-invocation",
 			OperationKey: batchOperationKey, RunID: runRecord.ID,
@@ -135,8 +149,10 @@ func TestThreadActivityHTTPReadsLiveProcessRingBeforeDurableHeartbeat(t *testing
 			ModeSnapshotID:      mode.ID, ModeRevision: mode.Revision,
 			ProfileSnapshotID: executionProfile.ID, ProfileRevision: executionProfile.Revision,
 			PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
-			PermissionMode: permission.Mode,
-			LeaseID:        lease.LeaseID, LeaseGeneration: lease.Generation,
+			PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+			RunAuthorizationFence: fence,
+			PermissionMode:        permission.Mode,
+			LeaseID:               lease.LeaseID, LeaseGeneration: lease.Generation,
 			LeaseOwnerID: lease.OwnerID, Adapter: adapter},
 		Spec: resolved,
 	})
@@ -207,6 +223,11 @@ func TestThreadActivityHTTPReadsLiveProcessRingBeforeDurableHeartbeat(t *testing
 	durable, err := fixture.store.GetCommandRuntimeJob(t.Context(), snapshot.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if durable.PermissionSnapshotID != permission.ID || durable.PermissionRevision != permission.Revision ||
+		durable.PermissionMode != domain.RunExecutionPermissionFull || durable.PermissionGeneration != generation ||
+		durable.PermissionRuntimeEpoch != capabilities.RuntimeAuthority.RuntimeEpoch() || durable.RunAuthorizationFence != fence {
+		t.Fatalf("durable command lost its exact current authority binding: %+v", durable)
 	}
 	if durable.OutputFramesJSON == "[]" || durable.OutputCursor == 0 {
 		t.Fatalf("terminal durable ring was not persisted: %#v", durable)
@@ -327,7 +348,7 @@ func waitForThreadActivityCommand(t *testing.T, fixture *apiFixture, expectedAge
 
 func newThreadActivityCommandRuntimeFixture(t *testing.T, fixture *apiFixture) (
 	domain.Run, domain.AgentNode, domain.RunExecutionLease,
-	domain.SupervisorCheckpoint, llm.ModelAttempt,
+	domain.SupervisorCheckpoint, llm.ModelAttempt, domain.ExecutionPermissionRuntimeCapabilities,
 ) {
 	t.Helper()
 	ctx := t.Context()
@@ -359,12 +380,13 @@ func newThreadActivityCommandRuntimeFixture(t *testing.T, fixture *apiFixture) (
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		DebugMaximumAccessEnabled: true,
+		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	if _, err := application.NewRunExecutionPermissionService(fixture.store,
 		capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: runRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: runRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "thread-activity-live-permission-0001", RequestedBy: "test_operator",
-		Reason: "exercise the host Command Runtime", ConfirmDangerFullAccess: true,
+		Reason: "exercise the host Command Runtime", ConfirmFull: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -408,5 +430,5 @@ func newThreadActivityCommandRuntimeFixture(t *testing.T, fixture *apiFixture) (
 		turn.Checkpoint, attempt); err != nil || !inserted {
 		t.Fatalf("record model start inserted=%t err=%v", inserted, err)
 	}
-	return runRecord, root, acquired.Lease, turn.Checkpoint, attempt
+	return runRecord, root, acquired.Lease, turn.Checkpoint, attempt, capabilities
 }

@@ -567,15 +567,16 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 			DebugMaximumAccessEnabled: true,
+			RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 		}).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
-		RunID: profileRun.ID, Mode: string(domain.RunExecutionPermissionDebug),
+		RunID: profileRun.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "openapi-browser-cdp-debug-permission-0001",
 		RequestedBy:  "openapi_test", Reason: "prepare full CDP debug contract",
-		ConfirmDebugAccess: true,
+		ConfirmFull: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Selecting Debug atomically enables its nested Full CDP capability by default;
+	// Selecting Full records its Full CDP preference without browser authority;
 	// the OpenAPI browser route below therefore has a real restricted transition target.
 	_, interactionRun, err := application.NewRunService(fixture.store).Create(t.Context(),
 		application.CreateRunRequest{Goal: "OpenAPI execution interaction target", Profile: "code",
@@ -1688,11 +1689,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"decision":"metadata_confirmed",` +
 						`"confirm_non_authorizing_review":true}`
 				} else if spec.Path == RunExecutionPermissionControlPathTemplate {
-					body = `{"mode":"full_access","confirm_danger_full_access":true}`
+					body = `{"mode":"full","confirm_full":true}`
 				} else if spec.Path == "/api/v1/threads/{thread_id}/search-diagnostics" {
 					body = `{"version":"search_diagnostics.v1","confirm":true}`
 				} else if spec.Path == ThreadExecutionPermissionControlPathTemplate {
-					body = `{"mode":"conservative"}`
+					body = `{"mode":"ask"}`
 				} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
 					body = `{"mode":"restricted"}`
 				} else if spec.Path == RunNetworkAuthorityControlPathTemplate {
