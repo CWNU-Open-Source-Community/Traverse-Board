@@ -204,6 +204,10 @@ func removeSchemaV157ForTestStatements() []string {
 	statements = append(statements, removeSchemaV168QueueForTestStatements()...)
 	statements = append(statements, removeSchemaV170AndV171ForTestStatements()...)
 	statements = append(statements, removeSchemaV175ForTestStatements()...)
+	// The nested v177 inverse restores foreign_keys=ON for standalone use.
+	// The outer table rebuild must keep dependent historical actor rows; it
+	// restores and checks foreign keys after every parent table is in place.
+	statements = append(statements, `PRAGMA foreign_keys=OFF;`)
 	statements = append(statements,
 		`DROP TRIGGER trg_supervisor_tool_rejection_immutable;`,
 		`DROP TABLE run_supervisor_tool_rejections;`,
@@ -340,7 +344,9 @@ func removeSchemaV162ForTestStatements() []string {
 	columns = "rowid,protocol_version," + columns
 	statements = append(statements,
 		`CREATE TEMP TABLE legacy_fixture_empty_grant (n INTEGER CHECK(n=0));`,
-		`INSERT INTO legacy_fixture_empty_grant SELECT count(*) FROM command_runtime_jobs WHERE permission_runtime_epoch<>'' OR permission_generation<>0 OR run_authorization_fence<>0 OR permission_mode IN ('ask','auto','full');`,
+		// v180 permits a nonzero authorization fence only for the three v2
+		// modes, which are all rejected here. Older prefixes lack that column.
+		`INSERT INTO legacy_fixture_empty_grant SELECT count(*) FROM command_runtime_jobs WHERE permission_runtime_epoch<>'' OR permission_generation<>0 OR permission_mode IN ('ask','auto','full');`,
 		`DROP TABLE legacy_fixture_empty_grant;`,
 		createJobs,
 		"INSERT INTO "+jobs+" ("+columns+") SELECT "+columns+" FROM command_runtime_jobs;",
@@ -383,6 +389,7 @@ func addEmptyCurrentAutoAuthorizationForLegacySeed(t testing.TB, state *SQLiteSt
 	t.Helper()
 	return withLegacySeedSchema(t, state, []string{
 		requireMigrationStatement("CREATE TABLE file_edit_auto_authorizations (", automaticFileEditMoveAuthorizationStatements),
+		`ALTER TABLE file_edit_auto_authorizations ADD COLUMN run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence=0);`,
 		`CREATE TRIGGER legacy_fixture_no_automatic_authority BEFORE INSERT ON file_edit_auto_authorizations BEGIN SELECT RAISE(ABORT, 'historical fixture cannot contain automatic authority'); END;`,
 	}, []string{
 		`CREATE TEMP TABLE legacy_fixture_empty_authority (n INTEGER CHECK(n=0));`,
