@@ -633,13 +633,12 @@ func newWorkspaceCheckpointApplicationFixture(t *testing.T) workspaceCheckpointA
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}
-	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
-			Mode:         string(domain.RunExecutionPermissionApproval),
-			OperationKey: "workspace-checkpoint-permission-0001", RequestedBy: "cli_operator",
-			Reason: "test explicit workspace restore", ConfirmUserApproval: true}); err != nil {
+	// A new Run starts in Ask; restore and fork require their own exact operator
+	// confirmation after pausing and releasing the execution lease.
+	permission, err := state.GetRunExecutionPermission(ctx, created.ID)
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk {
 		state.Close()
-		t.Fatal(err)
+		t.Fatalf("initial checkpoint permission=%+v err=%v", permission, err)
 	}
 	runRecord, err := runs.Start(ctx, created.ID)
 	if err != nil {
