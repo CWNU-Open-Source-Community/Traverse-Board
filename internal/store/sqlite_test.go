@@ -1452,13 +1452,18 @@ func removeSchemaV51ForTestStatements() []string {
 
 func TestSQLiteUpgradesV21MemoryRowsToOptionalAgentOwnership(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
-	_, run := createWorkItemTestRun(t, ctx, st, "v21 memory ownership upgrade")
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
+		Goal: "v21 memory ownership upgrade", Profile: "code", Budget: domain.Budget{MaxTurns: 10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	workService := application.NewWorkItemService(st)
 	legacyWork, err := workService.Create(ctx, application.CreateWorkItemRequest{
 		RunID: run.ID, Title: "legacy work", Owner: "legacy-worker",

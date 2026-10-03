@@ -63,12 +63,12 @@ func TestRunModeLedgerIsImmutable(t *testing.T) {
 
 func TestSchemaV40BackfillsCompatibilityRunMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v40-mode.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "legacy v40 Run", Profile: "review", Surface: "cyber", Phase: "plan",
 		Budget: domain.Budget{MaxTurns: 2},
 	})

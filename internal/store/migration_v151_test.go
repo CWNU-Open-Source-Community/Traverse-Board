@@ -26,9 +26,14 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	restoreLegacyCommandColumns := addCurrentCommandGrantColumnsForLegacySeed(t, state)
 
-	_, run := createStructuredToolTestRun(t, ctx, state,
-		"preserve historical Supervisor actor")
-	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
+		Goal: "preserve historical Supervisor actor", Profile: "code", WorkspaceID: "ws-structured",
+		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newMigrationFixtureRunService(t, state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := state.BeginSupervisorTurn(ctx,
