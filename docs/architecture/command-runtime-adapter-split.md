@@ -172,8 +172,16 @@ in foreground and background launch paths, and the application's direct unguarde
 boundary. The runner's compatibility methods remain for existing internal callers
 and tests; they do not decode grants from persisted state or model input.
 
-Still pending: production MCP transport wiring, public ask/auto/full writers, and
-retirement of the remaining legacy permission/Code/Deliver/Root admission rules.
-Old permission rows are only compatibility inputs here. This increment neither
-maps three UI buttons onto the old five choices nor declares that writer migration
-complete. It creates no new Run, Session, Job or approval database.
+Public ask/auto/full writers and production MCP stdio/HTTP operation checks are
+now wired. The shared policy classifies effects verified by the host: Ask permits
+verified workspace reads, reversible writes, and bounded workspace processes;
+Auto additionally permits verified public-network effects. Auto does not invoke
+a model to approve operations. Full still requires current runtime activation and
+preserves native guards and existing exact-consent decisions; it does not select
+or create an OS sandbox. These names do not claim equivalence with modes in other
+agent products.
+
+Still pending: retirement of the remaining legacy Host/Risk/Controlled/Once
+execution paths and permission/Code/Deliver/Root admission rules. Old permission
+rows remain readable compatibility inputs, not restored runtime authority. The
+migration is not complete and creates no new Run, Session, Job or approval database.
