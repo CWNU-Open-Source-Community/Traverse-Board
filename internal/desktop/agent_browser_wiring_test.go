@@ -119,20 +119,22 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	}
 
 	fullThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Full Access ordinary browser wiring", "desktop-agent-browser-full-thread-0001")
+		"Full ordinary browser wiring", "desktop-agent-browser-full-thread-0001")
 	permission := desktopControlRequest(plane.Handler(), http.MethodPost,
 		"/api/v1/threads/"+fullThread.Thread.ID+"/execution-permission",
 		"desktop-agent-browser-full-permission-0001",
-		`{"mode":"full_access","reason":"inspect ordinary browser tools","confirm_danger_full_access":true}`)
+		`{"mode":"full","reason":"inspect ordinary browser tools","confirm_full":true}`)
 	if permission.Code != http.StatusAccepted {
-		t.Fatalf("Full Access selection status=%d body=%s", permission.Code, permission.Body.String())
+		t.Fatalf("Full selection status=%d body=%s", permission.Code, permission.Body.String())
 	}
+	assertDesktopCurrentApproval(t, plane, permissionCapabilities, fullThread.Run.ID, domain.RunExecutionPermissionFull)
 	completeDesktopSourceWiringTurn(t, plane, fullThread,
 		"Inspect the ordinary browser tools available to this Run",
 		"desktop-agent-browser-full-turn-0001")
 
 	restrictedThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Conservative ordinary browser boundary", "desktop-agent-browser-restricted-thread-0001")
+		"Ask ordinary browser boundary", "desktop-agent-browser-restricted-thread-0001")
+	assertDesktopCurrentApproval(t, plane, permissionCapabilities, restrictedThread.Run.ID, domain.RunExecutionPermissionAsk)
 	completeDesktopSourceWiringTurn(t, plane, restrictedThread,
 		"Inspect tools without elevated execution permission",
 		"desktop-agent-browser-restricted-turn-0001")
@@ -141,7 +143,7 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	captured := append([]desktopSourceWiringRequest(nil), modelRequests...)
 	requestMu.Unlock()
 	if len(captured) != 2 {
-		t.Fatalf("Supervisor model request count=%d, want one Full Access and one conservative request", len(captured))
+		t.Fatalf("Supervisor model request count=%d, want one Full and one Ask request", len(captured))
 	}
 	fullTools := desktopSourceWiringToolsByName(captured[0].Tools)
 	restrictedTools := desktopSourceWiringToolsByName(captured[1].Tools)
@@ -149,14 +151,14 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 		_, fullFound := fullTools[name]
 		_, restrictedFound := restrictedTools[name]
 		if runtime.GOOS == "windows" && !fullFound {
-			t.Fatalf("Windows Full Access Provider tools omitted %s: %v", name,
+			t.Fatalf("Windows Full Provider tools omitted %s: %v", name,
 				desktopSourceWiringToolNames(captured[0].Tools))
 		}
 		if runtime.GOOS != "windows" && fullFound {
 			t.Fatalf("non-Windows host advertised unavailable ordinary browser tool %s", name)
 		}
 		if restrictedFound {
-			t.Fatalf("conservative Run received ordinary browser tool %s: %v", name,
+			t.Fatalf("Ask Run received ordinary browser tool %s: %v", name,
 				desktopSourceWiringToolNames(captured[1].Tools))
 		}
 	}
