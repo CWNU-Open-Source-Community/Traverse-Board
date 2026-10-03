@@ -456,6 +456,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/app -run '^TestWindowsAPIServe'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v -count=1 -timeout 10m ./internal/app -run '^TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Local command manifests bind Windows drive roots and LPAC policy.

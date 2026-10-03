@@ -436,8 +436,10 @@ func migrationPlan() []migration {
 		Statements: sandboxLiveCandidateBudgetStatements(previous)})
 	previous = append(previous, migration{Version: 183, Name: "Candidate receipts bound to the unified Plugin installation lifecycle",
 		Statements: skillCandidatePluginReceiptStatements()})
-	return append(previous, migration{Version: 184, Name: "Run selections pinned to real Plugin Skill components",
+	previous = append(previous, migration{Version: 184, Name: "Run selections pinned to real Plugin Skill components",
 		Statements: pluginSkillSelectionStatements(), DisableForeignKeys: true})
+	return append(previous, migration{Version: 185, Name: "Explicit operator invocation provenance in the existing command Job ledger",
+		Statements: operatorCommandInvocationStatements()})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

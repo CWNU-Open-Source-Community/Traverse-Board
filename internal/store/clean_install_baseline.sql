@@ -1405,7 +1405,7 @@ CREATE TABLE "command_runtime_jobs" (
 		adapter_credential_policy TEXT NOT NULL,
 		permission_runtime_epoch TEXT NOT NULL DEFAULT '',
 		permission_generation INTEGER NOT NULL DEFAULT 0,
-		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0), operator_invocation INTEGER NOT NULL DEFAULT 0 CHECK(operator_invocation IN (0,1)),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
@@ -15247,7 +15247,7 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 			JOIN run_execution_leases lease ON lease.run_id = run.id
 			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
 				AND run.session_id = NEW.session_id AND mission.workspace_id = NEW.workspace_id
-				AND run.status = 'running' AND root.parent_id IS NULL AND root.role = 'root'
+				AND (run.status = 'running' OR (NEW.operator_invocation = 1 AND run.status IN ('created', 'paused'))) AND root.parent_id IS NULL AND root.role = 'root'
 				AND mode.run_id = run.id AND mode.mission_id = mission.id
 				AND mode.revision = NEW.mode_revision AND mode.surface = 'code'
 				AND mode.phase = 'deliver' AND mode.revision = (
@@ -15327,6 +15327,17 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 		BEGIN
 			SELECT RAISE(ABORT, 'command runtime transition is invalid');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_command_runtime_operator_actor_binding
+		 BEFORE INSERT ON command_runtime_job_agents
+		 WHEN (NEW.attribution_source = 'operator_root') !=
+		  (SELECT operator_invocation FROM command_runtime_jobs WHERE id = NEW.job_id)
+		 BEGIN SELECT RAISE(ABORT, 'Command Runtime invocation source differs from its actor'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_command_runtime_operator_invocation_immutable
+		 BEFORE UPDATE OF operator_invocation ON command_runtime_jobs
+		 WHEN NEW.operator_invocation != OLD.operator_invocation
+		 BEGIN SELECT RAISE(ABORT, 'Command Runtime invocation source is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_completion_requires_agent_attempt
 		BEFORE INSERT ON agent_completion_reports

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +31,10 @@ type operatorCommandFixture struct {
 }
 
 func newOperatorCommandFixture(t *testing.T, mode domain.RunExecutionPermissionMode) *operatorCommandFixture {
+	return newOperatorCommandFixtureAtStatus(t, mode, domain.RunRunning)
+}
+
+func newOperatorCommandFixtureAtStatus(t *testing.T, mode domain.RunExecutionPermissionMode, status domain.RunStatus) *operatorCommandFixture {
 	t.Helper()
 	f := &operatorCommandFixture{root: t.TempDir(), path: filepath.Join(t.TempDir(), "operator.db")}
 	var err error
@@ -56,8 +62,15 @@ func newOperatorCommandFixture(t *testing.T, mode domain.RunExecutionPermissionM
 			t.Fatal(err)
 		}
 	}
-	if f.run, err = runs.Start(t.Context(), f.run.ID); err != nil {
-		t.Fatal(err)
+	if status != domain.RunCreated {
+		if f.run, err = runs.Start(t.Context(), f.run.ID); err != nil {
+			t.Fatal(err)
+		}
+		if status == domain.RunPaused {
+			if f.run, err = runs.Pause(t.Context(), f.run.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	f.probe = &commandApprovalPrepareStore{SQLiteStore: f.st}
 	f.manager, err = runner.NewPlatformCommandRuntimeManager(f.probe, idgen.New("operator-owner"))
@@ -174,34 +187,188 @@ func TestOperatorCommandPolicyAndColdFullCannotBeOverridden(t *testing.T) {
 	}
 }
 
-func TestOperatorCommandRechecksRevocationAndLeaseBeforeNativeStart(t *testing.T) {
-	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
-		for _, change := range []string{"revoke", "lease", "cancel"} {
-			t.Run(string(mode)+"/"+change, func(t *testing.T) {
-				f := newOperatorCommandFixture(t, mode)
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				f.probe.afterPrepare = func() {
-					switch change {
-					case "revoke":
-						f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
-					case "lease":
-						lease, _, err := f.st.GetRunExecutionLease(t.Context(), f.run.ID)
-						if err != nil {
-							t.Fatal(err)
-						}
-						if _, _, err = f.st.ReleaseRunExecutionLease(t.Context(), lease); err != nil {
-							t.Fatal(err)
-						}
-					case "cancel":
-						cancel()
+func TestOperatorCommandStoppedRunRequiresPrivateConsentAndPreservesState(t *testing.T) {
+	for _, status := range []domain.RunStatus{domain.RunCreated, domain.RunPaused} {
+		for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+			t.Run(string(status)+"/"+string(mode), func(t *testing.T) {
+				f := newOperatorCommandFixtureAtStatus(t, mode, status)
+				request := f.request(t, true)
+				lease, err := f.st.AcquireRunExecutionLease(t.Context(), domain.AcquireRunExecutionLeaseRequest{RunID: f.run.ID, OwnerID: "public-scope-owner", TTL: time.Minute})
+				if err != nil {
+					t.Fatal(err)
+				}
+				mission, err := f.st.GetMission(t.Context(), f.run.MissionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				root, found, err := f.st.GetRootAgent(t.Context(), f.run.ID)
+				if err != nil || !found {
+					t.Fatal("root", err)
+				}
+				permission, err := f.st.GetRunExecutionPermission(t.Context(), f.run.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot, generation, epoch, fence, live := bindAgentCodeRuntime(f.caps, permission)
+				if !live {
+					t.Fatal("fixture runtime is not live")
+				}
+				adapter, available := f.manager.AdapterIdentity()
+				if !available {
+					t.Fatal("fixture adapter unavailable")
+				}
+				runMode, err := f.st.GetRunMode(t.Context(), f.run.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				scope := toolgateway.CommandRuntimeContext{InvocationID: "public-stopped-invocation", OperationKey: "public-stopped-key",
+					RunID: f.run.ID, MissionID: mission.ID, SessionID: f.run.SessionID, WorkspaceID: mission.WorkspaceID,
+					RootAgentID: root.ID, AgentID: root.ID, PermissionMode: permission.Mode, PermissionRevision: permission.Revision,
+					PermissionSnapshotID: snapshot, PermissionGeneration: generation, PermissionRuntimeEpoch: epoch, RunAuthorizationFence: fence,
+					LeaseID: lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation, CapabilityGeneration: adapter.Generation,
+					Surface: runMode.Surface, Phase: runMode.Phase, Profile: runMode.Profile, Role: domain.AgentRoleRoot, ModeRevision: runMode.Revision,
+					Adapter: adapter, PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "high", Reason: "check stopped Run gate"}}
+				limit := request.Command.Output.InlineBytes
+				input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionRun,
+					Commands: []runner.CommandRuntimeSpec{request.Command}, FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &limit}
+				for _, source := range []string{"run_supervisor", toolgateway.CommandRuntimeRequestedByOperator} {
+					scope.RequestedBy = source
+					scope.AgentAttemptID = ""
+					if source == "run_supervisor" {
+						scope.AgentAttemptID = "untrusted-attempt"
+					}
+					if err := scope.Validate(); err != nil {
+						t.Fatal("invalid public scope fixture", err)
+					}
+					if _, err := f.service.ExecuteCommandRuntime(t.Context(), scope, input); err == nil || !strings.Contains(err.Error(), "durable binding is stale") {
+						t.Fatalf("public source %q bypassed stopped Run boundary: %v", source, err)
 					}
 				}
-				if _, err := f.service.RunOperatorCommand(ctx, f.request(t, true)); err == nil {
-					t.Fatal("stale native admission succeeded")
+				if _, _, err := f.st.ReleaseRunExecutionLease(t.Context(), lease.Lease); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.service.RunOperatorCommand(t.Context(), f.request(t, false)); err == nil {
+					t.Fatal("stopped Run executed without exact confirmation")
 				}
 				f.noProcess(t)
+				result, err := f.service.RunOperatorCommand(t.Context(), request)
+				if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped {
+					t.Fatalf("confirmed stopped command: %+v %v", result, err)
+				}
+				db, err := sql.Open("sqlite3", f.path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				var operator, oldIntents int
+				if err := db.QueryRowContext(t.Context(), `SELECT operator_invocation FROM command_runtime_jobs WHERE id=?`, result.Job.ID).Scan(&operator); err != nil || operator != 1 {
+					t.Fatal("Job provenance", operator, err)
+				}
+				if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM controlled_command_execution_intents`).Scan(&oldIntents); err != nil || oldIntents != 0 {
+					t.Fatal("second execution ledger written", oldIntents, err)
+				}
+				f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+				cold := &CommandRuntimeService{store: f.st}
+				replay, err := cold.RunOperatorCommand(t.Context(), request)
+				if err != nil || !replay.Replayed || replay.Job.ID != result.Job.ID {
+					t.Fatal("cold replay", replay, err)
+				}
+				run, err := f.st.GetRun(t.Context(), f.run.ID)
+				if err != nil || run.Status != status {
+					t.Fatal("Run state changed", run, err)
+				}
+				if b, err := os.ReadFile(filepath.Join(f.root, "count.txt")); err != nil || string(b) != "1" {
+					t.Fatalf("execution count %q %v", b, err)
+				}
 			})
+		}
+	}
+}
+
+func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("fixed restricted native adapter is Windows-only")
+	}
+	for _, status := range []domain.RunStatus{domain.RunCreated, domain.RunPaused, domain.RunRunning} {
+		t.Run(string(status), func(t *testing.T) {
+			f := newOperatorCommandFixtureAtStatus(t, domain.RunExecutionPermissionAsk, status)
+			interaction, err := NewRunExecutionInteractionService(f.st).Change(t.Context(), ChangeRunExecutionInteractionRequest{RunID: f.run.ID, Mode: "controlled", Trust: "trusted", ConfirmWorkspaceTrust: true, OperationKey: "fixed-command-interaction", RequestedBy: "operator"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile, err := f.st.GetRunExecutionProfile(t.Context(), f.run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{ID: "fixed-command-plan", WorkspaceID: "operator-workspace", WorkspaceRoot: f.root,
+				Interaction: interaction.Interaction, CurrentProfile: profile, CurrentSurface: domain.ExecutionSurfaceCode, Kind: runner.ControlledCommandGoVersion})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.manager.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			var command runner.CommandRuntimeSpec
+			f.manager, command, err = runner.NewFixedCommandRuntimeManager(f.probe, "fixed-command-owner", plan, f.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.caps.DangerFullAccessEnabled = false
+			f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := OperatorCommandRequest{RunID: f.run.ID, OperationKey: "fixed-command-once", RequestedBy: "operator", Command: command, ConfirmExecution: true}
+			result, err := f.service.RunOperatorCommand(t.Context(), request)
+			if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped || !strings.HasPrefix(result.Job.Stdout, "go version ") || result.Job.Adapter.BackendIdentity != runner.RestrictedFixedCommandBackend {
+				t.Fatalf("fixed native Job %+v %v", result, err)
+			}
+			f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+			replay, found, err := ReadOperatorCommand(t.Context(), f.st, request)
+			if err != nil || !found || !replay.Replayed || replay.Job.ID != result.Job.ID {
+				t.Fatal("fixed receipt replay", replay, found, err)
+			}
+			run, err := f.st.GetRun(t.Context(), f.run.ID)
+			if err != nil || run.Status != status {
+				t.Fatal("fixed command changed Run", run, err)
+			}
+		})
+	}
+}
+
+func TestOperatorCommandRechecksRevocationAndLeaseBeforeNativeStart(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		for _, status := range []domain.RunStatus{domain.RunRunning, domain.RunCreated, domain.RunPaused} {
+			if mode != domain.RunExecutionPermissionAuto && status != domain.RunRunning {
+				continue
+			}
+			for _, change := range []string{"revoke", "lease", "cancel"} {
+				t.Run(string(mode)+"/"+string(status)+"/"+change, func(t *testing.T) {
+					f := newOperatorCommandFixtureAtStatus(t, mode, status)
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					f.probe.afterPrepare = func() {
+						switch change {
+						case "revoke":
+							f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+						case "lease":
+							lease, _, err := f.st.GetRunExecutionLease(t.Context(), f.run.ID)
+							if err != nil {
+								t.Fatal(err)
+							}
+							if _, _, err = f.st.ReleaseRunExecutionLease(t.Context(), lease); err != nil {
+								t.Fatal(err)
+							}
+						case "cancel":
+							cancel()
+						}
+					}
+					if _, err := f.service.RunOperatorCommand(ctx, f.request(t, true)); err == nil {
+						t.Fatal("stale native admission succeeded")
+					}
+					f.noProcess(t)
+				})
+			}
 		}
 	}
 }
@@ -225,8 +392,8 @@ func TestOperatorCommandCannotBorrowLeaseOrChangeRunState(t *testing.T) {
 	if _, err = NewRunService(f.st).Pause(t.Context(), f.run.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.service.RunOperatorCommand(t.Context(), f.request(t, true)); err == nil {
-		t.Fatal("paused Run executed")
+	if _, err = f.service.RunOperatorCommand(t.Context(), f.request(t, false)); err == nil {
+		t.Fatal("unconfirmed paused Run executed")
 	}
 	run, err := f.st.GetRun(t.Context(), f.run.ID)
 	if err != nil || run.Status != domain.RunPaused {

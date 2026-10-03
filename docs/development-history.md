@@ -253,5 +253,6 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v182 | 将八个 Sandbox 插入触发器的冻结用量相等约束替换为当前事务预算校验；活动候选允许单调增长，静止候选保持相等，精确租约与旧数据不可变，Docker 准入额度取当前余额 | replace frozen usage equality in eight Sandbox insert triggers with current transaction budget checks; allow monotonic usage for live candidates, retain equality for quiescent candidates, exact leases and immutable history, and derive Docker admission limits from current remaining budgets |
 | v183 | 候选收据绑定到统一 Plugin 安装生命周期 | Candidate receipts bound to the unified Plugin installation lifecycle |
 | v184 | Run 选择固定到真实 Plugin Skill 组件 | Run selections pinned to real Plugin Skill components |
+| v185 | 现有命令 Job 账本记录显式操作者调用来源 | Explicit operator invocation provenance in the existing command Job ledger |
 
 </details>

@@ -135,6 +135,9 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		return existing, true, nil
 	}
 	if requestedAttribution != nil {
+		if attribution.Source == domain.AgentAttributionOperatorRoot && !runner.OperatorCommandJobPrepared(ctx, job) {
+			return runner.CommandRuntimeJob{}, false, apperror.New(apperror.CodePolicyDenied, "operator command preparation requires live host provenance")
+		}
 		if err := requireCommandRuntimeAttributionTx(ctx, tx, job.RunID,
 			job.RootAgentID, attribution); err != nil {
 			return runner.CommandRuntimeJob{}, false, err
@@ -157,10 +160,10 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		version, created_at, started_at, completed_at, updated_at,
 		adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
 		adapter_isolation_grade, adapter_network_policy, adapter_credential_policy,
-		permission_runtime_epoch, permission_generation, run_authorization_fence)
+		permission_runtime_epoch, permission_generation, run_authorization_fence, operator_invocation)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, runner.CommandRuntimeProtocolVersion, job.OperationDigest,
 		job.RequestFingerprint, job.InvocationID, job.RunID, job.MissionID,
 		job.SessionID, job.WorkspaceID, job.RootAgentID, job.WorkspaceRootSHA256,
@@ -184,7 +187,8 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		job.Adapter.BackendIdentity, job.Adapter.Generation,
 		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
 		job.Adapter.CredentialPolicy, job.PermissionRuntimeEpoch,
-		job.PermissionGeneration, job.RunAuthorizationFence)
+		job.PermissionGeneration, job.RunAuthorizationFence,
+		boolInt(requestedAttribution != nil && attribution.Source == domain.AgentAttributionOperatorRoot))
 	if err != nil {
 		return runner.CommandRuntimeJob{}, false, apperror.Wrap(
 			apperror.CodeConflict, "command runtime launch scope was rejected", err)

@@ -80,6 +80,9 @@ func (p *commandRuntimeHostProxySet) close() error {
 func (m *CommandRuntimeManager) NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 	workspaceRoot string,
 ) (CommandRuntimeResolvedSpec, error) {
+	if m != nil && m.fixed != nil {
+		return m.fixed.normalize(spec, workspaceRoot)
+	}
 	// The manager reads one trusted system proxy snapshot below. Calling the
 	// ordinary normalizer first would read it twice and could retain a stale
 	// static fallback if Windows switches to PAC between those reads.

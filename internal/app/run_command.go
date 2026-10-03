@@ -2532,6 +2532,7 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	operator := fs.String("operator", "cli_operator", "operator identity")
 	confirm := fs.Bool("confirm-execution", false,
 		"confirm one controlled OS-restricted process")
+	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this process")
 	enablePermissionControl := fs.Bool("enable-permission-control", false,
 		"enable elevated permission evaluation for this process")
 	enableFullAccess := fs.Bool("enable-danger-full-access", false,
@@ -2541,6 +2542,7 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"path": true, "timeout": true, "operation-key": true,
 		"operator": true, "confirm-execution": false,
+		"confirm-full":              false,
 		"enable-permission-control": false, "enable-danger-full-access": false,
 		"enable-debug-maximum-access": false,
 	})); err != nil {
@@ -2555,30 +2557,10 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *enablePermissionControl,
-		DangerFullAccessEnabled:   *enableFullAccess,
-		DebugMaximumAccessEnabled: *enableDebugAccess,
-	}
-	if err := runtimeCapabilities.Validate(); err != nil {
-		return apperror.Wrap(apperror.CodeInvalidArgument,
-			err.Error(), err)
-	}
 	runRecord, mission, workspaceRecord, interaction, profile, permission, mode, err :=
 		a.loadControlledCommandBindings(ctx, fs.Arg(0))
 	if err != nil {
 		return err
-	}
-	permissionDecision, err := executionauth.EvaluateExecutionPermission(
-		permission, runtimeCapabilities, executionauth.PermissionRequest{
-			Kind:             executionauth.PermissionOperationFixedTemplate,
-			OperatorApproved: true,
-		})
-	if err != nil {
-		return err
-	}
-	if !permissionDecision.Allowed {
-		return apperror.New(apperror.CodePolicyDenied, permissionDecision.Reason)
 	}
 	operationDigest := runmutation.Fingerprint(
 		"controlled_command_execution_operation.v1", runRecord.ID,
@@ -2593,23 +2575,16 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	executor, err := a.controlledCommandExecutor()
+	// Historical intent and receipt reads remain in their original namespace.
+	// New calls below write only Command Runtime Jobs.
+	intent, found, err := a.store.GetControlledExecutionIntentByPlanID(ctx, plan.ID)
 	if err != nil {
 		return err
 	}
-	if !executor.Available() {
-		return runner.ErrControlledExecutionPlatform
-	}
-	intent, err := runner.NewControlledExecutionIntent(plan,
-		strings.TrimSpace(*operator), time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	replayed, err := a.store.PrepareControlledExecutionIntent(ctx, intent)
-	if err != nil {
-		return err
-	}
-	if replayed {
+	if found {
+		if intent.PlanFingerprint != plan.Fingerprint || intent.RequestedBy != strings.TrimSpace(*operator) {
+			return apperror.New(apperror.CodeConflict, "old fixed command operation key belongs to a different request")
+		}
 		receipt, found, err := a.store.GetControlledExecutionReceipt(ctx,
 			intent.RequestID)
 		if err != nil {
@@ -2621,32 +2596,32 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 		}
 		return writeControlledExecutionReceipt(a.out, receipt, true, false)
 	}
-	result, executeErr := executor.Execute(ctx, runner.ControlledExecutionRequest{
-		Plan: plan, WorkspaceRoot: workspaceRecord.RootPath,
-		Interaction: interaction, CurrentProfile: profile,
-		CurrentSurface: mode.Surface, RequestedBy: strings.TrimSpace(*operator),
-		OperatorConfirmed: true,
-	})
-	if validationErr := result.Validate(); validationErr != nil {
-		if executeErr != nil {
-			return errors.Join(executeErr, validationErr)
+	manager, command, err := runner.NewFixedCommandRuntimeManager(a.store, idgen.New("fixed-command-owner"), plan, workspaceRecord.RootPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = shutdownCLICommandRuntime(manager) }()
+	request := application.OperatorCommandRequest{RunID: runRecord.ID, OperationKey: "fixed-" + operationDigest,
+		RequestedBy: strings.TrimSpace(*operator), Command: command, ConfirmExecution: *confirm}
+	if receipt, found, err := application.ReadOperatorCommand(ctx, a.store, request); found || err != nil {
+		return writeOperatorCommandResult(a.out, receipt, err)
+	}
+	if *enableDebugAccess {
+		return apperror.New(apperror.CodePolicyDenied, "Debug execution is retired; select a current approval preference")
+	}
+	capabilities := cliExecutionPermissionCapabilities(*enablePermissionControl, *enableFullAccess, false)
+	if permission.Mode == domain.RunExecutionPermissionFull && *confirmFull {
+		if _, err := capabilities.RuntimeAuthority.ActivateRunFullAccess(permission); err != nil {
+			return err
 		}
-		return validationErr
 	}
-	receipt, _, recordErr := a.store.RecordControlledExecutionResult(ctx, result)
-	if recordErr != nil {
-		return recordErr
-	}
-	if err := writeControlledExecutionReceipt(a.out, receipt, false, true); err != nil {
+	commands, err := application.NewCommandRuntimeService(a.store, manager, capabilities)
+	if err != nil {
 		return err
 	}
-	if err := writeTransientControlledOutput(a.out, "stdout", result.Stdout.Data); err != nil {
-		return err
-	}
-	if err := writeTransientControlledOutput(a.out, "stderr", result.Stderr.Data); err != nil {
-		return err
-	}
-	return executeErr
+	commands.SetCommandRuntimePolicy(a.checker)
+	result, err := commands.RunOperatorCommand(ctx, request)
+	return writeOperatorCommandResult(a.out, result, err)
 }
 
 func (a *App) runHostExecute(ctx context.Context, args []string) error {

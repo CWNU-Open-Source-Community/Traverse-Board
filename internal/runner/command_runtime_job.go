@@ -536,6 +536,7 @@ type CommandRuntimeManager struct {
 	store             CommandRuntimeStore
 	starter           commandRuntimeStarter
 	hostProxy         *commandRuntimeHostProxySet
+	fixed             *fixedCommandRuntime
 	adapter           commandruntimeadapter.Identity
 	ownerID           string
 	ownerGeneration   int64
@@ -567,8 +568,9 @@ type commandRuntimeEntry struct {
 	terminalErr error
 	// Process-local checks are retained only by this live owner. They are never
 	// reconstructed from durable receipts when a manager restarts.
-	authorityContext context.Context
-	authorityCheck   func(context.Context) error
+	authorityContext   context.Context
+	authorityCheck     func(context.Context) error
+	operatorInvocation bool
 }
 
 type commandRuntimeStdinResult struct {
@@ -729,6 +731,15 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	var stored CommandRuntimeJob
 	var replayed bool
 	var err error
+	if request.Scope.AttributionSource == domain.AgentAttributionOperatorRoot {
+		if request.DispatchCheck == nil {
+			return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
+		}
+		if err := request.DispatchCheck(ctx, request.Spec); err != nil {
+			return CommandRuntimeJobSnapshot{}, false, err
+		}
+		ctx = context.WithValue(ctx, commandRuntimeOperatorPreparationKey{}, commandRuntimeOperatorPreparation{record.ID, record.RequestFingerprint})
+	}
 	if attributed, ok := m.store.(CommandRuntimeAgentStore); ok {
 		stored, replayed, err = attributed.PrepareCommandRuntimeJobForAgent(ctx,
 			record, domain.AgentAttribution{AgentID: request.Scope.AgentID,
@@ -840,9 +851,10 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	}
 	entry := &commandRuntimeEntry{
 		record: updated, process: process,
-		authorityContext: context.WithoutCancel(ctx),
-		ring:             commandRuntimeRing{capacity: updated.InlineLimitBytes},
-		done:             make(chan struct{}), notify: make(chan struct{}, 1),
+		authorityContext:   context.WithoutCancel(ctx),
+		operatorInvocation: request.Scope.AttributionSource == domain.AgentAttributionOperatorRoot,
+		ring:               commandRuntimeRing{capacity: updated.InlineLimitBytes},
+		done:               make(chan struct{}), notify: make(chan struct{}, 1),
 		stdoutDone: make(chan struct{}), stderrDone: make(chan struct{}),
 		stdoutHash: sha256.New(), stderrHash: sha256.New(),
 		inputs: make(map[string]commandRuntimeStdinResult), inputGate: make(chan struct{}, 1),
@@ -1183,6 +1195,20 @@ func (m *CommandRuntimeManager) OwnsActiveJob(job CommandRuntimeJob) bool {
 	defer entry.mu.Unlock()
 	return !entry.record.State.Terminal() && entry.record.OwnerID == job.OwnerID &&
 		entry.record.OwnerGeneration == job.OwnerGeneration
+}
+
+// This is a live-owner check, not a reconstruction from a persisted source bit.
+func (m *CommandRuntimeManager) OwnsActiveOperatorJob(job CommandRuntimeJob) bool {
+	if !m.OwnsActiveJob(job) {
+		return false
+	}
+	entry := m.entry(job.ID)
+	if entry == nil || !entry.operatorInvocation || entry.authorityCheck == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(entry.authorityContext, m.ownerRenewTimeout)
+	defer cancel()
+	return entry.authorityCheck(ctx) == nil
 }
 
 func (m *CommandRuntimeManager) ReconcileStartup(ctx context.Context) (int, error) {

@@ -2124,6 +2124,9 @@ func (s *WorkspaceCheckpointService) requireBoundaryLease(ctx context.Context,
 		return apperror.Normalize(err)
 	}
 	operatorIdle := false
+	if request.Kind == workspacecheckpoint.TransactionCommandBatch {
+		operatorIdle = operatorCommandOwnsStoppedRun(ctx, binding.run, lease)
+	}
 	if s.operatorGitThreadID != "" {
 		checker, ok := s.store.(interface {
 			CheckThreadGitIdle(context.Context, string, string, *domain.RunExecutionLease) error

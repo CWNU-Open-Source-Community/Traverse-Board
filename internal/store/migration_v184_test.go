@@ -66,7 +66,7 @@ func TestSchemaV184PreservesRealV183SelectionRowsAndReceipts(t *testing.T) {
 	}
 	defer st.Close()
 	after, err := st.loadAppliedMigrations(t.Context())
-	if err != nil || len(after) != 184 {
+	if err != nil || len(after) != LatestSchemaVersion {
 		t.Fatalf("v184 migration ledger: %v", err)
 	}
 	for version, entry := range before {

@@ -34,6 +34,19 @@ type operatorCommandApproval struct {
 	input                                                           toolgateway.CommandRuntimeInput
 	host                                                            *CommandRuntimeService
 	invocationID, operationKey, bindingFingerprint, specFingerprint string
+	runStatus                                                       domain.RunStatus
+	lease                                                           domain.RunExecutionLease
+}
+
+// Only the foreground operator entry can create this evidence. A requested_by
+// string, persisted actor row or Job discriminator cannot substitute for it.
+func operatorCommandOwnsStoppedRun(ctx context.Context, run domain.Run, lease domain.RunExecutionLease) bool {
+	proof, ok := ctx.Value(operatorCommandApprovalKey{}).(operatorCommandApproval)
+	return ok && proof.host != nil && proof.confirmed && proof.runStatus == run.Status &&
+		(run.Status == domain.RunCreated || run.Status == domain.RunPaused) &&
+		lease.RunID == run.ID && proof.lease.RunID == run.ID &&
+		proof.lease.LeaseID == lease.LeaseID && proof.lease.Generation == lease.Generation &&
+		proof.lease.OwnerID == lease.OwnerID && ctx.Err() == nil
 }
 
 // RunOperatorCommand is a foreground adapter to the existing command runtime.
@@ -60,8 +73,11 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 	if err != nil {
 		return result, err
 	}
-	if run.Status != domain.RunRunning {
-		return result, apperror.New(apperror.CodeFailedPrecondition, "new operator commands require a Running Run; no Run state was changed")
+	if run.Status != domain.RunRunning && run.Status != domain.RunCreated && run.Status != domain.RunPaused {
+		return result, apperror.New(apperror.CodeFailedPrecondition, "operator commands require a Running, Created or Paused Run; no Run state was changed")
+	}
+	if run.Status != domain.RunRunning && !request.ConfirmExecution {
+		return result, apperror.New(apperror.CodePolicyDenied, "commands on a stopped Run require exact operator confirmation")
 	}
 	err = withRunExecutionLease(ctx, leaseStore, run.ID, idgen.New("operator-command"), DefaultRunExecutionLeasePolicy(), func(leaseCtx context.Context, lease domain.RunExecutionLease) error {
 		mission, err := s.store.GetMission(leaseCtx, run.MissionID)
@@ -95,6 +111,9 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 			return err
 		}
 		scope.Surface, scope.Phase, scope.Profile, scope.Role, scope.ModeRevision = mode.Surface, mode.Phase, mode.Profile, root.Role, mode.Revision
+		consent := operatorCommandApproval{host: s, invocationID: invocationID, operationKey: operationKey,
+			confirmed: request.ConfirmExecution, runStatus: run.Status, lease: lease}
+		leaseCtx = context.WithValue(leaseCtx, operatorCommandApprovalKey{}, consent)
 		bindings, err := s.loadAuthorizedBindings(leaseCtx, scope, spec.Network == runner.CommandRuntimeNetworkHost)
 		if err != nil {
 			return err
@@ -112,9 +131,8 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 		}
 		// Host evidence is private to this invocation and binds the original
 		// action as well as native input pins. Public scopes cannot fabricate it.
-		leaseCtx = context.WithValue(leaseCtx, operatorCommandApprovalKey{}, operatorCommandApproval{host: s,
-			invocationID: invocationID, operationKey: operationKey, bindingFingerprint: binding,
-			specFingerprint: runner.CommandRuntimeSpecFingerprint(resolved), input: input, confirmed: request.ConfirmExecution})
+		consent.bindingFingerprint, consent.specFingerprint, consent.input = binding, runner.CommandRuntimeSpecFingerprint(resolved), input
+		leaseCtx = context.WithValue(leaseCtx, operatorCommandApprovalKey{}, consent)
 		// Reuse the same operation check before preparing a Job as at the native
 		// sink. A missing operator review must not consume the operation key.
 		start, err := s.authorizedCommandStart(scope, bindings, commandRuntimeBatchOperationKey(scope.OperationKey, 0), resolved)

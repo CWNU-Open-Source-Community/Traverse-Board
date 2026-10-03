@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,12 +18,14 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"cyberagent-workbench/internal/domain"
+
 	"golang.org/x/sys/windows"
 )
 
 const commandRuntimeWindowsExitCode = 125
 
-type windowsCommandRuntimeStarter struct{}
+type windowsCommandRuntimeStarter struct{ fixed *fixedCommandRuntime }
 
 func newPlatformCommandRuntimeStarter() commandRuntimeStarter {
 	return windowsCommandRuntimeStarter{}
@@ -42,7 +45,7 @@ type windowsCommandRuntimeProcess struct {
 	closed  bool
 }
 
-func (windowsCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeScope,
+func (starter windowsCommandRuntimeStarter) Start(ctx context.Context, scope CommandRuntimeScope,
 	spec CommandRuntimeResolvedSpec,
 ) (
 	commandRuntimeProcess, error,
@@ -53,7 +56,39 @@ func (windowsCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeS
 		commandRuntimeExecutableAttributes(spec.ExecutablePath) != nil {
 		return nil, ErrCommandRuntimeBoundary
 	}
-	job, err := newHostJob()
+	var token windows.Token
+	var job windows.Handle
+	var err error
+	if starter.fixed != nil {
+		if scope.AttributionSource != domain.AgentAttributionOperatorRoot || scope.Adapter.BackendIdentity != RestrictedFixedCommandBackend {
+			return nil, ErrControlledExecutionDenied
+		}
+		expected, err := starter.fixed.normalize(spec.Spec, spec.WorkspaceRoot)
+		if err != nil || CommandRuntimeSpecFingerprint(expected) != CommandRuntimeSpecFingerprint(spec) {
+			return nil, ErrControlledExecutionBoundary
+		}
+		root, err := openControlledWorkspace(starter.fixed.startSpec())
+		if err != nil {
+			return nil, err
+		}
+		defer root.Close()
+		path, file, err := pinControlledExecutable(starter.fixed.plan.ExecutableID)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		if path != spec.ExecutablePath {
+			return nil, ErrControlledExecutionBoundary
+		}
+		token, err = newLowIntegrityRestrictedToken()
+		if err != nil {
+			return nil, err
+		}
+		defer token.Close()
+		job, err = newControlledJob()
+	} else {
+		job, err = newHostJob()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("command runtime Job Object: %w", err)
 	}
@@ -139,8 +174,14 @@ func (windowsCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeS
 		commandRuntimeExecutableAttributes(spec.ExecutablePath) != nil {
 		return nil, ErrCommandRuntimeBoundary
 	}
-	if err := windows.CreateProcess(applicationName, commandLine, nil, nil, true,
-		flags, &environment[0], directory, &startup.StartupInfo, &processInfo); err != nil {
+	if token != 0 {
+		err = windows.CreateProcessAsUser(token, applicationName, commandLine, nil, nil, true,
+			flags, &environment[0], directory, &startup.StartupInfo, &processInfo)
+	} else {
+		err = windows.CreateProcess(applicationName, commandLine, nil, nil, true,
+			flags, &environment[0], directory, &startup.StartupInfo, &processInfo)
+	}
+	if err != nil {
 		return nil, err
 	}
 	_ = windows.CloseHandle(stdinChild)
@@ -184,6 +225,61 @@ func (windowsCommandRuntimeStarter) Start(ctx context.Context, _ CommandRuntimeS
 	return &windowsCommandRuntimeProcess{process: processInfo.Process, job: job,
 		stdin: stdinFile, stdout: stdoutFile, stderr: stderrFile,
 		pid: int(processInfo.ProcessId)}, nil
+}
+
+func newFixedCommandRuntimeStarter(fixed *fixedCommandRuntime) (commandRuntimeStarter, CommandRuntimeSpec, error) {
+	if fixed.startSpec().Validate() != nil || !newPlatformControlledStarter().Available() {
+		return nil, CommandRuntimeSpec{}, ErrControlledExecutionPlatform
+	}
+	path, file, err := pinControlledExecutable(fixed.plan.ExecutableID)
+	if err != nil {
+		return nil, CommandRuntimeSpec{}, err
+	}
+	_ = file.Close()
+	intent := CommandRuntimeSpec{Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimeProcess,
+		Executable: path, Arguments: append([]string{}, fixed.plan.Argv...), WorkingDirectory: ".",
+		Environment: []CommandRuntimeEnvironment{}, StdinPolicy: CommandRuntimeStdinClosed, CloseInitialStdin: true,
+		TimeoutMilliseconds: fixed.plan.TimeoutMilliseconds,
+		Output:              CommandRuntimeOutputPolicy{InlineBytes: MaxControlledOutputCaptureBytes, ArtifactBytes: MaxControlledOutputCaptureBytes},
+		Network:             CommandRuntimeNetworkDisabled, Credentials: CommandRuntimeCredentialsNone,
+		Purpose: "fixed command " + string(fixed.plan.Kind) + " " + fixed.plan.Fingerprint}
+	if fixed.plan.Kind == ControlledCommandPowerShellWorkspaceList {
+		intent.Profile, intent.Executable, intent.Arguments = CommandRuntimePowerShell, "", nil
+		intent.Script = controlledPowerShellWorkspaceListScript + " '" + encodeControlledRelativePath(fixed.plan.RelativePath) + "'"
+	}
+	return windowsCommandRuntimeStarter{fixed: fixed}, intent, nil
+}
+
+func (f *fixedCommandRuntime) normalize(spec CommandRuntimeSpec, workspaceRoot string) (CommandRuntimeResolvedSpec, error) {
+	if !f.matchesIntent(spec, workspaceRoot) || f.startSpec().Validate() != nil {
+		return CommandRuntimeResolvedSpec{}, ErrControlledExecutionBoundary
+	}
+	root, directory, _, err := resolveCommandRuntimeDirectory(workspaceRoot, ".")
+	if err != nil || root != f.root {
+		return CommandRuntimeResolvedSpec{}, ErrControlledExecutionBoundary
+	}
+	path, file, err := pinControlledExecutable(f.plan.ExecutableID)
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, err
+	}
+	defer file.Close()
+	digest, err := commandRuntimeFileSHA256(path)
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, err
+	}
+	systemRoot, err := controlledWindowsDirectory()
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, err
+	}
+	environment := controlledEnvironmentValues(f.startSpec(), systemRoot)
+	encoded, err := json.Marshal(environment)
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, err
+	}
+	return CommandRuntimeResolvedSpec{Spec: f.intent, ExecutablePath: path, ExecutableSHA256: digest,
+		CanonicalArgv: append([]string{}, f.plan.Argv...), AbsoluteDirectory: directory, WorkspaceRoot: root,
+		WorkspaceRootSHA256: commandRuntimeStringSHA256(root), Environment: environment,
+		EnvironmentSHA256: commandRuntimeStringSHA256(string(encoded)), ExecutablePinned: true}, nil
 }
 
 func (p *windowsCommandRuntimeProcess) Ownership() CommandRuntimeProcessOwnership {

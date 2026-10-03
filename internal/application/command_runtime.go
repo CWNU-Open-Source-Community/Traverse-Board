@@ -75,9 +75,10 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 	manager *runner.CommandRuntimeManager,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) (*CommandRuntimeService, error) {
+	_, fixed := manager.FixedCommandPlan()
 	if store == nil || manager == nil || !manager.Available() ||
 		capabilities.Validate() != nil ||
-		!capabilities.DangerFullAccessEnabled {
+		(!capabilities.DangerFullAccessEnabled && !fixed) {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"command runtime requires the danger-full-access startup gate")
 	}
@@ -162,6 +163,9 @@ func (s *CommandRuntimeService) InstalledCommandRuntimeAdapter() (
 func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Context,
 	runID string, permission domain.RunExecutionPermissionMode,
 ) (commandruntimeadapter.Identity, bool, error) {
+	if s != nil && s.adapter.BackendIdentity == runner.RestrictedFixedCommandBackend {
+		return commandruntimeadapter.Identity{}, false, nil
+	}
 	if s == nil || !domain.ValidAgentID(runID) || !s.adapter.Executable() ||
 		!s.adapter.AllowsPermission(permission) ||
 		!s.capabilities.Allows(permission) {
@@ -729,6 +733,25 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
+	if fixed, ok := s.manager.FixedCommandPlan(); ok {
+		reader, ok := s.store.(interface {
+			GetRunExecutionInteraction(context.Context, string) (domain.RunExecutionInteractionSnapshot, error)
+		})
+		if !ok {
+			return value, errors.New("fixed command interaction reader is unavailable")
+		}
+		interaction, err := reader.GetRunExecutionInteraction(ctx, value.run.ID)
+		if err != nil {
+			return value, err
+		}
+		current, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{ID: fixed.ID,
+			WorkspaceID: value.workspace.ID, WorkspaceRoot: value.workspace.RootPath,
+			Interaction: interaction, CurrentProfile: value.profile, CurrentSurface: value.mode.Surface,
+			Kind: fixed.Kind, RelativePath: fixed.RelativePath, Timeout: time.Duration(fixed.TimeoutMilliseconds) * time.Millisecond})
+		if err != nil || current.Fingerprint != fixed.Fingerprint || scope.RequestedBy != toolgateway.CommandRuntimeRequestedByOperator {
+			return value, apperror.New(apperror.CodeConflict, "fixed command plan or operator binding changed")
+		}
+	}
 	if value.permission, err = s.store.GetRunExecutionPermission(ctx,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
@@ -767,8 +790,17 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.rootPath); err != nil {
 		return value, commandRuntimeError(err)
 	}
+	operatorStopped := false
+	if proof, ok := ctx.Value(operatorCommandApprovalKey{}).(operatorCommandApproval); ok {
+		if proof.host != s || proof.runStatus != value.run.Status {
+			return value, apperror.New(apperror.CodeConflict, "operator command Run state changed")
+		}
+		operatorStopped = proof.host == s && scope.RequestedBy == toolgateway.CommandRuntimeRequestedByOperator &&
+			proof.invocationID == scope.InvocationID && proof.operationKey == scope.OperationKey &&
+			operatorCommandOwnsStoppedRun(ctx, value.run, value.lease)
+	}
 	if !leaseFound || !rootFound || value.run.Terminal() ||
-		value.run.Status != domain.RunRunning ||
+		(value.run.Status != domain.RunRunning && !operatorStopped) ||
 		value.run.ID != scope.RunID || value.run.MissionID != scope.MissionID ||
 		value.run.SessionID != scope.SessionID ||
 		value.run.MissionID != value.mission.ID ||
@@ -1037,7 +1069,7 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 	if err != nil {
 		return false, nil
 	}
-	return found && !runRecord.Terminal() && runRecord.Status == domain.RunRunning &&
+	return found && !runRecord.Terminal() && (runRecord.Status == domain.RunRunning || s.manager.OwnsActiveOperatorJob(job)) &&
 		runRecord.MissionID == job.MissionID && runRecord.SessionID == job.SessionID &&
 		mission.ID == job.MissionID && mission.WorkspaceID == job.WorkspaceID &&
 		workspace.ID == job.WorkspaceID && root.ID == job.RootAgentID &&
@@ -1147,7 +1179,7 @@ func commandRuntimeStartupAvailable(adapter commandruntimeadapter.Identity,
 	case commandruntimeadapter.KindHostUnsandboxed:
 		// Installation is a process ceiling. Ask/Auto/Full choose operation
 		// review policy only after this native capability exists.
-		return capabilities.DangerFullAccessEnabled
+		return capabilities.DangerFullAccessEnabled || adapter.BackendIdentity == runner.RestrictedFixedCommandBackend
 	case commandruntimeadapter.KindSandboxedWorkspace:
 		return capabilities.WorkspaceSandboxEnabled
 	default:
