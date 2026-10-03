@@ -208,10 +208,19 @@ func commandRuntimeMigrationJob(t testing.TB, state *SQLiteStore,
 		t.Fatal(err)
 	}
 	runs := application.NewRunService(state)
-	mission, runRecord, err := runs.Create(ctx, application.CreateRunRequest{
-		Goal: "migrate a fenced Command Runtime Job", Profile: "code",
-		WorkspaceID: workspace.ID,
-		Budget:      domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 8}})
+	version, err := state.SchemaVersion(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runRecord domain.Run
+	var mission domain.Mission
+	if version < 178 {
+		runRecord = seedLegacyStructuredToolRun(t, state, workspace.ID, domain.ExecutionPhaseDeliver, permissionMode)
+		mission, err = state.GetMission(ctx, runRecord.MissionID)
+	} else {
+		mission, runRecord, err = runs.Create(ctx, application.CreateRunRequest{Goal: "migrate a fenced Command Runtime Job", Profile: "code", WorkspaceID: workspace.ID,
+			Budget: domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 8}})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,22 +235,12 @@ func commandRuntimeMigrationJob(t testing.TB, state *SQLiteStore,
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true}
-	permissionRequest := application.ChangeRunExecutionPermissionRequest{
-		RunID: runRecord.ID, Mode: string(permissionMode),
-		OperationKey: "command-runtime-v131-permission", RequestedBy: "test_operator",
-		Reason: "bind adapter permission"}
-	if permissionMode == domain.RunExecutionPermissionWorkspaceAccess {
-		permissionRequest.ConfirmWorkspaceAccess = true
-	} else {
-		permissionRequest.ConfirmDangerFullAccess = true
-	}
-	permission, err := application.NewRunExecutionPermissionService(state,
-		capabilities).Change(ctx, permissionRequest)
+	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if version >= 178 {
+		permission = seedRetainedCommandPermission(t, state.db, permission, permissionMode)
 	}
 	started, err := runs.Start(ctx, runRecord.ID)
 	if err != nil {
@@ -284,9 +283,9 @@ func commandRuntimeMigrationJob(t testing.TB, state *SQLiteStore,
 		WorkspaceRootSHA256: resolved.WorkspaceRootSHA256,
 		ModeSnapshotID:      mode.ID, ModeRevision: mode.Revision,
 		ProfileSnapshotID: profile.Profile.ID, ProfileRevision: profile.Profile.Revision,
-		PermissionSnapshotID: permission.Permission.ID,
-		PermissionRevision:   permission.Permission.Revision,
-		PermissionMode:       permission.Permission.Mode,
+		PermissionSnapshotID: permission.ID,
+		PermissionRevision:   permission.Revision,
+		PermissionMode:       permission.Mode,
 		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation,
 		LeaseOwnerID: lease.OwnerID, Adapter: adapter,
 		OwnerID: "command-runtime-v131-owner", OwnerGeneration: 1,

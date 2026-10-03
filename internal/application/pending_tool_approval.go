@@ -5,6 +5,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/toolgateway"
@@ -24,9 +25,17 @@ func (s *ThreadTurnService) resumePendingToolApproval(ctx context.Context, reque
 	if !ok {
 		return approvalContinuationFailed(pendingToolApprovalUnavailable("pending tool approval continuation unavailable"))
 	}
-	tool, fingerprint := toolgateway.AgentBrowserApprovalTool, toolgateway.AgentBrowserApprovalFingerprint
-	if request.Kind == "mcp" {
+	var tool string
+	var fingerprint func(domain.SupervisorToolCall) string
+	switch request.Kind {
+	case "agent_browser":
+		tool, fingerprint = toolgateway.AgentBrowserApprovalTool, toolgateway.AgentBrowserApprovalFingerprint
+	case "mcp":
 		tool, fingerprint = mcp.OperationApprovalTool, mcp.OperationApprovalFingerprint
+	case "command_runtime":
+		tool, fingerprint = string(toolgateway.CommandRuntimeTool), commandruntimeadapter.OperationApprovalFingerprint
+	default:
+		return approvalContinuationFailed(pendingToolApprovalUnavailable("unknown pending tool approval kind"))
 	}
 	record, e := st.GetApprovalByProposal(ctx, request.ProposalID)
 	if e != nil {

@@ -699,7 +699,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 	if !executionStarted {
 		preflight, preflightErr := validateAgentBrowserPreflightResultTx(ctx, tx, call, result)
 		if !preflight && preflightErr == nil {
-			preflight, preflightErr = validateMCPPreflightResultTx(ctx, tx, call, result)
+			preflight, preflightErr = validatePendingOperationPreflightResultTx(ctx, tx, call, result)
 		}
 		if preflightErr != nil {
 			return domain.SupervisorToolCall{}, false, preflightErr

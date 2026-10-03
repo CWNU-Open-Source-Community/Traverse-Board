@@ -252,6 +252,8 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 		}
 	}
 	switch proposal.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		return validateCommandApprovalSourceTx(ctx, tx, proposal)
 	case mcp.OperationApprovalTool:
 		return validateMCPApprovalSourceTx(ctx, tx, proposal)
 	case toolgateway.AgentBrowserApprovalTool:

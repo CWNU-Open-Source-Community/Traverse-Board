@@ -112,6 +112,9 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 	if result.Approval.ToolName == string(toolgateway.MCPToolCallTool) {
 		continuation = a.resumeReviewedProposal(request.Context(), result.Approval.RunID, "mcp", result.Approval.ProposalID)
 	}
+	if result.Approval.ToolName == string(toolgateway.CommandRuntimeTool) {
+		continuation = a.resumeReviewedProposal(request.Context(), result.Approval.RunID, "command_runtime", result.Approval.ProposalID)
+	}
 	if result.Approval.ToolName == "web_fetch" &&
 		a.webFetchAuthorizationSchedulerEnabled {
 		_, ok := a.runExecutionController.(WebFetchAuthorizationResumeController)
