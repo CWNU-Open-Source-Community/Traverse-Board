@@ -1,0 +1,71 @@
+package store
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+
+ "cyberagent-workbench/internal/application"
+ "cyberagent-workbench/internal/approval"
+ "cyberagent-workbench/internal/domain"
+ "cyberagent-workbench/internal/toolrun"
+)
+
+func TestA15ExportHistoricalDesktopReopenFixture(t *testing.T) {
+ ctx := t.Context()
+ directory := os.Getenv("A15_FIXTURE_EXPORT")
+ if directory == "" { t.Fatal("explicit fixture export directory required") }
+ path := filepath.Join(directory, "desktop-v177.db")
+ state := openUnmigratedSQLiteStore(t, path)
+ if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 177); err != nil { t.Fatal(err) }
+ _, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
+  Goal: "preserve rc.3 audit facts", Profile: "code", Surface: "code", Phase: "deliver", Budget: domain.Budget{MaxTurns: 2},
+ })
+ if err != nil { t.Fatal(err) }
+ current, err := state.GetRunExecutionPermission(ctx, run.ID)
+ if err != nil { t.Fatal(err) }
+ selected, err := current.Next("desktop-upgrade-legacy-full", domain.RunExecutionPermissionFullAccess, true,
+  "test_operator", "old explicit high-risk selection", time.Now().UTC())
+ if err != nil { t.Fatal(err) }
+ tx, err := state.db.BeginTx(ctx, nil)
+ if err != nil { t.Fatal(err) }
+ if err := insertRunExecutionPermissionSnapshotTx(ctx, tx, selected); err != nil { tx.Rollback(); t.Fatal(err) }
+ if err := tx.Commit(); err != nil { t.Fatal(err) }
+ oldToolRun, err := state.SaveToolRun(ctx, toolrun.ToolRun{
+  ID: "desktop-upgrade-old-approved-shell", SessionID: run.SessionID,
+  ToolName: toolrun.ShellTool, Command: "echo historical approval", Status: toolrun.StatusProposed,
+ })
+ if err != nil { t.Fatal(err) }
+ oldApproval, err := state.DecideApproval(ctx, approval.DecisionRequest{
+  ProposalID: oldToolRun.ID, IdempotencyKey: "desktop-upgrade-old-approval",
+  Action: approval.ActionApprove, ReviewedBy: "old_desktop_operator",
+ })
+ if err != nil { t.Fatal(err) }
+ if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil { t.Fatal(err) }
+ acquired, err := state.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+  RunID: run.ID, OwnerID: "desktop-upgrade-old-owner", TTL: time.Hour,
+ })
+ if err != nil { t.Fatal(err) }
+ if version, err := state.SchemaVersion(ctx); err != nil || version != 177 { t.Fatalf("schema=%d err=%v", version, err) }
+ if selected.ProtocolVersion != domain.RunExecutionPermissionProtocolVersion ||
+  selected.Mode != domain.RunExecutionPermissionFullAccess || selected.Revision != 2 { t.Fatal("not actual v1 permission", selected) }
+ if err := verifySQLiteForeignKeys(ctx, state.db); err != nil { t.Fatal(err) }
+ ledger, err := state.loadAppliedMigrations(ctx)
+ if err != nil { t.Fatal(err) }
+ if err := validateMigrationPlan(migrationPlan(), ledger); err != nil { t.Fatal(err) }
+ metadata, err := json.MarshalIndent(map[string]any{
+  "Run": run, "Permission": selected, "ToolRun": oldToolRun,
+  "Approval": oldApproval, "Lease": acquired,
+ }, "", "  ")
+ if err != nil { t.Fatal(err) }
+ if err := state.Close(); err != nil { t.Fatal(err) }
+ if err := os.WriteFile(filepath.Join(directory, "facts.json"), append(metadata, '\n'), 0600); err != nil { t.Fatal(err) }
+ data, err := os.ReadFile(path)
+ if err != nil { t.Fatal(err) }
+ digest := sha256.Sum256(data)
+ t.Logf("exported actual v177 fixture: %d bytes sha256=%s; no desktop/app/sandbox test binary executed", len(data), hex.EncodeToString(digest[:]))
+}

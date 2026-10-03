@@ -1,0 +1,99 @@
+{
+  "Approval": {
+    "Approval": {
+      "ID": "approval-20261003064327-3707da2b06af",
+      "IdempotencyKey": "proposal:shell:desktop-upgrade-old-approved-shell",
+      "ProposalID": "desktop-upgrade-old-approved-shell",
+      "GrantID": "",
+      "RunID": "run-20261003064327-13b509e198ae",
+      "SessionID": "sess-20261003064327-9d327761b9b1",
+      "WorkspaceID": "",
+      "ToolName": "shell",
+      "ActionClass": "shell",
+      "Mode": "per_call",
+      "Status": "approved",
+      "RequestFingerprint": "8667687aa1e9bf08dcb6400e887f876c49258c400c11a3ed034d4b6879ab51f3",
+      "DecisionReason": "",
+      "RequestedBy": "tool_gateway",
+      "ReviewedBy": "old_desktop_operator",
+      "Version": 2,
+      "CreatedAt": "2026-10-03T06:43:27.4884774Z",
+      "UpdatedAt": "2026-10-03T06:43:27.4963431Z",
+      "DecidedAt": "2026-10-03T06:43:27.4963431Z"
+    },
+    "Replayed": false,
+    "Consumption": null
+  },
+  "Lease": {
+    "Lease": {
+      "RunID": "run-20261003064327-13b509e198ae",
+      "LeaseID": "lease-20261003064327-1174f03b0b43",
+      "OwnerID": "desktop-upgrade-old-owner",
+      "Generation": 1,
+      "Status": "active",
+      "AcquiredAt": "2026-10-03T06:43:27.5098612Z",
+      "RenewedAt": "2026-10-03T06:43:27.5098612Z",
+      "ExpiresAt": "2026-10-03T07:43:27.5098612Z",
+      "ReleasedAt": null
+    },
+    "Replayed": false,
+    "TookOver": false
+  },
+  "Permission": {
+    "ID": "desktop-upgrade-legacy-full",
+    "RunID": "run-20261003064327-13b509e198ae",
+    "MissionID": "mission-20261003064327-33ee116fc2c9",
+    "Revision": 2,
+    "ProtocolVersion": "run_execution_permission.v1",
+    "Mode": "full_access",
+    "ApprovalPolicy": "none",
+    "CommandScope": "arbitrary_stateless",
+    "FilesystemScope": "host_full",
+    "NetworkScope": "host",
+    "PersistentTerminal": false,
+    "BackgroundProcess": false,
+    "AgentTerminalInput": false,
+    "RiskTier": "high",
+    "RequiredGate": "danger_full_access",
+    "PolicyVersion": "execution_permission_policy.v1",
+    "OperatorConfirmed": true,
+    "ProcessEnabled": false,
+    "ExecutionAuthorized": false,
+    "CapabilityGrant": false,
+    "RequestedBy": "test_operator",
+    "Reason": "old explicit high-risk selection",
+    "CreatedAt": "2026-10-03T06:43:27.4869323Z"
+  },
+  "Run": {
+    "ID": "run-20261003064327-13b509e198ae",
+    "MissionID": "mission-20261003064327-33ee116fc2c9",
+    "SessionID": "sess-20261003064327-9d327761b9b1",
+    "Status": "created",
+    "Config": {
+      "model_route": "code",
+      "interactive": false
+    },
+    "Budget": {
+      "max_turns": 2
+    },
+    "StartedAt": null,
+    "FinishedAt": null,
+    "CreatedAt": "2026-10-03T06:43:27.4723106Z",
+    "UpdatedAt": "2026-10-03T06:43:27.4723106Z"
+  },
+  "ToolRun": {
+    "ID": "desktop-upgrade-old-approved-shell",
+    "SessionID": "sess-20261003064327-9d327761b9b1",
+    "WorkspaceID": "",
+    "ToolName": "shell",
+    "Command": "echo historical approval",
+    "Status": "proposed",
+    "Risk": "",
+    "PolicyReason": "",
+    "Stdout": "",
+    "Stderr": "",
+    "ExitCode": 0,
+    "CreatedAt": "2026-10-03T06:43:27.4884774Z",
+    "UpdatedAt": "2026-10-03T06:43:27.4884774Z"
+  }
+}

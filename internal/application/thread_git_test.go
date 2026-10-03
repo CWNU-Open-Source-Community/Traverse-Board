@@ -17,9 +17,9 @@ import (
 	"cyberagent-workbench/internal/store"
 )
 
-func threadGitApplicationFixture(t *testing.T) (*ThreadGitService, *store.SQLiteStore, string, string, string) {
+func threadGitApplicationFixture(t *testing.T, modes ...domain.RunExecutionPermissionMode) (*ThreadGitService, *store.SQLiteStore, string, string, string) {
 	t.Helper()
-	f := newGitAdvancedApplicationFixture(t)
+	f := newGitAdvancedApplicationFixture(t, modes...)
 	if _, _, err := f.state.ReleaseRunExecutionLease(t.Context(), f.lease); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,10 @@ func TestThreadGitUnknownCommitObservedFromExactStoredMarker(t *testing.T) {
 		t.Fatal("fixture should lose receipt")
 	}
 	before := runFixtureGit(t, "-C", root, "rev-list", "--count", "HEAD")
-	svc.store = st
+	cold := svc.capabilities
+	cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	svc = NewThreadGitService(st, svc.local, svc.remote, svc.checkpoints, svc.drydocks, cold)
+	beforeEvents, _ := st.ListRunEvents(ctx, runID)
 	observed, err := svc.Observe(ctx, threadID, execute.OperationKey)
 	if err != nil || observed.State != "completed" || !observed.Observed || observed.ReceiptSaved {
 		t.Fatalf("observe=%#v err=%v", observed, err)
@@ -134,6 +137,13 @@ func TestThreadGitUnknownCommitObservedFromExactStoredMarker(t *testing.T) {
 	}
 	if runFixtureGit(t, "-C", root, "rev-list", "--count", "HEAD") != before {
 		t.Fatal("observation recommitted")
+	}
+	afterEvents, _ := st.ListRunEvents(ctx, runID)
+	if len(beforeEvents) != len(afterEvents) {
+		t.Fatal("cold commit observation wrote history")
+	}
+	if _, found := cold.RuntimeAuthority.RunAuthorizationFence(runID); found {
+		t.Fatal("cold commit observation issued authority")
 	}
 }
 
@@ -159,7 +169,10 @@ func TestThreadGitUnknownPushObservedWithoutRepeating(t *testing.T) {
 	if err == nil {
 		t.Fatal("fixture should lose receipt")
 	}
-	svc.store = st
+	cold := svc.capabilities
+	cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	svc = NewThreadGitService(st, svc.local, svc.remote, svc.checkpoints, svc.drydocks, cold)
+	beforeEvents, _ := st.ListRunEvents(ctx, runID)
 	observed, err := svc.Observe(ctx, threadID, execute.OperationKey)
 	if err != nil || observed.State != "completed" || !observed.Observed || observed.RemoteOID == "" || observed.ReceiptSaved {
 		t.Fatalf("observe=%#v err=%v", observed, err)
@@ -167,6 +180,13 @@ func TestThreadGitUnknownPushObservedWithoutRepeating(t *testing.T) {
 	record, _, _ := st.GetGitRemoteByKey(ctx, threadGitKey(threadID, execute.OperationKey))
 	if record.CompletedAt != nil {
 		t.Fatal("observation backfilled receipt")
+	}
+	afterEvents, _ := st.ListRunEvents(ctx, runID)
+	if len(beforeEvents) != len(afterEvents) {
+		t.Fatal("cold remote observation wrote history")
+	}
+	if _, found := cold.RuntimeAuthority.RunAuthorizationFence(runID); found {
+		t.Fatal("cold remote observation issued authority")
 	}
 }
 
@@ -199,6 +219,12 @@ func TestThreadGitPausedManagedWorktreeKeepsTaskDirectory(t *testing.T) {
 	if err != nil || bound.RootPath != root {
 		t.Fatalf("task was moved: %#v %v", bound, err)
 	}
+	beforeEvents, err := st.ListRunEvents(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Completed recovery must survive a new runtime without minting authority.
+	svc.capabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 	replay, err := svc.Execute(ctx, threadID, request)
 	if err != nil || !replay.Replayed || replay.WorktreePath != result.WorktreePath {
 		t.Fatalf("replay=%#v err=%v", replay, err)
@@ -206,6 +232,18 @@ func TestThreadGitPausedManagedWorktreeKeepsTaskDirectory(t *testing.T) {
 	record, found, err := st.GetGitAdvancedOperation(ctx, result.OperationID)
 	if err != nil || !found || record.Status != gitadvanced.OperationSucceeded {
 		t.Fatalf("record=%#v %v", record, err)
+	}
+	afterEvents, err := st.ListRunEvents(ctx, runID)
+	if err != nil || len(afterEvents) != len(beforeEvents) {
+		t.Fatalf("replay wrote history: before=%d after=%d err=%v", len(beforeEvents), len(afterEvents), err)
+	}
+	if _, found := svc.capabilities.RuntimeAuthority.RunAuthorizationFence(runID); found {
+		t.Fatal("worktree replay minted a new fence")
+	}
+	changed := request
+	changed.ExpectedPreviewFingerprint = strings.Repeat("f", 64)
+	if _, err := svc.Execute(ctx, threadID, changed); err == nil {
+		t.Fatal("worktree replay accepted a different review")
 	}
 }
 
@@ -232,12 +270,12 @@ func TestThreadGitActiveLeaseAndChangedPermissionRejectBeforeIntent(t *testing.T
 	if _, _, err = st.ReleaseRunExecutionLease(ctx, lease.Lease); err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewRunExecutionPermissionService(st, svc.capabilities).Change(ctx, ChangeRunExecutionPermissionRequest{RunID: runID, Mode: "conservative", OperationKey: "thread-git-revoke-permission", RequestedBy: "fixture", Reason: "revoke before Git confirmation"})
+	_, err = NewRunExecutionPermissionService(st, svc.capabilities).Change(ctx, ChangeRunExecutionPermissionRequest{RunID: runID, Mode: "auto", OperationKey: "thread-git-change-permission", RequestedBy: "fixture", Reason: "invalidate the earlier Git review"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Execute(ctx, threadID, request); err == nil {
-		t.Fatal("revoked Git permission accepted")
+		t.Fatal("changed Git permission accepted with the earlier review")
 	}
 	if _, found, err := st.GetGitMutationByKey(ctx, threadGitKey(threadID, request.OperationKey)); err != nil || found {
 		t.Fatalf("blocked operation created intent: %v %v", found, err)
@@ -253,10 +291,11 @@ func TestThreadGitDrydockCommitAndCheckpointUseActualTaskDirectory(t *testing.T)
 	writeDrydockTestFile(t, filepath.Join(f.sourceRoot, "tracked.txt"), "user source\r\n")
 	owned := mustCreateDrydock(t, f)
 	caps := standardCodeThreadTestRuntime().ExecutionPermissionCapabilities
+	caps.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 	if _, err := NewRunExecutionProfileService(f.state).Change(ctx, ChangeRunExecutionProfileRequest{RunID: f.run.ID, Profile: "local", OperationKey: "git-drydock-local-profile", RequestedBy: "fixture", Reason: "isolated Git fixture"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRunExecutionPermissionService(f.state, caps).Change(ctx, ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: "approval", OperationKey: "git-drydock-permission", RequestedBy: "fixture", Reason: "exact Git confirmation", ConfirmUserApproval: true}); err != nil {
+	if _, err := NewRunExecutionPermissionService(f.state, caps).Change(ctx, ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: "auto", OperationKey: "git-drydock-permission", RequestedBy: "fixture", Reason: "exact Git confirmation"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewRunService(f.state).Start(ctx, f.run.ID); err != nil {

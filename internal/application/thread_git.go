@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/toolcontract"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
@@ -40,6 +41,8 @@ type ThreadGitStore interface {
 	GetApprovalByProposal(context.Context, string) (approval.Record, error)
 	DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
 	CheckThreadGitIdle(context.Context, string, string, *domain.RunExecutionLease) error
+	RecordThreadGitPreparation(context.Context, string, string, string, domain.RunExecutionLease) error
+	GetThreadGitPreparation(context.Context, string, string) (string, bool, error)
 }
 
 type ThreadGitService struct {
@@ -62,11 +65,12 @@ func NewThreadGitService(store ThreadGitStore, local *repository.MutationExecuto
 }
 
 type threadGitBinding struct {
-	public     ThreadGitContext
-	thread     domain.Thread
-	run        domain.Run
-	permission domain.RunExecutionPermissionSnapshot
-	repository gitadvanced.RepositoryBinding
+	public               ThreadGitContext
+	thread               domain.Thread
+	run                  domain.Run
+	permission           domain.RunExecutionPermissionSnapshot
+	repository           gitadvanced.RepositoryBinding
+	authorityFingerprint string
 }
 
 func (s *ThreadGitService) bind(ctx context.Context, threadID string) (threadGitBinding, error) {
@@ -149,6 +153,15 @@ func (s *ThreadGitService) authority(ctx context.Context, value threadGitBinding
 	if mode.Surface != domain.ExecutionSurfaceCode || mode.Phase != domain.ExecutionPhaseDeliver || profile.Profile != domain.RunExecutionProfileLocal {
 		return apperror.New(apperror.CodeFailedPrecondition, "Git writes require this task's Code/Deliver and Local execution settings")
 	}
+	if value.permission.Mode.IsApprovalMode() {
+		if value.permission.Validate() != nil || value.permission.RunID != value.run.ID || value.permission.MissionID != value.run.MissionID ||
+			!s.capabilities.OperatorApprovalEnabled || s.capabilities.RuntimeAuthority == nil || !s.capabilities.AllowsSnapshot(value.permission) {
+			return apperror.New(apperror.CodePolicyDenied, "task Git runtime authorization is unavailable")
+		}
+		// Admission only. Exact native consent is persisted before preparation
+		// and rechecked by the common authorizer at every native write.
+		return s.store.CheckThreadGitIdle(ctx, value.thread.ID, value.run.ID, lease)
+	}
 	decision, err := executionauth.EvaluateExecutionPermission(value.permission, s.capabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, HostFilesystem: true, Network: network, OperatorApproved: true})
 	if err != nil {
 		return err
@@ -224,7 +237,7 @@ func threadGitRemoteSpec(spec ThreadGitSpec) repository.RemoteSpec {
 	return repository.RemoteSpec{ProtocolVersion: repository.RemoteProtocolVersion, Operation: repository.RemotePushBranch, RemoteURL: spec.RemoteURL, Branch: spec.Branch, CredentialName: spec.CredentialName, NetworkTTLMillis: (2 * time.Minute).Milliseconds()}
 }
 
-func (s *ThreadGitService) preview(ctx context.Context, bound threadGitBinding, spec ThreadGitSpec, lease *domain.RunExecutionLease) (ThreadGitPreview, repository.SelectedGitReview, error) {
+func (s *ThreadGitService) preview(ctx context.Context, bound threadGitBinding, spec ThreadGitSpec, lease *domain.RunExecutionLease, reviewing bool) (ThreadGitPreview, repository.SelectedGitReview, error) {
 	value := ThreadGitPreview{Version: ThreadGitProtocolVersion, ThreadGitContext: bound.public, Spec: spec, CanExecute: true}
 	var selected repository.SelectedGitReview
 	if spec.Operation == "switch_branch" && bound.public.WorkspaceID != bound.public.SourceWorkspaceID {
@@ -318,6 +331,13 @@ func (s *ThreadGitService) preview(ctx context.Context, bound threadGitBinding, 
 	if value.CommitAuthor != nil {
 		value.PreviewFingerprint = runmutation.Fingerprint("thread_git_commit_author", value.PreviewFingerprint, value.CommitAuthor.Name, value.CommitAuthor.Email)
 	}
+	if bound.permission.Mode.IsApprovalMode() {
+		authority, err := s.nativeAuthorityFingerprint(ctx, bound, reviewing)
+		if err != nil {
+			return value, selected, err
+		}
+		value.PreviewFingerprint = runmutation.Fingerprint("thread-git-reviewed-authority", value.PreviewFingerprint, authority)
+	}
 	if spec.Operation == "worktree_create" {
 		value.ExpectedRemoteOID = ""
 	}
@@ -339,24 +359,26 @@ func (s *ThreadGitService) Preview(ctx context.Context, threadID string, request
 	if request.RunID != bound.run.ID {
 		return ThreadGitPreview{}, apperror.New(apperror.CodeConflict, "task execution changed")
 	}
-	value, _, err := s.preview(ctx, bound, spec, nil)
+	value, _, err := s.preview(ctx, bound, spec, nil, true)
 	return value, err
 }
 
 type threadGitIntent struct {
-	Version            string                             `json:"version"`
-	ThreadID           string                             `json:"thread_id"`
-	SessionID          string                             `json:"session_id"`
-	WorkspaceID        string                             `json:"workspace_id"`
-	RootPath           string                             `json:"root_path"`
-	Spec               ThreadGitSpec                      `json:"spec"`
-	PreviewFingerprint string                             `json:"preview_fingerprint"`
-	Binding            gitadvanced.RepositoryBinding      `json:"binding"`
-	Files              []repository.SelectedGitFile       `json:"files,omitempty"`
-	Commit             *repository.PreparedSelectedCommit `json:"commit,omitempty"`
-	Remote             *repository.RemoteSpec             `json:"remote,omitempty"`
-	RequestedBy        string                             `json:"requested_by"`
-	TargetCommitOID    string                             `json:"target_commit_oid,omitempty"`
+	Version              string                             `json:"version"`
+	ThreadID             string                             `json:"thread_id"`
+	SessionID            string                             `json:"session_id"`
+	WorkspaceID          string                             `json:"workspace_id"`
+	RootPath             string                             `json:"root_path"`
+	Spec                 ThreadGitSpec                      `json:"spec"`
+	PreviewFingerprint   string                             `json:"preview_fingerprint"`
+	Binding              gitadvanced.RepositoryBinding      `json:"binding"`
+	Files                []repository.SelectedGitFile       `json:"files,omitempty"`
+	Commit               *repository.PreparedSelectedCommit `json:"commit,omitempty"`
+	Remote               *repository.RemoteSpec             `json:"remote,omitempty"`
+	RequestedBy          string                             `json:"requested_by"`
+	TargetCommitOID      string                             `json:"target_commit_oid,omitempty"`
+	CommitAuthor         *repository.GitCommitAuthor        `json:"commit_author,omitempty"`
+	AuthorityFingerprint string                             `json:"native_authority_fingerprint,omitempty"`
 }
 
 func threadGitKey(threadID, key string) string {
@@ -394,12 +416,18 @@ func (s *ThreadGitService) Execute(ctx context.Context, threadID string, request
 		if err != nil {
 			return err
 		}
-		preview, selected, err := s.preview(operationCtx, fresh, spec, &lease)
+		preview, selected, err := s.preview(operationCtx, fresh, spec, &lease, false)
 		if err != nil {
 			return err
 		}
 		if !preview.CanExecute || preview.PreviewFingerprint != request.ExpectedPreviewFingerprint {
 			return apperror.New(apperror.CodeConflict, "Git preview changed; review the selected operation again")
+		}
+		if fresh.permission.Mode.IsApprovalMode() {
+			fresh.authorityFingerprint, err = s.nativeAuthorityFingerprint(operationCtx, fresh, false)
+			if err != nil {
+				return err
+			}
 		}
 		if spec.Operation == "worktree_create" {
 			result, err = s.executeWorktree(operationCtx, fresh, request, lease)
@@ -414,25 +442,12 @@ func (s *ThreadGitService) Execute(ctx context.Context, threadID string, request
 func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBinding, preview ThreadGitPreview, selected repository.SelectedGitReview, request ThreadGitExecuteRequest, lease domain.RunExecutionLease) (ThreadGitResult, error) {
 	key := threadGitKey(bound.thread.ID, request.OperationKey)
 	intent := threadGitIntent{Version: ThreadGitProtocolVersion, ThreadID: bound.thread.ID, SessionID: bound.run.SessionID, WorkspaceID: bound.public.WorkspaceID, RootPath: bound.public.RootPath, Spec: request.Spec, PreviewFingerprint: preview.PreviewFingerprint, Binding: bound.repository, Files: selected.Files, RequestedBy: request.RequestedBy, TargetCommitOID: preview.TargetCommitOID}
-	var prepared *repository.PreparedSelectedCommit
-	var err error
+	intent.CommitAuthor = preview.CommitAuthor
+	intent.AuthorityFingerprint = bound.authorityFingerprint
 	if request.Spec.Operation == "commit" {
 		if preview.CommitAuthor == nil {
 			return ThreadGitResult{}, apperror.New(apperror.CodeFailedPrecondition, "Git 提交身份尚未审阅")
 		}
-		prepared, err = s.local.PrepareSelectedCommit(ctx, bound.public.RootPath, selected, request.Spec.Message, key, *preview.CommitAuthor)
-		if err != nil {
-			return ThreadGitResult{}, err
-		}
-		defer prepared.Close()
-		intent.Commit = prepared
-	}
-	if request.Spec.Operation == "stage" || request.Spec.Operation == "unstage" {
-		prepared, err = s.local.PrepareSelectedIndex(ctx, bound.public.RootPath, selected, request.Spec.Operation == "unstage")
-		if err != nil {
-			return ThreadGitResult{}, err
-		}
-		defer prepared.Close()
 	}
 	if request.Spec.Operation == "push_branch" {
 		remote := threadGitRemoteSpec(request.Spec)
@@ -480,7 +495,7 @@ func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBindi
 	if err != nil {
 		return result, err
 	}
-	if approve.RunID != bound.run.ID || approve.RequestFingerprint != fingerprint {
+	if !threadGitApprovalMatches(approve, bound, id, fingerprint) {
 		return result, apperror.New(apperror.CodeConflict, "Git approval source changed")
 	}
 	decision, err := s.store.DecideApproval(ctx, approval.DecisionRequest{ProposalID: id, IdempotencyKey: approval.ReviewIdempotencyKey("thread.git", id, approval.ActionApprove), Action: approval.ActionApprove, ReviewedBy: request.RequestedBy})
@@ -489,6 +504,14 @@ func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBindi
 	}
 	if decision.Approval.Status != approval.StatusApproved {
 		return result, apperror.New(apperror.CodePolicyDenied, "Git operation was not approved")
+	}
+	var guards []toolcontract.DispatchGuard
+	if bound.permission.Mode.IsApprovalMode() {
+		guard, err := s.nativeDispatchGuard(ctx, bound, intent, selected, id, key, fingerprint, string(encoded), decision.Approval.ID, lease)
+		if err != nil {
+			return result, err
+		}
+		guards = append(guards, guard)
 	}
 	if err = s.authority(ctx, bound, intent.Remote != nil, &lease); err != nil {
 		return result, err
@@ -511,7 +534,7 @@ func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBindi
 		if err = s.requireLiveThreadGitAuthority(stopCtx, bound, lease); err != nil {
 			return result, err
 		}
-		receipt, err := s.remote.ExecuteGit(stopCtx, bound.public.RootPath, *intent.Remote, repository.RemoteBinding{RunID: bound.run.ID, WorkspaceID: bound.public.WorkspaceID, LocalHead: bound.repository.Head, Branch: intent.Spec.Branch}, key)
+		receipt, err := s.remote.ExecuteGit(stopCtx, bound.public.RootPath, *intent.Remote, threadGitRemoteBinding(bound, intent), key, guards...)
 		if err != nil {
 			result.Reason = "push result is not confirmed; inspect this original request"
 			return result, nil
@@ -529,6 +552,9 @@ func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBindi
 		result.CompletedAt = &at
 		return result, nil
 	}
+	if err = s.requireLiveThreadGitAuthority(stopCtx, bound, lease); err != nil {
+		return result, err
+	}
 	boundary := WorkspaceMutationBoundaryRequest{RunID: bound.run.ID, Kind: workspacecheckpoint.TransactionGitMutation, OperationKey: key, TriggerReceiptID: key, LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation}
 	if s.checkpoints == nil {
 		return result, apperror.New(apperror.CodeFailedPrecondition, "Git mutation checkpoint service is unavailable")
@@ -540,15 +566,37 @@ func (s *ThreadGitService) executeOnce(ctx context.Context, bound threadGitBindi
 	var receipt repository.MutationReceipt
 	if err = s.requireLiveThreadGitAuthority(stopCtx, bound, lease); err != nil {
 		// Complete the already-open boundary as failed without dispatching Git.
-	} else if prepared != nil {
-		err = prepared.Publish(stopCtx)
+	} else if intent.Spec.Operation == "commit" || intent.Spec.Operation == "stage" || intent.Spec.Operation == "unstage" {
+		var prepared *repository.PreparedSelectedCommit
+		if intent.Spec.Operation == "commit" {
+			if len(guards) > 0 {
+				prepared, err = s.local.PrepareSelectedCommitAuthorized(stopCtx, bound.public.RootPath, selected, intent.Spec.Message, key, *intent.CommitAuthor, guards[0])
+			} else {
+				prepared, err = s.local.PrepareSelectedCommit(stopCtx, bound.public.RootPath, selected, intent.Spec.Message, key, *intent.CommitAuthor)
+			}
+		} else {
+			prepared, err = s.local.PrepareSelectedIndex(stopCtx, bound.public.RootPath, selected, intent.Spec.Operation == "unstage", guards...)
+		}
+		if prepared != nil {
+			defer prepared.Close()
+		}
+		if err == nil && prepared.CommitOID != "" {
+			var metadata []byte
+			metadata, err = json.Marshal(prepared)
+			if err == nil {
+				err = s.store.RecordThreadGitPreparation(stopCtx, id, fingerprint, string(metadata), lease)
+			}
+		}
+		if err == nil {
+			err = prepared.Publish(stopCtx)
+		}
 		receipt = repository.MutationReceipt{PreHead: bound.repository.Head, PostHead: bound.repository.Head, Branch: bound.repository.Branch}
-		if prepared.CommitOID != "" {
+		if prepared != nil && prepared.CommitOID != "" {
 			receipt.PostHead = prepared.CommitOID
 			receipt.CommitID = prepared.CommitOID
 		}
 	} else {
-		receipt, err = s.local.ExecuteThreadBranch(stopCtx, bound.public.RootPath, repository.MutationSpec{ProtocolVersion: repository.MutationProtocolVersion, Operation: repository.MutationOperation(intent.Spec.Operation), Branch: intent.Spec.Branch}, bound.repository, intent.TargetCommitOID)
+		receipt, err = s.local.ExecuteThreadBranch(stopCtx, bound.public.RootPath, threadGitBranchSpec(intent), bound.repository, intent.TargetCommitOID, guards...)
 	}
 	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
@@ -652,6 +700,15 @@ func (s *ThreadGitService) requireLiveThreadGitAuthority(ctx context.Context, bo
 		!found || current.LeaseID != lease.LeaseID || current.Generation != lease.Generation || !current.ActiveAt(time.Now().UTC()) {
 		return apperror.New(apperror.CodeConflict, "task Git execution authority changed")
 	}
+	if bound.authorityFingerprint != "" {
+		current, err := s.nativeAuthorityFingerprint(ctx, bound, false)
+		if err != nil {
+			return err
+		}
+		if current != bound.authorityFingerprint {
+			return apperror.New(apperror.CodeConflict, "task Git runtime or execution binding changed")
+		}
+	}
 	return nil
 }
 
@@ -754,9 +811,27 @@ func (s *ThreadGitService) replay(ctx context.Context, threadID, key string, req
 			result.Branch = intent.Commit.Branch
 			return result, true, nil
 		}
+	} else if intent.Spec.Operation == "commit" && local.StartedAt != nil {
+		metadata, found, err := s.store.GetThreadGitPreparation(ctx, local.ID, fingerprint)
+		var prepared repository.PreparedSelectedCommit
+		if err == nil && found && json.Unmarshal([]byte(metadata), &prepared) == nil && prepared.Marker == digest &&
+			prepared.ParentOID == intent.Binding.Head && prepared.Branch == intent.Binding.Branch {
+			ok, err := s.local.ObserveSelectedCommit(ctx, intent.RootPath, prepared)
+			if err == nil && ok {
+				result.State, result.Observed = "completed", true
+				result.CommitOID, result.Branch = prepared.CommitOID, prepared.Branch
+				return result, true, nil
+			}
+		}
 	} else if intent.Remote != nil && remote.StartedAt != nil {
-		decision, err := executionauth.EvaluateExecutionPermission(bound.permission, s.capabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, HostFilesystem: true, Network: true, OperatorApproved: true})
-		if err == nil && decision.Allowed && decision.Network {
+		// Explicit observation is a bounded read of the original target. It
+		// cannot activate a cold grant, claim an intent, or repeat a push.
+		allowed := bound.permission.Mode.IsApprovalMode()
+		if !allowed {
+			decision, err := executionauth.EvaluateExecutionPermission(bound.permission, s.capabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, HostFilesystem: true, Network: true, OperatorApproved: true})
+			allowed = err == nil && decision.Allowed && decision.Network
+		}
+		if allowed {
 			oid, err := s.remote.ReadRemoteOID(ctx, intent.RootPath, *intent.Remote)
 			if err == nil && oid == intent.Remote.CommitOID {
 				result.State = "completed"

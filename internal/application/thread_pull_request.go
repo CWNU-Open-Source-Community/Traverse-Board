@@ -17,6 +17,7 @@ import (
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 type ThreadPullRequestStore interface {
@@ -41,7 +42,7 @@ type threadPullRequestRemote interface {
 	ListPullRequests(context.Context, githubreview.RepositoryIdentity, string, string, githubreview.CredentialReference) ([]githubreview.PullRequest, error)
 	GetPullRequest(context.Context, githubreview.RepositoryIdentity, int64, githubreview.CredentialReference) (githubreview.PullRequest, error)
 	ObserveDraft(context.Context, githubreview.PullRequestDraft) (githubreview.PullRequest, bool, error)
-	CreateDraft(context.Context, githubreview.PullRequestDraft) (githubreview.PullRequest, error)
+	CreateDraft(context.Context, githubreview.PullRequestDraft, ...toolcontract.DispatchGuard) (githubreview.PullRequest, error)
 }
 
 type ThreadPullRequestService struct {
@@ -91,6 +92,16 @@ func (s *ThreadPullRequestService) authority(ctx context.Context, bound ThreadGi
 	permission, err := s.review.store.GetRunExecutionPermission(ctx, bound.RunID)
 	if err != nil {
 		return err
+	}
+	if permission.Mode.IsApprovalMode() {
+		if permission.Validate() != nil || permission.RunID != authority.run.ID || permission.MissionID != authority.mission.ID ||
+			!s.review.permissionCapabilities.OperatorApprovalEnabled || s.review.permissionCapabilities.RuntimeAuthority == nil ||
+			!s.review.permissionCapabilities.AllowsSnapshot(permission) {
+			return apperror.New(apperror.CodePolicyDenied, "draft runtime authorization is unavailable")
+		}
+		// Readiness to request review is not permission to publish. Create binds
+		// exact native consent through the common policy and transport guard.
+		return s.store.CheckThreadGitIdle(ctx, bound.ThreadID, bound.RunID, lease)
 	}
 	decision, err := executionauth.EvaluateExecutionPermission(permission, s.review.permissionCapabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, Network: true, OperatorApproved: true})
 	if err != nil || !decision.Allowed || !decision.Network {
@@ -150,10 +161,14 @@ func threadPRKey(threadID, key string) string {
 func validThreadPRKey(key string) bool {
 	return key != "" && len(key) <= 256 && utf8.ValidString(key) && key == strings.TrimSpace(key) && !strings.ContainsAny(key, "\r\n\x00")
 }
-func threadPRFingerprint(p ThreadPullRequestPreview) string {
+func threadPRFingerprint(p ThreadPullRequestPreview, authority ...string) string {
 	p.ApprovalFingerprint = ""
 	p.CreatedAt = time.Time{}
-	encoded, _ := json.Marshal(p)
+	stored := threadPRStoredIntent{ThreadPullRequestPreview: p}
+	if len(authority) > 0 {
+		stored.AuthorityFingerprint = authority[0]
+	}
+	encoded, _ := json.Marshal(stored)
 	return runmutation.Fingerprint(ThreadPullRequestVersion, string(encoded))
 }
 
@@ -199,8 +214,12 @@ func (s *ThreadPullRequestService) Preview(ctx context.Context, threadID string,
 	if err = p.Draft.Validate(); err != nil {
 		return ThreadPullRequestPreviewResult{}, apperror.New(apperror.CodeInvalidArgument, err.Error())
 	}
-	p.ApprovalFingerprint = threadPRFingerprint(p)
-	encoded, err := json.Marshal(p)
+	authorityFingerprint, _, err := s.reviewAuthorityFingerprint(ctx, bound, true)
+	if err != nil {
+		return ThreadPullRequestPreviewResult{}, err
+	}
+	p.ApprovalFingerprint = threadPRFingerprint(p, authorityFingerprint)
+	encoded, err := json.Marshal(threadPRStoredIntent{ThreadPullRequestPreview: p, AuthorityFingerprint: authorityFingerprint})
 	if err != nil {
 		return ThreadPullRequestPreviewResult{}, err
 	}
@@ -233,8 +252,8 @@ func (s *ThreadPullRequestService) previewResult(ctx context.Context, p ThreadPu
 }
 
 func (s *ThreadPullRequestService) intent(ctx context.Context, threadID string, row gitmutation.RemoteRecord) (ThreadPullRequestPreview, error) {
-	var p ThreadPullRequestPreview
-	if json.Unmarshal([]byte(row.SpecJSON), &p) != nil || p.Version != ThreadPullRequestVersion || !p.DraftOnly || p.ThreadID != threadID || p.OperationID != row.ID || p.RunID != row.RunID || p.WorkspaceID != row.WorkspaceID || row.Operation != gitmutation.RemoteCreatePR || p.Draft.Validate() != nil || p.ApprovalFingerprint != row.RequestFingerprint || threadPRFingerprint(p) != row.RequestFingerprint {
+	p, authorityFingerprint, decodeErr := decodeThreadPRIntent(row.SpecJSON)
+	if decodeErr != nil || p.Version != ThreadPullRequestVersion || !p.DraftOnly || p.ThreadID != threadID || p.OperationID != row.ID || p.RunID != row.RunID || p.WorkspaceID != row.WorkspaceID || row.Operation != gitmutation.RemoteCreatePR || p.Draft.Validate() != nil || p.ApprovalFingerprint != row.RequestFingerprint || threadPRFingerprint(p, authorityFingerprint) != row.RequestFingerprint {
 		return p, apperror.New(apperror.CodeConflict, "stored draft intent does not match this task and original operation")
 	}
 	t, err := s.store.GetThreadByRun(ctx, row.RunID)
@@ -271,7 +290,7 @@ func (s *ThreadPullRequestService) Create(ctx context.Context, threadID string, 
 		if err != nil {
 			return err
 		}
-		if bound.RunID != p.RunID || bound.SessionID != p.SessionID || bound.WorkspaceID != p.WorkspaceID || bound.SourceWorkspaceID != p.SourceWorkspaceID || bound.HeadSHA != p.Draft.HeadSHA || bound.Branch != p.Draft.HeadBranch || bound.StatusFingerprint != p.BindingFingerprint {
+		if !threadPRMatchesContext(p, bound) {
 			return apperror.New(apperror.CodeConflict, "the reviewed task Git state changed; create a fresh preview")
 		}
 		if err = s.authority(ctx, bound, &lease); err != nil {
@@ -291,8 +310,20 @@ func (s *ThreadPullRequestService) Create(ctx context.Context, threadID string, 
 		if err != nil {
 			return err
 		}
-		if a.ProposalID != p.OperationID || a.SessionID != p.SessionID || a.WorkspaceID != p.SourceWorkspaceID || a.ToolName != ThreadPullRequestApprovalTool || a.ActionClass != "github_pull_request_create" || a.Mode != "per_call" || a.Status != approval.StatusApproved || a.RequestFingerprint != p.ApprovalFingerprint {
+		if a.Status != approval.StatusApproved || !threadPRApprovalMatches(p, a) {
 			return apperror.New(apperror.CodePolicyDenied, "draft creation requires approval of this exact persisted intent")
+		}
+		permission, err := s.review.store.GetRunExecutionPermission(ctx, p.RunID)
+		if err != nil {
+			return err
+		}
+		var guards []toolcontract.DispatchGuard
+		if permission.Mode.IsApprovalMode() {
+			guard, err := s.dispatchGuard(ctx, p, row, request.ApprovalID, lease)
+			if err != nil {
+				return err
+			}
+			guards = append(guards, guard)
 		}
 		claimed, first, err := s.store.StartRemoteOperation(ctx, row.ID, row.RequestFingerprint, s.now())
 		if err != nil {
@@ -302,13 +333,15 @@ func (s *ThreadPullRequestService) Create(ctx context.Context, threadID string, 
 			result, err = s.observeRecord(ctx, p, claimed, true)
 			return err
 		}
-		pr, createErr := remote.CreateDraft(ctx, p.Draft)
+		pr, createErr := remote.CreateDraft(ctx, p.Draft, guards...)
 		result = ThreadPullRequestResult{Version: ThreadPullRequestVersion, ThreadID: threadID, RunID: p.RunID, OperationID: p.OperationID, State: "unknown", Preview: &p, Approval: &a, CheckedAt: s.now()}
 		if createErr != nil {
 			mapped := apperror.Normalize(githubReviewApplicationError(createErr))
 			result.ErrorCode = string(apperror.CodeOf(mapped))
 			result.ErrorMessage = mapped.Error()
-			if ambiguousGitHubWriteError(createErr) || errors.Is(createErr, context.Canceled) || errors.Is(createErr, context.DeadlineExceeded) {
+			dispatchState, hasDispatchState := githubreview.DraftDispatchState(createErr)
+			if (hasDispatchState && dispatchState == toolcontract.ReceiptOutcomeUnknown) || (!hasDispatchState &&
+				(ambiguousGitHubWriteError(createErr) || errors.Is(createErr, context.Canceled) || errors.Is(createErr, context.DeadlineExceeded))) {
 				return nil
 			}
 			failure, _ := json.Marshal(map[string]string{"code": result.ErrorCode, "message": result.ErrorMessage})

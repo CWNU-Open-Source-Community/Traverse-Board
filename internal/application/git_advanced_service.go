@@ -73,7 +73,8 @@ type GitAdvancedService struct {
 	now                    func() time.Time
 	// Installed only on a short-lived application-owned copy for an explicit
 	// Thread operator action. The public advanced API keeps its running rule.
-	operatorThreadID string
+	operatorThreadID                 string
+	operatorThreadPreviewFingerprint string
 }
 
 func NewGitAdvancedService(store GitAdvancedStore,
@@ -324,6 +325,9 @@ func (s *GitAdvancedService) Review(ctx context.Context,
 	}
 	specJSON, _ := json.Marshal(request.Spec)
 	previewJSON, err := json.Marshal(preview)
+	if s.operatorThreadID != "" && s.operatorThreadPreviewFingerprint != "" {
+		previewJSON, err = json.Marshal(threadGitWorktreeIntent{Preview: preview, ThreadPreviewFingerprint: s.operatorThreadPreviewFingerprint})
+	}
 	if err != nil {
 		return GitAdvancedReviewResult{}, err
 	}

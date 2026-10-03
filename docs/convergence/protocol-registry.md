@@ -40,7 +40,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 39 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 40 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
 | [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
@@ -1656,14 +1656,17 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Compatibility rule: Keep replay/conflict, approval, revision/generation fencing, and write-ahead/result bindings compatible.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
+  - `native-git-reviewed-authority-writer` (`v2`, write-new) at `internal/application/git_advanced_operation_authority.go`
   - `tool-mutation-ledgers-writer` (`v1`, write-current) at `internal/application`
 - Readers:
+  - `native-git-reviewed-authority-reader` (`v2`, active) at `internal/application/git_advanced_operation_authority.go`
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>39 active identifiers</summary>
+<details><summary>40 active identifiers</summary>
 
 - `agent_code_file_edit_proposal.v1`
 - `agent_code_file_edit_source.v1`
+- `authorized-native-git.v2`
 - `file-operation-proposal.v1`
 - `file_edit_apply_operation.v1`
 - `file_edit_apply_request.v1`

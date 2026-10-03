@@ -2728,6 +2728,14 @@
       ],
       "writers": [
         {
+          "id": "native-git-reviewed-authority-writer",
+          "source": "internal/application/git_advanced_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
+        },
+        {
           "id": "tool-mutation-ledgers-writer",
           "source": "internal/application",
           "versions": [
@@ -2737,6 +2745,14 @@
         }
       ],
       "readers": [
+        {
+          "id": "native-git-reviewed-authority-reader",
+          "source": "internal/application/git_advanced_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        },
         {
           "id": "tool-mutation-ledgers-reader",
           "source": "internal/store",
@@ -2760,6 +2776,7 @@
       "active_identifiers": [
         "agent_code_file_edit_proposal.v1",
         "agent_code_file_edit_source.v1",
+        "authorized-native-git.v2",
         "file-operation-proposal.v1",
         "file_edit_apply_operation.v1",
         "file_edit_apply_request.v1",

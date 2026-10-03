@@ -15,7 +15,7 @@ import (
 func createV167ScheduledRun(t *testing.T, state *SQLiteStore) domain.Run {
 	t.Helper()
 	ctx := context.Background()
-	_, created, err := application.NewRunService(state).Create(ctx,
+	_, created, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "v167 observation consent", Profile: "code",
 			Surface: "code", Phase: "plan", Budget: domain.Budget{MaxTurns: 8},
 			RequestedBy: "operator"})

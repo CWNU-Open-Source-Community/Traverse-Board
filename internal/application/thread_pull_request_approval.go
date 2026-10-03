@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
@@ -26,8 +25,8 @@ func recheckThreadPullRequestApproval(ctx context.Context, base ApprovalControlS
 	if err != nil {
 		return err
 	}
-	var p ThreadPullRequestPreview
-	if !found || json.Unmarshal([]byte(row.SpecJSON), &p) != nil || p.Version != ThreadPullRequestVersion || !p.DraftOnly || p.OperationID != row.ID || p.RunID != row.RunID || p.WorkspaceID != row.WorkspaceID || p.Draft.Validate() != nil || row.Operation != gitmutation.RemoteCreatePR || row.StartedAt != nil || row.CompletedAt != nil || p.ApprovalFingerprint != row.RequestFingerprint || threadPRFingerprint(p) != row.RequestFingerprint || a.RunID != p.RunID || a.SessionID != p.SessionID || a.WorkspaceID != p.SourceWorkspaceID || a.ActionClass != "github_pull_request_create" || a.Mode != "per_call" || a.RequestFingerprint != p.ApprovalFingerprint {
+	p, authorityFingerprint, decodeErr := decodeThreadPRIntent(row.SpecJSON)
+	if !found || decodeErr != nil || p.Version != ThreadPullRequestVersion || !p.DraftOnly || p.OperationID != row.ID || p.RunID != row.RunID || p.WorkspaceID != row.WorkspaceID || p.Draft.Validate() != nil || row.Operation != gitmutation.RemoteCreatePR || row.StartedAt != nil || row.CompletedAt != nil || p.ApprovalFingerprint != row.RequestFingerprint || threadPRFingerprint(p, authorityFingerprint) != row.RequestFingerprint || !threadPRApprovalMatches(p, a) {
 		return apperror.New(apperror.CodeFailedPrecondition, "draft approval source changed or is no longer pending")
 	}
 	t, err := st.GetThreadByRun(ctx, p.RunID)
