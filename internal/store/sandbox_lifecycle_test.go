@@ -95,7 +95,7 @@ func TestSandboxExecutionLeaseFencesTakeoverAndLifecycleRowsAreImmutable(t *test
 func TestSchemaV49UpgradeAddsDisabledSandboxLifecycleWithoutLosingCandidate(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v49.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	service := application.NewSandboxManifestService(st, policy.NewDefaultChecker())
 	prepared, err := service.Prepare(ctx, application.PrepareSandboxManifestRequest{
 		RunID: run.ID, Manifest: sandboxStoreTestManifest(),

@@ -410,7 +410,7 @@ func TestSandboxExecutionCandidateConcurrentReplayAndImmutability(t *testing.T) 
 func TestSchemaV48UpgradeAddsSandboxExecutionCandidates(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v48.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	prepared, err := application.NewSandboxManifestService(st, policy.NewDefaultChecker()).Prepare(ctx,
 		application.PrepareSandboxManifestRequest{
 			RunID: run.ID, Manifest: sandboxStoreTestManifest(),

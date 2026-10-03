@@ -312,7 +312,7 @@ func TestDockerProductionEvidenceHarnessPersistsGETOnlyEvidenceAndRemainsImmutab
 func TestSchemaV67PreservesInFlightV66AttemptWithoutFabricatingHarness(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v66.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-v67-upgrade")
 	attempt := newDockerProductionEvidenceAttemptStoreFixture(t, review,
@@ -390,7 +390,7 @@ func TestDockerProductionEvidenceAttemptExpiredLeaseCanOnlyBeTakenOverByNextGene
 func TestSchemaV65PreservesReviewWithoutFabricatingProductionEvidence(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v64.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-upgrade")
 	for _, statement := range removeSchemaV65ForTestStatements() {
@@ -426,7 +426,7 @@ func TestSchemaV65PreservesReviewWithoutFabricatingProductionEvidence(t *testing
 func TestSchemaV66PreservesLegacyEvidenceWithoutFabricatingAttempt(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v65.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-legacy")
 	for _, statement := range removeSchemaV66ForTestStatements() {

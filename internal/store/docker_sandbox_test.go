@@ -540,7 +540,7 @@ func TestDockerSandboxCancellationIsAppendOnlyAndRestartIdempotent(t *testing.T)
 func TestSchemaV99DoesNotBackfillDockerProductAuthority(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "schema-v98-docker-product.db")
-	st, _, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, _, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	for _, statement := range removeSchemaV99ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("remove schema v99 with %q: %v", statement, err)

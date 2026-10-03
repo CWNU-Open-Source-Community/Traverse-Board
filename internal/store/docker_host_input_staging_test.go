@@ -280,7 +280,7 @@ func TestDockerHostInputStagingConcurrentReplayConvergesAcrossStores(t *testing.
 func TestSchemaV57UpgradePreservesV56AttemptWithoutFabricatingEvidence(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "docker-host-input-v56.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, path, 177)
 	attempt, _, _, _, _ := newStagedDockerHostInputAttempt(t, ctx, st, run.ID, root,
 		"docker-host-input-upgrade")
 	for _, statement := range removeSchemaV57ForTestStatements() {

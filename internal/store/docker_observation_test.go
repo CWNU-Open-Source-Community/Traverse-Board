@@ -209,57 +209,74 @@ func TestDockerObservationConcurrentReplayConvergesAcrossStores(t *testing.T) {
 }
 
 func TestDockerObservationLimitAndSchemaV52Upgrade(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "v52.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
-	evidence, simulation := createDockerObservationAuthorityFixture(t, ctx, st, run.ID,
-		"observation-limit")
-	for index := 0; index < sandbox.MaxDockerObservationsPerSimulation; index++ {
-		observation, operation := newDockerObservationStoreRecord(t, ctx, evidence, simulation,
-			"observation-limit-"+string(rune('a'+index)))
-		if _, _, err := st.CreateDockerObservation(ctx, observation, operation); err != nil {
-			t.Fatalf("create Docker observation %d: %v", index+1, err)
+	for _, historical := range []bool{false, true} {
+		name := "current"
+		if historical {
+			name = "historical_upgrade"
 		}
-	}
-	overflow, operation := newDockerObservationStoreRecord(t, ctx, evidence, simulation,
-		"observation-limit-overflow")
-	if _, _, err := st.CreateDockerObservation(ctx, overflow, operation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
-		t.Fatalf("Docker observation limit error=%v code=%s", err, apperror.CodeOf(err))
-	}
-	tx, err := st.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := insertDockerObservationTx(ctx, tx, overflow); err == nil ||
-		!strings.Contains(err.Error(), "authority binding is invalid") {
-		_ = tx.Rollback()
-		t.Fatalf("SQLite observation limit was bypassed: %v", err)
-	}
-	_ = tx.Rollback()
+		t.Run(name, func(t *testing.T) {
+			var historicalVersion []int
+			if historical {
+				historicalVersion = []int{177}
+			}
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "v52.db")
+			st, run, _ := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			t.Cleanup(func() { _ = st.Close() })
+			evidence, simulation := createDockerObservationAuthorityFixture(t, ctx, st, run.ID,
+				"observation-limit")
+			for index := 0; index < sandbox.MaxDockerObservationsPerSimulation; index++ {
+				observation, operation := newDockerObservationStoreRecord(t, ctx, evidence, simulation,
+					"observation-limit-"+string(rune('a'+index)))
+				if _, _, err := st.CreateDockerObservation(ctx, observation, operation); err != nil {
+					t.Fatalf("create Docker observation %d: %v", index+1, err)
+				}
+			}
+			overflow, operation := newDockerObservationStoreRecord(t, ctx, evidence, simulation,
+				"observation-limit-overflow")
+			if _, _, err := st.CreateDockerObservation(ctx, overflow, operation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+				t.Fatalf("Docker observation limit error=%v code=%s", err, apperror.CodeOf(err))
+			}
+			tx, err := st.db.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := insertDockerObservationTx(ctx, tx, overflow); err == nil ||
+				!strings.Contains(err.Error(), "authority binding is invalid") {
+				_ = tx.Rollback()
+				t.Fatalf("SQLite observation limit was bypassed: %v", err)
+			}
+			_ = tx.Rollback()
 
-	for _, statement := range removeSchemaV53ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v52 with %q: %v", statement, err)
-		}
-	}
-	if err := st.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
-		t.Fatalf("schema v52 did not upgrade to v53: version=%d err=%v", version, err)
-	}
-	loadedEvidence, err := st.GetSandboxBackendEvidence(ctx, evidence.ID)
-	if err != nil || loadedEvidence.ID != evidence.ID {
-		t.Fatalf("schema v52 evidence was not preserved: %#v err=%v", loadedEvidence, err)
-	}
-	loadedSimulation, err := st.GetSandboxOutputSimulation(ctx, simulation.ID)
-	if err != nil || loadedSimulation.ID != simulation.ID {
-		t.Fatalf("schema v52 simulation was not preserved: %#v err=%v", loadedSimulation, err)
+			if !historical {
+				return
+			}
+
+			for _, statement := range removeSchemaV53ForTestStatements() {
+				if _, err := st.db.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("simulate schema v52 with %q: %v", statement, err)
+				}
+			}
+			if err := st.Close(); err != nil {
+				t.Fatal(err)
+			}
+			st, err = Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+				t.Fatalf("schema v52 did not upgrade to v53: version=%d err=%v", version, err)
+			}
+			loadedEvidence, err := st.GetSandboxBackendEvidence(ctx, evidence.ID)
+			if err != nil || loadedEvidence.ID != evidence.ID {
+				t.Fatalf("schema v52 evidence was not preserved: %#v err=%v", loadedEvidence, err)
+			}
+			loadedSimulation, err := st.GetSandboxOutputSimulation(ctx, simulation.ID)
+			if err != nil || loadedSimulation.ID != simulation.ID {
+				t.Fatalf("schema v52 simulation was not preserved: %#v err=%v", loadedSimulation, err)
+			}
+		})
 	}
 }
 

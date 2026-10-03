@@ -192,47 +192,64 @@ func TestDockerContainerRehearsalConcurrentReplayConvergesAcrossStores(t *testin
 }
 
 func TestDockerContainerRehearsalLimitAndSchemaV54Upgrade(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "docker-rehearsal-v54.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, path)
-	_, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
-		run.ID, root, "docker-rehearsal-limit")
-	plan, planOperation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
-		"docker-rehearsal-limit-plan")
-	if _, _, err := st.CreateDockerContainerPlan(ctx, plan, planOperation); err != nil {
-		t.Fatal(err)
-	}
-	first, firstOperation := newDockerContainerRehearsalStoreRecord(t, ctx, root, plan,
-		observation, manifest, "docker-rehearsal-first")
-	if _, _, err := st.CreateDockerContainerRehearsal(ctx, first, firstOperation); err != nil {
-		t.Fatal(err)
-	}
-	second, secondOperation := newDockerContainerRehearsalStoreRecord(t, ctx, root, plan,
-		observation, manifest, "docker-rehearsal-second")
-	if _, _, err := st.CreateDockerContainerRehearsal(ctx, second,
-		secondOperation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
-		t.Fatalf("Docker rehearsal per-plan limit error=%v code=%s", err, apperror.CodeOf(err))
-	}
-
-	for _, statement := range removeSchemaV55ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v54 with %q: %v", statement, err)
+	for _, historical := range []bool{false, true} {
+		name := "current"
+		if historical {
+			name = "historical_upgrade"
 		}
-	}
-	if err := st.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
-		t.Fatalf("schema v54 did not upgrade to v55: version=%d err=%v", version, err)
-	}
-	loaded, err := st.GetDockerContainerPlan(ctx, plan.ID)
-	if err != nil || loaded.ID != plan.ID {
-		t.Fatalf("schema v54 plan was not preserved: %#v err=%v", loaded, err)
+		t.Run(name, func(t *testing.T) {
+			var historicalVersion []int
+			if historical {
+				historicalVersion = []int{177}
+			}
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "docker-rehearsal-v54.db")
+			st, run, root := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			t.Cleanup(func() { _ = st.Close() })
+			_, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
+				run.ID, root, "docker-rehearsal-limit")
+			plan, planOperation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
+				"docker-rehearsal-limit-plan")
+			if _, _, err := st.CreateDockerContainerPlan(ctx, plan, planOperation); err != nil {
+				t.Fatal(err)
+			}
+			first, firstOperation := newDockerContainerRehearsalStoreRecord(t, ctx, root, plan,
+				observation, manifest, "docker-rehearsal-first")
+			if _, _, err := st.CreateDockerContainerRehearsal(ctx, first, firstOperation); err != nil {
+				t.Fatal(err)
+			}
+			second, secondOperation := newDockerContainerRehearsalStoreRecord(t, ctx, root, plan,
+				observation, manifest, "docker-rehearsal-second")
+			if _, _, err := st.CreateDockerContainerRehearsal(ctx, second,
+				secondOperation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+				t.Fatalf("Docker rehearsal per-plan limit error=%v code=%s", err, apperror.CodeOf(err))
+			}
+
+			if !historical {
+				return
+			}
+
+			for _, statement := range removeSchemaV55ForTestStatements() {
+				if _, err := st.db.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("simulate schema v54 with %q: %v", statement, err)
+				}
+			}
+			if err := st.Close(); err != nil {
+				t.Fatal(err)
+			}
+			st, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+				t.Fatalf("schema v54 did not upgrade to v55: version=%d err=%v", version, err)
+			}
+			loaded, err := st.GetDockerContainerPlan(ctx, plan.ID)
+			if err != nil || loaded.ID != plan.ID {
+				t.Fatalf("schema v54 plan was not preserved: %#v err=%v", loaded, err)
+			}
+		})
 	}
 }
 
