@@ -223,7 +223,7 @@ func TestSpecialistContextRejectsMalformedInstructionProtocol(t *testing.T) {
 
 func TestSchemaV27PreservesSpecialistRuntimeAndAddsContextLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v26.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

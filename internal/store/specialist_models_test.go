@@ -531,7 +531,7 @@ func TestSpecialistModelSQLiteTriggersRejectSkippedAndStaleTerminalWrites(t *tes
 
 func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v25.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 
 func TestSchemaV28PreservesV27SpecialistModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v27.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

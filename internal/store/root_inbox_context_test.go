@@ -431,7 +431,7 @@ func TestRootInboxContextRejectsUnbackedResultAtStoreAndSQLiteBoundaries(t *test
 
 func TestSchemaV25PreservesV24CoordinatorState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v24.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
