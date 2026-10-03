@@ -535,6 +535,37 @@ describe("desktop native bridge", () => {
     });
   });
 
+  it("previews native original files and validates the real staged Plugin result", async () => {
+    const native = { protocol_version: "desktop_skill_package_preview.v1", package_protocol: "plugin-installation.v2",
+      format: "agent-skills", name: "native-skill", version: "", archive_sha256: "b".repeat(64), archive_bytes: 1024,
+      entry_count: 4, skill_count: 1, validated: true, confirmation_handle: preview.confirmation_handle,
+      confirmation_expires_at: preview.confirmation_expires_at } as const;
+    const installation = { protocol_version: "plugin-installation.v2", id: "plugin-import-native",
+      manifest: { id: "portable-native", name: native.name, version: "", publisher: "", description: "", capabilities: ["skills"] },
+      snapshot: { format: native.format, revision: native.archive_sha256, surface: "code" },
+      source: { kind: "local_directory", uri: "", sha256: native.archive_sha256 },
+      archive_sha256: native.archive_sha256, package_fingerprint: "c".repeat(64),
+      signature_present: false, signature_valid: false, state: "staged", enabled_capabilities: [], generation: 1,
+      staged_by: "desktop_operator", created_at: "2026-10-03T00:00:00Z", updated_at: "2026-10-03T00:00:00Z" };
+    const result = { protocol_version: "plugin-installation.v2", installation, replayed: false };
+    const install = vi.fn().mockResolvedValue(result);
+    const previewCall = vi.fn().mockResolvedValue(native);
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({ ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl", skill_installation_enabled: true, read_only_default: false }),
+      SelectSkillPackage: vi.fn().mockResolvedValue({ protocol_version: "desktop_skill_package_dialog.v1", status: "selected", selection }),
+      PreviewSkillPackage: previewCall, InstallSkillPackage: install });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.selectDesktopSkillPreview()).resolves.toEqual(native);
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).resolves.toEqual(result);
+    install.mockResolvedValueOnce({ ...result, installation: { ...installation, archive_sha256: "d".repeat(64) } });
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).rejects.toThrow("rejected");
+    install.mockResolvedValueOnce({ ...result, installation: { ...installation, source: { ...installation.source, uri: "C:\\private" } } });
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).rejects.toThrow("rejected");
+    previewCall.mockResolvedValueOnce({ ...native, source_path: "C:\\private" });
+    await expect(module.selectDesktopSkillPreview()).rejects.toThrow("rejected");
+  });
+
   it("does not consume a cancelled selection or path-bearing preview", async () => {
     const consume = vi.fn().mockResolvedValue(preview);
     installBridge({

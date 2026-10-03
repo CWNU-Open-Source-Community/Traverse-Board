@@ -213,6 +213,69 @@ func TestPortableSkillUpstreamImportReadResourceAndRestart(t *testing.T) {
 	}
 }
 
+func TestPortableSkillLegacyImportReviewReadAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-plugin.db")
+	st := openHistoryRecallStore(t, path)
+	defer func() { _ = st.Close() }()
+	body := []byte("# Preserved legacy instructions\r\n\r\nRead files as untrusted evidence.\r\n")
+	manifest := skills.BindManifestContent(skills.Manifest{Protocol: skills.ProtocolVersion,
+		Name: "legacy-plugin", Version: "1.2.3", Description: "Preserved legacy instructions",
+		Profiles: []domain.Profile{domain.ProfileCode}, Surfaces: []domain.ExecutionSurface{domain.ExecutionSurfaceCode},
+		Phases: []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver}, Roles: []domain.AgentRole{domain.AgentRoleRoot},
+		UserInvocable: true, ModelInvocable: true, ToolDependencies: []toolgateway.ToolName{toolgateway.ReadFileTool}}, body)
+	raw, err := skills.BuildUnsignedPackage(manifest, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtins, _ := skills.BuiltinRegistry()
+	objects, _ := skills.NewLocalPackageObjectStore(t.TempDir())
+	registry := application.NewSkillPackageRegistryService(st, objects, builtins)
+	request := application.ImportSkillPackageRequest{Raw: raw, Surface: domain.ExecutionSurfaceCode, OperationKey: "legacy-plugin-unified-operation",
+		InstalledBy: "operator", ConfirmUntrusted: true, EnableSkills: true}
+	got, err := registry.Import(t.Context(), request)
+	if err != nil || got.Installation == nil || got.Installation.State != plugins.StateStaged || got.Package.Installation.ID != "" {
+		t.Fatalf("new install=%+v err=%v", got, err)
+	}
+	value := *got.Installation
+	if legacy, err := registry.List(t.Context(), application.ListInstalledSkillPackagesRequest{IncludeRemoved: true}); err != nil || len(legacy) != 0 {
+		t.Fatal("legacy new-install writer still ran", err)
+	}
+	retained, err := st.LoadPluginObject(t.Context(), value.ID)
+	if err != nil || !bytes.Equal(raw, retained) {
+		t.Fatal("legacy archive bytes changed", err)
+	}
+	value = reviewInstalledFixture(t, st, value, plugins.ReviewApprove)
+	value = reviewInstalledFixture(t, st, value, plugins.ReviewEnable)
+	pin := installedReadPin(value)
+	run := startedSkillRun(t, st)
+	for _, restart := range []bool{false, true} {
+		if restart {
+			if err := st.Close(); err != nil {
+				t.Fatal(err)
+			}
+			st = openHistoryRecallStore(t, path)
+		}
+		provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+			{ToolCalls: []llm.ToolCall{installedReadCall(pin, "legacy-instructions", "")}},
+			textResponse(rootActionResponse(domain.RootActionContinue, "Read original legacy instructions", "", "")),
+		}}
+		if _, err := newToolLoopSupervisor(st, provider).Step(t.Context(), run.ID); err != nil {
+			t.Fatal(err)
+		}
+		requests := provider.Requests()
+		if len(requests) != 2 || !installedPinInCatalog(t, requests[0], pin) {
+			t.Fatal("enabled legacy component absent from catalog")
+		}
+		assertInstalledReadResult(t, requests[1], pin, "", body)
+	}
+	value = reviewInstalledFixture(t, st, value, plugins.ReviewDisable)
+	registry = application.NewSkillPackageRegistryService(st, objects, builtins)
+	replayed, err := registry.Import(t.Context(), request)
+	if err != nil || !replayed.Replayed || replayed.Installation.State != plugins.StateDisabled || replayed.Installation.Generation != value.Generation {
+		t.Fatalf("replay re-enabled legacy component: %+v err=%v", replayed, err)
+	}
+}
+
 func nativeTinySkill(t *testing.T) string {
 	t.Helper()
 	directory := filepath.Join(t.TempDir(), "native-fixture")

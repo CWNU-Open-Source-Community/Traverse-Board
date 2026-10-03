@@ -26,6 +26,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/runner"
@@ -1958,7 +1959,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: SkillPackageInstallPath, Method: http.MethodPost,
 			OperationID: "installSkillPackage", Summary: "Install one inert Skill package",
 			Tag:         "Control",
-			Description: "Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.",
+			Description: "Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.",
 			DataType:    reflect.TypeOf(SkillPackageInstallView{}),
 			RequestType: reflect.TypeOf(SkillPackageInstallRequestView{}), Control: true,
 			Parameters: []openAPIParameter{
@@ -2121,6 +2122,9 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 		dataSchema := registry.ref(spec.DataType)
 		if spec.Path == SessionSteeringPromotionPathTemplate {
 			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(SessionSteeringPromotionRejectionView{}))}}
+		}
+		if spec.OperationID == "installSkillPackage" {
+			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(PluginSkillInstallView{}))}}
 		}
 		if spec.Collection {
 			dataSchema = map[string]any{"type": "array", "items": dataSchema}
@@ -2346,6 +2350,12 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 		return r.schema(valueType)
 	}
 	name := valueType.Name()
+	if strings.HasSuffix(valueType.PkgPath(), "/toolcontract") {
+		name = "ToolContract" + name
+	}
+	if valueType == reflect.TypeOf(skills.Manifest{}) {
+		name = "SkillPackageManifest"
+	}
 	if valueType == reflect.TypeOf(repository.Change{}) {
 		name = "RepositoryChange"
 	}
@@ -3237,7 +3247,8 @@ var openAPIFieldEnums = map[string][]string{
 	"AgentCodeToolCapabilityView.class":                        {string(toolgateway.ClassWorkspaceRead), string(toolgateway.ClassWorkspaceWrite)},
 	"AgentCodeToolCapabilityView.source":                       {toolgateway.AgentCodeRegistryVersion},
 	"AgentCodeToolCapabilityView.approval":                     {"automatic", "proposal_then_operator_review", "approved_proposal_only"},
-	"SkillPackageInstallRequestView.version":                   {skills.PackageInstallationProtocolVersion},
+	"SkillPackageInstallRequestView.version":                   {skills.PackageInstallationProtocolVersion, plugins.PortableInstallationProtocol},
+	"PluginSkillInstallView.protocol_version":                  {plugins.PortableInstallationProtocol},
 	"SkillPackageInstallRequestView.surface":                   {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
 	"SkillPackageInstallView.protocol_version":                 {skills.PackageInstallationProtocolVersion},
 	"SkillPackageInstallView.surface":                          {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
@@ -3945,7 +3956,7 @@ var openAPIFieldMaxLengths = map[string]int{
 	"FileEditProposalRequestView.proposed_text":                  fileedit.MaxContentBytes,
 	"MessageView.source_ref":                                     session.MaxContextSourceRefRunes,
 	"MessageView.content_sha256":                                 64,
-	"SkillPackageInstallRequestView.archive_base64":              base64.StdEncoding.EncodedLen(skills.MaxPackageArchiveBytes),
+	"SkillPackageInstallRequestView.archive_base64":              base64.StdEncoding.EncodedLen(plugins.MaxArchiveBytes),
 	"WorkspaceExplorerView.path":                                 workspace.MaxExplorerPathRunes,
 	"WorkspaceExplorerProvenanceView.source_ref":                 workspace.MaxExplorerPathRunes,
 	"WorkspaceExplorerProvenanceView.content_sha256":             64,

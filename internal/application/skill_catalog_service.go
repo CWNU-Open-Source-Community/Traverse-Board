@@ -34,8 +34,8 @@ type SkillCatalogStore interface {
 }
 
 // SkillCatalogService owns legacy publisher/version pins and source import
-// routing. Legacy archives retain their Registry codec and ledger; native
-// directories use the existing plugin object/install/review lifecycle.
+// routing. All new imports use Plugin installation and review. Legacy archives
+// retain their strict codec; only already recorded intents use legacy recovery.
 type SkillCatalogService struct {
 	store      SkillCatalogStore
 	registry   *SkillPackageRegistryService
@@ -308,20 +308,28 @@ func (s *SkillCatalogService) importRaw(ctx context.Context, raw []byte, sourceK
 	if parsed.V2 != nil {
 		publisherFingerprint = parsed.V2.PublisherFingerprint
 	}
-	// The signature envelope is verified then stripped: the installation stores
-	// the canonical unsigned form, while the ledger retains the signed archive
-	// digest, pin, and publisher fingerprint as provenance.
-	installBytes, err := skills.UnsignedForm(raw)
-	if err != nil {
-		return ImportSkillFromSourceResult{}, apperror.Wrap(
-			apperror.CodeInvalidArgument, "Skill package signature envelope is invalid", err)
+	pluginSource := plugins.InstallSource{Kind: sourceKind, URI: source}
+	switch sourceKind {
+	case "url":
+		pluginSource.Kind = "https"
+	case "local":
+		pluginSource.Kind = "local_directory"
+		pluginSource.URI, err = filepath.Abs(source)
+		if err != nil {
+			return ImportSkillFromSourceResult{}, err
+		}
+	case "git":
+		pluginSource.Commit = pin
 	}
 	result, err := s.registry.Import(ctx, ImportSkillPackageRequest{
-		Raw: installBytes, Surface: surface, OperationKey: operationKey, InstalledBy: installedBy,
+		Raw: raw, Source: pluginSource, Surface: surface, OperationKey: operationKey, InstalledBy: installedBy,
 		ConfirmUntrusted: confirmUntrusted,
 	})
 	if err != nil {
 		return ImportSkillFromSourceResult{}, err
+	}
+	if result.Installation != nil {
+		return ImportSkillFromSourceResult{Portable: result.Installation, Signed: parsed.V2 != nil}, nil
 	}
 	ledger := skills.CatalogImport{
 		ID: idgen.New("skill-import"), SourceKind: sourceKind, Source: source, Pin: pin,

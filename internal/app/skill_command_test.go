@@ -11,10 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/plugins"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -182,7 +187,7 @@ func TestSkillPackageValidateCLIRejectsUnsafePathsAndUnknownOperations(t *testin
 	}
 }
 
-func TestSkillPackageRegistryCLIImportsListsShowsAndTombstonesWithoutExecutingContent(t *testing.T) {
+func TestSkillPackageRegistryCLILegacyRecoveryListsShowsAndTombstonesWithoutExecutingContent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CYBERAGENT_HOME", home)
 	sentinel := filepath.Join(home, "must-not-be-created-by-import")
@@ -204,8 +209,9 @@ func TestSkillPackageRegistryCLIImportsListsShowsAndTombstonesWithoutExecutingCo
 		ContentTokenUpperBound: skills.ContentTokenUpperBound(content),
 	}
 	packagePath := filepath.Join(t.TempDir(), "external-review-cli.zip")
-	writeTestSkillPackage(t, packagePath, manifest, content)
+	raw := writeTestSkillPackage(t, packagePath, manifest, content)
 	operationKey := "skill-package-cli-import-0001"
+	seedLegacyCLIIntent(t, home, raw, operationKey)
 
 	if _, stderr, code := executeTestCommand(t, "skill", "import", packagePath,
 		"--surface", "code", "--operation-key", operationKey); code != 4 ||
@@ -224,7 +230,7 @@ func TestSkillPackageRegistryCLIImportsListsShowsAndTombstonesWithoutExecutingCo
 		!strings.Contains(output, "context_injection_authorized: false") ||
 		!strings.Contains(output, "tool_capability_grant: false") ||
 		!strings.Contains(output, "content_body_exposed: false") ||
-		!strings.Contains(output, "replayed: false") {
+		!strings.Contains(output, "replayed: true") {
 		t.Fatalf("import output: code=%d stderr=%q output=%q", code, stderr, output)
 	}
 	for _, forbidden := range []string{manifest.Description, sentinel, packagePath, operationKey, string(content)} {
@@ -361,4 +367,73 @@ func writeTestSkillPackage(t *testing.T, name string, manifest skills.Manifest, 
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func seedLegacyCLIIntent(t *testing.T, home string, raw []byte, operationKey string) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(home, "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	parsed, err := skills.ParsePackage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := runmutation.Fingerprint("skill_package_install_operation.v1", operationKey)
+	value, err := skills.NewPackageInstallation(idgen.New("historical-cli-install"), parsed, domain.ExecutionSurfaceCode, key, "cli_operator", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyskill.Seed(t, filepath.Join(home, "cyberagent.db"), value)
+}
+
+func TestSkillPackageCLIStagesOnlyARealPluginInstallation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
+	body := []byte("# Original CLI instructions\n")
+	manifest := skills.BindManifestContent(skills.Manifest{Protocol: skills.ProtocolVersion, Name: "new-cli-skill", Version: "1.0.0",
+		Description: "Review before activation", Profiles: []domain.Profile{domain.ProfileCode},
+		ToolDependencies: []toolgateway.ToolName{toolgateway.ReadFileTool}}, body)
+	path := filepath.Join(t.TempDir(), "new-skill.zip")
+	writeTestSkillPackage(t, path, manifest, body)
+	var first plugins.Installation
+	for index := 0; index < 2; index++ {
+		output, stderr, code := executeTestCommand(t, "skill", "import", path, "--surface", "code", "--operation-key", "new-cli-plugin-operation", "--confirm-untrusted-skill")
+		if code != 0 || stderr != "" {
+			t.Fatalf("new CLI import code=%d stderr=%s", code, stderr)
+		}
+		var result struct {
+			Installation plugins.Installation `json:"installation"`
+			Replayed     bool                 `json:"replayed"`
+		}
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Installation.ProtocolVersion != plugins.PortableInstallationProtocol || result.Installation.State != plugins.StateStaged ||
+			len(result.Installation.EnabledCapabilities) != 0 || result.Replayed != (index == 1) {
+			t.Fatalf("unexpected Plugin result %+v", result)
+		}
+		if index == 0 {
+			first = result.Installation
+		} else if result.Installation.ID != first.ID {
+			t.Fatal("CLI replay changed installation")
+		}
+		if strings.Contains(output, "object_key") || strings.Contains(output, "operation_receipt.v1") || strings.Contains(output, string(body)) {
+			t.Fatal("CLI emitted fake legacy receipt or original content")
+		}
+	}
+	st, err := store.Open(filepath.Join(home, "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	old, err := st.ListInstalledPackages(t.Context(), "", "", true)
+	if err != nil || len(old) != 0 {
+		t.Fatal("CLI dual-wrote legacy installs", err)
+	}
+	installed, err := st.GetPluginInstallation(t.Context(), first.ID)
+	if err != nil || installed.PackageFingerprint != first.PackageFingerprint {
+		t.Fatal("CLI result was not persisted", err)
+	}
 }

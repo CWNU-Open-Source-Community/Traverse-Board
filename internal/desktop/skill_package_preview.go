@@ -5,14 +5,20 @@ package desktop
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const (
@@ -38,6 +44,8 @@ type SkillPackageSelection struct {
 // descriptions, content paths, bodies, and source paths are excluded because
 // they are untrusted input rather than UI authority.
 type SkillPackagePreview struct {
+	snapshot               *plugins.PortableSnapshot
+	source                 plugins.InstallSource
 	ProtocolVersion        string    `json:"protocol_version"`
 	PackageProtocol        string    `json:"package_protocol"`
 	SkillProtocol          string    `json:"skill_protocol"`
@@ -71,6 +79,29 @@ type SkillPackagePreview struct {
 	Validated              bool      `json:"validated"`
 	ConfirmationHandle     string    `json:"confirmation_handle"`
 	ConfirmationExpiresAt  time.Time `json:"confirmation_expires_at"`
+}
+
+func (value SkillPackagePreview) MarshalJSON() ([]byte, error) {
+	if value.snapshot != nil {
+		return json.Marshal(struct {
+			ProtocolVersion       string    `json:"protocol_version"`
+			PackageProtocol       string    `json:"package_protocol"`
+			Format                string    `json:"format"`
+			Name                  string    `json:"name"`
+			Version               string    `json:"version"`
+			ArchiveSHA256         string    `json:"archive_sha256"`
+			ArchiveBytes          int       `json:"archive_bytes"`
+			EntryCount            int       `json:"entry_count"`
+			SkillCount            int       `json:"skill_count"`
+			Validated             bool      `json:"validated"`
+			ConfirmationHandle    string    `json:"confirmation_handle"`
+			ConfirmationExpiresAt time.Time `json:"confirmation_expires_at"`
+		}{value.ProtocolVersion, value.PackageProtocol, value.snapshot.Format, value.Name, value.Version,
+			value.ArchiveSHA256, value.ArchiveBytes, value.EntryCount, len(value.snapshot.Skills), value.Validated,
+			value.ConfirmationHandle, value.ConfirmationExpiresAt})
+	}
+	type legacy SkillPackagePreview
+	return json.Marshal(legacy(value))
 }
 
 // NativeSkillPackageSelector is held only by the future Go native-shell
@@ -123,6 +154,23 @@ func newSkillPackagePreviewBoundary(now func() time.Time, random io.Reader, ttl 
 	selector := func(ctx context.Context, path string) (SkillPackageSelection, error) {
 		if err := ctx.Err(); err != nil {
 			return SkillPackageSelection{}, apperror.Normalize(err)
+		}
+		if filepath.Base(path) == "SKILL.md" || filepath.Base(path) == "plugin.json" {
+			directory, err := filepath.Abs(filepath.Dir(path))
+			if err != nil {
+				return SkillPackageSelection{}, apperror.New(apperror.CodeInvalidArgument, "selected package directory is invalid")
+			}
+			sum := sha256.Sum256([]byte("local_directory\x00" + directory))
+			pkg, err := plugins.CapturePortableDirectory(ctx, directory, "portable-"+hex.EncodeToString(sum[:]), toolcontract.SourceRef{URI: directory}, "")
+			if err != nil {
+				return SkillPackageSelection{}, apperror.New(apperror.CodeInvalidArgument, "selected package directory could not be captured")
+			}
+			raw := pkg.Archive()
+			preview := SkillPackagePreview{ProtocolVersion: SkillPackagePreviewProtocolVersion, PackageProtocol: plugins.PortableInstallationProtocol,
+				Name: pkg.Snapshot.Name, Version: pkg.Snapshot.AuthorVersion, ArchiveSHA256: pkg.Snapshot.Revision,
+				ArchiveBytes: len(raw), EntryCount: len(pkg.Snapshot.Inventory), Validated: true,
+				snapshot: &pkg.Snapshot, source: plugins.InstallSource{Kind: "local_directory", URI: directory}}
+			return broker.issue(ctx, preview, raw)
 		}
 		raw, err := skills.ReadPackageFile(ctx, path)
 		if err != nil {

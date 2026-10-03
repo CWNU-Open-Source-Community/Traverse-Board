@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"slices"
 	"strings"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/plugins"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 func portableIdentity(value string) string {
@@ -27,38 +27,17 @@ func (s *SkillCatalogService) importPortableDirectory(ctx context.Context, direc
 	if !surface.Valid() || operationKey == "" || len(operationKey) > 512 || actor == "" {
 		return ImportSkillFromSourceResult{}, apperror.New(apperror.CodeInvalidArgument, "portable import requires surface, actor and a bounded operation key")
 	}
-	store, ok := s.store.(plugins.Store)
-	if !ok {
-		return ImportSkillFromSourceResult{}, apperror.New(apperror.CodeFailedPrecondition, "the existing plugin installation store is unavailable")
-	}
-	service, err := plugins.NewService(store)
+	packageID := "portable-" + portableIdentity(source.Kind+"\x00"+source.URI)
+	pkg, err := plugins.CapturePortableDirectory(ctx, directory, packageID,
+		toolcontract.SourceRef{URI: source.URI, Revision: source.Commit}, "")
 	if err != nil {
 		return ImportSkillFromSourceResult{}, err
 	}
-	source.Surface = string(surface)
-	source.OperationKeyDigest = portableIdentity("skill-directory-import\x00" + actor + "\x00" + operationKey)
-	packageID := "portable-" + portableIdentity(source.Kind+"\x00"+source.URI)
-	installed, _, err := service.StageDirectory(ctx, directory, packageID, source, "", actor, "")
+	result, err := s.registry.Import(ctx, ImportSkillPackageRequest{Raw: pkg.Archive(), Snapshot: &pkg.Snapshot,
+		Source: source, EnableSkills: true, Surface: surface, OperationKey: operationKey,
+		InstalledBy: actor, ConfirmUntrusted: confirmed})
 	if err != nil {
-		return ImportSkillFromSourceResult{}, apperror.Normalize(err)
+		return ImportSkillFromSourceResult{}, err
 	}
-	// The caller confirmed instruction installation, not script/MCP execution.
-	// Resume an interrupted staged/approved import; never renew a disabled,
-	// revoked, quarantined or rolled-back installation by importing it again.
-	for _, action := range []plugins.ReviewAction{plugins.ReviewApprove, plugins.ReviewEnable} {
-		if (action == plugins.ReviewApprove && installed.State != plugins.StateStaged) ||
-			(action == plugins.ReviewEnable && installed.State != plugins.StateApproved) {
-			continue
-		}
-		if !slices.Contains(installed.Capabilities(), plugins.CapabilitySkills) {
-			break
-		}
-		installed, err = service.Review(ctx, installed.ID, plugins.ReviewRequest{Action: action,
-			ExpectedPackageFingerprint: installed.PackageFingerprint, ExpectedGeneration: installed.Generation,
-			Capabilities: []plugins.Capability{plugins.CapabilitySkills}, ConfirmUntrusted: true, ReviewedBy: actor})
-		if err != nil {
-			return ImportSkillFromSourceResult{}, err
-		}
-	}
-	return ImportSkillFromSourceResult{Portable: &installed}, nil
+	return ImportSkillFromSourceResult{Portable: result.Installation}, nil
 }

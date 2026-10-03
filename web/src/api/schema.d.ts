@@ -3551,7 +3551,7 @@ export interface paths {
         put?: never;
         /**
          * Install one inert Skill package
-         * @description Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.
+         * @description Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.
          */
         post: operations["installSkillPackage"];
         delete?: never;
@@ -8610,6 +8610,29 @@ export interface components {
             capture_stdout: boolean;
             paths?: string[];
         };
+        PackagePreview: {
+            /** Format: int32 */
+            ArchiveBytes: number;
+            ArchiveSHA256: string;
+            /** Format: int32 */
+            EntryCount: number;
+            /** Format: int32 */
+            ExecutableAssetCount: number;
+            ImportCommandExecution: boolean;
+            ImportNetworkAccess: boolean;
+            ImportProviderCalls: boolean;
+            /** Format: int32 */
+            InstallHookCount: number;
+            InstallationAuthorized: boolean;
+            Manifest: components["schemas"]["SkillPackageManifest"];
+            PackageFingerprint: string;
+            ProtocolVersion: string;
+            RiskCodes: string[];
+            ToolCapabilityGrant: boolean;
+            TrustClass: string;
+            /** Format: int32 */
+            UncompressedBytes: number;
+        };
         Page: {
             /** Format: int32 */
             limit: number;
@@ -8799,6 +8822,27 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "plan_delivery_control.v1";
+        };
+        PluginSkillInstallView: {
+            installation: components["schemas"]["ExtensionPluginInstallationView"];
+            /** @enum {string} */
+            protocol_version: "plugin-installation.v2";
+            replayed: boolean;
+        };
+        PortableSnapshot: {
+            author_version?: string;
+            diagnostics?: components["schemas"]["ToolContractDiagnostic"][];
+            format: string;
+            inventory: components["schemas"]["SnapshotEntry"][];
+            legacy?: components["schemas"]["PackagePreview"];
+            manifest: components["schemas"]["ToolContractContentRef"];
+            name: string;
+            package_id: string;
+            protocol_version: string;
+            revision: string;
+            root_name: string;
+            skills: components["schemas"]["SnapshotSkill"][];
+            source: components["schemas"]["ToolContractSourceRef"];
         };
         Preview: {
             changes: components["schemas"]["Change"][];
@@ -10648,10 +10692,11 @@ export interface components {
         SkillPackageInstallRequestView: {
             archive_base64: string;
             confirm_untrusted: boolean;
+            snapshot?: components["schemas"]["PortableSnapshot"];
             /** @enum {string} */
             surface: "code" | "cyber";
             /** @enum {string} */
-            version: "skill_package_installation.v1";
+            version: "skill_package_installation.v1" | "plugin-installation.v2";
         };
         SkillPackageInstallView: {
             archive_sha256: string;
@@ -10681,12 +10726,42 @@ export interface components {
             user_invocable: boolean;
             version: string;
         };
+        SkillPackageManifest: {
+            /** Format: int32 */
+            content_bytes: number;
+            content_path: string;
+            content_sha256: string;
+            /** Format: int32 */
+            content_token_upper_bound: number;
+            description: string;
+            explicit_only?: boolean;
+            model_invocable?: boolean;
+            name: string;
+            phases?: string[];
+            profiles: string[];
+            protocol: string;
+            publisher?: string;
+            roles?: string[];
+            surfaces?: string[];
+            tool_dependencies: string[];
+            user_invocable?: boolean;
+            version: string;
+        };
         Snapshot: {
             /** Format: int64 */
             Generation: number;
             ProtocolVersion: string;
             Providers: components["schemas"]["ProviderAvailability"][];
             Routes: components["schemas"]["RouteAvailability"][];
+        };
+        SnapshotEntry: {
+            /** Format: int32 */
+            bytes: number;
+            kind: string;
+            /** Format: int64 */
+            mode: number;
+            path: string;
+            sha256?: string;
         };
         SnapshotPresentation: {
             citeable: boolean;
@@ -10708,6 +10783,11 @@ export interface components {
             truncated: boolean;
             untrusted: boolean;
             url: string;
+        };
+        SnapshotSkill: {
+            description: string;
+            instructions: components["schemas"]["ToolContractContentRef"];
+            name: string;
         };
         SourcePresentation: {
             citeable: boolean;
@@ -12074,6 +12154,26 @@ export interface components {
             untrusted: boolean;
             url: string;
             version: string;
+        };
+        ToolContractComponentRef: {
+            ComponentID: string;
+            PackageID: string;
+        };
+        ToolContractContentRef: {
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Path: string;
+            SHA256: string;
+        };
+        ToolContractDiagnostic: {
+            Code: string;
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Message: string;
+            Severity: string;
+        };
+        ToolContractSourceRef: {
+            Revision: string;
+            SHA256: string;
+            URI: string;
         };
         ToolUsageView: {
             /** Format: int64 */
@@ -21663,7 +21763,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["SkillPackageInstallView"];
+                        data: components["schemas"]["SkillPackageInstallView"] | components["schemas"]["PluginSkillInstallView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

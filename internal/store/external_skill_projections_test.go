@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 )
 
 func TestExternalSkillProjectionIsBoundedReadOnlyAndMetadataOnly(t *testing.T) {
@@ -147,10 +148,10 @@ func createExternalSkillProjectionFixture(t *testing.T, path string) (*SQLiteSto
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation, operation, result := fixturePackageInstallation(t,
+	installation, _, result := fixturePackageInstallation(t,
 		"projection-review", "1.0.0", "projection-install-operation",
 		time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		_ = st.Close()
 		t.Fatal(err)
 	}

@@ -224,7 +224,7 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 		result.MCPCalls = append(result.MCPCalls, extensionMCPCallAuditView(call))
 	}
 	for _, installation := range value.Plugins {
-		result.Plugins = append(result.Plugins, extensionPluginInstallationView(installation))
+		result.Plugins = append(result.Plugins, ProjectPluginInstallation(installation))
 	}
 	return result, nil, nil
 }
@@ -317,7 +317,7 @@ func (a *API) serveExtensionMutation(writer http.ResponseWriter, request *http.R
 			a.writeError(writer, requestID, err, 0)
 			return
 		}
-		a.writeSuccessStatus(writer, requestID, extensionPluginInstallationView(value), nil,
+		a.writeSuccessStatus(writer, requestID, ProjectPluginInstallation(value), nil,
 			http.StatusAccepted)
 	}
 }
@@ -383,7 +383,8 @@ func extensionMCPCallAuditView(value mcp.CallAudit) ExtensionMCPCallAuditView {
 		CompletedAt: value.CompletedAt.UTC().Format(time.RFC3339Nano)}
 }
 
-func extensionPluginInstallationView(value plugins.Installation) ExtensionPluginInstallationView {
+// ProjectPluginInstallation exposes persisted installation metadata without package content.
+func ProjectPluginInstallation(value plugins.Installation) ExtensionPluginInstallationView {
 	capabilities := make([]string, 0, len(value.Capabilities()))
 	for _, capability := range value.Capabilities() {
 		capabilities = append(capabilities, string(capability))

@@ -10,7 +10,7 @@ import (
 
 	"cyberagent-workbench/internal/agentpackages"
 	"cyberagent-workbench/internal/apperror"
-	"cyberagent-workbench/internal/toolcontract"
+	"cyberagent-workbench/internal/domain"
 )
 
 func (i Installation) PackageID() string {
@@ -69,24 +69,31 @@ func (i Installation) validateDescription() error {
 			i.Snapshot.Source.URI != i.Source.URI || i.Snapshot.Source.Revision != i.Source.Commit {
 			return errors.New("portable installation description is invalid")
 		}
+		if i.Snapshot.Legacy != nil {
+			return i.Snapshot.Legacy.Manifest.ValidateInstallationSurface(domain.ExecutionSurface(i.Source.Surface))
+		}
 		return nil
 	default:
 		return errors.New("plugin installation version is unsupported")
 	}
 }
 
-// StageDirectory uses the existing installation, review and object retention
-// lifecycle. Acquisition grants no capability; callers explicitly review and
-// enable the selected contribution through Service.Review.
-func (s *Service) StageDirectory(ctx context.Context, directory, packageID string,
+// StageSnapshot admits an acquired package through the Plugin installation
+// lifecycle. All descriptions are re-derived from its bytes;
+// the caller's snapshot is neither a capability nor trusted parsing evidence.
+func (s *Service) StageSnapshot(ctx context.Context, snapshot PortableSnapshot, raw []byte,
 	source InstallSource, supersedes, actor, scratchRoot string,
 ) (Installation, bool, error) {
 	if !validText(actor, 256, false) || !validDigest(source.OperationKeyDigest) || (source.Surface != "code" && source.Surface != "cyber") {
 		return Installation{}, false, apperror.New(apperror.CodeInvalidArgument, "portable staging needs an actor and selected surface")
 	}
-	pkg, err := CapturePortableDirectory(ctx, directory, packageID,
-		toolcontract.SourceRef{URI: source.URI, Revision: source.Commit}, scratchRoot)
+	raw = slices.Clone(raw)
+	reader, err := OpenPortableSnapshot(ctx, snapshot, raw, scratchRoot)
 	if err != nil {
+		return Installation{}, false, apperror.Wrap(apperror.CodeInvalidArgument, "acquired Plugin snapshot failed validation", err)
+	}
+	pkg := PortablePackage{Snapshot: reader.snapshot, raw: raw}
+	if err := reader.Close(); err != nil {
 		return Installation{}, false, err
 	}
 	source.SHA256 = pkg.Snapshot.Revision
@@ -98,7 +105,7 @@ func (s *Service) StageDirectory(ctx context.Context, directory, packageID strin
 		CreatedAt: s.now().UTC()}
 	value.UpdatedAt = value.CreatedAt
 	if err := value.Validate(); err != nil {
-		return Installation{}, false, err
+		return Installation{}, false, apperror.Wrap(apperror.CodeInvalidArgument, "Plugin installation failed validation", err)
 	}
 	return s.store.CreatePluginInstallation(ctx, value, pkg.raw)
 }

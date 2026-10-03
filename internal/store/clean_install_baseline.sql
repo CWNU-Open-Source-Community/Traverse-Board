@@ -11011,6 +11011,40 @@ CREATE TABLE skill_candidate_imports (
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE skill_candidate_plugin_imports (
+		id TEXT PRIMARY KEY,
+		protocol_version TEXT NOT NULL,
+		operation_key_digest TEXT NOT NULL UNIQUE,
+		request_fingerprint TEXT NOT NULL,
+		candidate_id TEXT NOT NULL UNIQUE,
+		candidate_fingerprint TEXT NOT NULL,
+		review_fingerprint TEXT NOT NULL UNIQUE,
+		installation_id TEXT NOT NULL UNIQUE,
+		installation_fingerprint TEXT NOT NULL UNIQUE,
+		imported_by TEXT NOT NULL,
+		import_fingerprint TEXT NOT NULL UNIQUE,
+		installation_generation INTEGER NOT NULL CHECK(installation_generation >= 1),
+		package_fingerprint TEXT NOT NULL CHECK(length(package_fingerprint) = 64 AND package_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		archive_sha256 TEXT NOT NULL CHECK(length(archive_sha256) = 64 AND archive_sha256 NOT GLOB '*[^0-9a-f]*'),
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(candidate_id) REFERENCES skill_candidates(id) ON DELETE RESTRICT,
+		FOREIGN KEY(installation_id) REFERENCES plugin_installations(id) ON DELETE RESTRICT,
+		CHECK(protocol_version = 'skill_candidate_import.v2'),
+		CHECK(length(operation_key_digest) = 64 AND operation_key_digest NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(request_fingerprint) = 64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(candidate_fingerprint) = 64
+			AND candidate_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(review_fingerprint) = 64 AND review_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(installation_fingerprint) = 64
+			AND installation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(import_fingerprint) = 64 AND import_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(imported_by = trim(imported_by) AND length(imported_by) BETWEEN 1 AND 256
+			AND length(CAST(imported_by AS BLOB)) <= 256 AND instr(imported_by, char(0)) = 0
+			AND lower(imported_by) NOT IN ('agent', 'llm', 'model', 'repository', 'repo',
+				'skill', 'supervisor', 'run_supervisor')),
+		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256)
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE skill_candidate_reviews (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
@@ -13235,6 +13269,19 @@ CREATE VIEW run_file_drydock_bindings AS
   SELECT b.run_id,r.mission_id,r.session_id,d.source_workspace_id,d.workspace_id,d.id AS drydock_id,b.thread_id
   FROM thread_drydock_bindings b JOIN runs r ON r.id=b.run_id JOIN drydock_workspaces d ON d.id=b.drydock_id;
 -- traverse-board-clean-install-object-boundary --
+CREATE VIEW skill_candidate_all_imports AS
+		SELECT id, protocol_version, operation_key_digest, request_fingerprint,
+			candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
+			installation_fingerprint, imported_by, import_fingerprint, created_at,
+			0 AS installation_generation, '' AS package_fingerprint, '' AS archive_sha256
+		FROM skill_candidate_imports
+		UNION ALL
+		SELECT id, protocol_version, operation_key_digest, request_fingerprint,
+			candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
+			installation_fingerprint, imported_by, import_fingerprint, created_at,
+			installation_generation, package_fingerprint, archive_sha256
+		FROM skill_candidate_plugin_imports;
+-- traverse-board-clean-install-object-boundary --
 CREATE VIEW thread_plan_completed_sources AS
  SELECT source.*, checkpoint.run_id AS origin_run_id,
    checkpoint.work_item_id AS origin_work_item_id, checkpoint.handoff_note_id,
@@ -14216,6 +14263,53 @@ CREATE TRIGGER skill_candidate_insert_guard
 			SELECT RAISE(ABORT, 'Skill candidate Run capacity exceeded')
 			WHERE (SELECT COUNT(*) FROM skill_candidates WHERE run_id = NEW.run_id) >= 4;
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_legacy_import_no_plugin_duplicate
+		BEFORE INSERT ON skill_candidate_imports
+		BEGIN
+			SELECT RAISE(ABORT, 'candidate already has a Plugin import receipt')
+			WHERE EXISTS (SELECT 1 FROM skill_candidate_plugin_imports portable
+				WHERE portable.candidate_id = NEW.candidate_id OR portable.operation_key_digest = NEW.operation_key_digest);
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_import_insert_guard
+		BEFORE INSERT ON skill_candidate_plugin_imports
+		BEGIN
+			SELECT RAISE(ABORT, 'candidate already has a legacy import receipt')
+			WHERE EXISTS (SELECT 1 FROM skill_candidate_imports legacy
+				WHERE legacy.candidate_id = NEW.candidate_id OR legacy.operation_key_digest = NEW.operation_key_digest);
+			SELECT RAISE(ABORT, 'candidate Plugin import binding is invalid')
+			WHERE NOT EXISTS (
+				SELECT 1 FROM skill_candidates candidate
+				JOIN skill_candidate_reviews review ON review.candidate_id = candidate.id
+				JOIN plugin_installations installation ON installation.id = NEW.installation_id
+				JOIN plugin_objects object ON object.archive_sha256 = installation.archive_sha256
+					AND object.package_fingerprint = installation.package_fingerprint
+				WHERE candidate.id = NEW.candidate_id
+					AND candidate.candidate_fingerprint = NEW.candidate_fingerprint
+					AND review.candidate_fingerprint = NEW.candidate_fingerprint
+					AND review.review_fingerprint = NEW.review_fingerprint
+					AND review.decision = 'approve' AND review.created_at <= NEW.created_at
+					AND installation.protocol_version = 'plugin-installation.v2'
+					AND installation.staged_by = NEW.imported_by
+					AND installation.generation = NEW.installation_generation
+					AND installation.package_fingerprint = NEW.package_fingerprint
+					AND installation.archive_sha256 = NEW.archive_sha256
+					AND installation.archive_sha256 = candidate.archive_sha256
+					AND json_extract(installation.source_json, '$.kind') = 'catalog'
+					AND json_extract(installation.source_json, '$.uri') = candidate.id
+					AND json_extract(installation.source_json, '$.surface') = 'code'
+					AND json_extract(installation.manifest_json, '$.format') = 'traverse-skill'
+					AND json_extract(installation.manifest_json, '$.legacy.PackageFingerprint') = candidate.package_fingerprint
+					AND json_extract(installation.manifest_json, '$.legacy.ArchiveSHA256') = candidate.archive_sha256
+					AND installation.created_at <= NEW.created_at);
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_imports_no_delete BEFORE DELETE ON skill_candidate_plugin_imports
+		BEGIN SELECT RAISE(ABORT, 'Skill candidate Plugin imports are immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_imports_no_update BEFORE UPDATE ON skill_candidate_plugin_imports
+		BEGIN SELECT RAISE(ABORT, 'Skill candidate Plugin imports are immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER skill_candidate_review_insert_guard
 		BEFORE INSERT ON skill_candidate_reviews
