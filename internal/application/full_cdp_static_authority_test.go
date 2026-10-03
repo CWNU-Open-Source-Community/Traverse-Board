@@ -6,10 +6,24 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+func TestFullCDPCurrentFullNeverUsesLegacyStaticActivation(t *testing.T) {
+	for _, legacyDynamicGrant := range []bool{false, true} {
+		service, store, launches, _ := newFullCDPProductionServiceFixture(t)
+		service.executionCapabilities.FullAccessRequiresRuntimeGrant = legacyDynamicGrant
+		service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+		t.Cleanup(func() { _ = service.Close(context.Background()) })
+		_, err := service.OpenFullCDPSession(t.Context(), fullCDPOpenFixture(service, store, "current-full-without-activation"))
+		if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || *launches != 0 {
+			t.Fatalf("current Full borrowed static activation: legacy_dynamic=%t launches=%d err=%v", legacyDynamicGrant, *launches, err)
+		}
+	}
+}
 
 func TestFullCDPBrowserToolsHonorStaticAuthorityAndRejectRevokedDynamicGrant(t *testing.T) {
 	for _, mode := range []string{"static_debug", "static_full", "dynamic_full"} {
@@ -27,6 +41,14 @@ func TestFullCDPBrowserToolsHonorStaticAuthorityAndRejectRevokedDynamicGrant(t *
 				service.executionCapabilities.DebugMaximumAccessEnabled = true
 				service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 			} else if mode == "static_full" {
+				// Static Full Access is a retained legacy capability. The current
+				// Full preference always requires its exact runtime activation.
+				permission, err := baseStore.executionPermission.Next("execution-static-full",
+					domain.RunExecutionPermissionFullAccess, true, "runtime-operator", "retained static Full Access", baseStore.executionPermission.CreatedAt.Add(time.Millisecond))
+				if err != nil {
+					t.Fatal(err)
+				}
+				baseStore.executionPermission = permission
 				service.executionCapabilities.FullAccessRequiresRuntimeGrant = false
 				service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 			}
