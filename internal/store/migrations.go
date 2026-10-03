@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 180
+const LatestSchemaVersion = 181
 
 type migration struct {
 	Version            int

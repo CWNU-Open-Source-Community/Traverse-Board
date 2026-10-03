@@ -49,6 +49,18 @@ func (transport *standardCodeDockerLifecycleTransport) Cleanup(ctx context.Conte
 }
 
 func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
+	// Retain every original Docker Command Runtime v1/replay/stdin assertion.
+	// This explicit retained fixture is compatibility evidence, not v2 authority.
+	standardCodeDockerCheckpointForApprovalMode(t, domain.RunExecutionPermissionWorkspaceAccess)
+}
+
+func TestStandardCodeDockerApprovalPreferencesCheckpointAndRecovery(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) { standardCodeDockerCheckpointForApprovalMode(t, mode) })
+	}
+}
+
+func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunExecutionPermissionMode) {
 	fixture := newDrydockApplicationFixture(t, "standard code docker product")
 	workspace := mustCreateDrydock(t, fixture)
 	ctx := context.Background()
@@ -63,15 +75,21 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
-	if _, err := NewRunExecutionPermissionService(fixture.state,
-		permissionCapabilities).Change(ctx, ChangeRunExecutionPermissionRequest{
-		RunID: fixture.run.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
-		OperationKey: "standard-code-permission-0001", RequestedBy: requestedBy,
-		Reason:                 "exercise the fixed Standard Code Docker backend",
-		ConfirmWorkspaceAccess: true,
-	}); err != nil {
-		t.Fatal(err)
+	if !mode.IsApprovalMode() {
+		seedRetainedNativePermission(t, fixture.databasePath, fixture.state, fixture.run.ID, mode)
+	} else if mode != domain.RunExecutionPermissionAsk {
+		if _, err := NewRunExecutionPermissionService(fixture.state,
+			permissionCapabilities).Change(ctx, ChangeRunExecutionPermissionRequest{
+			RunID: fixture.run.ID, Mode: string(mode),
+			OperationKey: "standard-code-permission-0001", RequestedBy: requestedBy,
+			Reason:      "exercise the fixed Standard Code Docker backend",
+			ConfirmFull: mode == domain.RunExecutionPermissionFull,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
 	}
 
 	imageDigest := "sha256:" + strings.Repeat("7", 64)
@@ -277,6 +295,12 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		len(replay) != 0 || baseLifecycle.starts != 2 {
 		t.Fatalf("restart recovery was not idempotent: replay=%+v err=%v lifecycle=%+v",
 			replay, err, baseLifecycle)
+	}
+	if mode.IsApprovalMode() {
+		// All new-mode native Docker approval/checkpoint/recovery assertions
+		// above have run. The remaining historical direct-command calls carry
+		// no v2 Supervisor authority and belong only to the retained-v1 test.
+		return
 	}
 
 	goExecutable, err := exec.LookPath("go")
