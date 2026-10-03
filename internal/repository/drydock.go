@@ -105,19 +105,19 @@ func (e *DrydockExecutor) InspectSource(ctx context.Context, workspaceID,
 	if err := e.requireDisjointSourceRoot(canonical); err != nil {
 		return DrydockSourceObservation{}, err
 	}
-	binding, err := e.advanced.CaptureAdvancedBinding(ctx, canonical)
+	// Sequence inspection already captures a full fresh repository binding.
+	// Reuse that same observation instead of launching a second identical Git
+	// scan; nothing is cached across source inspections or execution fences.
+	sequence, err := e.advanced.InspectAdvancedSequence(ctx, canonical)
 	if err != nil {
 		return DrydockSourceObservation{}, err
 	}
+	binding := sequence.Binding
 	if err := e.requireDisjointGitCommonDir(ctx, canonical); err != nil {
 		return DrydockSourceObservation{}, err
 	}
 	if binding.Detached || binding.Branch == "" || binding.Head == "unborn" {
 		return DrydockSourceObservation{}, errors.New("Drydock source requires an attached branch and exact base commit")
-	}
-	sequence, err := e.advanced.InspectAdvancedSequence(ctx, canonical)
-	if err != nil {
-		return DrydockSourceObservation{}, err
 	}
 	if sequence.Active || sequence.Conflict.Active {
 		return DrydockSourceObservation{}, errors.New("Drydock source has an active Git sequence or unresolved conflict")

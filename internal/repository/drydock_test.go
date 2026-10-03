@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/workspaceidentity"
 )
 
@@ -253,4 +254,65 @@ func TestCleanupDrydockReviewTemporaryRemovesOnlyExpectedOwnedEntries(t *testing
 			t.Fatalf("replacement identity was changed or removed: content=%q err=%v", content, err)
 		}
 	})
+}
+
+func TestDrydockSourceInspectionUsesOneFreshBinding(t *testing.T) {
+	root := t.TempDir()
+	runDrydockDeliveryGit(t, root, "init", "-q", "-b", "main")
+	runDrydockDeliveryGit(t, root, "config", "user.email", "inspection@example.invalid")
+	runDrydockDeliveryGit(t, root, "config", "user.name", "Inspection Test")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runDrydockDeliveryGit(t, root, "add", ".")
+	runDrydockDeliveryGit(t, root, "commit", "-q", "-m", "baseline")
+	executor, err := NewDrydockExecutor(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	captures := 0
+	executor.advanced.commandContext = func(ctx context.Context, program string, args ...string) *exec.Cmd {
+		for _, arg := range args {
+			if arg == "--is-bare-repository" {
+				captures++
+			}
+		}
+		return exec.CommandContext(ctx, program, args...)
+	}
+	first, err := executor.InspectSource(t.Context(), "inspection-workspace", root)
+	if err != nil || captures != 1 {
+		t.Fatalf("source inspection repeated a complete Git binding capture: captures=%d err=%v", captures, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := executor.InspectSource(t.Context(), "inspection-workspace", root)
+	if err != nil || captures != 2 || second.State.WorktreeSHA256 == first.State.WorktreeSHA256 {
+		t.Fatalf("later source inspection reused earlier state: captures=%d err=%v", captures, err)
+	}
+	plan, err := executor.PlanCreate(t.Context(), root, "fresh-lookup", "codex/fresh-lookup", second.Binding.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executor.ExecuteCreate(t.Context(), root, plan); err != nil {
+		t.Fatal(err)
+	}
+	// Inspect consumes only this source Binding field as a lookup coordinate.
+	// It must return a newly captured target Binding and compare the full digest,
+	// including the suffix not used to construct the owned directory name.
+	lookup := gitadvanced.RepositoryBinding{CommonDirSHA256: second.Identity.CommonDirSHA256}
+	observed, err := executor.Inspect(t.Context(), root, lookup, plan.Name)
+	if err != nil || !observed.Present || observed.Path != plan.Path ||
+		observed.Binding.CommonDirSHA256 != second.Identity.CommonDirSHA256 || observed.Binding.Head == "" {
+		t.Fatalf("minimal lookup lost fresh target identity: %+v err=%v", observed, err)
+	}
+	changed := byte('0')
+	if lookup.CommonDirSHA256[16] == changed {
+		changed = '1'
+	}
+	lookup.CommonDirSHA256 = lookup.CommonDirSHA256[:16] + string(changed) + lookup.CommonDirSHA256[17:]
+	if _, err := executor.Inspect(t.Context(), root, lookup, plan.Name); err == nil ||
+		!strings.Contains(err.Error(), "common repository identity changed") {
+		t.Fatalf("same directory prefix was accepted as full common-directory authority: %v", err)
+	}
 }
