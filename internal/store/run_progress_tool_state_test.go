@@ -394,8 +394,8 @@ func newProgressToolFixture(t *testing.T) *progressToolFixture {
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(f.st, capabilities).Change(t.Context(),
-		application.ChangeRunExecutionPermissionRequest{RunID: created.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "progress-full-access-0001", RequestedBy: "operator", Reason: "test actual file effects", ConfirmDangerFullAccess: true})
+		application.ChangeRunExecutionPermissionRequest{RunID: created.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "progress-full-access-0001", RequestedBy: "operator", Reason: "test actual file effects", ConfirmFull: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,11 +423,15 @@ func newProgressToolFixture(t *testing.T) *progressToolFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fence, err := runtimeAuthority.IssueRunAuthorizationFence(f.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	capabilityContext := toolgateway.AgentCodeCapabilityContext{RunID: f.run.ID, MissionID: mission.ID,
 		RootAgentID: agent.ID, WorkspaceID: workspaceRecord.ID, RootFingerprint: rootHash,
 		Surface: mode.Surface, Phase: mode.Phase, Role: agent.Role, Profile: agent.Profile,
 		PermissionMode: selected.Permission.Mode, PermissionSnapshotID: selected.Permission.ID,
-		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(),
+		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence,
 		ModeRevision: mode.Revision, PermissionRevision: selected.Permission.Revision}
 	authority, err := toolgateway.NewAgentCodeCallAuthority(capabilityContext, f.run.SessionID)
 	if err != nil {
@@ -442,7 +446,7 @@ func newProgressToolFixture(t *testing.T) *progressToolFixture {
 		WorkspaceID: workspaceRecord.ID, WorkspaceRoot: f.root, RootFingerprint: rootHash,
 		Surface: mode.Surface, Phase: mode.Phase, Role: agent.Role, Profile: agent.Profile,
 		PermissionMode: selected.Permission.Mode, PermissionSnapshotID: selected.Permission.ID,
-		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(),
+		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence,
 		ModeRevision: mode.Revision, PermissionRevision: selected.Permission.Revision,
 		CapabilityGeneration: authority.CapabilityGeneration, LeaseID: f.lease.LeaseID, LeaseGeneration: f.lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "low", Reason: "test allowed"}}
