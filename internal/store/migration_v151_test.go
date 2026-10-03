@@ -90,6 +90,10 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	const legacyResult = `{"legacy_receipt":"v150-completed"}`
+	if inserted, err := state.RecordSupervisorToolExecutionStarted(ctx, checkpoint,
+		callID); err != nil || !inserted {
+		t.Fatalf("record completed legacy start inserted=%t err=%v", inserted, err)
+	}
 	if _, replayed, err := state.RecordSupervisorToolResult(ctx, checkpoint,
 		domain.SupervisorToolResult{CallID: callID, Status: domain.SupervisorToolCompleted,
 			ResultJSON: legacyResult, CompletedAt: time.Now().UTC()}); err != nil || replayed {
