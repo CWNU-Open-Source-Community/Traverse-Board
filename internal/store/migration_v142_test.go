@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 )
@@ -74,16 +73,7 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 	}
 	assertNoForeignKeyViolations(t, state.db)
 
-	permission, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
-		}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: intent.RunID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "migration-v142-debug-permission-0001",
-		RequestedBy:  "test_operator", Reason: "prove Debug inherits stateless host execution",
-		ConfirmDebugAccess: true,
-	})
+	permission, err := seedHistoricalHostPermission(ctx, state, intent.RunID, domain.RunExecutionPermissionDebug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +90,7 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 		RunID:              intent.RunID, MissionID: intent.MissionID,
 		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
 		Interaction: interaction, Profile: profile,
-		Permission: permission.Permission, Spec: intent.Spec,
+		Permission: permission, Spec: intent.Spec,
 		RequestedBy: "test_operator", CreatedAt: startedAt.Add(time.Second),
 	})
 	if err != nil {

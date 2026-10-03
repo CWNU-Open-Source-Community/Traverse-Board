@@ -207,7 +207,7 @@ func hostExecutionStoreIntent(
 	if err := st.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	mission, runRecord, err := application.NewRunService(st).Create(ctx,
+	mission, runRecord, err := newMigrationFixtureRunService(t, st).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "audit one non-sandboxed host command", Profile: "code",
 			WorkspaceID: workspace.ID,
@@ -235,17 +235,30 @@ func hostExecutionStoreIntent(
 	if err != nil {
 		t.Fatal(err)
 	}
-	permission, err := application.NewRunExecutionPermissionService(st,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: runRecord.ID, Mode: "full_access",
-		OperationKey: "host-execution-permission-0001",
-		RequestedBy:  "test_operator", Reason: "test non-sandboxed command",
-		ConfirmDangerFullAccess: true,
-	})
+	version, err := st.SchemaVersion(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var permission domain.RunExecutionPermissionSnapshot
+	if version < 178 {
+		permission, err = seedHistoricalHostPermission(ctx, st, runRecord.ID, domain.RunExecutionPermissionFullAccess)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		selected, err := application.NewRunExecutionPermissionService(st,
+			domain.ExecutionPermissionRuntimeCapabilities{
+				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+				RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+			}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: runRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "host-execution-permission-0001",
+			RequestedBy:  "test_operator", Reason: "test non-sandboxed command", ConfirmFull: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		permission = selected.Permission
 	}
 	environment := []string{
 		"PATH=" + filepath.Join(workspaceRoot, "bin"),
@@ -270,7 +283,7 @@ func hostExecutionStoreIntent(
 			RunID:              runRecord.ID, MissionID: mission.ID,
 			SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
 			Interaction: interaction.Interaction, Profile: profile.Profile,
-			Permission: permission.Permission, Spec: spec,
+			Permission: permission, Spec: spec,
 			RequestedBy: "test_operator",
 			CreatedAt:   time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC),
 		})
