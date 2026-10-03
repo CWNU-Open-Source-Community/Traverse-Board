@@ -19,7 +19,7 @@ func TestFullCDPCurrentFullNeverUsesLegacyStaticActivation(t *testing.T) {
 		service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 		t.Cleanup(func() { _ = service.Close(context.Background()) })
 		_, err := service.OpenFullCDPSession(t.Context(), fullCDPOpenFixture(service, store, "current-full-without-activation"))
-		if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || *launches != 0 {
+		if apperror.CodeOf(err) != apperror.CodePolicyDenied || *launches != 0 {
 			t.Fatalf("current Full borrowed static activation: legacy_dynamic=%t launches=%d err=%v", legacyDynamicGrant, *launches, err)
 		}
 	}
