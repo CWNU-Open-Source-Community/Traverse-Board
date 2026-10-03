@@ -30,7 +30,7 @@ func (t durableOperationPilotTimer) Stop() bool                     { return t.t
 func TestDurableOperationPilotsPreserveLegacyIdentityAcrossMigrationAndRestart(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "durable-operation-pilots-v122.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestDurableOperationPilotsPreserveLegacyIdentityAcrossMigrationAndRestart(t
 		WorkspaceID: workspace.ID, Profile: "code", Surface: "code", Phase: "plan",
 		OperationKey: "run-create-operation-0001", RequestedBy: "http_control",
 	}
-	createdRun, err := application.NewControlledRunCreationService(state).Create(ctx,
+	createdRun, err := application.NewControlledRunCreationService(legacyControlledRunSeedStore{state}).Create(ctx,
 		runRequest)
 	if err != nil || createdRun.Replayed {
 		_ = state.Close()
