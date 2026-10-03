@@ -202,7 +202,7 @@ func TestRecordVerificationEvidenceRechecksActiveSessionInsideTransaction(t *tes
 func TestSchemaV78UpgradePreservesRunWithoutFabricatingVerificationEvidence(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v77.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestSchemaV78UpgradePreservesRunWithoutFabricatingVerificationEvidence(t *t
 		_ = state.Close()
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve Run across v78", Profile: "code",
 			WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 4}})
 	if err != nil {

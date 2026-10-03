@@ -296,7 +296,7 @@ func TestStructuredWorkItemConcurrentReplayConverges(t *testing.T) {
 
 func TestSQLiteUpgradesSchemaV14ToStructuredToolsWithoutLosingNotes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v14.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func openStructuredToolTestStore(t *testing.T) *SQLiteStore {
 
 func createStructuredToolTestRun(t *testing.T, ctx context.Context, st *SQLiteStore, goal string) (domain.Mission, domain.Run) {
 	t.Helper()
-	mission, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	mission, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: goal, Profile: "code", WorkspaceID: "ws-structured",
 		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
 	})

@@ -510,12 +510,12 @@ func TestSQLiteStoreUpgradesLegacyDatabaseWithoutLosingData(t *testing.T) {
 
 func TestSQLiteStoreUpgradesSchemaV8ToLatestWithoutLosingRun(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v8.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve this v8 run", Profile: "code", Budget: domain.Budget{MaxTurns: 4},
 	})
 	if err != nil {
@@ -574,12 +574,12 @@ func TestSQLiteStoreUpgradesSchemaV8ToLatestWithoutLosingRun(t *testing.T) {
 
 func TestSQLiteStoreUpgradesSchemaV9ToNotesWithoutLosingWorkItems(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v9.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	mission, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	mission, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v9 work board", Profile: "code", Budget: domain.Budget{MaxTurns: 4},
 	})
 	if err != nil {

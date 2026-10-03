@@ -230,7 +230,7 @@ func TestSpecialistOperatorScheduleRecoversExpiredStartedAttempt(t *testing.T) {
 
 func TestSchemaV37ApplicationSurvivesOperatorScheduleMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "operator-schedule-v37.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

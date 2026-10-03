@@ -311,7 +311,7 @@ func TestOperatorSteeringConcurrentCancellationConvergesAcrossStores(t *testing.
 
 func TestSQLiteUpgradesV45OperatorSteeringToCancellationControls(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "operator-steering-v45-upgrade.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -222,7 +222,7 @@ func TestRunWakeExpiredFinalGenerationCommitsExhaustionBeforeLeaseEnd(t *testing
 func TestSchemaV74UpgradeDoesNotFabricateWakeIntent(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v73.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

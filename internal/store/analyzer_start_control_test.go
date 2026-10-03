@@ -193,7 +193,7 @@ func TestAnalyzerStartControlCompetingGenerationAndRestartRecovery(t *testing.T)
 func TestAnalyzerStartControlDisabledAndV93Migration(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "analyzer-start-v93.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

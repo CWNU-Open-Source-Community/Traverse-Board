@@ -169,7 +169,7 @@ func TestVerificationSnapshotReceiptIsImmutableIdempotentAndRejectsStaleSnapshot
 func TestSchemaV83UpgradeFabricatesNoSnapshotReceipt(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v82-snapshot-receipt.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestSchemaV83UpgradeFabricatesNoSnapshotReceipt(t *testing.T) {
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve v82 facts", Profile: "code",
 			WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {

@@ -144,7 +144,7 @@ func TestWorkspaceCheckpointStoreSealsContentAndReplaysSemanticIntent(t *testing
 func TestSchemaV117UpgradeAddsWorkspaceCheckpointLedgerWithoutRewritingRuns(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "workspace-checkpoint-v116.db")
-	state, err := Open(databasePath)
+	state, err := openHistoricalMigrationFixture(t, databasePath, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestSchemaV117UpgradeAddsWorkspaceCheckpointLedgerWithoutRewritingRuns(t *t
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, runRecord, err := application.NewRunService(state).Create(ctx,
+	_, runRecord, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve Run across v117 migration",
 			Profile: "code", WorkspaceID: workspace.ID,
 			Budget: domain.Budget{MaxTurns: 2, MaxTokens: 500, MaxToolCalls: 4}})

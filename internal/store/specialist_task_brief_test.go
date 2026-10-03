@@ -289,7 +289,7 @@ func removeSchemaV175ForTestStatements() []string {
 
 func TestSchemaV175UpgradesV174WithoutInventingTaskDelivery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v174.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

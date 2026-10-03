@@ -423,7 +423,7 @@ func TestSpecialistDelegationApplicationPolicyDenialCreatesNoState(t *testing.T)
 
 func TestSchemaV31ReviewSurvivesApplicationMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delegation-application-upgrade.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

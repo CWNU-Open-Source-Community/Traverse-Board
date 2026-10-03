@@ -574,7 +574,7 @@ func TestSupervisorToolBatchStoreRejectsUnknownPayloadFieldsBeforePersistence(t 
 
 func TestSQLiteUpgradesSchemaV15ToSupervisorToolLoopWithoutLosingStructuredNote(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v15.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

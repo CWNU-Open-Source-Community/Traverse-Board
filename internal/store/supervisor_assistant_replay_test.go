@@ -37,7 +37,7 @@ func removeSchemaV176ForTestStatements() []string {
 
 func TestSchemaV176UpgradesV175WithoutInventingAssistantReplay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v175-assistant.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

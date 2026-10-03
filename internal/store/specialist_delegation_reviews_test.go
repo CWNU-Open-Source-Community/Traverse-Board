@@ -213,7 +213,7 @@ func TestSpecialistDelegationReviewEventRequiresExplicitNonAuthorization(t *test
 
 func TestSchemaV30ProposalSurvivesReviewMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delegation-review-upgrade.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

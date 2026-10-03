@@ -215,7 +215,7 @@ func TestReadOnlyFanoutPolicyDenialAndSchemaV32Upgrade(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "readonly-upgrade.db")
-	upgrade, err := Open(path)
+	upgrade, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

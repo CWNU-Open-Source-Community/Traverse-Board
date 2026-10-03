@@ -184,7 +184,7 @@ func browserLaunchStoreFixture(t *testing.T, state *SQLiteStore) (
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "prepare a non-starting browser launch gate", Profile: "code",
 			WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2},
