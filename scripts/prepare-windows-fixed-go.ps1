@@ -1,7 +1,11 @@
 # Only the disposable GitHub runner may prepare this fixture. Product executable
 # discovery stays restricted to Win32 Known Folders (ADR 0076), never PATH.
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^1\.25\.[0-9]+$')]
+    [string]$ExpectedGoVersion
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -10,9 +14,10 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
     throw 'Fixed Go preparation is restricted to GitHub-hosted Windows X64 CI.'
 }
 
-$setupGo = (Get-Command go -CommandType Application).Source
+$setupGo = (Get-Command go -CommandType Application -All | Select-Object -First 1).Source
 $goVersion = (& $setupGo env GOVERSION).Trim()
-if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go1\.25\.[0-9]+$') {
+if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go1\.25\.[0-9]+$' -or
+    $goVersion -cne "go$ExpectedGoVersion") {
     throw 'Expected the Go 1.25 patch selected by this workflow.'
 }
 $programFilesRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)

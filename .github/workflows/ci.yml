@@ -427,6 +427,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up current Go 1.25 patch
+        id: windows-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
@@ -436,7 +437,11 @@ jobs:
         run: go version
       - name: Prepare official Go at the fixed native installation path
         shell: pwsh
-        run: ./scripts/prepare-windows-fixed-go.ps1
+        env:
+          TRAVERSE_CI_GO_VERSION: ${{ steps.windows-go.outputs.go-version }}
+        run: |
+          ./scripts/tests/prepare-windows-fixed-go.tests.ps1
+          ./scripts/prepare-windows-fixed-go.ps1 -ExpectedGoVersion $env:TRAVERSE_CI_GO_VERSION
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
