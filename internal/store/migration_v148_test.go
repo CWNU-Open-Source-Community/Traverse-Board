@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"cyberagent-workbench/internal/application"
@@ -20,27 +21,22 @@ func TestSchemaV148DefersPreparingThreadPermissionAndMaterializesSuccessor(t *te
 	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, threadRecord := preparingThreadPermissionFixture(t, ctx, state)
-	service := application.NewThreadExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
-	request := application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
-		OperationKey: "migration-v148-preparing-before-upgrade-0001",
-		RequestedBy:  "test_operator", Reason: "apply Workspace access to the successor",
-		ConfirmWorkspaceAccess: true,
-	}
-	if _, err := service.Change(ctx, request); err == nil {
+	if _, _, err := seedHistoricalThreadWorkspacePreference(ctx, state, threadRecord.ID,
+		"migration-v148-preparing-before-upgrade-0001", "test_operator",
+		"apply Workspace access to the successor"); err == nil {
 		t.Fatal("v147 unexpectedly accepted a deferred preparing operation")
 	}
 	restoreLegacyInputs()
 	if err := state.applyMigration(ctx, plan[147]); err != nil {
 		t.Fatal(err)
 	}
-	request.OperationKey = "migration-v148-preparing-after-upgrade-0001"
 	before, err := state.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, err := service.Change(ctx, request)
+	preference, selected, err := seedHistoricalThreadWorkspacePreference(ctx, state, threadRecord.ID,
+		"migration-v148-preparing-after-upgrade-0001", "test_operator",
+		"apply Workspace access to the successor")
 	if err != nil || selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred || selected.CurrentRunID != run.ID {
 		t.Fatalf("v148 preparing preference was not deferred: %+v %v", selected, err)
 	}
@@ -56,8 +52,10 @@ func TestSchemaV148DefersPreparingThreadPermissionAndMaterializesSuccessor(t *te
 	if err := state.applyMigrations(ctx, plan); err != nil {
 		t.Fatal(err)
 	}
-	assertPreparingPermissionDeferredAndMaterialized(t, ctx, state, service,
-		run, threadRecord, request)
+	if retained, err := state.GetThreadExecutionPermission(ctx, threadRecord.ID); err != nil || !reflect.DeepEqual(retained, preference) {
+		t.Fatalf("upgrade rewrote the historical Thread preference: %+v err=%v", retained, err)
+	}
+	assertPreparingPermissionMaterialized(t, ctx, state, run, threadRecord, domain.RunExecutionPermissionAsk)
 	assertNoForeignKeyViolations(t, state.db)
 }
 
@@ -86,7 +84,7 @@ func preparingThreadPermissionFixture(t *testing.T, ctx context.Context,
 	state *SQLiteStore,
 ) (domain.Run, domain.Thread) {
 	t.Helper()
-	mission, run, err := application.NewRunService(state).Create(ctx,
+	mission, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "defer permission while preparing",
 			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
@@ -123,6 +121,14 @@ func assertPreparingPermissionDeferredAndMaterialized(t *testing.T, ctx context.
 		t.Fatalf("deferred preference changed preparing Run: before=%+v after=%+v run=%+v errors=%v/%v",
 			before, after, storedRun, err, runErr)
 	}
+	assertPreparingPermissionMaterialized(t, ctx, state, run, threadRecord, domain.RunExecutionPermissionMode(request.Mode))
+}
+
+func assertPreparingPermissionMaterialized(t *testing.T, ctx context.Context,
+	state *SQLiteStore, run domain.Run, threadRecord domain.Thread,
+	expected domain.RunExecutionPermissionMode,
+) {
+	t.Helper()
 	cancelled, err := application.NewRunService(state).Cancel(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +145,8 @@ func assertPreparingPermissionDeferredAndMaterialized(t *testing.T, ctx context.
 	}
 	permission, err := state.GetRunExecutionPermission(ctx, successor.Run.ID)
 	if err != nil || cancelled.Status != domain.RunCancelled || !successor.SuccessorCreated ||
-		permission.Mode.ApprovalPreference() != domain.RunExecutionPermissionMode(request.Mode).ApprovalPreference() {
+		permission.Mode != expected || permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.ProcessEnabled || permission.ExecutionAuthorized || permission.CapabilityGrant {
 		t.Fatalf("successor did not materialize deferred permission: cancelled=%+v successor=%+v permission=%+v err=%v",
 			cancelled, successor, permission, err)
 	}
