@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +13,122 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolbudget"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+type sandboxCandidateCreationBoundary struct {
+	*store.SQLiteStore
+	before   func()
+	calls    int
+	snapshot sandbox.ExecutionCandidate
+}
+
+func (s *sandboxCandidateCreationBoundary) CreateSandboxExecutionCandidate(ctx context.Context,
+	candidate sandbox.ExecutionCandidate, operation sandbox.CandidateOperation,
+) (sandbox.ValidatedExecutionCandidate, bool, error) {
+	s.calls++
+	s.snapshot = candidate
+	s.before()
+	return s.SQLiteStore.CreateSandboxExecutionCandidate(ctx, candidate, operation)
+}
+
+// A normal Supervisor wait may charge the Run after application validation and
+// before candidate creation obtains its transaction lock. The store must still
+// check real current usage and authority without rewriting the captured snapshot.
+func TestSandboxCandidateCreationRechecksTransactionBudgetAndLease(t *testing.T) {
+	for _, change := range []string{"progress", "exhausted", "quiescent", "revoked", "replaced", "cancelled"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := t.Context()
+			st, run, _ := newSandboxManifestTestRuntime(t, ctx)
+			wrapped := &sandboxCandidateCreationBoundary{SQLiteStore: st}
+			service := NewSandboxManifestService(wrapped, policy.NewDefaultChecker())
+			manifest := sandboxManifestTestFixture()
+			prepared, err := service.Prepare(ctx, PrepareSandboxManifestRequest{
+				RunID: run.ID, Manifest: manifest, OperationKey: "creation-budget-prepare", RequestedBy: "budget_operator"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			charge := func() {
+				t.Helper()
+				if _, err := st.ChargeToolCall(ctx, toolbudget.ChargeRequest{
+					RunID: run.ID, SessionID: run.SessionID, WorkspaceID: "ws-sandbox",
+					ToolName: "command_runtime", ActionClass: "process", RequestedBy: "budget_operator",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			charge()
+			var lease domain.RunExecutionLease
+			if change != "quiescent" {
+				acquired, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+					RunID: run.ID, OwnerID: "creation-budget-owner", TTL: time.Minute})
+				if err != nil {
+					t.Fatal(err)
+				}
+				lease = acquired.Lease
+			}
+			expectedUsage := int64(2)
+			wrapped.before = func() {
+				charge()
+				switch change {
+				case "exhausted":
+					charge()
+					charge()
+					expectedUsage = 4
+				case "revoked", "replaced":
+					if _, _, err := st.ReleaseRunExecutionLease(ctx, lease); err != nil {
+						t.Fatal(err)
+					}
+					if change == "replaced" {
+						if _, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+							RunID: run.ID, OwnerID: "creation-replacement-owner", TTL: time.Minute}); err != nil {
+							t.Fatal(err)
+						}
+					}
+				case "cancelled":
+					if _, err := NewRunService(st).Cancel(ctx, run.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			request := ValidateSandboxExecutionCandidateRequest{PreparationID: prepared.Preparation.ID,
+				Manifest: manifest, OperationKey: "creation-budget-candidate", RequestedBy: "budget_operator"}
+			if change == "quiescent" {
+				_, err = service.ValidateExecutionCandidate(ctx, request)
+			} else {
+				_, err = service.validateLeaseBoundExecutionCandidate(ctx, request, lease)
+			}
+			if wrapped.calls != 1 || wrapped.snapshot.ToolCallsUsed != 1 {
+				t.Fatalf("did not reach candidate creation with the captured snapshot: calls=%d snapshot=%+v err=%v", wrapped.calls, wrapped.snapshot, err)
+			}
+			if change == "progress" {
+				if err != nil {
+					t.Fatalf("candidate creation rejected still-budgeted progress: %v", err)
+				}
+			} else if err == nil {
+				t.Fatal("candidate creation accepted invalid current usage or authority")
+			} else if change == "exhausted" && apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+				t.Fatalf("candidate creation did not check current budget: %v", err)
+			} else if (change == "revoked" || change == "replaced") && !strings.Contains(err.Error(), "lease binding is stale") {
+				t.Fatalf("candidate creation did not check the exact active lease: %v", err)
+			}
+			stored, readErr := st.GetSandboxExecutionCandidate(ctx, wrapped.snapshot.ID)
+			if change == "progress" {
+				if readErr != nil || stored.Candidate.ToolCallsUsed != 1 {
+					t.Fatalf("candidate snapshot was not preserved: %+v err=%v", stored, readErr)
+				}
+			} else if !errors.Is(readErr, sql.ErrNoRows) {
+				t.Fatalf("rejected candidate was persisted: %+v err=%v", stored, readErr)
+			}
+			usage, usageErr := st.GetToolCallUsage(ctx, run.ID)
+			if usageErr != nil || usage.Consumed != expectedUsage {
+				t.Fatalf("candidate creation rewrote accounting: %+v err=%v", usage, usageErr)
+			}
+		})
+	}
+}
 
 func TestSandboxBackgroundCandidateKeepsCurrentBudgetAndLease(t *testing.T) {
 	for _, name := range []string{"quiescent usage changed", "live usage advances", "budget exhausted", "lease revoked", "run cancelled"} {

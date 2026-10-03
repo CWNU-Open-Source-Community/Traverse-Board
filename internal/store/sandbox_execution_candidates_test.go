@@ -10,10 +10,210 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/toolbudget"
 )
+
+// Change real durable state after the application revalidation and immediately
+// before the store transaction. A passing application helper cannot satisfy
+// these tests: each transaction must read current usage and the exact live lease.
+type sandboxCandidateTransactionBoundary struct {
+	*SQLiteStore
+	stage  string
+	before func()
+	calls  int
+}
+
+func (s *sandboxCandidateTransactionBoundary) intercept(stage string) {
+	if s.stage == stage {
+		s.calls++
+		s.before()
+	}
+}
+
+func (s *sandboxCandidateTransactionBoundary) CreateSandboxDisabledExecution(ctx context.Context,
+	execution sandbox.DisabledExecution, inputs []sandbox.InputArtifactBinding,
+	operation sandbox.ExecutionOperation, ownerID string, ttl time.Duration,
+) (sandbox.Lifecycle, bool, error) {
+	s.intercept("lifecycle")
+	return s.SQLiteStore.CreateSandboxDisabledExecution(ctx, execution, inputs, operation, ownerID, ttl)
+}
+
+func (s *sandboxCandidateTransactionBoundary) CreateSandboxDisabledPreflight(ctx context.Context,
+	preflight sandbox.DisabledPreflight, operation sandbox.PreflightOperation,
+) (sandbox.DisabledPreflight, bool, error) {
+	s.intercept("preflight")
+	return s.SQLiteStore.CreateSandboxDisabledPreflight(ctx, preflight, operation)
+}
+
+func (s *sandboxCandidateTransactionBoundary) CreateSandboxBackendEvidence(ctx context.Context,
+	evidence sandbox.BackendEvidence, operation sandbox.BackendEvidenceOperation,
+) (sandbox.BackendEvidence, bool, error) {
+	s.intercept("evidence")
+	return s.SQLiteStore.CreateSandboxBackendEvidence(ctx, evidence, operation)
+}
+
+func TestSandboxCandidateTransactionsRecheckCurrentUsageAndLease(t *testing.T) {
+	for _, stage := range []string{"lifecycle", "preflight", "evidence"} {
+		t.Run(stage, func(t *testing.T) {
+			for _, change := range []string{"progress", "exhausted", "rollback", "quiescent", "revoked", "replaced", "cancelled"} {
+				t.Run(change, func(t *testing.T) {
+					ctx := t.Context()
+					st, run, _ := openSandboxManifestStore(t, ctx)
+					wrapped := &sandboxCandidateTransactionBoundary{SQLiteStore: st}
+					service := application.NewSandboxManifestService(wrapped, policy.NewDefaultChecker())
+					manifest := sandboxStoreTestManifest()
+					manifest.Backend = sandbox.BackendDocker
+					charge := func() {
+						t.Helper()
+						if _, err := st.ChargeToolCall(ctx, toolbudget.ChargeRequest{
+							RunID: run.ID, SessionID: run.SessionID, WorkspaceID: "ws-sandbox-store",
+							ToolName: "command_runtime", ActionClass: "process", RequestedBy: "boundary_operator",
+						}); err != nil {
+							t.Fatal(err)
+						}
+					}
+					charge()
+					prepared, err := service.Prepare(ctx, application.PrepareSandboxManifestRequest{
+						RunID: run.ID, Manifest: manifest, OperationKey: "boundary-prepare", RequestedBy: "boundary_operator"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					review, err := service.RequestApproval(ctx, prepared.Preparation.ID, "boundary_operator")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := service.ReviewApproval(ctx, prepared.Preparation.ID, approval.ActionApprove,
+						"boundary-approve", "boundary_operator", ""); err != nil {
+						t.Fatal(err)
+					}
+					validated, err := service.ValidateExecutionCandidate(ctx, application.ValidateSandboxExecutionCandidateRequest{
+						PreparationID: prepared.Preparation.ID, Manifest: manifest, ApprovalID: review.ID,
+						OperationKey: "boundary-candidate", RequestedBy: "boundary_operator"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					candidate := validated.Candidate
+					var lease domain.RunExecutionLease
+					if change != "quiescent" {
+						acquired, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+							RunID: run.ID, OwnerID: "boundary-native-owner", TTL: time.Minute})
+						if err != nil {
+							t.Fatal(err)
+						}
+						lease = acquired.Lease
+						// Construct a separate native candidate through the real store API;
+						// leave the original quiescent candidate and its snapshot immutable.
+						candidate.ID, candidate.ValidatedAt = idgen.New("boundary-native-candidate"), time.Now().UTC()
+						candidate.LeaseQuiescent = false
+						candidate.RunLeaseID, candidate.RunLeaseGeneration, candidate.RunLeaseOwnerID = lease.LeaseID, lease.Generation, lease.OwnerID
+						operation := sandbox.CandidateOperation{KeyDigest: runmutation.Fingerprint("boundary-native", candidate.ID),
+							RequestFingerprint: sandbox.CandidateOperationRequestFingerprint(candidate), CandidateID: candidate.ID,
+							PreparationID: candidate.PreparationID, RunID: run.ID, RequestedBy: candidate.RequestedBy, CreatedAt: candidate.ValidatedAt}
+						stored, _, err := st.CreateSandboxExecutionCandidate(ctx, candidate, operation)
+						if err != nil {
+							t.Fatal(err)
+						}
+						candidate = stored.Candidate
+					}
+					if candidate.ToolCallsUsed != 1 {
+						t.Fatalf("wrong initial candidate usage: %+v", candidate)
+					}
+					expectedUsage := int64(2)
+					wrapped.stage = stage
+					wrapped.before = func() {
+						switch change {
+						case "progress", "quiescent":
+							charge()
+						case "exhausted":
+							for i := int64(1); i < run.Budget.MaxToolCalls; i++ {
+								charge()
+							}
+							expectedUsage = run.Budget.MaxToolCalls
+						case "rollback":
+							// Corrupt only this disposable SQLite projection to prove the
+							// immutable lower-bound snapshot catches a regressed counter.
+							if _, err := st.db.ExecContext(ctx, `UPDATE run_tool_usage SET consumed=0 WHERE run_id=?`, run.ID); err != nil {
+								t.Fatal(err)
+							}
+							expectedUsage = 0
+						case "revoked", "replaced":
+							charge()
+							if _, _, err := st.ReleaseRunExecutionLease(ctx, lease); err != nil {
+								t.Fatal(err)
+							}
+							if change == "replaced" {
+								if _, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+									RunID: run.ID, OwnerID: "replacement-owner", TTL: time.Minute}); err != nil {
+									t.Fatal(err)
+								}
+							}
+						case "cancelled":
+							charge()
+							if _, err := application.NewRunService(st).Cancel(ctx, run.ID); err != nil {
+								t.Fatal(err)
+							}
+						}
+					}
+					lifecycle, err := service.BeginDisabledExecution(ctx, application.BeginSandboxExecutionRequest{
+						CandidateID: candidate.ID, Manifest: manifest, OperationKey: "boundary-begin-operation", RequestedBy: "boundary_operator"})
+					if stage != "lifecycle" {
+						if err != nil {
+							t.Fatal(err)
+						}
+						var preflight sandbox.DisabledPreflight
+						preflight, err = service.PrepareDisabledPreflight(ctx, application.PrepareSandboxPreflightRequest{
+							ExecutionID: lifecycle.Execution.ID, Manifest: manifest, OperationKey: "boundary-preflight-operation", RequestedBy: "boundary_operator"})
+						if stage == "evidence" {
+							if err != nil {
+								t.Fatal(err)
+							}
+							_, err = service.RecordSimulatedBackendEvidence(ctx, application.RecordSandboxBackendEvidenceRequest{
+								PreflightID: preflight.ID, Manifest: manifest, ImageDigest: "sha256:" + strings.Repeat("c", 64),
+								OperationKey: "boundary-evidence-operation", RequestedBy: "boundary_operator"})
+						}
+					}
+					if wrapped.calls != 1 {
+						t.Fatalf("did not reach exactly one real %s store transaction: calls=%d err=%v", stage, wrapped.calls, err)
+					}
+					if change == "progress" {
+						if err != nil {
+							t.Fatalf("transaction rejected still-budgeted live progress: %v", err)
+						}
+					} else if err == nil {
+						t.Fatal("transaction accepted invalid current usage or authority")
+					} else if change == "exhausted" && apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+						t.Fatalf("transaction did not enforce current budget: %v", err)
+					} else if (change == "revoked" || change == "replaced") && !strings.Contains(err.Error(), "lease binding is stale") {
+						t.Fatalf("transaction did not reach exact live lease revalidation: %v", err)
+					}
+					stored, readErr := st.GetSandboxExecutionCandidate(ctx, candidate.ID)
+					usage, usageErr := st.GetToolCallUsage(ctx, run.ID)
+					if readErr != nil || usageErr != nil || stored.Candidate.ToolCallsUsed != 1 || usage.Consumed != expectedUsage {
+						t.Fatalf("transaction rewrote snapshot or accounting: candidate=%+v usage=%+v errors=%v,%v", stored, usage, readErr, usageErr)
+					}
+					table := map[string]string{"lifecycle": "sandbox_disabled_executions", "preflight": "sandbox_disabled_preflights", "evidence": "sandbox_backend_evidence"}[stage]
+					var count int
+					if err := st.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE run_id=?", run.ID).Scan(&count); err != nil {
+						t.Fatal(err)
+					}
+					wantCount := 0
+					if change == "progress" {
+						wantCount = 1
+					}
+					if count != wantCount {
+						t.Fatalf("transaction commit count=%d, want=%d", count, wantCount)
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestSandboxCandidateRunLeaseRequiresExactActiveBinding(t *testing.T) {
 	now := time.Now().UTC()

@@ -129,13 +129,7 @@ func (s *SQLiteStore) CreateSandboxExecutionCandidate(ctx context.Context,
 	if err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, false, err
 	}
-	if usage.TotalTokens != candidate.TokensUsed ||
-		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed ||
-		toolCalls != candidate.ToolCallsUsed {
-		return sandbox.ValidatedExecutionCandidate{}, false, apperror.New(apperror.CodeConflict,
-			"sandbox execution candidate usage changed during validation")
-	}
-	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
+	if err := requireSandboxCandidateStoreCurrentBudget(candidate, run.Budget, usage, toolCalls); err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, false, err
 	}
 	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
