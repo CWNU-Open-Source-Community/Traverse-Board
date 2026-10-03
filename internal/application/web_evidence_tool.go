@@ -417,10 +417,11 @@ func (e *WebEvidenceToolExecutor) authorizeInlineWebFetch(ctx context.Context,
 		return domain.WebFetchAuthorization{}, apperror.New(
 			apperror.CodePolicyDenied, "inline web fetch approval scheduler is unavailable")
 	}
-	// Inline approval is deliberately limited to the two user-mediated modes.
+	// Ask and the retained user-mediated historical modes use exact inline approval.
 	// Workspace Access remains networkless, while Full/Debug receive their
 	// separately projected public-HTTPS authority before reaching this path.
-	if scope.PermissionMode != domain.RunExecutionPermissionConservative &&
+	if scope.PermissionMode != domain.RunExecutionPermissionAsk &&
+		scope.PermissionMode != domain.RunExecutionPermissionConservative &&
 		scope.PermissionMode != domain.RunExecutionPermissionApproval {
 		return domain.WebFetchAuthorization{}, apperror.New(
 			apperror.CodePolicyDenied, "web fetch target is outside Run network authority")

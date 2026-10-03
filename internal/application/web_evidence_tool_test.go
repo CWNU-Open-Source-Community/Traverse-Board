@@ -81,7 +81,10 @@ func TestWebEvidenceExecutorInlineApprovalProjectsDisabledToExactAuthority(t *te
 		t.Fatal(err)
 	}
 	mode, _ := state.GetRunMode(ctx, run.ID)
-	permission, _ := state.GetRunExecutionPermission(ctx, run.ID)
+	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk {
+		t.Fatalf("inline approval requires the current Ask fixture: %#v err=%v", permission, err)
+	}
 	root, found, err := state.GetRootAgent(ctx, run.ID)
 	if err != nil || !found {
 		t.Fatalf("root found=%t err=%v", found, err)

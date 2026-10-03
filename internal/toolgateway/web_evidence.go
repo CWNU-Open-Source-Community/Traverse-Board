@@ -352,7 +352,8 @@ func WebEvidenceCapabilitySnapshot(scope WebEvidenceCapabilityContext) WebEviden
 		baseAvailable, refusal = false, "source connector binding is invalid"
 	}
 	inlineApprovalAvailable := scope.InlineWebFetchApprovalAvailable &&
-		(scope.PermissionMode == domain.RunExecutionPermissionConservative ||
+		(scope.PermissionMode == domain.RunExecutionPermissionAsk ||
+			scope.PermissionMode == domain.RunExecutionPermissionConservative ||
 			scope.PermissionMode == domain.RunExecutionPermissionApproval)
 	preauthorizedFetch := scope.NetworkMode == "allowlist" && len(scope.AllowedTargets) > 0
 	fetchAvailable := baseAvailable && (preauthorizedFetch || inlineApprovalAvailable)
