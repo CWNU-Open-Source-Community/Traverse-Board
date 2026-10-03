@@ -10,18 +10,45 @@ import (
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const (
-	ExternalSelectionProtocolVersion    = "external_skill_selection.v1"
-	DefaultExternalSelectionTokenBudget = 2048
-	MaxExternalSelectionTokenBudget     = 4096
-	MaxExternalSelectionItems           = 4
+	ExternalSelectionProtocolVersion       = "external_skill_selection.v1"
+	PluginExternalSelectionProtocolVersion = "external_skill_selection.v2"
+	DefaultExternalSelectionTokenBudget    = 2048
+	MaxExternalSelectionTokenBudget        = 4096
+	MaxExternalSelectionItems              = 4
 )
 
-// ExternalSelectionItem pins one active installation and its verified object.
-// Declared tools remain compatibility metadata and never become capabilities.
+// PluginSkillBinding pins a real installation component. It is not an install
+// receipt and grants no execution capability.
+type PluginSkillBinding struct {
+	PackageID   string `json:"package_id"`
+	ComponentID string `json:"component_id"`
+	Revision    string `json:"revision"`
+	Generation  int64  `json:"generation"`
+}
+
+func (p PluginSkillBinding) Validate() error {
+	if (toolcontract.ComponentRef{PackageID: p.PackageID, ComponentID: p.ComponentID}).Validate() != nil ||
+		!validSHA256(p.Revision) || p.Generation < 1 {
+		return errors.New("selected Plugin component binding is invalid")
+	}
+	return nil
+}
+
+// ExternalSelectionSource adapts verified metadata to the single selection
+// resolver. Plugin sources leave legacy result fingerprints and object keys empty.
+type ExternalSelectionSource struct {
+	Item     ExternalSelectionItem
+	Manifest Manifest
+}
+
+// ExternalSelectionItem pins either a historical object or a real Plugin component.
+// Declared tools remain metadata and never become capabilities.
 type ExternalSelectionItem struct {
+	Plugin                   *PluginSkillBinding `json:",omitempty"`
 	SelectionID              string
 	Ordinal                  int
 	InstallationID           string
@@ -82,6 +109,7 @@ type ResolveExternalSelectionRequest struct {
 	Phase          domain.ExecutionPhase
 	Profile        domain.Profile
 	Packages       []InstalledPackage
+	Sources        []ExternalSelectionSource
 	SpecialistRef  string
 	TokenBudget    int
 	RequestedBy    string
@@ -103,7 +131,7 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 	if !request.Confirmed {
 		return ExternalSelection{}, errors.New("external Skill context selection requires explicit operator confirmation")
 	}
-	if len(request.Packages) == 0 || len(request.Packages) > MaxExternalSelectionItems {
+	if count := len(request.Packages) + len(request.Sources); count == 0 || count > MaxExternalSelectionItems {
 		return ExternalSelection{}, fmt.Errorf("external Skill selection requires between 1 and %d packages", MaxExternalSelectionItems)
 	}
 	if request.TokenBudget <= 0 || request.TokenBudget > MaxExternalSelectionTokenBudget {
@@ -120,68 +148,68 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 		return ExternalSelection{}, errors.New("cyber external Skills are restricted to the script Profile")
 	}
 
-	packages := make([]InstalledPackage, len(request.Packages))
-	for index, value := range request.Packages {
-		packages[index] = CloneInstalledPackage(value)
-	}
-	sort.Slice(packages, func(left, right int) bool {
-		return FormatInstalledPackageRef(packages[left].Installation.Name,
-			packages[left].Installation.Version) < FormatInstalledPackageRef(
-			packages[right].Installation.Name, packages[right].Installation.Version)
-	})
-	items := make([]ExternalSelectionItem, 0, len(packages))
-	tokens := 0
-	specialistFound := request.SpecialistRef == ""
-	previousRef := ""
-	for index, installed := range packages {
+	sources := append([]ExternalSelectionSource(nil), request.Sources...)
+	for _, installed := range request.Packages {
 		if err := installed.Validate(); err != nil {
 			return ExternalSelection{}, fmt.Errorf("selected external Skill package is invalid: %w", err)
 		}
-		installation, result := installed.Installation, installed.Result
-		ref := FormatInstalledPackageRef(installation.Name, installation.Version)
+		if installed.Removal != nil {
+			return ExternalSelection{}, fmt.Errorf("selected external Skill %q has been removed", FormatInstalledPackageRef(installed.Installation.Name, installed.Installation.Version))
+		}
+		i, r := installed.Installation, installed.Result
+		sources = append(sources, ExternalSelectionSource{Manifest: i.Manifest, Item: ExternalSelectionItem{
+			InstallationID: i.ID, InstallationFingerprint: i.InstallationFingerprint, InstallResultFingerprint: r.ResultFingerprint,
+			Name: i.Name, Version: i.Version, Surface: i.Surface, ContentSHA256: i.Manifest.ContentSHA256,
+			ContentBytes: i.Manifest.ContentBytes, TokenUpperBound: i.Manifest.ContentTokenUpperBound,
+			ArchiveSHA256: i.ArchiveSHA256, ArchiveBytes: i.ArchiveBytes, PackageFingerprint: i.PackageFingerprint,
+			ObjectKey: r.ObjectKey, TrustClass: i.TrustClass, ToolDependencyCount: len(i.Manifest.ToolDependencies),
+		}})
+	}
+	sort.Slice(sources, func(a, b int) bool {
+		return FormatInstalledPackageRef(sources[a].Item.Name, sources[a].Item.Version) < FormatInstalledPackageRef(sources[b].Item.Name, sources[b].Item.Version)
+	})
+	items := make([]ExternalSelectionItem, 0, len(sources))
+	tokens := 0
+	protocol := ExternalSelectionProtocolVersion
+	specialistFound := request.SpecialistRef == ""
+	previousRef := ""
+	for index, source := range sources {
+		item, manifest := source.Item, source.Manifest
+		ref := FormatInstalledPackageRef(item.Name, item.Version)
 		if ref == previousRef {
 			return ExternalSelection{}, fmt.Errorf("selected external Skill %q is duplicated", ref)
 		}
-		if installed.Removal != nil {
-			return ExternalSelection{}, fmt.Errorf("selected external Skill %q has been removed", ref)
-		}
-		if installation.Surface != request.Surface ||
-			!containsProfile(installation.Manifest.Profiles, request.Profile) {
-			return ExternalSelection{}, fmt.Errorf("selected external Skill %q is incompatible with %s/%s",
-				ref, request.Surface, request.Profile)
+		if item.Surface != request.Surface || !containsProfile(manifest.Profiles, request.Profile) {
+			return ExternalSelection{}, fmt.Errorf("selected external Skill %q is incompatible with %s/%s", ref, request.Surface, request.Profile)
 		}
 		specialist := request.SpecialistRef != "" && ref == request.SpecialistRef
-		if installation.Manifest.HasModeMetadata() {
-			if !installation.Manifest.AllowsInvocation(InvocationSourceUser, true) ||
-				!supportsExternalSelectionAcrossPhases(installation.Manifest, request.Surface,
-					request.Profile, domain.AgentRoleRoot) {
-				return ExternalSelection{}, fmt.Errorf(
-					"selected external Skill %q must support root delivery in both Plan and Deliver because the external selection is immutable", ref)
+		if manifest.HasModeMetadata() {
+			supports := func(role domain.AgentRole) bool {
+				if item.Plugin != nil {
+					return manifest.SupportsContext(ExecutionContext{Surface: request.Surface, Phase: request.Phase, Profile: request.Profile, Role: role})
+				}
+				return supportsExternalSelectionAcrossPhases(manifest, request.Surface, request.Profile, role)
 			}
-			if specialist && !supportsExternalSelectionAcrossPhases(installation.Manifest,
-				request.Surface, request.Profile, domain.AgentRoleSpecialist) {
-				return ExternalSelection{}, fmt.Errorf(
-					"selected external Skill %q must support the Specialist role in both phases", ref)
+			if !manifest.AllowsInvocation(InvocationSourceUser, true) || !supports(domain.AgentRoleRoot) {
+				if item.Plugin == nil {
+					return ExternalSelection{}, fmt.Errorf("selected external Skill %q must support root delivery in both Plan and Deliver because the external selection is immutable", ref)
+				}
+				return ExternalSelection{}, fmt.Errorf("selected external Skill %q does not support explicit Root delivery in its selected mode", ref)
 			}
+			if specialist && !supports(domain.AgentRoleSpecialist) {
+				if item.Plugin == nil {
+					return ExternalSelection{}, fmt.Errorf("selected external Skill %q must support the Specialist role in both phases", ref)
+				}
+				return ExternalSelection{}, fmt.Errorf("selected external Skill %q does not support explicit Specialist delivery", ref)
+			}
+		}
+		if item.Plugin != nil {
+			protocol = PluginExternalSelectionProtocolVersion
 		}
 		if specialist {
 			specialistFound = true
 		}
-		item := ExternalSelectionItem{
-			SelectionID: request.SelectionID, Ordinal: index + 1,
-			InstallationID:           installation.ID,
-			InstallationFingerprint:  installation.InstallationFingerprint,
-			InstallResultFingerprint: result.ResultFingerprint,
-			Name:                     installation.Name, Version: installation.Version, Surface: installation.Surface,
-			ContentSHA256:   installation.Manifest.ContentSHA256,
-			ContentBytes:    installation.Manifest.ContentBytes,
-			TokenUpperBound: installation.Manifest.ContentTokenUpperBound,
-			ArchiveSHA256:   installation.ArchiveSHA256, ArchiveBytes: installation.ArchiveBytes,
-			PackageFingerprint: installation.PackageFingerprint, ObjectKey: result.ObjectKey,
-			TrustClass:          installation.TrustClass,
-			ToolDependencyCount: len(installation.Manifest.ToolDependencies),
-			SpecialistEligible:  specialist,
-		}
+		item.SelectionID, item.Ordinal, item.SpecialistEligible = request.SelectionID, index+1, specialist
 		if specialist && item.TokenUpperBound > MaxExternalSpecialistTokenBudget {
 			return ExternalSelection{}, fmt.Errorf(
 				"specialist external Skill %q exceeds the %d token hard limit",
@@ -200,7 +228,7 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 	selection := ExternalSelection{
 		ID: request.SelectionID, RunID: request.RunID, MissionID: request.MissionID,
 		ModeSnapshotID: request.ModeSnapshotID, ModeRevision: request.ModeRevision,
-		ProtocolVersion: ExternalSelectionProtocolVersion, Surface: request.Surface,
+		ProtocolVersion: protocol, Surface: request.Surface,
 		Profile: request.Profile, TokenBudget: request.TokenBudget,
 		TokenUpperBound: tokens, ItemCount: len(items), RequestedBy: request.RequestedBy,
 		OperatorConfirmed: true, ContextDeliveryAuthorized: true,
@@ -234,7 +262,7 @@ func (s ExternalSelection) Validate() error {
 			return errors.New("external Skill selection identities are invalid")
 		}
 	}
-	if s.ProtocolVersion != ExternalSelectionProtocolVersion || s.ModeRevision <= 0 ||
+	if (s.ProtocolVersion != ExternalSelectionProtocolVersion && s.ProtocolVersion != PluginExternalSelectionProtocolVersion) || s.ModeRevision <= 0 ||
 		!s.Surface.Valid() || !s.OperatorConfirmed || !s.ContextDeliveryAuthorized ||
 		s.ToolCapabilityGrant || !validUTC(s.CreatedAt) {
 		return errors.New("external Skill selection protocol or capability boundary is invalid")
@@ -253,19 +281,25 @@ func (s ExternalSelection) Validate() error {
 	total := 0
 	previousRef := ""
 	specialistCount := 0
+	pluginCount := 0
 	for index, item := range s.Items {
 		ref := FormatInstalledPackageRef(item.Name, item.Version)
 		wantKey, keyErr := PackageObjectKey(item.ArchiveSHA256)
+		objectValid := validSHA256(item.InstallResultFingerprint) && keyErr == nil && item.ObjectKey == wantKey
+		if item.Plugin != nil {
+			pluginCount++
+			objectValid = item.Plugin.Validate() == nil && item.Plugin.Revision == item.ArchiveSHA256 && item.InstallResultFingerprint == "" && item.ObjectKey == ""
+		}
 		if item.SelectionID != s.ID || item.Ordinal != index+1 ||
 			!validPackageIdentity(item.InstallationID) ||
 			!validSHA256(item.InstallationFingerprint) ||
-			!validSHA256(item.InstallResultFingerprint) || !validName(item.Name) ||
+			!objectValid || !validName(item.Name) ||
 			!validCoreVersion(item.Version) || item.Surface != s.Surface ||
 			!validSHA256(item.ContentSHA256) || item.ContentBytes <= 0 ||
 			item.ContentBytes > MaxContentBytes || item.TokenUpperBound != item.ContentBytes ||
-			item.TokenUpperBound > MaxContentTokenUpperBound || keyErr != nil ||
+			item.TokenUpperBound > MaxContentTokenUpperBound ||
 			item.ArchiveBytes <= 0 || item.ArchiveBytes > MaxPackageArchiveBytes ||
-			!validSHA256(item.PackageFingerprint) || item.ObjectKey != wantKey ||
+			!validSHA256(item.PackageFingerprint) ||
 			item.TrustClass != PackageTrustOperatorInstalledUntrusted ||
 			item.ToolDependencyCount < 0 || item.ToolDependencyCount > MaxToolDependencies ||
 			(previousRef != "" && previousRef >= ref) {
@@ -280,7 +314,7 @@ func (s ExternalSelection) Validate() error {
 		total += item.TokenUpperBound
 		previousRef = ref
 	}
-	if total != s.TokenUpperBound || specialistCount > 1 ||
+	if (s.ProtocolVersion == PluginExternalSelectionProtocolVersion) != (pluginCount > 0) || total != s.TokenUpperBound || specialistCount > 1 ||
 		!validSHA256(s.Fingerprint) || s.Fingerprint != ExternalSelectionFingerprint(s) {
 		return errors.New("external Skill selection accounting or fingerprint is invalid")
 	}
@@ -297,7 +331,7 @@ func (o ExternalSelectionOperation) Validate() error {
 }
 
 func ExternalSelectionFingerprint(s ExternalSelection) string {
-	parts := []string{ExternalSelectionProtocolVersion, s.ID, s.RunID, s.MissionID,
+	parts := []string{s.ProtocolVersion, s.ID, s.RunID, s.MissionID,
 		s.ModeSnapshotID, strconv.FormatInt(s.ModeRevision, 10), string(s.Surface),
 		string(s.Profile), strconv.Itoa(s.TokenBudget), strconv.Itoa(len(s.Items)),
 		s.RequestedBy, s.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -310,12 +344,17 @@ func ExternalSelectionFingerprint(s ExternalSelection) string {
 			item.ArchiveSHA256, strconv.Itoa(item.ArchiveBytes), item.PackageFingerprint,
 			item.ObjectKey, string(item.TrustClass), strconv.Itoa(item.ToolDependencyCount),
 			strconv.FormatBool(item.SpecialistEligible))
+		parts = append(parts, pluginSelectionFingerprintParts(item.Plugin)...)
 	}
 	return runmutation.Fingerprint(parts...)
 }
 
 func ExternalSelectionRequestFingerprint(s ExternalSelection) string {
-	parts := []string{"external_skill_selection_intent.v1", s.RunID, s.MissionID,
+	intentProtocol := "external_skill_selection_intent.v1"
+	if s.ProtocolVersion == PluginExternalSelectionProtocolVersion {
+		intentProtocol = "external_skill_selection_intent.v2"
+	}
+	parts := []string{intentProtocol, s.RunID, s.MissionID,
 		s.ModeSnapshotID, strconv.FormatInt(s.ModeRevision, 10), string(s.Surface),
 		string(s.Profile), strconv.Itoa(s.TokenBudget), s.RequestedBy,
 		"operator_confirmed=true", "context_delivery=true", "tool_grant=false"}
@@ -324,12 +363,16 @@ func ExternalSelectionRequestFingerprint(s ExternalSelection) string {
 			item.InstallResultFingerprint, item.Name, item.Version, item.ContentSHA256,
 			item.ArchiveSHA256, item.PackageFingerprint, item.ObjectKey,
 			strconv.FormatBool(item.SpecialistEligible))
+		parts = append(parts, pluginSelectionFingerprintParts(item.Plugin)...)
 	}
 	return runmutation.Fingerprint(parts...)
 }
 
 func CloneExternalSelection(value ExternalSelection) ExternalSelection {
 	value.Items = append([]ExternalSelectionItem(nil), value.Items...)
+	for i := range value.Items {
+		value.Items[i].Plugin = clonePluginSkillBinding(value.Items[i].Plugin)
+	}
 	return value
 }
 
@@ -340,4 +383,19 @@ func ExternalSpecialistItem(selection ExternalSelection) (ExternalSelectionItem,
 		}
 	}
 	return ExternalSelectionItem{}, false
+}
+
+func pluginSelectionFingerprintParts(p *PluginSkillBinding) []string {
+	if p == nil {
+		return nil
+	}
+	return []string{"plugin-component", p.PackageID, p.ComponentID, p.Revision, strconv.FormatInt(p.Generation, 10)}
+}
+
+func clonePluginSkillBinding(value *PluginSkillBinding) *PluginSkillBinding {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
 }
