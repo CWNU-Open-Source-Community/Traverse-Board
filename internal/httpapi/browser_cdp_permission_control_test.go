@@ -9,7 +9,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 )
 
-func TestRunBrowserCDPPermissionControlRequiresDebugAndExactConfirmation(t *testing.T) {
+func TestRunBrowserCDPPermissionControlRequiresLiveFullAndExactConfirmation(t *testing.T) {
 	fixture := newAPIFixture(t)
 	_, run, err := application.NewRunService(fixture.store).Create(t.Context(),
 		application.CreateRunRequest{
@@ -22,6 +22,7 @@ func TestRunBrowserCDPPermissionControlRequiresDebugAndExactConfirmation(t *test
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		DebugMaximumAccessEnabled: true,
+		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	closed, err := New(fixture.store, Config{
 		AccessToken: testAccessToken, ControlToken: testControlToken,
@@ -56,10 +57,10 @@ func TestRunBrowserCDPPermissionControlRequiresDebugAndExactConfirmation(t *test
 	executionPath := "/api/v1/runs/" + run.ID + "/execution-permission"
 	debug := performControlPathRequest(t, open, executionPath,
 		"http-browser-cdp-debug-0001",
-		strings.NewReader(`{"mode":"debug","confirm_debug_access":true}`))
+		strings.NewReader(`{"mode":"full","confirm_full":true}`))
 	var debugSelection RunExecutionPermissionControlView
 	decodeDataStatus(t, debug, http.StatusAccepted, &debugSelection)
-	if debugSelection.ExecutionPermission.Mode != string(domain.RunExecutionPermissionDebug) {
+	if debugSelection.ExecutionPermission.Mode != string(domain.RunExecutionPermissionFull) {
 		t.Fatalf("execution permission = %+v", debugSelection.ExecutionPermission)
 	}
 
@@ -85,7 +86,7 @@ func TestRunBrowserCDPPermissionControlRequiresDebugAndExactConfirmation(t *test
 		!permission.RequestCaptureAllowed || !permission.RequestMutationAllowed ||
 		!permission.RequestReplayAllowed || !permission.CookieAccessAllowed ||
 		!permission.ArbitraryMethodAllowed || !permission.RuntimeGateAvailable ||
-		!permission.Runtime.FullDebugEnabled || !permission.Runtime.ExecutionDebugSelected ||
+		!permission.Runtime.FullDebugEnabled || permission.Runtime.ExecutionDebugSelected ||
 		permission.TransportEnabled || permission.BrowserStartAuthorized ||
 		permission.RuntimeAuthorized || permission.CapabilityGrant {
 		t.Fatalf("HTTP browser CDP selection escaped its boundary: %+v", selected)

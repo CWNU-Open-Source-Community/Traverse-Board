@@ -86,13 +86,13 @@ func AuthorizeFullCDPStart(session SessionPlan, identity BrowserExecutableIdenti
 		!runtimeCapabilities.StartEnabled ||
 		!runtimeCapabilities.DisposableProfileEnabled ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!executionAllowed || executionCapabilities.RuntimeAuthority == nil ||
 		executionFence == 0 || !executionCapabilities.RuntimeAuthority.
 		AllowsRunAuthorizationFence(session.RunID, executionFence) {
 		return FullCDPStartAuthorization{}, errors.New(
-			"full CDP launch requires live Full Access or Debug authority and its confirmed sub-permission")
+			"full CDP launch requires live Full authority and its confirmed sub-permission")
 	}
 	now = now.UTC()
 	if now.IsZero() || now.Before(review.CreatedAt) || !now.Before(lease.ExpiresAt) {
@@ -189,7 +189,7 @@ func ValidateFullCDPStartAuthorization(authorization FullCDPStartAuthorization,
 		permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!authorization.ProcessStartAuthorized || !authorization.ProcessTerminationAuthorized ||
 		!authorization.ProfileCreateAuthorized || !authorization.ProfileReleaseAuthorized ||

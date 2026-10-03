@@ -287,14 +287,15 @@ func TestDockerSandboxAdmissionRejectsExpiredAndStaleAuthority(t *testing.T) {
 		permissions := application.NewRunExecutionPermissionService(st,
 			domain.ExecutionPermissionRuntimeCapabilities{
 				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+				RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 			})
 		if _, err := permissions.Change(ctx,
 			application.ChangeRunExecutionPermissionRequest{
-				RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-				OperationKey:            "permission-before-launch",
-				RequestedBy:             "docker_product_operator",
-				Reason:                  "change authority ceiling before Docker launch",
-				ConfirmDangerFullAccess: true,
+				RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+				OperationKey: "permission-before-launch",
+				RequestedBy:  "docker_product_operator",
+				Reason:       "change authority ceiling before Docker launch",
+				ConfirmFull:  true,
 			}); err != nil {
 			t.Fatal(err)
 		}
@@ -571,6 +572,7 @@ func TestSchemaV99DoesNotBackfillDockerProductAuthority(t *testing.T) {
 
 func newDockerSandboxStoreFixture(t *testing.T, ctx context.Context, st *SQLiteStore,
 	run domain.Run, root, prefix string,
+	retained ...domain.RunExecutionPermissionSnapshot,
 ) dockerSandboxStoreFixture {
 	t.Helper()
 	_, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
@@ -588,15 +590,29 @@ func newDockerSandboxStoreFixture(t *testing.T, ctx context.Context, st *SQLiteS
 	if err != nil {
 		t.Fatal(err)
 	}
-	permissionResult, err := application.NewRunExecutionPermissionService(st,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionApproval),
-			OperationKey: prefix + "-permission", RequestedBy: "docker_product_operator",
-			Reason: "approve exact Docker product execution", ConfirmUserApproval: true,
-		})
-	if err != nil {
-		t.Fatal(err)
+	var permission domain.RunExecutionPermissionSnapshot
+	if len(retained) == 1 {
+		// A migration test supplies a row written under a genuine old schema.
+		// No retired public writer or relaxed snapshot trigger is used here.
+		permission = retained[0]
+		if permission.Mode.IsApprovalMode() || permission.RunID != run.ID {
+			t.Fatal("invalid historical Docker permission fixture")
+		}
+	} else {
+		if len(retained) != 0 {
+			t.Fatal("too many retained permission fixtures")
+		}
+		result, err := application.NewRunExecutionPermissionService(st,
+			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx,
+			application.ChangeRunExecutionPermissionRequest{
+				RunID: run.ID, Mode: string(domain.RunExecutionPermissionAuto),
+				OperationKey: prefix + "-permission", RequestedBy: "docker_product_operator",
+				Reason: "select operation approval preference",
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		permission = result.Permission
 	}
 	spec, err := sandbox.CompileDockerContainerSpec(ctx, observation, manifest)
 	if err != nil {
@@ -650,9 +666,9 @@ func newDockerSandboxStoreFixture(t *testing.T, ctx context.Context, st *SQLiteS
 		RuntimeEpochFingerprint: storeTestDigest(prefix + "-runtime-epoch"),
 		ProfileSnapshotID:       profileResult.Profile.ID,
 		ProfileRevision:         profileResult.Profile.Revision,
-		PermissionSnapshotID:    permissionResult.Permission.ID,
-		PermissionRevision:      permissionResult.Permission.Revision,
-		PermissionMode:          permissionResult.Permission.Mode,
+		PermissionSnapshotID:    permission.ID,
+		PermissionRevision:      permission.Revision,
+		PermissionMode:          permission.Mode,
 		ApprovalID:              approvalID, ApprovalVersion: approvalVersion,
 		PolicyFingerprint: plan.PolicyFingerprint,
 		NetworkMode:       "disabled", NetworkTargetCount: 0,

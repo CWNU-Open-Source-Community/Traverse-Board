@@ -428,8 +428,10 @@ func migrationPlan() []migration {
 		Statements: operationApprovalPreferenceStatements(previous), DisableForeignKeys: true})
 	previous = append(previous, migration{Version: 179, Name: "Operation policy decisions in the existing file edit authorization ledger",
 		Statements: fileOperationApprovalStatements(), DisableForeignKeys: true})
-	return append(previous, migration{Version: 180, Name: "Operation approval and revocation provenance in existing command jobs",
+	previous = append(previous, migration{Version: 180, Name: "Operation approval and revocation provenance in existing command jobs",
 		Statements: commandOperationApprovalStatements(), DisableForeignKeys: true})
+	return append(previous, migration{Version: 181, Name: "Operation approval preferences in existing Docker product admissions",
+		Statements: dockerOperationApprovalStatements(), DisableForeignKeys: true})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

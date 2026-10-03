@@ -135,7 +135,7 @@ func TestFullCDPServiceRefusesWithoutConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	executionFull, err := executionInitial.Next("execution-permission-full",
-		domain.RunExecutionPermissionFullAccess, true, "runtime-operator",
+		domain.RunExecutionPermissionFull, true, "runtime-operator",
 		"full access", now)
 	if err != nil {
 		t.Fatal(err)

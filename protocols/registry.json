@@ -3470,6 +3470,7 @@
         "internal/application/standard_code_supervisor_test.go",
         "internal/commandruntimeadapter/adapter_test.go",
         "internal/store/migration_v163_test.go",
+        "internal/store/migration_v180_test.go",
         "internal/toolgateway/command_runtime_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."

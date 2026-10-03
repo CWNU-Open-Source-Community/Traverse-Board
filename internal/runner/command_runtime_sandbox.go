@@ -87,7 +87,11 @@ func (s commandRuntimeSandboxStarter) Start(ctx context.Context,
 			spec.Spec.StdinPolicy != CommandRuntimeStdinPipe) {
 		return nil, ErrCommandRuntimeBoundary
 	}
-	return newCommandRuntimeSandboxProcess(ctx, s.executor, scope, spec), nil
+	owned, err := ownedCommandRuntimeDispatchContext(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	return newCommandRuntimeSandboxProcess(owned, s.executor, scope, spec), nil
 }
 
 type commandRuntimeSandboxProcess struct {

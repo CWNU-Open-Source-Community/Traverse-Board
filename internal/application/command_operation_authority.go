@@ -196,13 +196,27 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 			if !ok || scope.SupervisorToolCallID == "" {
 				return executionauth.OperationAuthority{}, errors.New("command operation source is unavailable")
 			}
-			source, err := readCommandApprovalSource(ctx, st, scope.RunID, scope.SupervisorToolCallID)
+			source, err := readCommandSource(ctx, st, scope.RunID, scope.SupervisorToolCallID, jobID == "" && input.Action == toolgateway.CommandRuntimeActionStart)
 			if err != nil {
 				return executionauth.OperationAuthority{}, err
 			}
 			if !commandSourceMatchesScope(source, scope, current, s.adapter) || pinned == nil || !pinned(source) ||
 				(jobID != "" && source.authority.JobFingerprint != commandRuntimeJobFingerprint(activeJob)) {
 				return executionauth.OperationAuthority{}, errors.New("command operation input or native source changed")
+			}
+			if source.call.Status == domain.SupervisorToolCompleted {
+				// Returning action=start completes the tool call, not its owned
+				// process. This is a continuation of the same admitted Job; a
+				// completed call alone never authorizes another native dispatch.
+				digest, ownedID := runner.CommandRuntimeOperationIdentity(scope.RunID, scope.OperationKey)
+				owned, err := s.authorizeActiveJob(ctx, ownedID, current)
+				if err != nil || operation.ID != ownedID || owned.State != runner.CommandRuntimeJobRunning ||
+					owned.OperationDigest != digest || owned.InvocationID != scope.InvocationID ||
+					owned.SpecFingerprint != source.authority.CommandFingerprints[0] ||
+					owned.LeaseID != scope.LeaseID || owned.LeaseGeneration != scope.LeaseGeneration ||
+					owned.LeaseOwnerID != expectedScope.LeaseOwnerID {
+					return executionauth.OperationAuthority{}, errors.New("completed command start no longer owns its exact active Job")
+				}
 			}
 			policyInput = source.input
 			record, err := st.GetApprovalByProposal(ctx, source.call.CallID)

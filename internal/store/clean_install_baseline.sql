@@ -8688,7 +8688,7 @@ CREATE TABLE "sandbox_docker_product_admissions" (
 		CHECK(product_entry_enabled = 1 AND execution_authorized = 1
 			AND artifact_commit_authorized = 1),
 		CHECK(network_mode = 'disabled' AND network_target_count = 0),
-		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug')),
+		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug', 'ask', 'auto', 'full')),
 		CHECK(profile_revision >= 1 AND permission_revision >= 1 AND approval_version >= 1),
 		CHECK(cpu_quota_millis BETWEEN 1 AND 8000),
 		CHECK(memory_bytes BETWEEN 16777216 AND 8589934592),
@@ -21949,7 +21949,13 @@ CREATE TRIGGER trg_sandbox_docker_product_admission_insert
 				AND permission.run_id = NEW.run_id AND permission.mission_id = NEW.mission_id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode AND permission.mode <> 'conservative'
-				AND permission.operator_confirmed = 1
+				AND ((permission.protocol_version = 'run_execution_permission.v1'
+					AND permission.mode IN ('workspace_access','approval','full_access','debug')
+					AND permission.operator_confirmed = 1)
+				 OR (permission.protocol_version = 'run_execution_permission.v2'
+					AND permission.policy_version = 'execution_permission_policy.v2'
+					AND ((permission.mode IN ('ask','auto') AND permission.operator_confirmed = 0)
+					 OR (permission.mode = 'full' AND permission.operator_confirmed = 1))))
 				AND permission.process_enabled = 0 AND permission.execution_authorized = 0
 				AND permission.capability_grant = 0
 				AND permission.revision = (SELECT MAX(current.revision)

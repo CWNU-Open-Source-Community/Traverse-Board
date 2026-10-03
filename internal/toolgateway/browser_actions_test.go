@@ -34,7 +34,7 @@ func testBrowserActionCapabilityContext() BrowserActionCapabilityContext {
 		RootAgentID: "agent-root", WorkspaceID: "workspace-browser-1",
 		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
 		Role: domain.AgentRoleRoot, Profile: domain.ProfileCode,
-		PermissionMode: domain.RunExecutionPermissionFullAccess, ModeRevision: 3,
+		PermissionMode: domain.RunExecutionPermissionFull, ModeRevision: 3,
 		PermissionSnapshotID: "permission-browser-1", PermissionRevision: 4,
 		PermissionActivation: 5, RunAuthorizationFence: 6,
 		FullCDPSessionID:            "full-cdp-browser-1",
@@ -109,6 +109,15 @@ func TestBrowserActionCapabilityAndAuthorityFailClosed(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*BrowserActionCapabilityContext){
+		"ask preference": func(value *BrowserActionCapabilityContext) {
+			value.PermissionMode = domain.RunExecutionPermissionAsk
+		},
+		"auto preference": func(value *BrowserActionCapabilityContext) {
+			value.PermissionMode = domain.RunExecutionPermissionAuto
+		},
+		"full without activation": func(value *BrowserActionCapabilityContext) {
+			value.PermissionActivation = 0
+		},
 		"workspace permission": func(value *BrowserActionCapabilityContext) {
 			value.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
 		},
@@ -125,6 +134,16 @@ func TestBrowserActionCapabilityAndAuthorityFailClosed(t *testing.T) {
 		mutate(&changed)
 		if snapshot := BrowserActionCapabilitySnapshot(changed); snapshot.Available {
 			t.Fatalf("%s unexpectedly available: %#v", name, snapshot)
+		}
+	}
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug,
+	} {
+		retained := scope
+		retained.PermissionMode = mode
+		retained.PermissionActivation = 0
+		if snapshot := BrowserActionCapabilitySnapshot(retained); !snapshot.Available {
+			t.Fatalf("retained static %s projection rejected: %#v", mode, snapshot)
 		}
 	}
 	changedFence := scope
