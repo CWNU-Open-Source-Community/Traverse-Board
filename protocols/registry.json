@@ -1850,7 +1850,8 @@
         "risk_escalation_resume.v1",
         "terminal_agent_input_audit.v1",
         "terminal_agent_input_bridge.v1",
-        "terminal_input_lease.v1"
+        "terminal_input_lease.v1",
+        "windows-fixed-restricted.v1"
       ],
       "retired_identifiers": []
     },

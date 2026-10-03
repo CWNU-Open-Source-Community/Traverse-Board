@@ -2746,6 +2746,11 @@ func writeOperatorCommandResult(out interface{ Write([]byte) (int, error) }, res
 		if _, err := fmt.Fprintf(out, "command_job: %s\nstate: %s\nreplayed: %t\n", result.Job.ID, result.Job.State, result.Replayed); err != nil {
 			return errors.Join(cause, err)
 		}
+		if result.Job.TruncationReason != "" {
+			if _, err := fmt.Fprintf(out, "output_truncation: %s\n", result.Job.TruncationReason); err != nil {
+				return errors.Join(cause, err)
+			}
+		}
 		if err := writeTransientControlledOutput(out, "stdout", []byte(result.Job.Stdout)); err != nil {
 			return errors.Join(cause, err)
 		}

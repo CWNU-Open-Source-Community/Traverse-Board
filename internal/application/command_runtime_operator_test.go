@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -289,50 +290,59 @@ func TestOperatorCommandStoppedRunRequiresPrivateConsentAndPreservesState(t *tes
 	}
 }
 
+func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.ControlledCommandKind, timeout time.Duration) (*operatorCommandFixture, OperatorCommandRequest) {
+	t.Helper()
+	initial := status
+	if status == domain.RunRunning {
+		initial = domain.RunCreated
+	}
+	f := newOperatorCommandFixtureAtStatus(t, domain.RunExecutionPermissionAsk, initial)
+	interaction, err := NewRunExecutionInteractionService(f.st).Change(t.Context(), ChangeRunExecutionInteractionRequest{RunID: f.run.ID, Mode: "controlled", Trust: "trusted", ConfirmWorkspaceTrust: true, OperationKey: "fixed-command-interaction", RequestedBy: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status == domain.RunRunning {
+		if f.run, err = NewRunService(f.st).Start(t.Context(), f.run.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	profile, err := f.st.GetRunExecutionProfile(t.Context(), f.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{ID: "fixed-command-plan", WorkspaceID: "operator-workspace", WorkspaceRoot: f.root,
+		Interaction: interaction.Interaction, CurrentProfile: profile, CurrentSurface: domain.ExecutionSurfaceCode, Kind: kind, Timeout: timeout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.manager.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var command runner.CommandRuntimeSpec
+	f.manager, command, err = runner.NewFixedCommandRuntimeManager(f.probe, "fixed-command-owner", plan, f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.caps.DangerFullAccessEnabled = false
+	f.caps.FullAccessRequiresRuntimeGrant = false
+	f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := OperatorCommandRequest{RunID: f.run.ID, OperationKey: "fixed-command-once", RequestedBy: "operator", Command: command, ConfirmExecution: true}
+	return f, request
+}
+
 func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("fixed restricted native adapter is Windows-only")
 	}
 	for _, status := range []domain.RunStatus{domain.RunCreated, domain.RunPaused, domain.RunRunning} {
 		t.Run(string(status), func(t *testing.T) {
-			initial := status
-			if status == domain.RunRunning {
-				initial = domain.RunCreated
+			f, request := newFixedOperatorFixture(t, status, runner.ControlledCommandGoVersion, 0)
+			if request.Command.TimeoutMilliseconds != 30_000 {
+				t.Fatal("fixed default timeout changed")
 			}
-			f := newOperatorCommandFixtureAtStatus(t, domain.RunExecutionPermissionAsk, initial)
-			interaction, err := NewRunExecutionInteractionService(f.st).Change(t.Context(), ChangeRunExecutionInteractionRequest{RunID: f.run.ID, Mode: "controlled", Trust: "trusted", ConfirmWorkspaceTrust: true, OperationKey: "fixed-command-interaction", RequestedBy: "operator"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if status == domain.RunRunning {
-				if f.run, err = NewRunService(f.st).Start(t.Context(), f.run.ID); err != nil {
-					t.Fatal(err)
-				}
-			}
-			profile, err := f.st.GetRunExecutionProfile(t.Context(), f.run.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			plan, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{ID: "fixed-command-plan", WorkspaceID: "operator-workspace", WorkspaceRoot: f.root,
-				Interaction: interaction.Interaction, CurrentProfile: profile, CurrentSurface: domain.ExecutionSurfaceCode, Kind: runner.ControlledCommandGoVersion})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := f.manager.Shutdown(t.Context()); err != nil {
-				t.Fatal(err)
-			}
-			var command runner.CommandRuntimeSpec
-			f.manager, command, err = runner.NewFixedCommandRuntimeManager(f.probe, "fixed-command-owner", plan, f.root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.caps.DangerFullAccessEnabled = false
-			f.caps.FullAccessRequiresRuntimeGrant = false
-			f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
-			if err != nil {
-				t.Fatal(err)
-			}
-			request := OperatorCommandRequest{RunID: f.run.ID, OperationKey: "fixed-command-once", RequestedBy: "operator", Command: command, ConfirmExecution: true}
 			result, err := f.service.RunOperatorCommand(t.Context(), request)
 			if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped || !strings.HasPrefix(result.Job.Stdout, "go version ") || result.Job.Adapter.BackendIdentity != runner.RestrictedFixedCommandBackend {
 				t.Fatalf("fixed native Job %+v %v", result, err)
@@ -348,6 +358,70 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 			}
 		})
 	}
+	t.Run("maximum-timeout", func(t *testing.T) {
+		f, request := newFixedOperatorFixture(t, domain.RunCreated, runner.ControlledCommandGoVersion, 2*time.Minute)
+		result, err := f.service.RunOperatorCommand(t.Context(), request)
+		if err != nil || result.Job.State != runner.CommandRuntimeJobCompleted || result.Job.TimeoutMilliseconds != 120_000 || !result.Job.TreeReaped {
+			t.Fatal("fixed maximum timeout", result, err)
+		}
+	})
+	t.Run("multiple-output-pages", func(t *testing.T) {
+		f, request := newFixedOperatorFixture(t, domain.RunCreated, runner.ControlledCommandPowerShellWorkspaceList, 0)
+		for i := 0; i < 400; i++ {
+			name := fmt.Sprintf("page-%03d-%s.txt", i, strings.Repeat("x", 60))
+			if err := os.WriteFile(filepath.Join(f.root, name), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result, err := f.service.RunOperatorCommand(t.Context(), request)
+		if err != nil || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped {
+			t.Fatal("paged fixed command", result, err)
+		}
+		if len(result.Job.Stdout) <= toolgateway.MaxCommandRuntimePageBytes || len(result.Job.Stdout) > runner.MaxControlledOutputCaptureBytes || strings.Count(result.Job.Stdout, "page-") != 400 {
+			t.Fatalf("output pages lost or exceeded capture: bytes=%d entries=%d", len(result.Job.Stdout), strings.Count(result.Job.Stdout, "page-"))
+		}
+		replay, found, err := ReadOperatorCommand(t.Context(), f.st, request)
+		if err != nil || !found || !replay.Replayed || replay.Job.Stdout != result.Job.Stdout {
+			t.Fatal("paged output replay changed", err)
+		}
+	})
+	t.Run("native-timeout", func(t *testing.T) {
+		f, request := newFixedOperatorFixture(t, domain.RunPaused, runner.ControlledCommandPowerShellWorkspaceList, time.Millisecond)
+		result, err := f.service.RunOperatorCommand(t.Context(), request)
+		if err != nil || result.Job.State != runner.CommandRuntimeJobTimedOut || !result.Job.TreeReaped {
+			t.Fatal("fixed timeout did not reap its Job", result, err)
+		}
+	})
+	t.Run("cancel-running-handoff", func(t *testing.T) {
+		f, request := newFixedOperatorFixture(t, domain.RunPaused, runner.ControlledCommandGoVersion, 0)
+		plan, _ := f.manager.FixedCommandPlan()
+		if err := f.manager.Shutdown(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var err error
+		f.manager, request.Command, err = runner.NewFixedCommandRuntimeManager(&operatorCancelHandoffStore{SQLiteStore: f.st, cancel: cancel}, "fixed-handoff-owner", plan, f.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.service.RunOperatorCommand(ctx, request); !errors.Is(err, context.Canceled) {
+			t.Fatal("fixed handoff lost client cancellation", err)
+		}
+		jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.run.ID, Limit: 10})
+		if err != nil || len(jobs) != 1 || jobs[0].State != runner.CommandRuntimeJobCancelled || !jobs[0].TreeReaped {
+			t.Fatal("fixed handoff did not reap exactly one Job", jobs, err)
+		}
+		replay, found, err := ReadOperatorCommand(t.Context(), f.st, request)
+		if err != nil || !found || !replay.Replayed || replay.Job.ID != jobs[0].ID {
+			t.Fatal("cancelled fixed command resent", replay, found, err)
+		}
+	})
+
 }
 
 func TestOperatorCommandRechecksRevocationAndLeaseBeforeNativeStart(t *testing.T) {
