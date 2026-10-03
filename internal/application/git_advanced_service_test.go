@@ -57,7 +57,7 @@ func (s *gitAdvancedStartBarrierStore) StartGitAdvancedOperation(ctx context.Con
 		approvalFingerprint, startedAt)
 }
 
-func newGitAdvancedApplicationFixture(t *testing.T) gitAdvancedApplicationFixture {
+func newGitAdvancedApplicationFixture(t *testing.T, modes ...domain.RunExecutionPermissionMode) gitAdvancedApplicationFixture {
 	t.Helper()
 	ctx := context.Background()
 	state, err := store.Open(filepath.Join(t.TempDir(), "git-advanced.db"))
@@ -94,13 +94,20 @@ func newGitAdvancedApplicationFixture(t *testing.T) gitAdvancedApplicationFixtur
 			Reason: "exercise typed Git mutations"}); err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}
-	if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
-		ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionApproval),
-			OperationKey: "git-advanced-permission", RequestedBy: "test_operator",
-			Reason: "require exact Git preview approval", ConfirmUserApproval: true}); err != nil {
-		t.Fatal(err)
+	selected := domain.RunExecutionPermissionAsk
+	if len(modes) != 0 {
+		selected = modes[0]
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if selected != domain.RunExecutionPermissionAsk {
+		if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
+			ChangeRunExecutionPermissionRequest{RunID: run.ID,
+				Mode: string(selected), OperationKey: "git-advanced-permission", RequestedBy: "test_operator",
+				Reason: "require exact Git preview approval", ConfirmFull: selected == domain.RunExecutionPermissionFull}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	run, err = runs.Start(ctx, run.ID)
 	if err != nil {
