@@ -45,11 +45,11 @@ func removeSchemaV140ForTestStatements() []string {
 func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-session-v139.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := application.NewRunService(state)
+	runs := newMigrationFixtureRunService(t, state)
 	_, historical, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "preserve terminal Thread history", Profile: "review",
 		Budget: domain.Budget{MaxTurns: 3},
@@ -68,19 +68,22 @@ func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {
 		state.Close()
 		t.Fatal(err)
 	}
-	continued, err := application.NewThreadService(state).Submit(ctx,
-		application.SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion,
-			ThreadID: threadRecord.ID, Content: "continue in the current Session",
-			OperationKey: "v140-repair-successor-message-0001",
-			RequestedBy:  "test_operator"})
+	continued, err := seedHistoricalProjectionSuccessor(ctx, state, historical)
 	if err != nil {
 		state.Close()
 		t.Fatal(err)
 	}
-	current, err := runs.Start(ctx, continued.Run.ID)
+	current, err := runs.Start(ctx, continued.ID)
 	if err != nil {
 		state.Close()
 		t.Fatal(err)
+	}
+
+	bindings, err := state.ListThreadRuns(ctx, threadRecord.ID)
+	if err != nil || len(bindings) != 2 || bindings[1].RunID != current.ID ||
+		bindings[1].SessionID != current.SessionID || bindings[1].Ordinal != 2 ||
+		bindings[1].PredecessorRunID != historical.ID {
+		t.Fatalf("historical successor binding=%+v err=%v", bindings, err)
 	}
 
 	_, archivedRun, err := runs.Create(ctx, application.CreateRunRequest{

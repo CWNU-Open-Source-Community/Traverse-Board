@@ -75,11 +75,11 @@ func removeSchemaV133ForTestStatements() []string {
 func TestSchemaV133PreservesControlledInteractionAndDependentTriggers(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "standard-code-v132.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "v133 controlled interaction",
 			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {

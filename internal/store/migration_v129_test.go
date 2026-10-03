@@ -44,13 +44,13 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 	path := filepath.Join(dir, "thread-v128.db")
 	legacy := openSchemaV128Store(t, path)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
-	_, created, err := application.NewRunService(legacy).Create(ctx,
+	_, created, err := newMigrationFixtureRunService(t, legacy).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve historical task", Profile: "review",
 			Budget: domain.Budget{MaxTurns: 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := application.NewRunService(legacy)
+	runs := newMigrationFixtureRunService(t, legacy)
 	running, err := runs.Start(ctx, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 func TestSchemaV129DowngradeFixtureRestoresV128AndReupgrades(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-v129-downgrade.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestSchemaV129RepairsLegacyRunWithoutSession(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-v128-unbound.db")
 	legacy := openSchemaV128Store(t, path)
-	_, run, err := application.NewRunService(legacy).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, legacy).Create(ctx,
 		application.CreateRunRequest{Goal: "recover legacy unbound Run", Profile: "learn",
 			Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
