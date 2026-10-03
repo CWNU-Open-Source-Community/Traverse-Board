@@ -250,5 +250,6 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v179 | 扩展原文件操作授权来源账本以绑定三档操作决策及运行时撤销围栏，保留旧行、不可变触发器和审核来源 | extend the existing file-operation authorization source ledger for three-mode decisions and runtime revocation fences while preserving legacy rows, immutable triggers and approval provenance |
 | v180 | 扩展原 Command Runtime Job 账本以保存三档权限、适配器、运行时与执行围栏，保留旧 Job、行身份和所有权收据 | extend the existing Command Runtime Job ledger for three-mode permissions, adapter identity and runtime fences while preserving legacy Jobs, row identities and owner receipts |
 | v181 | 在原 Docker 准入账本接入三档权限元组，保留旧记录与子记录，并继续强制 v131 的活动候选租约及原预算约束 | admit three-mode permission tuples in the existing Docker admission ledger, retaining legacy rows and children together with the v131 active-candidate lease gate and original budget constraints |
+| v182 | 将八个 Sandbox 插入触发器的冻结用量相等约束替换为当前事务预算校验；活动候选允许单调增长，静止候选保持相等，精确租约与旧数据不可变，Docker 准入额度取当前余额 | replace frozen usage equality in eight Sandbox insert triggers with current transaction budget checks; allow monotonic usage for live candidates, retain equality for quiescent candidates, exact leases and immutable history, and derive Docker admission limits from current remaining budgets |
 
 </details>

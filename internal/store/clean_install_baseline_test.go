@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/domain"
 )
 
 func TestCleanInstallBaselineRequiresAProvablyEmptyMainSchema(t *testing.T) {
@@ -210,9 +211,10 @@ func TestLegacyV132AuditAuthorityReceiptRecoveryCleanupAndReplaySurviveUpgrade(t
 	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 132); err != nil {
 		t.Fatal(err)
 	}
-	sessionPlan, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
+	sessionPlan, identity, acceptance, ownership := legacyV132BrowserLaunchStoreFixture(t, state)
 	authorityBefore, err := state.GetRunExecutionPermission(ctx, sessionPlan.RunID)
-	if err != nil || authorityBefore.ExecutionAuthorized || authorityBefore.CapabilityGrant {
+	if err != nil || authorityBefore.Mode != domain.RunExecutionPermissionConservative ||
+		authorityBefore.ExecutionAuthorized || authorityBefore.CapabilityGrant {
 		t.Fatalf("legacy authority snapshot=%+v err=%v", authorityBefore, err)
 	}
 	attempt, lease, replayed, err := state.PrepareBrowserLaunch(ctx, sessionPlan,
@@ -322,6 +324,41 @@ func TestLegacyV132AuditAuthorityReceiptRecoveryCleanupAndReplaySurviveUpgrade(t
 	if err := verifySQLiteForeignKeys(ctx, upgraded.db); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Reuse the existing metadata-only browser identity fixture in a separate
+// current-schema database. Only identity/acceptance values cross into this
+// historical fixture; its Run and five-mode permission are seeded directly
+// under the genuine v132 constraints without relaxing a trigger.
+func legacyV132BrowserLaunchStoreFixture(t *testing.T, state *SQLiteStore) (
+	browserruntime.SessionPlan, browserruntime.BrowserExecutableIdentity,
+	browserruntime.BrowserAcceptanceCandidate, browserruntime.ProfileOwnershipPlan,
+) {
+	t.Helper()
+	metadata, err := Open(filepath.Join(t.TempDir(), "browser-identity-fixture.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer metadata.Close()
+	_, identity, acceptance, _ := browserLaunchStoreFixture(t, metadata)
+	workspace := WorkspaceRecord{ID: "workspace-browser-launch-store", Name: "browser-launch-store", RootPath: t.TempDir()}
+	if err := state.SaveWorkspace(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	run := seedLegacyStructuredToolRun(t, state, workspace.ID, domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+	plan, err := browserruntime.BuildSessionPlan(browserruntime.NewSessionPlanRequest{
+		SessionID: run.SessionID, RunID: run.ID, WorkspaceID: workspace.ID,
+		ProfileID: browserruntime.ProfileSafeWeb, Targets: []string{"https://example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := browserruntime.BuildProfileOwnershipPlan(plan, identity,
+		filepath.Join(t.TempDir(), browserruntime.ProfileRuntimeRootName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan, identity, acceptance, ownership
 }
 
 func BenchmarkSQLiteCleanInstallCreationPaths(b *testing.B) {

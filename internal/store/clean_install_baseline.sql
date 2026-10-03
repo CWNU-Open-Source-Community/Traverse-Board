@@ -20029,27 +20029,37 @@ CREATE TRIGGER trg_sandbox_backend_evidence_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_backend_preflight_checks check_row
 					WHERE check_row.preflight_id = preflight.id AND check_row.required = 1
 						AND check_row.verified = 0 AND check_row.evidence_state = 'not_probed') = 16
@@ -20226,27 +20236,37 @@ CREATE TRIGGER trg_sandbox_disabled_execution_insert
 								AND lease.generation = candidate.run_lease_generation
 								AND lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'sandbox disabled execution binding is invalid');
@@ -20307,27 +20327,37 @@ CREATE TRIGGER trg_sandbox_disabled_preflight_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -20770,28 +20800,37 @@ CREATE TRIGGER trg_sandbox_docker_container_plan_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
-						WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -21734,28 +21773,37 @@ CREATE TRIGGER trg_sandbox_docker_observation_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
-						WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -21987,30 +22035,50 @@ CREATE TRIGGER trg_sandbox_docker_product_admission_insert
 								AND lease.generation = candidate.run_lease_generation
 								AND lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed
-					FROM run_tool_usage usage WHERE usage.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis
-						FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis)
-						FROM specialist_model_calls call WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1
-						THEN call.elapsed_millis ELSE call.reserved_millis END)
-						FROM readonly_fanout_model_calls call WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.wall_clock_seconds = CASE
-					WHEN COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-						THEN plan.timeout_seconds
-					ELSE MIN(plan.timeout_seconds,
-						(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000
-							- candidate.execution_millis_used) / 1000)
-					END
-				AND NEW.tool_calls_remaining = CASE
-					WHEN COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-						THEN 100
-					ELSE MIN(100, CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER)
-						- candidate.tool_calls_used)
-					END
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+						AND NEW.wall_clock_seconds = CASE
+							WHEN COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+								THEN plan.timeout_seconds
+							ELSE MIN(plan.timeout_seconds,
+								(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000
+									- current_usage.execution_millis) / 1000)
+							END
+						AND NEW.tool_calls_remaining = CASE
+							WHEN COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+								THEN 100
+							ELSE MIN(100, CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER)
+								- current_usage.tool_calls)
+							END
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'Docker Sandbox product admission binding is invalid');
@@ -23382,27 +23450,37 @@ CREATE TRIGGER trg_sandbox_execution_candidate_insert
 								AND lease.generation = NEW.run_lease_generation
 								AND lease.owner_id = NEW.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND NEW.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR NEW.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR NEW.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR NEW.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= NEW.tokens_used
+						AND current_usage.execution_millis >= NEW.execution_millis_used
+						AND current_usage.tool_calls >= NEW.tool_calls_used
+						AND (NEW.lease_quiescent = 0 OR (
+							current_usage.tokens = NEW.tokens_used
+							AND current_usage.execution_millis = NEW.execution_millis_used
+							AND current_usage.tool_calls = NEW.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'sandbox execution candidate binding is invalid');
@@ -23663,27 +23741,37 @@ CREATE TRIGGER trg_sandbox_output_simulation_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
