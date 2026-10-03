@@ -36,7 +36,7 @@ func legacyWindowsPreviewMigration136Statements(t testing.TB) []string {
 func TestSchemaV138RepairsExactLegacyWindowsPreviewV136(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy-windows-preview-v136.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

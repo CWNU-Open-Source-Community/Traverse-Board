@@ -134,9 +134,14 @@ func TestThreadPullRequestHTTPApprovalLostReplyAndReadOnlyRestart(t *testing.T) 
 		t.Fatal(err)
 	}
 	caps := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}
-	_, err = application.NewRunExecutionPermissionService(st, caps).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "approval", OperationKey: "http-pr-permission", RequestedBy: "fixture", Reason: "exact remote approval", ConfirmUserApproval: true})
-	if err != nil {
-		t.Fatal(err)
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionAsk} {
+		selected, err := application.NewRunExecutionPermissionService(st, caps).Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(mode), OperationKey: "http-pr-permission-" + string(mode),
+			RequestedBy: "fixture", Reason: "require exact approval for the selected remote operation",
+		})
+		if err != nil || selected.Permission.Mode != mode || selected.Permission.ExecutionAuthorized || selected.Permission.CapabilityGrant {
+			t.Fatalf("current permission selection=%+v err=%v", selected, err)
+		}
 	}
 	if _, err = runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)

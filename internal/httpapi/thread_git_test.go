@@ -63,9 +63,14 @@ func TestThreadGitHTTPSelectedCommitAuthorizationAndReadOnlyObservation(t *testi
 		t.Fatal(err)
 	}
 	caps := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}
-	_, err = application.NewRunExecutionPermissionService(st, caps).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "approval", OperationKey: "http-git-approval-mode", RequestedBy: "fixture", Reason: "explicit selected Git operation", ConfirmUserApproval: true})
-	if err != nil {
-		t.Fatal(err)
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionAsk} {
+		selected, err := application.NewRunExecutionPermissionService(st, caps).Change(ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(mode), OperationKey: "http-git-permission-" + string(mode),
+			RequestedBy: "fixture", Reason: "require exact approval for the selected Git operation",
+		})
+		if err != nil || selected.Permission.Mode != mode || selected.Permission.ExecutionAuthorized || selected.Permission.CapabilityGrant {
+			t.Fatalf("current permission selection=%+v err=%v", selected, err)
+		}
 	}
 	if _, err = runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
