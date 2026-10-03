@@ -21,6 +21,7 @@ import (
 
 type gitAdvancedApplicationFixture struct {
 	state        *store.SQLiteStore
+	database     string
 	service      *GitAdvancedService
 	executor     *repository.AdvancedExecutor
 	run          domain.Run
@@ -60,7 +61,8 @@ func (s *gitAdvancedStartBarrierStore) StartGitAdvancedOperation(ctx context.Con
 func newGitAdvancedApplicationFixture(t *testing.T, modes ...domain.RunExecutionPermissionMode) gitAdvancedApplicationFixture {
 	t.Helper()
 	ctx := context.Background()
-	state, err := store.Open(filepath.Join(t.TempDir(), "git-advanced.db"))
+	database := filepath.Join(t.TempDir(), "git-advanced.db")
+	state, err := store.Open(database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +129,7 @@ func newGitAdvancedApplicationFixture(t *testing.T, modes ...domain.RunExecution
 	if err != nil {
 		t.Fatal(err)
 	}
-	return gitAdvancedApplicationFixture{state: state, service: service,
+	return gitAdvancedApplicationFixture{state: state, database: database, service: service,
 		executor: executor, run: run, lease: leaseResult.Lease,
 		root: root, capabilities: capabilities}
 }
@@ -573,6 +575,10 @@ func TestGitAdvancedStartupReconciliationPersistsInterruptedConflictWithoutRepla
 		t.Fatalf("simulate crash after conflicted rebase: %v %#v", err, receipt)
 	}
 
+	// Retained legacy preferences remain readable during crash recovery even
+	// though they cannot authorize another mutation.
+	seedRetainedNativePermission(t, fixture.database, fixture.state, fixture.run.ID,
+		domain.RunExecutionPermissionApproval)
 	// A fresh process has a different capability generation. Reconciliation
 	// observes state and terminalizes the old operation without invoking Git.
 	restartedExecutor, err := repository.NewAdvancedExecutor(
@@ -772,7 +778,7 @@ func TestGitAdvancedStartupReconciliationAcceptsAlreadyPersistedTerminalSequence
 		t.Fatalf("execute persisted sequence abort: %v %#v", err, receipt)
 	}
 	authority, err := fixture.service.loadMutationAuthority(t.Context(), fixture.run.ID,
-		fixture.scope(), true)
+		fixture.scope())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,20 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
-	"cyberagent-workbench/internal/toolcontract"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
@@ -292,7 +289,7 @@ func (s *GitAdvancedService) Review(ctx context.Context,
 		return GitAdvancedReviewResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"select exact hunk identities from discovery before requesting approval")
 	}
-	authority, err := s.loadMutationAuthority(ctx, request.RunID, request.Scope, false)
+	authority, err := s.loadMutationAuthority(ctx, request.RunID, request.Scope)
 	if err != nil {
 		return GitAdvancedReviewResult{}, err
 	}
@@ -308,15 +305,9 @@ func (s *GitAdvancedService) Review(ctx context.Context,
 	preview.PermissionRevision = authority.permission.Revision
 	preview.LeaseID = authority.lease.LeaseID
 	preview.LeaseGeneration = authority.lease.Generation
-	preview.ApprovalFingerprint = gitadvanced.Fingerprint("authorized-preview",
-		preview.ApprovalFingerprint, authority.run.ID, authority.workspace.ID,
-		authority.permission.ID, fmt.Sprint(authority.permission.Revision),
-		authority.lease.LeaseID, fmt.Sprint(authority.lease.Generation))
-	if authority.permission.Mode.IsApprovalMode() {
-		preview.ApprovalFingerprint, err = s.operationApprovalFingerprint(ctx, authority, preview, true)
-		if err != nil {
-			return GitAdvancedReviewResult{}, err
-		}
+	preview.ApprovalFingerprint, err = s.operationApprovalFingerprint(ctx, authority, preview, true)
+	if err != nil {
+		return GitAdvancedReviewResult{}, err
 	}
 	if !preview.Executable() {
 		return GitAdvancedReviewResult{ProtocolVersion: GitAdvancedAPIProtocolVersion,
@@ -419,7 +410,7 @@ func (s *GitAdvancedService) Execute(ctx context.Context,
 				Operation: record, Replayed: true}, apperror.New(apperror.CodeFailedPrecondition,
 				"Git advanced operation was interrupted after execution began; reconcile or recover it instead of replaying")
 	}
-	authority, err := s.loadMutationAuthority(ctx, request.RunID, request.Scope, true)
+	authority, err := s.loadMutationAuthority(ctx, request.RunID, request.Scope)
 	if err != nil {
 		return GitAdvancedExecuteResult{}, err
 	}
@@ -449,13 +440,9 @@ func (s *GitAdvancedService) Execute(ctx context.Context,
 	if err := s.requireDurableTarget(ctx, authority, preview); err != nil {
 		return GitAdvancedExecuteResult{}, err
 	}
-	var guards []toolcontract.DispatchGuard
-	if authority.permission.Mode.IsApprovalMode() {
-		guard, err := s.operationDispatchGuard(ctx, request, record, preview)
-		if err != nil {
-			return GitAdvancedExecuteResult{}, err
-		}
-		guards = append(guards, guard)
+	guard, err := s.operationDispatchGuard(ctx, request, record, preview)
+	if err != nil {
+		return GitAdvancedExecuteResult{}, err
 	}
 	boundaryRequest := WorkspaceMutationBoundaryRequest{RunID: authority.run.ID,
 		Kind:         workspacecheckpoint.TransactionGitMutation,
@@ -487,7 +474,7 @@ func (s *GitAdvancedService) Execute(ctx context.Context,
 				"Git advanced operation already began; reconcile or await its terminal receipt instead of replaying it")
 	}
 	receipt, executeErr := s.executor.ExecuteAdvanced(ctx,
-		authority.workspace.RootPath, preview, guards...)
+		authority.workspace.RootPath, preview, guard)
 	receipt.CheckpointID = boundary.Before.ID
 	sequence, worktree, stateErr := s.persistGitAdvancedState(context.WithoutCancel(ctx),
 		authority, record, preview, receipt)
@@ -611,17 +598,8 @@ func (s *GitAdvancedService) gitAdvancedAuthorityView(ctx context.Context,
 		view.LeaseActive = value.lease.Status == domain.RunExecutionLeaseActive &&
 			value.lease.ExpiresAt.After(s.now().UTC())
 	}
-	permissionAvailable := false
-	if value.permission.Mode.IsApprovalMode() {
-		permissionAvailable = value.permission.Validate() == nil && s.permissionCapabilities.OperatorApprovalEnabled &&
-			s.permissionCapabilities.RuntimeAuthority != nil
-	} else {
-		decision, decisionErr := executionauth.EvaluateExecutionPermission(value.permission,
-			s.permissionCapabilities, executionauth.PermissionRequest{
-				Kind:           executionauth.PermissionOperationStatelessCommand,
-				HostFilesystem: true, Network: false, OperatorApproved: true})
-		permissionAvailable = decisionErr == nil && decision.Allowed && decision.HostFilesystem && !decision.Network
-	}
+	permissionAvailable := value.permission.Mode.IsApprovalMode() && value.permission.Validate() == nil &&
+		s.permissionCapabilities.OperatorApprovalEnabled && s.permissionCapabilities.RuntimeAuthority != nil
 	view.Executable = permissionAvailable && view.LeaseActive && value.run.Status == domain.RunRunning &&
 		value.mode.RunID == value.run.ID && value.mode.MissionID == value.mission.ID &&
 		value.mode.Surface == domain.ExecutionSurfaceCode &&
@@ -630,7 +608,6 @@ func (s *GitAdvancedService) gitAdvancedAuthorityView(ctx context.Context,
 		value.profile.Profile == domain.RunExecutionProfileLocal &&
 		value.profile.NetworkScope == domain.ExecutionNetworkDisabled &&
 		value.permission.RunID == value.run.ID && value.permission.MissionID == value.mission.ID &&
-		value.permission.Mode != domain.RunExecutionPermissionConservative &&
 		s.permissionCapabilities.AllowsSnapshot(value.permission)
 	return view, nil
 }
@@ -1057,7 +1034,7 @@ func (s *GitAdvancedService) loadReadBinding(ctx context.Context,
 }
 
 func (s *GitAdvancedService) loadMutationAuthority(ctx context.Context, runID string,
-	scope GitAdvancedScope, operatorApproved bool,
+	scope GitAdvancedScope,
 ) (gitAdvancedAuthority, error) {
 	value, err := s.loadReadBinding(ctx, runID)
 	if err != nil {
@@ -1099,7 +1076,7 @@ func (s *GitAdvancedService) loadMutationAuthority(ctx context.Context, runID st
 		value.profile.NetworkScope != domain.ExecutionNetworkDisabled ||
 		value.permission.RunID != value.run.ID ||
 		value.permission.MissionID != value.mission.ID ||
-		value.permission.Mode == domain.RunExecutionPermissionConservative ||
+		!value.permission.Mode.IsApprovalMode() || value.permission.Validate() != nil ||
 		!s.permissionCapabilities.AllowsSnapshot(value.permission) ||
 		capability.Generation != scope.CapabilityGeneration ||
 		value.lease.Status != domain.RunExecutionLeaseActive ||
@@ -1108,29 +1085,9 @@ func (s *GitAdvancedService) loadMutationAuthority(ctx context.Context, runID st
 		return value, apperror.New(apperror.CodeConflict,
 			"Git advanced permission, capability, or Workspace lease binding is stale")
 	}
-	if value.permission.Mode.IsApprovalMode() {
-		// This is readiness to request a native preview, never permission to
-		// mutate. Execute resolves the exact approval through the common policy
-		// and the adapter rechecks it immediately before every native effect.
-		return value, nil
-	}
-	decision, err := executionauth.EvaluateExecutionPermission(value.permission,
-		s.permissionCapabilities, executionauth.PermissionRequest{
-			Kind:           executionauth.PermissionOperationStatelessCommand,
-			HostFilesystem: true, Network: false, OperatorApproved: operatorApproved})
-	if err != nil {
-		return value, apperror.Wrap(apperror.CodeInvalidArgument,
-			"Git advanced permission request is invalid", err)
-	}
-	if operatorApproved {
-		if !decision.Allowed || !decision.HostFilesystem || decision.Network {
-			return value, apperror.New(apperror.CodePolicyDenied,
-				"current Run permission does not authorize the approved Git mutation")
-		}
-	} else if !decision.Allowed && !decision.RequiresApproval {
-		return value, apperror.New(apperror.CodePolicyDenied,
-			"current Run permission cannot request Git mutation approval")
-	}
+	// This is readiness to request a native preview, never permission to
+	// mutate. Execute resolves the exact approval through the common policy
+	// and the adapter rechecks it immediately before every native effect.
 	return value, nil
 }
 

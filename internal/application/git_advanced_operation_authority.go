@@ -99,7 +99,7 @@ func (s *GitAdvancedService) operationDispatchGuard(ctx context.Context,
 		if actual != subject || approvalRef != request.ApprovalID {
 			return executionauth.OperationAuthority{}, errors.New("Git operation subject or approval changed")
 		}
-		current, err := s.loadMutationAuthority(checkCtx, request.RunID, request.Scope, true)
+		current, err := s.loadMutationAuthority(checkCtx, request.RunID, request.Scope)
 		if err != nil {
 			return executionauth.OperationAuthority{}, err
 		}

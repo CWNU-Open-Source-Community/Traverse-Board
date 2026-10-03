@@ -204,3 +204,55 @@ func TestGitAdvancedDispatchGuardCannotResumeAfterInputRejection(t *testing.T) {
 		t.Fatalf("rejected operation changed the index: %s", got)
 	}
 }
+
+func TestGitAdvancedRetainedLegacyModesKeepObservationAndReplayWithoutNewAuthority(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionWorkspaceAccess,
+		domain.RunExecutionPermissionApproval, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newGitAdvancedApplicationFixture(t)
+			review := reviewApprovalModeGitHunk(t, f)
+			request := approveModeGitHunk(t, f, review)
+			completed, err := f.service.Execute(t.Context(), request)
+			if err != nil || completed.Receipt.Status != gitadvanced.ReceiptSucceeded {
+				t.Fatalf("complete original operation: %v %#v", err, completed)
+			}
+			before := runFixtureGit(t, "-C", f.root, "diff", "--cached")
+			retained := seedRetainedNativePermission(t, f.database, f.state, f.run.ID, mode)
+			current, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
+			if err != nil || current.ID != retained.ID || current.Mode != mode {
+				t.Fatalf("read retained preference: %v %#v", err, current)
+			}
+			spec := gitadvanced.Spec{ProtocolVersion: gitadvanced.ProtocolVersion, Operation: gitadvanced.HunkUnstage}
+			discovery, err := f.service.DiscoverHunks(t.Context(), f.run.ID, spec)
+			if err != nil || len(discovery.Preview.Hunks) != 1 || discovery.Operation != nil || discovery.Approval != nil {
+				t.Fatalf("legacy observation became unavailable or authorizing: %v %#v", err, discovery)
+			}
+			spec.HunkIDs = []string{discovery.Preview.Hunks[0].ID}
+			denied, err := f.service.Review(t.Context(), GitAdvancedReviewRequest{
+				ProtocolVersion: GitAdvancedAPIProtocolVersion, RunID: f.run.ID, Scope: f.scope(),
+				OperationKey: "retired-policy-review", RequestedBy: "operator", Spec: spec})
+			if err == nil || denied.Operation != nil || denied.Approval != nil {
+				t.Fatalf("retired policy issued new mutation authority: %v %#v", err, denied)
+			}
+			projection, err := f.service.Projection(t.Context(), f.run.ID, 20)
+			if err != nil || projection.Authority.Executable || len(projection.Operations) != 1 ||
+				projection.Authority.PermissionSnapshotID != retained.ID {
+				t.Fatalf("legacy history must remain readable without execution authority: %v %#v", err, projection)
+			}
+			f.capabilities.RuntimeAuthority.RevokeRun(f.run.ID)
+			replay, err := f.service.Execute(t.Context(), request)
+			if err != nil || !replay.Replayed || replay.Operation.ID != completed.Operation.ID ||
+				replay.Receipt.ID != completed.Receipt.ID {
+				t.Fatalf("retained receipt replay failed: %v %#v", err, replay)
+			}
+			if got := runFixtureGit(t, "-C", f.root, "diff", "--cached"); got != before {
+				t.Fatalf("retired policy changed the index: %s", got)
+			}
+			if _, found := f.capabilities.RuntimeAuthority.RunAuthorizationFence(f.run.ID); found {
+				t.Fatal("legacy replay renewed revoked authority")
+			}
+		})
+	}
+}
