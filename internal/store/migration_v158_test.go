@@ -15,7 +15,7 @@ func TestSchemaV158PreservesExistingSteeringAndExternalForeignKeys(t *testing.T)
 	if err := applyMigrationPrefixForTest(t.Context(), state, migrationPlan(), 157); err != nil {
 		t.Fatal(err)
 	}
-	runs := application.NewRunService(state)
+	runs := newMigrationFixtureRunService(t, state)
 	_, run, err := runs.Create(t.Context(), application.CreateRunRequest{Goal: "Old image-free message", Profile: "review", Budget: domain.Budget{MaxTurns: 3}})
 	if err != nil {
 		t.Fatal(err)
