@@ -12,6 +12,7 @@ const fieldLabels: Record<string, string> = { command: "命令", executable: "�
   parameters: "精确参数", summary: "影响", path: "文件", destination_path: "目标文件",
   url: "网址", host: "主机", effect: "操作类型" };
 const effectText: Record<ApprovalPreviewView["effect"], string> = {
+  command_process: "仅批准这批固定命令或本次标准输入，限定原 Run 的进程。宿主工作目录与网络声明不能保证隔离；输入或权限变化后须重新评估。",
   mcp_server_and_tool: "仅批准此服务的启动、能力发现和本次工具调用。工具的外部副作用未经验证；服务配置、参数或权限变化后须重新评估。",
   dry_run: "批准后只记录这一次模拟执行，不启动真实进程。拒绝会终止这份提案。",
   record_git_approval: "仅授权这份 Git 提案一次；执行前仍会核对仓库、权限和预览是否变化。此按钮不执行 Git 操作，拒绝后该提案不能执行。",
@@ -87,7 +88,7 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
     },
     onSuccess: (result, action) => {
       const continuation = result.continuation;
-      const next = ["agent_browser_sensitive", "mcp_tool_call"].includes(item.tool_name) ? continuation?.state === "queued"
+      const next = ["agent_browser_sensitive", "mcp_tool_call", "command_runtime"].includes(item.tool_name) ? continuation?.state === "queued"
         ? "Agent 已接收继续处理的请求。"
         : continuation?.state === "completed" || continuation?.state === "waiting_approval"
           ? "Agent 已继续处理，可在工作记录中查看结果。"

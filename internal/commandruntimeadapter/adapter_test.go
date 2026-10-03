@@ -1,6 +1,7 @@
 package commandruntimeadapter
 
 import (
+	"reflect"
 	"testing"
 
 	"cyberagent-workbench/internal/domain"
@@ -23,6 +24,15 @@ func TestAdapterPermissionMatrixFailsClosed(t *testing.T) {
 		"host debug":          {host, domain.RunExecutionPermissionDebug, true, true},
 		"host workspace":      {host, domain.RunExecutionPermissionWorkspaceAccess, false, true},
 		"legacy full access":  {legacy, domain.RunExecutionPermissionFullAccess, false, false},
+		"sandbox ask":         {sandboxed, domain.RunExecutionPermissionAsk, true, true},
+		"sandbox auto":        {sandboxed, domain.RunExecutionPermissionAuto, true, true},
+		"sandbox full":        {sandboxed, domain.RunExecutionPermissionFull, true, true},
+		"host ask":            {host, domain.RunExecutionPermissionAsk, true, true},
+		"host auto":           {host, domain.RunExecutionPermissionAuto, true, true},
+		"host full":           {host, domain.RunExecutionPermissionFull, true, true},
+		"legacy ask":          {legacy, domain.RunExecutionPermissionAsk, false, false},
+		"legacy auto":         {legacy, domain.RunExecutionPermissionAuto, false, false},
+		"legacy full":         {legacy, domain.RunExecutionPermissionFull, false, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := test.identity.AllowsPermission(test.permission); got != test.allowed {
@@ -67,7 +77,7 @@ func TestCommandRuntimeAuthorityBindsOptionalLiveFullAccessGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err := DecodeAuthority(encoded)
-	if err != nil || decoded != authority {
+	if err != nil || !reflect.DeepEqual(decoded, authority) {
 		t.Fatalf("live Full Access authority=%+v err=%v", decoded, err)
 	}
 	partial := authority

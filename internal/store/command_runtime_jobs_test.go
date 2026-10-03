@@ -46,16 +46,11 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
-	permissionResult, err := application.NewRunExecutionPermissionService(st, capabilities).Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "command-runtime-permission-0001", RequestedBy: "test_operator",
-			Reason: "enable the managed command runtime", ConfirmDangerFullAccess: true})
+	currentPermission, err := st.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	permissionResult := application.ChangeRunExecutionPermissionResult{Permission: seedRetainedCommandPermission(t, st.db, currentPermission, domain.RunExecutionPermissionFullAccess)}
 	startedRun, err := runs.Start(ctx, runRecord.ID)
 	if err != nil {
 		t.Fatal(err)

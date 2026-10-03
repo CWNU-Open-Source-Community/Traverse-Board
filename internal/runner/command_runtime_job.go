@@ -125,6 +125,7 @@ type CommandRuntimeScope struct {
 	PermissionMode         domain.RunExecutionPermissionMode
 	PermissionRuntimeEpoch string
 	PermissionGeneration   uint64
+	RunAuthorizationFence  uint64
 	LeaseID                string
 	LeaseGeneration        int64
 	LeaseOwnerID           string
@@ -152,7 +153,7 @@ func (s CommandRuntimeScope) Validate() error {
 		len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
 		s.ModeRevision <= 0 || s.ProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseGeneration <= 0 ||
-		(s.PermissionRuntimeEpoch == "") != (s.PermissionGeneration == 0) ||
+		!commandruntimeadapter.ValidRuntimeBinding(s.PermissionMode, s.PermissionRuntimeEpoch, s.PermissionGeneration, s.RunAuthorizationFence) ||
 		!s.Adapter.AllowsPermission(s.PermissionMode) {
 		return ErrCommandRuntimeBoundary
 	}
@@ -187,6 +188,7 @@ type CommandRuntimeJob struct {
 	PermissionMode         domain.RunExecutionPermissionMode
 	PermissionRuntimeEpoch string
 	PermissionGeneration   uint64
+	RunAuthorizationFence  uint64
 	LeaseID                string
 	LeaseGeneration        int64
 	LeaseOwnerID           string
@@ -323,7 +325,7 @@ func (j CommandRuntimeJob) Validate() error {
 			j.Network != CommandRuntimeNetworkHost) || !j.State.Valid() ||
 		(j.Network == CommandRuntimeNetworkHost &&
 			(j.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-				!j.PermissionMode.IncludesFullAccess())) ||
+				!j.Adapter.AllowsPermission(j.PermissionMode))) ||
 		j.Credentials != CommandRuntimeCredentialsNone || j.Adapter.Validate() != nil ||
 		(j.Adapter.Kind != commandruntimeadapter.KindLegacyUnbound &&
 			!j.Adapter.AllowsPermission(j.PermissionMode)) ||
@@ -355,7 +357,7 @@ func (j CommandRuntimeJob) Validate() error {
 		j.UpdatedAt.Before(j.CreatedAt) {
 		return ErrCommandRuntimeBoundary
 	}
-	if (j.PermissionRuntimeEpoch == "") != (j.PermissionGeneration == 0) ||
+	if !commandruntimeadapter.ValidRuntimeBinding(j.PermissionMode, j.PermissionRuntimeEpoch, j.PermissionGeneration, j.RunAuthorizationFence) ||
 		(j.PermissionRuntimeEpoch != "" &&
 			(strings.TrimSpace(j.PermissionRuntimeEpoch) != j.PermissionRuntimeEpoch ||
 				!validCommandRuntimeText(j.PermissionRuntimeEpoch, false) ||
@@ -643,7 +645,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		!request.Spec.Spec.Network.Valid() ||
 		(request.Spec.Spec.Network == CommandRuntimeNetworkHost &&
 			(request.Scope.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-				!request.Scope.PermissionMode.IncludesFullAccess())) ||
+				!request.Scope.Adapter.AllowsPermission(request.Scope.PermissionMode))) ||
 		validateCommandRuntimeAttachmentInput(request.Spec) != nil {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
@@ -679,6 +681,9 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 			request.Scope.PermissionRuntimeEpoch,
 			fmt.Sprint(request.Scope.PermissionGeneration))
 	}
+	if request.Scope.RunAuthorizationFence != 0 {
+		requestParts = append(requestParts, "run_authorization_fence", fmt.Sprint(request.Scope.RunAuthorizationFence))
+	}
 	now := time.Now().UTC()
 	ownerExpiresAt := now.Add(m.ownerLeaseTTL)
 	record := CommandRuntimeJob{
@@ -697,6 +702,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		PermissionMode:         request.Scope.PermissionMode,
 		PermissionRuntimeEpoch: request.Scope.PermissionRuntimeEpoch,
 		PermissionGeneration:   request.Scope.PermissionGeneration,
+		RunAuthorizationFence:  request.Scope.RunAuthorizationFence,
 		LeaseID:                request.Scope.LeaseID, LeaseGeneration: request.Scope.LeaseGeneration,
 		LeaseOwnerID: request.Scope.LeaseOwnerID, Adapter: request.Scope.Adapter,
 		OwnerID: m.ownerID, OwnerGeneration: m.ownerGeneration,

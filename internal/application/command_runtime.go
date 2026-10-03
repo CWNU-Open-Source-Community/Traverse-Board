@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/drydock"
-	"cyberagent-workbench/internal/executionauth"
+	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
@@ -44,6 +45,8 @@ type CommandRuntimeService struct {
 	checkpoints  *WorkspaceCheckpointService
 	drydocks     *DrydockService
 	sandbox      runner.CommandRuntimeSandboxExecutor
+	checker      policy.Checker
+	policyMu     sync.RWMutex
 }
 
 type commandRuntimeSandboxReadiness interface {
@@ -74,7 +77,7 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 ) (*CommandRuntimeService, error) {
 	if store == nil || manager == nil || !manager.Available() ||
 		capabilities.Validate() != nil ||
-		!capabilities.Allows(domain.RunExecutionPermissionFullAccess) {
+		!capabilities.DangerFullAccessEnabled {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"command runtime requires the danger-full-access startup gate")
 	}
@@ -85,8 +88,8 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 			"command runtime host adapter identity is invalid")
 	}
 	return &CommandRuntimeService{store: store, manager: manager, adapter: adapter,
-		capabilities: capabilities,
-		checkpoints:  embeddedWorkspaceCheckpointService(store, capabilities)}, nil
+		capabilities: capabilities, checker: policy.NewDefaultChecker(),
+		checkpoints: embeddedWorkspaceCheckpointService(store, capabilities)}, nil
 }
 
 // NewSandboxedCommandRuntimeService binds the shared Job protocol to one
@@ -102,7 +105,7 @@ func NewSandboxedCommandRuntimeService(store CommandRuntimeStore,
 	if store == nil || manager == nil || !manager.Available() || drydocks == nil ||
 		sandboxExecutor == nil || !sandboxExecutor.Available() ||
 		capabilities.Validate() != nil ||
-		!capabilities.Allows(domain.RunExecutionPermissionWorkspaceAccess) {
+		!capabilities.WorkspaceSandboxEnabled {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"sandboxed command runtime requires a proven Workspace Sandbox and Drydock")
 	}
@@ -130,7 +133,7 @@ func NewSandboxedCommandRuntimeService(store CommandRuntimeStore,
 		checkpointService = nil
 	}
 	return &CommandRuntimeService{store: store, manager: manager, adapter: adapter,
-		capabilities: capabilities, checkpoints: checkpointService,
+		capabilities: capabilities, checker: policy.NewDefaultChecker(), checkpoints: checkpointService,
 		drydocks: drydocks, sandbox: sandboxExecutor}, nil
 }
 
@@ -170,6 +173,14 @@ func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Cont
 	}
 	if ctx.Err() != nil {
 		return commandruntimeadapter.Identity{}, false, ctx.Err()
+	}
+	if permission.IsApprovalMode() && s.adapter.Kind == commandruntimeadapter.KindHostUnsandboxed {
+		// An owned execution workspace selects its sandbox independently of the
+		// approval preference. Missing sandbox readiness never falls back to host.
+		_, owned, err := readRunFileDrydock(ctx, s.store, runID)
+		if err != nil || owned {
+			return commandruntimeadapter.Identity{}, false, err
+		}
 	}
 	runRecord, err := s.store.GetRun(ctx, runID)
 	if err != nil {
@@ -250,16 +261,19 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 	for _, command := range input.Commands {
 		if command.Network == runner.CommandRuntimeNetworkHost {
 			if s.adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-				!scope.PermissionMode.IncludesFullAccess() {
+				!s.adapter.AllowsPermission(scope.PermissionMode) {
 				return toolgateway.CommandRuntimeExecutionResult{}, apperror.New(
 					apperror.CodePolicyDenied,
-					"host network requires a Full Access host command adapter")
+					"host network requires an installed host command adapter and operation authorization")
 			}
 			networkRequested = true
 		}
 	}
 	bindings, err := s.loadAuthorizedBindings(ctx, scope, networkRequested)
 	if err != nil {
+		return toolgateway.CommandRuntimeExecutionResult{}, err
+	}
+	if err := s.checkPreparedCommandCall(ctx, scope, bindings, input); err != nil {
 		return toolgateway.CommandRuntimeExecutionResult{}, err
 	}
 	adapter := s.adapter
@@ -725,6 +739,15 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		return value, apperror.Normalize(err)
 	}
 	value.rootPath = value.workspace.RootPath
+	if value.permission.Mode.IsApprovalMode() && s.adapter.Kind == commandruntimeadapter.KindHostUnsandboxed {
+		_, owned, err := readRunFileDrydock(ctx, s.store, value.run.ID)
+		if err != nil {
+			return value, err
+		}
+		if owned {
+			return value, apperror.New(apperror.CodeConflict, "owned command workspace requires its sandbox adapter")
+		}
+	}
 	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
 		var drydockFound bool
 		if value.drydock, drydockFound, err = readRunFileDrydock(ctx, s.store,
@@ -779,24 +802,10 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	}
 	if !commandRuntimeLivePermissionMatches(s.capabilities, value.permission, scope) {
 		return value, apperror.New(apperror.CodePolicyDenied,
-			"command runtime Full Access grant is stale")
+			"command runtime runtime binding is stale")
 	}
-	request := executionauth.PermissionRequest{Network: networkRequested, BackgroundProcess: true}
-	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
-		request.Kind = executionauth.PermissionOperationSandboxedWorkspace
-	} else {
-		request.Kind = executionauth.PermissionOperationManagedCommand
-		request.HostFilesystem = true
-	}
-	decision, err := executionauth.EvaluateExecutionPermission(value.permission,
-		s.capabilities, request)
-	if err != nil {
-		return value, apperror.Wrap(apperror.CodeInvalidArgument,
-			"command runtime permission request is invalid", err)
-	}
-	if !commandRuntimePermissionDecisionMatches(s.adapter, decision, networkRequested) {
-		return value, apperror.New(apperror.CodePolicyDenied,
-			"command runtime is not authorized by the current permission gate")
+	if !s.capabilities.AllowsSnapshot(value.permission) || (networkRequested && s.adapter.Kind != commandruntimeadapter.KindHostUnsandboxed) {
+		return value, apperror.New(apperror.CodePolicyDenied, "command runtime is unavailable for the current snapshot")
 	}
 	return value, nil
 }
@@ -806,6 +815,9 @@ func commandRuntimeLivePermissionMatches(
 	permission domain.RunExecutionPermissionSnapshot,
 	scope toolgateway.CommandRuntimeContext,
 ) bool {
+	if permission.Mode.IsApprovalMode() {
+		return agentCodeRuntimeCurrent(capabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence)
+	}
 	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
 		capabilities.FullAccessRequiresRuntimeGrant {
 		if capabilities.RuntimeAuthority == nil ||
@@ -839,6 +851,7 @@ func (s *CommandRuntimeService) runnerScope(scope toolgateway.CommandRuntimeCont
 		PermissionRevision:     bindings.permission.Revision,
 		PermissionGeneration:   scope.PermissionGeneration,
 		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  scope.RunAuthorizationFence,
 		PermissionMode:         bindings.permission.Mode, LeaseID: bindings.lease.LeaseID,
 		LeaseGeneration: bindings.lease.Generation,
 		LeaseOwnerID:    bindings.lease.OwnerID, Adapter: s.adapter}
@@ -1047,6 +1060,9 @@ func commandRuntimeJobGrantMatches(
 	permission domain.RunExecutionPermissionSnapshot,
 	job runner.CommandRuntimeJob,
 ) bool {
+	if permission.Mode.IsApprovalMode() {
+		return agentCodeRuntimeCurrent(capabilities, permission, job.PermissionSnapshotID, job.PermissionGeneration, job.PermissionRuntimeEpoch, job.RunAuthorizationFence)
+	}
 	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
 		capabilities.FullAccessRequiresRuntimeGrant {
 		if capabilities.RuntimeAuthority == nil ||
@@ -1129,14 +1145,11 @@ func commandRuntimeStartupAvailable(adapter commandruntimeadapter.Identity,
 	}
 	switch adapter.Kind {
 	case commandruntimeadapter.KindHostUnsandboxed:
-		// Debug is a superset, but installing the stateless host adapter only
-		// needs the lower Full Access process ceiling. Per-Run advertisement and
-		// execution still check the exact current Full/Debug snapshot.
-		return capabilities.Allows(domain.RunExecutionPermissionFullAccess) &&
-			adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess)
+		// Installation is a process ceiling. Ask/Auto/Full choose operation
+		// review policy only after this native capability exists.
+		return capabilities.DangerFullAccessEnabled
 	case commandruntimeadapter.KindSandboxedWorkspace:
-		return capabilities.Allows(domain.RunExecutionPermissionWorkspaceAccess) &&
-			adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess)
+		return capabilities.WorkspaceSandboxEnabled
 	default:
 		return false
 	}
@@ -1174,25 +1187,6 @@ func commandRuntimeIncompleteReasons(adapter commandruntimeadapter.Identity,
 		return []string{}
 	default:
 		return []string{"command runtime adapter evidence is incomplete"}
-	}
-}
-
-func commandRuntimePermissionDecisionMatches(adapter commandruntimeadapter.Identity,
-	decision executionauth.PermissionDecision, networkRequested bool,
-) bool {
-	if !decision.Allowed || decision.Network != networkRequested || decision.PersistentTerminal ||
-		decision.AgentTerminalInput {
-		return false
-	}
-	switch adapter.Kind {
-	case commandruntimeadapter.KindHostUnsandboxed:
-		return decision.HostFilesystem && decision.BackgroundProcess &&
-			!decision.WorkspaceFilesystem && !decision.SandboxedCommand
-	case commandruntimeadapter.KindSandboxedWorkspace:
-		return !networkRequested && !decision.HostFilesystem && decision.BackgroundProcess &&
-			decision.WorkspaceFilesystem && decision.SandboxedCommand
-	default:
-		return false
 	}
 }
 

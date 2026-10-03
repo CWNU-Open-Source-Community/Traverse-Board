@@ -194,6 +194,10 @@ func (s *RunSupervisor) preflightMCPApproval(ctx context.Context, call domain.Su
 	if exists && !mcpApprovalMatches(record, source) {
 		return false, nil, mcpApprovalUnavailable("MCP approval decision identity changed")
 	}
+	var proof *approval.Record
+	if exists {
+		proof = &record
+	}
 	ensure := func() error {
 		now := time.Now().UTC()
 		record, err = st.EnsureApproval(ctx, approval.Proposal{
@@ -203,13 +207,10 @@ func (s *RunSupervisor) preflightMCPApproval(ctx context.Context, call domain.Su
 			RequestFingerprint: mcp.OperationApprovalFingerprint(call), RequestedBy: "run_supervisor",
 			DecisionReason: "Approve this exact MCP server startup/discovery and tool call; its external effects are unverified.",
 			CreatedAt:      now, UpdatedAt: now})
-		exists = err == nil
-		return err
-	}
-	if policy.NeedsApproval && !exists {
-		if err := ensure(); err != nil {
-			return false, nil, err
+		if err == nil {
+			proof = &record
 		}
+		return err
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
@@ -225,37 +226,13 @@ func (s *RunSupervisor) preflightMCPApproval(ctx context.Context, call domain.Su
 		AdapterID: mcp.RuntimeAdapterID, AdapterRevision: mcp.RuntimeAdapterRevision, Component: component,
 		InputFingerprint: hex.EncodeToString(mac.Sum(nil)), CapabilityFingerprint: p.CapabilityFingerprint,
 		Targets: []toolcontract.Target{{Kind: "endpoint", Locator: p.ServerID}}, Effects: []toolcontract.Effect{toolcontract.EffectUnknown}}
-	fingerprint, err := toolcontract.FingerprintOperation(operation)
-	if err != nil {
-		return false, nil, err
+	waiting, allowed, err := decidePendingOperation(ctx, source.permission,
+		executionauth.SubjectRef{RunID: call.RunID, ActorID: call.AgentID}, operation,
+		mcp.OperationApprovalFingerprint(call), &proof, ensure, policy.NeedsApproval, false)
+	if err != nil || waiting {
+		return waiting, nil, err
 	}
-	subject := executionauth.SubjectRef{RunID: call.RunID, ActorID: call.AgentID}
-	projection, err := domain.ExecutionPermissionApproval(source.permission)
-	if err != nil {
-		return false, nil, err
-	}
-	authorizer := executionauth.NewPolicyAuthorizer(func(context.Context, executionauth.SubjectRef, toolcontract.Operation, string) (executionauth.OperationAuthority, error) {
-		value := executionauth.OperationAuthority{Mode: projection.Mode, BindingFingerprint: mcp.OperationApprovalFingerprint(call),
-			RuntimeAvailable: true, FullActivated: projection.Mode == domain.ExecutionApprovalFull, EffectsVerified: false}
-		if exists {
-			value.Approval = &executionauth.BoundApproval{Ref: record.ID, Subject: subject, OperationFingerprint: fingerprint, Status: string(record.Status)}
-		}
-		return value, nil
-	})
-	decision, err := authorizer.Authorize(ctx, subject, operation, "")
-	if err != nil {
-		return false, nil, err
-	}
-	if decision.ReasonCode == "approval_proposal_required" {
-		if err := ensure(); err != nil {
-			return false, nil, err
-		}
-		return true, nil, nil
-	}
-	if decision.Outcome == "require_approval" {
-		return true, nil, nil
-	}
-	if decision.Outcome != "allow" {
+	if !allowed {
 		return stop("policy_denied", "The operator denied this exact MCP call. It was not dispatched.", domain.SupervisorToolDenied)
 	}
 	return false, nil, nil

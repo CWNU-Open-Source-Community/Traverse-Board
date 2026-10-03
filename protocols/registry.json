@@ -1792,6 +1792,7 @@
         "application_docker_container_lifecycle_running.v1",
         "application_docker_container_lifecycle_start_authority.v1",
         "command-runtime-adapter-authority.v1",
+        "command-runtime-adapter-authority.v2",
         "command-runtime-batch.v2",
         "command-runtime-policy.v2",
         "command-runtime-result.v2",
@@ -2759,6 +2760,7 @@
       "active_identifiers": [
         "agent_code_file_edit_proposal.v1",
         "agent_code_file_edit_source.v1",
+        "file-operation-proposal.v1",
         "file_edit_apply_operation.v1",
         "file_edit_apply_request.v1",
         "file_edit_revert_proposal.v1",

@@ -28,7 +28,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
-| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
+| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 55 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 6 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
@@ -40,7 +40,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 39 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
 | [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
@@ -1086,12 +1086,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `process-runtime-lifecycle-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>54 active identifiers</summary>
+<details><summary>55 active identifiers</summary>
 
 - `application_docker_container_lifecycle_post_exit.v1`
 - `application_docker_container_lifecycle_running.v1`
 - `application_docker_container_lifecycle_start_authority.v1`
 - `command-runtime-adapter-authority.v1`
+- `command-runtime-adapter-authority.v2`
 - `command-runtime-batch.v2`
 - `command-runtime-policy.v2`
 - `command-runtime-result.v2`
@@ -1659,10 +1660,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>38 active identifiers</summary>
+<details><summary>39 active identifiers</summary>
 
 - `agent_code_file_edit_proposal.v1`
 - `agent_code_file_edit_source.v1`
+- `file-operation-proposal.v1`
 - `file_edit_apply_operation.v1`
 - `file_edit_apply_request.v1`
 - `file_edit_revert_proposal.v1`
