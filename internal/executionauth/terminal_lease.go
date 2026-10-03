@@ -62,7 +62,8 @@ func (s TerminalInputScope) Validate() error {
 		return fmt.Errorf("%w: interaction revision must be positive",
 			ErrLeaseBoundary)
 	}
-	if s.PermissionMode != domain.RunExecutionPermissionDebug {
+	if s.PermissionMode != domain.RunExecutionPermissionFull &&
+		s.PermissionMode != domain.RunExecutionPermissionDebug {
 		return fmt.Errorf("%w: permission mode %q cannot receive persistent Agent input",
 			ErrLeaseBoundary, s.PermissionMode)
 	}
@@ -153,6 +154,12 @@ func (b *TerminalInputBroker) Issue(
 	if err := request.Scope.Validate(); err != nil {
 		return IssuedTerminalInputLease{}, err
 	}
+	// Legacy Debug remains a readable/revocable lease shape, not new authority.
+	// A lease is necessary but not sufficient: Manager rechecks native Full
+	// authority again at the actual process input boundary.
+	if request.Scope.PermissionMode != domain.RunExecutionPermissionFull {
+		return IssuedTerminalInputLease{}, ErrLeaseDenied
+	}
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	if !request.OperatorConfirmed || !validOperator(request.RequestedBy) {
 		return IssuedTerminalInputLease{}, ErrLeaseDenied
@@ -213,6 +220,9 @@ func (b *TerminalInputBroker) Authorize(token string,
 	}
 	if err := scope.Validate(); err != nil {
 		return TerminalInputLease{}, err
+	}
+	if scope.PermissionMode != domain.RunExecutionPermissionFull {
+		return TerminalInputLease{}, ErrLeaseDenied
 	}
 	token = strings.TrimSpace(token)
 	decoded, err := base64.RawURLEncoding.DecodeString(token)

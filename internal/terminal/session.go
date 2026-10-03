@@ -2,8 +2,11 @@ package terminal
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,6 +16,8 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/executionauth"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const (
@@ -67,7 +72,8 @@ func (s SessionScope) Validate() error {
 		s.InteractionRevision <= 0 ||
 		s.ExecutionProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 ||
-		s.PermissionMode != domain.RunExecutionPermissionDebug {
+		(s.PermissionMode != domain.RunExecutionPermissionFull &&
+			s.PermissionMode != domain.RunExecutionPermissionDebug) {
 		return ErrTerminalBoundary
 	}
 	switch s.Mode {
@@ -86,6 +92,9 @@ type StartRequest struct {
 	Interaction       domain.RunExecutionInteractionSnapshot
 	CurrentProfile    domain.RunExecutionProfileSnapshot
 	CurrentPermission domain.RunExecutionPermissionSnapshot
+	// Authorizer is injected by the host and re-reads native bindings. It is
+	// never serialized, persisted, or supplied by a plugin or renderer.
+	Authorizer        *executionauth.PolicyAuthorizer `json:"-"`
 	Columns           int
 	Rows              int
 	RequestedBy       string
@@ -203,28 +212,37 @@ type UserInputRequest struct {
 }
 
 type sessionEntry struct {
-	mu      sync.Mutex
-	value   Session
-	process Process
-	cancel  context.CancelFunc
-	output  outputRing
+	mu               sync.Mutex
+	value            Session
+	process          Process
+	cancel           context.CancelFunc
+	output           outputRing
+	authorizer       *executionauth.PolicyAuthorizer
+	subject          executionauth.SubjectRef
+	startOperation   toolcontract.Operation
+	authorizationRef string
 }
 
 type Manager struct {
-	mu       sync.RWMutex
-	backend  Backend
-	revoker  LeaseRevoker
-	sessions map[string]*sessionEntry
-	byRun    map[string]string
-	now      func() time.Time
+	mu           sync.RWMutex
+	backend      Backend
+	revoker      LeaseRevoker
+	sessions     map[string]*sessionEntry
+	byRun        map[string]string
+	now          func() time.Time
+	operationKey [32]byte
 }
 
 func NewManager(backend Backend, revoker LeaseRevoker) (*Manager, error) {
 	if backend == nil || !validTerminalBackendName(backend.Name()) {
 		return nil, ErrTerminalBoundary
 	}
+	var key [32]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return nil, err
+	}
 	return &Manager{
-		backend: backend, revoker: revoker,
+		backend: backend, revoker: revoker, operationKey: key,
 		sessions: make(map[string]*sessionEntry),
 		byRun:    make(map[string]string), now: time.Now,
 	}, nil
@@ -252,6 +270,20 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 	if err := validateStartRequest(request); err != nil {
 		return Session{}, err
 	}
+	workspaceRootSHA256, err := WorkspaceRootSHA256(request.WorkspaceRoot)
+	if err != nil {
+		return Session{}, err
+	}
+	subject := executionauth.SubjectRef{RunID: request.Scope.RunID, ActorID: request.RequestedBy}
+	operation, err := m.operation(request.ID, request.Scope, workspaceRootSHA256,
+		"start", request.Columns, request.Rows, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	decision, err := request.Authorizer.Authorize(ctx, subject, operation, "")
+	if err != nil || decision.Outcome != "allow" || decision.Validate() != nil {
+		return Session{}, fmt.Errorf("%w: start authorization failed: %v", ErrTerminalDenied, err)
+	}
 	if existingID := m.runSessionID(request.Scope.RunID); existingID != "" {
 		if !request.ReplaceExisting {
 			return Session{}, fmt.Errorf("%w: Run already has a terminal",
@@ -268,9 +300,12 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 		return Session{}, fmt.Errorf("%w: terminal session limit reached",
 			ErrTerminalDenied)
 	}
-	workspaceRootSHA256, err := WorkspaceRootSHA256(request.WorkspaceRoot)
+	fingerprint, err := toolcontract.FingerprintOperation(operation)
 	if err != nil {
 		return Session{}, err
+	}
+	if err := decision.BeforeDispatch(ctx, fingerprint); err != nil {
+		return Session{}, fmt.Errorf("%w: %v", ErrTerminalDenied, err)
 	}
 	process, err := m.backend.Start(ctx, BackendStartRequest{
 		SessionID: request.ID, WorkspaceRoot: request.WorkspaceRoot,
@@ -278,6 +313,12 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 	})
 	if err != nil {
 		return Session{}, err
+	}
+	// Revoke a process admitted concurrently with binding loss before publishing
+	// the session. An already-started effect is not described as rolled back.
+	if err := request.Authorizer.Recheck(ctx, subject, operation, "", decision.AuthorizationRef); err != nil {
+		_ = process.Close()
+		return Session{}, fmt.Errorf("%w: %v", ErrTerminalDenied, err)
 	}
 	boundary := process.Boundary()
 	if err := boundary.Validate(); err != nil {
@@ -297,7 +338,10 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 		KillOnJobClose:        boundary.KillOnJobClose, Persistent: boundary.Persistent,
 		ProcessLocal: true,
 	}
-	entry := &sessionEntry{value: value, process: process, cancel: cancel}
+	entry := &sessionEntry{value: value, process: process, cancel: cancel,
+		authorizer: request.Authorizer, subject: subject,
+		startOperation: operation, authorizationRef: decision.AuthorizationRef,
+	}
 	if err := entry.value.Validate(); err != nil {
 		cancel()
 		_ = process.Close()
@@ -407,7 +451,7 @@ func (m *Manager) WriteUser(ctx context.Context,
 	if err := validateTerminalInput(request.Data); err != nil {
 		return 0, err
 	}
-	return m.write(request.SessionID, request.Data)
+	return m.write(ctx, request.SessionID, request.Data)
 }
 
 func (m *Manager) Resize(sessionID string, columns int, rows int,
@@ -429,6 +473,10 @@ func (m *Manager) Resize(sessionID string, columns int, rows int,
 	}
 	process := entry.process
 	entry.mu.Unlock()
+	if err := m.authorizeMutation(context.Background(), entry, "resize", columns, rows, nil); err != nil {
+		_ = m.CloseForBindingInvalidation(sessionID)
+		return err
+	}
 	if err := process.Resize(columns, rows); err != nil {
 		return err
 	}
@@ -564,10 +612,12 @@ func (m *Manager) writeAuthorized(sessionID string, data []byte) (int, error) {
 	if err := validateTerminalInput(data); err != nil {
 		return 0, err
 	}
-	return m.write(sessionID, data)
+	return m.write(context.Background(), sessionID, data)
 }
 
-func (m *Manager) write(sessionID string, data []byte) (int, error) {
+func (m *Manager) write(ctx context.Context, sessionID string, data []byte) (int, error) {
+	// Keep authorization and dispatch bound to the same immutable bytes.
+	data = append([]byte(nil), data...)
 	entry := m.entry(sessionID)
 	if entry == nil {
 		return 0, ErrTerminalClosed
@@ -579,7 +629,101 @@ func (m *Manager) write(sessionID string, data []byte) (int, error) {
 	}
 	process := entry.process
 	entry.mu.Unlock()
+	if err := m.authorizeMutation(ctx, entry, "write", 0, 0, data); err != nil {
+		// Cancelling one input request is not revocation of the user-owned
+		// session. Live binding loss is also checked by reconciliation.
+		if ctx.Err() == nil {
+			_ = m.CloseForBindingInvalidation(sessionID)
+		}
+		return 0, err
+	}
 	return process.Write(data)
+}
+
+// ReconcileBindings closes sessions whose original live host authorization is
+// no longer current, including runtime generation changes with identical data.
+// It cannot mint replacement authority from a durable snapshot.
+func (m *Manager) ReconcileBindings(ctx context.Context) int {
+	if m == nil || ctx == nil || ctx.Err() != nil {
+		return 0
+	}
+	closed := 0
+	for _, session := range m.ActiveSessions() {
+		if ctx.Err() != nil {
+			break
+		}
+		entry := m.entry(session.ID)
+		if entry == nil {
+			continue
+		}
+		if entry.authorizer == nil ||
+			entry.authorizer.Recheck(ctx, entry.subject, entry.startOperation, "", entry.authorizationRef) != nil {
+			if ctx.Err() != nil {
+				break
+			}
+			_ = m.CloseForBindingInvalidation(session.ID)
+			closed++
+		}
+	}
+	return closed
+}
+
+func (m *Manager) authorizeMutation(ctx context.Context, entry *sessionEntry,
+	action string, columns, rows int, data []byte,
+) error {
+	if ctx == nil || entry.authorizer == nil {
+		return ErrTerminalDenied
+	}
+	if err := entry.authorizer.Recheck(ctx, entry.subject, entry.startOperation, "", entry.authorizationRef); err != nil {
+		return fmt.Errorf("%w: %v", ErrTerminalDenied, err)
+	}
+	operation, err := m.operation(entry.value.ID, entry.value.Scope,
+		entry.value.WorkspaceRootSHA256, action, columns, rows, data)
+	if err != nil {
+		return err
+	}
+	decision, err := entry.authorizer.Authorize(ctx, entry.subject, operation, "")
+	if err != nil || decision.Outcome != "allow" || decision.Validate() != nil {
+		return fmt.Errorf("%w: terminal operation authorization failed: %v", ErrTerminalDenied, err)
+	}
+	fingerprint, err := toolcontract.FingerprintOperation(operation)
+	if err != nil {
+		return err
+	}
+	if err := decision.BeforeDispatch(ctx, fingerprint); err != nil {
+		return fmt.Errorf("%w: %v", ErrTerminalDenied, err)
+	}
+	return nil
+}
+
+func (m *Manager) operation(sessionID string, scope SessionScope, rootSHA256,
+	action string, columns, rows int, data []byte,
+) (toolcontract.Operation, error) {
+	raw, err := json.Marshal(struct {
+		SessionID     string
+		Scope         SessionScope
+		RootSHA256    string
+		Action        string
+		Columns, Rows int
+		Data          []byte
+	}{sessionID, scope, rootSHA256, action, columns, rows, data})
+	if err != nil {
+		return toolcontract.Operation{}, err
+	}
+	// Terminal bytes can contain secrets. Only a process-keyed HMAC enters the
+	// common operation contract; neither bytes nor the key are persisted.
+	mac := hmac.New(sha256.New, m.operationKey[:])
+	_, _ = mac.Write(raw)
+	operation := toolcontract.Operation{
+		ID: sessionID, Kind: toolcontract.OperationProcess, ToolID: "user_terminal",
+		Component: toolcontract.ComponentRef{PackageID: "builtin", ComponentID: "user_terminal"},
+		AdapterID: m.backend.Name(), AdapterRevision: SessionPolicyVersion,
+		InputFingerprint: hex.EncodeToString(mac.Sum(nil)),
+		Targets: []toolcontract.Target{{Kind: "process", Locator: sessionID},
+			{Kind: "directory", Locator: "workspace:" + scope.WorkspaceID + ":" + rootSHA256}},
+		Effects: []toolcontract.Effect{toolcontract.EffectProcess, toolcontract.EffectOutside, toolcontract.EffectUnknown},
+	}
+	return operation, operation.Validate()
 }
 
 func (m *Manager) entry(sessionID string) *sessionEntry {
@@ -705,7 +849,7 @@ func validateStartRequest(request StartRequest) error {
 		!filepath.IsAbs(request.WorkspaceRoot) ||
 		filepath.Clean(request.WorkspaceRoot) != request.WorkspaceRoot ||
 		strings.ContainsRune(request.WorkspaceRoot, 0) ||
-		!request.OperatorConfirmed ||
+		!request.OperatorConfirmed || request.Authorizer == nil ||
 		!validTerminalOperator(request.RequestedBy) ||
 		request.Columns < MinColumns || request.Columns > MaxColumns ||
 		request.Rows < MinRows || request.Rows > MaxRows ||
@@ -733,10 +877,8 @@ func validateStartRequest(request StartRequest) error {
 			request.Interaction.ExecutionProfileRevision ||
 		request.CurrentPermission.RunID != request.Interaction.RunID ||
 		request.CurrentPermission.MissionID != request.Interaction.MissionID ||
-		request.CurrentPermission.Mode != domain.RunExecutionPermissionDebug ||
-		!request.CurrentPermission.PersistentTerminal ||
-		!request.CurrentPermission.BackgroundProcess ||
-		!request.CurrentPermission.AgentTerminalInput {
+		request.CurrentPermission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		request.CurrentPermission.Mode != domain.RunExecutionPermissionFull {
 		return ErrTerminalBoundary
 	}
 	switch request.Scope.Mode {

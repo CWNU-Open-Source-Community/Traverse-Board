@@ -89,8 +89,10 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	t.Setenv("CYBERAGENT_ANTHROPIC_BASE_URL", provider.URL)
 	t.Setenv("CYBERAGENT_ANTHROPIC_MODEL", model)
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true,
+		OperatorApprovalEnabled:        true,
+		DangerFullAccessEnabled:        true,
+		FullAccessRequiresRuntimeGrant: true,
+		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	plane, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(t.TempDir(), "source-wiring.db"),
@@ -133,28 +135,30 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	}
 
 	fullThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Full Access source connector wiring", "desktop-source-wiring-full-thread-0001")
+		"Full source connector wiring", "desktop-source-wiring-full-thread-0001")
 	permission := desktopControlRequest(plane.Handler(), http.MethodPost,
 		"/api/v1/threads/"+fullThread.Thread.ID+"/execution-permission",
 		"desktop-source-wiring-full-permission-0001",
-		`{"mode":"full_access","reason":"exercise the current Run source connector authority","confirm_danger_full_access":true}`)
+		`{"mode":"full","reason":"exercise the current Run source connector authority","confirm_full":true}`)
 	if permission.Code != http.StatusAccepted {
-		t.Fatalf("Full Access selection status=%d body=%s", permission.Code, permission.Body.String())
+		t.Fatalf("Full selection status=%d body=%s", permission.Code, permission.Body.String())
 	}
 	var selected httpapi.ThreadExecutionPermissionControlView
 	decodeDesktopControlData(t, permission, &selected)
 	if selected.CurrentRunID != fullThread.Run.ID ||
 		selected.CurrentRunEffect != string(domain.ThreadExecutionPermissionApplied) ||
-		selected.CurrentRunMode != string(domain.RunExecutionPermissionFullAccess) ||
+		selected.CurrentRunMode != string(domain.RunExecutionPermissionFull) ||
 		!selected.CurrentRunSynchronized || !selected.ExecutionPermission.AppliesToCurrentRun {
-		t.Fatalf("Full Access did not bind to the current Run: %#v", selected)
+		t.Fatalf("Full did not bind to the current Run: %#v", selected)
 	}
+	assertDesktopCurrentApproval(t, plane, permissionCapabilities, fullThread.Run.ID, domain.RunExecutionPermissionFull)
 	completeDesktopSourceWiringTurn(t, plane, fullThread,
-		"Inspect the tools available to this Full Access Run",
+		"Inspect the tools available to this Full Run",
 		"desktop-source-wiring-full-turn-0001")
 
 	restrictedThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Conservative source connector boundary", "desktop-source-wiring-restricted-thread-0001")
+		"Ask source connector boundary", "desktop-source-wiring-restricted-thread-0001")
+	assertDesktopCurrentApproval(t, plane, permissionCapabilities, restrictedThread.Run.ID, domain.RunExecutionPermissionAsk)
 	completeDesktopSourceWiringTurn(t, plane, restrictedThread,
 		"Inspect the tools available without network authority",
 		"desktop-source-wiring-restricted-turn-0001")
@@ -163,13 +167,13 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	capturedRequests := append([]desktopSourceWiringRequest(nil), modelRequests...)
 	requestMu.Unlock()
 	if len(capturedRequests) != 2 {
-		t.Fatalf("Supervisor model request count=%d, want one Full Access and one conservative request",
+		t.Fatalf("Supervisor model request count=%d, want one Full and one Ask request",
 			len(capturedRequests))
 	}
 	fullTools := desktopSourceWiringToolsByName(capturedRequests[0].Tools)
 	sourceSearch, found := fullTools["source_search"]
 	if !found {
-		t.Fatalf("Full Access Provider tools omitted source_search: %v",
+		t.Fatalf("Full Provider tools omitted source_search: %v",
 			desktopSourceWiringToolNames(capturedRequests[0].Tools))
 	}
 	if !strings.Contains(sourceSearch.Description, "GitHub") ||
@@ -179,7 +183,7 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	}
 	webFetch, found := fullTools["web_fetch"]
 	if !found {
-		t.Fatalf("Full Access Provider tools omitted web_fetch: %v",
+		t.Fatalf("Full Provider tools omitted web_fetch: %v",
 			desktopSourceWiringToolNames(capturedRequests[0].Tools))
 	}
 	webFetchSchema := string(webFetch.InputSchema)
@@ -190,7 +194,7 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	}
 	restrictedTools := desktopSourceWiringToolsByName(capturedRequests[1].Tools)
 	if _, found := restrictedTools["source_search"]; found {
-		t.Fatalf("network-disabled conservative Run received source_search: %v",
+		t.Fatalf("network-disabled Ask Run received source_search: %v",
 			desktopSourceWiringToolNames(capturedRequests[1].Tools))
 	}
 }
@@ -244,4 +248,26 @@ func desktopSourceWiringToolNames(tools []desktopSourceWiringTool) []string {
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+// The current writer must bind the v2 preference to this process's authority.
+// Historical Full Access/Debug rows cannot stand in for this explicit action.
+func assertDesktopCurrentApproval(t *testing.T, plane *ControlPlane,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities, runID string,
+	want domain.RunExecutionPermissionMode,
+) {
+	t.Helper()
+	permission, err := plane.stateStore.GetRunExecutionPermission(t.Context(), runID)
+	if err != nil || permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.Mode != want || permission.ProcessEnabled || permission.ExecutionAuthorized ||
+		permission.CapabilityGrant {
+		t.Fatalf("current Desktop approval=%#v want=%s err=%v", permission, want, err)
+	}
+	if capabilities.RuntimeAuthority == nil {
+		t.Fatal("Desktop fixture omitted the shared runtime authority")
+	}
+	_, activated := capabilities.RuntimeAuthority.AllowsFullAccess(permission)
+	if activated != (want == domain.RunExecutionPermissionFull) {
+		t.Fatalf("Desktop approval activation=%t want mode=%s", activated, want)
+	}
 }
