@@ -476,14 +476,7 @@ func (s *SandboxManifestService) revalidateExecutionCandidate(ctx context.Contex
 	if err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", apperror.Normalize(err)
 	}
-	if usage.TotalTokens != candidate.TokensUsed ||
-		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed ||
-		toolUsage.Consumed != candidate.ToolCallsUsed {
-		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
-			apperror.New(apperror.CodeConflict,
-				"sandbox execution candidate budget snapshot changed")
-	}
-	if err := requireSandboxCandidateBudget(run.Budget, usage, toolUsage.Consumed); err != nil {
+	if err := requireSandboxCandidateCurrentBudget(candidate, run.Budget, usage, toolUsage.Consumed); err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", err
 	}
 	lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID)

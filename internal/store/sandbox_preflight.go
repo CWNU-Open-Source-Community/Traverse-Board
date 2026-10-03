@@ -97,13 +97,7 @@ func (s *SQLiteStore) CreateSandboxDisabledPreflight(ctx context.Context,
 	if err != nil {
 		return sandbox.DisabledPreflight{}, false, err
 	}
-	if usage.TotalTokens != candidate.TokensUsed ||
-		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed ||
-		toolCalls != candidate.ToolCallsUsed {
-		return sandbox.DisabledPreflight{}, false, apperror.New(apperror.CodeConflict,
-			"sandbox candidate usage changed before preflight")
-	}
-	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
+	if err := requireSandboxCandidateStoreCurrentBudget(candidate, run.Budget, usage, toolCalls); err != nil {
 		return sandbox.DisabledPreflight{}, false, err
 	}
 	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
