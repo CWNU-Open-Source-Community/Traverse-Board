@@ -2,7 +2,9 @@ package executionauth
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -22,7 +24,7 @@ func TestTerminalInputLeaseIsExactScopedTimeBoundAndProcessLocal(t *testing.T) {
 		ExecutionProfileRevision: 2,
 		PermissionSnapshotID:     "permission-debug",
 		PermissionRevision:       2,
-		PermissionMode:           domain.RunExecutionPermissionDebug,
+		PermissionMode:           domain.RunExecutionPermissionFull,
 		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	issued, err := broker.Issue(IssueTerminalInputLeaseRequest{
@@ -78,7 +80,7 @@ func TestTerminalInputLeaseRejectsControlledModeAndSelfAuthorization(t *testing.
 		ExecutionProfileRevision: 2,
 		PermissionSnapshotID:     "permission-code",
 		PermissionRevision:       2,
-		PermissionMode:           domain.RunExecutionPermissionDebug,
+		PermissionMode:           domain.RunExecutionPermissionFull,
 		Mode:                     domain.RunExecutionInteractionControlled,
 	}
 	if _, err := broker.Issue(IssueTerminalInputLeaseRequest{
@@ -113,7 +115,7 @@ func TestTerminalInputLeaseRevocationFansOutByWorkspace(t *testing.T) {
 		ExecutionProfileRevision: 2,
 		PermissionSnapshotID:     "permission-one",
 		PermissionRevision:       2,
-		PermissionMode:           domain.RunExecutionPermissionDebug,
+		PermissionMode:           domain.RunExecutionPermissionFull,
 		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	first, err := broker.Issue(IssueTerminalInputLeaseRequest{
@@ -131,7 +133,7 @@ func TestTerminalInputLeaseRevocationFansOutByWorkspace(t *testing.T) {
 		ExecutionProfileRevision: 3,
 		PermissionSnapshotID:     "permission-two",
 		PermissionRevision:       3,
-		PermissionMode:           domain.RunExecutionPermissionDebug,
+		PermissionMode:           domain.RunExecutionPermissionFull,
 		Mode:                     domain.RunExecutionInteractionCyber,
 	}
 	second, err := broker.Issue(IssueTerminalInputLeaseRequest{
@@ -181,7 +183,7 @@ func TestTerminalInputLeaseRevocationReleasesActiveCapacity(t *testing.T) {
 				ExecutionProfileRevision: 2,
 				PermissionSnapshotID:     "permission-capacity",
 				PermissionRevision:       2,
-				PermissionMode:           domain.RunExecutionPermissionDebug,
+				PermissionMode:           domain.RunExecutionPermissionFull,
 				Mode:                     domain.RunExecutionInteractionDebug,
 			},
 			RequestedBy: "desktop_operator", OperatorConfirmed: true,
@@ -203,7 +205,7 @@ func TestTerminalInputLeaseRevocationReleasesActiveCapacity(t *testing.T) {
 			ExecutionProfileRevision: 3,
 			PermissionSnapshotID:     "permission-capacity-next",
 			PermissionRevision:       3,
-			PermissionMode:           domain.RunExecutionPermissionDebug,
+			PermissionMode:           domain.RunExecutionPermissionFull,
 			Mode:                     domain.RunExecutionInteractionDebug,
 		},
 		RequestedBy: "desktop_operator", OperatorConfirmed: true,
@@ -231,7 +233,7 @@ func TestTerminalInputLeaseRevokesOnlyExactTerminal(t *testing.T) {
 		ExecutionProfileRevision: 2,
 		PermissionSnapshotID:     "permission-terminal-one",
 		PermissionRevision:       2,
-		PermissionMode:           domain.RunExecutionPermissionDebug,
+		PermissionMode:           domain.RunExecutionPermissionFull,
 		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	first, err := broker.Issue(IssueTerminalInputLeaseRequest{
@@ -261,5 +263,45 @@ func TestTerminalInputLeaseRevokesOnlyExactTerminal(t *testing.T) {
 	}
 	if _, err := broker.Authorize(second.Token, secondScope); err != nil {
 		t.Fatalf("exact terminal revoke crossed scope: %v", err)
+	}
+}
+
+func TestTerminalInputLeaseLegacyDebugReadAndRevokeCannotAuthorize(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	broker := newTerminalInputBroker(func() time.Time { return now },
+		bytes.NewReader(bytes.Repeat([]byte{0x39}, terminalLeaseTokenBytes)))
+	scope := TerminalInputScope{
+		WorkspaceID: "workspace-old", RunID: "run-old", TerminalSessionID: "terminal-old",
+		InteractionSnapshotID: "interaction-old", InteractionRevision: 2, ExecutionProfileRevision: 2,
+		PermissionSnapshotID: "permission-old", PermissionRevision: 2,
+		PermissionMode: domain.RunExecutionPermissionFull, Mode: domain.RunExecutionInteractionDebug,
+	}
+	issued, err := broker.Issue(IssueTerminalInputLeaseRequest{
+		Scope: scope, RequestedBy: "desktop_operator", OperatorConfirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reconstruct only the old in-memory shape; no production Issue path may
+	// create one. Tokens remain process-local and are never persisted.
+	legacy := issued.Lease
+	legacy.Scope.PermissionMode = domain.RunExecutionPermissionDebug
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy read=%v", err)
+	}
+	digestBytes := sha256.Sum256([]byte(issued.Token))
+	digest := hex.EncodeToString(digestBytes[:])
+	entry := broker.entries[digest]
+	entry.lease = legacy
+	broker.entries[digest] = entry
+	if _, err := broker.Issue(IssueTerminalInputLeaseRequest{
+		Scope: legacy.Scope, RequestedBy: "desktop_operator", OperatorConfirmed: true}); !errors.Is(err, ErrLeaseDenied) {
+		t.Fatalf("legacy Debug received a new lease: %v", err)
+	}
+	if _, err := broker.Authorize(issued.Token, legacy.Scope); !errors.Is(err, ErrLeaseDenied) {
+		t.Fatalf("legacy Debug authorized input: %v", err)
+	}
+	revoked, err := broker.Revoke(legacy.ID, "desktop_operator", true)
+	if err != nil || !revoked.Revoked || revoked.Scope != legacy.Scope {
+		t.Fatalf("legacy revoke=%#v err=%v", revoked, err)
 	}
 }
