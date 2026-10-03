@@ -4,13 +4,94 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/toolbudget"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+func TestSandboxBackgroundCandidateKeepsCurrentBudgetAndLease(t *testing.T) {
+	for _, name := range []string{"quiescent usage changed", "live usage advances", "budget exhausted", "lease revoked", "run cancelled"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			st, run, _ := newSandboxManifestTestRuntime(t, ctx)
+			service := NewSandboxManifestService(st, policy.NewDefaultChecker())
+			manifest := sandboxManifestTestFixture()
+			prepared, err := service.Prepare(ctx, PrepareSandboxManifestRequest{
+				RunID: run.ID, Manifest: manifest, OperationKey: "background-budget-prepare", RequestedBy: "budget_operator"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			charge := func() {
+				t.Helper()
+				if _, err := st.ChargeToolCall(ctx, toolbudget.ChargeRequest{
+					RunID: run.ID, SessionID: run.SessionID, WorkspaceID: "ws-sandbox",
+					ToolName: "command_runtime", ActionClass: "process", RequestedBy: "budget_operator",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			charge()
+			request := ValidateSandboxExecutionCandidateRequest{PreparationID: prepared.Preparation.ID,
+				Manifest: manifest, OperationKey: "background-budget-candidate", RequestedBy: "budget_operator"}
+			var candidate sandbox.ValidatedExecutionCandidate
+			var lease domain.RunExecutionLease
+			if name == "quiescent usage changed" {
+				candidate, err = service.ValidateExecutionCandidate(ctx, request)
+			} else {
+				acquired, acquireErr := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
+					RunID: run.ID, OwnerID: "background-budget-owner", TTL: time.Minute})
+				if acquireErr != nil {
+					t.Fatal(acquireErr)
+				}
+				lease = acquired.Lease
+				candidate, err = service.validateLeaseBoundExecutionCandidate(ctx, request, lease)
+			}
+			if err != nil || candidate.Candidate.ToolCallsUsed != 1 {
+				t.Fatalf("candidate did not preserve the exact creation snapshot: %+v err=%v", candidate, err)
+			}
+			charge()
+			expectedUsage := int64(2)
+			if name == "budget exhausted" {
+				charge()
+				charge()
+				expectedUsage = 4
+			}
+			if name == "lease revoked" {
+				if _, _, err := st.ReleaseRunExecutionLease(ctx, lease); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if name == "run cancelled" {
+				if _, err := NewRunService(st).Cancel(ctx, run.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err = service.BeginDisabledExecution(ctx, BeginSandboxExecutionRequest{
+				CandidateID: candidate.Candidate.ID, Manifest: manifest,
+				OperationKey: "background-budget-begin", RequestedBy: "budget_operator"})
+			if name == "live usage advances" {
+				if err != nil {
+					t.Fatalf("still-budgeted background candidate rejected ordinary Run progress: %v", err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid or exhausted candidate was accepted")
+			} else if name == "budget exhausted" && apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+				t.Fatalf("expected a current budget denial, got %v", err)
+			}
+			stored, readErr := st.GetSandboxExecutionCandidate(ctx, candidate.Candidate.ID)
+			usage, usageErr := st.GetToolCallUsage(ctx, run.ID)
+			if readErr != nil || usageErr != nil || stored.Candidate.ToolCallsUsed != 1 || usage.Consumed != expectedUsage {
+				t.Fatalf("snapshot or actual accounting was rewritten: candidate=%+v usage=%+v errors=%v,%v", stored, usage, readErr, usageErr)
+			}
+		})
+	}
+}
 
 func TestSandboxDisabledLifecycleRecoversCancelsCleansAndReplays(t *testing.T) {
 	ctx := context.Background()

@@ -267,6 +267,25 @@ func getRunToolCallCountTx(ctx context.Context, tx *sql.Tx, runID string) (int64
 	return consumed, err
 }
 
+// Native background execution retains an immutable creation snapshot while
+// actual Run usage can advance under the same active lease. Callers must read
+// usage and validate that exact lease in the same transaction. Quiescent legacy
+// candidates retain exact equality; neither kind permits counter rollback or
+// exhaustion of the current Run budget.
+func requireSandboxCandidateStoreCurrentBudget(candidate sandbox.ExecutionCandidate,
+	budget domain.Budget, usage domain.RunAgentUsage, toolCalls int64,
+) error {
+	changed := usage.TotalTokens != candidate.TokensUsed ||
+		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed || toolCalls != candidate.ToolCallsUsed
+	regressed := usage.TotalTokens < candidate.TokensUsed ||
+		usage.TotalExecutionMillis < candidate.ExecutionMillisUsed || toolCalls < candidate.ToolCallsUsed
+	if regressed || (candidate.LeaseQuiescent && changed) {
+		return apperror.New(apperror.CodeConflict,
+			"sandbox execution candidate usage changed since validation")
+	}
+	return requireSandboxCandidateStoreBudget(budget, usage, toolCalls)
+}
+
 func requireSandboxCandidateStoreBudget(budget domain.Budget, usage domain.RunAgentUsage,
 	toolCalls int64,
 ) error {

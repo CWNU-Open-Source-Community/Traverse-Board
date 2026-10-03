@@ -58,6 +58,52 @@ func TestSandboxCandidateRunLeaseRequiresExactActiveBinding(t *testing.T) {
 	}
 }
 
+func TestSandboxCandidateCurrentBudgetRetainsSnapshotAndLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		quiescent             bool
+		tokens, millis, calls int64
+		want                  string
+	}{
+		{name: "unchanged", tokens: 10, millis: 1000, calls: 1},
+		{name: "background progress", tokens: 11, millis: 1001, calls: 2},
+		{name: "last remaining capacity", tokens: 99, millis: 9999, calls: 3},
+		{name: "quiescent unchanged", quiescent: true, tokens: 10, millis: 1000, calls: 1},
+		{name: "quiescent token drift", quiescent: true, tokens: 11, millis: 1000, calls: 1, want: "conflict"},
+		{name: "quiescent time drift", quiescent: true, tokens: 10, millis: 1001, calls: 1, want: "conflict"},
+		{name: "quiescent tool drift", quiescent: true, tokens: 10, millis: 1000, calls: 2, want: "conflict"},
+		{name: "token rollback", tokens: 9, millis: 1001, calls: 2, want: "conflict"},
+		{name: "time rollback", tokens: 11, millis: 999, calls: 2, want: "conflict"},
+		{name: "tool rollback", tokens: 11, millis: 1001, calls: 0, want: "conflict"},
+		{name: "token limit", tokens: 100, millis: 1001, calls: 2, want: "exhausted"},
+		{name: "time limit", tokens: 11, millis: 10000, calls: 2, want: "exhausted"},
+		{name: "tool limit", tokens: 11, millis: 1001, calls: 4, want: "exhausted"},
+		{name: "over all limits", tokens: 101, millis: 10001, calls: 5, want: "exhausted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := sandbox.ExecutionCandidate{TokensUsed: 10, ExecutionMillisUsed: 1000,
+				ToolCallsUsed: 1, LeaseQuiescent: tc.quiescent}
+			err := requireSandboxCandidateStoreCurrentBudget(candidate,
+				domain.Budget{MaxTokens: 100, TimeoutSeconds: 10, MaxToolCalls: 4},
+				domain.RunAgentUsage{TotalTokens: tc.tokens, TotalExecutionMillis: tc.millis}, tc.calls)
+			switch tc.want {
+			case "":
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "conflict":
+				if apperror.CodeOf(err) != apperror.CodeConflict {
+					t.Fatalf("counter snapshot drift was accepted: %v", err)
+				}
+			case "exhausted":
+				if apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+					t.Fatalf("current budget exhaustion was accepted: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestSandboxExecutionCandidateConcurrentReplayAndImmutability(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "candidate.db")
