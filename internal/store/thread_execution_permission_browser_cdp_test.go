@@ -39,7 +39,157 @@ func threadFullCDPTestFixture(t *testing.T) (context.Context, *SQLiteStore,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
 			DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		})
+	return ctx, state, run, threadRecord, service
+}
+
+// Seed genuine v1 tuples under the immutable v177 schema, then use Open for
+// the real upgrade. Current writers cannot manufacture these records. No
+// trigger, schema constraint or existing row is weakened for the fixture.
+func legacyDebugThreadFullCDPTestFixture(t *testing.T) (context.Context, *SQLiteStore,
+	domain.Run, domain.Thread, *application.ThreadExecutionPermissionService,
+) {
+	t.Helper()
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "retained-debug-cdp.db")
+	state := openUnmigratedSQLiteStore(t, path)
+	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 177); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if state != nil {
+			_ = state.Close()
+		}
+	})
+	const workspaceID = "workspace-retained-debug-cdp"
+	if err := state.SaveWorkspace(ctx, WorkspaceRecord{ID: workspaceID,
+		Name: "retained Debug", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	run := seedLegacyStructuredToolRun(t, state, workspaceID,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionDebug)
+	mission, err := state.GetMission(ctx, run.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := state.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	threadID := domain.InitialThreadID(run.ID)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO threads
+		(id, protocol_version, workspace_id, mission_id, title, status,
+		active_run_id, last_run_id, version, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)`, threadID,
+		domain.ThreadProtocolVersion, workspaceID, mission.ID, mission.Goal,
+		domain.ThreadActive, ts(run.CreatedAt), ts(run.UpdatedAt)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO thread_runs
+		(thread_id, run_id, session_id, ordinal, predecessor_run_id, created_at)
+		VALUES (?, ?, ?, 1, NULL, ?)`, threadID, run.ID, run.SessionID, ts(run.CreatedAt)); err != nil {
+		t.Fatal(err)
+	}
+	threadRecord, err := scanThread(tx.QueryRowContext(ctx, threadSelect+` WHERE id = ?`, threadID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := domain.NewInitialThreadExecutionPermissionSnapshot(
+		"unused-current-thread-template", threadRecord, "retained_fixture", run.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := template.Next("retained-thread-conservative", domain.RunExecutionPermissionConservative,
+		false, "retained_fixture", "retained v1 initial preference", run.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial.Revision = 1
+	if err := insertThreadExecutionPermissionSnapshotTx(ctx, tx, initial); err != nil {
+		t.Fatal(err)
+	}
+	debug, err := initial.Next("retained-thread-debug", domain.RunExecutionPermissionDebug,
+		true, "retained_fixture", "retained v1 Debug selection", run.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertThreadExecutionPermissionSnapshotTx(ctx, tx, debug); err != nil {
+		t.Fatal(err)
+	}
+	browser, err := getCurrentRunBrowserCDPPermissionSnapshot(ctx, tx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := appendThreadManagedRunBrowserCDPTransitionTx(ctx, tx, browser,
+		domain.RunBrowserCDPPermissionFullDebug, "retained_fixture",
+		"retained Debug browser preference", run.CreatedAt,
+		runmutation.Fingerprint("retained-debug-browser-preference", run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := state.loadAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || after != before || after.Mode != domain.RunExecutionPermissionDebug ||
+		after.ProtocolVersion != domain.RunExecutionPermissionProtocolVersion ||
+		after.ProcessEnabled || after.ExecutionAuthorized || after.CapabilityGrant {
+		t.Fatalf("retained Run changed across reopen: before=%+v after=%+v err=%v", before, after, err)
+	}
+	retained, err := state.GetThreadExecutionPermission(ctx, threadID)
+	if err != nil || retained != debug {
+		t.Fatalf("retained Thread changed across reopen: before=%+v after=%+v err=%v", debug, retained, err)
+	}
+	upgradedLedger, err := state.loadAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version, entry := range ledger {
+		if upgradedLedger[version] != entry {
+			t.Fatalf("retained migration %d changed", version)
+		}
+	}
+	assertNoForeignKeyViolations(t, state.db)
+	assertLatestMigrationLedger(t, state, migrationPlan())
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+	}
+	if capabilities.AllowsSnapshot(after) {
+		t.Fatal("retained Debug data acquired current process authority")
+	}
+	service := application.NewThreadExecutionPermissionService(state, capabilities)
+	if _, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+		ThreadID: threadID, Mode: "debug", ConfirmDebugAccess: true,
+		OperationKey: "retained-debug-thread-write-rejected", RequestedBy: "test_operator",
+		Reason: "retained reads do not reopen retired writers",
+	}); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("retired Thread Debug writer was accepted: %v", err)
+	}
+	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: "debug", ConfirmDebugAccess: true,
+			OperationKey: "retained-debug-run-write-rejected", RequestedBy: "test_operator",
+			Reason: "retained reads do not reopen retired writers",
+		}); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("retired Run Debug writer was accepted: %v", err)
+	}
 	return ctx, state, run, threadRecord, service
 }
 
@@ -52,15 +202,8 @@ func selectThreadPermissionForFullCDPTest(t *testing.T, ctx context.Context,
 		ThreadID: threadID, Mode: string(mode), OperationKey: operationKey,
 		RequestedBy: "test_operator", Reason: "verify nested Full CDP policy",
 	}
-	switch mode {
-	case domain.RunExecutionPermissionWorkspaceAccess:
-		request.ConfirmWorkspaceAccess = true
-	case domain.RunExecutionPermissionApproval:
-		request.ConfirmUserApproval = true
-	case domain.RunExecutionPermissionFullAccess:
-		request.ConfirmDangerFullAccess = true
-	case domain.RunExecutionPermissionDebug:
-		request.ConfirmDebugAccess = true
+	if mode == domain.RunExecutionPermissionFull {
+		request.ConfirmFull = true
 	}
 	selected, err := service.Change(ctx, request)
 	if err != nil {
@@ -113,7 +256,7 @@ func TestThreadPermissionDefaultsFullCDPOnAndForcesItOffOnDowngrade(t *testing.T
 	defer state.Close()
 
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-default-on-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-default-on-0001")
 	fullCDP, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +279,7 @@ func TestThreadPermissionDefaultsFullCDPOnAndForcesItOffOnDowngrade(t *testing.T
 	}
 
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionApproval, "thread-full-cdp-forced-off-0001")
+		domain.RunExecutionPermissionAsk, "thread-full-cdp-forced-off-0001")
 	restricted, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -146,21 +289,86 @@ func TestThreadPermissionDefaultsFullCDPOnAndForcesItOffOnDowngrade(t *testing.T
 		t.Fatalf("execution downgrade did not force Full CDP off: %+v", restricted)
 	}
 	preference, err := state.GetThreadExecutionPermission(ctx, threadRecord.ID)
-	if err != nil || preference.Mode != domain.RunExecutionPermissionApproval {
+	if err != nil || preference.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("Thread downgrade missing: permission=%+v err=%v", preference, err)
 	}
 	runPermission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || runPermission.Mode != domain.RunExecutionPermissionApproval {
+	if err != nil || runPermission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("Run downgrade missing: permission=%+v err=%v", runPermission, err)
 	}
 }
 
-func TestThreadPermissionPreservesDisabledFullCDPAcrossDebugAndSuccessor(t *testing.T) {
-	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
+func TestThreadFullPreferenceKeepsBrowserGateAndRuntimeBindingIndependent(t *testing.T) {
+	ctx, state, run, threadRecord, _ := threadFullCDPTestFixture(t)
+	defer state.Close()
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+	}
+	selectThreadPermissionForFullCDPTest(t, ctx,
+		application.NewThreadExecutionPermissionService(state, capabilities), threadRecord.ID,
+		domain.RunExecutionPermissionFull, "independent-browser-full-selection")
+	restricted, err := transitionRunBrowserCDPForStoreTest(t, ctx, state, run.ID,
+		domain.RunBrowserCDPPermissionRestricted, "independent-browser-disabled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := application.ChangeRunBrowserCDPPermissionRequest{
+		RunID: run.ID, Mode: string(domain.RunBrowserCDPPermissionFullDebug),
+		OperationKey: "independent-browser-enable", RequestedBy: "test_operator",
+		Reason: "separately confirm the exact browser child permission", ConfirmFullCDPDebug: true,
+	}
+	fresh := capabilities
+	fresh.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	for _, test := range []struct {
+		name      string
+		browser   domain.BrowserCDPPermissionRuntimeCapabilities
+		execution domain.ExecutionPermissionRuntimeCapabilities
+	}{
+		{"browser_gate_closed", domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true}, capabilities},
+		{"fresh_process_without_current_grant", domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true, FullDebugEnabled: true}, fresh},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(state, test.browser, test.execution)
+			if _, err := service.Change(ctx, request); apperror.CodeOf(err) != apperror.CodePolicyDenied {
+				t.Fatalf("Full preference bypassed independent browser authority: %v", err)
+			}
+			after, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
+			if err != nil || after != restricted {
+				t.Fatalf("denied browser upgrade changed its snapshot: before=%+v after=%+v err=%v", restricted, after, err)
+			}
+		})
+	}
+	service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(state,
+		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true, FullDebugEnabled: true}, capabilities)
+	missingConfirmation := request
+	missingConfirmation.ConfirmFullCDPDebug = false
+	if _, err := service.Change(ctx, missingConfirmation); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("parent Full confirmation replaced exact browser confirmation: %v", err)
+	}
+	selected, err := service.Change(ctx, request)
+	if err != nil || selected.Permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
+		selected.Permission.RuntimeAuthorized || selected.Permission.CapabilityGrant ||
+		selected.Permission.BrowserStartAuthorized || selected.Permission.TransportEnabled {
+		t.Fatalf("explicit browser selection widened its durable receipt: %+v err=%v", selected, err)
+	}
+	_, otherRun, err := application.NewRunService(state).Create(ctx, application.CreateRunRequest{
+		Goal: "another browser target", Profile: "code", Budget: domain.Budget{MaxTurns: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.RunID = otherRun.ID
+	request.OperationKey = "independent-browser-other-run"
+	if _, err := service.Change(ctx, request); apperror.CodeOf(err) != apperror.CodePolicyDenied {
+		t.Fatalf("another Run borrowed the live Full grant: %v", err)
+	}
+}
+
+func TestThreadPermissionPreservesLegacyDisabledFullCDPAcrossFullAndSuccessor(t *testing.T) {
+	ctx, state, run, threadRecord, service := legacyDebugThreadFullCDPTestFixture(t)
 	defer state.Close()
 
-	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-before-disable-0001")
 	browserService := application.NewRunBrowserCDPPermissionService(state,
 		domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled: true, FullDebugEnabled: true,
@@ -179,11 +387,11 @@ func TestThreadPermissionPreservesDisabledFullCDPAcrossDebugAndSuccessor(t *test
 	}
 
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionDebug, "thread-debug-preserves-cdp-off-0001")
+		domain.RunExecutionPermissionFull, "thread-debug-preserves-cdp-off-0001")
 	preserved, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil || preserved.ID != disabled.ID ||
 		preserved.Mode != domain.RunBrowserCDPPermissionRestricted {
-		t.Fatalf("Full Access to Debug overwrote the CDP sub-switch: before=%+v after=%+v err=%v",
+		t.Fatalf("retained Debug to Full overwrote the CDP sub-switch: before=%+v after=%+v err=%v",
 			disabled, preserved, err)
 	}
 
@@ -214,8 +422,8 @@ func TestThreadPermissionPreservesDisabledFullCDPAcrossDebugAndSuccessor(t *test
 		t.Fatalf("successor did not inherit disabled Full CDP: %+v err=%v", inherited, err)
 	}
 	successorPermission, err := state.GetRunExecutionPermission(ctx, continued.Run.ID)
-	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionDebug {
-		t.Fatalf("successor did not inherit Debug ceiling: %+v err=%v",
+	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionFull {
+		t.Fatalf("successor did not inherit current Full ceiling: %+v err=%v",
 			successorPermission, err)
 	}
 }
@@ -224,7 +432,7 @@ func TestThreadPermissionSuccessorInheritsEnabledFullCDPWithoutAuthority(t *test
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-on-successor-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-on-successor-0001")
 	runService := application.NewRunService(state)
 	if _, err := runService.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
@@ -268,7 +476,7 @@ func TestThreadPermissionFullAccessAfterLowPredecessorDefaultsSuccessorFullCDPOn
 		t.Fatal(err)
 	}
 	selected := selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-after-low-predecessor-0001")
+		domain.RunExecutionPermissionFull, "thread-full-after-low-predecessor-0001")
 	if selected.CurrentRunID != "" ||
 		selected.CurrentRunEffect != domain.ThreadExecutionPermissionNoActiveRun {
 		t.Fatalf("terminal predecessor was treated as active: %+v", selected)
@@ -295,7 +503,7 @@ func TestThreadPermissionLowToFullWithoutActiveRunResetsOldDisabledCDPPreference
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-old-generation-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-old-generation-0001")
 	browserService := application.NewRunBrowserCDPPermissionService(state,
 		domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled: true, FullDebugEnabled: true,
@@ -317,12 +525,12 @@ func TestThreadPermissionLowToFullWithoutActiveRunResetsOldDisabledCDPPreference
 		t.Fatal(err)
 	}
 	low := selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionApproval, "thread-cdp-new-low-generation-0001")
+		domain.RunExecutionPermissionAsk, "thread-cdp-new-low-generation-0001")
 	if low.CurrentRunEffect != domain.ThreadExecutionPermissionNoActiveRun {
 		t.Fatalf("terminal predecessor remained active during low selection: %+v", low)
 	}
 	high := selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-cdp-new-full-generation-0001")
+		domain.RunExecutionPermissionFull, "thread-cdp-new-full-generation-0001")
 	if high.CurrentRunEffect != domain.ThreadExecutionPermissionNoActiveRun {
 		t.Fatalf("terminal predecessor remained active during Full selection: %+v", high)
 	}
@@ -348,7 +556,7 @@ func TestDirectRunExecutionDowngradeAtomicallyRestrictsFullCDP(t *testing.T) {
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "direct-run-cdp-full-0001")
+		domain.RunExecutionPermissionFull, "direct-run-cdp-full-0001")
 	before, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil || before.Mode != domain.RunBrowserCDPPermissionFullDebug {
 		t.Fatalf("test Full CDP setup failed: %+v err=%v", before, err)
@@ -356,12 +564,13 @@ func TestDirectRunExecutionDowngradeAtomicallyRestrictsFullCDP(t *testing.T) {
 	result, err := application.NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionApproval),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 		OperationKey: "direct-run-cdp-downgrade-0001", RequestedBy: "test_operator",
-		Reason: "leave Full Access through the direct Run selector", ConfirmUserApproval: true,
+		Reason: "leave Full Access through the direct Run selector",
 	})
-	if err != nil || result.Permission.Mode != domain.RunExecutionPermissionApproval {
+	if err != nil || result.Permission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("direct Run downgrade failed: %+v err=%v", result, err)
 	}
 	after, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
@@ -372,21 +581,22 @@ func TestDirectRunExecutionDowngradeAtomicallyRestrictsFullCDP(t *testing.T) {
 	}
 }
 
-func TestDirectRunExecutionHighRiskTransitionsDefaultAndPreserveFullCDP(t *testing.T) {
+func TestDirectRunFullReconfirmationPreservesIndependentFullCDPChoice(t *testing.T) {
 	ctx, state, run, _, _ := threadFullCDPTestFixture(t)
 	defer state.Close()
 	permissions := application.NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 			DebugMaximumAccessEnabled: true,
 		})
 	full, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "direct-run-cdp-default-on-0001", RequestedBy: "test_operator",
-		Reason:                  "enter Full Access through the direct Run selector",
-		ConfirmDangerFullAccess: true,
+		Reason:      "enter Full Access through the direct Run selector",
+		ConfirmFull: true,
 	})
-	if err != nil || full.Permission.Mode != domain.RunExecutionPermissionFullAccess {
+	if err != nil || full.Permission.Mode != domain.RunExecutionPermissionFull {
 		t.Fatalf("direct Run Full Access failed: %+v err=%v", full, err)
 	}
 	browserPermission, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
@@ -403,38 +613,38 @@ func TestDirectRunExecutionHighRiskTransitionsDefaultAndPreserveFullCDP(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	debug, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionDebug),
+	reconfirmed, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "direct-run-cdp-debug-preserve-off-0001", RequestedBy: "test_operator",
-		Reason:             "move from Full Access to Debug without changing the CDP sub-switch",
-		ConfirmDebugAccess: true,
+		Reason:      "re-confirm Full without changing the CDP sub-switch",
+		ConfirmFull: true,
 	})
-	if err != nil || debug.Permission.Mode != domain.RunExecutionPermissionDebug {
-		t.Fatalf("direct Run Debug transition failed: %+v err=%v", debug, err)
+	if err != nil || reconfirmed.Permission.Mode != domain.RunExecutionPermissionFull || reconfirmed.Permission.ID == full.Permission.ID || reconfirmed.Permission.Revision != full.Permission.Revision+1 {
+		t.Fatalf("direct Run Full re-confirmation failed: %+v err=%v", reconfirmed, err)
 	}
-	afterDebug, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
-	if err != nil || afterDebug.ID != disabled.ID ||
-		afterDebug.Revision != disabled.Revision ||
-		afterDebug.Mode != domain.RunBrowserCDPPermissionRestricted {
-		t.Fatalf("Full-to-Debug changed the explicit Full CDP switch: before=%+v after=%+v err=%v",
-			disabled, afterDebug, err)
+	afterReconfirmation, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
+	if err != nil || afterReconfirmation.ID != disabled.ID ||
+		afterReconfirmation.Revision != disabled.Revision ||
+		afterReconfirmation.Mode != domain.RunBrowserCDPPermissionRestricted {
+		t.Fatalf("Full re-confirmation changed the explicit Full CDP switch: before=%+v after=%+v err=%v",
+			disabled, afterReconfirmation, err)
 	}
 	fullAgain, err := permissions.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-			OperationKey:            "direct-run-cdp-full-preserve-off-0002",
-			RequestedBy:             "test_operator",
-			Reason:                  "return to Full Access without changing the CDP sub-switch",
-			ConfirmDangerFullAccess: true,
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "direct-run-cdp-full-preserve-off-0002",
+			RequestedBy:  "test_operator",
+			Reason:       "return to Full Access without changing the CDP sub-switch",
+			ConfirmFull:  true,
 		})
-	if err != nil || fullAgain.Permission.Mode != domain.RunExecutionPermissionFullAccess {
+	if err != nil || fullAgain.Permission.Mode != domain.RunExecutionPermissionFull || fullAgain.Permission.ID == reconfirmed.Permission.ID || fullAgain.Permission.Revision != reconfirmed.Permission.Revision+1 {
 		t.Fatalf("direct Run Full transition failed: %+v err=%v", fullAgain, err)
 	}
 	afterFull, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil || afterFull.ID != disabled.ID ||
 		afterFull.Revision != disabled.Revision ||
 		afterFull.Mode != domain.RunBrowserCDPPermissionRestricted {
-		t.Fatalf("Debug-to-Full changed the explicit Full CDP switch: before=%+v after=%+v err=%v",
+		t.Fatalf("Repeated Full re-confirmation changed the explicit Full CDP switch: before=%+v after=%+v err=%v",
 			disabled, afterFull, err)
 	}
 }
@@ -443,7 +653,7 @@ func TestFullCDPUpgradeRejectsStaleExpectedExecutionSnapshot(t *testing.T) {
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "stale-execution-cdp-full-0001")
+		domain.RunExecutionPermissionFull, "stale-execution-cdp-full-0001")
 	if _, err := transitionRunBrowserCDPForStoreTest(t, ctx, state, run.ID,
 		domain.RunBrowserCDPPermissionRestricted,
 		"stale-execution-disable-before-upgrade"); err != nil {
@@ -482,11 +692,11 @@ func TestFullCDPUpgradeRejectsStaleExpectedExecutionSnapshot(t *testing.T) {
 	if _, err := application.NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionApproval),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 		OperationKey: "stale-execution-cdp-downgrade-0001", RequestedBy: "test_operator",
-		Reason:              "interleave an execution downgrade before Full CDP commits",
-		ConfirmUserApproval: true,
+		Reason: "interleave an execution downgrade before Full CDP commits",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -513,22 +723,22 @@ func TestThreadPermissionFullCDPFailureRollsBackWholeTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "thread-full-cdp-atomic-failure-0001",
 		RequestedBy:  "test_operator", Reason: "inject atomic failure",
-		ConfirmDangerFullAccess: true,
+		ConfirmFull: true,
 	}
 	if _, err := service.Change(ctx, request); err == nil {
 		t.Fatal("Thread Full Access transition succeeded despite injected CDP failure")
 	}
 	preference, err := state.GetThreadExecutionPermission(ctx, threadRecord.ID)
-	if err != nil || preference.Mode != domain.RunExecutionPermissionConservative ||
+	if err != nil || preference.Mode != domain.RunExecutionPermissionAsk ||
 		preference.Revision != 1 {
 		t.Fatalf("failed transition partially changed Thread permission: %+v err=%v",
 			preference, err)
 	}
 	runPermission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || runPermission.Mode != domain.RunExecutionPermissionConservative ||
+	if err != nil || runPermission.Mode != domain.RunExecutionPermissionAsk ||
 		runPermission.Revision != 1 {
 		t.Fatalf("failed transition partially changed Run permission: %+v err=%v",
 			runPermission, err)
@@ -570,7 +780,7 @@ func TestRunBrowserCDPDowngradeDoesNotPauseRunningRun(t *testing.T) {
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-running-toggle-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-running-toggle-0001")
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +802,7 @@ func TestRunBrowserCDPDowngradeBypassesActiveLeaseAndSurfaceWithoutPausing(t *te
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-running-lease-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-running-lease-0001")
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +839,7 @@ func TestThreadPermissionDowngradePersistsOnRunningRunAndReleasesLease(t *testin
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionDebug, "thread-debug-running-downgrade-0001")
+		domain.RunExecutionPermissionFull, "thread-debug-running-downgrade-0001")
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -644,8 +854,8 @@ func TestThreadPermissionDowngradePersistsOnRunningRunAndReleasesLease(t *testin
 		t.Fatal(err)
 	}
 	selected := selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionApproval, "thread-debug-running-downgrade-0002")
-	if selected.Permission.Mode != domain.RunExecutionPermissionApproval {
+		domain.RunExecutionPermissionAsk, "thread-debug-running-downgrade-0002")
+	if selected.Permission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("Thread downgrade=%+v", selected)
 	}
 	storedRun, err := state.GetRun(ctx, run.ID)
@@ -653,7 +863,7 @@ func TestThreadPermissionDowngradePersistsOnRunningRunAndReleasesLease(t *testin
 		t.Fatalf("downgrade changed Run lifecycle: run=%+v err=%v", storedRun, err)
 	}
 	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || permission.Mode != domain.RunExecutionPermissionApproval {
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("Run permission downgrade=%+v err=%v", permission, err)
 	}
 	released, found, err := state.GetRunExecutionLease(ctx, run.ID)
@@ -667,18 +877,16 @@ func TestThreadPermissionDowngradePersistsOnRunningRunAndReleasesLease(t *testin
 	}
 }
 
-func TestThreadDebugToFullPersistsOnRunningRunAndReleasesLease(t *testing.T) {
-	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
+func TestRetainedThreadDebugToFullPersistsOnRunningRunAndReleasesLease(t *testing.T) {
+	ctx, state, run, threadRecord, service := legacyDebugThreadFullCDPTestFixture(t)
 	defer state.Close()
-	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionDebug, "thread-debug-to-full-running-0001")
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	lease := acquireTestRunExecutionLease(t, ctx, state, run.ID)
 	selected := selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-debug-to-full-running-0002")
-	if selected.Permission.Mode != domain.RunExecutionPermissionFullAccess {
+		domain.RunExecutionPermissionFull, "thread-debug-to-full-running-0002")
+	if selected.Permission.Mode != domain.RunExecutionPermissionFull {
 		t.Fatalf("Thread Debug-to-Full=%+v", selected)
 	}
 	storedRun, err := state.GetRun(ctx, run.ID)
@@ -686,7 +894,7 @@ func TestThreadDebugToFullPersistsOnRunningRunAndReleasesLease(t *testing.T) {
 		t.Fatalf("Debug-to-Full changed Run lifecycle: run=%+v err=%v", storedRun, err)
 	}
 	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || permission.Mode != domain.RunExecutionPermissionFullAccess {
+	if err != nil || permission.Mode != domain.RunExecutionPermissionFull {
 		t.Fatalf("Run Debug-to-Full permission=%+v err=%v", permission, err)
 	}
 	released, found, err := state.GetRunExecutionLease(ctx, run.ID)
@@ -696,32 +904,25 @@ func TestThreadDebugToFullPersistsOnRunningRunAndReleasesLease(t *testing.T) {
 	}
 }
 
-func TestDirectRunDebugDowngradePersistsOnRunningRunAndReleasesLease(t *testing.T) {
-	ctx, state, run, _, _ := threadFullCDPTestFixture(t)
+func TestRetainedRunDebugDowngradePersistsOnRunningRunAndReleasesLease(t *testing.T) {
+	ctx, state, run, _, _ := legacyDebugThreadFullCDPTestFixture(t)
 	defer state.Close()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
 		DebugMaximumAccessEnabled: true,
 	}
 	permissions := application.NewRunExecutionPermissionService(state, capabilities)
-	if _, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "direct-debug-running-downgrade-0001",
-		RequestedBy:  "test_operator", Reason: "select Debug before direct downgrade",
-		ConfirmDebugAccess: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	lease := acquireTestRunExecutionLease(t, ctx, state, run.ID)
 	selected, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionConservative),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 		OperationKey: "direct-debug-running-downgrade-0002",
 		RequestedBy:  "test_operator", Reason: "immediately revoke Debug for this Run",
 	})
-	if err != nil || selected.Permission.Mode != domain.RunExecutionPermissionConservative {
+	if err != nil || selected.Permission.Mode != domain.RunExecutionPermissionAsk {
 		t.Fatalf("direct Debug downgrade=%+v err=%v", selected, err)
 	}
 	storedRun, err := state.GetRun(ctx, run.ID)
@@ -743,7 +944,7 @@ func TestRunBrowserCDPToggleRejectsRunningUpgradeUntilQuiescent(t *testing.T) {
 	ctx, state, run, threadRecord, service := threadFullCDPTestFixture(t)
 	defer state.Close()
 	selectThreadPermissionForFullCDPTest(t, ctx, service, threadRecord.ID,
-		domain.RunExecutionPermissionFullAccess, "thread-full-cdp-running-upgrade-0001")
+		domain.RunExecutionPermissionFull, "thread-full-cdp-running-upgrade-0001")
 	if _, err := transitionRunBrowserCDPForStoreTest(t, ctx, state, run.ID,
 		domain.RunBrowserCDPPermissionRestricted, "disable-before-running-upgrade"); err != nil {
 		t.Fatal(err)
