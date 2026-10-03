@@ -153,8 +153,16 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 		}
 	}
 	afterLedger, err := state.loadAppliedMigrations(ctx)
-	if err != nil || len(afterLedger) != 151 || !reflect.DeepEqual(v150Ledger, afterLedger[:150]) {
+	if err != nil || len(afterLedger) != 151 {
 		t.Fatalf("v151 changed its historical migration ledger: %v", err)
+	}
+	for version, applied := range v150Ledger {
+		if !reflect.DeepEqual(applied, afterLedger[version]) {
+			t.Fatalf("v151 changed historical migration %d", version)
+		}
+	}
+	if err := validateMigrationPlan(plan, afterLedger); err != nil {
+		t.Fatal(err)
 	}
 	rounds, err := state.ListSupervisorToolRounds(ctx, checkpoint)
 	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 2 {
