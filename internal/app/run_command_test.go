@@ -635,7 +635,10 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("fixed restricted native adapter is Windows-only; exercised in Windows CI")
 	}
-	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CYBERAGENT_HOME", home)
 	if _, stderr, code := executeTestCommand(t, "workspace", "init",
 		"command-execute-demo"); code != 0 {
