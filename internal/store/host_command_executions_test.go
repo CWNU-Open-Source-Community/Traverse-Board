@@ -16,36 +16,37 @@ import (
 	"cyberagent-workbench/internal/runner"
 )
 
-func TestHostCommandExecutionAuditIsImmutableIdempotentAndMetadataOnly(
+func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 	t *testing.T,
 ) {
 	ctx := context.Background()
-	st, err := Open(filepath.Join(t.TempDir(), "host-execution.db"))
+	path := filepath.Join(t.TempDir(), "host-execution.db")
+	st, err := openHistoricalMigrationFixture(t, path, 141)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
 	intent, environment := hostExecutionStoreIntent(t, ctx, st)
-	replayed, err := st.PrepareHostExecutionIntent(ctx, intent)
+	replayed, err := seedHistoricalHostExecutionIntent(ctx, st, intent)
 	if err != nil || replayed {
 		t.Fatalf("prepare replayed=%v err=%v", replayed, err)
 	}
 	retry := intent
 	retry.CreatedAt = retry.CreatedAt.Add(time.Minute)
-	replayed, err = st.PrepareHostExecutionIntent(ctx, retry)
+	replayed, err = seedHistoricalHostExecutionIntent(ctx, st, retry)
 	if err != nil || !replayed {
 		t.Fatalf("prepare replay replayed=%v err=%v", replayed, err)
 	}
 	conflict := intent
 	conflict.RequestedBy = "another_operator"
-	if _, err := st.PrepareHostExecutionIntent(
-		ctx, conflict); apperror.CodeOf(err) != apperror.CodeConflict {
+	if _, err := seedHistoricalHostExecutionIntent(
+		ctx, st, conflict); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("conflicting intent error=%v", err)
 	}
 	reused := hostExecutionStoreIntentWithPurpose(
 		t, intent, environment, "different exact command purpose")
-	if _, err := st.PrepareHostExecutionIntent(
-		ctx, reused); apperror.CodeOf(err) != apperror.CodeConflict {
+	if _, err := seedHistoricalHostExecutionIntent(
+		ctx, st, reused); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("reused operation key error=%v", err)
 	}
 
@@ -61,6 +62,30 @@ func TestHostCommandExecutionAuditIsImmutableIdempotentAndMetadataOnly(
 		if strings.Contains(storedIntentText, entry) {
 			t.Fatalf("environment value was persisted in host intent: %q", entry)
 		}
+	}
+
+	// Retained records cross the real upgrade. The old new-intent writer has
+	// been deleted from production; completion only settles an existing intent.
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	retained, found, err := st.GetHostExecutionIntentByOperation(ctx, intent.RunID, intent.OperationKeyDigest)
+	if err != nil || !found || !hostExecutionIntentsEqual(retained, intent) {
+		t.Fatalf("legacy operation changed across upgrade: %+v %v %v", retained, found, err)
+	}
+	if _, found, err := st.GetHostExecutionReceipt(ctx, intent.RequestID); err != nil || found {
+		t.Fatalf("receipt was fabricated for uncertain intent: %v %v", found, err)
+	}
+	if _, _, err := st.GetHostExecutionIntentByOperation(ctx, "unrelated-run", intent.OperationKeyDigest); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("operation crossed Runs: %v", err)
+	}
+	if _, err := application.NewRunExecutionPermissionService(st, domain.ExecutionPermissionRuntimeCapabilities{}).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: intent.RunID, Mode: "ask", OperationKey: "legacy-host-now-ask", RequestedBy: "test_operator"}); err != nil {
+		t.Fatal(err)
 	}
 
 	rawOutput := []byte("host-output-must-remain-transient")

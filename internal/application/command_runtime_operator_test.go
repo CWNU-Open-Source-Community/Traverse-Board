@@ -1,0 +1,252 @@
+package application
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/toolgateway"
+)
+
+type operatorCommandFixture struct {
+	st         *store.SQLiteStore
+	probe      *commandApprovalPrepareStore
+	service    *CommandRuntimeService
+	manager    *runner.CommandRuntimeManager
+	caps       domain.ExecutionPermissionRuntimeCapabilities
+	checker    *commandApprovalChecker
+	run        domain.Run
+	root, path string
+}
+
+func newOperatorCommandFixture(t *testing.T, mode domain.RunExecutionPermissionMode) *operatorCommandFixture {
+	t.Helper()
+	f := &operatorCommandFixture{root: t.TempDir(), path: filepath.Join(t.TempDir(), "operator.db")}
+	var err error
+	f.st, err = store.Open(f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.st.Close() })
+	workspace := store.WorkspaceRecord{ID: "operator-workspace", Name: "operator fixture", RootPath: f.root}
+	if err := f.st.SaveWorkspace(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	runs := NewRunService(f.st)
+	_, f.run, err = runs.Create(t.Context(), CreateRunRequest{Goal: "Run the exact operator command", Profile: "code", Surface: "code", Phase: "deliver", WorkspaceID: workspace.ID,
+		Budget: domain.Budget{MaxTurns: 4, MaxTokens: 10000, MaxToolCalls: 12}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = NewRunExecutionProfileService(f.st).Change(t.Context(), ChangeRunExecutionProfileRequest{RunID: f.run.ID, Profile: "local", OperationKey: "operator-profile", RequestedBy: "operator"}); err != nil {
+		t.Fatal(err)
+	}
+	f.caps = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if mode != domain.RunExecutionPermissionAsk {
+		if _, err = NewRunExecutionPermissionService(f.st, f.caps).Change(t.Context(), ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: string(mode), ConfirmFull: mode == domain.RunExecutionPermissionFull, OperationKey: "operator-mode-selection", RequestedBy: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.run, err = runs.Start(t.Context(), f.run.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.probe = &commandApprovalPrepareStore{SQLiteStore: f.st}
+	f.manager, err = runner.NewPlatformCommandRuntimeManager(f.probe, idgen.New("operator-owner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		if err := f.manager.Shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	})
+	f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.checker = &commandApprovalChecker{Checker: policy.NewDefaultChecker()}
+	f.service.SetCommandRuntimePolicy(f.checker)
+	return f
+}
+
+func (f *operatorCommandFixture) request(t *testing.T, confirmed bool) OperatorCommandRequest {
+	t.Helper()
+	return OperatorCommandRequest{RunID: f.run.ID, OperationKey: "operator-native-once", RequestedBy: "operator", Command: commandApprovalNativeInput(t, false).Commands[0], ConfirmExecution: confirmed}
+}
+
+func (f *operatorCommandFixture) noProcess(t *testing.T) {
+	t.Helper()
+	if b, err := os.ReadFile(filepath.Join(f.root, "count.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected native effect %q %v", b, err)
+	}
+}
+
+func TestOperatorCommandThreeModesShareNativeAuthorization(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newOperatorCommandFixture(t, mode)
+			if mode != domain.RunExecutionPermissionFull {
+				if _, err := f.service.RunOperatorCommand(t.Context(), f.request(t, false)); err == nil {
+					t.Fatal("unreviewed host operation allowed")
+				}
+				f.noProcess(t)
+				jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.run.ID, Limit: 10})
+				if err != nil || len(jobs) != 0 {
+					t.Fatalf("missing approval consumed operation: %v %v", jobs, err)
+				}
+			}
+			request := f.request(t, mode != domain.RunExecutionPermissionFull)
+			result, err := f.service.RunOperatorCommand(t.Context(), request)
+			if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped {
+				t.Fatalf("operator result=%+v err=%v", result, err)
+			}
+			db, err := sql.Open("sqlite3", f.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var actor, source string
+			var attempt sql.NullString
+			err = db.QueryRowContext(t.Context(), `SELECT agent_id,agent_attempt_id,attribution_source FROM command_runtime_job_agents WHERE job_id=?`, result.Job.ID).Scan(&actor, &attempt, &source)
+			if err != nil || actor != result.Job.RootAgentID || source != string(domain.AgentAttributionOperatorRoot) || attempt.Valid {
+				t.Fatalf("operator attribution=%q %q %+v %v", actor, source, attempt, err)
+			}
+			if b, err := os.ReadFile(filepath.Join(f.root, "count.txt")); err != nil || string(b) != "1" {
+				t.Fatalf("native marker=%q %v", b, err)
+			}
+			// Completed replay does not acquire a lease or reactivate Full.
+			f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+			if err := f.manager.Shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.st.Close(); err != nil {
+				t.Fatal(err)
+			}
+			f.st, err = store.Open(f.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cold := &CommandRuntimeService{store: f.st}
+			replay, err := cold.RunOperatorCommand(t.Context(), request)
+			if err != nil || !replay.Replayed || replay.Job.ID != result.Job.ID {
+				t.Fatalf("cold replay=%+v %v", replay, err)
+			}
+			request.Command.Arguments = append(request.Command.Arguments, "changed")
+			if _, err := cold.RunOperatorCommand(t.Context(), request); err == nil {
+				t.Fatal("changed replay request accepted")
+			}
+			if b, _ := os.ReadFile(filepath.Join(f.root, "count.txt")); string(b) != "1" {
+				t.Fatalf("replay repeated native effect %q", b)
+			}
+		})
+	}
+}
+
+func TestOperatorCommandPolicyAndColdFullCannotBeOverridden(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newOperatorCommandFixture(t, mode)
+			f.checker.deny = true
+			if _, err := f.service.RunOperatorCommand(t.Context(), f.request(t, true)); err == nil {
+				t.Fatal("operator confirmation overrode host policy")
+			}
+			f.noProcess(t)
+			if mode == domain.RunExecutionPermissionFull {
+				f.checker.deny = false
+				f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+				if _, err := f.service.RunOperatorCommand(t.Context(), f.request(t, true)); err == nil {
+					t.Fatal("command confirmation reactivated Full")
+				}
+				f.noProcess(t)
+			}
+		})
+	}
+}
+
+func TestOperatorCommandRechecksRevocationAndLeaseBeforeNativeStart(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		for _, change := range []string{"revoke", "lease", "cancel"} {
+			t.Run(string(mode)+"/"+change, func(t *testing.T) {
+				f := newOperatorCommandFixture(t, mode)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				f.probe.afterPrepare = func() {
+					switch change {
+					case "revoke":
+						f.caps.RuntimeAuthority.RevokeRun(f.run.ID)
+					case "lease":
+						lease, _, err := f.st.GetRunExecutionLease(t.Context(), f.run.ID)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if _, _, err = f.st.ReleaseRunExecutionLease(t.Context(), lease); err != nil {
+							t.Fatal(err)
+						}
+					case "cancel":
+						cancel()
+					}
+				}
+				if _, err := f.service.RunOperatorCommand(ctx, f.request(t, true)); err == nil {
+					t.Fatal("stale native admission succeeded")
+				}
+				f.noProcess(t)
+			})
+		}
+	}
+}
+
+func TestOperatorCommandCannotBorrowLeaseOrChangeRunState(t *testing.T) {
+	f := newOperatorCommandFixture(t, domain.RunExecutionPermissionAuto)
+	lease, err := f.st.AcquireRunExecutionLease(t.Context(), domain.AcquireRunExecutionLeaseRequest{RunID: f.run.ID, OwnerID: "other-owner", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.service.RunOperatorCommand(t.Context(), f.request(t, true)); err == nil {
+		t.Fatal("borrowed another worker lease")
+	}
+	current, _, err := f.st.GetRunExecutionLease(t.Context(), f.run.ID)
+	if err != nil || current.LeaseID != lease.Lease.LeaseID || current.OwnerID != "other-owner" {
+		t.Fatalf("lease changed %+v %v", current, err)
+	}
+	if _, _, err = f.st.ReleaseRunExecutionLease(t.Context(), lease.Lease); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = NewRunService(f.st).Pause(t.Context(), f.run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.service.RunOperatorCommand(t.Context(), f.request(t, true)); err == nil {
+		t.Fatal("paused Run executed")
+	}
+	run, err := f.st.GetRun(t.Context(), f.run.ID)
+	if err != nil || run.Status != domain.RunPaused {
+		t.Fatalf("Run state changed %+v %v", run, err)
+	}
+	f.noProcess(t)
+}
+
+func TestOperatorCommandScopeCannotForgeOperatorConsent(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newCommandApprovalFixture(t, mode, false)
+			f.record(t, commandApprovalNativeInput(t, false), 1)
+			scope, input := f.scope(t)
+			scope.RequestedBy = toolgateway.CommandRuntimeRequestedByOperator
+			scope.AgentAttemptID = ""
+			if _, err := f.service.ExecuteCommandRuntime(t.Context(), scope, input); err == nil {
+				t.Fatal("serialized operator claim forged review")
+			}
+			f.assertNoMarker(t, "count.txt")
+		})
+	}
+}

@@ -46,7 +46,7 @@ func (s *CommandRuntimeService) authorizedCommandStart(scope toolgateway.Command
 	}
 	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
 		Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{spec.Spec}}
-	check, err := s.commandOperationCheck(scope, bindings, operation, spec.Spec.Network, "", input, func(source commandApprovalSource) bool {
+	check, err := s.commandOperationCheck(scope, bindings, operation, spec.Spec.Network, "", input, runner.CommandRuntimeSpecFingerprint(spec), func(source commandApprovalSource) bool {
 		index := 0
 		if source.input.Action == toolgateway.CommandRuntimeActionRun {
 			index = -1
@@ -95,7 +95,7 @@ func (s *CommandRuntimeService) commandStdinDispatchCheck(scope toolgateway.Comm
 		return nil, err
 	}
 	check, err := s.commandOperationCheck(scope, bindings, operation,
-		runner.CommandRuntimeNetworkDisabled, input.JobID, input, func(source commandApprovalSource) bool {
+		runner.CommandRuntimeNetworkDisabled, input.JobID, input, "", func(source commandApprovalSource) bool {
 			return source.input.Action == input.Action && source.input.JobID == input.JobID && source.input.Stdin != nil && source.input.CloseStdin != nil &&
 				*source.input.Stdin == *input.Stdin && *source.input.CloseStdin == *input.CloseStdin
 		})
@@ -140,7 +140,7 @@ func commandOperation(key []byte, id string, adapter commandruntimeadapter.Ident
 
 func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandRuntimeContext,
 	bindings commandRuntimeBindings, operation toolcontract.Operation, network runner.CommandRuntimeNetwork, jobID string,
-	input toolgateway.CommandRuntimeInput, pinned func(commandApprovalSource) bool,
+	input toolgateway.CommandRuntimeInput, operatorSpecFingerprint string, pinned func(commandApprovalSource) bool,
 ) (func(context.Context, toolcontract.Operation) error, error) {
 	actor := scope.AgentID
 	if actor == "" {
@@ -148,15 +148,7 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 	}
 	subject := executionauth.SubjectRef{RunID: scope.RunID, ActorID: actor}
 	expectedScope := s.runnerScope(scope, bindings, scope.OperationKey)
-	bindingFingerprint := func(value runner.CommandRuntimeScope) (string, error) {
-		raw, err := json.Marshal(value)
-		if err != nil {
-			return "", err
-		}
-		sum := sha256.Sum256(raw)
-		return hex.EncodeToString(sum[:]), nil
-	}
-	expectedBinding, err := bindingFingerprint(expectedScope)
+	expectedBinding, err := commandOperationBindingFingerprint(expectedScope)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +167,7 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeConflict,
 				"command operation Agent attempt changed before dispatch")
 		}
-		binding, err := bindingFingerprint(s.runnerScope(scope, current, scope.OperationKey))
+		binding, err := commandOperationBindingFingerprint(s.runnerScope(scope, current, scope.OperationKey))
 		if err != nil || binding != expectedBinding {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeConflict, "command operation scope changed before dispatch")
 		}
@@ -229,8 +221,19 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 				return executionauth.OperationAuthority{}, err
 			}
 		}
+		operatorProof := false
+		if scope.RequestedBy == toolgateway.CommandRuntimeRequestedByOperator {
+			consent, exists := ctx.Value(operatorCommandApprovalKey{}).(operatorCommandApproval)
+			if !exists || consent.host != s || consent.invocationID != scope.InvocationID ||
+				consent.operationKey != scope.OperationKey || consent.bindingFingerprint != binding ||
+				operatorSpecFingerprint == "" || consent.specFingerprint != operatorSpecFingerprint {
+				return executionauth.OperationAuthority{}, errors.New("operator command is missing its exact host invocation")
+			}
+			policyInput = consent.input
+			operatorProof = consent.confirmed
+		}
 		policy := toolgateway.CommandRuntimePolicyDecision(s.commandRuntimePolicy(), policyInput)
-		if !policy.Allowed || (policy.NeedsApproval && proof == nil) {
+		if !policy.Allowed || (policy.NeedsApproval && proof == nil && !operatorProof) {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "current command host policy requires denial or exact review")
 		}
 		projection, err := domain.ExecutionPermissionApproval(current.permission)
@@ -240,12 +243,16 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 		value := executionauth.OperationAuthority{Mode: projection.Mode, BindingFingerprint: binding,
 			RuntimeAvailable: true, FullActivated: projection.Mode == domain.ExecutionApprovalFull,
 			EffectsVerified: s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace}
-		if proof != nil {
+		if proof != nil || operatorProof {
 			fingerprint, err := toolcontract.FingerprintOperation(operation)
 			if err != nil {
 				return executionauth.OperationAuthority{}, err
 			}
-			value.Approval = &executionauth.BoundApproval{Ref: proof.ID, Subject: subject, OperationFingerprint: fingerprint, Status: string(proof.Status)}
+			ref, status := scope.InvocationID, approval.StatusApproved
+			if proof != nil {
+				ref, status = proof.ID, proof.Status
+			}
+			value.Approval = &executionauth.BoundApproval{Ref: ref, Subject: subject, OperationFingerprint: fingerprint, Status: string(status)}
 		}
 		return value, nil
 	})
@@ -281,4 +288,13 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 		}
 		return authorizer.Recheck(ctx, subject, actual, "", decision.AuthorizationRef)
 	}, nil
+}
+
+func commandOperationBindingFingerprint(value runner.CommandRuntimeScope) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }

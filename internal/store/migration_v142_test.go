@@ -21,7 +21,7 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 		t.Fatal(err)
 	}
 	intent, _ := hostExecutionStoreIntent(t, ctx, state)
-	if replayed, err := state.PrepareHostExecutionIntent(ctx, intent); err != nil || replayed {
+	if replayed, err := seedHistoricalHostExecutionIntent(ctx, state, intent); err != nil || replayed {
 		t.Fatalf("prepare v141 host intent replayed=%t err=%v", replayed, err)
 	}
 	emptyDigest := sha256.Sum256(nil)
@@ -96,7 +96,7 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayed, err := state.PrepareHostExecutionIntent(ctx, debugIntent); err != nil || replayed {
+	if replayed, err := seedHistoricalHostExecutionIntent(ctx, state, debugIntent); err != nil || replayed {
 		t.Fatalf("schema v142 rejected Debug host intent: replayed=%t err=%v", replayed, err)
 	}
 }

@@ -822,7 +822,13 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	running.StartedAt = &started
 	running.Version++
 	running.UpdatedAt = started
-	updated, err := m.store.UpdateCommandRuntimeJob(ctx, running, stored.Version)
+	// Native dispatch has already happened. Finish the bounded ownership
+	// handoff even if the caller cancels between the SQL update and readback;
+	// otherwise an owned process can lose its terminal-receipt collector.
+	// Foreground cancellation is handled after this Job is registered.
+	handoffCtx, cancelHandoff := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	updated, err := m.store.UpdateCommandRuntimeJob(handoffCtx, running, stored.Version)
+	cancelHandoff()
 	if err != nil {
 		_ = process.Kill()
 		_ = process.Close()

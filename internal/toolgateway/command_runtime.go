@@ -41,6 +41,8 @@ const (
 	// control-bearer UI-evidence workflow. It is Run/root-authorized but does
 	// not claim that a model Agent attempt requested the command.
 	CommandRuntimeRequestedByUIEvidenceOperator = "ui_evidence_operator"
+	// Direct operator work uses the existing operator_root audit attribution.
+	CommandRuntimeRequestedByOperator = "command_operator"
 )
 
 type CommandRuntimeInput struct {
@@ -231,7 +233,7 @@ func (c CommandRuntimeContext) Attribution() domain.AgentAttribution {
 	case "run_supervisor":
 		return domain.AgentAttribution{AgentID: c.AgentID,
 			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionRecorded}
-	case CommandRuntimeRequestedByUIEvidenceOperator:
+	case CommandRuntimeRequestedByUIEvidenceOperator, CommandRuntimeRequestedByOperator:
 		return domain.AgentAttribution{AgentID: c.AgentID,
 			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionOperatorRoot}
 	default:
