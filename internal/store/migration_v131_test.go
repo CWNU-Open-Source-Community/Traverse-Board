@@ -30,9 +30,14 @@ func TestSchemaV131PreservesV130StreamToolIdentities(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "command-runtime-preserves-item-stream.db")
 	legacy := openSchemaV130Store(t, path)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
-	_, runRecord := createStructuredToolTestRun(t, ctx, legacy,
-		"preserve item-stream identity through command runtime migration")
-	if _, err := application.NewRunService(legacy).Start(ctx, runRecord.ID); err != nil {
+	_, runRecord, err := newMigrationFixtureRunService(t, legacy).Create(ctx, application.CreateRunRequest{
+		Goal: "preserve item-stream identity through command runtime migration", Profile: "code", WorkspaceID: "ws-structured",
+		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newMigrationFixtureRunService(t, legacy).Start(ctx, runRecord.ID); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := legacy.BeginSupervisorTurn(ctx,
@@ -207,7 +212,7 @@ func commandRuntimeMigrationJob(t testing.TB, state *SQLiteStore,
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	runs := application.NewRunService(state)
+	runs := newMigrationFixtureRunService(t, state)
 	version, err := state.SchemaVersion(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +228,21 @@ func commandRuntimeMigrationJob(t testing.TB, state *SQLiteStore,
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	if version < 178 {
+		// The frozen Run seed predates Threads. Later legacy schemas still
+		// need the original creation projection for actor backfill/recovery.
+		tx, err := state.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		if err := seedLegacyInitialThreadTx(ctx, tx, mission, runRecord); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	profileName := "local"
 	if adapter.Backend == application.CommandRuntimeDockerSandboxBackend {
