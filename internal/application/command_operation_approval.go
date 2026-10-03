@@ -38,6 +38,13 @@ type commandApprovalSource struct {
 }
 
 func readCommandApprovalSource(ctx context.Context, st commandApprovalStore, runID, callID string) (commandApprovalSource, error) {
+	return readCommandSource(ctx, st, runID, callID, false)
+}
+
+// Only the native dispatch recheck may inspect a completed start receipt. Its
+// caller must additionally prove the exact still-owned, running durable Job.
+// Review/preflight/recovery keep using the pending-only reader above.
+func readCommandSource(ctx context.Context, st commandApprovalStore, runID, callID string, allowCompletedStart bool) (commandApprovalSource, error) {
 	var s commandApprovalSource
 	var err error
 	s.call, s.started, err = st.GetSupervisorApprovalCall(ctx, runID, callID)
@@ -55,8 +62,10 @@ func readCommandApprovalSource(ctx context.Context, st commandApprovalStore, run
 	if err != nil {
 		return s, err
 	}
+	completedStart := allowCompletedStart && s.started && c.Status == domain.SupervisorToolCompleted &&
+		c.CompletedAt != nil && c.ErrorCode == "" && s.input.Action == toolgateway.CommandRuntimeActionStart && len(s.input.Commands) == 1
 	if c.ToolName != string(toolgateway.CommandRuntimeTool) || c.RunID != runID || c.CallID != callID ||
-		c.Status != domain.SupervisorToolPending || c.AgentAttribution == domain.AgentAttributionLegacyUnknown ||
+		(c.Status != domain.SupervisorToolPending && !completedStart) || c.AgentAttribution == domain.AgentAttributionLegacyUnknown ||
 		c.AgentID == "" || c.AgentAttemptID == "" || c.AgentAttemptID != c.AttemptID ||
 		a.ProtocolVersion != commandruntimeadapter.OperationAuthorityVersion || a.RunID != runID ||
 		a.ScopeFingerprint == "" || c.PayloadJSON != string(canonical) ||

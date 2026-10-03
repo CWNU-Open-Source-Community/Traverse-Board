@@ -591,3 +591,75 @@ func TestCommandOperationApprovalLifecycleCannotEraseExistingReview(t *testing.T
 		})
 	}
 }
+
+func TestCommandOperationApprovalCompletedStartOnlyContinuesItsOwnedJob(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newCommandApprovalFixture(t, mode, false)
+			input := commandApprovalNativeInput(t, true)
+			input.Commands[0].TimeoutMilliseconds = 30000
+			f.record(t, input, 1)
+			waiting, err := f.resume(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				f.decide(t, ApprovalControlApproveOnce)
+				if waiting, err := f.resume(t); err != nil || waiting {
+					t.Fatalf("reviewed background start failed: waiting=%t err=%v", waiting, err)
+				}
+			}
+			jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.call.RunID, Limit: 20})
+			if err != nil || len(jobs) != 1 || jobs[0].State != runner.CommandRuntimeJobRunning {
+				t.Fatalf("background Job was not admitted: %+v err=%v", jobs, err)
+			}
+			if _, err := readCommandApprovalSource(t.Context(), f.st, f.call.RunID, f.call.CallID); err == nil {
+				t.Fatal("completed start became a pending review/recovery source")
+			}
+			scope, pinnedInput := f.scope(t)
+			scope.InvocationID = jobs[0].InvocationID
+			bindings, err := f.service.loadAuthorizedBindings(t.Context(), scope, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := f.service.normalizeCommandRuntimeSpec(pinnedInput.Commands[0], bindings.rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(service *CommandRuntimeService, candidate toolgateway.CommandRuntimeContext) error {
+				start, err := service.authorizedCommandStart(candidate, bindings, candidate.OperationKey, resolved)
+				if err != nil {
+					return err
+				}
+				return start.DispatchCheck(t.Context(), resolved)
+			}
+			if err := check(f.service, scope); err != nil {
+				t.Fatalf("exact still-owned Job lost its admitted source: %v", err)
+			}
+			wrong := scope
+			wrong.InvocationID = "different-command-invocation"
+			if err := check(f.service, wrong); err == nil {
+				t.Fatal("completed start authorized a different invocation")
+			}
+			cold, err := runner.NewPlatformCommandRuntimeManager(f.st, idgen.New("cold-owned-start"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = cold.Shutdown(context.Background()) })
+			coldService := *f.service
+			coldService.manager = cold
+			if err := check(&coldService, scope); err == nil {
+				t.Fatal("durable start receipt reactivated authority in a different manager")
+			}
+			if _, err := f.manager.Stop(t.Context(), jobs[0].ID, true, 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := check(f.service, scope); err == nil {
+				t.Fatal("completed start authorized a stopped Job")
+			}
+			if current, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.call.RunID, Limit: 20}); err != nil || len(current) != 1 {
+				t.Fatalf("rechecks created another Job: %+v err=%v", current, err)
+			}
+		})
+	}
+}
