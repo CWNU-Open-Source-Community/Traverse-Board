@@ -391,7 +391,7 @@ type BatchValidationResult struct {
 }
 
 func RunBatchValidation(ctx context.Context, root, baseCommit string,
-	requirement domain.BatchDeliveryValidationRequirement,
+	requirement domain.BatchDeliveryValidationRequirement, starter runner.OnceStarter,
 ) (BatchValidationResult, error) {
 	result := BatchValidationResult{RequirementID: requirement.ID, Kind: requirement.Kind,
 		Scope: requirement.Scope}
@@ -447,7 +447,6 @@ func RunBatchValidation(ctx context.Context, root, baseCommit string,
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, MaxBatchValidationDuration)
 	defer cancel()
-	starter := runner.NewPlatformOnceProcessStarter()
 	if starter == nil || !starter.Available() {
 		return result, errors.New("batch validation process-tree boundary is unavailable")
 	}
@@ -456,6 +455,11 @@ func RunBatchValidation(ctx context.Context, root, baseCommit string,
 		ExecutablePath:     executable, Argv: args, WorkingDirectory: workingRoot,
 		Environment: environment,
 	})
+	// A denied dispatch has no process completion evidence. Preserve the
+	// authority error instead of replacing it with a missing tree receipt.
+	if runErr != nil && started.StartedAt.IsZero() {
+		return result, runErr
+	}
 	result.ExitCode = started.ExitCode
 	result.CompletedAt = started.CompletedAt
 	if result.CompletedAt.IsZero() {

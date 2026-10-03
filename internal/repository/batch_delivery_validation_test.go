@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,28 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 )
+
+type deniedBatchValidationStarter struct{ err error }
+
+func (deniedBatchValidationStarter) Name() string    { return "denied-batch-test" }
+func (deniedBatchValidationStarter) Available() bool { return true }
+func (s deniedBatchValidationStarter) Start(context.Context, runner.OnceStartSpec) (runner.OnceStartResult, error) {
+	return runner.OnceStartResult{}, s.err
+}
+
+func TestBatchValidationDeniedDispatchPreservesAuthorityError(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	denied := errors.New("authority revoked before dispatch")
+	result, err := RunBatchValidation(t.Context(), root, strings.Repeat("a", 40),
+		domain.BatchDeliveryValidationRequirement{ID: "denied", Kind: domain.BatchValidationGoTest, Scope: "."},
+		deniedBatchValidationStarter{err: denied})
+	if !errors.Is(err, denied) || !result.CompletedAt.IsZero() || result.OutputSHA256 != "" {
+		t.Fatalf("denied dispatch fabricated completion or lost its error: result=%#v err=%v", result, err)
+	}
+}
 
 func TestBatchValidationUsesContainedProcessTree(t *testing.T) {
 	root := t.TempDir()
@@ -31,7 +55,7 @@ func TestContained(t *testing.T) {}
 	}
 	result, err := RunBatchValidation(t.Context(), root, strings.Repeat("a", 40),
 		domain.BatchDeliveryValidationRequirement{ID: "go-contained",
-			Kind: domain.BatchValidationGoTest, Scope: "."})
+			Kind: domain.BatchValidationGoTest, Scope: "."}, runner.NewPlatformOnceProcessStarter())
 	if err != nil {
 		// Obtain bounded output from the same tree primitive for a useful test
 		// failure without changing the product error contract.
@@ -77,7 +101,7 @@ func TestFailure(t *testing.T) { t.Fatal("`+canary+`") }
 	}
 	result, err := RunBatchValidation(t.Context(), root, strings.Repeat("a", 40),
 		domain.BatchDeliveryValidationRequirement{ID: "go-failure-digest",
-			Kind: domain.BatchValidationGoTest, Scope: "."})
+			Kind: domain.BatchValidationGoTest, Scope: "."}, runner.NewPlatformOnceProcessStarter())
 	if err == nil {
 		t.Fatal("failing validation reported success")
 	}
