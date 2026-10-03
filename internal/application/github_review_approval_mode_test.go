@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/githubreview"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolcontract"
 )
@@ -307,12 +309,16 @@ func TestGitHubReviewRetainedModesReadAndReplayWithoutNewAuthority(t *testing.T)
 	}
 }
 
-func TestGitHubReviewContentOnlyLegacyApprovalCannotAuthorizeNewWrite(t *testing.T) {
+func TestGitHubReviewContentOnlyLegacyApprovalRequiresFreshReviewKey(t *testing.T) {
 	f := newGitHubReviewApplicationFixture(t, domain.RunExecutionPermissionAsk)
+	f.request.Spec.Operation = githubreview.WriteSubmitReview
+	f.request.Spec.TargetID = ""
+	f.request.Spec.ReviewEvent = "COMMENT"
 	review := reviewModeGitHubWrite(t, f)
+	f.request.OperationKey = "retained-review-key"
 	legacy := review.Operation
 	legacy.ID = "retained-github-review-write"
-	legacy.OperationKeySHA256 = githubreview.Fingerprint("legacy-key")
+	legacy.OperationKeySHA256 = runmutation.OperationKeyDigest("github_review_write.v1", f.native.run.ID, f.request.OperationKey)
 	legacy.ApprovalFingerprint = legacy.Preview.ApprovalFingerprint
 	created, _, err := f.native.state.CreateGitHubReviewWrite(t.Context(), legacy)
 	if err != nil {
@@ -333,5 +339,45 @@ func TestGitHubReviewContentOnlyLegacyApprovalCannotAuthorizeNewWrite(t *testing
 	stored, found, err := f.native.state.GetGitHubReviewWrite(t.Context(), created.ID)
 	if err != nil || !found || stored.Status != githubreview.OperationProposed {
 		t.Fatalf("legacy operation is unreadable or started: %v %#v", err, stored)
+	}
+	// Retrying the old key cannot replace or silently upgrade its exact intent.
+	if _, err := f.service.ReviewWrite(t.Context(), f.request); err == nil || f.remote.executeCalls != 0 {
+		t.Fatalf("old key was silently upgraded: %v calls=%d", err, f.remote.executeCalls)
+	}
+	// The existing panel generates a new key for each Create exact preview;
+	// the existing review API accepts it without any migration-only endpoint.
+	f.request.OperationKey = "fresh-review-after-legacy"
+	fresh, err := f.service.ReviewWrite(t.Context(), f.request)
+	if err != nil || fresh.Replayed || fresh.Approval.Status != approval.StatusPending ||
+		fresh.Operation.ID == legacy.ID || fresh.Operation.ID == review.Operation.ID ||
+		fresh.Approval.ID == request.ApprovalID || fresh.Preview.ID != legacy.Preview.ID {
+		t.Fatalf("fresh key did not create a separate pending review for the same content: %v %#v", err, fresh)
+	}
+	freshRequest := GitHubReviewWriteExecuteRequest{ProtocolVersion: GitHubReviewAPIProtocolVersion,
+		RunID: f.native.run.ID, OperationID: fresh.Operation.ID, ApprovalID: fresh.Approval.ID, RequestedBy: "operator"}
+	if _, err := f.service.ExecuteWrite(t.Context(), freshRequest); err == nil || f.remote.executeCalls != 0 {
+		t.Fatalf("new review executed before fresh consent: %v calls=%d", err, f.remote.executeCalls)
+	}
+	freshRequest = approveModeGitHubWrite(t, f, fresh)
+	executed, err := f.service.ExecuteWrite(t.Context(), freshRequest)
+	if err != nil || executed.Operation.ID != fresh.Operation.ID ||
+		executed.Operation.Status != githubreview.OperationSucceeded || f.remote.executeCalls != 1 {
+		t.Fatalf("fresh exact approval did not execute once: %v %#v calls=%d", err, executed, f.remote.executeCalls)
+	}
+	repeated, err := f.service.ReviewWrite(t.Context(), f.request)
+	if err != nil || !repeated.Replayed || repeated.Operation.ID != fresh.Operation.ID ||
+		repeated.Approval.ID != freshRequest.ApprovalID || repeated.Approval.Status != approval.StatusApproved {
+		t.Fatalf("new-key review replay changed the approved operation: %v %#v", err, repeated)
+	}
+	replay, err := f.service.ExecuteWrite(t.Context(), freshRequest)
+	if err != nil || !replay.Replayed || replay.Receipt.ID != executed.Receipt.ID || f.remote.executeCalls != 1 {
+		t.Fatalf("fresh operation was executed again: %v %#v calls=%d", err, replay, f.remote.executeCalls)
+	}
+	if _, err := f.service.ExecuteWrite(t.Context(), request); err == nil || f.remote.executeCalls != 1 {
+		t.Fatalf("fresh review upgraded the old approval: %v calls=%d", err, f.remote.executeCalls)
+	}
+	retained, found, err := f.native.state.GetGitHubReviewWrite(t.Context(), legacy.ID)
+	if err != nil || !found || !reflect.DeepEqual(retained, stored) {
+		t.Fatalf("fresh review rewrote the old record: %v before=%#v after=%#v", err, stored, retained)
 	}
 }
