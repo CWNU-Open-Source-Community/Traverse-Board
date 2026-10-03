@@ -61,7 +61,15 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknownCallID, err := runmutation.SupervisorToolCallID(operationKey, 2)
+	unknownPayload, err := toolgateway.NormalizeStructuredMemoryPayload(
+		toolgateway.NoteCreateTool,
+		json.RawMessage(`{"title":"v150-unresolved","content":"no known result"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownOperationKey := runmutation.SupervisorToolOperationKey(run.ID,
+		turn.Checkpoint.NextTurn, string(toolgateway.NoteCreateTool), string(unknownPayload))
+	unknownCallID, err := runmutation.SupervisorToolCallID(unknownOperationKey, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +85,7 @@ func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 			Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
 			ToolCalls: []llm.ToolCall{{ID: callID,
 				Name: string(toolgateway.NoteCreateTool), Arguments: payload},
-				{ID: unknownCallID, Name: string(toolgateway.NoteCreateTool), Arguments: payload}}})
+				{ID: unknownCallID, Name: string(toolgateway.NoteCreateTool), Arguments: unknownPayload}}})
 	if err != nil {
 		t.Fatal(err)
 	}
