@@ -478,7 +478,7 @@ func (s *FullCDPProductionService) openReservedEntry(ctx context.Context,
 	}
 	if browserPermission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!browserPermission.OperatorConfirmed ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		(!executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!s.executionCapabilities.AllowsSnapshot(executionPermission) {
 		return apperror.New(apperror.CodePolicyDenied,

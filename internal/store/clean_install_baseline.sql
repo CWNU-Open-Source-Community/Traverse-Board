@@ -1405,6 +1405,7 @@ CREATE TABLE "command_runtime_jobs" (
 		adapter_credential_policy TEXT NOT NULL,
 		permission_runtime_epoch TEXT NOT NULL DEFAULT '',
 		permission_generation INTEGER NOT NULL DEFAULT 0,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
@@ -1414,14 +1415,22 @@ CREATE TABLE "command_runtime_jobs" (
 		FOREIGN KEY(profile_snapshot_id) REFERENCES run_execution_profile_snapshots(id) ON DELETE RESTRICT,
 		FOREIGN KEY(permission_snapshot_id) REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'command-runtime.v2'),
-		CHECK((permission_runtime_epoch = '' AND permission_generation = 0) OR (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_runtime_epoch = trim(permission_runtime_epoch) AND instr(permission_runtime_epoch, char(0)) = 0 AND permission_generation > 0)),
+		CHECK((permission_mode NOT IN ('ask','auto','full') AND run_authorization_fence=0 AND
+			((permission_runtime_epoch='' AND permission_generation=0) OR
+			(length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_generation>0))) OR
+			(permission_mode IN ('ask','auto','full') AND
+			 ((permission_mode IN ('ask','auto') AND permission_generation=0) OR
+			  (permission_mode='full' AND permission_generation>0 AND length(permission_runtime_epoch)>0)) AND
+			 ((permission_runtime_epoch='' AND run_authorization_fence=0) OR
+			  (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND run_authorization_fence>0)))),
+		CHECK(permission_runtime_epoch=trim(permission_runtime_epoch) AND instr(permission_runtime_epoch,char(0))=0),
 		CHECK(profile IN ('powershell', 'bash', 'process')),
 		CHECK(stdin_policy IN ('closed', 'pipe')),
-		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug') AND adapter_network_policy = 'host_available'))),
-		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode = 'workspace_access'
+		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full') AND adapter_network_policy = 'host_available'))),
+		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode IN ('workspace_access','ask','auto','full')
 				AND adapter_isolation_grade = 'workspace_sandbox'
 				AND adapter_network_policy = 'denied' AND adapter_credential_policy = 'none')
-			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug')
+			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full')
 				AND adapter_isolation_grade = 'host_unsandboxed'
 				AND adapter_network_policy = 'host_available'
 				AND adapter_credential_policy = 'host_available')
@@ -2257,14 +2266,14 @@ CREATE TABLE file_edit_apply_results (
 		CHECK(event_sequence > 0)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE file_edit_auto_authorizations (
+CREATE TABLE "file_edit_auto_authorizations" (
 		edit_id TEXT PRIMARY KEY REFERENCES file_edits(id) ON DELETE RESTRICT,
 		operation_key_digest TEXT NOT NULL UNIQUE CHECK(length(operation_key_digest)=64),
 		proposal_fingerprint TEXT NOT NULL CHECK(length(proposal_fingerprint)=64),
 		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
 		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
 		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
-		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move')),
+		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move','delete')),
 		path TEXT NOT NULL,
 		destination_path TEXT NOT NULL,
 		original_hash TEXT NOT NULL,
@@ -2274,18 +2283,19 @@ CREATE TABLE file_edit_auto_authorizations (
 		permission_snapshot_id TEXT NOT NULL REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		permission_revision INTEGER NOT NULL CHECK(permission_revision > 0),
 		mode_revision INTEGER NOT NULL CHECK(mode_revision > 0),
-		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 1 AND 256),
-		runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 0 AND 256),
+		runtime_generation INTEGER NOT NULL CHECK(runtime_generation >= 0),
 		agent_id TEXT NOT NULL REFERENCES agent_nodes(id) ON DELETE RESTRICT,
 		capability_generation TEXT NOT NULL CHECK(length(capability_generation)=64),
 		lease_id TEXT NOT NULL CHECK(length(lease_id) BETWEEN 1 AND 256),
 		lease_generation INTEGER NOT NULL CHECK(lease_generation > 0),
 		created_at TEXT NOT NULL,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
 		CHECK((operation_kind='move' AND length(destination_path) BETWEEN 1 AND 512
 			AND destination_path<>path AND proposed_hash='missing'
 			AND destination_original_hash='missing'
 			AND destination_proposed_hash=original_hash)
-			OR (operation_kind IN ('create','replace') AND destination_path=''
+			OR (operation_kind IN ('create','replace','delete') AND destination_path=''
 				AND destination_original_hash='' AND destination_proposed_hash=''))
 	);
 -- traverse-board-clean-install-object-boundary --
@@ -4184,7 +4194,7 @@ CREATE TABLE plugin_installation_transitions (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE plugin_installations (
+CREATE TABLE "plugin_installations" (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
 		plugin_id TEXT NOT NULL,
@@ -4210,7 +4220,7 @@ CREATE TABLE plugin_installations (
 		updated_at TEXT NOT NULL,
 		FOREIGN KEY(package_fingerprint) REFERENCES plugin_objects(package_fingerprint)
 			ON DELETE RESTRICT,
-		CHECK(protocol_version = 'plugin-installation.v1'),
+		CHECK(protocol_version IN ('plugin-installation.v1','plugin-installation.v2')),
 		CHECK(json_valid(manifest_json) AND length(CAST(manifest_json AS BLOB))
 			BETWEEN 2 AND 262144),
 		CHECK(json_valid(source_json) AND length(CAST(source_json AS BLOB))
@@ -4229,7 +4239,20 @@ CREATE TABLE plugin_installations (
 			'revoked', 'quarantined')),
 		CHECK(generation > 0),
 		CHECK(length(id) BETWEEN 1 AND 256 AND length(plugin_id) BETWEEN 1 AND 256),
-		CHECK(length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256),
+		CHECK(COALESCE((protocol_version='plugin-installation.v1'
+			AND length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256)
+			OR (protocol_version='plugin-installation.v2' AND length(plugin_version)=64
+				AND plugin_version NOT GLOB '*[^0-9a-f]*' AND publisher=''
+				AND signature_present=0 AND signature_valid=0
+				AND publisher_fingerprint='' AND publisher_public_key=''
+				AND json_extract(manifest_json,'$.protocol_version')='agent-package-snapshot.v1'
+				AND json_extract(manifest_json,'$.package_id')=plugin_id
+				AND json_extract(manifest_json,'$.revision')=plugin_version
+				AND archive_sha256=plugin_version
+				AND length(json_extract(source_json,'$.operation_key_digest'))=64
+				AND json_extract(source_json,'$.operation_key_digest') NOT GLOB '*[^0-9a-f]*'
+				AND id='plugin-import-' || json_extract(source_json,'$.operation_key_digest')
+				AND json_extract(source_json,'$.surface') IN ('code','cyber')),0)),
 		CHECK(length(supersedes_installation_id) <= 256
 			AND length(staged_by) BETWEEN 1 AND 256 AND length(reviewed_by) <= 256),
 		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL
@@ -5391,10 +5414,9 @@ CREATE TABLE "run_execution_permission_snapshots" (
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		UNIQUE(run_id, revision),
 		CHECK(revision > 0),
-		CHECK(protocol_version = 'run_execution_permission.v1'),
-		CHECK(policy_version = 'execution_permission_policy.v1'),
 		CHECK(process_enabled = 0 AND execution_authorized = 0 AND capability_grant = 0),
-		CHECK(
+
+		CHECK((protocol_version = 'run_execution_permission.v1' AND policy_version = 'execution_permission_policy.v1' AND (
 			(mode = 'conservative' AND approval_policy = 'fixed_templates'
 				AND command_scope = 'fixed_templates'
 				AND filesystem_scope = 'workspace_guarded' AND network_scope = 'disabled'
@@ -5424,8 +5446,14 @@ CREATE TABLE "run_execution_permission_snapshots" (
 				AND filesystem_scope = 'host_full' AND network_scope = 'host'
 				AND persistent_terminal = 1 AND background_process = 1
 				AND agent_terminal_input = 1 AND risk_tier = 'high'
-				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)
-		),
+				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)))
+			OR (protocol_version = 'run_execution_permission.v2' AND policy_version = 'execution_permission_policy.v2'
+				AND mode IN ('ask','auto','full') AND approval_policy = 'per_operation'
+				AND command_scope = 'per_operation' AND filesystem_scope = 'per_operation' AND network_scope = 'per_operation'
+				AND persistent_terminal = 0 AND background_process = 0 AND agent_terminal_input = 0
+				AND required_gate = 'operation_authority'
+				AND ((mode = 'full' AND operator_confirmed = 1 AND risk_tier = 'high')
+					OR (mode IN ('ask','auto') AND operator_confirmed = 0 AND risk_tier = 'minimal')))),
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
 		CHECK(run_id = trim(run_id) AND length(run_id) BETWEEN 1 AND 256
 			AND instr(run_id, char(0)) = 0),
@@ -8660,7 +8688,7 @@ CREATE TABLE "sandbox_docker_product_admissions" (
 		CHECK(product_entry_enabled = 1 AND execution_authorized = 1
 			AND artifact_commit_authorized = 1),
 		CHECK(network_mode = 'disabled' AND network_target_count = 0),
-		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug')),
+		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug', 'ask', 'auto', 'full')),
 		CHECK(profile_revision >= 1 AND permission_revision >= 1 AND approval_version >= 1),
 		CHECK(cpu_quota_millis BETWEEN 1 AND 8000),
 		CHECK(memory_bytes BETWEEN 16777216 AND 8589934592),
@@ -12298,7 +12326,7 @@ CREATE TABLE thread_execution_permission_operations (
 		)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE thread_execution_permission_snapshots (
+CREATE TABLE "thread_execution_permission_snapshots" (
 		id TEXT PRIMARY KEY,
 		thread_id TEXT NOT NULL,
 		mission_id TEXT NOT NULL,
@@ -12326,10 +12354,9 @@ CREATE TABLE thread_execution_permission_snapshots (
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		UNIQUE(thread_id, revision),
 		CHECK(revision > 0),
-		CHECK(protocol_version = 'thread_execution_permission.v1'),
-		CHECK(policy_version = 'execution_permission_policy.v1'),
 		CHECK(process_enabled = 0 AND execution_authorized = 0 AND capability_grant = 0),
-		CHECK(
+
+		CHECK((protocol_version = 'thread_execution_permission.v1' AND policy_version = 'execution_permission_policy.v1' AND (
 			(mode = 'conservative' AND approval_policy = 'fixed_templates'
 				AND command_scope = 'fixed_templates'
 				AND filesystem_scope = 'workspace_guarded' AND network_scope = 'disabled'
@@ -12359,8 +12386,14 @@ CREATE TABLE thread_execution_permission_snapshots (
 				AND filesystem_scope = 'host_full' AND network_scope = 'host'
 				AND persistent_terminal = 1 AND background_process = 1
 				AND agent_terminal_input = 1 AND risk_tier = 'high'
-				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)
-		),
+				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)))
+			OR (protocol_version = 'thread_execution_permission.v2' AND policy_version = 'execution_permission_policy.v2'
+				AND mode IN ('ask','auto','full') AND approval_policy = 'per_operation'
+				AND command_scope = 'per_operation' AND filesystem_scope = 'per_operation' AND network_scope = 'per_operation'
+				AND persistent_terminal = 0 AND background_process = 0 AND agent_terminal_input = 0
+				AND required_gate = 'operation_authority'
+				AND ((mode = 'full' AND operator_confirmed = 1 AND risk_tier = 'high')
+					OR (mode IN ('ask','auto') AND operator_confirmed = 0 AND risk_tier = 'minimal')))),
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
 		CHECK(thread_id = trim(thread_id) AND length(thread_id) BETWEEN 1 AND 256
 			AND instr(thread_id, char(0)) = 0),
@@ -13496,8 +13529,7 @@ CREATE INDEX idx_drydock_workspaces_expiry
 CREATE INDEX idx_file_edit_apply_operations_run_created
 		ON file_edit_apply_operations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
-CREATE INDEX idx_file_edit_auto_authorizations_run_created
-		ON file_edit_auto_authorizations(run_id, created_at);
+CREATE INDEX idx_file_edit_auto_authorizations_run_created ON file_edit_auto_authorizations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_file_edits_session_status_updated_at
 			ON file_edits(session_id, status, updated_at);
@@ -15125,9 +15157,9 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 				AND permission.run_id = run.id AND permission.mission_id = mission.id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode
-				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access', 'debug'))
+				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access','debug','ask','auto','full'))
 					OR (NEW.adapter_kind = 'sandboxed_workspace'
-						AND permission.mode = 'workspace_access'))
+						AND permission.mode IN ('workspace_access','ask','auto','full')))
 				AND permission.revision = (SELECT MAX(current.revision)
 					FROM run_execution_permission_snapshots current WHERE current.run_id = run.id)
 				AND lease.lease_id = NEW.lease_id AND lease.generation = NEW.lease_generation
@@ -15161,7 +15193,7 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 			OR NEW.adapter_network_policy != OLD.adapter_network_policy
 			OR NEW.adapter_credential_policy != OLD.adapter_credential_policy
 			OR NEW.permission_runtime_epoch != OLD.permission_runtime_epoch
-			OR NEW.permission_generation != OLD.permission_generation
+			OR NEW.permission_generation != OLD.permission_generation OR NEW.run_authorization_fence != OLD.run_authorization_fence
 			OR NEW.owner_id != OLD.owner_id
 			OR NEW.owner_generation != OLD.owner_generation
 			OR julianday(NEW.owner_renewed_at) < julianday(OLD.owner_renewed_at)
@@ -16013,7 +16045,12 @@ CREATE TRIGGER trg_file_edit_auto_apply_insert
 					AND edit.status='approved' AND run.status='running'
 					AND approval.run_id=run.id AND approval.mode='automatic'
 					AND approval.status='approved' AND approval.reviewed_by='automatic_policy'
-					AND permission.mode='full_access'
+					AND ((permission.mode='full_access' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0 AND source.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND source.runtime_generation=0 AND source.operation_kind<>'delete'))
+				AND ((source.runtime_epoch='' AND source.run_authorization_fence=0)
+					OR (length(source.runtime_epoch)>0 AND source.run_authorization_fence>0))))
 					AND permission.revision=source.permission_revision
 					AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 						WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -16038,7 +16075,7 @@ CREATE TRIGGER trg_file_edit_auto_approval_insert
 					AND NEW.action_class='workspace_write'
 					AND NEW.tool_name=CASE source.operation_kind
 						WHEN 'create' THEN 'create_file'
-						WHEN 'move' THEN 'move_file' ELSE 'replace_file' END)
+						WHEN 'move' THEN 'move_file' WHEN 'delete' THEN 'delete_file' ELSE 'replace_file' END)
 		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit approval source is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_file_edit_auto_approval_update
@@ -16079,7 +16116,12 @@ CREATE TRIGGER trg_file_edit_auto_authorization_insert
 				AND NOT EXISTS (SELECT 1 FROM tool_approvals prior WHERE prior.proposal_id=edit.id)
 				AND run.status='running' AND session_record.status='active'
 				AND session_record.workspace_id=mission.workspace_id
-				AND permission.mission_id=mission.id AND permission.mode='full_access'
+				AND permission.mission_id=mission.id AND ((permission.mode='full_access' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0 AND NEW.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND NEW.runtime_generation=0 AND NEW.operation_kind<>'delete'))
+				AND ((NEW.runtime_epoch='' AND NEW.run_authorization_fence=0)
+					OR (length(NEW.runtime_epoch)>0 AND NEW.run_authorization_fence>0))))
 				AND permission.revision=NEW.permission_revision
 				AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 					WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -19065,12 +19107,12 @@ CREATE TRIGGER trg_run_execution_permission_snapshot_delete_immutable
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_execution_permission_snapshot_insert
 		BEFORE INSERT ON run_execution_permission_snapshots
-		WHEN NOT EXISTS (
+		WHEN NEW.protocol_version <> 'run_execution_permission.v2' OR NOT EXISTS (
 			SELECT 1 FROM runs run
 			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
 				AND julianday(NEW.created_at) >= julianday(run.created_at)
 				AND (
-					(NEW.revision = 1 AND NEW.mode = 'conservative'
+					(NEW.revision = 1 AND NEW.mode = 'ask'
 						AND run.status = 'created' AND NOT EXISTS (
 							SELECT 1 FROM run_execution_permission_snapshots existing
 							WHERE existing.run_id = NEW.run_id
@@ -19080,13 +19122,13 @@ CREATE TRIGGER trg_run_execution_permission_snapshot_insert
 						SELECT 1 FROM run_execution_permission_snapshots previous
 						WHERE previous.run_id = NEW.run_id
 							AND previous.revision = NEW.revision - 1
-							AND previous.protocol_version = NEW.protocol_version
-							AND previous.policy_version = NEW.policy_version
+							AND (previous.protocol_version = NEW.protocol_version OR previous.protocol_version = 'run_execution_permission.v1')
+							AND (previous.policy_version = NEW.policy_version OR previous.policy_version = 'execution_permission_policy.v1')
 							AND julianday(NEW.created_at) >= julianday(previous.created_at)
 							AND (
-								(((previous.mode = 'debug' AND NEW.mode <> 'debug')
-									OR (previous.mode = 'full_access'
-										AND NEW.mode NOT IN ('full_access', 'debug')))
+								(((previous.mode = 'auto' AND NEW.mode = 'ask') OR (previous.mode = 'debug' AND NEW.mode <> 'debug')
+									OR (previous.mode IN ('full_access','full')
+										AND NEW.mode NOT IN ('full_access', 'debug','full')))
 									AND run.status NOT IN ('completed', 'failed', 'cancelled'))
 								OR
 								(run.status IN ('created', 'paused') AND NOT EXISTS (
@@ -21907,7 +21949,13 @@ CREATE TRIGGER trg_sandbox_docker_product_admission_insert
 				AND permission.run_id = NEW.run_id AND permission.mission_id = NEW.mission_id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode AND permission.mode <> 'conservative'
-				AND permission.operator_confirmed = 1
+				AND ((permission.protocol_version = 'run_execution_permission.v1'
+					AND permission.mode IN ('workspace_access','approval','full_access','debug')
+					AND permission.operator_confirmed = 1)
+				 OR (permission.protocol_version = 'run_execution_permission.v2'
+					AND permission.policy_version = 'execution_permission_policy.v2'
+					AND ((permission.mode IN ('ask','auto') AND permission.operator_confirmed = 0)
+					 OR (permission.mode = 'full' AND permission.operator_confirmed = 1))))
 				AND permission.process_enabled = 0 AND permission.execution_authorized = 0
 				AND permission.capability_grant = 0
 				AND permission.revision = (SELECT MAX(current.revision)
@@ -25363,7 +25411,7 @@ CREATE TRIGGER trg_standard_code_preset_operation_update
 							WHERE newer.run_id = interaction.run_id AND newer.revision > interaction.revision))
 				AND EXISTS (SELECT 1 FROM run_execution_permission_snapshots permission
 					WHERE permission.id = NEW.permission_snapshot_id AND permission.run_id = NEW.run_id
-						AND (permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR EXISTS (
+						AND ((permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full') AND permission.network_scope='per_operation')) OR EXISTS (
 		SELECT 1 FROM runs next_run
 		JOIN thread_runs next_link ON next_link.run_id=next_run.id
 		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
@@ -25841,13 +25889,13 @@ CREATE TRIGGER trg_thread_execution_permission_snapshot_delete_immutable
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_thread_execution_permission_snapshot_insert
 		BEFORE INSERT ON thread_execution_permission_snapshots
-		WHEN NOT EXISTS (
+		WHEN NEW.protocol_version <> 'thread_execution_permission.v2' OR NOT EXISTS (
 			SELECT 1 FROM threads thread_record
 			WHERE thread_record.id = NEW.thread_id
 				AND thread_record.mission_id = NEW.mission_id
 				AND julianday(NEW.created_at) >= julianday(thread_record.created_at)
 				AND (
-					(NEW.revision = 1 AND NEW.mode = 'conservative'
+					(NEW.revision = 1 AND NEW.mode = 'ask'
 						AND thread_record.status = 'active' AND NOT EXISTS (
 							SELECT 1 FROM thread_execution_permission_snapshots existing
 							WHERE existing.thread_id = NEW.thread_id
@@ -25858,8 +25906,8 @@ CREATE TRIGGER trg_thread_execution_permission_snapshot_insert
 							SELECT 1 FROM thread_execution_permission_snapshots previous
 							WHERE previous.thread_id = NEW.thread_id
 								AND previous.revision = NEW.revision - 1
-								AND previous.protocol_version = NEW.protocol_version
-								AND previous.policy_version = NEW.policy_version
+								AND (previous.protocol_version = NEW.protocol_version OR previous.protocol_version = 'thread_execution_permission.v1')
+								AND (previous.policy_version = NEW.policy_version OR previous.policy_version = 'execution_permission_policy.v1')
 								AND julianday(NEW.created_at) >= julianday(previous.created_at)
 						))
 				)

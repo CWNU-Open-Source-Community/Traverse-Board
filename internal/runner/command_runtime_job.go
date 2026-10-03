@@ -125,6 +125,7 @@ type CommandRuntimeScope struct {
 	PermissionMode         domain.RunExecutionPermissionMode
 	PermissionRuntimeEpoch string
 	PermissionGeneration   uint64
+	RunAuthorizationFence  uint64
 	LeaseID                string
 	LeaseGeneration        int64
 	LeaseOwnerID           string
@@ -152,7 +153,7 @@ func (s CommandRuntimeScope) Validate() error {
 		len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
 		s.ModeRevision <= 0 || s.ProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseGeneration <= 0 ||
-		(s.PermissionRuntimeEpoch == "") != (s.PermissionGeneration == 0) ||
+		!commandruntimeadapter.ValidRuntimeBinding(s.PermissionMode, s.PermissionRuntimeEpoch, s.PermissionGeneration, s.RunAuthorizationFence) ||
 		!s.Adapter.AllowsPermission(s.PermissionMode) {
 		return ErrCommandRuntimeBoundary
 	}
@@ -187,6 +188,7 @@ type CommandRuntimeJob struct {
 	PermissionMode         domain.RunExecutionPermissionMode
 	PermissionRuntimeEpoch string
 	PermissionGeneration   uint64
+	RunAuthorizationFence  uint64
 	LeaseID                string
 	LeaseGeneration        int64
 	LeaseOwnerID           string
@@ -323,7 +325,7 @@ func (j CommandRuntimeJob) Validate() error {
 			j.Network != CommandRuntimeNetworkHost) || !j.State.Valid() ||
 		(j.Network == CommandRuntimeNetworkHost &&
 			(j.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-				!j.PermissionMode.IncludesFullAccess())) ||
+				!j.Adapter.AllowsPermission(j.PermissionMode))) ||
 		j.Credentials != CommandRuntimeCredentialsNone || j.Adapter.Validate() != nil ||
 		(j.Adapter.Kind != commandruntimeadapter.KindLegacyUnbound &&
 			!j.Adapter.AllowsPermission(j.PermissionMode)) ||
@@ -355,7 +357,7 @@ func (j CommandRuntimeJob) Validate() error {
 		j.UpdatedAt.Before(j.CreatedAt) {
 		return ErrCommandRuntimeBoundary
 	}
-	if (j.PermissionRuntimeEpoch == "") != (j.PermissionGeneration == 0) ||
+	if !commandruntimeadapter.ValidRuntimeBinding(j.PermissionMode, j.PermissionRuntimeEpoch, j.PermissionGeneration, j.RunAuthorizationFence) ||
 		(j.PermissionRuntimeEpoch != "" &&
 			(strings.TrimSpace(j.PermissionRuntimeEpoch) != j.PermissionRuntimeEpoch ||
 				!validCommandRuntimeText(j.PermissionRuntimeEpoch, false) ||
@@ -438,6 +440,10 @@ type CommandRuntimeOwnershipStore interface {
 type CommandRuntimeStartRequest struct {
 	Scope CommandRuntimeScope
 	Spec  CommandRuntimeResolvedSpec
+	// DispatchCheck is process-local host authority. It is never stored or
+	// recovered as a grant, and is not consumed by a read-only Job replay.
+	// The manager and native starter pass their actual final launch inputs.
+	DispatchCheck func(context.Context, CommandRuntimeResolvedSpec) error `json:"-"`
 }
 
 // CommandRuntimeOperationIdentity is the deterministic durable identity used
@@ -639,7 +645,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		!request.Spec.Spec.Network.Valid() ||
 		(request.Spec.Spec.Network == CommandRuntimeNetworkHost &&
 			(request.Scope.Adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-				!request.Scope.PermissionMode.IncludesFullAccess())) ||
+				!request.Scope.Adapter.AllowsPermission(request.Scope.PermissionMode))) ||
 		validateCommandRuntimeAttachmentInput(request.Spec) != nil {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
@@ -675,6 +681,9 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 			request.Scope.PermissionRuntimeEpoch,
 			fmt.Sprint(request.Scope.PermissionGeneration))
 	}
+	if request.Scope.RunAuthorizationFence != 0 {
+		requestParts = append(requestParts, "run_authorization_fence", fmt.Sprint(request.Scope.RunAuthorizationFence))
+	}
 	now := time.Now().UTC()
 	ownerExpiresAt := now.Add(m.ownerLeaseTTL)
 	record := CommandRuntimeJob{
@@ -693,6 +702,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		PermissionMode:         request.Scope.PermissionMode,
 		PermissionRuntimeEpoch: request.Scope.PermissionRuntimeEpoch,
 		PermissionGeneration:   request.Scope.PermissionGeneration,
+		RunAuthorizationFence:  request.Scope.RunAuthorizationFence,
 		LeaseID:                request.Scope.LeaseID, LeaseGeneration: request.Scope.LeaseGeneration,
 		LeaseOwnerID: request.Scope.LeaseOwnerID, Adapter: request.Scope.Adapter,
 		OwnerID: m.ownerID, OwnerGeneration: m.ownerGeneration,
@@ -741,8 +751,13 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		return ProjectCommandRuntimeJob(stored), true, ErrCommandRuntimeUncertain
 	}
 
-	process, err := m.starter.Start(context.WithoutCancel(ctx), request.Scope,
-		request.Spec)
+	dispatchCtx := withCommandRuntimeDispatchCheck(ctx, request.DispatchCheck)
+	var process commandRuntimeProcess
+	err = CheckCommandRuntimeDispatch(dispatchCtx, request.Spec)
+	if err == nil {
+		process, err = m.starter.Start(context.WithoutCancel(dispatchCtx), request.Scope,
+			request.Spec)
+	}
 	if err != nil {
 		failed := stored
 		started := now
@@ -834,8 +849,15 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	if request.Spec.Spec.StdinPolicy == CommandRuntimeStdinPipe &&
 		(request.Spec.Spec.InitialStdin != "" || request.Spec.Spec.CloseInitialStdin) {
 		<-entry.inputGate
+		// Start has committed ownership to this Job. Its initial bytes were
+		// already bound to that operation; completing the originating request
+		// must not cancel their delivery. Rebind only cancellation lifetime:
+		// the same host check still re-reads current permission and lease state.
+		initialInputCtx := withCommandRuntimeDispatchCheck(context.WithoutCancel(ctx), request.DispatchCheck)
 		go m.writeInitialStdin(entry, []byte(request.Spec.Spec.InitialStdin),
-			request.Spec.Spec.CloseInitialStdin)
+			request.Spec.Spec.CloseInitialStdin, func() error {
+				return CheckCommandRuntimeDispatch(initialInputCtx, request.Spec)
+			})
 	}
 	return entry.snapshot(), false, nil
 }
@@ -844,10 +866,20 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 // It runs only after wait and timeout ownership have started, so a child that
 // never reads its pipe cannot leave Start blocked beyond the Job lifecycle.
 func (m *CommandRuntimeManager) writeInitialStdin(entry *commandRuntimeEntry,
-	data []byte, closeAfter bool,
+	data []byte, closeAfter bool, dispatchCheck func() error,
 ) {
 	defer entry.unlockInput()
 	var err error
+	if dispatchCheck != nil {
+		err = dispatchCheck()
+	}
+	if err != nil {
+		_ = entry.process.CloseStdin()
+		if entry.setDesired(CommandRuntimeJobFailed) {
+			_ = entry.process.Kill()
+		}
+		return
+	}
 	if len(data) > 0 {
 		_, err = entry.process.WriteStdin(data)
 	}
@@ -919,6 +951,15 @@ func (m *CommandRuntimeManager) Wait(ctx context.Context, jobID string,
 func (m *CommandRuntimeManager) WriteStdin(ctx context.Context, jobID string,
 	operationKey string, data []byte, closeAfter bool,
 ) (CommandRuntimeJobSnapshot, int, bool, error) {
+	return m.WriteStdinGuarded(ctx, jobID, operationKey, data, closeAfter, nil)
+}
+
+// WriteStdinGuarded checks fresh host authority after acquiring the Job input
+// gate and resolving an exact replay, immediately before writing new bytes.
+func (m *CommandRuntimeManager) WriteStdinGuarded(ctx context.Context, jobID string,
+	operationKey string, data []byte, closeAfter bool,
+	dispatchCheck func(context.Context, string, []byte, bool) error,
+) (CommandRuntimeJobSnapshot, int, bool, error) {
 	if ctx == nil || ctx.Err() != nil || len(data) > MaxCommandRuntimeStdinBytes ||
 		outputsafe.Sanitize(data) != string(data) ||
 		strings.TrimSpace(operationKey) == "" || len([]rune(operationKey)) > 256 {
@@ -953,6 +994,14 @@ func (m *CommandRuntimeManager) WriteStdin(ctx context.Context, jobID string,
 	}
 	process := entry.process
 	entry.mu.Unlock()
+	if dispatchCheck != nil {
+		if err := dispatchCheck(ctx, jobID, data, closeAfter); err != nil {
+			return CommandRuntimeJobSnapshot{}, 0, false, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return CommandRuntimeJobSnapshot{}, 0, false, err
+	}
 	written := 0
 	var err error
 	stdinClosed := false

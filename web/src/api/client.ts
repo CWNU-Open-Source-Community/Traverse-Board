@@ -401,6 +401,34 @@ function parseEventPoll(value: unknown, expectedRunID: string, requestID: string
   return { ...poll, frames } as RunEventPollView;
 }
 
+function parseThreadApprovalPreference(value: unknown, threadID: string): ThreadExecutionPermissionControlView {
+  const fail = () => { throw new APIRequestError("Thread approval preference is invalid", "INVALID_RESPONSE", 502); };
+  if (!isRecord(value) || !isRecord(value.execution_permission)) return fail();
+  const permission = value.execution_permission;
+  const legacyModes = ["conservative", "workspace_access", "approval", "full_access", "debug"];
+  const modes = ["ask", "auto", "full"];
+  const legacy = permission.protocol_version === "thread_execution_permission.v1";
+  if ((!legacy && permission.protocol_version !== "thread_execution_permission.v2") ||
+    permission.thread_id !== threadID || typeof permission.mode !== "string" ||
+    !(legacy ? legacyModes : modes).includes(permission.mode) ||
+    permission.policy_version !== (legacy ? "execution_permission_policy.v1" : "execution_permission_policy.v2") ||
+    !Number.isSafeInteger(permission.revision) || Number(permission.revision) < 1 ||
+    permission.process_enabled !== false || permission.execution_authorized !== false || permission.capability_grant !== false ||
+    typeof permission.runtime_gate_available !== "boolean" || !isRecord(permission.runtime) ||
+    typeof value.replayed !== "boolean" || typeof value.current_run_synchronized !== "boolean") return fail();
+  const expectedMode = legacy ? ["full_access", "debug"].includes(permission.mode) ? "full" : "ask" : permission.mode;
+  // A legacy reader may supply no new presentation fields. Its startup flags
+  // cannot prove current-process Full activation, so the projection stays cold.
+  const approvalMode = permission.approval_mode ?? (legacy ? expectedMode : undefined);
+  const activation = permission.full_activation ?? (legacy ? "inactive" : undefined);
+  if (approvalMode !== expectedMode || typeof activation !== "string" ||
+    !["inactive", "active", "unavailable"].includes(activation) ||
+    (activation === "active" && (legacy || approvalMode !== "full" || !permission.runtime_gate_available)) ||
+    (permission.full_unavailable_reason !== undefined && typeof permission.full_unavailable_reason !== "string")) return fail();
+  return { ...value, execution_permission: { ...permission, approval_mode: approvalMode,
+    full_activation: activation } } as ThreadExecutionPermissionControlView;
+}
+
 function parseRunCreationControl(value: unknown,
   request: RunCreationControlRequestView, requestedModelRoute: string | null = ""): RunCreationControlView {
   if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session"]) ||
@@ -1620,7 +1648,7 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
       "INVALID_RESPONSE", 502);
   }
   if (value.continuation !== undefined) {
-    if (value.tool_name !== "agent_browser_sensitive") {
+    if (!["agent_browser_sensitive", "mcp_tool_call", "command_runtime"].includes(String(value.tool_name))) {
       throw new APIRequestError("Approval continuation belongs to another operation", "INVALID_RESPONSE", 502);
     }
     validateApprovalContinuation(value.continuation, true);
@@ -6094,7 +6122,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     if (!isRecord(item) || item.protocol_version !== "mcp-client-server.v1" ||
       !boundedIdentity(item.id) || !boundedText(item.name, 256) ||
       (item.transport !== "stdio" && item.transport !== "streamable_http") ||
-      !boundedText(item.target, 4_096) || !boundedIdentity(item.workspace_id) ||
+      !validExtensionMCPTarget(item) || !boundedIdentity(item.workspace_id) ||
       !isSHA256(item.descriptor_fingerprint) || !safePositiveInteger(item.generation) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !boundedStringArray(item.declared_capabilities, 3, 32) ||
@@ -6119,7 +6147,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     }
   }
   for (const item of value.plugins) {
-    if (!isRecord(item) || item.protocol_version !== "plugin-installation.v1" ||
+    if (!isRecord(item) || !["plugin-installation.v1", "plugin-installation.v2"].includes(String(item.protocol_version)) ||
       !boundedIdentity(item.id) || !isSHA256(item.archive_sha256) ||
       !isSHA256(item.package_fingerprint) || !safePositiveInteger(item.generation) ||
       typeof item.signature_present !== "boolean" || typeof item.signature_valid !== "boolean" ||
@@ -6127,11 +6155,20 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
       !boundedIdentity(item.staged_by) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !isRecord(item.manifest) || !boundedIdentity(item.manifest.id) ||
-      !boundedText(item.manifest.name, 256) || !boundedText(item.manifest.publisher, 256) ||
+      !boundedText(item.manifest.name, 256) ||
+      (item.protocol_version === "plugin-installation.v1" && !boundedText(item.manifest.publisher, 256)) ||
       !boundedStringArray(item.manifest.capabilities, 4, 32) ||
       !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
       !boundedText(item.source.uri, 4_096)) {
       throw new APIRequestError("Plugin installation projection is invalid", "INVALID_RESPONSE", 502);
+    }
+    if (item.protocol_version === "plugin-installation.v2" &&
+      (!isRecord(item.snapshot) || !["agent-skills", "agent-plugins"].includes(String(item.snapshot.format)) ||
+        !isSHA256(item.snapshot.revision) || item.snapshot.revision !== item.archive_sha256 ||
+        !["code", "cyber"].includes(String(item.snapshot.surface)) ||
+        (item.manifest.version !== "" && !boundedText(item.manifest.version, 256)) || item.manifest.publisher !== "" ||
+        item.signature_present !== false || item.signature_valid !== false)) {
+      throw new APIRequestError("Portable plugin installation projection is invalid", "INVALID_RESPONSE", 502);
     }
   }
   return value as unknown as ExtensionInventoryView;
@@ -6140,6 +6177,16 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
 function parseExtensionMCPServer(value: unknown): ExtensionMCPServerView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [value], mcp_calls: [], plugins: [] }).mcp_servers[0];
+}
+
+function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
+  if (item.native_source === undefined) return boundedText(item.target, 4_096);
+  const source = item.native_source;
+  return item.target === "" && (item.credential_ref === undefined || item.credential_ref === "") &&
+    isRecord(source) && boundedIdentity(source.installation_id) !== "" &&
+    boundedIdentity(source.package_id) !== "" && boundedIdentity(source.component_id) !== "" &&
+    isSHA256(source.revision) && safePositiveInteger(source.installation_generation) &&
+    (source.surface === "code" || source.surface === "cyber");
 }
 
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
@@ -7969,8 +8016,8 @@ export class CyberAgentClient {
     if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
       throw new Error("A normalized Thread is required");
     }
-    return this.get<ThreadExecutionPermissionControlView>(
-      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal);
+    return parseThreadApprovalPreference(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal), threadID);
   }
 
   async changeThreadExecutionPermission(threadID: string,
@@ -7980,9 +8027,14 @@ export class CyberAgentClient {
       threadID.trim() !== threadID) {
       throw new Error("Thread execution permission capability is required");
     }
-    return this.sendControl<ThreadExecutionPermissionControlView>(
+    if (!["ask", "auto", "full"].includes(body.mode) ||
+      body.confirm_full !== (body.mode === "full") ||
+      Object.keys(body).some((key) => !["mode", "confirm_full", "reason"].includes(key))) {
+      throw new Error("An exact ask/auto/full selection and explicit Full confirmation are required");
+    }
+    return parseThreadApprovalPreference(await this.sendControl<unknown>(
       `/threads/${encodeURIComponent(threadID)}/execution-permission`, body,
-      idempotencyKey, signal);
+      idempotencyKey, signal), threadID);
   }
 
   async transitionThread(threadID: string, action: "archive" | "restore" | "delete",
@@ -8494,7 +8546,7 @@ export class CyberAgentClient {
       value.run_id !== runID || value.approval_id !== approvalID ||
       !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
       (value.workspace_id !== "" && !boundedIdentity(value.workspace_id)) ||
-      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"]
+      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "mcp_server_and_tool", "command_process", "unavailable"]
         .includes(String(value.effect)) || typeof value.working_directory !== "string" ||
       !["", "."].includes(value.working_directory) ||
       typeof value.source_current !== "boolean" || typeof value.redacted !== "boolean" ||
@@ -8509,7 +8561,7 @@ export class CyberAgentClient {
     const effects: Record<string, string> = { shell: "dry_run", script_process: "dry_run",
       "git.advanced": "record_git_approval", replace_file: "file_review_required",
       create_file: "file_review_required", move_file: "file_review_required", delete_file: "file_review_required",
-      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action" };
+      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action", mcp_tool_call: "mcp_server_and_tool", command_runtime: "command_process" };
     if (value.effect !== (effects[value.tool_name] ?? "unavailable")) {
       throw new APIRequestError("Approval preview returned a different effect", "INVALID_RESPONSE", 502);
     }

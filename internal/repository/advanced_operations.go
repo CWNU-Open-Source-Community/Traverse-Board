@@ -1045,6 +1045,9 @@ func (e *AdvancedExecutor) executeBisectRecipe(ctx context.Context, root string,
 		return "", "", 0, err
 	}
 	cacheRoot := filepath.Join(os.TempDir(), "cyberagent-git-bisect-cache")
+	if err := checkAdvancedDispatch(ctx); err != nil {
+		return "", "", 0, err
+	}
 	if err := os.MkdirAll(cacheRoot, 0o700); err != nil {
 		return "", "", 0, errors.New("bisect recipe cache is unavailable")
 	}
@@ -1064,6 +1067,10 @@ func (e *AdvancedExecutor) executeBisectRecipe(ctx context.Context, root string,
 		}
 		testCtx, cancel := context.WithTimeout(ctx,
 			time.Duration(spec.Recipe.TimeoutSeconds)*time.Second)
+		if err := checkAdvancedDispatch(testCtx); err != nil {
+			cancel()
+			return allOut.String(), allErr.String(), 0, err
+		}
 		started, runErr := starter.Start(testCtx, runner.OnceStartSpec{
 			RequestFingerprint: gitadvanced.Fingerprint("bisect-recipe-step", spec.SequenceID,
 				binding.Head, string(spec.Recipe.Name), fmt.Sprint(step)),

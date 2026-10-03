@@ -260,13 +260,14 @@ func BrowserActionCapabilitySnapshot(scope BrowserActionCapabilityContext) Brows
 		available, refusal = false, "browser action execution identity is invalid"
 	case scope.Role != domain.AgentRoleRoot:
 		available, refusal = false, "browser actions are available only to the root Agent"
-	case scope.PermissionMode != domain.RunExecutionPermissionFullAccess &&
+	case !scope.PermissionMode.IsFullPreference() &&
 		scope.PermissionMode != domain.RunExecutionPermissionDebug:
-		available, refusal = false, "browser actions require Full Access or Debug"
+		available, refusal = false, "browser actions require Full or retained legacy Full Access/Debug"
 	case !scope.Ready || !scope.RuntimeAvailable:
 		available, refusal = false, "browser actions require an operator-opened ready Full CDP session"
 	case !validMCPIdentity(scope.PermissionSnapshotID) || scope.ModeRevision < 1 ||
 		scope.PermissionRevision < 1 ||
+		(scope.PermissionMode == domain.RunExecutionPermissionFull && scope.PermissionActivation == 0) ||
 		scope.RunAuthorizationFence == 0 ||
 		!validMCPIdentity(scope.FullCDPSessionID) ||
 		!validMCPIdentity(scope.BrowserPermissionSnapshotID) ||

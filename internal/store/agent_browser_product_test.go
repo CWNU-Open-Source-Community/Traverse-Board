@@ -201,7 +201,7 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	if e != nil || len(records) != 1 {
 		t.Fatalf("approvals %v %+v", e, records)
 	}
-	call, started, e := st.GetAgentBrowserCall(ctx, run.ID, records[0].ProposalID)
+	call, started, e := st.GetSupervisorApprovalCall(ctx, run.ID, records[0].ProposalID)
 	if e != nil || started || call.Status != domain.SupervisorToolPending {
 		t.Fatalf("approval already started %v %t %+v", e, started, call)
 	}
@@ -246,7 +246,7 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	}
 
 	if scenario != "" {
-		done, started, e := st.GetAgentBrowserCall(ctx, run.ID, call.CallID)
+		done, started, e := st.GetSupervisorApprovalCall(ctx, run.ID, call.CallID)
 		if e != nil || started || done.Status == domain.SupervisorToolPending {
 			t.Fatalf("unsettled %v %+v", e, done)
 		}

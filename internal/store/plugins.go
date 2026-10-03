@@ -32,6 +32,9 @@ func (s *SQLiteStore) CreatePluginInstallation(ctx context.Context,
 			"plugin staging record or archive is invalid")
 	}
 	manifestJSON, _ := json.Marshal(installation.Manifest)
+	if installation.Snapshot != nil {
+		manifestJSON, _ = json.Marshal(installation.Snapshot)
+	}
 	sourceJSON, _ := json.Marshal(installation.Source)
 	capabilitiesJSON, _ := json.Marshal(installation.EnabledCapabilities)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -39,12 +42,39 @@ func (s *SQLiteStore) CreatePluginInstallation(ctx context.Context,
 		return plugins.Installation{}, false, err
 	}
 	defer tx.Rollback()
+	if installation.ProtocolVersion == plugins.PortableInstallationProtocol {
+		prior, err := getPluginInstallation(ctx, tx, installation.ID)
+		if err == nil {
+			if prior.ProtocolVersion != installation.ProtocolVersion || prior.PackageFingerprint != installation.PackageFingerprint ||
+				prior.Source != installation.Source || prior.StagedBy != installation.StagedBy || prior.SupersedesInstallationID != installation.SupersedesInstallationID {
+				return plugins.Installation{}, false, apperror.New(apperror.CodeConflict, "portable import operation key is already bound to different input")
+			}
+			return prior, true, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return plugins.Installation{}, false, err
+		}
+	}
 	var existingID string
 	err = tx.QueryRowContext(ctx, `SELECT id FROM plugin_installations
 		WHERE package_fingerprint = ?`, installation.PackageFingerprint).Scan(&existingID)
 	if err == nil {
 		existing, loadErr := getPluginInstallation(ctx, tx, existingID)
+		if loadErr == nil && (existing.Source.Surface != installation.Source.Surface ||
+			(installation.ProtocolVersion == plugins.PortableInstallationProtocol && existing.ID != installation.ID)) {
+			return plugins.Installation{}, false, apperror.New(apperror.CodeConflict, "the acquired plugin already belongs to another installation operation")
+		}
 		return existing, true, loadErr
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return plugins.Installation{}, false, err
+	}
+	// The existing object store has one immutable provenance binding per archive.
+	// Do not alias identical bytes from a new source or silently rewrite its owner.
+	var retainedFingerprint string
+	err = tx.QueryRowContext(ctx, `SELECT package_fingerprint FROM plugin_objects WHERE archive_sha256 = ?`, installation.ArchiveSHA256).Scan(&retainedFingerprint)
+	if err == nil {
+		return plugins.Installation{}, false, apperror.New(apperror.CodeConflict, "the acquired archive already has another retained provenance binding")
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return plugins.Installation{}, false, err
@@ -56,7 +86,7 @@ func (s *SQLiteStore) CreatePluginInstallation(ctx context.Context,
 			Scan(&pluginID, &version); err != nil {
 			return plugins.Installation{}, false, err
 		}
-		if pluginID != installation.Manifest.ID || version == installation.Manifest.Version {
+		if pluginID != installation.PackageID() || version == installation.Revision() {
 			return plugins.Installation{}, false, apperror.New(apperror.CodeConflict,
 				"plugin predecessor binding is invalid")
 		}
@@ -74,8 +104,8 @@ func (s *SQLiteStore) CreatePluginInstallation(ctx context.Context,
 		state, enabled_capabilities_json, generation, supersedes_installation_id, staged_by,
 		reviewed_by, reviewed_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)`,
-		installation.ID, installation.ProtocolVersion, installation.Manifest.ID,
-		installation.Manifest.Version, installation.Manifest.Publisher, string(manifestJSON),
+		installation.ID, installation.ProtocolVersion, installation.PackageID(),
+		installation.Revision(), installation.Manifest.Publisher, string(manifestJSON),
 		string(sourceJSON), installation.ArchiveSHA256, installation.PackageFingerprint,
 		installation.ArchiveBytes, boolInt(installation.SignaturePresent),
 		boolInt(installation.SignatureValid), installation.PublisherFingerprint,
@@ -172,7 +202,7 @@ func (s *SQLiteStore) RollbackPluginInstallation(ctx context.Context,
 	target plugins.Installation, targetExpected int64,
 ) (plugins.Installation, plugins.Installation, error) {
 	if current.Validate() != nil || target.Validate() != nil || current.ID == target.ID ||
-		current.Manifest.ID != target.Manifest.ID || current.Generation != currentExpected+1 ||
+		current.PackageID() != target.PackageID() || current.ProtocolVersion != target.ProtocolVersion || current.Source.Surface != target.Source.Surface || current.Generation != currentExpected+1 ||
 		target.Generation != targetExpected+1 || current.State != plugins.StateRolledBack ||
 		target.State != plugins.StateEnabled {
 		return plugins.Installation{}, plugins.Installation{},
@@ -383,7 +413,12 @@ func scanPluginInstallation(scanner pluginInstallationScanner) (plugins.Installa
 		&createdAt, &updatedAt); err != nil {
 		return plugins.Installation{}, err
 	}
-	if err := json.Unmarshal([]byte(manifestJSON), &value.Manifest); err != nil {
+	var description any = &value.Manifest
+	if value.ProtocolVersion == plugins.PortableInstallationProtocol {
+		value.Snapshot = &plugins.PortableSnapshot{}
+		description = value.Snapshot
+	}
+	if err := json.Unmarshal([]byte(manifestJSON), description); err != nil {
 		return plugins.Installation{}, err
 	}
 	if err := json.Unmarshal([]byte(sourceJSON), &value.Source); err != nil {
@@ -403,6 +438,26 @@ func scanPluginInstallation(scanner pluginInstallationScanner) (plugins.Installa
 		return plugins.Installation{}, fmt.Errorf("stored plugin installation is invalid: %w", err)
 	}
 	return value, nil
+}
+
+// LoadPluginObject reads the same immutable object retained by installation,
+// review and rollback. A caller must still recheck current installation authority.
+func (s *SQLiteStore) LoadPluginObject(ctx context.Context, installationID string) ([]byte, error) {
+	value, err := s.GetPluginInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	var raw []byte
+	err = s.db.QueryRowContext(ctx, `SELECT archive FROM plugin_objects
+		WHERE package_fingerprint=? AND archive_sha256=? AND archive_bytes=?`,
+		value.PackageFingerprint, value.ArchiveSHA256, value.ArchiveBytes).Scan(&raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) != value.ArchiveBytes || len(raw) > plugins.MaxArchiveBytes || pluginStoreDigest(raw) != value.ArchiveSHA256 {
+		return nil, apperror.New(apperror.CodeFailedPrecondition, "installed plugin object differs from its retained identity")
+	}
+	return raw, nil
 }
 
 func updatePluginInstallationTx(ctx context.Context, tx *sql.Tx,

@@ -73,6 +73,7 @@ type ApplyFileEditRequest struct {
 	PermissionSnapshotID   string
 	PermissionGeneration   uint64
 	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
 }
 
 type ApplyFileEditResult struct {
@@ -317,15 +318,12 @@ func (s *FileEditApplyService) applyWithLease(ctx context.Context,
 	var applyErr error
 	switch binding.edit.Status {
 	case fileedit.StatusApproved:
-		if binding.approval.Mode == "automatic" {
-			applied, applyErr = s.manager.ApproveWithPreWriteCheck(ctx, binding.edit.ID,
-				binding.workspace.RootPath, func() error {
-					return s.checkAutomaticFileEditAuthorization(ctx, binding, normalized)
-				})
-		} else {
-			applied, applyErr = s.manager.Approve(ctx, binding.edit.ID,
-				binding.workspace.RootPath)
+		preWrite, err := s.fileEditDispatchCheck(ctx, operation, binding, normalized)
+		if err != nil {
+			return ApplyFileEditResult{}, err
 		}
+		applied, applyErr = s.manager.ApproveWithPreWriteCheck(ctx, binding.edit.ID,
+			binding.workspace.RootPath, preWrite)
 	case fileedit.StatusApplied, fileedit.StatusFailed:
 		// Recover the durable result after a process interruption.
 	default:
@@ -468,6 +466,17 @@ func (s *FileEditApplyService) loadBinding(ctx context.Context, runID string,
 func (s *FileEditApplyService) checkCurrentPolicy(ctx context.Context,
 	binding fileEditApplyBinding,
 ) error {
+	decision, err := s.fileEditPolicyDecision(ctx, binding)
+	if err != nil {
+		return err
+	}
+	if !decision.Allowed || (binding.approval.Mode == "automatic" && decision.NeedsApproval) {
+		return apperror.New(apperror.CodePolicyDenied, "FileEdit apply requires the current host policy and review")
+	}
+	return nil
+}
+
+func (s *FileEditApplyService) fileEditPolicyDecision(ctx context.Context, binding fileEditApplyBinding) (policy.Decision, error) {
 	decision := s.checker.CheckToolCall(tools.Call{Name: fileedit.ApprovalToolName(binding.edit),
 		Args: map[string]string{
 			"run_id": binding.run.ID, "workspace_id": binding.edit.WorkspaceID,
@@ -481,17 +490,17 @@ func (s *FileEditApplyService) checkCurrentPolicy(ctx context.Context,
 		SessionID: binding.run.SessionID, SubjectID: binding.edit.ID,
 		Context: "file_edit_apply", Decision: decision,
 	}); err != nil {
-		return apperror.Normalize(err)
+		return decision, apperror.Normalize(err)
 	}
 	if !decision.Allowed {
-		return apperror.New(apperror.CodePolicyDenied,
+		return decision, apperror.New(apperror.CodePolicyDenied,
 			"FileEdit apply was denied by current Policy")
 	}
-	return nil
+	return decision, nil
 }
 
-// Automatic approval records the operator's selected Full Access tier, not a
-// perpetual permission to write. Recheck the exact source and live grant on
+// Automatic approval records an exact operation-policy decision, not a
+// perpetual permission to write. Recheck the exact source and live authority on
 // every attempt that can still publish file bytes.
 func (s *FileEditApplyService) checkAutomaticFileEditAuthorization(ctx context.Context,
 	binding fileEditApplyBinding, request ApplyFileEditRequest,
@@ -521,7 +530,7 @@ func (s *FileEditApplyService) checkAutomaticFileEditAuthorization(ctx context.C
 		binding.edit.DestinationProposedHash != source.DestinationProposedHash ||
 		binding.edit.SessionID != source.SessionID || binding.edit.WorkspaceID != source.WorkspaceID ||
 		binding.run.ID != source.RunID || request.AppliedBy != source.AgentID ||
-		binding.edit.Operation == fileedit.OperationDelete {
+		request.RunAuthorizationFence != source.RunAuthorizationFence {
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"automatic FileEdit source no longer matches the exact proposal")
 	}
@@ -547,8 +556,7 @@ func (s *FileEditApplyService) checkAutomaticFileEditAuthorization(ctx context.C
 		epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
 	}
 	if currentRun.Status != domain.RunRunning ||
-		permission.Mode != domain.RunExecutionPermissionFullAccess ||
-		!s.executionCapabilities.FullAccessRequiresRuntimeGrant || !live || epoch == "" ||
+		!live || !agentCodeRuntimeCurrent(s.executionCapabilities, permission, source.PermissionSnapshotID, source.RuntimeGeneration, source.RuntimeEpoch, source.RunAuthorizationFence) ||
 		permission.ID != source.PermissionSnapshotID ||
 		permission.Revision != source.PermissionRevision ||
 		mode.Revision != source.ModeRevision ||
@@ -560,7 +568,7 @@ func (s *FileEditApplyService) checkAutomaticFileEditAuthorization(ctx context.C
 		!leaseFound || !lease.ActiveAt(s.now().UTC()) ||
 		lease.LeaseID != request.LeaseID || lease.Generation != request.LeaseGeneration {
 		return apperror.New(apperror.CodePolicyDenied,
-			"automatic FileEdit apply requires the exact current Full Access activation and lease")
+			"automatic FileEdit apply requires its current operation policy, runtime fence and lease")
 	}
 	return nil
 }
@@ -610,8 +618,8 @@ func normalizeFileEditApplyRequest(request ApplyFileEditRequest) (
 	request.PermissionRuntimeEpoch = strings.TrimSpace(request.PermissionRuntimeEpoch)
 	if (request.LeaseID == "") != (request.LeaseGeneration == 0) ||
 		request.LeaseGeneration < 0 ||
-		(request.PermissionSnapshotID == "") != (request.PermissionGeneration == 0) ||
-		(request.PermissionRuntimeEpoch == "") != (request.PermissionGeneration == 0) {
+		(request.PermissionGeneration != 0 && (request.PermissionSnapshotID == "" || request.PermissionRuntimeEpoch == "")) ||
+		(request.RunAuthorizationFence != 0 && request.PermissionRuntimeEpoch == "") {
 		return ApplyFileEditRequest{}, apperror.New(apperror.CodeInvalidArgument,
 			"FileEdit apply execution lease is invalid")
 	}

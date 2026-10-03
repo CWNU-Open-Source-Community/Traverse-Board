@@ -57,10 +57,11 @@ func removeSchemaV135ForTestStatements() []string {
 func TestSchemaV135AddsEmptyImmutableStandardCodeSupervisorLedger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "standard-code-supervisor-v134.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keep exercising the original inverse against historical v1 data.
 	downStatements := removeSchemaV135ForTestStatements()
 	for _, statement := range downStatements {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {

@@ -70,7 +70,7 @@ func (s *outputProjectionCountingStore) GetThreadCommandRuntimeJobMetadata(ctx c
 // sandbox or end-to-end verification-gate test.
 func TestStandardCodeDeliveryOutputSourcesUseDurableActivityWithoutReadingBodies(t *testing.T) {
 	fixture := newAPIFixture(t)
-	run, root, lease, checkpoint, attempt := newThreadActivityCommandRuntimeFixture(t, fixture)
+	run, root, lease, checkpoint, attempt, capabilities := newThreadActivityCommandRuntimeFixture(t, fixture)
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,24 @@ func TestStandardCodeDeliveryOutputSourcesUseDurableActivityWithoutReadingBodies
 	}
 	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
 	adapter, _ := manager.AdapterIdentity()
-	authority, err := commandruntimeadapter.EncodeAuthority(commandruntimeadapter.NewAuthority(run.ID, adapter))
+	permission, err := fixture.store.GetRunExecutionPermission(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, live := capabilities.FullAccessGeneration(permission)
+	if !live || generation == 0 {
+		t.Fatal("fixture has no current Full grant")
+	}
+	fence, err := capabilities.RuntimeAuthority.IssueRunAuthorizationFence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := commandruntimeadapter.EncodeAuthority(commandruntimeadapter.Authority{
+		ProtocolVersion: commandruntimeadapter.OperationAuthorityVersion, RunID: run.ID, Adapter: adapter,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision, PermissionMode: permission.Mode,
+		PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+		RunAuthorizationFence: fence,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +154,6 @@ func TestStandardCodeDeliveryOutputSourcesUseDurableActivityWithoutReadingBodies
 	if err != nil {
 		t.Fatal(err)
 	}
-	permission, err := fixture.store.GetRunExecutionPermission(t.Context(), run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	snapshot, _, err := manager.Start(t.Context(), runner.CommandRuntimeStartRequest{
 		Scope: runner.CommandRuntimeScope{InvocationID: "report-output-invocation",
 			OperationKey: "command-runtime-" + hex.EncodeToString(batchDigest[:]),
@@ -150,7 +163,9 @@ func TestStandardCodeDeliveryOutputSourcesUseDurableActivityWithoutReadingBodies
 			WorkspaceRootSHA256: resolved.WorkspaceRootSHA256, ModeSnapshotID: mode.ID, ModeRevision: mode.Revision,
 			ProfileSnapshotID: profile.ID, ProfileRevision: profile.Revision,
 			PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision, PermissionMode: permission.Mode,
-			LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation, LeaseOwnerID: lease.OwnerID, Adapter: adapter}, Spec: resolved})
+			PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+			RunAuthorizationFence: fence,
+			LeaseID:               lease.LeaseID, LeaseGeneration: lease.Generation, LeaseOwnerID: lease.OwnerID, Adapter: adapter}, Spec: resolved})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +182,11 @@ func TestStandardCodeDeliveryOutputSourcesUseDurableActivityWithoutReadingBodies
 	job, err := fixture.store.GetCommandRuntimeJob(t.Context(), snapshot.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if job.PermissionSnapshotID != permission.ID || job.PermissionRevision != permission.Revision ||
+		job.PermissionMode != domain.RunExecutionPermissionFull || job.PermissionGeneration != generation ||
+		job.PermissionRuntimeEpoch != capabilities.RuntimeAuthority.RuntimeEpoch() || job.RunAuthorizationFence != fence {
+		t.Fatalf("saved output lost its exact current authority binding: %+v", job)
 	}
 	if job.ExitCode == nil || *job.ExitCode != 0 || !strings.Contains(job.Stdout, "saved-stdout") ||
 		!strings.Contains(job.Stderr, "saved-stderr") {

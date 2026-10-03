@@ -580,10 +580,12 @@ func (s *StandardCodePresetService) prepareCommit(ctx context.Context,
 			return domain.StandardCodePresetCommit{}, err
 		}
 	}
-	if permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	// A sandbox preset selects isolation, not the user's approval preference.
+	// Only an explicitly configured historical Run needs a new v2 snapshot.
+	if !permission.Mode.IsApprovalMode() {
 		permission, err = permission.Next(idgen.New("run-exec-permission"),
-			domain.RunExecutionPermissionWorkspaceAccess, true,
-			operation.RequestedBy, "Standard Code preset selected Workspace Access", now)
+			domain.RunExecutionPermissionAsk, false,
+			operation.RequestedBy, "Standard Code preset migrated historical approval preference to Ask", now)
 		if err != nil {
 			return domain.StandardCodePresetCommit{}, err
 		}

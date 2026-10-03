@@ -9,6 +9,7 @@ import (
 )
 
 const ThreadExecutionPermissionProtocolVersion = "thread_execution_permission.v1"
+const ThreadApprovalPermissionProtocolVersion = "thread_execution_permission.v2"
 
 // ThreadExecutionPermissionSnapshot is one durable, non-authorizing
 // permission preference for a Thread's current and future Runs. It deliberately
@@ -44,8 +45,8 @@ func NewInitialThreadExecutionPermissionSnapshot(id string, thread Thread,
 	requestedBy string, at time.Time,
 ) (ThreadExecutionPermissionSnapshot, error) {
 	snapshot := newThreadExecutionPermissionSnapshot(id, thread.ID, thread.MissionID, 1,
-		RunExecutionPermissionConservative, false, requestedBy,
-		"initial conservative Thread execution permission", at)
+		RunExecutionPermissionAsk, false, requestedBy,
+		"initial ask Thread execution approval preference", at)
 	if err := snapshot.Validate(); err != nil {
 		return ThreadExecutionPermissionSnapshot{}, err
 	}
@@ -57,17 +58,21 @@ func newThreadExecutionPermissionSnapshot(id, threadID, missionID string, revisi
 	at time.Time,
 ) ThreadExecutionPermissionSnapshot {
 	definition := runExecutionPermissionDefinitions[mode]
+	protocol, policy := ThreadExecutionPermissionProtocolVersion, RunExecutionPermissionPolicyVersion
+	if mode.IsApprovalMode() {
+		protocol, policy = ThreadApprovalPermissionProtocolVersion, OperationPermissionPolicyVersion
+	}
 	return ThreadExecutionPermissionSnapshot{
 		ID: strings.TrimSpace(id), ThreadID: strings.TrimSpace(threadID),
 		MissionID: strings.TrimSpace(missionID), Revision: revision,
-		ProtocolVersion: ThreadExecutionPermissionProtocolVersion, Mode: mode,
+		ProtocolVersion: protocol, Mode: mode,
 		ApprovalPolicy: definition.ApprovalPolicy, CommandScope: definition.CommandScope,
 		FilesystemScope: definition.FilesystemScope, NetworkScope: definition.NetworkScope,
 		PersistentTerminal: definition.PersistentTerminal,
 		BackgroundProcess:  definition.BackgroundProcess,
 		AgentTerminalInput: definition.AgentTerminalInput, RiskTier: definition.RiskTier,
 		RequiredGate:      definition.RequiredGate,
-		PolicyVersion:     RunExecutionPermissionPolicyVersion,
+		PolicyVersion:     policy,
 		OperatorConfirmed: confirmed, RequestedBy: strings.TrimSpace(requestedBy),
 		Reason: strings.TrimSpace(reason), CreatedAt: at.UTC(),
 	}
@@ -85,7 +90,11 @@ func (s ThreadExecutionPermissionSnapshot) Validate() error {
 	if s.Revision <= 0 {
 		return errors.New("Thread execution permission revision must be positive")
 	}
-	if s.ProtocolVersion != ThreadExecutionPermissionProtocolVersion {
+	protocol, policy := ThreadExecutionPermissionProtocolVersion, RunExecutionPermissionPolicyVersion
+	if s.Mode.IsApprovalMode() {
+		protocol, policy = ThreadApprovalPermissionProtocolVersion, OperationPermissionPolicyVersion
+	}
+	if s.ProtocolVersion != protocol {
 		return fmt.Errorf("unsupported Thread execution permission protocol %q", s.ProtocolVersion)
 	}
 	definition, ok := runExecutionPermissionDefinitions[s.Mode]
@@ -104,7 +113,7 @@ func (s ThreadExecutionPermissionSnapshot) Validate() error {
 		s.OperatorConfirmed != definition.OperatorConfirmed {
 		return errors.New("Thread execution permission controls do not match the selected mode")
 	}
-	if s.PolicyVersion != RunExecutionPermissionPolicyVersion {
+	if s.PolicyVersion != policy {
 		return fmt.Errorf("unsupported Thread execution permission policy %q", s.PolicyVersion)
 	}
 	if s.ProcessEnabled || s.ExecutionAuthorized || s.CapabilityGrant {

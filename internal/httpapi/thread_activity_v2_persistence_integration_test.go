@@ -69,14 +69,23 @@ func TestThreadActivityV2PersistsTypedDetailsAndRecordedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	permissionResult, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled: true}).Change(ctx,
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true,
+		RuntimeAuthority:        domain.NewExecutionPermissionRuntimeAuthority()}
+	permissionResult, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
+			Mode:         string(domain.RunExecutionPermissionFull),
 			OperationKey: "activity-v2-full-access-0001", RequestedBy: "activity-v2-test",
-			Reason:                  "exercise MCP and typed activity persistence",
-			ConfirmDangerFullAccess: true})
+			Reason:      "exercise MCP and typed activity persistence",
+			ConfirmFull: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, live := capabilities.FullAccessGeneration(permissionResult.Permission)
+	if !live || generation == 0 {
+		t.Fatal("fixture has no current Full grant")
+	}
+	fence, err := capabilities.RuntimeAuthority.IssueRunAuthorizationFence(created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,9 +150,12 @@ func TestThreadActivityV2PersistsTypedDetailsAndRecordedAgent(t *testing.T) {
 			RootAgentID: root.ID, WorkspaceID: workspaceRecord.ID,
 			RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 			Role: root.Role, Profile: mode.Profile,
-			PermissionMode:     permissionResult.Permission.Mode,
-			ModeRevision:       mode.Revision,
-			PermissionRevision: permissionResult.Permission.Revision}, run.SessionID)
+			PermissionMode:       permissionResult.Permission.Mode,
+			PermissionSnapshotID: permissionResult.Permission.ID,
+			PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+			RunAuthorizationFence: fence,
+			ModeRevision:          mode.Revision,
+			PermissionRevision:    permissionResult.Permission.Revision}, run.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,12 +170,16 @@ func TestThreadActivityV2PersistsTypedDetailsAndRecordedAgent(t *testing.T) {
 		RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: root.Role, Profile: mode.Profile, PermissionMode: permissionResult.Permission.Mode,
 		ModeRevision: mode.Revision, PermissionRevision: permissionResult.Permission.Revision,
-		CapabilityGeneration: agentCodeAuthority.CapabilityGeneration,
-		LeaseID:              leaseResult.Lease.LeaseID, LeaseGeneration: leaseResult.Lease.Generation,
+		PermissionSnapshotID: permissionResult.Permission.ID,
+		PermissionGeneration: generation, PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(),
+		RunAuthorizationFence: fence,
+		CapabilityGeneration:  agentCodeAuthority.CapabilityGeneration,
+		LeaseID:               leaseResult.Lease.LeaseID, LeaseGeneration: leaseResult.Lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{Allowed: true,
 			Approval: toolgateway.ApprovalAutomatic, Risk: "low", Reason: "integration test"},
 	}
-	agentCodeExecutor := application.NewAgentCodeToolExecutor(state, policy.NewDefaultChecker())
+	agentCodeExecutor := application.NewAgentCodeToolExecutor(state, policy.NewDefaultChecker()).
+		WithExecutionPermissionCapabilities(capabilities)
 	proposedResult, err := agentCodeExecutor.ExecuteAgentCode(ctx, agentCodeScope,
 		toolgateway.WorkspaceChangeTool, mustActivityJSON(t, toolgateway.WorkspaceChangePayload{
 			Version: toolgateway.AgentCodeRegistryVersion, Action: "propose_patch",

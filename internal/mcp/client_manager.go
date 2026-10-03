@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
@@ -32,15 +33,18 @@ type ManagerOptions struct {
 	HTTPClient       *http.Client
 	TransportFactory TransportFactory
 	Now              func() time.Time
+	NativeSources    NativeSourceResolver
 }
 
 type Manager struct {
-	store       ClientStore
-	credentials CredentialReader
-	factory     TransportFactory
-	now         func() time.Time
-	locksMu     sync.Mutex
-	locks       map[string]*sync.Mutex
+	store         ClientStore
+	credentials   CredentialReader
+	factory       TransportFactory
+	httpClient    *http.Client
+	nativeSources NativeSourceResolver
+	now           func() time.Time
+	locksMu       sync.Mutex
+	locks         map[string]*sync.Mutex
 }
 
 // ReconcileStartup deterministically fences discovery whose durable lease has
@@ -110,7 +114,7 @@ func NewClientManager(store ClientStore, credentials CredentialReader,
 			return newRemoteClientTransport(descriptor, bearer, options.HTTPClient)
 		}
 	}
-	return &Manager{store: store, credentials: credentials, factory: factory, now: now,
+	return &Manager{store: store, credentials: credentials, factory: factory, httpClient: options.HTTPClient, nativeSources: options.NativeSources, now: now,
 		locks: make(map[string]*sync.Mutex)}, nil
 }
 
@@ -118,6 +122,14 @@ func (m *Manager) Stage(ctx context.Context, descriptor ServerDescriptor) (Serve
 	if err := descriptor.Validate(); err != nil {
 		return ServerRecord{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
 			"MCP server descriptor is invalid", err)
+	}
+	if descriptor.NativeSource != nil {
+		if m.nativeSources == nil {
+			return ServerRecord{}, false, errors.New("native MCP source resolver is unavailable")
+		}
+		if err := m.nativeSources.Check(ctx, *descriptor.NativeSource, descriptor.RunID); err != nil {
+			return ServerRecord{}, false, err
+		}
 	}
 	now := m.now().UTC()
 	record := ServerRecord{ProtocolVersion: ServerRecordProtocolVersion,
@@ -197,10 +209,21 @@ func (m *Manager) Review(ctx context.Context, serverID string,
 func (m *Manager) Refresh(ctx context.Context, serverID string) (ServerRecord, error) {
 	lock := m.lock(serverID)
 	lock.Lock()
-	defer lock.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			lock.Unlock()
+		}
+	}()
 	record, err := m.store.GetMCPClientServer(ctx, strings.TrimSpace(serverID))
 	if err != nil {
 		return ServerRecord{}, err
+	}
+	if record.Descriptor.NativeSource != nil {
+		// Native discovery has actual send guards and the existing durable
+		// generation/lease CAS; operator disable must remain live in flight.
+		lock.Unlock()
+		locked = false
 	}
 	return m.refreshLocked(ctx, record)
 }
@@ -227,14 +250,22 @@ func (m *Manager) refreshLocked(ctx context.Context, record ServerRecord) (Serve
 	}
 	callCtx, cancel := context.WithTimeout(ctx,
 		time.Duration(record.Descriptor.CallTimeoutMillis)*time.Millisecond)
-	client, err := m.connect(callCtx, record.Descriptor)
-	if err == nil {
-		defer client.Close()
-		capabilities, discoverErr := client.Discover(callCtx, m.now())
-		if discoverErr != nil {
-			err = discoverErr
-		} else {
+	if record.Descriptor.NativeSource != nil {
+		var capabilities CapabilitySnapshot
+		capabilities, err = m.discoverNativeSource(callCtx, record)
+		if err == nil {
 			record.Capabilities = capabilities
+		}
+	} else {
+		var client *Client
+		client, err = m.connect(callCtx, record.Descriptor)
+		if err == nil {
+			defer client.Close()
+			var capabilities CapabilitySnapshot
+			capabilities, err = client.Discover(callCtx, m.now())
+			if err == nil {
+				record.Capabilities = capabilities
+			}
 		}
 	}
 	cancel()
@@ -297,6 +328,9 @@ type ScopedServerCapability struct {
 	Name                  string       `json:"name"`
 	CapabilityFingerprint string       `json:"capability_fingerprint"`
 	Tools                 []RemoteTool `json:"tools"`
+	// Host-only review identity; never accepted from a model tool payload.
+	DescriptorFingerprint  string `json:"-"`
+	RegistrationGeneration int64  `json:"-"`
 }
 
 type ScopedCapabilities struct {
@@ -322,10 +356,23 @@ func (m *Manager) Capabilities(ctx context.Context, runID, workspaceID string) (
 			!scopeMatches(record.Descriptor, runID, workspaceID) {
 			continue
 		}
+		if source := record.Descriptor.NativeSource; source != nil {
+			if m.nativeSources == nil {
+				continue
+			}
+			if err := m.nativeSources.Check(ctx, *source, runID); err != nil {
+				code := apperror.CodeOf(err)
+				if code != apperror.CodePolicyDenied && code != apperror.CodeNotFound {
+					return ScopedCapabilities{}, err
+				}
+				continue
+			}
+		}
 		result.Servers = append(result.Servers, ScopedServerCapability{
 			ServerID: record.Descriptor.ID, Name: record.Descriptor.Name,
 			CapabilityFingerprint: record.Capabilities.Fingerprint,
-			Tools:                 slices.Clone(record.Capabilities.Tools)})
+			DescriptorFingerprint: record.DescriptorFingerprint, RegistrationGeneration: record.Generation,
+			Tools: slices.Clone(record.Capabilities.Tools)})
 	}
 	sort.Slice(result.Servers, func(i, j int) bool { return result.Servers[i].ServerID < result.Servers[j].ServerID })
 	raw, _ := json.Marshal(result.Servers)
@@ -341,6 +388,10 @@ type InvokeRequest struct {
 	ToolName              string
 	CapabilityFingerprint string
 	Arguments             json.RawMessage
+	// Host-only runtime binding. This is never decoded from a tool payload.
+	OperationID string                          `json:"-"`
+	Subject     executionauth.SubjectRef        `json:"-"`
+	Authorizer  *executionauth.PolicyAuthorizer `json:"-"`
 }
 
 func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result ClientCallResult,
@@ -368,6 +419,9 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 		} else {
 			audit.ErrorCode = string(apperror.CodeOf(apperror.Normalize(err)))
 		}
+		if receipt, found := InvocationReceipt(err); found {
+			audit.ErrorCode = string(receipt.State)
+		}
 		if audit.Validate() == nil {
 			_ = m.store.RecordMCPClientCall(context.WithoutCancel(ctx), audit)
 		}
@@ -381,7 +435,12 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 	}
 	lock := m.lock(request.ServerID)
 	lock.Lock()
-	defer lock.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			lock.Unlock()
+		}
+	}()
 	record, err := m.store.GetMCPClientServer(ctx, request.ServerID)
 	if err != nil {
 		return ClientCallResult{}, err
@@ -402,6 +461,16 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 		return ClientCallResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			"MCP tool arguments do not match the approved schema", err)
 	}
+	if request.Authorizer != nil {
+		// Do not hold the review lock during transport. Operator disable/revoke
+		// must be observable by the actual connect/send guards while in flight.
+		lock.Unlock()
+		locked = false
+		return m.invokeResolved(ctx, request, record)
+	}
+	if record.Descriptor.NativeSource != nil {
+		return ClientCallResult{}, apperror.New(apperror.CodePolicyDenied, "native MCP invocation requires common host authority")
+	}
 	callCtx, cancel := context.WithTimeout(ctx,
 		time.Duration(record.Descriptor.CallTimeoutMillis)*time.Millisecond)
 	defer cancel()
@@ -416,6 +485,20 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 		return ClientCallResult{}, m.markInvocationUnavailable(ctx, record,
 			"capability verification failed during invocation", err)
 	}
+	latest, err := m.verifyInvocationSnapshot(callCtx, request, record, current)
+	if err != nil {
+		return ClientCallResult{}, err
+	}
+	result, err = client.CallTool(callCtx, request.ToolName, request.Arguments,
+		record.Descriptor.MaxResultBytes)
+	if err != nil {
+		return ClientCallResult{}, m.markInvocationUnavailable(ctx, latest,
+			"tool call failed during invocation", err)
+	}
+	return result, nil
+}
+
+func (m *Manager) verifyInvocationSnapshot(ctx context.Context, request InvokeRequest, record ServerRecord, current CapabilitySnapshot) (ServerRecord, error) {
 	if current.Fingerprint != record.ApprovedCapabilityFingerprint {
 		previous := record.Generation
 		record.Capabilities = current
@@ -425,28 +508,22 @@ func (m *Manager) Invoke(ctx context.Context, request InvokeRequest) (result Cli
 		record.Generation++
 		record.UpdatedAt = m.now().UTC()
 		_, updateErr := m.store.UpdateMCPClientServer(context.WithoutCancel(ctx), record, previous)
-		return ClientCallResult{}, errors.Join(apperror.New(apperror.CodeConflict,
+		return ServerRecord{}, errors.Join(apperror.New(apperror.CodeConflict,
 			"MCP capability drift quarantined the server"), updateErr)
 	}
-	latest, err := m.store.GetMCPClientServer(callCtx, request.ServerID)
+	latest, err := m.store.GetMCPClientServer(ctx, request.ServerID)
 	if err != nil {
-		return ClientCallResult{}, err
+		return ServerRecord{}, err
 	}
 	if latest.Generation != record.Generation || latest.State != TrustEnabled ||
 		latest.Health != HealthHealthy ||
 		latest.ApprovedCapabilityFingerprint != request.CapabilityFingerprint ||
 		latest.Capabilities.Fingerprint != request.CapabilityFingerprint ||
 		!scopeMatches(latest.Descriptor, request.RunID, request.WorkspaceID) {
-		return ClientCallResult{}, apperror.New(apperror.CodePolicyDenied,
+		return ServerRecord{}, apperror.New(apperror.CodePolicyDenied,
 			"MCP server authorization changed during capability verification")
 	}
-	result, err = client.CallTool(callCtx, request.ToolName, request.Arguments,
-		record.Descriptor.MaxResultBytes)
-	if err != nil {
-		return ClientCallResult{}, m.markInvocationUnavailable(ctx, latest,
-			"tool call failed during invocation", err)
-	}
-	return result, nil
+	return latest, nil
 }
 
 func (m *Manager) markInvocationUnavailable(ctx context.Context, record ServerRecord,

@@ -11,7 +11,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 47 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 52 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
@@ -22,13 +22,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
-| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 41 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 110 | true |
+| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 43 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 112 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
-| [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 3 | true |
+| [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
-| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
+| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 55 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 6 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
@@ -40,7 +40,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
-| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 38 | true |
+| [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 39 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
 | [workspace-repository-ledgers](#workspace-repository-ledgers) | `internal-durable` | Workspace and repository maintainers | 11 | true |
 
@@ -253,21 +253,26 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `internal-durable`
 - Owner: Execution authority and approval maintainers
-- Source of truth: `internal/approval`, `internal/executionauth`, `internal/store`
+- Source of truth: `internal/approval`, `internal/executionauth`, `internal/store`, `internal/toolcontract`
 - Persistence/export boundary: SQLite snapshots preserve permission, profile, interaction, approval, lease, and generation facts.
 - Compatibility rule: Authority changes are additive and fail closed; old readers remain for every supported stored snapshot.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `authority-approval-ledgers-writer` (`v1`, write-current) at `internal/application`
+  - `universal-tool-binding-writer` (`v1`, write-new) at `internal/toolcontract`
+  - `approval-preference-writer` (`v2`, write-new) at `internal/application/run_execution_permission.go`
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
+  - `universal-tool-binding-reader` (`v1`, active) at `internal/executionauth`
+  - `approval-preference-reader` (`v1, v2`, active) at `internal/domain`
 
-<details><summary>47 active identifiers</summary>
+<details><summary>52 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
 - `approval_operation_key.v1`
 - `approval_record.v1`
+- `executionauth.authorization.v1`
 - `full-cdp-session-operation.v1`
 - `once_command.v1`
 - `once_command_approval.v1`
@@ -300,6 +305,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_network_authority_request.v1`
 - `run_phase_change_request.v1`
 - `thread_execution_permission.v1`
+- `thread_execution_permission.v2`
 - `thread_execution_permission_browser_cdp_materialization_operation.v1`
 - `thread_execution_permission_browser_cdp_operation.v1`
 - `thread_execution_permission_change_request.v1`
@@ -311,6 +317,9 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `thread_message_intent_request.v1`
 - `thread_model_route_operation.v1`
 - `thread_model_route_request.v1`
+- `toolcontract.discovery.v1`
+- `toolcontract.launch.v1`
+- `toolcontract.operation.v1`
 
 </details>
 
@@ -789,11 +798,14 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `extension-package-contracts-writer` (`v1, v2`, write-new) at `internal/skills`
+  - `portable-plugin-installation-writer` (`v2`, write-new) at `internal/plugins`
 - Readers:
   - `extension-package-contracts-reader` (`v1, v2`, active) at `internal/skills`
+  - `plugin-installation-reader` (`v1, v2`, active) at `internal/plugins`
 
-<details><summary>41 active identifiers</summary>
+<details><summary>43 active identifiers</summary>
 
+- `agent-package-snapshot.v1`
 - `extension-control.v1`
 - `extension-inventory.v1`
 - `external_skill_context.v1`
@@ -803,6 +815,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `external_skill_selection_operation.v1`
 - `external_specialist_skill_context.v1`
 - `plugin-installation.v1`
+- `plugin-installation.v2`
 - `plugin-publisher-trust.v1`
 - `plugin-signature.v1`
 - `plugin.v1`
@@ -851,7 +864,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>110 active identifiers</summary>
+<details><summary>112 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -874,6 +887,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `doctor-snapshot.v1`
 - `execution_interaction_policy.v1`
 - `execution_permission_policy.v1`
+- `execution_permission_policy.v2`
 - `execution_profile_policy.v1`
 - `file_edit_apply.v1`
 - `file_edit_change_set.v1`
@@ -917,6 +931,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_execution_handoff.v1`
 - `run_execution_interaction.v1`
 - `run_execution_permission.v1`
+- `run_execution_permission.v2`
 - `run_execution_profile.v1`
 - `run_lifecycle_control.v1`
 - `run_mode.v1`
@@ -1022,15 +1037,18 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Compatibility rule: Follow upstream negotiation and bounded local parsing; negotiated capabilities never grant local Go authority.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
-  - `mcp-interchange-writer` (`v1`, write-current) at `internal/mcp`
+  - `mcp-interchange-writer` (`v1, v2`, write-current) at `internal/mcp`
 - Readers:
-  - `mcp-interchange-reader` (`v1`, active) at `internal/mcp`
+  - `mcp-interchange-reader` (`v1, v2`, active) at `internal/mcp`
 
-<details><summary>3 active identifiers</summary>
+<details><summary>6 active identifiers</summary>
 
 - `mcp-client-call-audit.v1`
 - `mcp-client-server.v1`
 - `mcp-client.v1`
+- `mcp-client.v2`
+- `mcp.call.input.v1`
+- `mcp.capabilities.v1`
 
 </details>
 
@@ -1068,12 +1086,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `process-runtime-lifecycle-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>54 active identifiers</summary>
+<details><summary>55 active identifiers</summary>
 
 - `application_docker_container_lifecycle_post_exit.v1`
 - `application_docker_container_lifecycle_running.v1`
 - `application_docker_container_lifecycle_start_authority.v1`
 - `command-runtime-adapter-authority.v1`
+- `command-runtime-adapter-authority.v2`
 - `command-runtime-batch.v2`
 - `command-runtime-policy.v2`
 - `command-runtime-result.v2`
@@ -1641,10 +1660,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `tool-mutation-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>38 active identifiers</summary>
+<details><summary>39 active identifiers</summary>
 
 - `agent_code_file_edit_proposal.v1`
 - `agent_code_file_edit_source.v1`
+- `file-operation-proposal.v1`
 - `file_edit_apply_operation.v1`
 - `file_edit_apply_request.v1`
 - `file_edit_revert_proposal.v1`
@@ -1810,7 +1830,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `linux_ephemeral_user_namespace.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_inherited_read_fd.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `linux_user_namespace_landlock.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_linux_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
-| `local-windows-lpac.v1` | `test-fixture` | `internal/application/standard_code_preset_test.go`, `internal/application/standard_code_supervisor_test.go`, `internal/commandruntimeadapter/adapter_test.go`, `internal/store/migration_v163_test.go`, `internal/toolgateway/command_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `local-windows-lpac.v1` | `test-fixture` | `internal/application/standard_code_preset_test.go`, `internal/application/standard_code_supervisor_test.go`, `internal/commandruntimeadapter/adapter_test.go`, `internal/store/migration_v163_test.go`, `internal/store/migration_v180_test.go`, `internal/toolgateway/command_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `my-document.v1` | `test-fixture` | `internal/contextmgr/continuity_summary_window_test.go` | Opaque historical document fixture; its version is not a product protocol. |
 | `next.good.v4` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ok.v1` | `test-fixture` | `internal/protocolregistry/registry_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1833,6 +1853,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `sandbox_output_fixture.v1` | `test-fixture` | `configs/sandbox-output-fixture.example.json`, `internal/app/sandbox_command_test.go`, `internal/sandbox/output_simulation.go`, `internal/sandbox/output_simulation_test.go` | Explicit sandbox output-simulation fixture input; it grants no production execution authority. |
 | `scheduled-store-observation.v1` | `test-fixture` | `internal/store/scheduled_jobs_concurrency_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `skill.v2` | `test-fixture` | `internal/skills/manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `skill.v99` | `negative-version-fixture` | `internal/agentpackages/edge_cases_test.go` | Unknown legacy Skill version rejection fixture; never a supported production reader. |
 | `slsa_provenance.v1` | `test-fixture` | `internal/analyzer/provenance_verification_test.go`, `internal/analyzer/release_manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `specialist_delegation.v2` | `test-fixture` | `internal/domain/specialist_delegation_test.go`, `internal/toolgateway/specialist_delegation_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `standard_code_fixture_manifest.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `internal/packagede2e/testdata/fixture-manifest.json` | Packaged E2E fixed-repository fixture manifest. |

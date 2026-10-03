@@ -553,6 +553,11 @@ func (a *App) skillImportSourceCommand(ctx context.Context, args []string, kind 
 	if err != nil {
 		return err
 	}
+	if result.Portable != nil {
+		value := result.Portable
+		fmt.Fprintf(a.out, "installation_id: %s\nformat: %s\npackage: %s\nrevision: %s\nstate: %s\nskills: %d\n", value.ID, value.Snapshot.Format, value.DisplayName(), value.Revision(), value.State, len(value.Snapshot.Skills))
+		return nil
+	}
 	printInstalledSkillPackage(a, result.Installed)
 	fmt.Fprintf(a.out, "signed: %t\nimport_id: %s\nsource_kind: %s\nsource: %s\npin: %s\npublisher_fingerprint: %s\n",
 		result.Signed, result.Import.ID, result.Import.SourceKind, result.Import.Source,

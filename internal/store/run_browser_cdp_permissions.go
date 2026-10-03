@@ -147,11 +147,11 @@ func (s *SQLiteStore) TransitionRunBrowserCDPPermission(ctx context.Context,
 				apperror.CodeConflict,
 				"Run execution permission changed before Full CDP could be enabled")
 		}
-		if currentExecution.Mode != domain.RunExecutionPermissionFullAccess &&
+		if !currentExecution.Mode.IsFullPreference() &&
 			currentExecution.Mode != domain.RunExecutionPermissionDebug {
 			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(
 				apperror.CodePolicyDenied,
-				"Full CDP requires current Full Access or Debug execution permission")
+				"Full CDP requires Full approval preference or retained Full Access or Debug permission")
 		}
 		if run.Status != domain.RunCreated && run.Status != domain.RunPaused {
 			return domain.RunBrowserCDPPermissionSnapshot{}, false, apperror.New(

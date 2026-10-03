@@ -87,6 +87,8 @@ type MCPExecutionScope struct {
 	RunID                  string
 	MissionID              string
 	WorkspaceID            string
+	AgentID                string
+	AgentAttemptID         string
 	Surface                domain.ExecutionSurface
 	Phase                  domain.ExecutionPhase
 	Role                   domain.AgentRole
@@ -100,19 +102,24 @@ type MCPExecutionScope struct {
 	LeaseGeneration        int64
 	RequestedBy            string
 	PolicyDecision         Decision
+	SupervisorToolCallID   string
+	SupervisorTurn         int
 }
 
 func (s MCPExecutionScope) Validate() error {
 	if !validMCPIdentity(s.InvocationID) || !validMCPIdentity(s.RunID) ||
 		!validMCPIdentity(s.MissionID) ||
-		!validMCPIdentity(s.WorkspaceID) || s.Surface != domain.ExecutionSurfaceCode ||
-		s.Phase != domain.ExecutionPhaseDeliver || s.Role != domain.AgentRoleRoot ||
-		!s.PermissionMode.IncludesFullAccess() ||
+		!validMCPIdentity(s.WorkspaceID) || !s.Surface.Valid() ||
+		!s.Phase.Valid() || !domain.ValidAgentRole(s.Role) ||
+		!s.PermissionMode.Valid() ||
 		!validMCPIdentity(s.PermissionSnapshotID) || s.PermissionRevision < 1 ||
 		!validMCPIdentity(s.LeaseID) || s.LeaseGeneration < 1 ||
 		s.RequestedBy != "run_supervisor" || s.PolicyDecision.Validate() != nil ||
-		!s.PolicyDecision.Allowed || s.PolicyDecision.Approval != ApprovalAutomatic {
-		return errors.New("MCP tool call requires an exact Code/Deliver/Root Full Access or Debug lease scope")
+		!s.PolicyDecision.Allowed || (s.PolicyDecision.Approval != ApprovalAutomatic && s.PolicyDecision.Approval != ApprovalPerCall) {
+		return errors.New("MCP tool call requires a current host actor, permission and Run lease scope")
+	}
+	if s.SupervisorToolCallID != "" && (!validMCPIdentity(s.SupervisorToolCallID) || s.SupervisorTurn < 1) {
+		return errors.New("MCP durable call identity is invalid")
 	}
 	return nil
 }
@@ -145,14 +152,14 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 		Args: map[string]string{"server_id": payload.ServerID, "tool_name": payload.ToolName,
 			"capability_fingerprint": payload.CapabilityFingerprint,
 			"arguments":              string(payload.Arguments)}})
-	if !policyDecision.Allowed || policyDecision.NeedsApproval {
-		if policyDecision.NeedsApproval {
-			policyDecision.Allowed = false
-			policyDecision.Reason = "MCP call requires unsupported per-call policy approval: " + policyDecision.Reason
-		}
+	if !policyDecision.Allowed {
 		return deniedOutcome(call, policyDecision)
 	}
-	decision, err := gatewayDecision(policyDecision, ApprovalAutomatic, "high")
+	approvalMode := ApprovalAutomatic
+	if policyDecision.NeedsApproval {
+		approvalMode = ApprovalPerCall
+	}
+	decision, err := gatewayDecision(policyDecision, approvalMode, "high")
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -162,6 +169,7 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 	scope := MCPExecutionScope{InvocationID: call.InvocationID, RunID: call.RunID,
 		MissionID:   call.MissionID,
 		WorkspaceID: call.WorkspaceID, Surface: call.Surface, Phase: call.Phase, Role: call.Role,
+		AgentID: call.AgentID, AgentAttemptID: call.AgentAttemptID,
 		PermissionMode:        call.PermissionMode,
 		PermissionSnapshotID:  call.PermissionSnapshotID,
 		PermissionRevision:    call.PermissionRevision,
@@ -169,7 +177,7 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 		RunAuthorizationFence: call.RunAuthorizationFence, LeaseID: call.LeaseID,
 		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
 		LeaseGeneration:        call.LeaseGeneration, RequestedBy: call.RequestedBy,
-		PolicyDecision: decision}
+		PolicyDecision: decision, SupervisorToolCallID: call.SupervisorToolCallID, SupervisorTurn: call.SupervisorTurn}
 	if err := scope.Validate(); err != nil {
 		return Outcome{}, err
 	}

@@ -472,6 +472,25 @@ func requireExactSandboxApproval(record approval.Record, run domain.Run,
 	return nil
 }
 
+// A quiescent candidate pins an exact usage snapshot. An already leased native
+// execution instead records a lower bound: its Supervisor may account another
+// model turn or wait while the job is preparing. Revalidate actual current usage
+// against the Run limits, reject counter rollback, and keep the recorded snapshot
+// immutable. The caller must also revalidate the candidate's exact active lease.
+func requireSandboxCandidateCurrentBudget(candidate sandbox.ExecutionCandidate,
+	budget domain.Budget, usage domain.RunAgentUsage, toolCalls int64,
+) error {
+	changed := usage.TotalTokens != candidate.TokensUsed ||
+		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed || toolCalls != candidate.ToolCallsUsed
+	regressed := usage.TotalTokens < candidate.TokensUsed ||
+		usage.TotalExecutionMillis < candidate.ExecutionMillisUsed || toolCalls < candidate.ToolCallsUsed
+	if regressed || (candidate.LeaseQuiescent && changed) {
+		return apperror.New(apperror.CodeConflict,
+			"sandbox execution candidate budget snapshot changed")
+	}
+	return requireSandboxCandidateBudget(budget, usage, toolCalls)
+}
+
 func requireSandboxCandidateBudget(budget domain.Budget, usage domain.RunAgentUsage,
 	toolCalls int64,
 ) error {

@@ -989,7 +989,7 @@ func validateToolArguments(call ToolCall) error {
 		case MCPToolCallTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
 				call.WorkspaceID == "" || call.LeaseID == "" {
-				return errors.New("MCP tool calls require a fenced root Supervisor")
+				return errors.New("MCP tool calls require a fenced host actor")
 			}
 			_, _, err := NormalizeMCPToolPayload(call.Payload)
 			return err

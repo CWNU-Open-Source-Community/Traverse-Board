@@ -245,7 +245,7 @@ func migrationPlan() []migration {
 		`CREATE INDEX IF NOT EXISTS idx_file_edits_session_status_updated_at
 			ON file_edits(session_id, status, updated_at);`,
 	}
-	return []migration{
+	previous := []migration{
 		{Version: 1, Name: "v0.1 baseline", Statements: baseline},
 		{Version: 2, Name: "run-centric foundation", Statements: runCentricSchemaStatements},
 		{Version: 3, Name: "run session projection", Statements: runSessionProjectionStatements},
@@ -422,7 +422,16 @@ func migrationPlan() []migration {
 		{Version: 174, Name: "Atomic private rejected native request diagnostics", Statements: supervisorToolRejectionStatements},
 		{Version: 175, Name: "Pinned Specialist task briefs and explicit instruction retirement", Statements: specialistTaskBriefStatements()},
 		{Version: 176, Name: "Private ordinary assistant replay bound to accepted Supervisor history", Statements: supervisorAssistantReplayStatements},
+		{Version: 177, Name: "Portable snapshots in the existing plugin installation lifecycle", Statements: portablePluginInstallationStatements(), DisableForeignKeys: true},
 	}
+	previous = append(previous, migration{Version: 178, Name: "Versioned operation approval preferences in existing Run and Thread ledgers",
+		Statements: operationApprovalPreferenceStatements(previous), DisableForeignKeys: true})
+	previous = append(previous, migration{Version: 179, Name: "Operation policy decisions in the existing file edit authorization ledger",
+		Statements: fileOperationApprovalStatements(), DisableForeignKeys: true})
+	previous = append(previous, migration{Version: 180, Name: "Operation approval and revocation provenance in existing command jobs",
+		Statements: commandOperationApprovalStatements(), DisableForeignKeys: true})
+	return append(previous, migration{Version: 181, Name: "Operation approval preferences in existing Docker product admissions",
+		Statements: dockerOperationApprovalStatements(), DisableForeignKeys: true})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

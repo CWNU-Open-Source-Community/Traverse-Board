@@ -164,7 +164,7 @@ func TestAgentCodeReplaceCannotWriteWithoutCurrentApprovalAndAuthority(t *testin
 }
 
 func TestAgentCodeReplaceManualReviewReplayReportsCurrentAuthorization(t *testing.T) {
-	f := newAgentCodeReplaceFixtureForPermission(t, domain.RunExecutionPermissionApproval)
+	f := newAgentCodeReplaceFixtureForPermission(t, domain.RunExecutionPermissionAuto)
 	proposal := f.propose(t, "after\n", "manual-review-replay-0001")
 	if proposal.ApplyAuthorized || !proposal.ReviewRequired {
 		t.Fatalf("pending manual proposal granted authority: %+v", proposal)
@@ -196,7 +196,7 @@ func TestAgentCodeReplaceManualReviewReplayReportsCurrentAuthorization(t *testin
 func TestAgentCodeReplaceManualAuthorizationProjectionFailsClosed(t *testing.T) {
 	for _, mode := range []string{"pending", "denied", "reader error"} {
 		t.Run(mode, func(t *testing.T) {
-			f := newAgentCodeReplaceFixtureForPermission(t, domain.RunExecutionPermissionApproval)
+			f := newAgentCodeReplaceFixtureForPermission(t, domain.RunExecutionPermissionAuto)
 			proposal := f.propose(t, "after\n", "manual-projection-denial-0001")
 			if mode != "pending" {
 				action := application.FileEditDeny
@@ -235,16 +235,20 @@ func TestAgentCodeReplaceManualAuthorizationProjectionFailsClosed(t *testing.T) 
 		}
 		f.scope.PermissionGeneration, _ = f.capabilities.FullAccessGeneration(permission)
 		f.scope.PermissionRuntimeEpoch = f.capabilities.RuntimeAuthority.RuntimeEpoch()
+		f.scope.RunAuthorizationFence, err = f.capabilities.RuntimeAuthority.IssueRunAuthorizationFence(f.scope.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		f.scope.CapabilityGeneration = toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
 			RunID: f.scope.RunID, MissionID: f.scope.MissionID, RootAgentID: f.scope.RootAgentID, WorkspaceID: f.scope.WorkspaceID,
 			RootFingerprint: f.scope.RootFingerprint, Surface: f.scope.Surface, Phase: f.scope.Phase, Role: f.scope.Role, Profile: f.scope.Profile,
 			PermissionMode: f.scope.PermissionMode, PermissionSnapshotID: f.scope.PermissionSnapshotID, PermissionGeneration: f.scope.PermissionGeneration,
-			PermissionRuntimeEpoch: f.scope.PermissionRuntimeEpoch, ModeRevision: f.scope.ModeRevision, PermissionRevision: f.scope.PermissionRevision,
+			PermissionRuntimeEpoch: f.scope.PermissionRuntimeEpoch, RunAuthorizationFence: f.scope.RunAuthorizationFence, ModeRevision: f.scope.ModeRevision, PermissionRevision: f.scope.PermissionRevision,
 		}).Generation
 		f.executor = application.NewAgentCodeToolExecutor(f.state, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities)
 		replay := f.propose(t, "after\n", "old-auto-projection-0001")
 		if replay.EditID != proposal.EditID || replay.Status != fileedit.StatusApproved || replay.ApplyAuthorized || replay.ReviewRequired ||
-			replay.AuthorizationSource != "full_access_automatic" {
+			replay.AuthorizationSource != "operation_policy_automatic" {
 			t.Fatalf("expired automatic proposal was reinterpreted as manual approval: %+v", replay)
 		}
 		if _, err := f.execute(t, toolgateway.WorkspaceApplyTool, mustAgentCodePayload(t, replay.ApplyArguments), "old-auto-apply-0001"); err == nil {
@@ -324,16 +328,16 @@ type agentCodeReplaceFixture struct {
 
 func newAgentCodeReplaceFixture(t *testing.T, fullAccess bool) *agentCodeReplaceFixture {
 	t.Helper()
-	mode := domain.RunExecutionPermissionWorkspaceAccess
+	mode := domain.RunExecutionPermissionAsk
 	if fullAccess {
-		mode = domain.RunExecutionPermissionFullAccess
+		mode = domain.RunExecutionPermissionFull
 	}
 	return newAgentCodeReplaceFixtureForPermission(t, mode)
 }
 
 func newAgentCodeReplaceFixtureForPermission(t *testing.T, mode domain.RunExecutionPermissionMode) *agentCodeReplaceFixture {
 	t.Helper()
-	fullAccess := mode == domain.RunExecutionPermissionFullAccess
+	fullAccess := mode == domain.RunExecutionPermissionFull
 	f := &agentCodeReplaceFixture{root: t.TempDir(), databasePath: filepath.Join(t.TempDir(), "replace.db"), runtime: domain.NewExecutionPermissionRuntimeAuthority()}
 	state, err := store.Open(f.databasePath)
 	if err != nil {
@@ -352,10 +356,13 @@ func newAgentCodeReplaceFixtureForPermission(t *testing.T, mode domain.RunExecut
 	}
 	f.capabilities = domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: f.runtime}
-	selected, err := application.NewRunExecutionPermissionService(state, f.capabilities).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
-		RunID: created.ID, Mode: string(mode), OperationKey: "replace-permission-0001", RequestedBy: "operator", Reason: "test replace gates",
-		ConfirmWorkspaceAccess: mode == domain.RunExecutionPermissionWorkspaceAccess,
-		ConfirmUserApproval:    mode == domain.RunExecutionPermissionApproval, ConfirmDangerFullAccess: fullAccess})
+	if mode != domain.RunExecutionPermissionAsk {
+		if _, err := application.NewRunExecutionPermissionService(state, f.capabilities).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
+			RunID: created.ID, Mode: string(mode), OperationKey: "replace-permission-0001", RequestedBy: "operator", Reason: "test replace gates", ConfirmFull: fullAccess}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	permission, err := state.GetRunExecutionPermission(t.Context(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,12 +373,12 @@ func newAgentCodeReplaceFixtureForPermission(t *testing.T, mode domain.RunExecut
 	var generation uint64
 	if fullAccess {
 		var live bool
-		generation, live = f.capabilities.FullAccessGeneration(selected.Permission)
+		generation, live = f.capabilities.FullAccessGeneration(permission)
 		if !live {
-			if _, err := f.runtime.ActivateRunFullAccess(selected.Permission); err != nil {
+			if _, err := f.runtime.ActivateRunFullAccess(permission); err != nil {
 				t.Fatal(err)
 			}
-			generation, _ = f.capabilities.FullAccessGeneration(selected.Permission)
+			generation, _ = f.capabilities.FullAccessGeneration(permission)
 		}
 	}
 	lease, err := state.AcquireRunExecutionLease(t.Context(), domain.AcquireRunExecutionLeaseRequest{RunID: run.ID, OwnerID: "replace-test", TTL: time.Minute})
@@ -392,19 +399,22 @@ func newAgentCodeReplaceFixtureForPermission(t *testing.T, mode domain.RunExecut
 	}
 	capabilityContext := toolgateway.AgentCodeCapabilityContext{RunID: run.ID, MissionID: mission.ID, RootAgentID: agent.ID,
 		WorkspaceID: "workspace-replace", RootFingerprint: rootHash, Surface: runMode.Surface, Phase: runMode.Phase, Role: agent.Role, Profile: agent.Profile,
-		PermissionMode: selected.Permission.Mode, ModeRevision: runMode.Revision, PermissionRevision: selected.Permission.Revision}
-	if fullAccess {
-		capabilityContext.PermissionSnapshotID = selected.Permission.ID
-		capabilityContext.PermissionGeneration = generation
-		capabilityContext.PermissionRuntimeEpoch = f.runtime.RuntimeEpoch()
+		PermissionMode: permission.Mode, ModeRevision: runMode.Revision, PermissionRevision: permission.Revision}
+	capabilityContext.PermissionSnapshotID = permission.ID
+	capabilityContext.PermissionGeneration = generation
+	capabilityContext.PermissionRuntimeEpoch = f.runtime.RuntimeEpoch()
+	capabilityContext.RunAuthorizationFence, err = f.runtime.IssueRunAuthorizationFence(run.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	f.scope = toolgateway.AgentCodeExecutionScope{RunID: run.ID, MissionID: mission.ID, RootAgentID: agent.ID, SessionID: run.SessionID,
 		WorkspaceID: "workspace-replace", WorkspaceRoot: f.root, RootFingerprint: rootHash, Surface: runMode.Surface, Phase: runMode.Phase, Role: agent.Role, Profile: agent.Profile,
-		PermissionMode: selected.Permission.Mode, PermissionSnapshotID: capabilityContext.PermissionSnapshotID, PermissionGeneration: generation,
-		PermissionRuntimeEpoch: capabilityContext.PermissionRuntimeEpoch, ModeRevision: runMode.Revision, PermissionRevision: selected.Permission.Revision,
+		PermissionMode: permission.Mode, PermissionSnapshotID: capabilityContext.PermissionSnapshotID, PermissionGeneration: generation,
+		PermissionRuntimeEpoch: capabilityContext.PermissionRuntimeEpoch, RunAuthorizationFence: capabilityContext.RunAuthorizationFence, ModeRevision: runMode.Revision, PermissionRevision: permission.Revision,
 		CapabilityGeneration: toolgateway.AgentCodeCapabilities(capabilityContext).Generation, LeaseID: lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "low", Reason: "test allowed"}}
-	f.executor = application.NewAgentCodeToolExecutor(state, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities)
+	// These fixtures explicitly exercise operator review; Ask/Auto routine auto writes have a separate real matrix.
+	f.executor = application.NewAgentCodeToolExecutor(state, &fileOperationPolicy{review: !fullAccess}).WithExecutionPermissionCapabilities(f.capabilities)
 	return f
 }
 

@@ -160,16 +160,12 @@ func TestHostCommandExecutionAuditIsImmutableIdempotentAndMetadataOnly(
 
 func TestSchemaV90AddsHostCommandExecutionAudit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v89-host-execution.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 89)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, statement := range removeSchemaV90ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v90 fixture with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ func (s *Service) Stage(ctx context.Context, raw []byte, source InstallSource,
 		if err != nil {
 			return Installation{}, false, err
 		}
-		if previous.Manifest.ID != pkg.Manifest.ID || previous.Manifest.Version == pkg.Manifest.Version ||
+		if previous.ProtocolVersion != InstallationProtocol || previous.PackageID() != pkg.Manifest.ID || previous.Revision() == pkg.Manifest.Version ||
 			previous.State == StateRevoked {
 			return Installation{}, false, apperror.New(apperror.CodeConflict,
 				"plugin upgrade does not match its predecessor")
@@ -132,7 +132,7 @@ func (s *Service) Review(ctx context.Context, installationID string,
 				"plugin capabilities cannot be enabled from its current state")
 		}
 		capabilities, err := normalizeCapabilities(request.Capabilities,
-			installation.Manifest.Capabilities)
+			installation.Capabilities())
 		if err != nil {
 			return Installation{}, err
 		}
@@ -216,7 +216,7 @@ func (s *Service) Rollback(ctx context.Context, currentID, targetID string,
 	if err != nil {
 		return Installation{}, Installation{}, err
 	}
-	if current.Manifest.ID != target.Manifest.ID || current.ID == target.ID ||
+	if current.PackageID() != target.PackageID() || current.ProtocolVersion != target.ProtocolVersion || current.Source.Surface != target.Source.Surface || current.ID == target.ID ||
 		request.ExpectedCurrentFingerprint != current.PackageFingerprint ||
 		request.ExpectedTargetFingerprint != target.PackageFingerprint ||
 		request.ExpectedCurrentGeneration != current.Generation ||
@@ -239,7 +239,7 @@ func (s *Service) Rollback(ctx context.Context, currentID, targetID string,
 			"rolling back to an untrusted plugin requires explicit confirmation")
 	}
 	capabilities, err := normalizeCapabilities(request.Capabilities,
-		target.Manifest.Capabilities)
+		target.Capabilities())
 	if err != nil {
 		return Installation{}, Installation{}, err
 	}
@@ -347,6 +347,9 @@ func (s *Service) StageMCPServers(ctx context.Context, installationID string,
 		return nil, apperror.New(apperror.CodePolicyDenied,
 			"plugin MCP capability is not enabled")
 	}
+	if installation.Snapshot != nil {
+		return s.stagePortableMCPServers(ctx, installation, scope, runID, workspaceID, stager)
+	}
 	values := make([]mcp.ServerRecord, 0, len(installation.Manifest.MCPServers))
 	for _, contribution := range installation.Manifest.MCPServers {
 		descriptor := mcp.ServerDescriptor{ProtocolVersion: mcp.ClientProtocolVersion,
@@ -391,7 +394,7 @@ func (s *Service) publisherTrust(ctx context.Context, installation Installation)
 func (s *Service) activeSibling(ctx context.Context, installation Installation) (
 	Installation, bool, error,
 ) {
-	values, err := s.store.ListPluginInstallations(ctx, installation.Manifest.ID, 1_000)
+	values, err := s.store.ListPluginInstallations(ctx, installation.PackageID(), 1_000)
 	if err != nil {
 		return Installation{}, false, err
 	}

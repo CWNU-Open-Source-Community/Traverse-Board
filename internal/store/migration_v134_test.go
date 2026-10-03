@@ -53,16 +53,11 @@ func removeSchemaV134ForTestStatements() []string {
 func TestSchemaV134UpgradesV133Database(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "web-evidence-v133.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 133)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV134ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			state.Close()
-			t.Fatalf("restore schema v133: %v\n%s", err, statement)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 133 {
 		state.Close()
 		t.Fatalf("restored schema version=%d want=133 err=%v", version, err)

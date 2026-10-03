@@ -42,6 +42,7 @@ type ChangeRunExecutionPermissionRequest struct {
 	OperationKey            string
 	RequestedBy             string
 	Reason                  string
+	ConfirmFull             bool
 	ConfirmWorkspaceAccess  bool
 	ConfirmUserApproval     bool
 	ConfirmDangerFullAccess bool
@@ -142,7 +143,7 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 	if err != nil {
 		return ChangeRunExecutionPermissionResult{}, apperror.Normalize(err)
 	}
-	if current.Mode == target && target != domain.RunExecutionPermissionFullAccess {
+	if current.Mode == target && !target.IsFullPreference() {
 		return ChangeRunExecutionPermissionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Run already uses the requested execution permission mode")
@@ -232,17 +233,14 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 func runExecutionPermissionTransitionRevokesHighRisk(current,
 	target domain.RunExecutionPermissionMode,
 ) bool {
-	return current == domain.RunExecutionPermissionDebug &&
-		target != domain.RunExecutionPermissionDebug ||
-		current == domain.RunExecutionPermissionFullAccess &&
-			!target.IncludesFullAccess()
+	return domain.PermissionTransitionRevokes(current, target)
 }
 
 func (s *RunExecutionPermissionService) activateFullAccess(ctx context.Context,
 	permission domain.RunExecutionPermissionSnapshot,
 ) error {
-	if permission.Mode != domain.RunExecutionPermissionFullAccess ||
-		!s.capabilities.FullAccessRequiresRuntimeGrant {
+	if !permission.Mode.IsFullPreference() ||
+		(permission.Mode != domain.RunExecutionPermissionFull && !s.capabilities.FullAccessRequiresRuntimeGrant) {
 		return nil
 	}
 	if s.capabilities.RuntimeAuthority == nil {
@@ -351,46 +349,16 @@ func normalizeChangeRunExecutionPermissionRequest(
 					"Run execution permission operation key cannot contain whitespace or control characters")
 		}
 	}
-	mode, err := domain.ParseRunExecutionPermissionMode(request.Mode)
+	preference, err := domain.ParseExecutionApprovalMode(request.Mode)
 	if err != nil {
 		return ChangeRunExecutionPermissionRequest{}, "", false, err
 	}
-	confirmed := false
-	switch mode {
-	case domain.RunExecutionPermissionConservative:
-		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
-			request.ConfirmDebugAccess {
-			return ChangeRunExecutionPermissionRequest{}, "", false,
-				errors.New("conservative mode must reset to an unconfirmed boundary")
-		}
-	case domain.RunExecutionPermissionWorkspaceAccess:
-		if !request.ConfirmWorkspaceAccess || request.ConfirmUserApproval ||
-			request.ConfirmDangerFullAccess || request.ConfirmDebugAccess {
-			return ChangeRunExecutionPermissionRequest{}, "", false,
-				errors.New("workspace-access mode requires its exact sandbox-boundary confirmation")
-		}
-		confirmed = true
-	case domain.RunExecutionPermissionApproval:
-		if request.ConfirmWorkspaceAccess || !request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
-			request.ConfirmDebugAccess {
-			return ChangeRunExecutionPermissionRequest{}, "", false,
-				errors.New("approval mode requires its exact user-approval confirmation")
-		}
-		confirmed = true
-	case domain.RunExecutionPermissionFullAccess:
-		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || !request.ConfirmDangerFullAccess ||
-			request.ConfirmDebugAccess {
-			return ChangeRunExecutionPermissionRequest{}, "", false,
-				errors.New("full-access mode requires its exact danger-full-access confirmation")
-		}
-		confirmed = true
-	case domain.RunExecutionPermissionDebug:
-		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
-			!request.ConfirmDebugAccess {
-			return ChangeRunExecutionPermissionRequest{}, "", false,
-				errors.New("debug mode requires its exact maximum-access confirmation")
-		}
-		confirmed = true
+	mode := domain.RunExecutionPermissionMode(preference)
+	confirmed := preference == domain.ExecutionApprovalFull
+	if request.ConfirmFull != confirmed || request.ConfirmWorkspaceAccess || request.ConfirmUserApproval ||
+		request.ConfirmDangerFullAccess || request.ConfirmDebugAccess {
+		return ChangeRunExecutionPermissionRequest{}, "", false,
+			errors.New("ask/auto require confirm_full=false; full requires explicit confirm_full=true; legacy mode confirmations are retired")
 	}
 	request.Mode = string(mode)
 	return request, mode, confirmed, nil
@@ -400,6 +368,8 @@ func requiredExecutionPermissionGate(
 	mode domain.RunExecutionPermissionMode,
 ) domain.ExecutionPermissionGate {
 	switch mode {
+	case domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull:
+		return "operation_authority"
 	case domain.RunExecutionPermissionConservative:
 		return domain.ExecutionPermissionGateConservative
 	case domain.RunExecutionPermissionWorkspaceAccess:

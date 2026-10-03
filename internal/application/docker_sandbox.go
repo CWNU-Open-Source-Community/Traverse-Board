@@ -610,8 +610,9 @@ func (s *DockerSandboxService) validateDockerStandardCodeAuthority(
 		binding.PermissionRevision != authority.Permission.Revision ||
 		binding.CapabilityGeneration != s.standardCodeCapability ||
 		authority.Profile.Profile != domain.RunExecutionProfileDocker ||
-		authority.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		!s.permissionCapabilities.WorkspaceSandboxEnabled {
+		(authority.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess && !authority.Permission.Mode.IsApprovalMode()) ||
+		!s.permissionCapabilities.WorkspaceSandboxEnabled ||
+		!s.permissionCapabilities.AllowsSnapshot(authority.Permission) {
 		return apperror.New(apperror.CodeConflict,
 			"Standard Code Docker authority changed")
 	}

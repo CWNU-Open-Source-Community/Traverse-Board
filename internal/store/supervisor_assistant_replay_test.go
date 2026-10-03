@@ -21,15 +21,18 @@ import (
 // before C175. Refuse a downgrade carrying any native replay rather than
 // deleting it or making a historical fixture with a gap in its ledger.
 func removeSchemaV176ForTestStatements() []string {
-	return []string{
+	statements := []string{
 		`CREATE TEMP TABLE legacy_fixture_empty_ordinary_replay(n INTEGER CHECK(n=0));`,
 		`INSERT INTO legacy_fixture_empty_ordinary_replay SELECT count(*) FROM run_supervisor_assistant_replay;`,
 		`INSERT INTO legacy_fixture_empty_ordinary_replay SELECT count(*) FROM run_supervisor_assistant_replay_bindings;`,
 		`DROP TABLE legacy_fixture_empty_ordinary_replay;`,
+	}
+	statements = append(statements, removeSchemaV177ForTestStatements()...)
+	return append(statements, []string{
 		`DROP TABLE run_supervisor_assistant_replay_bindings;`,
 		`DROP TABLE run_supervisor_assistant_replay;`,
 		`DELETE FROM schema_migrations WHERE version=176;`,
-	}
+	}...)
 }
 
 func TestSchemaV176UpgradesV175WithoutInventingAssistantReplay(t *testing.T) {
@@ -102,7 +105,7 @@ func TestSchemaV176FixtureRefusesPrivateReplayBeforeMainSchemaMutation(t *testin
 	if err != nil || !rejected || before != after {
 		t.Fatal("fixture downgrade deleted native evidence", err)
 	}
-	if version, err := f.store.SchemaVersion(t.Context()); err != nil || version != 176 {
+	if version, err := f.store.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
 		t.Fatal("fixture downgrade changed the migration ledger", err)
 	}
 }
