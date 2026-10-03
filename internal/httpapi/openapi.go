@@ -2539,6 +2539,9 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 }
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
+	if typeName == "BoundedCommandGrantView" && fieldName == "each_command_requires_review" {
+		schema["enum"] = []bool{true}
+	}
 	if typeName == "SessionSteeringRevisionRequestView" && fieldName == "content" {
 		schema["minLength"], schema["maxLength"] = 0, domain.MaxOperatorSteeringContentBytes
 	}
@@ -3511,9 +3514,9 @@ var openAPIFieldEnums = map[string][]string{
 	"AgentBrowserScreenshotView.mime_type":                     {"image/png"},
 	"ApprovalQueueItemView.status":                             {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
 	"ApprovalDecisionControlRequestView.version":               {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlApproveForRun), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.version":                      {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlApproveForRun), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.status":                       {string(approval.StatusApproved), string(approval.StatusDenied)},
 	"HostCommandProposalReviewRequestView.version":             {runner.HostCommandReviewProtocolVersion},
 	"HostCommandProposalReviewRequestView.decision":            {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
@@ -3589,6 +3592,12 @@ var openAPIFieldEnums = map[string][]string{
 }
 
 var openAPIFieldMinimums = map[string]float64{
+	"ApprovalDecisionControlRequestView.grant_ttl_seconds":                   1,
+	"ApprovalDecisionControlRequestView.grant_max_uses":                      1,
+	"BoundedCommandGrantView.ttl_seconds":                                    1,
+	"BoundedCommandGrantView.max_uses":                                       1,
+	"BoundedCommandGrantView.uses_remaining":                                 0,
+	"BoundedCommandGrantView.use_ordinal":                                    1,
 	"ThreadView.version":                                                     1,
 	"ThreadRunView.ordinal":                                                  1,
 	"ThreadEventView.id":                                                     1,
@@ -3820,6 +3829,12 @@ var openAPIFieldMinimums = map[string]float64{
 }
 
 var openAPIFieldMaximums = map[string]float64{
+	"ApprovalDecisionControlRequestView.grant_ttl_seconds":              900,
+	"ApprovalDecisionControlRequestView.grant_max_uses":                 8,
+	"BoundedCommandGrantView.ttl_seconds":                               900,
+	"BoundedCommandGrantView.max_uses":                                  8,
+	"BoundedCommandGrantView.uses_remaining":                            8,
+	"BoundedCommandGrantView.use_ordinal":                               8,
 	"HostCommandProposalReviewRequestView.grant_ttl_seconds":            runner.MaxRiskEscalationGrantTTL.Seconds(),
 	"HostCommandProposalReviewRequestView.grant_max_uses":               runner.MaxRiskEscalationGrantUses,
 	"HostCommandProposalView.grant_max_uses":                            runner.MaxRiskEscalationGrantUses,

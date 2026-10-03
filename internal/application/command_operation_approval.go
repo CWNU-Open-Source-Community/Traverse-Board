@@ -100,12 +100,12 @@ func readCommandSource(ctx context.Context, st commandApprovalStore, runID, call
 func commandApprovalMatches(record approval.Record, source commandApprovalSource) bool {
 	return record.Validate() == nil && record.RunID == source.call.RunID && record.ProposalID == source.call.CallID &&
 		record.ToolName == string(toolgateway.CommandRuntimeTool) && record.SessionID == source.run.SessionID &&
-		record.WorkspaceID == source.workspaceID && record.ActionClass == "command_process" && record.Mode == "per_call" && record.GrantID == "" &&
+		record.WorkspaceID == source.workspaceID && record.ActionClass == "command_process" && record.Mode == "per_call" &&
 		record.RequestFingerprint == commandruntimeadapter.OperationApprovalFingerprint(source.call)
 }
 
-// Operator review never creates a process grant. Filesystem inputs, adapter,
-// process epoch/fence and current policy are rechecked again before dispatch.
+// Operator review binds the exact pending call. Filesystem inputs, adapter,
+// any bounded grant, process epoch/fence and policy are rechecked at dispatch.
 func RecheckCommandApproval(ctx context.Context, base ApprovalControlStore, record approval.Record) error {
 	st, ok := base.(commandApprovalStore)
 	if !ok {
@@ -191,6 +191,11 @@ func (s *RunSupervisor) preflightCommandApproval(ctx context.Context, call domai
 		}
 		return err
 	}
+	if record != nil {
+		if err := checkCommandGrant(ctx, st, *record); err != nil {
+			return stop("policy_denied", "The bounded command authorization is no longer valid. No process was dispatched.", domain.SupervisorToolDenied)
+		}
+	}
 	key := make([]byte, 32)
 	if _, err = rand.Read(key); err != nil {
 		return false, nil, err
@@ -207,7 +212,7 @@ func (s *RunSupervisor) preflightCommandApproval(ctx context.Context, call domai
 		return false, nil, err
 	}
 	waiting, allowed, err := decidePendingOperation(ctx, source.permission, executionauth.SubjectRef{RunID: call.RunID, ActorID: call.AgentID},
-		operation, commandruntimeadapter.OperationApprovalFingerprint(call), &record, ensure, policy.NeedsApproval,
+		operation, commandruntimeadapter.OperationApprovalFingerprint(call), &record, ensure, policy.NeedsApproval || source.input.ReviewScope != nil,
 		a.Adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace)
 	if err != nil || waiting {
 		return waiting, nil, err

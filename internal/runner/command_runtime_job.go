@@ -565,6 +565,10 @@ type commandRuntimeEntry struct {
 	stderrHash  hash.Hash
 	inputs      map[string]commandRuntimeStdinResult
 	terminalErr error
+	// Process-local checks are retained only by this live owner. They are never
+	// reconstructed from durable receipts when a manager restarts.
+	authorityContext context.Context
+	authorityCheck   func(context.Context) error
 }
 
 type commandRuntimeStdinResult struct {
@@ -836,11 +840,17 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	}
 	entry := &commandRuntimeEntry{
 		record: updated, process: process,
-		ring: commandRuntimeRing{capacity: updated.InlineLimitBytes},
-		done: make(chan struct{}), notify: make(chan struct{}, 1),
+		authorityContext: context.WithoutCancel(ctx),
+		ring:             commandRuntimeRing{capacity: updated.InlineLimitBytes},
+		done:             make(chan struct{}), notify: make(chan struct{}, 1),
 		stdoutDone: make(chan struct{}), stderrDone: make(chan struct{}),
 		stdoutHash: sha256.New(), stderrHash: sha256.New(),
 		inputs: make(map[string]commandRuntimeStdinResult), inputGate: make(chan struct{}, 1),
+	}
+	if request.DispatchCheck != nil {
+		entry.authorityCheck = func(checkCtx context.Context) error {
+			return request.DispatchCheck(checkCtx, request.Spec)
+		}
 	}
 	entry.inputGate <- struct{}{}
 	m.mu.Lock()
@@ -1277,9 +1287,15 @@ func (m *CommandRuntimeManager) maintainOwnership(entry *commandRuntimeEntry) {
 			if snapshot := entry.snapshot(); snapshot.State == CommandRuntimeJobStopping {
 				_ = entry.process.Kill()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(),
+			ctx, cancel := context.WithTimeout(entry.authorityContext,
 				m.ownerRenewTimeout)
-			err := m.renewOwnership(ctx, entry)
+			var err error
+			if entry.authorityCheck != nil {
+				err = entry.authorityCheck(ctx)
+			}
+			if err == nil {
+				err = m.renewOwnership(ctx, entry)
+			}
 			cancel()
 			if err != nil {
 				if entry.setDesired(CommandRuntimeJobInterrupted) {

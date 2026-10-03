@@ -881,6 +881,15 @@ func (a *API) runApprovals(request *http.Request, runID string) (any, *Page, err
 			item.CanonicalURL, item.ExactTarget = recoverable.CanonicalURL,
 				recoverable.ExactTarget
 		}
+		if record.ToolName == string(toolgateway.CommandRuntimeTool) && len(item.AllowedActions) != 0 {
+			if source, ok := a.store.(interface {
+				GetCommandApprovalGrantScope(context.Context, string) (approval.GrantQuery, error)
+			}); ok {
+				if _, err := source.GetCommandApprovalGrantScope(request.Context(), record.ProposalID); err == nil {
+					item.AllowedActions = []application.ApprovalControlAction{application.ApprovalControlApproveOnce, application.ApprovalControlApproveForRun, application.ApprovalControlDeny}
+				}
+			}
+		}
 		if record.ToolName == "web_fetch" {
 			if recovering {
 				items[index] = item

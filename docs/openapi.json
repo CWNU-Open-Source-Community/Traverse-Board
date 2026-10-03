@@ -27641,9 +27641,22 @@
             "enum": [
               "approve_once",
               "approve_for_thread",
+              "approve_for_run",
               "deny"
             ],
             "type": "string"
+          },
+          "grant_max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "grant_ttl_seconds": {
+            "format": "int32",
+            "maximum": 900,
+            "minimum": 1,
+            "type": "integer"
           },
           "reason": {
             "maxLength": 2048,
@@ -27669,6 +27682,7 @@
             "enum": [
               "approve_once",
               "approve_for_thread",
+              "approve_for_run",
               "deny"
             ],
             "type": "string"
@@ -27677,6 +27691,9 @@
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
+          },
+          "bounded_grant": {
+            "$ref": "#/components/schemas/BoundedCommandGrantView"
           },
           "capability_grant": {
             "type": "boolean"
@@ -29380,6 +29397,64 @@
           "last_heartbeat_at",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "BoundedCommandGrantView": {
+        "additionalProperties": false,
+        "properties": {
+          "each_command_requires_review": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scope_fingerprint": {
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "format": "int32",
+            "maximum": 900,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "use_ordinal": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "uses_remaining": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope_fingerprint",
+          "ttl_seconds",
+          "max_uses",
+          "uses_remaining",
+          "use_ordinal",
+          "expires_at",
+          "each_command_requires_review"
         ],
         "type": "object"
       },

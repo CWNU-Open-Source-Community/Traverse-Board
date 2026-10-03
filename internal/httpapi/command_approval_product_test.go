@@ -89,6 +89,14 @@ func (c commandApprovalHTTPChecker) CheckToolCall(call tools.Call) policy.Decisi
 }
 
 func TestCommandApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
+	testCommandApprovalHTTPProduct(t, false)
+}
+
+func TestCommandBoundedApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
+	testCommandApprovalHTTPProduct(t, true)
+}
+
+func testCommandApprovalHTTPProduct(t *testing.T, bounded bool) {
 	for _, mode := range []string{"ask", "auto", "full"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
@@ -143,6 +151,14 @@ func TestCommandApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 					WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{}, StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
 					TimeoutMilliseconds: 10000, Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096, ArtifactBytes: 4096},
 					Network: runner.CommandRuntimeNetworkDisabled, Credentials: runner.CommandRuntimeCredentialsNone, Purpose: "exact review intent"}}})
+			if bounded {
+				var input toolgateway.CommandRuntimeInput
+				if err := json.Unmarshal(provider.payload, &input); err != nil {
+					t.Fatal(err)
+				}
+				input.ReviewScope = &toolgateway.CommandReviewScope{RiskKinds: []string{"other_high_risk"}, OtherRiskReason: "HTTP local acceptance markers"}
+				provider.payload, _ = json.Marshal(input)
+			}
 			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "fixture"})
 			router.RegisterProvider(provider)
 			checker := commandApprovalHTTPChecker{Checker: policy.NewDefaultChecker()}
@@ -177,7 +193,11 @@ func TestCommandApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 			queueResponse := performRequest(t, api, http.MethodGet, "/api/v1/runs/"+run.ID+"/approvals", testAccessToken, "127.0.0.1:8765", "127.0.0.1:45000", nil)
 			var queue ApprovalQueueView
 			decodeDataStatus(t, queueResponse, http.StatusOK, &queue)
-			if len(queue.Items) != 1 || len(queue.Items[0].AllowedActions) != 2 {
+			wantActions := 2
+			if bounded {
+				wantActions = 3
+			}
+			if len(queue.Items) != 1 || len(queue.Items[0].AllowedActions) != wantActions {
 				t.Fatalf("command pending queue omitted one-call review: %+v", queue)
 			}
 			previewResponse := performRequest(t, api, http.MethodGet, base+"/preview", testAccessToken, "127.0.0.1:8765", "127.0.0.1:45000", nil)
@@ -188,8 +208,18 @@ func TestCommandApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 			}
 			var decision ApprovalDecisionControlView
 			for replay := 0; replay < 2; replay++ {
-				response := performControlPathRequest(t, api, base+"/decision", "http-command-approve-once", strings.NewReader(`{"version":"approval_control.v1","action":"approve_once"}`))
+				body := `{"version":"approval_control.v1","action":"approve_once"}`
+				if bounded {
+					body = `{"version":"approval_control.v1","action":"approve_for_run","grant_ttl_seconds":120,"grant_max_uses":2}`
+				}
+				response := performControlPathRequest(t, api, base+"/decision", "http-command-approve-once", strings.NewReader(body))
 				decodeDataStatus(t, response, http.StatusAccepted, &decision)
+				if bounded && (decision.BoundedGrant == nil || decision.BoundedGrant.UsesRemaining != 1 || decision.BoundedGrant.UseOrdinal != 1 || !decision.BoundedGrant.EachCommandRequiresReview || decision.SessionGrantCreated != (replay == 0)) {
+					t.Fatalf("invalid bounded projection: %+v", decision)
+				}
+				if !bounded && (decision.BoundedGrant != nil || decision.SessionGrantCreated) {
+					t.Fatal("one-call review gained a grant")
+				}
 				if decision.Continuation == nil || decision.Continuation.State != "completed" || provider.requests != 2 || !provider.observedResult {
 					t.Fatalf("HTTP same-turn continuation %+v models=%d", decision, provider.requests)
 				}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
@@ -104,6 +106,29 @@ func (a *API) runApprovalPreview(request *http.Request, runID, approvalID string
 		view.Effect = "command_process"
 		add("action", input.Action)
 		add("intent", call.PayloadJSON)
+		if input.ReviewScope != nil {
+			risk, _ := json.Marshal(input.ReviewScope)
+			add("review_scope", string(risk))
+			add("bounded_review", "Optional bounded Run review groups this purpose/risk scope for at most 8 uses and 900 seconds. Each exact new command still needs explicit review; declarations do not enforce isolation.")
+			if ledger, ok := a.store.(interface {
+				GetCommandApprovalGrantScope(context.Context, string) (approval.GrantQuery, error)
+				ListSessionGrants(context.Context, approval.GrantListFilter) ([]approval.SessionGrant, error)
+			}); ok && view.SourceCurrent {
+				query, queryErr := ledger.GetCommandApprovalGrantScope(ctx, record.ProposalID)
+				grants, grantErr := ledger.ListSessionGrants(ctx, approval.GrantListFilter{RunID: record.RunID, ToolName: record.ToolName, Limit: 500})
+				if queryErr != nil || grantErr != nil {
+					return nil, nil, apperror.New(apperror.CodeFailedPrecondition, "bounded review limits are unavailable; refresh before approving")
+				}
+				for _, grant := range grants {
+					if approval.MatchesBoundedGrantScope(grant, query) && grant.Status == approval.GrantActive && grant.ExpiresAt != nil && time.Now().UTC().Before(*grant.ExpiresAt) && grant.UsesRemaining > 0 {
+						add("grant_ttl_seconds", strconv.Itoa(int(grant.ExpiresAt.Sub(grant.CreatedAt)/time.Second)))
+						add("grant_max_uses", strconv.Itoa(grant.MaxUses))
+						add("grant_uses_remaining", strconv.Itoa(grant.UsesRemaining))
+						add("grant_expires_at", grant.ExpiresAt.Format(time.RFC3339))
+					}
+				}
+			}
+		}
 		add("summary", "Approve only this pinned command batch or these stdin bytes for the original Run-owned process. A host working directory and network declaration do not enforce isolation; changed inputs require a new proposal.")
 	case mcp.OperationApprovalTool:
 		source, ok := a.store.(interface {

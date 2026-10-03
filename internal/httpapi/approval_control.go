@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
@@ -23,9 +24,23 @@ type WebFetchAuthorizationResumeController interface {
 }
 
 type ApprovalDecisionControlRequestView struct {
-	Version string                            `json:"version"`
-	Action  application.ApprovalControlAction `json:"action"`
-	Reason  string                            `json:"reason,omitempty"`
+	Version         string                            `json:"version"`
+	Action          application.ApprovalControlAction `json:"action"`
+	Reason          string                            `json:"reason,omitempty"`
+	GrantTTLSeconds int                               `json:"grant_ttl_seconds,omitempty"`
+	GrantMaxUses    int                               `json:"grant_max_uses,omitempty"`
+}
+
+// This is an audit projection of the consumed grant, not execution authority.
+type BoundedCommandGrantView struct {
+	ID                        string    `json:"id"`
+	ScopeFingerprint          string    `json:"scope_fingerprint"`
+	TTLSeconds                int       `json:"ttl_seconds"`
+	MaxUses                   int       `json:"max_uses"`
+	UsesRemaining             int       `json:"uses_remaining"`
+	UseOrdinal                int       `json:"use_ordinal"`
+	ExpiresAt                 time.Time `json:"expires_at"`
+	EachCommandRequiresReview bool      `json:"each_command_requires_review"`
 }
 
 type ApprovalDecisionControlView struct {
@@ -47,6 +62,7 @@ type ApprovalDecisionControlView struct {
 	RetryCompleted          bool                                    `json:"retry_completed"`
 	RetryScheduled          bool                                    `json:"retry_scheduled"`
 	Continuation            *application.ApprovalContinuationResult `json:"continuation,omitempty"`
+	BoundedGrant            *BoundedCommandGrantView                `json:"bounded_grant,omitempty"`
 }
 
 func matchApprovalDecisionControlPath(requestPath string) (string, string, bool) {
@@ -99,6 +115,7 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 			Version: view.Version, RunID: runID, ApprovalID: approvalID,
 			Action: view.Action, OperationKey: operationKey,
 			ReviewedBy: "http_approval_operator", Reason: view.Reason,
+			GrantTTLSeconds: view.GrantTTLSeconds, GrantMaxUses: view.GrantMaxUses,
 		})
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
@@ -106,6 +123,13 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 	}
 	executionResumed, retryCompleted, retryScheduled := false, false, false
 	var continuation *application.ApprovalContinuationResult
+	var boundedGrant *BoundedCommandGrantView
+	if result.Grant != nil && result.Consumption != nil && result.Grant.ExpiresAt != nil {
+		boundedGrant = &BoundedCommandGrantView{ID: result.Grant.ID, ScopeFingerprint: result.Grant.ScopeFingerprint,
+			TTLSeconds: int(result.Grant.ExpiresAt.Sub(result.Grant.CreatedAt) / time.Second), MaxUses: result.Grant.MaxUses,
+			UsesRemaining: result.Grant.UsesRemaining, UseOrdinal: result.Consumption.UseOrdinal,
+			ExpiresAt: *result.Grant.ExpiresAt, EachCommandRequiresReview: true}
+	}
 	if result.Approval.ToolName == toolgateway.AgentBrowserApprovalTool {
 		continuation = a.resumeReviewedProposal(request.Context(), result.Approval.RunID, "agent_browser", result.Approval.ProposalID)
 	}
@@ -135,7 +159,8 @@ func (a *API) serveApprovalDecisionControl(writer http.ResponseWriter,
 		Action: result.Action, Status: string(result.Approval.Status),
 		Replayed: result.Replayed, ExecutionResumed: executionResumed,
 		RetryCompleted: retryCompleted, RetryScheduled: retryScheduled,
-		Continuation: continuation,
+		Continuation:        continuation,
+		SessionGrantCreated: result.GrantCreated, BoundedGrant: boundedGrant,
 	}, nil, http.StatusAccepted)
 }
 

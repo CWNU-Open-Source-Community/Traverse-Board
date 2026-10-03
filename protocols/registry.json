@@ -1801,6 +1801,8 @@
         "command-runtime-policy.v2",
         "command-runtime-result.v2",
         "command-runtime-workspace-boundary.v1",
+        "command_grant_binding.v1",
+        "command_grant_review.v1",
         "command_runtime_adapter_generation.v1",
         "command_runtime_docker_adapter_operation.v1",
         "command_runtime_local_sandbox_operation.v1",

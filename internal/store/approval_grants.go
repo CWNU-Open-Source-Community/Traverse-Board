@@ -26,6 +26,9 @@ func (s *SQLiteStore) CreateSessionGrant(ctx context.Context, request approval.C
 	}
 	normalized.Reason = redact.String(normalized.Reason)
 	normalized.GrantedBy = redact.String(normalized.GrantedBy)
+	if normalized.ToolName == "command_runtime" && normalized.ScopeFingerprint == "" {
+		return approval.GrantResult{}, errors.New("command grants must have explicit bounded scope and limits")
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return approval.GrantResult{}, err
@@ -287,6 +290,10 @@ func (s *SQLiteStore) RevokeSessionGrant(ctx context.Context, request approval.R
 }
 
 func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, proposalID string, grantID string) (approval.DecisionResult, error) {
+	return s.authorizeApprovalWithSessionGrant(ctx, proposalID, grantID, nil)
+}
+
+func (s *SQLiteStore) authorizeApprovalWithSessionGrant(ctx context.Context, proposalID string, grantID string, commandReview *approval.DecisionRequest) (approval.DecisionResult, error) {
 	proposalID = strings.TrimSpace(proposalID)
 	grantID = strings.TrimSpace(grantID)
 	if err := validateApprovalFilterIdentity("proposal id", proposalID, false); err != nil {
@@ -304,10 +311,22 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 	if err != nil {
 		return approval.DecisionResult{}, err
 	}
+	if (record.ToolName == "command_runtime") != (commandReview != nil) {
+		return approval.DecisionResult{}, errors.New("command grant consumption requires an explicit exact operator review")
+	}
 	if record.Status == approval.StatusApproved && record.GrantID == grantID {
 		consumption, found, loadErr := getGrantConsumptionByProposalTx(ctx, tx, proposalID)
 		if loadErr != nil {
 			return approval.DecisionResult{}, loadErr
+		}
+		if commandReview != nil {
+			if !found || consumption.Validate() != nil || consumption.ApprovalID != record.ID ||
+				consumption.GrantID != grantID || consumption.RunID != record.RunID {
+				return approval.DecisionResult{}, errors.New("bounded command replay has no matching consumption")
+			}
+			if err := sealCommandGrantReviewTx(ctx, tx, record, grantID, *commandReview); err != nil {
+				return approval.DecisionResult{}, err
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			return approval.DecisionResult{}, err
@@ -325,6 +344,9 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 	if err != nil {
 		return approval.DecisionResult{}, err
 	}
+	if commandReview != nil && !grant.Bounded() {
+		return approval.DecisionResult{}, errors.New("command approvals require a bounded grant")
+	}
 	if grant.Status != approval.GrantActive || grant.RunID != record.RunID || grant.SessionID != record.SessionID ||
 		grant.WorkspaceID != record.WorkspaceID || grant.ToolName != record.ToolName || grant.ActionClass != record.ActionClass {
 		return approval.DecisionResult{}, errors.New("session grant does not authorize this approval scope")
@@ -335,9 +357,9 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 	now := time.Now().UTC()
 	var consumption *approval.GrantConsumption
 	if grant.Bounded() {
-		proposal, proposalErr := getRiskEscalationProposal(ctx, tx, record.ProposalID)
-		if proposalErr != nil {
-			return approval.DecisionResult{}, proposalErr
+		query, err := boundedApprovalGrantScopeTx(ctx, tx, record)
+		if err != nil {
+			return approval.DecisionResult{}, err
 		}
 		if grant.ExpiresAt == nil || !now.Before(*grant.ExpiresAt) {
 			if err := endBoundedGrantTx(ctx, tx, &grant, "expired",
@@ -353,22 +375,12 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 		if grant.UsesRemaining <= 0 {
 			return approval.DecisionResult{}, errors.New("bounded risk escalation grant has no remaining uses")
 		}
-		if grant.ScopeFingerprint != proposal.Scope.Fingerprint ||
-			grant.ModeSnapshotID != proposal.ModeSnapshotID || grant.ModeRevision != proposal.ModeRevision ||
-			grant.InteractionSnapshotID != proposal.InteractionSnapshotID ||
-			grant.InteractionRevision != proposal.InteractionRevision ||
-			grant.ExecutionProfileSnapshotID != proposal.ExecutionProfileSnapshotID ||
-			grant.ExecutionProfileRevision != proposal.ExecutionProfileRevision ||
-			grant.PermissionSnapshotID != proposal.PermissionSnapshotID ||
-			grant.PermissionRevision != proposal.PermissionRevision ||
-			grant.PermissionMode != string(proposal.PermissionMode) ||
-			grant.WorkspaceRootFingerprint != proposal.WorkspaceRootFingerprint ||
-			grant.CapabilityGeneration != proposal.CapabilityGeneration {
-			return approval.DecisionResult{}, errors.New("bounded risk escalation grant exact scope is stale")
+		if !approval.MatchesBoundedGrantScope(grant, query) {
+			return approval.DecisionResult{}, errors.New("bounded approval grant exact scope is stale")
 		}
 		useOrdinal := grant.MaxUses - grant.UsesRemaining + 1
 		value := approval.GrantConsumption{ID: idgen.New("grant-consumption"),
-			GrantID: grant.ID, ProposalID: proposal.ID, ApprovalID: record.ID,
+			GrantID: grant.ID, ProposalID: record.ProposalID, ApprovalID: record.ID,
 			RunID: grant.RunID, ScopeFingerprint: grant.ScopeFingerprint,
 			GrantGeneration: grant.Generation, UseOrdinal: useOrdinal, CreatedAt: now}
 		value.Fingerprint = approval.GrantConsumptionFingerprint(value)
@@ -421,7 +433,19 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 		}
 		consumption = &value
 	}
+	// Expiry above commits its lifecycle event but not a successful decision.
+	// Seal only after validation and consumption; any key conflict rolls the
+	// consumption back in this same transaction.
+	if commandReview != nil {
+		if err := sealCommandGrantReviewTx(ctx, tx, record, grantID, *commandReview); err != nil {
+			return approval.DecisionResult{}, err
+		}
+	}
 	reason := "authorized by active session grant"
+	reviewedBy := "session_grant"
+	if commandReview != nil {
+		reviewedBy = commandReview.ReviewedBy
+	}
 	requiredGrantStatus := approval.GrantActive
 	if grant.Bounded() && grant.UsesRemaining == 0 {
 		requiredGrantStatus = approval.GrantRevoked
@@ -430,7 +454,7 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 		reviewed_by = ?, version = version + 1, updated_at = ?, decided_at = ?
 		WHERE id = ? AND version = ? AND status = ? AND EXISTS
 			(SELECT 1 FROM approval_session_grants WHERE id = ? AND status = ?)`,
-		approval.StatusApproved, grant.ID, reason, "session_grant", ts(now), ts(now), record.ID,
+		approval.StatusApproved, grant.ID, reason, reviewedBy, ts(now), ts(now), record.ID,
 		record.Version, approval.StatusPending, grant.ID,
 		requiredGrantStatus)
 	if err != nil {
@@ -446,7 +470,7 @@ func (s *SQLiteStore) AuthorizeApprovalWithSessionGrant(ctx context.Context, pro
 	record.Status = approval.StatusApproved
 	record.GrantID = grant.ID
 	record.DecisionReason = reason
-	record.ReviewedBy = "session_grant"
+	record.ReviewedBy = reviewedBy
 	record.Version++
 	record.UpdatedAt = now
 	record.DecidedAt = &now
@@ -621,6 +645,8 @@ func grantToolClassMatches(toolName string, actionClass string) bool {
 		return actionClass == "workspace_write"
 	case "host_command_propose":
 		return actionClass == "risk_escalation"
+	case "command_runtime":
+		return actionClass == "command_process"
 	default:
 		return false
 	}

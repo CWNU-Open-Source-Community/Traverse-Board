@@ -27,6 +27,7 @@ type ApprovalControlAction string
 const (
 	ApprovalControlApproveOnce      ApprovalControlAction = "approve_once"
 	ApprovalControlApproveForThread ApprovalControlAction = "approve_for_thread"
+	ApprovalControlApproveForRun    ApprovalControlAction = "approve_for_run"
 	ApprovalControlDeny             ApprovalControlAction = "deny"
 )
 
@@ -62,19 +63,24 @@ type ApprovalControlService struct {
 }
 
 type DecideApprovalControlRequest struct {
-	Version      string
-	RunID        string
-	ApprovalID   string
-	Action       ApprovalControlAction
-	OperationKey string
-	ReviewedBy   string
-	Reason       string
+	Version         string
+	RunID           string
+	ApprovalID      string
+	Action          ApprovalControlAction
+	OperationKey    string
+	ReviewedBy      string
+	Reason          string
+	GrantTTLSeconds int
+	GrantMaxUses    int
 }
 
 type DecideApprovalControlResult struct {
-	Approval approval.Record
-	Action   ApprovalControlAction
-	Replayed bool
+	Approval     approval.Record
+	Action       ApprovalControlAction
+	Replayed     bool
+	Grant        *approval.SessionGrant
+	Consumption  *approval.GrantConsumption
+	GrantCreated bool
 }
 
 func NewApprovalControlService(store ApprovalControlStore, reviewer ApprovalReviewer,
@@ -101,7 +107,7 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 	if err != nil {
 		return DecideApprovalControlResult{}, apperror.Normalize(err)
 	}
-	if record.RunID != run.ID || record.GrantID != "" {
+	if record.RunID != run.ID {
 		return DecideApprovalControlResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"approval is not an ungranted request for the requested Run")
@@ -109,6 +115,12 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 	if record.Mode == string(toolgateway.ApprovalNever) {
 		return DecideApprovalControlResult{}, apperror.New(
 			apperror.CodePolicyDenied, "permanent Policy denial cannot be overridden")
+	}
+	if record.ToolName == string(toolgateway.CommandRuntimeTool) && (request.Action == ApprovalControlApproveForRun || record.GrantID != "") {
+		return s.decideBoundedCommand(ctx, run, record, request)
+	}
+	if record.GrantID != "" {
+		return DecideApprovalControlResult{}, apperror.New(apperror.CodeFailedPrecondition, "approval already belongs to a session grant")
 	}
 	expected := approval.StatusDenied
 	reviewAction := toolgateway.ReviewDeny
@@ -330,8 +342,12 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 		return []ApprovalControlAction{}
 	}
 	switch record.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		// Bounded Run review is advertised only after reading the durable source
+		// and verifying that it contains a declared risk scope.
+		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool, string(toolgateway.CommandRuntimeTool):
+		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.WebFetchTool):
 		return []ApprovalControlAction{ApprovalControlApproveOnce,
@@ -391,9 +407,17 @@ func normalizeApprovalControlRequest(request *DecideApprovalControlRequest) erro
 	}
 	if request.Action != ApprovalControlApproveOnce &&
 		request.Action != ApprovalControlApproveForThread &&
+		request.Action != ApprovalControlApproveForRun &&
 		request.Action != ApprovalControlDeny {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"approval control action must be approve_once, approve_for_thread, or deny")
+			"approval control action must be approve_once, approve_for_thread, approve_for_run, or deny")
+	}
+	if request.Action == ApprovalControlApproveForRun {
+		if request.GrantTTLSeconds < 1 || request.GrantTTLSeconds > 900 || request.GrantMaxUses < 1 || request.GrantMaxUses > 8 {
+			return apperror.New(apperror.CodeInvalidArgument, "bounded Run approval requires explicit TTL (1..900 seconds) and uses (1..8)")
+		}
+	} else if request.GrantTTLSeconds != 0 || request.GrantMaxUses != 0 {
+		return apperror.New(apperror.CodeInvalidArgument, "only bounded Run approval can include grant limits")
 	}
 	request.Reason = strings.TrimSpace(request.Reason)
 	if (request.Action == ApprovalControlApproveOnce ||

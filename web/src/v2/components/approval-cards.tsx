@@ -6,11 +6,12 @@ import type { ApprovalPreviewView, ApprovalQueueItemView } from "../../api/types
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { v2QueryKeys } from "../query-keys";
 
-type Action = "approve_once" | "approve_for_thread" | "deny";
+type Action = "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
 const fieldLabels: Record<string, string> = { command: "命令", executable: "可执行文件",
   arguments: "参数（按顺序）", requested_backend: "提案环境", operation: "操作",
   parameters: "精确参数", summary: "影响", path: "文件", destination_path: "目标文件",
-  url: "网址", host: "主机", effect: "操作类型" };
+  url: "网址", host: "主机", effect: "操作类型", review_scope: "用途与风险范围", bounded_review: "有界审批说明",
+  grant_ttl_seconds: "原定有效秒数", grant_max_uses: "原定命令次数", grant_uses_remaining: "剩余次数", grant_expires_at: "到期时间" };
 const effectText: Record<ApprovalPreviewView["effect"], string> = {
   command_process: "仅批准这批固定命令或本次标准输入，限定原 Run 的进程。宿主工作目录与网络声明不能保证隔离；输入或权限变化后须重新评估。",
   mcp_server_and_tool: "仅批准此服务的启动、能力发现和本次工具调用。工具的外部副作用未经验证；服务配置、参数或权限变化后须重新评估。",
@@ -60,6 +61,8 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
   onReviewFile?: (target: FileEditReviewTarget, trigger: HTMLButtonElement) => void;
 }) {
   const [reason, setReason] = useState("");
+  const [requestedTTL, setGrantTTL] = useState(120);
+  const [requestedUses, setGrantUses] = useState(2);
   const operationKeys = useRef(new Map<string, string>());
   const preview = useQuery({
     queryKey: ["v2", "approval-preview", runID, item.id, item.version],
@@ -74,17 +77,24 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
   });
   const webFetch = item.tool_name === "web_fetch";
   const recovering = item.status === "approved" || item.status === "denied";
+  const existingTTL = Number(preview.data?.fields.find((field) => field.name === "grant_ttl_seconds")?.value);
+  const existingUses = Number(preview.data?.fields.find((field) => field.name === "grant_max_uses")?.value);
+  const existingGrant = Number.isInteger(existingTTL) && existingTTL >= 1 && existingTTL <= 900 &&
+    Number.isInteger(existingUses) && existingUses >= 1 && existingUses <= 8;
+  const grantTTL = existingGrant ? existingTTL : requestedTTL;
+  const grantUses = existingGrant ? existingUses : requestedUses;
   const mutation = useMutation({
     mutationFn: (action: Action) => {
       const denialReason = action === "deny" ? reason.trim() : "";
-      const intent = `${item.id}:${action}:${denialReason}`;
+      const intent = `${item.id}:${action}:${denialReason}:${action === "approve_for_run" ? `${grantTTL}:${grantUses}` : ""}`;
       let key = operationKeys.current.get(intent);
       if (!key) {
         key = `v2-approval-${globalThis.crypto.randomUUID()}`;
         operationKeys.current.set(intent, key);
       }
       return client.decideApproval(runID, item.id, { version: "approval_control.v1", action,
-        ...(denialReason ? { reason: denialReason } : {}) }, key);
+        ...(denialReason ? { reason: denialReason } : {}),
+        ...(action === "approve_for_run" ? { grant_ttl_seconds: grantTTL, grant_max_uses: grantUses } : {}) }, key);
     },
     onSuccess: (result, action) => {
       const continuation = result.continuation;
@@ -135,6 +145,16 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
     {!recovering && item.allowed_actions.includes("deny") && <input
       aria-label={`${item.tool_name} 的拒绝原因`} disabled={mutation.isPending} maxLength={2048}
       onChange={(event) => setReason(event.target.value)} placeholder="拒绝原因（可选）" value={reason} />}
+    {item.allowed_actions.includes("approve_for_run") && <fieldset disabled={mutation.isPending}>
+      <legend>本 Run 的有界审批</legend>
+      <p>按这份用途与风险范围计数，每条新命令仍需单独确认。已有授权的次数与到期时间不会因再次确认而重置。</p>
+      <label>有效秒数<input aria-label="有界审批有效秒数" type="number" min={1} max={900} value={grantTTL} disabled={existingGrant}
+        onChange={(event) => setGrantTTL(event.target.valueAsNumber)} /></label>
+      <label>命令次数<input aria-label="有界审批命令次数" type="number" min={1} max={8} value={grantUses} disabled={existingGrant}
+        onChange={(event) => setGrantUses(event.target.valueAsNumber)} /></label>
+      <button className="primary" type="button" disabled={!canApprove || !Number.isInteger(grantTTL) || grantTTL < 1 || grantTTL > 900 || !Number.isInteger(grantUses) || grantUses < 1 || grantUses > 8}
+        onClick={() => mutation.mutate("approve_for_run")}>确认本条命令并计入有界审批</button>
+    </fieldset>}
     <footer>
       {onReviewFile && preview.isSuccess && preview.data.effect === "file_review_required" && <button
         className="primary" disabled={preview.isFetching} onClick={(event) => onReviewFile({

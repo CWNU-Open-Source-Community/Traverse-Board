@@ -1591,7 +1591,7 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
       !boundedText(item.mode, 64) || !Array.isArray(item.allowed_actions) ||
       item.allowed_actions.length > 3 ||
       !item.allowed_actions.every((action) => action === "approve_once" ||
-        action === "approve_for_thread" || action === "deny") ||
+        action === "approve_for_thread" || action === "approve_for_run" || action === "deny") ||
       new Set(item.allowed_actions).size !== item.allowed_actions.length ||
       !safePositiveInteger(item.version) || !validDate(item.created_at) ||
       !validDate(item.updated_at) || item.process_execution_enabled !== false ||
@@ -1619,6 +1619,9 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
         item.allowed_actions.includes("approve_for_thread") || recovering) {
       throw new APIRequestError("Web fetch approval projection is invalid", "INVALID_RESPONSE", 502);
     }
+    if (item.allowed_actions.includes("approve_for_run") && (item.tool_name !== "command_runtime" || item.status !== "pending")) {
+      throw new APIRequestError("Bounded approval belongs to another operation", "INVALID_RESPONSE", 502);
+    }
     identities.add(itemID);
   }
   return value as unknown as ApprovalQueueView;
@@ -1631,7 +1634,7 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
     "docker_execution_enabled", "execution_resumed", "process_execution_enabled", "proposal_id",
     "replayed", "retry_completed", "retry_scheduled", "run_id", "session_grant_created",
     "shell_execution_enabled", "status", "tool_name", "version", "workspace_write_applied"];
-  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation"]) ||
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation", "bounded_grant"]) ||
     !required.every((key) => Object.hasOwn(value, key)) ||
     value.version !== "approval_control.v1" ||
     value.run_id !== expectedRunID || value.approval_id !== expectedApprovalID ||
@@ -1644,10 +1647,22 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
     (value.tool_name !== "web_fetch" && value.retry_scheduled !== false) ||
     value.process_execution_enabled !== false ||
     value.shell_execution_enabled !== false || value.docker_execution_enabled !== false ||
-    value.workspace_write_applied !== false || value.session_grant_created !== false ||
+    value.workspace_write_applied !== false || typeof value.session_grant_created !== "boolean" ||
     value.capability_grant !== false) {
     throw new APIRequestError("Approval decision violated its closed authority contract",
       "INVALID_RESPONSE", 502);
+  }
+  if (request.action === "approve_for_run") {
+    const grant = value.bounded_grant;
+    if (value.tool_name !== "command_runtime" || !hasExactKeys(grant, ["id", "scope_fingerprint", "ttl_seconds", "max_uses", "uses_remaining", "use_ordinal", "expires_at", "each_command_requires_review"]) ||
+      !boundedIdentity(grant.id) || !isSHA256(grant.scope_fingerprint) || grant.ttl_seconds !== request.grant_ttl_seconds || grant.max_uses !== request.grant_max_uses ||
+      !safePositiveInteger(grant.use_ordinal) || grant.use_ordinal > request.grant_max_uses! || !safeBoundedCount(grant.uses_remaining, request.grant_max_uses!) ||
+      grant.use_ordinal > request.grant_max_uses! - grant.uses_remaining || !validDate(grant.expires_at) || grant.each_command_requires_review !== true ||
+      (value.replayed && value.session_grant_created)) {
+      throw new APIRequestError("Bounded command decision is invalid", "INVALID_RESPONSE", 502);
+    }
+  } else if (value.bounded_grant !== undefined || value.session_grant_created !== false) {
+    throw new APIRequestError("One-call decision unexpectedly created a grant", "INVALID_RESPONSE", 502);
   }
   if (value.continuation !== undefined) {
     if (!["agent_browser_sensitive", "mcp_tool_call", "command_runtime"].includes(String(value.tool_name))) {
@@ -8725,11 +8740,16 @@ export class CyberAgentClient {
     if (!boundedIdentity(runID) || runID.trim() !== runID ||
       !boundedIdentity(approvalID) || approvalID.trim() !== approvalID ||
       body.version !== "approval_control.v1" ||
-      !["approve_once", "approve_for_thread", "deny"].includes(body.action) ||
-      (body.action !== "deny" && body.reason !== undefined) ||
+      !["approve_once", "approve_for_thread", "approve_for_run", "deny"].includes(body.action) ||
+      (body.action !== "deny" && body.action !== "approve_for_run" && body.reason !== undefined) ||
       (body.reason !== undefined && (!boundedText(body.reason, 2_048) ||
         body.reason.trim() !== body.reason || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
       throw new Error("Normalized Run and approval identities are required");
+    }
+    if (body.action === "approve_for_run" ?
+      !safePositiveInteger(body.grant_ttl_seconds) || body.grant_ttl_seconds > 900 || !safePositiveInteger(body.grant_max_uses) || body.grant_max_uses > 8
+      : body.grant_ttl_seconds !== undefined || body.grant_max_uses !== undefined) {
+      throw new Error("Bounded Run approval requires explicit limits: 1..900 seconds and 1..8 uses");
     }
     const result = await this.sendControl<unknown>(
       `/runs/${encodeURIComponent(runID)}/approvals/${encodeURIComponent(approvalID)}/decision`,

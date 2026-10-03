@@ -4864,15 +4864,20 @@ export interface components {
         };
         ApprovalDecisionControlRequestView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
+            /** Format: int32 */
+            grant_max_uses?: number;
+            /** Format: int32 */
+            grant_ttl_seconds?: number;
             reason?: string;
             /** @enum {string} */
             version: "approval_control.v1";
         };
         ApprovalDecisionControlView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
             approval_id: string;
+            bounded_grant?: components["schemas"]["BoundedCommandGrantView"];
             capability_grant: boolean;
             continuation?: components["schemas"]["ApprovalContinuationResult"];
             docker_execution_enabled: boolean;
@@ -5293,6 +5298,22 @@ export interface components {
             tool_profile: components["schemas"]["BatchDeliveryToolProfile"];
             /** Format: date-time */
             updated_at: string;
+        };
+        BoundedCommandGrantView: {
+            /** @enum {boolean} */
+            each_command_requires_review: true;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            /** Format: int32 */
+            max_uses: number;
+            scope_fingerprint: string;
+            /** Format: int32 */
+            ttl_seconds: number;
+            /** Format: int32 */
+            use_ordinal: number;
+            /** Format: int32 */
+            uses_remaining: number;
         };
         BrowserCDPPermissionRuntimeView: {
             control_enabled: boolean;

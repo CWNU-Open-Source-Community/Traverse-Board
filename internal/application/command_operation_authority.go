@@ -222,6 +222,9 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 				if !commandApprovalMatches(record, source) {
 					return executionauth.OperationAuthority{}, errors.New("command operation approval identity changed")
 				}
+				if err := checkCommandGrant(ctx, st, record); err != nil {
+					return executionauth.OperationAuthority{}, err
+				}
 				proof = &record
 			} else if !errors.Is(err, sql.ErrNoRows) {
 				return executionauth.OperationAuthority{}, err
@@ -239,7 +242,7 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 			operatorProof = consent.confirmed
 		}
 		policy := toolgateway.CommandRuntimePolicyDecision(s.commandRuntimePolicy(), policyInput)
-		if !policy.Allowed || (policy.NeedsApproval && proof == nil && !operatorProof) {
+		if !policy.Allowed || ((policy.NeedsApproval || policyInput.ReviewScope != nil) && proof == nil && !operatorProof) {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "current command host policy requires denial or exact review")
 		}
 		projection, err := domain.ExecutionPermissionApproval(current.permission)
