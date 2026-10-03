@@ -8,15 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"os/exec"
-	"runtime"
 	"slices"
 	"sync"
 	"time"
 
 	"cyberagent-workbench/internal/toolcontract"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -63,62 +61,25 @@ func NewResolvedClient(launch toolcontract.ResolvedLaunch, hostKey []byte, conne
 		}
 	}
 	r := &resolvedClient{launch: launch, key: key, connect: cloneOperation(connect), guards: guards, fingerprint: fingerprint}
-	var transport *sdkClientTransport
-	switch launch.Transport {
-	case toolcontract.TransportStdio:
-		env, err := normalizeLaunchEnvironment(launch.Stdio.Env)
-		if err != nil || len(env) != len(launch.Stdio.Env) {
-			return nil, errors.New("resolved MCP environment is ambiguous")
-		}
-		// Requiring canonical keys makes the execution and HMAC representations identical.
-		for key, value := range env {
-			if original, exists := launch.Stdio.Env[key]; !exists || original != value {
-				return nil, errors.New("resolved MCP environment was not normalized")
-			}
-		}
-		if runtime.GOOS == "windows" && env["SYSTEMROOT"] == "" {
-			return nil, errors.New("resolved Windows launch is missing SystemRoot")
-		}
-		cmd := exec.Command(launch.Stdio.Command, launch.Stdio.Args...)
-		cmd.Dir, cmd.Env = launch.Stdio.Cwd, launchEnvironmentEntries(env)
-		transport = newSDKClientTransport(&commandClientTransport{cmd: cmd, beforeStart: r.beforeConnect, beforeSend: r.beforeSend})
-	case toolcontract.TransportStreamableHTTP:
-		var remote *mcpHTTPTransport
-		if base == nil {
-			configured := http.DefaultTransport.(*http.Transport).Clone()
-			configured.Proxy = nil // no ambient proxy configuration in a frozen launch
-			base = &http.Client{Transport: configured}
-		}
-		transport, remote = makeHTTPClientTransport(launch.HTTP.Endpoint, "", base)
-		remote.headers = make(http.Header, len(launch.HTTP.Headers))
-		for name, value := range launch.HTTP.Headers {
-			remote.headers.Set(name, value)
-		}
+	transport, remote, err := newLaunchClient(launch, base, r.beforeConnect, r.beforeSend)
+	if err != nil {
+		return nil, err
+	}
+	if remote != nil && launch.HTTP.Credential != nil {
 		remote.beforeConnect = func(ctx context.Context) error {
 			if err := r.beforeConnect(ctx); err != nil {
 				return err
 			}
-			if launch.HTTP.Credential != nil {
-				if credential == nil {
-					return errors.New("MCP credential resolver is unavailable")
-				}
-				value, err := credential(ctx, *launch.HTTP.Credential)
-				if err != nil || value == "" {
-					return errors.New("bound MCP credential is unavailable")
-				}
-				remote.bearer = value
+			if credential == nil {
+				return errors.New("MCP credential resolver is unavailable")
 			}
+			value, err := credential(ctx, *launch.HTTP.Credential)
+			if err != nil || value == "" {
+				return errors.New("bound MCP credential is unavailable")
+			}
+			remote.bearer = value
 			return nil
 		}
-		remote.beforeSend = r.beforeSend
-	}
-	transport.protocolVersion = launch.ProtocolVersions[0]
-	transport.allowedVersions = slices.Clone(launch.ProtocolVersions)
-	transport.tap.acceptProtocol = func(version string) error {
-		if !slices.Contains(launch.ProtocolVersions, version) {
-			return errors.New("MCP peer selected an unauthorized profile")
-		}
-		return nil
 	}
 	negotiated := transport.tap.negotiated
 	transport.tap.negotiated = func(version string) {
@@ -190,7 +151,7 @@ func (r *resolvedClient) beforeConnect(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (r *resolvedClient) beforeSend(ctx context.Context, frame Envelope, size int64) error {
+func (r *resolvedClient) beforeSend(ctx context.Context, frame *jsonrpc.Request, size int64) error {
 	if err := r.validateFrameProtocol(frame); err != nil {
 		if attempt, _ := ctx.Value(sdkCallAttemptKey{}).(*sdkCallAttempt); attempt != nil {
 			return attempt.reject(err)
@@ -221,7 +182,7 @@ func (r *resolvedClient) beforeSend(ctx context.Context, frame Envelope, size in
 			return attempt.reject(err)
 		}
 		attempt.mu.Lock()
-		attempt.wireID = bytes.Clone(frame.ID)
+		attempt.wireID, _ = json.Marshal(frame.ID.Raw())
 		attempt.mu.Unlock()
 		// beforeSDKDispatch invokes this closure once, after all projection.
 		attempt.guard = func(ctx context.Context) error {
@@ -266,7 +227,7 @@ func (r *resolvedClient) beforeSend(ctx context.Context, frame Envelope, size in
 
 // Check the final SDK frame, not just the preferred version or method whitelist.
 // In particular the SDK's legacy fallback must not emit an unapproved initialize.
-func (r *resolvedClient) validateFrameProtocol(frame Envelope) error {
+func (r *resolvedClient) validateFrameProtocol(frame *jsonrpc.Request) error {
 	var params struct {
 		ProtocolVersion string                     `json:"protocolVersion"`
 		Meta            map[string]json.RawMessage `json:"_meta"`
@@ -290,7 +251,7 @@ func (r *resolvedClient) validateFrameProtocol(frame Envelope) error {
 			return errors.New("MCP frame metadata exceeds its authorized protocol")
 		}
 	}
-	if (frame.Method == "server/discover" || (negotiated == preferredClientProtocolVersion && len(frame.ID) > 0)) && !present {
+	if (frame.Method == "server/discover" || (negotiated == preferredClientProtocolVersion && frame.IsCall())) && !present {
 		return errors.New("modern MCP request is missing protocol metadata")
 	}
 	return nil
@@ -398,44 +359,31 @@ func (c *Client) CallToolWithReceipt(ctx context.Context, operation toolcontract
 	ctx = context.WithValue(ctx, resolvedCallKey{}, &resolvedCall{operation: cloneOperation(operation)})
 	ctx = context.WithValue(ctx, sdkCallAttemptKey{}, attempt)
 	ctx = context.WithValue(ctx, sdkRawResponseKey{}, capture)
-	params, _ := json.Marshal(struct {
-		Name      string            `json:"name"`
-		Arguments json.RawMessage   `json:"arguments"`
-		Meta      map[string]string `json:"_meta,omitempty"`
-	}{name, bytes.Clone(arguments), c.callProgressMeta(operation.ID)})
-	response, err := c.transport.Exchange(ctx, Envelope{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprint(c.nextID.Add(1))), Method: "tools/call", Params: params})
-	raw, wireError := capture.result()
+	result, raw, err := c.callTool(ctx, &sdk.CallToolParams{
+		Name: name, Arguments: json.RawMessage(bytes.Clone(arguments)), Meta: c.callProgressMeta(operation.ID),
+	})
+	_, wireError := capture.result()
 	if len(raw) > 0 || wireError != nil {
 		receipt.State = toolcontract.ReceiptResultReceived
 	} else if attempt.dispatched.Load() {
 		receipt.State = toolcontract.ReceiptOutcomeUnknown
 	}
-	if wireError != nil || response.Error != nil {
+	if wireError != nil {
 		receipt.ErrorCode = "remote_rpc_error"
-		if wireError != nil {
-			raw, _ = json.Marshal(struct {
-				Error any `json:"error"`
-			}{wireError})
-		}
+		raw, _ = json.Marshal(struct {
+			Error any `json:"error"`
+		}{wireError})
 		return nil, raw, receipt, errors.New("MCP peer returned a JSON-RPC error")
 	}
 	if err != nil {
 		receipt.ErrorCode = "mcp_call_failed"
+		var required *sdkInputRequiredError
+		if len(raw) > 0 && !errors.As(err, &required) {
+			receipt.ErrorCode = "invalid_result"
+		}
 		return nil, raw, receipt, &sanitizedClientError{message: "MCP tool call failed; inspect its execution receipt before recovery", cause: err}
 	}
-	var result sdk.CallToolResult
-	var shape struct {
-		Content json.RawMessage `json:"content"`
-	}
-	if err := json.Unmarshal(raw, &shape); err != nil || len(bytes.TrimSpace(shape.Content)) == 0 || bytes.TrimSpace(shape.Content)[0] != '[' {
-		receipt.ErrorCode = "invalid_result"
-		return nil, raw, receipt, errors.New("MCP tool result content is missing or invalid")
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		receipt.ErrorCode = "invalid_result"
-		return nil, raw, receipt, errors.New("MCP tool result could not be decoded")
-	}
-	return &result, raw, receipt, nil
+	return result, raw, receipt, nil
 }
 
 // SetProgressHandler opts into MCP progress notifications. A call then uses its
@@ -445,25 +393,17 @@ func (c *Client) SetProgressHandler(handler func(context.Context, *sdk.ProgressN
 	if c == nil || c.closed.Load() {
 		return errors.New("MCP client is closed")
 	}
-	transport, ok := c.transport.(*sdkClientTransport)
-	if !ok {
-		return errors.New("MCP transport does not support SDK progress")
-	}
-	transport.progressMu.Lock()
-	transport.progress = handler
-	transport.progressMu.Unlock()
+	c.progressMu.Lock()
+	c.progress = handler
+	c.progressMu.Unlock()
 	return nil
 }
-func (c *Client) callProgressMeta(operationID string) map[string]string {
-	transport, ok := c.transport.(*sdkClientTransport)
-	if !ok {
-		return nil
-	}
-	transport.progressMu.RLock()
-	enabled := transport.progress != nil
-	transport.progressMu.RUnlock()
+func (c *Client) callProgressMeta(operationID string) sdk.Meta {
+	c.progressMu.RLock()
+	enabled := c.progress != nil
+	c.progressMu.RUnlock()
 	if enabled {
-		return map[string]string{"progressToken": operationID}
+		return sdk.Meta{"progressToken": operationID}
 	}
 	return nil
 }

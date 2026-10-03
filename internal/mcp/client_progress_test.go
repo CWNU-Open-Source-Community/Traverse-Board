@@ -12,6 +12,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Regression: unsolicited notifications must not replace or exhaust the wait
@@ -34,12 +36,12 @@ func TestUCProbeStdioProgressDoesNotConsumeResponseBudget(t *testing.T) {
 	if _, err := client.Discover(ctx, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	request := ucProbeRequest()
-	response, err := transport.Exchange(ctx, request)
+	request := ucProbeParams()
+	_, response, err := transport.callTool(ctx, request)
 	if err != nil {
 		t.Fatalf("40 valid progress notifications exhausted response wait: %v", err)
 	}
-	if !bytes.Equal(response.ID, request.ID) || !bytes.Contains(response.Result, []byte("remote-result")) {
+	if !bytes.Contains(response, []byte("remote-result")) {
 		t.Fatalf("response was not the tools/call result: %#v", response)
 	}
 }
@@ -65,19 +67,19 @@ func TestUCProbeHTTPProgressDoesNotReplaceResponse(t *testing.T) {
 	defer transport.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	request := ucProbeRequest()
-	response, err := transport.Exchange(ctx, request)
+	request := ucProbeParams()
+	_, response, err := transport.callTool(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(response.ID, request.ID) || !bytes.Contains(response.Result, []byte("remote-result")) {
-		t.Fatalf("progress event replaced the requested result: method=%q id=%s result=%s", response.Method, response.ID, response.Result)
+	if !bytes.Contains(response, []byte("remote-result")) {
+		t.Fatalf("progress event replaced the requested result: %s", response)
 	}
 }
 
-func ucProbeRequest() Envelope {
-	return Envelope{JSONRPC: "2.0", ID: json.RawMessage(`77`), Method: "tools/call",
-		Params: json.RawMessage(`{"name":"lookup","arguments":{"query":"one"},"_meta":{"progressToken":"uc-progress"}}`)}
+func ucProbeParams() *sdk.CallToolParams {
+	return &sdk.CallToolParams{Name: "lookup", Arguments: json.RawMessage(`{"query":"one"}`),
+		Meta: sdk.Meta{"progressToken": "uc-progress"}}
 }
 
 func ucProbeProgress(index int) []byte {

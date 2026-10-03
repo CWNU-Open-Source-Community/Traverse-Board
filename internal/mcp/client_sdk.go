@@ -31,35 +31,13 @@ func supportedClientProtocol(version string) bool {
 	}
 }
 
-// Adapt the existing private facade. This is not another public contract.
-type sdkClientTransport struct {
-	tap             *sdkResponseTap
-	protocolVersion string
-	transport       sdk.Transport
-	mu              sync.Mutex
-	session         *sdk.ClientSession
-	connectErr      error
-	connected       bool
-	lifetime        context.Context
-	stop            context.CancelFunc
-	closeOnce       sync.Once
-	closeErr        error
-	// Legacy adapter test hooks stay private; resolved clients use ExecutionGuards.
-	// The progress handler is the only callback mutable after connection.
-	beforeConnect   func(context.Context) error
-	beforeCall      func(context.Context) error
-	progress        func(context.Context, *sdk.ProgressNotificationParams)
-	progressMu      sync.RWMutex
-	allowedVersions []string
-}
-
-func newSDKClientTransport(transport sdk.Transport) *sdkClientTransport {
+func newSDKClient(transport sdk.Transport) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	tap := &sdkResponseTap{pending: make(map[jsonrpc.ID]sdkPendingResponse)}
-	return &sdkClientTransport{transport: &sdkObservingTransport{Transport: transport, tap: tap}, tap: tap,
+	return &Client{transport: &sdkObservingTransport{Transport: transport, tap: tap}, tap: tap,
 		lifetime: ctx, stop: cancel, protocolVersion: preferredClientProtocolVersion}
 }
-func (t *sdkClientTransport) connect(ctx context.Context) (*sdk.ClientSession, error) {
+func (t *Client) connect(ctx context.Context) (*sdk.ClientSession, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -99,12 +77,43 @@ func (t *sdkClientTransport) connect(ctx context.Context) (*sdk.ClientSession, e
 	})
 	client.AddSendingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, request sdk.Request) (sdk.Result, error) {
+			capture, _ := ctx.Value(sdkRawResponseKey{}).(*sdkRawResponse)
+			if capture == nil {
+				capture = &sdkRawResponse{}
+			}
+			ctx = context.WithValue(ctx, sdkRawResponseKey{}, capture)
+			defer t.tap.forget(capture)
 			result, err := next(ctx, method, request)
+			raw, _ := capture.result()
+			if len(raw) > MaxMessageBytes {
+				return nil, errors.New("MCP response exceeds the transport limit")
+			}
+			if catalog, _ := ctx.Value(resolvedCatalogKey{}).(*resolvedCatalog); catalog != nil && len(raw) > 0 && (method == "tools/list" || method == "resources/list" || method == "prompts/list") {
+				if len(raw) > MaxMessageBytes-catalog.bytes {
+					return nil, errors.New("MCP native discovery exceeds its aggregate result limit")
+				}
+				catalog.bytes += len(raw)
+				catalog.results = append(catalog.results, raw)
+			}
 			// Discovery is refreshed under host authority. Disable only the
 			// SDK's decoded catalog cache before it stores this result; the
 			// original native response and its TTL remain available to the host.
 			switch result := result.(type) {
 			case *sdk.ListToolsResult:
+				// SDK's schema is any; retain exact JSON numbers for the stored
+				// projection as well as the native catalog fingerprint.
+				var page struct {
+					Tools []struct {
+						InputSchema json.RawMessage `json:"inputSchema"`
+					} `json:"tools"`
+				}
+				if len(raw) > 0 && json.Unmarshal(raw, &page) == nil && len(page.Tools) == len(result.Tools) {
+					for i, tool := range result.Tools {
+						if tool != nil {
+							tool.InputSchema = page.Tools[i].InputSchema
+						}
+					}
+				}
 				result.TTLMs = 0
 			case *sdk.ListResourcesResult:
 				result.TTLMs = 0
@@ -125,125 +134,80 @@ func (t *sdkClientTransport) connect(ctx context.Context) (*sdk.ClientSession, e
 	}
 	return t.session, t.connectErr
 }
-func (t *sdkClientTransport) Exchange(ctx context.Context, request Envelope) (Envelope, error) {
-	if err := ctx.Err(); err != nil {
-		return Envelope{}, err
-	}
-	if request.JSONRPC != "2.0" || len(request.ID) == 0 {
-		return Envelope{}, errors.New("MCP request identity is required")
-	}
-	session, err := t.connect(ctx)
+
+// callTool is the single typed SDK call path for legacy projections and native
+// receipts. The tap observes native bytes; it does not dispatch another request.
+func (c *Client) callTool(ctx context.Context, params *sdk.CallToolParams) (*sdk.CallToolResult, json.RawMessage, error) {
+	session, err := c.connect(ctx)
 	if err != nil {
-		return Envelope{}, err
+		return nil, nil, err
 	}
-	var result any
-	var attempt *sdkCallAttempt
-	captured, _ := ctx.Value(sdkRawResponseKey{}).(*sdkRawResponse)
-	if captured == nil {
-		captured = &sdkRawResponse{}
+	attempt, _ := ctx.Value(sdkCallAttemptKey{}).(*sdkCallAttempt)
+	if attempt == nil {
+		attempt = &sdkCallAttempt{guard: c.beforeCall}
 	}
-	ctx = context.WithValue(ctx, sdkRawResponseKey{}, captured)
-	defer t.tap.forget(captured)
-	switch request.Method {
-	case "initialize":
-		result = session.InitializeResult()
-	case "tools/list":
-		var params sdk.ListToolsParams
-		if err = json.Unmarshal(request.Params, &params); err == nil {
-			result, err = session.ListTools(ctx, &params)
-		}
-	case "resources/list":
-		var params sdk.ListResourcesParams
-		if err = json.Unmarshal(request.Params, &params); err == nil {
-			result, err = session.ListResources(ctx, &params)
-		}
-	case "prompts/list":
-		var params sdk.ListPromptsParams
-		if err = json.Unmarshal(request.Params, &params); err == nil {
-			result, err = session.ListPrompts(ctx, &params)
-		}
-	case "tools/call":
-		var params sdk.CallToolParams
-		decoder := json.NewDecoder(bytes.NewReader(request.Params))
-		decoder.UseNumber()
-		if err = decoder.Decode(&params); err != nil {
-			break
-		}
-		attempt, _ = ctx.Value(sdkCallAttemptKey{}).(*sdkCallAttempt)
-		if attempt == nil {
-			attempt = &sdkCallAttempt{guard: t.beforeCall}
-		}
-		ctx = context.WithValue(ctx, sdkCallAttemptKey{}, attempt)
-		result, err = session.CallTool(ctx, &params)
-	default:
-		return Envelope{}, fmt.Errorf("unsupported MCP client method %q", request.Method)
+	capture, _ := ctx.Value(sdkRawResponseKey{}).(*sdkRawResponse)
+	if capture == nil {
+		capture = &sdkRawResponse{}
 	}
-	// Keep the original result after SDK correlation, before its typed decoder
-	// can round arbitrary numbers or discard extension fields. The SDK remains
-	// responsible for framing, SSE, IDs, notifications, and lifecycle.
-	raw, rpcErr := captured.result()
-	if len(raw) != 0 {
-		if capture, _ := ctx.Value(resolvedCatalogKey{}).(*resolvedCatalog); capture != nil && request.Method != "tools/call" {
-			if len(raw) > MaxMessageBytes-capture.bytes {
-				return Envelope{}, errors.New("MCP native discovery exceeds its aggregate result limit")
-			}
-			capture.bytes += len(raw)
-			capture.results = append(capture.results, append(json.RawMessage(nil), raw...))
-		}
-		if len(raw) > MaxMessageBytes {
-			return Envelope{}, errors.New("MCP response exceeds the transport limit")
-		}
+	ctx = context.WithValue(ctx, sdkCallAttemptKey{}, attempt)
+	ctx = context.WithValue(ctx, sdkRawResponseKey{}, capture)
+	result, err := session.CallTool(ctx, params)
+	raw, wireError := capture.result()
+	if wireError != nil {
+		return nil, raw, wireError
+	}
+	if len(raw) > 0 {
 		var shape struct {
-			ResultType string `json:"resultType"`
+			ResultType string          `json:"resultType"`
+			Content    json.RawMessage `json:"content"`
 		}
-		if decodeErr := json.Unmarshal(raw, &shape); decodeErr != nil {
-			return Envelope{}, decodeErr
+		if json.Unmarshal(raw, &shape) != nil || len(raw) > MaxMessageBytes {
+			return nil, raw, errors.New("MCP tool result is invalid or oversized")
 		}
 		if shape.ResultType == "input_required" {
-			return Envelope{}, &sdkInputRequiredError{raw: raw}
+			return nil, raw, &sdkInputRequiredError{raw: raw}
 		}
-		return Envelope{JSONRPC: "2.0", ID: append(json.RawMessage(nil), request.ID...), Result: raw}, nil
-	}
-	if rpcErr != nil {
-		return Envelope{JSONRPC: "2.0", ID: request.ID, Error: &RPCError{Code: int(rpcErr.Code), Message: "remote MCP request failed"}}, nil
-	}
-	if err != nil {
-		if attempt != nil && attempt.dispatched.Load() {
-			return Envelope{}, &sdkOutcomeUnknownError{cause: err}
+		if len(bytes.TrimSpace(shape.Content)) == 0 || bytes.TrimSpace(shape.Content)[0] != '[' {
+			return nil, raw, errors.New("MCP tool result content is missing or invalid")
 		}
-		if attempt != nil {
-			attempt.mu.Lock()
-			rejection := attempt.rejection
-			attempt.mu.Unlock()
-			if rejection != nil {
-				return Envelope{}, rejection
-			}
-		}
-		if ctx.Err() != nil {
-			return Envelope{}, ctx.Err()
-		}
-		return Envelope{}, err
+		return result, raw, err
 	}
-	raw, err = json.Marshal(result)
-	if err != nil {
-		return Envelope{}, err
+	if err != nil && attempt.dispatched.Load() {
+		return nil, nil, &sdkOutcomeUnknownError{cause: err}
 	}
-	if len(raw) > MaxMessageBytes {
-		return Envelope{}, errors.New("MCP response exceeds the transport limit")
+	attempt.mu.Lock()
+	rejection := attempt.rejection
+	attempt.mu.Unlock()
+	if rejection != nil {
+		return nil, nil, rejection
 	}
-	return Envelope{JSONRPC: "2.0", ID: append(json.RawMessage(nil), request.ID...), Result: raw}, nil
+	if err == nil {
+		err = errors.New("MCP tool response is missing")
+	}
+	return nil, nil, err
 }
-func (t *sdkClientTransport) Notify(ctx context.Context, request Envelope) error {
-	if err := ctx.Err(); err != nil {
-		return err
+
+func (c *Client) sdkError(err error) error {
+	if err == nil {
+		return nil
 	}
-	if request.Method != "notifications/initialized" {
-		return errors.New("unsupported MCP client notification")
+	message := "MCP request failed"
+	if c.resolved == nil {
+		var remote *jsonrpc.Error
+		if errors.As(err, &remote) {
+			message = fmt.Sprintf("MCP request failed with remote code %d", remote.Code)
+		} else {
+			message = c.sanitizeText(err.Error())
+		}
 	}
-	// SDK already sends this for legacy peers; modern peers do not use it.
-	return nil
+	return &sanitizedClientError{message: message, cause: err}
 }
-func (t *sdkClientTransport) Close() error {
+
+func (t *Client) Close() error {
+	if t == nil || t.closed.Swap(true) {
+		return nil
+	}
 	t.closeOnce.Do(func() {
 		t.stop()
 		t.mu.Lock()
@@ -316,7 +280,7 @@ func (*sdkInputRequiredError) Error() string {
 type stdioSDKConnection struct {
 	sdk.Connection
 	writeGate  chan struct{}
-	beforeSend func(context.Context, Envelope, int64) error
+	beforeSend func(context.Context, *jsonrpc.Request, int64) error
 }
 
 func (c *stdioSDKConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
@@ -332,11 +296,7 @@ func (c *stdioSDKConnection) Write(ctx context.Context, msg jsonrpc.Message) err
 			if err != nil {
 				return err
 			}
-			envelope, err := DecodeEnvelope(raw)
-			if err != nil {
-				return err
-			}
-			if err := c.beforeSend(ctx, envelope, int64(len(raw)+1)); err != nil {
+			if err := c.beforeSend(ctx, request, int64(len(raw)+1)); err != nil {
 				return err
 			}
 		}

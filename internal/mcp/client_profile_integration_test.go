@@ -222,7 +222,7 @@ func TestResolvedModernSDKRejectsActualFrameVersionDrift(t *testing.T) {
 		for _, scenario := range []string{"missing", "wrong-type", "unauthorized"} {
 			t.Run(method+"/"+scenario, func(t *testing.T) {
 				client, launch, probe, trace := resolvedProfileFixture(t, []string{preferredClientProtocolVersion}, "")
-				transport := client.transport.(*sdkClientTransport)
+				transport := client
 				transport.transport = &mutateProtocolTransport{Transport: transport.transport, method: method, scenario: scenario}
 				scope := testResolvedScope(t, launch, 2)
 				scope.Methods = []string{"server/discover", "tools/list"}
