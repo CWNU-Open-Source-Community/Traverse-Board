@@ -61,22 +61,21 @@ func TestDesktopDebugTerminalAgentInputKeepsBearerInsideGo(t *testing.T) {
 		binding: application.DebugTerminalAgentInputBinding{
 			ID: "terminal-input-binding-desktop", RunID: "run-desktop-debug",
 			TerminalSessionID: "terminal-desktop-debug",
-			IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute),
+			IssuedAt:          now, ExpiresAt: now.Add(5 * time.Minute),
 			ProcessLocal: true,
 		},
 	}
 	selector, preview := NewSkillPackagePreviewBoundary()
 	bridge, err := NewDesktopBridge(DesktopBridgeConfig{
-		ContextProvider: func() context.Context { return context.Background() },
-		FilePicker:      &testSkillPackagePicker{},
-		ReadToken:       testDesktopReadToken,
-		ControlToken:    testDesktopControlToken,
+		ContextProvider:                   func() context.Context { return context.Background() },
+		FilePicker:                        &testSkillPackagePicker{},
+		ReadToken:                         testDesktopReadToken,
+		ControlToken:                      testDesktopControlToken,
 		ExecutionPermissionControlEnabled: true,
 		OperatorApprovalEnabled:           true,
 		DangerFullAccessEnabled:           true,
-		DebugMaximumAccessEnabled:         true,
 		UserTerminalEnabled:               true,
-		APIVersion: "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		APIVersion:                        "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
 		Selector: selector, PreviewBridge: preview,
 		UserTerminalController:            &testUserTerminalController{},
 		DebugTerminalAgentInputController: controller,
@@ -86,8 +85,8 @@ func TestDesktopDebugTerminalAgentInputKeepsBearerInsideGo(t *testing.T) {
 	}
 	invalid := DesktopDebugTerminalAgentInputGrantRequest{
 		ProtocolVersion: DesktopDebugTerminalAgentInputProtocolVersion,
-		RunID: "run-desktop-debug", TerminalSessionID: "terminal-desktop-debug",
-		TTLSeconds: 14, ConfirmDebugMaximumAccess: true,
+		RunID:           "run-desktop-debug", TerminalSessionID: "terminal-desktop-debug",
+		TTLSeconds: 14, ConfirmFullAccess: true,
 		ConfirmAgentTerminalInput: true,
 	}
 	if _, err := bridge.GrantDebugTerminalAgentInput(invalid); apperror.CodeOf(err) !=
@@ -105,7 +104,7 @@ func TestDesktopDebugTerminalAgentInputKeepsBearerInsideGo(t *testing.T) {
 		binding.TokenExposed || binding.RawInputPersisted ||
 		controller.grantRequest.RequestedBy != "desktop_operator" ||
 		controller.grantRequest.TTL != 5*time.Minute ||
-		!controller.grantRequest.ConfirmDebugMaximumAccess ||
+		!controller.grantRequest.ConfirmFullAccess ||
 		!controller.grantRequest.ConfirmAgentTerminalInput {
 		t.Fatalf("unsafe projection=%#v request=%#v", binding,
 			controller.grantRequest)
@@ -117,7 +116,7 @@ func TestDesktopDebugTerminalAgentInputKeepsBearerInsideGo(t *testing.T) {
 	if err := bridge.RevokeDebugTerminalAgentInput(
 		DesktopDebugTerminalAgentInputRevokeRequest{
 			ProtocolVersion: DesktopDebugTerminalAgentInputProtocolVersion,
-			BindingID: binding.BindingID, OperatorConfirmed: true,
+			BindingID:       binding.BindingID, OperatorConfirmed: true,
 		}); err != nil {
 		t.Fatal(err)
 	}
@@ -127,5 +126,4 @@ func TestDesktopDebugTerminalAgentInputKeepsBearerInsideGo(t *testing.T) {
 	}
 }
 
-var _ application.DebugTerminalAgentInputController =
-	(*desktopDebugTerminalAgentControllerStub)(nil)
+var _ application.DebugTerminalAgentInputController = (*desktopDebugTerminalAgentControllerStub)(nil)

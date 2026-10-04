@@ -114,7 +114,7 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	defer manager.Shutdown()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	service, err := newDesktopUserTerminalService(state, manager, capabilities)
 	if err != nil {
@@ -146,19 +146,27 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := service.Start(ctx, start); err == nil {
-		t.Fatal("debug interaction without debug permission started a user terminal")
+		t.Fatal("debug interaction without explicit Full activation started a user terminal")
 	}
 	permissionService := application.NewRunExecutionPermissionService(
 		state, capabilities)
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "debug",
-			OperationKey:       "desktop-terminal-permission-0001",
-			RequestedBy:        "test_operator",
-			Reason:             "enable user-owned debug terminal",
-			ConfirmDebugAccess: true,
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "desktop-terminal-permission-0001",
+			RequestedBy:  "test_operator",
+			Reason:       "enable user-owned debug terminal",
+			ConfirmFull:  true,
 		}); err != nil {
 		t.Fatal(err)
+	}
+	selected, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || selected.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		selected.Mode != domain.RunExecutionPermissionFull {
+		t.Fatalf("current terminal preference=%#v err=%v", selected, err)
+	}
+	if _, activated := capabilities.RuntimeAuthority.AllowsFullAccess(selected); !activated {
+		t.Fatal("terminal fixture did not activate Full in the shared runtime authority")
 	}
 	session, err := service.Start(ctx, start)
 	if err != nil {
@@ -186,7 +194,7 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	}
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "conservative",
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 			OperationKey: "desktop-terminal-permission-0002",
 			RequestedBy:  "test_operator", Reason: "leave maximum access",
 		}); err != nil {
@@ -200,11 +208,11 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	}
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "debug",
-			OperationKey:       "desktop-terminal-permission-0003",
-			RequestedBy:        "test_operator",
-			Reason:             "restore maximum access",
-			ConfirmDebugAccess: true,
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
+			OperationKey: "desktop-terminal-permission-0003",
+			RequestedBy:  "test_operator",
+			Reason:       "restore maximum access",
+			ConfirmFull:  true,
 		}); err != nil {
 		t.Fatal(err)
 	}
@@ -264,5 +272,106 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	}
 	if count := service.reconcileBindings(ctx); count != 0 {
 		t.Fatalf("terminal reconciliation was not idempotent: %d", count)
+	}
+}
+
+func TestDesktopTerminalFullActivationIsProcessLocalAndCannotReviveSession(t *testing.T) {
+	ctx := context.Background()
+	state, err := store.Open(filepath.Join(t.TempDir(), "desktop-current-terminal.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	workspace := store.WorkspaceRecord{ID: "workspace-terminal-current", Name: "terminal",
+		RootPath: filepath.Clean(t.TempDir())}
+	if err := state.SaveWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := application.NewRunService(state).Create(ctx, application.CreateRunRequest{
+		Goal: "explicit user terminal", Profile: "code", WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionProfileService(state).Change(ctx, application.ChangeRunExecutionProfileRequest{
+		RunID: run.ID, Profile: "local", OperationKey: "terminal-live-profile", RequestedBy: "test_operator", Reason: "local terminal"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionInteractionService(state).Change(ctx, application.ChangeRunExecutionInteractionRequest{
+		RunID: run.ID, Mode: "debug", Trust: "trusted", OperationKey: "terminal-live-interaction", RequestedBy: "test_operator",
+		Reason: "explicit user terminal", ConfirmWorkspaceTrust: true, ConfirmDebugBoundary: true}); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{
+		RunID: run.ID, Mode: "full", OperationKey: "terminal-live-full", RequestedBy: "test_operator", Reason: "activate terminal", ConfirmFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := DesktopTerminalStartRequest{ProtocolVersion: DesktopUserTerminalProtocolVersion, RunID: run.ID, ConfirmDebugBoundary: true}
+	coldBackend := &desktopTerminalBackendStub{}
+	coldManager, err := terminalruntime.NewManager(coldBackend, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer coldManager.Shutdown()
+	coldCapabilities := capabilities
+	coldCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	cold, err := newDesktopUserTerminalService(state, coldManager, coldCapabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cold.Start(ctx, start); err == nil || coldBackend.process != nil {
+		t.Fatalf("cold Full started: %v", err)
+	}
+	backend := &desktopTerminalBackendStub{}
+	manager, err := terminalruntime.NewManager(backend, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Shutdown()
+	service, err := newDesktopUserTerminalService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unconfirmed := start
+	unconfirmed.ConfirmDebugBoundary = false
+	if _, err := service.Start(ctx, unconfirmed); err == nil || backend.process != nil {
+		t.Fatalf("missing terminal confirmation started: %v", err)
+	}
+	session, err := service.Start(ctx, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities.RuntimeAuthority.RevokeRun(run.ID)
+	if _, err := capabilities.RuntimeAuthority.ActivateRunFullAccess(permission); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Write(ctx, DesktopTerminalWriteRequest{ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID: session.SessionID, Data: "must not execute\r", UserConfirmed: true}); err == nil {
+		t.Fatal("reactivation revived old session")
+	}
+	backend.process.mu.Lock()
+	input := backend.process.input.String()
+	backend.process.mu.Unlock()
+	if input != "" {
+		t.Fatalf("stale native input=%q", input)
+	}
+	if _, err := service.Get(ctx, session.SessionID); err == nil {
+		t.Fatal("stale session survived denial")
+	}
+	next, err := service.Start(ctx, start)
+	if err != nil {
+		t.Fatalf("fresh explicit start after activation: %v", err)
+	}
+	capabilities.RuntimeAuthority.RevokeRun(run.ID)
+	if count := service.reconcileBindings(ctx); count != 1 {
+		t.Fatalf("runtime-only revocation closed=%d", count)
+	}
+	if _, err := service.Get(ctx, next.SessionID); err == nil {
+		t.Fatal("runtime-only revoked session survived reconciliation")
 	}
 }

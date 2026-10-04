@@ -1,5 +1,7 @@
 # ADR 0093: Review-Gated Approval-Mode Host Command Proposals
 
+> Execution and review paths are superseded by [ADR 0165](0165-retire-legacy-command-execution.md). This document records the historical design; stored evidence remains readable.
+
 - Status: Accepted; canonical Shell exclusion superseded by ADR 0114
 - Date: 2026-08-09
 - Scope: P13-C1, P13-C2, and P13-C3; schema v96

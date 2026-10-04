@@ -1100,6 +1100,7 @@ func commandRuntimeTestRequest(manager *CommandRuntimeManager,
 ) CommandRuntimeStartRequest {
 	adapter, _ := manager.AdapterIdentity()
 	return CommandRuntimeStartRequest{
+		OwnershipCheck: func(ctx context.Context) error { return ctx.Err() },
 		Scope: CommandRuntimeScope{InvocationID: "invocation-1", OperationKey: "operation-1",
 			RunID: "run-1", MissionID: "mission-1", RootAgentID: "agent-1",
 			AgentID: "agent-1", AgentAttemptID: "attempt-1",

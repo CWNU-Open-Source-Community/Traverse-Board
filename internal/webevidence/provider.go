@@ -116,7 +116,7 @@ type SearchQualificationSnapshot struct {
 
 // SearXNGProvider consumes only the documented JSON search endpoint. It has no
 // credentials, cookies, HTML scraping, or fallback provider. The endpoint is
-// process configuration and must also be inside the Run network authority.
+// process configuration and must also be inside the supplied web authority.
 type SearXNGProvider struct {
 	client   *SafeHTTPClient
 	endpoint string

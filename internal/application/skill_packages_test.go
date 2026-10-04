@@ -18,13 +18,15 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/operationreceipt"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func TestSkillPackageRegistryImportListGetAndRemoveAreInert(t *testing.T) {
+func TestSkillPackageRegistryLegacyRecoveryListGetAndRemoveAreInert(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	st, err := store.Open(filepath.Join(home, "cyberagent.db"))
@@ -50,11 +52,12 @@ func TestSkillPackageRegistryImportListGetAndRemoveAreInert(t *testing.T) {
 		OperationKey: "application-import-key-0001", InstalledBy: "operator",
 		ConfirmUntrusted: true,
 	}
+	prepareHistoricalSkillIntent(t, filepath.Join(home, "cyberagent.db"), raw, request.Surface, request.OperationKey, request.InstalledBy)
 	imported, err := service.Import(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if imported.Replayed || imported.RecoveredPending ||
+	if !imported.Replayed || !imported.RecoveredPending || imported.Installation != nil ||
 		imported.Package.Installation.Name != "external-review" ||
 		imported.Package.Installation.RunSelectionAuthorized ||
 		imported.Package.Installation.ContextInjectionAuthorized ||
@@ -172,16 +175,7 @@ func TestSkillPackageRegistryRecoversPendingIntentAndRejectsChangedReplay(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation := skills.PackageInstallOperation{
-		KeyDigest: keyDigest, RequestFingerprint: installation.RequestFingerprint,
-		InstallationID: installation.ID, Name: installation.Name, Version: installation.Version,
-		Surface: installation.Surface, InstalledBy: installation.InstalledBy,
-		CreatedAt: installation.CreatedAt,
-	}
-	if _, result, replayed, err := st.PreparePackageInstallation(ctx, installation,
-		operation); err != nil || replayed || result != nil {
-		t.Fatalf("pre-crash intent result=%#v replayed=%t err=%v", result, replayed, err)
-	}
+	legacyskill.Seed(t, filepath.Join(home, "cyberagent.db"), installation)
 	recovered, err := service.Import(ctx, ImportSkillPackageRequest{
 		Raw: raw, Surface: domain.ExecutionSurfaceCode, OperationKey: operationKey,
 		InstalledBy: "operator", ConfirmUntrusted: true,
@@ -248,7 +242,7 @@ func TestSkillPackageRegistryRejectsReservedNamesAndCrossSurfacePackages(t *test
 	}
 }
 
-func TestSkillPackageRegistryConcurrentServicesConvergeGeneratedIdentities(t *testing.T) {
+func TestSkillPackageRegistryConcurrentLegacyRecoveryAndRemoval(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	path := filepath.Join(home, "cyberagent.db")
@@ -277,6 +271,7 @@ func TestSkillPackageRegistryConcurrentServicesConvergeGeneratedIdentities(t *te
 		OperationKey: "application-concurrent-import-key", InstalledBy: "operator",
 		ConfirmUntrusted: true,
 	}
+	prepareHistoricalSkillIntent(t, path, raw, request.Surface, request.OperationKey, request.InstalledBy)
 	imports := make([]ImportSkillPackageResult, len(services))
 	errorsByWorker := make([]error, len(services))
 	var wait sync.WaitGroup
@@ -356,4 +351,83 @@ func buildApplicationSkillPackage(t *testing.T, name, version string,
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+// Seed an already durable historical intent explicitly. No production import
+// path is used to manufacture a legacy installation in compatibility tests.
+func prepareHistoricalSkillIntent(t *testing.T, databasePath string, raw []byte,
+	surface domain.ExecutionSurface, operationKey, actor string,
+) skills.PackageInstallation {
+	t.Helper()
+	parsed, err := skills.ParsePackageAny(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := runmutation.Fingerprint("skill_package_install_operation.v1", operationKey)
+	installation, err := skills.NewPackageInstallation(idgen.New("historical-skill"), parsed.Package(), surface, key, actor, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyskill.Seed(t, databasePath, installation)
+	return installation
+}
+
+func TestSkillPackageRegistryPluginEnableDoesNotOverrideLegacyInvocationPolicy(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "legacy-policy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	objects, _ := skills.NewLocalPackageObjectStore(t.TempDir())
+	builtins, _ := skills.BuiltinRegistry()
+	registry := NewSkillPackageRegistryService(st, objects, builtins)
+	service, _ := plugins.NewService(st)
+	for _, test := range []struct {
+		name                  string
+		model, explicit, want bool
+	}{
+		{"model-eligible", true, false, true}, {"user-only", false, false, false}, {"explicit-only", false, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte("# Reviewed original instructions\n")
+			manifest := skills.BindManifestContent(skills.Manifest{Protocol: skills.ProtocolVersion, Name: test.name, Version: "1.0.0",
+				Description: "Respect original mode and invocation policy", Profiles: []domain.Profile{domain.ProfileCode},
+				Surfaces: []domain.ExecutionSurface{domain.ExecutionSurfaceCode}, Phases: []domain.ExecutionPhase{domain.ExecutionPhasePlan},
+				Roles: []domain.AgentRole{domain.AgentRoleRoot}, UserInvocable: true, ModelInvocable: test.model, ExplicitOnly: test.explicit,
+				ToolDependencies: []toolgateway.ToolName{toolgateway.ReadFileTool}}, body)
+			raw, err := skills.BuildUnsignedPackage(manifest, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := ImportSkillPackageRequest{Raw: raw, Surface: domain.ExecutionSurfaceCode, OperationKey: "legacy-policy-operation-" + test.name, InstalledBy: "operator", ConfirmUntrusted: true}
+			got, err := registry.Import(t.Context(), request)
+			if err != nil || got.Installation == nil {
+				t.Fatal("Plugin import failed", err)
+			}
+			value := *got.Installation
+			for _, action := range []plugins.ReviewAction{plugins.ReviewApprove, plugins.ReviewEnable} {
+				value, err = service.Review(t.Context(), value.ID, plugins.ReviewRequest{Action: action, ExpectedPackageFingerprint: value.PackageFingerprint,
+					ExpectedGeneration: value.Generation, Capabilities: []plugins.Capability{plugins.CapabilitySkills}, ConfirmUntrusted: true, ReviewedBy: "operator"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			mode := domain.RunModeSnapshot{Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhasePlan, Profile: domain.ProfileCode}
+			if portableSkillEnabled(value, mode) != test.want {
+				t.Fatal("Plugin enable changed legacy invocation policy")
+			}
+			mode.Phase = domain.ExecutionPhaseDeliver
+			if portableSkillEnabled(value, mode) {
+				t.Fatal("Plugin enable widened legacy phase")
+			}
+			mode.Phase = domain.ExecutionPhasePlan
+			mode.Profile = domain.ProfileReview
+			if portableSkillEnabled(value, mode) {
+				t.Fatal("Plugin enable widened legacy profile")
+			}
+			if _, found, err := st.GetPackageInstallOperation(t.Context(), runmutation.Fingerprint("skill_package_install_operation.v1", request.OperationKey)); err != nil || found {
+				t.Fatal("new import created a legacy intent", err)
+			}
+		})
+	}
 }

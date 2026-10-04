@@ -11,7 +11,6 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
-	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
 )
@@ -49,8 +48,8 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 		"enable operator approval permission checks")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"allow an existing full-access Run permission")
-	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
-		"allow an existing maximum Debug Run permission")
+	confirmFull := fs.Bool("confirm-full", false,
+		"activate the current Full preference only for this invocation")
 	confirm := fs.Bool("confirm", false, "approve and execute the exact printed preview")
 	jsonOutput := fs.Bool("json", false, "print the bounded JSON contract")
 	message := fs.String("message", "", "stash audit message")
@@ -79,8 +78,7 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 	flagValues := map[string]bool{
 		"run": true, "operation-key": true, "managed-root": true,
 		"enable-git-advanced": false, "enable-permission-control": false,
-		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
-		"confirm": false, "json": false, "message": true,
+		"enable-danger-full-access": false, "confirm": false, "confirm-full": false, "json": false, "message": true,
 		"include-untracked": false, "keep-index": false, "restore-index": false,
 		"stash": true, "sequence": true, "upstream": true, "onto": true,
 		"good": true, "bad": true, "expected-current": true, "recipe": true,
@@ -95,9 +93,9 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 		!*permissionControl || action == "run" && strings.TrimSpace(*operationKey) == "" {
 		return errors.New(gitAdvancedCLIUsage)
 	}
-	if action != "run" && *confirm {
+	if action != "run" && *confirm || *confirmFull && (action != "run" || !*confirm) {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"--confirm is only valid for git-advanced run")
+			"--confirm requires git-advanced run; --confirm-full also requires --confirm")
 	}
 
 	if err := a.ensureStore(); err != nil {
@@ -111,10 +109,8 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: *dangerFullAccess,
-		DebugMaximumAccessEnabled: *debugMaximumAccess,
-	}
+	capabilities := cliExecutionPermissionCapabilities(*permissionControl,
+		*dangerFullAccess)
 	checkpoints, err := application.NewWorkspaceCheckpointService(a.store, capabilities)
 	if err != nil {
 		return err
@@ -154,6 +150,13 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 	if err := spec.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
 			"Git advanced typed operation is invalid", err)
+	}
+	if action == "run" && *confirm {
+		release, activationErr := a.activateCLIInvocationFull(ctx, *runID, capabilities, *confirmFull)
+		if activationErr != nil {
+			return activationErr
+		}
+		defer release()
 	}
 	var inspected application.GitAdvancedReviewResult
 	if action == "discover-hunks" {

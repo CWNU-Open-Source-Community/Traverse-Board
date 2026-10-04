@@ -31,7 +31,7 @@ func TestRunSupervisorRecoversAcceptedLegacyEmptyCreateAcrossRestart(t *testing.
 		textResponse(rootActionResponse(domain.RootActionContinue, "empty proposal recovered", "", "")),
 	}}
 	failing := &failOnceToolResultStore{SQLiteStore: f.state, fail: true}
-	first, err := newToolLoopSupervisor(failing, provider).
+	first, err := newLegacyEmptyCreateSupervisor(failing, provider).
 		WithExecutionPermissionCapabilities(f.capabilities).Step(t.Context(), f.run.ID)
 	if apperror.CodeOf(err) != apperror.CodeInternal || first.Checkpoint.Phase != domain.SupervisorTurnStarted {
 		t.Fatalf("injected result failure lost pending legacy call: %+v err=%v", first, err)
@@ -39,7 +39,7 @@ func TestRunSupervisorRecoversAcceptedLegacyEmptyCreateAcrossRestart(t *testing.
 	f.assertOneEmptyProposal(t)
 	f.assertPendingIdentity(t)
 	f.reopen(t)
-	resumed, err := newToolLoopSupervisor(f.state, provider).
+	resumed, err := newLegacyEmptyCreateSupervisor(f.state, provider).
 		WithExecutionPermissionCapabilities(f.capabilities).Step(t.Context(), f.run.ID)
 	if err != nil || !resumed.Recovered || resumed.ToolRounds != 1 || resumed.ToolCalls != 1 || resumed.ModelAttempts != 2 {
 		t.Fatalf("accepted legacy create was not recovered: %+v err=%v", resumed, err)
@@ -78,7 +78,7 @@ func TestRunSupervisorLegacyEmptyCreateStillRequiresCurrentAuthority(t *testing.
 			}
 			f.reopen(t)
 			provider := &scriptedToolProvider{}
-			_, err := newToolLoopSupervisor(f.state, provider).
+			_, err := newLegacyEmptyCreateSupervisor(f.state, provider).
 				WithExecutionPermissionCapabilities(capabilities).Step(t.Context(), f.run.ID)
 			if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || len(provider.Requests()) != 0 {
 				t.Fatalf("legacy compatibility bypassed current authority: err=%v requests=%+v", err, provider.Requests())
@@ -101,7 +101,7 @@ func TestRunSupervisorRejectsNewCreateWithoutBodyBeforeEnqueue(t *testing.T) {
 				toolResponse("new-empty-create", string(toolgateway.WorkspaceChangeTool), payload),
 				toolResponse("invalid-repair", string(toolgateway.WorkspaceChangeTool), payload),
 			}}
-			_, err := newToolLoopSupervisor(f.state, provider).
+			_, err := newLegacyEmptyCreateSupervisor(f.state, provider).
 				WithExecutionPermissionCapabilities(f.capabilities).Step(t.Context(), f.run.ID)
 			if err == nil || len(provider.Requests()) != 2 {
 				t.Fatalf("new missing/null body was accepted: err=%v requests=%+v", err, provider.Requests())
@@ -129,7 +129,7 @@ func TestRunSupervisorLegacyEmptyCreateDoesNotCoverOtherPersistedShapes(t *testi
 			provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
 				textResponse(rootActionResponse(domain.RootActionContinue, "invalid legacy arguments rejected", "", "")),
 			}}
-			_, err := newToolLoopSupervisor(f.state, provider).
+			_, err := newLegacyEmptyCreateSupervisor(f.state, provider).
 				WithExecutionPermissionCapabilities(f.capabilities).Step(t.Context(), f.run.ID)
 			if err == nil || len(provider.Requests()) != 0 {
 				t.Fatalf("compatibility accepted an unrelated shape: err=%v model_requests=%d", err, len(provider.Requests()))
@@ -149,7 +149,7 @@ func TestAgentCodeGatewayRejectsNewEmptyCreateWithoutExplicitBody(t *testing.T) 
 	call := toolgateway.ToolCall{Name: toolgateway.WorkspaceChangeTool, RunID: scope.RunID, MissionID: scope.MissionID,
 		AgentID: scope.RootAgentID, SessionID: scope.SessionID, WorkspaceID: scope.WorkspaceID, RootFingerprint: scope.RootFingerprint,
 		Surface: scope.Surface, Phase: scope.Phase, Role: scope.Role, Profile: scope.Profile, PermissionMode: scope.PermissionMode,
-		PermissionSnapshotID: scope.PermissionSnapshotID, PermissionGeneration: scope.PermissionGeneration, PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		PermissionSnapshotID: scope.PermissionSnapshotID, PermissionGeneration: scope.PermissionGeneration, PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch, RunAuthorizationFence: scope.RunAuthorizationFence,
 		ModeRevision: scope.ModeRevision, PermissionRevision: scope.PermissionRevision, CapabilityGeneration: scope.CapabilityGeneration,
 		LeaseID: scope.LeaseID, LeaseGeneration: scope.LeaseGeneration, RequestedBy: scope.RequestedBy,
 		OperationKey: "new-gateway-empty-create-0001"}
@@ -184,11 +184,19 @@ type legacyEmptyCreateFixture struct {
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
+func newLegacyEmptyCreateSupervisor(st application.RunSupervisorStore, provider *scriptedToolProvider) *application.RunSupervisor {
+	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+	router.RegisterProvider(provider)
+	// These cases recover an explicitly reviewed proposal, including its
+	// original status. Current Ask also permits verified routine operations.
+	return application.NewRunSupervisor(st, router, &fileOperationPolicy{review: true})
+}
+
 func newLegacyEmptyCreateFixture(t *testing.T, payload string, fullAccess bool) *legacyEmptyCreateFixture {
 	t.Helper()
 	f := &legacyEmptyCreateFixture{path: filepath.Join(t.TempDir(), "legacy.db"), root: t.TempDir(), payload: payload,
 		capabilities: domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}}
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}}
 	var err error
 	f.state, err = store.Open(f.path)
 	if err != nil {
@@ -204,15 +212,18 @@ func newLegacyEmptyCreateFixture(t *testing.T, payload string, fullAccess bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	mode := domain.RunExecutionPermissionApproval
-	if fullAccess {
-		mode = domain.RunExecutionPermissionFullAccess
-	}
-	selected, err := application.NewRunExecutionPermissionService(f.state, f.capabilities).
-		Change(t.Context(), application.ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: string(mode),
-			OperationKey: "legacy-permission-select-0001", RequestedBy: "test_operator", Reason: "recover legacy empty proposal", ConfirmUserApproval: !fullAccess, ConfirmDangerFullAccess: fullAccess})
+	permission, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if fullAccess {
+		selected, err := application.NewRunExecutionPermissionService(f.state, f.capabilities).
+			Change(t.Context(), application.ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: string(domain.RunExecutionPermissionFull),
+				OperationKey: "legacy-permission-select-0001", RequestedBy: "test_operator", Reason: "recover legacy empty proposal", ConfirmFull: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		permission = selected.Permission
 	}
 	if _, err := service.Start(t.Context(), f.run.ID); err != nil {
 		t.Fatal(err)
@@ -243,13 +254,19 @@ func newLegacyEmptyCreateFixture(t *testing.T, payload string, fullAccess bool) 
 	}
 	scope := toolgateway.AgentCodeCapabilityContext{RunID: f.run.ID, MissionID: turn.Mission.ID, RootAgentID: turn.Agent.ID,
 		WorkspaceID: "legacy-workspace", RootFingerprint: rootHash, Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
-		Profile: turn.Mode.Profile, PermissionMode: selected.Permission.Mode, ModeRevision: turn.Mode.Revision, PermissionRevision: selected.Permission.Revision}
+		Profile: turn.Mode.Profile, PermissionMode: permission.Mode, ModeRevision: turn.Mode.Revision, PermissionRevision: permission.Revision}
+	scope.PermissionSnapshotID = permission.ID
+	scope.PermissionRuntimeEpoch = f.capabilities.RuntimeAuthority.RuntimeEpoch()
+	scope.RunAuthorizationFence, err = f.capabilities.RuntimeAuthority.IssueRunAuthorizationFence(f.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if fullAccess {
-		generation, live := f.capabilities.FullAccessGeneration(selected.Permission)
+		generation, live := f.capabilities.FullAccessGeneration(permission)
 		if !live {
 			t.Fatal("legacy full authority was not active at acceptance")
 		}
-		scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch = selected.Permission.ID, generation, f.capabilities.RuntimeAuthority.RuntimeEpoch()
+		scope.PermissionGeneration = generation
 	}
 	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, f.run.SessionID)
 	if err != nil {

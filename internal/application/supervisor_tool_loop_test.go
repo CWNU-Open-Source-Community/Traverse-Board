@@ -63,7 +63,7 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	requests := provider.Requests()
 	if len(requests) != 2 ||
 		!hasToolSpec(requests[0], "work_item_create") ||
-		!hasToolSpec(requests[0], "controlled_command_propose") ||
+		hasToolSpec(requests[0], "controlled_command_propose") ||
 		hasToolResults(requests[0]) ||
 		!hasToolResult(requests[1], "work_item") {
 		t.Fatalf("model did not receive the structured tool transcript: %#v", requests)
@@ -197,89 +197,15 @@ func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-full-web-runtime.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
-	runService := application.NewRunService(st)
-	_, run, err := runService.Create(ctx, application.CreateRunRequest{
-		Goal: "fetch after a live Full Access activation", Profile: "review",
-		Surface: "code", Phase: "deliver", ModelRoute: "tool-loop/model",
-		NetworkMode: "disabled",
-		Budget:      domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	selection, err := application.NewRunExecutionPermissionService(st, capabilities).
-		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "supervisor-full-web-permission-0001",
-			RequestedBy:  "test_operator", Reason: "test the live Full Access boundary",
-			ConfirmDangerFullAccess: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A persisted Full snapshot by itself must not restore authority on a cold
-	// process. Revoke before the first turn to model that startup state.
-	runtimeAuthority.RevokeRun(run.ID)
-	if _, err := runService.Start(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"waiting for permission activation", "", "")),
-		toolResponse("provider-full-web-fetch", string(toolgateway.WebFetchTool),
-			`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"fetched with live permission", "", "")),
-	}}
-	backend := &applicationWebFetchBackend{}
-	supervisor := newToolLoopSupervisor(st, provider).
-		WithWebEvidence(webevidence.NewService(st, nil, backend)).
-		WithExecutionPermissionCapabilities(capabilities)
-	cold, err := supervisor.Step(ctx, run.ID)
-	if err != nil || cold.Text != "waiting for permission activation" || backend.calls != 0 {
-		t.Fatalf("cold Full web turn=%#v calls=%d err=%v", cold, backend.calls, err)
-	}
-	requests := provider.Requests()
-	if len(requests) != 1 || hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) {
-		t.Fatalf("cold Full snapshot advertised direct fetch: %#v", requests)
-	}
-	grant, err := runtimeAuthority.ActivateRunFullAccess(selection.Permission)
-	if err != nil {
-		t.Fatal(err)
-	}
-	live, err := supervisor.Step(ctx, run.ID)
-	if err != nil || live.ToolCalls != 1 || backend.calls != 1 ||
-		live.Text != "fetched with live permission" {
-		t.Fatalf("live Full web turn=%#v calls=%d err=%v", live, backend.calls, err)
-	}
-	requests = provider.Requests()
-	if len(requests) != 3 || !hasToolSpec(requests[1], string(toolgateway.WebFetchTool)) {
-		t.Fatalf("live Full permission did not advertise fetch: %#v", requests)
-	}
-	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
-	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
-		t.Fatalf("live Full web round=%#v err=%v", rounds, err)
-	}
-	callAuthority, err := toolgateway.DecodeWebEvidenceCallAuthority(
-		json.RawMessage(rounds[0].Calls[0].AuthorityJSON))
-	if err != nil || callAuthority.PermissionSnapshotID != selection.Permission.ID ||
-		callAuthority.PermissionGeneration != grant.Generation ||
-		callAuthority.PermissionRuntimeEpoch != runtimeAuthority.RuntimeEpoch() {
-		t.Fatalf("durable live Full authority=%#v err=%v", callAuthority, err)
+func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		t.Run(string(mode), func(t *testing.T) { testSupervisorInlineWebFetchApproval(t, mode) })
 	}
 }
 
-func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+func testSupervisorInlineWebFetchApproval(t *testing.T, mode domain.RunExecutionPermissionMode) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch-inline-approval.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +222,7 @@ func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setWebTestPermission(t, st, run.ID, mode)
 	if _, err := runService.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -480,12 +407,12 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(st, runtimeCapabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "supervisor-full-auto-permission-0001", RequestedBy: "test_operator",
-			Reason: "allow this Run to complete ordinary file edits", ConfirmDangerFullAccess: true})
+			Reason: "allow this Run to complete ordinary file edits", ConfirmFull: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,68 +551,6 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 			!strings.Contains(round.Calls[0].AuthorityJSON, `"permission_runtime_epoch"`) {
 			t.Fatalf("Full file call lacked live runtime authority: %+v", round)
 		}
-	}
-}
-
-func TestRunSupervisorRecordsOneShotCommandProposal(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-once-command.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	workspaceRoot := t.TempDir()
-	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{
-		ID: "ws-once-command", Name: "once-command", RootPath: workspaceRoot,
-		CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	service := application.NewRunService(st)
-	_, run, err := service.Create(ctx, application.CreateRunRequest{
-		Goal: "record a one-shot command proposal", Profile: "code", Surface: "code",
-		Phase: "deliver", WorkspaceID: "ws-once-command",
-		Budget: domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Start(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := json.Marshal(toolgateway.OneShotCommandProposalSpec{
-		Version: "once_command.v1", ExecutablePath: executable,
-		Argv: []string{"-test.run", "^$"}, WorkingDirectory: workspaceRoot,
-		Environment: []string{}, TimeoutMS: 30000, Purpose: "verify the test binary",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		toolResponse("provider-once-command", string(toolgateway.OneShotCommandProposeTool),
-			string(payload)),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"one-shot command proposal awaits operator review", "", "")),
-	}}
-	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
-	if err != nil || result.ToolRounds != 1 || result.ToolCalls != 1 ||
-		result.ModelAttempts != 2 {
-		t.Fatalf("unexpected one-shot command tool lifecycle: %#v err=%v", result, err)
-	}
-	proposals, err := st.ListOnceCommandProposals(ctx, run.ID, 10)
-	if err != nil || len(proposals) != 1 || proposals[0].Status != "proposed" ||
-		proposals[0].ExecutablePath != executable || proposals[0].WorkingDirectory != workspaceRoot {
-		t.Fatalf("one-shot command proposal was not persisted: %#v err=%v", proposals, err)
-	}
-	requests := provider.Requests()
-	if len(requests) != 2 ||
-		!hasToolSpec(requests[0], string(toolgateway.OneShotCommandProposeTool)) ||
-		!hasToolResult(requests[1], proposals[0].ID) {
-		t.Fatalf("model did not receive the one-shot proposal result: %#v", requests)
 	}
 }
 

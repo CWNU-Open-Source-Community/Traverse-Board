@@ -9,6 +9,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/sandbox"
 )
@@ -130,6 +131,7 @@ func TestDockerContainerPlanRollsBackFakeFailureAndRejectsProductionClaims(t *te
 
 func prepareDockerContainerPlanAuthority(t *testing.T, ctx context.Context,
 	service *SandboxManifestService, runID, root, prefix, requestedBy string,
+	runLease ...domain.RunExecutionLease,
 ) (sandbox.Manifest, sandbox.DockerObservation) {
 	t.Helper()
 	for _, name := range []string{"src", "output"} {
@@ -159,10 +161,16 @@ func prepareDockerContainerPlanAuthority(t *testing.T, ctx context.Context,
 		prefix+"-review", requestedBy, ""); err != nil {
 		t.Fatal(err)
 	}
-	validated, err := service.ValidateExecutionCandidate(ctx,
-		ValidateSandboxExecutionCandidateRequest{PreparationID: prepared.Preparation.ID,
-			Manifest: manifest, ApprovalID: record.ID, OperationKey: prefix + "-candidate",
-			RequestedBy: requestedBy})
+	candidateRequest := ValidateSandboxExecutionCandidateRequest{PreparationID: prepared.Preparation.ID,
+		Manifest: manifest, ApprovalID: record.ID, OperationKey: prefix + "-candidate", RequestedBy: requestedBy}
+	var validated sandbox.ValidatedExecutionCandidate
+	if len(runLease) == 1 {
+		validated, err = service.validateLeaseBoundExecutionCandidate(ctx, candidateRequest, runLease[0])
+	} else if len(runLease) == 0 {
+		validated, err = service.ValidateExecutionCandidate(ctx, candidateRequest)
+	} else {
+		t.Fatal("one admission lease is required")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,11 @@
 # GitHub Review Provider / GitHub 审阅集成
 
+Current execution uses Ask / Auto / Full. A confirmed mutation for a Full Run
+also needs `--enable-permission-control --enable-danger-full-access --confirm-full`
+in the same CLI invocation. The existing `--confirm` and exact approval checks
+remain required. Full activation ends when the command returns; read-only and
+receipt recovery operations do not activate it.
+
 Schema v124 adds the default-off `github-review-provider.v1` for Code Surface review work. It is a GitHub-specific evidence and write-back adapter behind the existing Go control plane; it is not a browser-side SDK and it does not give the model a GitHub token, generic HTTP client, Git shell, or remote mutation authority.
 
 Schema v124 新增默认关闭的 `github-review-provider.v1`，用于 Code Surface 的审阅工作。它是既有 Go 控制面之后的 GitHub 证据与回写适配器；不是浏览器端 SDK，也不会向模型提供 GitHub token、通用 HTTP、Git Shell 或远端写权限。

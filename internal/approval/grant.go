@@ -92,7 +92,7 @@ func (g SessionGrant) Validate() error {
 			g.InteractionSnapshotID == "" || g.ExecutionProfileSnapshotID == "" ||
 			g.PermissionSnapshotID == "" || g.ModeRevision <= 0 ||
 			g.InteractionRevision <= 0 || g.ExecutionProfileRevision <= 0 ||
-			g.PermissionRevision <= 0 || g.PermissionMode != "workspace_access" {
+			g.PermissionRevision <= 0 || !boundedGrantPermission(g.ToolName, g.ActionClass, g.PermissionMode) {
 			return errors.New("bounded approval grant exact scope, TTL, use count, generation, and snapshots are invalid")
 		}
 	} else if g.Generation != 0 || g.MaxUses != 0 || g.UsesRemaining != 0 ||
@@ -196,7 +196,7 @@ func (r CreateGrantRequest) Normalize() (CreateGrantRequest, error) {
 			r.InteractionSnapshotID == "" || r.ExecutionProfileSnapshotID == "" ||
 			r.PermissionSnapshotID == "" || r.ModeRevision <= 0 ||
 			r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
-			r.PermissionRevision <= 0 || r.PermissionMode != "workspace_access" {
+			r.PermissionRevision <= 0 || !boundedGrantPermission(r.ToolName, r.ActionClass, r.PermissionMode) {
 			return CreateGrantRequest{}, errors.New("bounded approval grant requires exact scope, short TTL, use count, generation, and snapshots")
 		}
 	} else if r.Generation != 0 || r.MaxUses != 0 || r.TTL != 0 ||

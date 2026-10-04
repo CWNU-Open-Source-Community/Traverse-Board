@@ -83,7 +83,7 @@ func TestThreadTerminalComposerCreatesFreshAuthorityFreeSuccessor(t *testing.T) 
 				t.Fatalf("successor continuity inherited authority: %#v", continuity)
 			}
 			permission, err := st.GetRunExecutionPermission(ctx, result.Run.ID)
-			if err != nil || permission.Mode != domain.RunExecutionPermissionConservative ||
+			if err != nil || permission.Mode != domain.RunExecutionPermissionAsk ||
 				permission.OperatorConfirmed || permission.ProcessEnabled ||
 				permission.ExecutionAuthorized || permission.CapabilityGrant {
 				t.Fatalf("successor permission=%#v err=%v", permission, err)

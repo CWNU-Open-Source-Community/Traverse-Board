@@ -1,9 +1,11 @@
 # Standard Code atomic preset
 
 `standard_code_preset.v1` is the Go-owned entry point behind **Start coding**.
-It creates or reconfigures one Run as Code/Plan with `controlled`,
-`workspace_access`, restricted browser CDP, a trusted ready Drydock, disabled
-network, and no credentials. It does not start execution or grant authority.
+It creates or reconfigures one Run as Code/Plan with `controlled`, restricted
+browser CDP, a trusted ready Drydock, disabled network and no credentials. New
+Runs default to Ask; existing Ask/Auto/Full preferences are preserved, and old
+permission modes migrate to Ask. The preset never activates Full, starts execution
+or grants runtime authority.
 
 ## Runtime prerequisites
 
@@ -17,9 +19,9 @@ network, and no credentials. It does not start execution or grant authority.
 - No symlink/reparse entry or submodule gitlink in the source Workspace.
 
 `auto` selects only a ready Local adapter. If Local is unavailable, inspect
-`docker_readiness`, `blocked_by`, and `next_steps`; choose Docker explicitly or
-use the separate Approval workflow. There is no automatic Docker, host-process,
-or Full Access fallback.
+`docker_readiness`, `blocked_by`, and `next_steps`; choose Docker explicitly
+or keep the Run blocked until a reviewed backend is available. There is no
+automatic Docker, host-process or Full activation fallback.
 
 ## CLI
 

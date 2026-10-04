@@ -8,34 +8,9 @@ import (
 
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func getAgentBrowserCallTx(ctx context.Context, tx *sql.Tx, runID, callID string) (domain.SupervisorToolCall, bool, error) {
-	c, e := scanSupervisorToolCall(tx.QueryRowContext(ctx, `SELECT run_id,turn,attempt_id,round,position,model_attempt,call_id,stream_response_id,stream_item_id,stream_call_id,tool_name,payload_json,authority_json,status,result_json,error_code,created_at,completed_at FROM run_supervisor_tool_calls WHERE run_id=? AND call_id=?`, runID, callID))
-	if e != nil {
-		return c, false, e
-	}
-	e = tx.QueryRowContext(ctx, `SELECT agent_id,agent_attempt_id,attribution_source FROM run_supervisor_tool_call_agents WHERE run_id=? AND turn=? AND attempt_id=? AND call_id=?`, c.RunID, c.Turn, c.AttemptID, c.CallID).Scan(&c.AgentID, &c.AgentAttemptID, &c.AgentAttribution)
-	if e != nil {
-		return c, false, e
-	}
-	started, e := supervisorModelEventExistsTx(ctx, tx, runID, events.SupervisorToolExecutionStartedEvent, callID)
-	return c, started, e
-}
-func (s *SQLiteStore) GetAgentBrowserCall(ctx context.Context, runID, callID string) (domain.SupervisorToolCall, bool, error) {
-	tx, e := s.db.BeginTx(ctx, nil)
-	if e != nil {
-		return domain.SupervisorToolCall{}, false, e
-	}
-	defer tx.Rollback()
-	c, started, e := getAgentBrowserCallTx(ctx, tx, runID, callID)
-	if e != nil {
-		return c, started, e
-	}
-	return c, started, tx.Commit()
-}
 func validateAgentBrowserApprovalSourceTx(ctx context.Context, tx *sql.Tx, p approval.Proposal) error {
 	binding, bound, e := runBindingForSessionTx(ctx, tx, p.SessionID)
 	if e != nil {
@@ -44,7 +19,7 @@ func validateAgentBrowserApprovalSourceTx(ctx context.Context, tx *sql.Tx, p app
 	if !bound {
 		return errors.New("browser approval requires a bound Run session")
 	}
-	c, started, e := getAgentBrowserCallTx(ctx, tx, binding.RunID, p.ProposalID)
+	c, started, e := getSupervisorApprovalCallTx(ctx, tx, binding.RunID, p.ProposalID)
 	if e != nil {
 		return e
 	}
@@ -80,7 +55,7 @@ func validateAgentBrowserPreflightResultTx(ctx context.Context, tx *sql.Tx, call
 	if (result.Status != domain.SupervisorToolDenied || result.ErrorCode != "policy_denied") && (result.Status != domain.SupervisorToolFailed || result.ErrorCode != "browser_authority_expired") {
 		return false, nil
 	}
-	exact, started, e := getAgentBrowserCallTx(ctx, tx, call.RunID, call.CallID)
+	exact, started, e := getSupervisorApprovalCallTx(ctx, tx, call.RunID, call.CallID)
 	if e != nil {
 		return false, e
 	}

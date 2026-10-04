@@ -27,12 +27,18 @@ func TestRunCapabilityReadinessProjectsStableFailureReasons(t *testing.T) {
 		projection.RunID != run.ID || projection.CapabilityGrant || projection.Validate() != nil {
 		t.Fatalf("invalid readiness envelope: %#v", projection)
 	}
-	workspace := readinessOption(t, projection.Permissions, "workspace_access")
-	assertReadinessBlockers(t, workspace,
-		application.CapabilityBlockerStartupGateClosed,
-		application.CapabilityBlockerSandboxUnproven)
-	if workspace.Selectable || workspace.RuntimeAvailable || !workspace.RestartRequired {
-		t.Fatalf("unexpected Workspace Access readiness: %#v", workspace)
+	// Approval preferences do not establish an installed sandbox. Check its
+	// real proof below in the Local profile, independently of Ask/Auto.
+	for _, mode := range []string{"ask", "auto"} {
+		option := readinessOption(t, projection.Permissions, mode)
+		if !option.Selectable || !option.RuntimeAvailable || option.RestartRequired {
+			t.Fatalf("approval preference was coupled to sandbox installation: %#v", option)
+		}
+	}
+	full := readinessOption(t, projection.Permissions, "full")
+	assertReadinessBlockers(t, full, application.CapabilityBlockerStartupGateClosed)
+	if full.Selectable || full.RuntimeAvailable || !full.RestartRequired {
+		t.Fatalf("Full bypassed its runtime gate: %#v", full)
 	}
 	local := readinessOption(t, projection.Profiles, "local")
 	assertReadinessBlockers(t, local,
@@ -129,7 +135,7 @@ func TestRunCapabilityReadinessDistinguishesRunningPausedAndActiveLease(t *testi
 	if preview.Selectable || !preview.RuntimeAvailable {
 		t.Fatalf("active lease was not separated from runtime readiness: %#v", preview)
 	}
-	conservative := readinessOption(t, leased.Permissions, "conservative")
+	conservative := readinessOption(t, leased.Permissions, "ask")
 	if !conservative.Selectable || !conservative.RuntimeAvailable {
 		t.Fatalf("permission revision must remain selectable so it can revoke authority: %#v",
 			conservative)
@@ -148,17 +154,16 @@ func TestRunCapabilityReadinessAllowsFullCDPInsideLiveFullAccessOnly(t *testing.
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	permissionService := application.NewRunExecutionPermissionService(
 		state, executionCapabilities)
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "readiness-live-full-access-0001", RequestedBy: "test_operator",
-			Reason:                  "activate current Run Full Access for Full CDP",
-			ConfirmDangerFullAccess: true,
+			Reason:      "activate current Run Full Access for Full CDP",
+			ConfirmFull: true,
 		}); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +184,7 @@ func TestRunCapabilityReadinessAllowsFullCDPInsideLiveFullAccessOnly(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	fullPermission := readinessOption(t, stale.Permissions, "full_access")
+	fullPermission := readinessOption(t, stale.Permissions, "full")
 	if !fullPermission.Selectable || fullPermission.RuntimeAvailable ||
 		!hasReadinessBlocker(fullPermission,
 			application.CapabilityBlockerPermissionMismatch) {
@@ -225,14 +230,16 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		WorkspaceSandboxEnabled: true,
+		RuntimeAuthority:        domain.NewExecutionPermissionRuntimeAuthority()}
 	permissions := application.NewRunExecutionPermissionService(state, capabilities)
 	if _, err := permissions.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
+			Mode:         string(domain.RunExecutionPermissionFull),
 			OperationKey: "readiness-command-runtime-permission",
 			RequestedBy:  "test_operator", Reason: "select host runtime permission",
-			ConfirmDangerFullAccess: true}); err != nil {
+			ConfirmFull: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
@@ -246,6 +253,7 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 	}
 	runtime := readyCapabilityReadinessRuntime()
 	runtime.RunExecutionEnabled = true
+	runtime.ExecutionPermissionCapabilities = capabilities
 	identity := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
 	runtime.CommandRuntimeAdapters = []commandruntimeadapter.Identity{identity}
 	advertiser := &readinessCommandRuntimeAdvertiser{identity: identity, ready: true}
@@ -259,6 +267,18 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 		!status.CurrentRunGranted || status.AdapterKind != "host_unsandboxed" ||
 		status.Backend != "run_owned_command_runtime" {
 		t.Fatalf("granted Command Runtime status=%#v", status)
+	}
+	coldRuntime := runtime
+	coldRuntime.ExecutionPermissionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	for _, authoritative := range []bool{false, true} {
+		coldService := application.NewRunCapabilityReadinessService(state, coldRuntime)
+		if authoritative {
+			coldService = application.NewRunCapabilityReadinessService(state, coldRuntime, advertiser)
+		}
+		cold, err := coldService.Project(ctx, run.ID)
+		if err != nil || cold.CommandRuntime.CurrentRunGranted || !cold.CommandRuntime.AdapterInstalled || !cold.CommandRuntime.AdapterReady {
+			t.Fatalf("cold Full readiness authoritative=%t: %#v err=%v", authoritative, cold, err)
+		}
 	}
 	advertiser.ready = false
 	notReady, err := service.Project(ctx, run.ID)
@@ -279,7 +299,7 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 	}
 	if _, err := permissions.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionConservative),
+			Mode:         string(domain.RunExecutionPermissionAsk),
 			OperationKey: "readiness-command-runtime-revoke",
 			RequestedBy:  "test_operator", Reason: "revoke current Run grant"}); err != nil {
 		t.Fatal(err)
@@ -290,7 +310,7 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 	}
 	status = revoked.CommandRuntime
 	if !status.ProtocolAvailable || !status.AdapterInstalled || !status.AdapterReady ||
-		status.CurrentRunGranted || status.AdapterKind != "" || status.Backend != "" {
+		status.CurrentRunGranted || status.AdapterKind != "host_unsandboxed" || status.Backend == "" {
 		t.Fatalf("revoked Command Runtime status=%#v", status)
 	}
 }
@@ -370,8 +390,7 @@ func readyCapabilityReadinessRuntime() application.CapabilityReadinessRuntime {
 		BrowserCDPPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
 			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-		},
+			DangerFullAccessEnabled: true},
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled: true, FullDebugEnabled: true,
 		},

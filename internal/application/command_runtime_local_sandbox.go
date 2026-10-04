@@ -110,7 +110,7 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 ) (runner.CommandRuntimeSandboxResult, error) {
 	if ctx == nil || ctx.Err() != nil || !e.Available() ||
 		scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) ||
-		scope.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+		!e.identity.AllowsPermission(scope.PermissionMode) ||
 		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinClosed &&
 			(stdin != nil || !spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "")) ||
 		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe && stdin == nil) ||
@@ -158,7 +158,7 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 		profile.Profile != domain.RunExecutionProfileLocal ||
 		permission.ID != scope.PermissionSnapshotID ||
 		permission.Revision != scope.PermissionRevision ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		permission.Mode != scope.PermissionMode || !e.identity.AllowsPermission(permission.Mode) ||
 		interaction.Mode != domain.RunExecutionInteractionControlled ||
 		lease.LeaseID != scope.LeaseID || lease.Generation != scope.LeaseGeneration ||
 		lease.OwnerID != scope.LeaseOwnerID || lease.Status != domain.RunExecutionLeaseActive {
@@ -172,6 +172,9 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 	}
 	var value sandbox.LocalExecutionResult
 	var runErr error
+	if err := runner.CheckCommandRuntimeDispatch(ctx, spec); err != nil {
+		return runner.CommandRuntimeSandboxResult{}, err
+	}
 	if spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe {
 		value, runErr = e.backend.RunWithStdin(ctx, request, stdin)
 	} else {

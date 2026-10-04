@@ -83,10 +83,19 @@ func TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness(t *testing.T)
 	if err := json.Unmarshal(envelope.Data, &projection); err != nil {
 		t.Fatal(err)
 	}
-	workspace := projection.Permissions[1]
-	if workspace.Value != string(domain.RunExecutionPermissionWorkspaceAccess) ||
-		!workspace.Selectable || !workspace.RuntimeAvailable || projection.CapabilityGrant {
-		t.Fatalf("Desktop did not consume Local readiness: %#v", workspace)
+	if len(projection.Permissions) != 3 {
+		t.Fatalf("Desktop did not expose the three approval modes: %#v", projection.Permissions)
+	}
+	var automatic httpapi.CapabilityReadinessOptionView
+	for _, option := range projection.Permissions {
+		if option.Value == string(domain.RunExecutionPermissionAuto) {
+			automatic = option
+			break
+		}
+	}
+	if automatic.Value != string(domain.RunExecutionPermissionAuto) ||
+		!automatic.Selectable || !automatic.RuntimeAvailable || projection.CapabilityGrant {
+		t.Fatalf("Desktop did not consume Local readiness for Auto: %#v", automatic)
 	}
 	if !plane.StandardCodePresetEnabled() {
 		t.Fatal("Desktop did not expose the Go-owned Standard Code preset")

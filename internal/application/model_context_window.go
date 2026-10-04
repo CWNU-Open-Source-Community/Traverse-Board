@@ -80,16 +80,18 @@ func constrainRequestToModelWindow(request llm.ChatRequest, window llm.ContextWi
 		omitted++
 		estimated = estimateModelRequestTokens(request)
 	}
-	if estimated > inputLimit {
-		return llm.ChatRequest{}, modelContextPlan{}, apperror.New(
-			apperror.CodeResourceExhausted,
-			"mandatory model context exceeds the conservative input window")
-	}
 	plan := modelContextPlan{
 		WindowTokens: window.WindowTokens, InputLimitTokens: inputLimit,
 		EstimatedInput: estimated, OutputLimitTokens: request.MaxTokens,
 		OutputReserveTokens: outputReserve,
 		HistoryOmitted:      omitted, SafetyMarginTokens: window.SafetyMarginTokens,
+	}
+	// Return the omission plan even when mandatory input also overflows.
+	// Root callers must persist eligible history before rebuilding the request;
+	// they must never send this temporary lossy slice to the provider.
+	if estimated > inputLimit {
+		return llm.ChatRequest{}, plan, apperror.New(apperror.CodeResourceExhausted,
+			"mandatory model context exceeds the conservative input window")
 	}
 	metadata := make(map[string]string, len(request.Metadata)+8)
 	for key, value := range request.Metadata {

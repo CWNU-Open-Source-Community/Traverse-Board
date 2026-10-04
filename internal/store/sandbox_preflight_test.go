@@ -148,7 +148,7 @@ func TestSandboxPreflightConcurrentReplayConvergesAcrossStores(t *testing.T) {
 func TestSchemaV50UpgradeAddsSandboxPreflightWithoutLosingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v50.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	lifecycle := createSandboxLifecycleStoreFixture(t, ctx, st, run.ID)
 	for _, statement := range removeSchemaV51ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {

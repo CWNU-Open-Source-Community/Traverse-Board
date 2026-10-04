@@ -27,16 +27,11 @@ func removeSchemaV82ForTestStatements() []string {
 func TestSchemaV82UpgradePreservesAndFoldsLegacySummary(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "context-handoff-v81.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 81)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV82ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove v82 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	createdAt := time.Now().UTC().Add(-time.Minute)
 	result, err := st.db.ExecContext(ctx, `INSERT INTO context_summaries
 		(task_id, workspace_id, content, source_message_count,

@@ -249,7 +249,7 @@ func beginDelegationTestTurn(t *testing.T, ctx context.Context, st *SQLiteStore,
 	goal string,
 ) (domain.Run, domain.SupervisorTurn, domain.RunExecutionLease) {
 	t.Helper()
-	service := application.NewRunService(st)
+	service := newMigrationFixtureRunService(t, st)
 	_, run, err := service.Create(ctx, application.CreateRunRequest{
 		Goal: goal, Profile: "code", WorkspaceID: "ws-delegation",
 		Budget: domain.Budget{MaxTurns: 8, MaxTokens: 2000, MaxToolCalls: 20},

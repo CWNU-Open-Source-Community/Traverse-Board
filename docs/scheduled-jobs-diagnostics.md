@@ -137,7 +137,8 @@ jobs resumed with exact revision CAS. **Export diagnostics** downloads the same 
 ## Repair mode / 修复模式
 
 `approved_repair` is not a shortcut around normal tools. Creation requires Code/Deliver,
-root, explicit `--confirm-repair`, and the current operator-confirmed execution permission.
+root, explicit `--confirm-repair`, and operator-confirmed modern Full with current
+process activation. Historical permission modes cannot authorize repair.
 The authorization stores exact snapshot identities/revisions and expiry. Every execution
 rechecks them; phase, permission, expiry, cancellation, or revision drift fails closed.
 Only separately configured repair capabilities may be used, and their normal Policy and

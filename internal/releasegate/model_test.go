@@ -21,7 +21,7 @@ func TestAggregateFilesRequiresExactCompleteCandidateBoundEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	if report.Status != StatusPassed || !report.Gate.ReleaseAuthorized ||
-		report.Coverage.SecurityPassedRuns != 75 || report.Coverage.ProductScenarios != 4 ||
+		report.Coverage.SecurityPassedRuns != 73 || report.Coverage.ProductScenarios != 8 ||
 		len(report.Coverage.EdgeCases) != 8 || report.Components.Product.ChainSHA256 == "" {
 		t.Fatalf("unexpected aggregate: %+v", report)
 	}
@@ -43,6 +43,23 @@ func TestAggregateFilesRequiresExactCompleteCandidateBoundEvidence(t *testing.T)
 		if strings.Contains(string(content), forbidden) {
 			t.Fatalf("aggregate leaked forbidden content %q", forbidden)
 		}
+	}
+}
+
+func TestAggregateFilesRejectsRetiredFallbackEvidence(t *testing.T) {
+	paths := writeValidInputs(t)
+	product := readProductReport(t, paths.ProductReport)
+	product.Backends[1] = producte2e.BackendSummary{Backend: "docker", State: "approval_required", ApprovalID: "approval-docker", FallbackReason: "docker_unavailable", EvidenceSHA256: strings.Repeat("a", 64)}
+	product.Scenarios = product.Scenarios[:4]
+	product.Coverage.RealFailureRetries = 4
+	product.Coverage.RealProcessJobs = 8
+	product, err := product.Seal()
+	if err != nil {
+		t.Fatalf("historical report remains readable: %v", err)
+	}
+	writeJSON(t, paths.ProductReport, product)
+	if _, err := AggregateFiles(paths); err == nil || !strings.Contains(err.Error(), "approval fallback is retired") {
+		t.Fatalf("retired fallback authorized a current release: %v", err)
 	}
 }
 
@@ -89,7 +106,7 @@ func TestAggregateFilesRejectsTamperedSecurityAndBootstrapEvidence(t *testing.T)
 
 	paths = writeValidInputs(t)
 	bootstrap := readBootstrapReport(t, paths.BootstrapReport)
-	bootstrap.AttackMatrix.EvidencedCaseCount = 40
+	bootstrap.AttackMatrix.EvidencedCaseCount = 39
 	bootstrap.AttackMatrix.RemainingRequiredCaseCount = 0
 	bootstrap.AttackMatrix.Status = "passed"
 	writeJSON(t, paths.BootstrapReport, bootstrap)
@@ -222,11 +239,11 @@ func validBootstrap(now time.Time, revision, binarySHA, archiveSHA, fixtureSHA, 
 			ArchiveSHA256: archiveSHA, BinarySHA256: binarySHA, SourceDateEpoch: 1_700_000_000},
 		FixtureSet: bootstrapFixtureSet{ProtocolVersion: packagede2e.FixtureSetProtocol,
 			ManifestSHA256: fixtureSHA, AttackMatrixSHA256: matrixSHA,
-			RepositoryCount: 4, AttackCaseCount: 40, OracleVerified: true,
+			RepositoryCount: 4, AttackCaseCount: 39, OracleVerified: true,
 			AllAttackCasesBound: true},
 		Results: results,
-		AttackMatrix: bootstrapAttackMatrix{RequiredCaseCount: 40, PreparedCaseCount: 40,
-			EvidencedCaseCount: 0, RemainingRequiredCaseCount: 40,
+		AttackMatrix: bootstrapAttackMatrix{RequiredCaseCount: 39, PreparedCaseCount: 39,
+			EvidencedCaseCount: 0, RemainingRequiredCaseCount: 39,
 			Status: "needs_full_matrix", FailurePolicy: "fail_closed_no_waiver",
 			UnexecutedCasesAreNotPassOrSkip: true}}
 }
@@ -247,8 +264,7 @@ func validProductReport(t *testing.T, now time.Time, revision, binarySHA string,
 			ReportSHA256: digest, ManifestSHA256: fixtureSHA,
 			AttackMatrixSHA256: matrixSHA, RepositoryCount: 4, OracleVerified: true},
 		Backends: []producte2e.BackendSummary{{Backend: "local", State: "ready", PassedRuns: 4},
-			{Backend: "docker", State: "approval_required", ApprovalID: "approval-docker",
-				FallbackReason: "docker_unavailable", EvidenceSHA256: digest}},
+			{Backend: "docker", State: "ready", PassedRuns: 4}},
 		Coverage: producte2e.Coverage{Languages: languages,
 			Backends: []string{"local", "docker"},
 			Surfaces: []string{"desktop", "cli", "http", "handoff", "final"},
@@ -256,19 +272,21 @@ func validProductReport(t *testing.T, now time.Time, revision, binarySHA string,
 				"dirty_tracked", "untracked", "binary", "concurrent_edit"},
 			ContinuityCases:  []string{"completed", "failed", "approval_wait", "restart"},
 			OperatingSystems: []string{"windows_10", "windows_11"},
-			DPIPercents:      []int{100, 200}, RealFailureRetries: 4, RealProcessJobs: 8},
+			DPIPercents:      []int{100, 200}, RealFailureRetries: 8, RealProcessJobs: 16},
 		Safeguards:    producte2e.Safeguards{NetworkDisabled: true, CredentialsAbsent: true},
 		RunbookSHA256: digest}
-	for _, language := range languages {
-		report.Scenarios = append(report.Scenarios, producte2e.ScenarioSummary{
-			ID: language + "-local", Language: language, Backend: "local",
-			RunID: "run-" + language, ThreadID: "thread-" + language,
-			SessionID: "session-" + language, FixtureHead: strings.Repeat("c", 40),
-			ReadRounds: 2, AppliedEdits: 2, FailedJobs: 1, PassedJobs: 1,
-			FixRounds: 1, ArtifactCount: 2, ProjectionCount: 5,
-			ReceiptSHA256: digest, DiffSHA256: digest,
-			CheckpointID: "checkpoint-" + language, WorkspaceRevision: digest,
-			SourceWorkPreserved: true})
+	for _, backend := range []string{"local", "docker"} {
+		for _, language := range languages {
+			report.Scenarios = append(report.Scenarios, producte2e.ScenarioSummary{
+				ID: language + "-" + backend, Language: language, Backend: backend,
+				RunID: "run-" + language + "-" + backend, ThreadID: "thread-" + language + "-" + backend,
+				SessionID: "session-" + language, FixtureHead: strings.Repeat("c", 40),
+				ReadRounds: 2, AppliedEdits: 2, FailedJobs: 1, PassedJobs: 1,
+				FixRounds: 1, ArtifactCount: 2, ProjectionCount: 5,
+				ReceiptSHA256: digest, DiffSHA256: digest,
+				CheckpointID: "checkpoint-" + language, WorkspaceRevision: digest,
+				SourceWorkPreserved: true})
+		}
 	}
 	for _, current := range []string{"completed", "failed", "approval_wait", "restart"} {
 		summary := producte2e.ContinuitySummary{Case: current, ThreadID: "thread-" + current,

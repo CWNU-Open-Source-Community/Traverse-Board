@@ -9,12 +9,8 @@ export type ApprovalDecisionControlView = components["schemas"]["ApprovalDecisio
 export type ApprovalQueueItemView = components["schemas"]["ApprovalQueueItemView"];
 export type ApprovalQueueView = components["schemas"]["ApprovalQueueView"];
 export type ApprovalPreviewView = components["schemas"]["ApprovalPreviewView"];
-export type ControlledCommandProposalReviewRequestView =
-  components["schemas"]["ControlledCommandProposalReviewRequestView"];
 export type ControlledCommandProposalView =
   components["schemas"]["ControlledCommandProposalView"];
-export type HostCommandProposalReviewRequestView =
-  components["schemas"]["HostCommandProposalReviewRequestView"];
 export type HostCommandProposalView =
   components["schemas"]["HostCommandProposalView"];
 export type ApprovalContinuationView = components["schemas"]["ApprovalContinuationResult"];
@@ -298,6 +294,8 @@ export type RunWakeExecutionRequestView = components["schemas"]["RunWakeExecutio
 export type RunWakeExecutionView = components["schemas"]["RunWakeExecutionView"];
 export type SkillPackageInstallRequestView = components["schemas"]["SkillPackageInstallRequestView"];
 export type SkillPackageInstallView = components["schemas"]["SkillPackageInstallView"];
+export type PluginSkillInstallView = components["schemas"]["PluginSkillInstallView"];
+export type SkillPackageInstallResult = SkillPackageInstallView | PluginSkillInstallView;
 export type NoteView = components["schemas"]["NoteView"];
 export type OperatorSteeringQueueView = components["schemas"]["OperatorSteeringQueueView"];
 export type Page = components["schemas"]["Page"];

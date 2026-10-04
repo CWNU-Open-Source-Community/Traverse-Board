@@ -5,72 +5,145 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unsafe"
+
+	"cyberagent-workbench/internal/domain"
 
 	"golang.org/x/sys/windows"
 )
 
-func TestWindowsControlledExecutionOptIn(t *testing.T) {
-	if os.Getenv("CYBERAGENT_TEST_WINDOWS_CONTROLLED_EXECUTION") != "1" {
-		t.Skip("set CYBERAGENT_TEST_WINDOWS_CONTROLLED_EXECUTION=1 for the process smoke")
-	}
-	request := controlledExecutionTestRequest(t, ControlledCommandGoVersion)
-	token, tokenErr := newLowIntegrityRestrictedToken()
-	if tokenErr != nil {
-		t.Fatalf("restricted token setup: %v", tokenErr)
-	}
-	_ = token.Close()
-	executor, err := NewPlatformControlledExecutor()
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := executor.Execute(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ExitCode != 0 || !bytes.HasPrefix(result.Stdout.Data, []byte("go version ")) ||
-		len(result.Stderr.Data) != 0 || !result.TreeReaped ||
-		!result.RestrictedToken || !result.LowIntegrityToken ||
-		!result.JobAssignedAtCreation {
-		t.Fatalf("unexpected Windows execution result: %+v", result)
-	}
-
-	const expressionPath = "(Write-Output PRAYU_PATH_INJECTION)"
-	planRequest := controlledCommandTestRequest(t,
-		ControlledCommandPowerShellWorkspaceList)
-	planRequest.RelativePath = expressionPath
-	if err := os.Mkdir(filepath.Join(planRequest.WorkspaceRoot, expressionPath),
-		0o755); err != nil {
-		t.Fatal(err)
-	}
-	const marker = "literal-path-marker.txt"
-	if err := os.WriteFile(filepath.Join(planRequest.WorkspaceRoot,
-		expressionPath, marker), []byte("marker"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := PlanControlledCommand(planRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pathResult, err := executor.Execute(context.Background(),
-		ControlledExecutionRequest{
-			Plan: plan, WorkspaceRoot: planRequest.WorkspaceRoot,
-			Interaction:    planRequest.Interaction,
-			CurrentProfile: planRequest.CurrentProfile,
-			CurrentSurface: planRequest.CurrentSurface,
-			RequestedBy:    "test_operator", OperatorConfirmed: true,
+func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir())
+	for _, kind := range []ControlledCommandKind{ControlledCommandGoVersion, ControlledCommandPowerShellWorkspaceList} {
+		t.Run(string(kind), func(t *testing.T) {
+			request := controlledCommandTestRequest(t, kind)
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				// Test native isolation independently of the default execution deadline.
+				request.Timeout = time.Minute
+			}
+			if err := os.WriteFile(filepath.Join(request.WorkspaceRoot, "fixed-list-marker.txt"), []byte("marker"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanControlledCommand(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == ControlledCommandPowerShellWorkspaceList && plan.TimeoutMilliseconds != 60_000 {
+				t.Fatal("fixed native correctness budget changed")
+			}
+			manager, intent, err := NewFixedCommandRuntimeManager(newCommandRuntimeMemoryStore(), "fixed-native-test", plan, request.WorkspaceRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := manager.NormalizeCommandRuntimeSpec(intent, request.WorkspaceRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				profile := ""
+				for _, entry := range resolved.Environment {
+					name, value, _ := strings.Cut(entry, "=")
+					if strings.EqualFold(name, "USERPROFILE") {
+						profile = value
+					}
+				}
+				if profile != resolved.WorkspaceRoot || commandRuntimePathEqual(profile, os.Getenv("USERPROFILE")) ||
+					resolved.EnvironmentInherited || resolved.ProfileStartupFiles {
+					t.Fatalf("fixed PowerShell did not bind the workspace profile: %+v", resolved)
+				}
+				encoded, _ := json.Marshal(resolved.Environment)
+				if resolved.EnvironmentSHA256 != commandRuntimeStringSHA256(string(encoded)) {
+					t.Fatal("fixed environment digest does not describe the launch")
+				}
+			}
+			changed := intent
+			changed.Environment = []CommandRuntimeEnvironment{{Name: "UNTRUSTED", Value: "1"}}
+			if _, err := manager.NormalizeCommandRuntimeSpec(changed, request.WorkspaceRoot); err == nil {
+				t.Fatal("fixed plan accepted external environment")
+			}
+			adapter, _ := manager.AdapterIdentity()
+			scope := CommandRuntimeScope{AttributionSource: domain.AgentAttributionOperatorRoot, Adapter: adapter}
+			ctx := withCommandRuntimeDispatchCheck(t.Context(), func(context.Context, CommandRuntimeResolvedSpec) error { return nil })
+			forged := scope
+			forged.AttributionSource = domain.AgentAttributionRecorded
+			if _, err := manager.starter.Start(ctx, forged, resolved); err == nil {
+				t.Fatal("fixed native starter accepted an agent source")
+			}
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				redirected := resolved
+				redirected.Environment = replaceCommandRuntimeEnvironment(append([]string(nil), resolved.Environment...), "USERPROFILE", os.Getenv("USERPROFILE"))
+				encoded, _ := json.Marshal(redirected.Environment)
+				redirected.EnvironmentSHA256 = commandRuntimeStringSHA256(string(encoded))
+				if _, err := manager.starter.Start(ctx, scope, redirected); err == nil {
+					t.Fatal("fixed native starter accepted a redirected profile with a matching digest")
+				}
+			}
+			process, err := manager.starter.Start(ctx, scope, resolved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer process.Close()
+			native := process.(*windowsCommandRuntimeProcess)
+			var token windows.Token
+			if err := windows.OpenProcessToken(native.process, windows.TOKEN_QUERY, &token); err != nil {
+				t.Fatal(err)
+			}
+			defer token.Close()
+			var restricted, size uint32
+			if err := windows.GetTokenInformation(token, windows.TokenHasRestrictions, (*byte)(unsafe.Pointer(&restricted)), uint32(unsafe.Sizeof(restricted)), &size); err != nil || restricted != 1 {
+				t.Fatal("native token is not restricted", restricted, err)
+			}
+			label := make([]byte, 1024)
+			if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel, &label[0], uint32(len(label)), &size); err != nil {
+				t.Fatal(err)
+			}
+			if got := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&label[0])).Label.Sid.String(); got != "S-1-16-4096" {
+				t.Fatal("native integrity is not Low", got)
+			}
+			var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+			if err := windows.QueryInformationJobObject(native.job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+				t.Fatal(err)
+			}
+			if limits.BasicLimitInformation.ActiveProcessLimit != 1 || limits.ProcessMemoryLimit != MaxControlledProcessMemoryBytes || limits.BasicLimitInformation.LimitFlags&windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0 {
+				t.Fatalf("fixed Job limits changed %+v", limits)
+			}
+			result := waitWindowsProfileTestProcess(process, time.Duration(plan.TimeoutMilliseconds)*time.Millisecond)
+			if result.watchdog || result.waitErr != nil || result.killErr != nil || result.exitCode != 0 ||
+				result.stdout.err != nil || result.stderr.err != nil || len(result.stderr.value) != 0 {
+				t.Fatalf("restricted process failed: %s", result)
+			}
+			want := "go version "
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				want = "fixed-list-marker.txt"
+			}
+			if !bytes.Contains(result.stdout.value, []byte(want)) {
+				t.Fatalf("fixed output missing %q: %q", want, result.stdout.value)
+			}
+			if reaped, err := waitControlledJobReaped(t.Context(), native.job, time.Second); err != nil || !reaped {
+				t.Fatal("fixed process tree remained", reaped, err)
+			}
+			cancelled, err := manager.starter.Start(ctx, scope, resolved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cancelled.Close()
+			if err := cancelled.Cancel(0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := cancelled.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			if reaped, err := waitControlledJobReaped(t.Context(), cancelled.(*windowsCommandRuntimeProcess).job, time.Second); err != nil || !reaped {
+				t.Fatal("cancelled fixed process tree remained", reaped, err)
+			}
 		})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pathResult.ExitCode != 0 ||
-		!bytes.Contains(pathResult.Stdout.Data, []byte(marker)) {
-		t.Fatalf("PowerShell path was evaluated instead of decoded: %+v",
-			pathResult)
 	}
 }
 

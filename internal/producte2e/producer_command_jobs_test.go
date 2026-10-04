@@ -51,6 +51,15 @@ func TestValidateCommandJobsBindsSourceIdentityToExactDrydockRoot(t *testing.T) 
 		{name: "cross Run", wantErr: true, mutate: func(f *runFacts) {
 			f.jobs[0].RunID = "run-other"
 		}},
+		{name: "historical permission cannot satisfy current proof", wantErr: true, mutate: func(f *runFacts) {
+			f.jobs[0].PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+		}},
+		{name: "cross permission snapshot", wantErr: true, mutate: func(f *runFacts) {
+			f.jobs[0].PermissionSnapshotID = "permission-other"
+		}},
+		{name: "stale permission revision", wantErr: true, mutate: func(f *runFacts) {
+			f.jobs[0].PermissionRevision++
+		}},
 		{name: "cross session", wantErr: true, mutate: func(f *runFacts) {
 			f.jobs[0].SessionID = "session-other"
 		}},
@@ -111,7 +120,7 @@ func collectorCommandFacts(t *testing.T, ownedPath, ownedSHA string) (runFacts, 
 			SessionID: "session-1", WorkspaceID: "source-ws-1", RootAgentID: "agent-1",
 			WorkspaceRootSHA256: ownedSHA, ModeSnapshotID: "mode-1", ModeRevision: 1,
 			ProfileSnapshotID: "profile-1", ProfileRevision: 1, PermissionSnapshotID: "permission-1",
-			PermissionRevision: 1, PermissionMode: domain.RunExecutionPermissionWorkspaceAccess,
+			PermissionRevision: 1, PermissionMode: domain.RunExecutionPermissionAsk,
 			LeaseID: "lease-1", LeaseGeneration: 1, LeaseOwnerID: "lease-owner-1",
 			Adapter: commandruntimeadapter.SandboxedWorkspace("local", "test-local", "test-generation"),
 			OwnerID: "owner-1", OwnerGeneration: 1, OwnerRenewedAt: start, OwnerExpiresAt: start.Add(time.Minute),
@@ -134,10 +143,11 @@ func collectorCommandFacts(t *testing.T, ownedPath, ownedSHA string) (runFacts, 
 	now := time.Date(2026, time.September, 9, 0, 0, 0, 0, time.UTC)
 	failed, passed := makeJob("job-failed", now, 1), makeJob("job-passed", now.Add(time.Minute), 0)
 	return runFacts{
-		run:     domain.Run{ID: "run-1", MissionID: "mission-1", SessionID: "session-1"},
-		mission: domain.Mission{ID: "mission-1", WorkspaceID: "source-ws-1"},
-		drydock: drydock.Workspace{ID: "drydock-1", WorkspaceID: "drydock-ws-1", SourceWorkspaceID: "source-ws-1", Path: ownedPath},
-		jobs:    []runner.CommandRuntimeJob{failed, passed},
+		run:        domain.Run{ID: "run-1", MissionID: "mission-1", SessionID: "session-1"},
+		permission: domain.RunExecutionPermissionSnapshot{ID: "permission-1", RunID: "run-1", MissionID: "mission-1", Mode: domain.RunExecutionPermissionAsk, Revision: 1},
+		mission:    domain.Mission{ID: "mission-1", WorkspaceID: "source-ws-1"},
+		drydock:    drydock.Workspace{ID: "drydock-1", WorkspaceID: "drydock-ws-1", SourceWorkspaceID: "source-ws-1", Path: ownedPath},
+		jobs:       []runner.CommandRuntimeJob{failed, passed},
 		delivery: standardcodedelivery.Report{Verifications: []standardcodedelivery.Verification{{
 			JobID: passed.ID, Conclusion: standardcodedelivery.StatusPassed, ExitCode: passed.ExitCode,
 			State: string(passed.State), CurrentRevision: true, TreeReaped: true,

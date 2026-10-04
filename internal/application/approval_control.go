@@ -8,6 +8,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -26,6 +27,7 @@ type ApprovalControlAction string
 const (
 	ApprovalControlApproveOnce      ApprovalControlAction = "approve_once"
 	ApprovalControlApproveForThread ApprovalControlAction = "approve_for_thread"
+	ApprovalControlApproveForRun    ApprovalControlAction = "approve_for_run"
 	ApprovalControlDeny             ApprovalControlAction = "deny"
 )
 
@@ -61,19 +63,24 @@ type ApprovalControlService struct {
 }
 
 type DecideApprovalControlRequest struct {
-	Version      string
-	RunID        string
-	ApprovalID   string
-	Action       ApprovalControlAction
-	OperationKey string
-	ReviewedBy   string
-	Reason       string
+	Version         string
+	RunID           string
+	ApprovalID      string
+	Action          ApprovalControlAction
+	OperationKey    string
+	ReviewedBy      string
+	Reason          string
+	GrantTTLSeconds int
+	GrantMaxUses    int
 }
 
 type DecideApprovalControlResult struct {
-	Approval approval.Record
-	Action   ApprovalControlAction
-	Replayed bool
+	Approval     approval.Record
+	Action       ApprovalControlAction
+	Replayed     bool
+	Grant        *approval.SessionGrant
+	Consumption  *approval.GrantConsumption
+	GrantCreated bool
 }
 
 func NewApprovalControlService(store ApprovalControlStore, reviewer ApprovalReviewer,
@@ -100,7 +107,7 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 	if err != nil {
 		return DecideApprovalControlResult{}, apperror.Normalize(err)
 	}
-	if record.RunID != run.ID || record.GrantID != "" {
+	if record.RunID != run.ID {
 		return DecideApprovalControlResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"approval is not an ungranted request for the requested Run")
@@ -108,6 +115,12 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 	if record.Mode == string(toolgateway.ApprovalNever) {
 		return DecideApprovalControlResult{}, apperror.New(
 			apperror.CodePolicyDenied, "permanent Policy denial cannot be overridden")
+	}
+	if record.ToolName == string(toolgateway.CommandRuntimeTool) && (request.Action == ApprovalControlApproveForRun || record.GrantID != "") {
+		return s.decideBoundedCommand(ctx, run, record, request)
+	}
+	if record.GrantID != "" {
+		return DecideApprovalControlResult{}, apperror.New(apperror.CodeFailedPrecondition, "approval already belongs to a session grant")
 	}
 	expected := approval.StatusDenied
 	reviewAction := toolgateway.ReviewDeny
@@ -152,10 +165,12 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 		}
 		_, _, err = webStore.DecideWebFetchAuthorization(ctx, value.ID, scope, approve,
 			request.OperationKey, request.ReviewedBy, request.Reason)
-	} else if record.ToolName == toolgateway.AgentBrowserApprovalTool {
-		st, ok := s.store.(agentBrowserApprovalStore)
+	} else if record.ToolName == toolgateway.AgentBrowserApprovalTool || record.ToolName == mcp.OperationApprovalTool || record.ToolName == string(toolgateway.CommandRuntimeTool) {
+		st, ok := s.store.(interface {
+			DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
+		})
 		if !ok {
-			return DecideApprovalControlResult{}, agentBrowserUnavailable("browser approval store unavailable")
+			return DecideApprovalControlResult{}, mcpApprovalUnavailable("tool approval store unavailable")
 		}
 		action := approval.ActionDeny
 		if request.Action == ApprovalControlApproveOnce {
@@ -215,6 +230,27 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 ) error {
 	var decision policy.Decision
 	switch record.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		if err := RecheckCommandApproval(ctx, s.store, record); err != nil {
+			return err
+		}
+		source, err := readCommandApprovalSource(ctx, s.store.(commandApprovalStore), record.RunID, record.ProposalID)
+		if err != nil {
+			return err
+		}
+		decision = toolgateway.CommandRuntimePolicyDecision(s.checker, source.input)
+	case mcp.OperationApprovalTool:
+		if err := RecheckMCPApproval(ctx, s.store, record); err != nil {
+			return err
+		}
+		st := s.store.(mcpApprovalStore)
+		source, err := readMCPApprovalSource(ctx, st, record.RunID, record.ProposalID)
+		if err != nil {
+			return err
+		}
+		p := source.payload
+		decision = s.checker.CheckToolCall(tools.Call{Name: mcp.OperationApprovalTool, Args: map[string]string{
+			"server_id": p.ServerID, "tool_name": p.ToolName, "capability_fingerprint": p.CapabilityFingerprint, "arguments": string(p.Arguments)}})
 	case toolgateway.AgentBrowserApprovalTool:
 		return recheckAgentBrowserApproval(ctx, s.store, record)
 	case ThreadPullRequestApprovalTool:
@@ -306,8 +342,12 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 		return []ApprovalControlAction{}
 	}
 	switch record.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		// Bounded Run review is advertised only after reading the durable source
+		// and verifying that it contains a declared risk scope.
+		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
+		gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.WebFetchTool):
 		return []ApprovalControlAction{ApprovalControlApproveOnce,
@@ -329,7 +369,7 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 	if record.Status != approval.StatusPending {
 		switch record.ToolName {
 		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
-			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool:
+			gitadvanced.ApprovalToolName, ThreadPullRequestApprovalTool, toolgateway.AgentBrowserApprovalTool, mcp.OperationApprovalTool, string(toolgateway.CommandRuntimeTool):
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny
@@ -367,9 +407,17 @@ func normalizeApprovalControlRequest(request *DecideApprovalControlRequest) erro
 	}
 	if request.Action != ApprovalControlApproveOnce &&
 		request.Action != ApprovalControlApproveForThread &&
+		request.Action != ApprovalControlApproveForRun &&
 		request.Action != ApprovalControlDeny {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"approval control action must be approve_once, approve_for_thread, or deny")
+			"approval control action must be approve_once, approve_for_thread, approve_for_run, or deny")
+	}
+	if request.Action == ApprovalControlApproveForRun {
+		if request.GrantTTLSeconds < 1 || request.GrantTTLSeconds > 900 || request.GrantMaxUses < 1 || request.GrantMaxUses > 8 {
+			return apperror.New(apperror.CodeInvalidArgument, "bounded Run approval requires explicit TTL (1..900 seconds) and uses (1..8)")
+		}
+	} else if request.GrantTTLSeconds != 0 || request.GrantMaxUses != 0 {
+		return apperror.New(apperror.CodeInvalidArgument, "only bounded Run approval can include grant limits")
 	}
 	request.Reason = strings.TrimSpace(request.Reason)
 	if (request.Action == ApprovalControlApproveOnce ||

@@ -96,7 +96,7 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		t.Fatalf("default safe product capability bundle is incomplete: %#v", defaults)
 	}
 	if defaults.operatorPreview || defaults.safeView ||
-		defaults.debugMaximumAccess || defaults.userTerminal ||
+		defaults.userTerminal ||
 		defaults.dockerExecution || defaults.batchValidation || defaults.runWakeWorker {
 		t.Fatalf("default product launch silently enabled high-risk authority: %#v", defaults)
 	}
@@ -129,7 +129,6 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		{flag: "--enable-run-execution", want: desktopOptions{runExecution: true}},
 		{flag: "--enable-plan-delivery", want: desktopOptions{planDeliveryControl: true}},
 		{flag: "--enable-approvals", want: desktopOptions{approvalControl: true}},
-		{flag: "--enable-command-proposals", want: desktopOptions{commandProposalControl: true}},
 		{flag: "--enable-model-control", want: desktopOptions{modelControl: true}},
 		{flag: "--enable-provider-credentials", want: desktopOptions{providerCredentials: true}},
 		{flag: "--enable-file-edit-review", want: desktopOptions{fileEditReview: true}},
@@ -167,7 +166,7 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		"--enable-permission-control", "--enable-danger-full-access",
 		"--enable-debug-maximum-access",
 	}); err == nil {
-		t.Fatal("maximum debug access without the user terminal was accepted")
+		t.Fatal("retired Debug execution flag was accepted")
 	}
 	if _, err := parseDesktopOptions([]string{
 		"--enable-full-cdp-debug",
@@ -238,25 +237,17 @@ func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t
 		!batchValidation.batchDeliveryControl || !batchValidation.batchValidation {
 		t.Fatalf("batch host validation capability set is incomplete: %+v", batchValidation)
 	}
-	hostProposals, err := parseDesktopOptions([]string{
-		"--enable-permission-control", "--enable-host-command-proposals",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hostProposals.permissionControl || !hostProposals.hostCommandProposals {
-		t.Fatalf("host command proposal capability set is incomplete: %+v", hostProposals)
-	}
+
 	maximum, err := parseDesktopOptions([]string{
 		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--enable-user-terminal",
+		"--enable-user-terminal",
 		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !maximum.permissionControl || !maximum.dangerFullAccess ||
-		!maximum.debugMaximumAccess || !maximum.userTerminal ||
+		!maximum.userTerminal ||
 		!maximum.browserCDPControl || !maximum.fullCDPDebug {
 		t.Fatalf("maximum debug capability set is incomplete: %+v", maximum)
 	}
@@ -273,7 +264,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.runCreation || !preview.sessionMessages ||
 		!preview.sessionSteeringControl || !preview.runLifecycle || !preview.runExecution ||
 		!preview.planDeliveryControl || !preview.approvalControl ||
-		!preview.commandProposalControl || !preview.hostCommandProposals || !preview.modelControl ||
+		!preview.modelControl ||
 		!preview.providerCredentials || !preview.fileEditReview ||
 		!preview.fileEditProposals || !preview.runWakeControl || !preview.fileEditApply ||
 		!preview.runWakeExecution || !preview.skillInstallation ||
@@ -283,7 +274,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.githubReview {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
-	if preview.debugMaximumAccess || preview.scheduledJobObservationOnly ||
+	if preview.scheduledJobObservationOnly ||
 		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution ||
 		preview.riskProfileRestart ||
 		preview.batchValidation {
@@ -303,7 +294,7 @@ func TestDesktopDockerExecutionRequiresAnExplicitPermissionGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !options.permissionControl || !options.dockerExecution ||
-		options.dangerFullAccess || options.debugMaximumAccess || options.userTerminal {
+		options.dangerFullAccess || options.userTerminal {
 		t.Fatalf("Docker execution widened an unrelated capability: %+v", options)
 	}
 	preview, err := parseDesktopOptions([]string{
@@ -329,7 +320,7 @@ func TestPackagedSecurityModeIsExactAndCannotInheritDesktopAuthority(t *testing.
 	if !options.securityMatrix || options.securityMatrixRoot == "" ||
 		options.securityCandidate == "" || options.profileControl ||
 		options.permissionControl || options.workspaceSandbox || options.runExecution ||
-		options.dangerFullAccess || options.debugMaximumAccess || options.userTerminal ||
+		options.dangerFullAccess || options.userTerminal ||
 		options.dockerExecution {
 		t.Fatalf("packaged security mode inherited product authority: %+v", options)
 	}
@@ -364,7 +355,7 @@ func TestPackagedRecoveryWorkerModeIsExactAndInternalOnly(t *testing.T) {
 		options.securityRecoveryBackend != "local" ||
 		options.securityRecoveryPhase != "prepare" || options.securityMatrix ||
 		options.permissionControl || options.workspaceSandbox || options.runExecution ||
-		options.dangerFullAccess || options.debugMaximumAccess || options.dockerExecution {
+		options.dangerFullAccess || options.dockerExecution {
 		t.Fatalf("packaged recovery worker inherited Desktop authority: %+v", options)
 	}
 	for _, invalid := range [][]string{
@@ -629,5 +620,13 @@ func TestInProcessAPIHandlerDoesNotEraseUnknownRequestBodies(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent || contentLength != -1 {
 		t.Fatalf("status=%d content_length=%d", response.Code, contentLength)
+	}
+}
+
+func TestRetiredCommandExecutionFlagsAreRejected(t *testing.T) {
+	for _, flag := range []string{"--enable-command-proposals", "--enable-host-command-proposals", "--enable-debug-maximum-access"} {
+		if _, err := parseDesktopOptions([]string{flag}); err == nil {
+			t.Fatalf("retired execution flag accepted: %s", flag)
+		}
 	}
 }

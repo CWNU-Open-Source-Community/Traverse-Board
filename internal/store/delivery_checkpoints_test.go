@@ -93,7 +93,11 @@ func TestDeliveryCheckpointSQLiteGuardsDirectMutationAndRunCompletion(t *testing
 }
 
 func TestSchemaV44LeavesPartiallyCompletedLegacySelectionExplicitlyExempt(t *testing.T) {
-	st, ctx, run, selected := createStoreDeliveryGateFixture(t, "legacy-exempt")
+	st, err := openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), "delivery-legacy.db"), 177)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ctx, run, selected := populateStoreDeliveryGateFixture(t, st, "legacy-exempt")
 	work := application.NewWorkItemService(st)
 	first, err := work.Transition(ctx, selected.WorkItems[0].ID, 0,
 		domain.WorkItemInProgress, "")
@@ -167,7 +171,7 @@ func populateStoreDeliveryGateFixture(t *testing.T, st *SQLiteStore, suffix stri
 		acceptance = manual[0]
 	}
 	ctx := context.Background()
-	runService := application.NewRunService(st)
+	runService := newMigrationFixtureRunService(t, st)
 	_, run, err := runService.Create(ctx, application.CreateRunRequest{
 		Goal: "exercise Delivery gates " + suffix, Profile: "review", Phase: "plan",
 		ModelRoute: "store-plan/model",

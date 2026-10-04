@@ -31,7 +31,7 @@ func validateAgentBrowserRequest(request AgentBrowserStartRequest) error {
 	}
 	if request.CheckAuthority == nil || a.Generation == 0 || a.PermissionRevision < 1 ||
 		a.PermissionActivation == 0 || a.RunAuthorizationFence == 0 ||
-		(a.PermissionMode != "full_access" && a.PermissionMode != "debug") ||
+		a.PermissionMode != "full" ||
 		request.RuntimeDeadline.IsZero() || !request.RuntimeDeadline.After(time.Now()) ||
 		request.RuntimeDeadline.After(time.Now().Add(24*time.Hour)) {
 		return ErrBrowserRuntimeBoundary

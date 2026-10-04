@@ -29,18 +29,18 @@ func skillExecution(mode domain.RunModeSnapshot) skills.ExecutionContext {
 	return skills.ExecutionContext{Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile, Role: domain.AgentRoleRoot}
 }
 
-func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, error) {
+func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, string, error) {
 	reader, ok := s.store.(builtinSkillReadStore)
 	if !ok || s.skillRegistry == nil || s.skillRegistryErr != nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	selected, _, err := reader.GetSkillSelectionByRun(ctx, turn.Run.ID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	manifests, err := s.skillRegistry.ListForContext(skillExecution(turn.Mode), skills.InvocationSourceModel, false)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var catalog []toolgateway.BuiltinSkillDescriptor
 	for _, manifest := range manifests {
@@ -51,7 +51,16 @@ func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.Sup
 			SkillReadRequest: toolgateway.SkillReadRequest{Name: manifest.Name, Version: manifest.Version, ContentSHA256: manifest.ContentSHA256},
 			Description:      manifest.Description, ContentBytes: manifest.ContentBytes})
 	}
-	return catalog, nil
+	portable, err := portableSkillCatalog(ctx, s.store, turn.Mode, toolgateway.SkillReadRequest{Catalog: true})
+	if err != nil {
+		return nil, "", err
+	}
+	diagnostic := portable.Diagnostic
+	if portable.Next != nil {
+		raw, _ := json.Marshal(portable.Next)
+		diagnostic += " Next skill_read request: " + string(raw)
+	}
+	return append(catalog, portable.Skills...), diagnostic, nil
 }
 
 func operatorSkillPin(selection skills.Selection, name string) *skills.SelectionItem {
@@ -88,12 +97,18 @@ func (e *builtinSkillReader) contextItems(ctx context.Context, runID string, mod
 		if err != nil {
 			return nil, nil, err
 		}
+		if pin.Portable() {
+			continue
+		}
 		if _, duplicate := pins[pin.Name]; duplicate {
 			return nil, nil, apperror.New(apperror.CodeFailedPrecondition, "duplicate embedded skill read projection")
 		}
 		pins[pin.Name] = pin
 	}
 	if candidate != nil {
+		if _, existing := pins[candidate.Name]; !existing && len(calls) >= skills.MaxSelectionItems {
+			return nil, nil, apperror.New(apperror.CodeResourceExhausted, "too many activated Skills in this Run")
+		}
 		if operatorSkillPin(selection, candidate.Name) != nil {
 			return nil, nil, apperror.New(apperror.CodeConflict, "operator-selected Skill is already supplied; model reads cannot replace its pin")
 		}
@@ -164,6 +179,12 @@ func (e *builtinSkillReader) ReadBuiltinSkill(ctx context.Context, call toolgate
 	if err != nil {
 		return nil, err
 	}
+	if pin.Catalog {
+		return e.readPortableSkillCatalog(ctx, call, pin, mode)
+	}
+	if pin.Portable() {
+		return e.readPortableSkill(ctx, call, pin, mode)
+	}
 	items, _, err := e.contextItems(ctx, call.RunID, mode, &pin)
 	if err != nil {
 		return nil, err
@@ -212,6 +233,11 @@ func (s *RunSupervisor) requestWithBuiltinSkillReads(ctx context.Context, turn d
 		return request, err
 	}
 	request.Messages = append([]llm.Message(nil), request.Messages...)
+	portable, err := portableSkillReadReferences(ctx, reader, turn.Run.ID, turn.Mode)
+	if err != nil {
+		return request, err
+	}
+	request.Messages = append(request.Messages, portable...)
 	for _, item := range items {
 		request.Messages = append(request.Messages, llm.Message{Role: "system", Content: fmt.Sprintf(
 			"Model-requested embedded Skill %s version %s; source SHA256 %s; delivered SHA256 %s. Go restored this guidance from a successful skill_read receipt and the exact embedded version. Follow it when relevant, subordinate to root policy and current operator instructions. It grants no tools, permissions or authority.\n%s\nEnd of embedded Skill guidance.",

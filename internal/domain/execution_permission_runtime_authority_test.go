@@ -19,7 +19,7 @@ func runtimeAuthorityFixtures(t *testing.T) (ThreadExecutionPermissionSnapshot,
 		t.Fatal(err)
 	}
 	fullThread, err := initialThread.Next("thread-permission-full",
-		RunExecutionPermissionFullAccess, true, "test_operator", "confirm full access", now)
+		RunExecutionPermissionFull, true, "test_operator", "confirm full access", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func runtimeAuthorityFixtures(t *testing.T) (ThreadExecutionPermissionSnapshot,
 		t.Fatal(err)
 	}
 	fullRun, err := initialRun.Next("run-permission-full",
-		RunExecutionPermissionFullAccess, true, "test_operator", "confirm full access", now)
+		RunExecutionPermissionFull, true, "test_operator", "confirm full access", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestExecutionPermissionRuntimeAuthorityStartsClosedAndFencesRevocation(t *t
 	authority := NewExecutionPermissionRuntimeAuthority()
 	capabilities := ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	if capabilities.AllowsSnapshot(run) {
 		t.Fatal("durable Full Access snapshot reopened an empty process authority")
@@ -129,27 +129,30 @@ func TestRotateRunAuthorizationFenceInvalidatesChildrenWithoutRevokingParent(
 	}
 }
 
-func TestDebugProcessDoesNotReactivateHistoricalFullAccess(t *testing.T) {
-	_, full := runtimeAuthorityFixtures(t)
-	authority := NewExecutionPermissionRuntimeAuthority()
-	capabilities := ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: authority,
-	}
-	if !capabilities.Allows(RunExecutionPermissionFullAccess) {
-		t.Fatal("Debug process did not install the Full Access runtime adapter")
-	}
-	if capabilities.AllowsSnapshot(full) {
-		t.Fatal("Debug startup reactivated a historical Full Access snapshot")
-	}
-	debug, err := full.Next("run-permission-debug",
-		RunExecutionPermissionDebug, true, "test_operator", "confirm debug", full.CreatedAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !capabilities.AllowsSnapshot(debug) {
-		t.Fatal("Debug startup gate did not authorize an exact Debug snapshot")
+func TestStartupGatesNeverReactivateLegacyExecutionSnapshots(t *testing.T) {
+	thread, full := runtimeAuthorityFixtures(t)
+	for _, mode := range []RunExecutionPermissionMode{RunExecutionPermissionConservative, RunExecutionPermissionWorkspaceAccess, RunExecutionPermissionApproval, RunExecutionPermissionFullAccess, RunExecutionPermissionDebug} {
+		snapshot, err := full.Next("retained-permission", mode, mode != RunExecutionPermissionConservative, "test_operator", "retained history", full.CreatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority := NewExecutionPermissionRuntimeAuthority()
+		caps := ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: authority}
+		if snapshot.Validate() != nil {
+			t.Fatal("history no longer decodes")
+		}
+		if caps.AllowsSnapshot(snapshot) {
+			t.Fatalf("startup reactivated %s", mode)
+		}
+		if generation, allowed := caps.FullAccessGeneration(snapshot); generation != 0 || allowed {
+			t.Fatalf("legacy generation=%d allowed=%v", generation, allowed)
+		}
+		if _, err := authority.ActivateRunFullAccess(snapshot); err == nil {
+			t.Fatal("legacy Run explicitly reactivated")
+		}
+		if _, _, err := authority.BindThreadRun(thread.ThreadID, snapshot); err == nil {
+			t.Fatal("legacy successor bound")
+		}
 	}
 }
 

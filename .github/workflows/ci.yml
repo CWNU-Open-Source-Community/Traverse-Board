@@ -125,7 +125,7 @@ jobs:
           go test -race -timeout 15m -count=1
           ./internal/domain ./internal/executionauth ./internal/application
           ./internal/store ./internal/httpapi
-          -run 'WorkspaceAccess|RunExecutionPermission|ExecutionPermission|PermissionDrift|SchemaV126|AgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict|CommandRuntimeServiceRunsAndReplaysFencedForegroundCommand'
+          -run 'WorkspaceAccess|RunExecutionPermission|ExecutionPermission|PermissionDrift|SchemaV126|AgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict|CommandOperationApprovalRealNativeThreeModes'
       - if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         run: go vet ./...
       - name: Install pinned govulncheck
@@ -427,6 +427,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up current Go 1.25 patch
+        id: windows-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.x'
@@ -434,6 +435,13 @@ jobs:
           cache: true
       - name: Report Go toolchain
         run: go version
+      - name: Prepare official Go at the fixed native installation path
+        shell: pwsh
+        env:
+          TRAVERSE_CI_GO_VERSION: ${{ steps.windows-go.outputs.go-version }}
+        run: |
+          ./scripts/tests/prepare-windows-fixed-go.tests.ps1
+          ./scripts/prepare-windows-fixed-go.ps1 -ExpectedGoVersion $env:TRAVERSE_CI_GO_VERSION
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -456,6 +464,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/app -run '^TestWindowsAPIServe'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cliTests = @(
+            'TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce'
+            'TestCLIExecutionEntrypointsWireOrdinaryAgentBrowser'
+            'TestCLIWakeConsumeWiresOrdinaryAgentBrowser'
+            'TestCLIApprovalExecutionHandoffWiresOrdinaryAgentBrowser'
+            'TestCLIExecutionRuntimeClosesAgentBrowserWithoutGrantingPersistedFullAccess'
+            'TestCLIApprovalContinuationRequiresInvocationFullConfirmation'
+            'TestCLIFileReviewKeepsExactDecisionSeparateFromContinuationFull'
+            'TestCLIApprovalCompletedContinuationReplaysWithoutModelOrTool'
+            'TestCLIApprovalDenyContinuesOnceAndReplaysAcrossApps'
+            'TestCLIApprovalDoesNotWakePausedOrCancelledRun'
+          )
+          go test -v -count=1 -timeout 10m ./internal/app -run ('^(' + ($cliTests -join '|') + ')$')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Preserve the operator-first launch order and retain both results.
+          go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
+          $fixedOperatorExitCode = $LASTEXITCODE
+          go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
+          if ($fixedOperatorExitCode -ne 0) { exit $fixedOperatorExitCode }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Local command manifests bind Windows drive roots and LPAC policy.
@@ -469,6 +497,10 @@ jobs:
           ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
+      - name: Verify command operation authority and cross-turn ownership
+        run: >-
+          go test -v -count=1 -timeout 10m ./internal/application ./internal/workspace
+          -run '^(TestCommandOperationApproval.*|TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch|TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority|TestCommandRuntimeForegroundCancellationReapsProcessTree|TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease|TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause|TestWorkspaceInit.*|TestWorkspaceImport.*DirectoryAlias)$'
       - name: Verify Windows command runtime transports
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell(5PowerShell7AndGitBashSmoke|5BindsWorkspaceProfileBeforeLaunch|5ProfileWatchdogReapsProcess|7KeepsExistingProfileEnvironment))$'
       - name: Verify Windows analyzer conformance boundaries

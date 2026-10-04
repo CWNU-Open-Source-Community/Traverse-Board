@@ -162,8 +162,8 @@ func (s *AgentBrowserService) currentAuthority(ctx context.Context, runID string
 		return a, e
 	}
 	generation, live := s.options.Capabilities.FullAccessGeneration(permission)
-	if !permission.Mode.IncludesFullAccess() || !live || s.options.Capabilities.RuntimeAuthority == nil {
-		return a, agentBrowserUnavailable("Agent browser requires live Full Access or Debug")
+	if permission.Mode != domain.RunExecutionPermissionFull || !live || s.options.Capabilities.RuntimeAuthority == nil {
+		return a, agentBrowserUnavailable("Agent browser requires live Full activation")
 	}
 	a = toolgateway.AgentBrowserCallAuthority{ProtocolVersion: toolgateway.AgentBrowserAuthorityVersion, RunID: run.ID, MissionID: mission.ID, SessionID: run.SessionID, RootAgentID: root.ID, WorkspaceID: mission.WorkspaceID, Surface: mode.Surface, Phase: mode.Phase, Role: root.Role, Profile: mode.Profile, ModeRevision: mode.Revision, PermissionMode: permission.Mode, PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision, PermissionActivation: generation}
 	return a, nil

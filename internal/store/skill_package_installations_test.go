@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -30,18 +33,16 @@ func TestSkillPackageInstallationLifecycleIsAppendOnlyAndPinnedRemovalFails(t *t
 	t.Cleanup(func() { _ = st.Close() })
 	installation, operation, result := fixturePackageInstallation(t,
 		"external-review", "1.0.0", "install-operation-key-0001", time.Now().UTC().Add(-time.Minute))
-	prepared, pendingResult, replayed, err := st.PreparePackageInstallation(ctx,
-		installation, operation)
-	if err != nil || replayed || pendingResult != nil ||
-		prepared.InstallationFingerprint != installation.InstallationFingerprint {
-		t.Fatalf("prepare = %#v result=%#v replayed=%t err=%v",
-			prepared, pendingResult, replayed, err)
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
+		t.Fatal(err)
 	}
-	prepared, pendingResult, replayed, err = st.PreparePackageInstallation(ctx,
-		installation, operation)
-	if err != nil || !replayed || pendingResult != nil || prepared.ID != installation.ID {
-		t.Fatalf("pending replay = %#v result=%#v replayed=%t err=%v",
-			prepared, pendingResult, replayed, err)
+	storedOperation, found, err := st.GetPackageInstallOperation(ctx, operation.KeyDigest)
+	if err != nil || !found || storedOperation != operation {
+		t.Fatalf("historical operation = %#v found=%t err=%v", storedOperation, found, err)
+	}
+	prepared, err := st.GetPackageInstallation(ctx, installation.ID)
+	if err != nil || prepared.InstallationFingerprint != installation.InstallationFingerprint {
+		t.Fatalf("historical intent = %#v err=%v", prepared, err)
 	}
 	installed, completedReplay, err := st.CompletePackageInstallation(ctx, result)
 	if err != nil || completedReplay || installed.Installation.ID != installation.ID {
@@ -103,9 +104,9 @@ func TestSkillPackageInstallationLifecycleIsAppendOnlyAndPinnedRemovalFails(t *t
 	}
 	assertPackageInstallOperationCannotCommitAlone(t, ctx, st)
 
-	pinned, pinnedOperation, pinnedResult := fixturePackageInstallation(t,
+	pinned, _, pinnedResult := fixturePackageInstallation(t,
 		"pinned-review", "1.0.0", "install-operation-key-0002", time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, pinned, pinnedOperation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, pinned); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := st.CompletePackageInstallation(ctx, pinnedResult); err != nil {
@@ -121,7 +122,7 @@ func TestSkillPackageInstallationLifecycleIsAppendOnlyAndPinnedRemovalFails(t *t
 	assertPackageRemovalSQLPinGuard(t, ctx, st, pinnedRemoval, pinnedRemoveOperation)
 }
 
-func TestSkillPackageInstallationConvergesAcrossIndependentStores(t *testing.T) {
+func TestLegacySkillPackageCompletionConvergesAcrossIndependentStores(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-packages-concurrent.db")
 	first, err := Open(path)
@@ -134,25 +135,14 @@ func TestSkillPackageInstallationConvergesAcrossIndependentStores(t *testing.T) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
-	installation, operation, result := fixturePackageInstallation(t,
+	installation, _, result := fixturePackageInstallation(t,
 		"concurrent-review", "1.0.0", "concurrent-install-key", time.Now().UTC().Add(-time.Minute))
 	stores := []*SQLiteStore{first, second}
-	prepareReplay := make([]bool, len(stores))
+	if err := legacyskill.Insert(ctx, first.db, installation); err != nil {
+		t.Fatal(err)
+	}
 	errorsByWorker := make([]error, len(stores))
 	var wait sync.WaitGroup
-	for index := range stores {
-		wait.Add(1)
-		go func(index int) {
-			defer wait.Done()
-			_, _, prepareReplay[index], errorsByWorker[index] =
-				stores[index].PreparePackageInstallation(ctx, installation, operation)
-		}(index)
-	}
-	wait.Wait()
-	if errorsByWorker[0] != nil || errorsByWorker[1] != nil ||
-		prepareReplay[0] == prepareReplay[1] {
-		t.Fatalf("prepare replay=%v errors=%v", prepareReplay, errorsByWorker)
-	}
 	completionReplay := make([]bool, len(stores))
 	for index := range stores {
 		wait.Add(1)
@@ -179,14 +169,14 @@ func TestSkillPackageInstallationConvergesAcrossIndependentStores(t *testing.T) 
 	}
 }
 
-func TestSkillPackageInstallationPersistsModeMetadata(t *testing.T) {
+func TestLegacySkillPackageInstallationReadsModeMetadata(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "skill-package-modes.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	installation, operation, _ := fixturePackageInstallation(t,
+	installation, _, _ := fixturePackageInstallation(t,
 		"mode-aware-review", "1.0.0", "mode-aware-install-key",
 		time.Now().UTC().Add(-time.Minute))
 	installation.Manifest.Surfaces = []domain.ExecutionSurface{domain.ExecutionSurfaceCode}
@@ -200,8 +190,7 @@ func TestSkillPackageInstallationPersistsModeMetadata(t *testing.T) {
 	installation.Manifest.ModelInvocable = true
 	installation.RequestFingerprint = skills.PackageInstallationIntentFingerprint(installation)
 	installation.InstallationFingerprint = skills.PackageInstallationFingerprint(installation)
-	operation.RequestFingerprint = installation.RequestFingerprint
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := st.GetPackageInstallation(ctx, installation.ID)
@@ -221,22 +210,17 @@ func TestSkillPackageInstallationPersistsModeMetadata(t *testing.T) {
 func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-package-v110.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 110)
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation, operation, _ := fixturePackageInstallation(t,
+	installation, _, _ := fixturePackageInstallation(t,
 		"legacy-mode-defaults", "1.0.0", "legacy-mode-install-key",
 		time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		t.Fatal(err)
 	}
 	wantRequest := installation.RequestFingerprint
-	for _, statement := range removeSchemaV111ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v111 with %q: %v", statement, err)
-		}
-	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -259,15 +243,9 @@ func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-packages-v68.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 68)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV69ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v69 with %q: %v", statement, err)
-		}
 	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
@@ -289,15 +267,9 @@ func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T)
 func TestSchemaV70UpgradeDoesNotFabricateExternalSkillSelections(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "external-skill-selections-v69.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 69)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV70ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v70 with %q: %v", statement, err)
-		}
 	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
@@ -322,6 +294,38 @@ func TestSchemaV70UpgradeDoesNotFabricateExternalSkillSelections(t *testing.T) {
 	if selectionCount != 0 || contextCount != 0 {
 		t.Fatalf("schema v70 fabricated state: selections=%d contexts=%d",
 			selectionCount, contextCount)
+	}
+}
+
+// v69 introduced the two-entry constraint, and v111 only added mode metadata.
+// A three-entry signed archive could never be a durable legacy installation.
+func TestLegacySkillPackageSchemasRejectThirdArchiveEntry(t *testing.T) {
+	for _, version := range []int{69, 111, 177, LatestSchemaVersion} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "legacy-entry-count.db")
+			st, err := openHistoricalMigrationFixture(t, path, version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			valid, _, _ := fixturePackageInstallation(t, "two-entry", "1.0.0", "valid-historical-intent", time.Now().UTC().Add(-time.Minute))
+			if err := legacyskill.Insert(t.Context(), st.db, valid); err != nil {
+				t.Fatalf("historical two-entry seed: %v", err)
+			}
+			invalid, _, _ := fixturePackageInstallation(t, "three-entry", "1.0.0", "invalid-historical-intent", valid.CreatedAt)
+			invalid.EntryCount = 3
+			invalid.RequestFingerprint = skills.PackageInstallationIntentFingerprint(invalid)
+			invalid.InstallationFingerprint = skills.PackageInstallationFingerprint(invalid)
+			if err := legacyskill.Insert(t.Context(), st.db, invalid); err == nil || !strings.Contains(err.Error(), "entry_count = 2") {
+				t.Fatalf("historical schema did not reject the third entry: %v", err)
+			}
+			for _, table := range []string{"skill_package_install_operations", "skill_package_installations"} {
+				var count int
+				if err := st.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil || count != 1 {
+					t.Fatalf("failed seed left partial %s: count=%d err=%v", table, count, err)
+				}
+			}
+		})
 	}
 }
 

@@ -95,3 +95,15 @@ func TestEstimateModelRequestTokensCountsToolSchemasAndUnicode(t *testing.T) {
 		t.Fatalf("tool and framing tokens were not included: base=%d tool=%d", base, withUnicodeTool)
 	}
 }
+
+func TestContextOverflowStillReportsEligibleHistoryForDurableCompaction(t *testing.T) {
+	window := llm.ContextWindow{ProtocolVersion: llm.ContextWindowProtocolVersion, WindowTokens: 4096,
+		SafetyMarginTokens: 128, DefaultOutputTokens: 256, MaxOutputTokens: 512, Source: "test"}
+	request := llm.ChatRequest{Messages: []llm.Message{{Role: "system", Content: strings.Repeat("x", 20000)},
+		{Role: "user", Content: "original history"}, {Role: "user", Content: "current input"}}}
+	bounded, plan, err := constrainRequestToModelWindow(request, window, modelContextLayout{HistoryStart: 1, HistoryCount: 1})
+	if apperror.CodeOf(err) != apperror.CodeResourceExhausted || plan.HistoryOmitted != 1 || len(bounded.Messages) != 0 ||
+		len(request.Messages) != 3 || request.Messages[1].Content != "original history" {
+		t.Fatalf("overflow lost durable-compaction plan or exposed truncated request: %+v %+v %v", bounded, plan, err)
+	}
+}

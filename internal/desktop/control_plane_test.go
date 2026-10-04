@@ -1,9 +1,15 @@
 package desktop
 
 import (
+	"bytes"
+	"compress/bzip2"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -147,56 +153,11 @@ func TestControlPlanePublishesGoOwnedRunCapabilityReadiness(t *testing.T) {
 
 func TestControlPlaneReopenKeepsOldHighRiskIntentNonAuthorizing(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "desktop-upgrade-authority.db")
-	state, err := store.Open(databasePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, run, err := application.NewRunService(state).Create(t.Context(),
-		application.CreateRunRequest{Goal: "preserve rc.3 audit facts", Profile: "code",
-			Surface: "code", Phase: "deliver", Budget: domain.Budget{MaxTurns: 2}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	selected, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		}).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-		OperationKey: "desktop-upgrade-old-full-access", RequestedBy: "test_operator",
-		Reason: "seed an old explicit high-risk selection", ConfirmDangerFullAccess: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldToolRun, err := state.SaveToolRun(t.Context(), toolrun.ToolRun{
-		ID: "desktop-upgrade-old-approved-shell", SessionID: run.SessionID,
-		ToolName: toolrun.ShellTool, Command: "echo historical approval",
-		Status: toolrun.StatusProposed,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldApproval, err := state.DecideApproval(t.Context(), approval.DecisionRequest{
-		ProposalID: oldToolRun.ID, IdempotencyKey: "desktop-upgrade-old-approval",
-		Action: approval.ActionApprove, ReviewedBy: "old_desktop_operator",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = application.NewRunService(state).Start(t.Context(), run.ID); err != nil {
-		t.Fatal(err)
-	}
-	acquired, err := state.AcquireRunExecutionLease(t.Context(),
-		domain.AcquireRunExecutionLeaseRequest{RunID: run.ID,
-			OwnerID: "desktop-upgrade-old-owner", TTL: time.Hour})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = state.Close(); err != nil {
-		t.Fatal(err)
-	}
+	legacy := restoreDesktopLegacyPermissionFixture(t, databasePath)
+	run, oldToolRun := legacy.Run, legacy.ToolRun
+	oldApproval, acquired := legacy.Approval, legacy.Lease
 
-	// Reopen the same rc.3-style database with ordinary safe controls but no
+	// Upgrade the genuine v177 database with ordinary safe controls but no
 	// high-risk startup gates. Durable intent and lease rows remain audit facts;
 	// neither may become process-local execution authority in the new process.
 	plane, err := OpenControlPlane(ControlPlaneConfig{
@@ -212,14 +173,18 @@ func TestControlPlaneReopenKeepsOldHighRiskIntentNonAuthorizing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = plane.Close() })
+	if version, err := plane.stateStore.SchemaVersion(t.Context()); err != nil || version < 178 {
+		t.Fatalf("Desktop did not upgrade the genuine v177 fixture: version=%d err=%v", version, err)
+	}
 
 	persisted, err := plane.stateStore.GetRunExecutionPermission(t.Context(), run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.ID != selected.Permission.ID ||
-		persisted.Revision != selected.Permission.Revision ||
+	if persisted.ID != legacy.Permission.ID ||
+		persisted.Revision != legacy.Permission.Revision ||
 		persisted.Mode != domain.RunExecutionPermissionFullAccess ||
+		persisted.ProtocolVersion != domain.RunExecutionPermissionProtocolVersion ||
 		persisted.ProcessEnabled || persisted.ExecutionAuthorized ||
 		persisted.CapabilityGrant {
 		t.Fatalf("Desktop reopen changed or authorized old permission intent: %#v", persisted)
@@ -264,12 +229,13 @@ func TestControlPlaneReopenKeepsOldHighRiskIntentNonAuthorizing(t *testing.T) {
 	}
 	var fullAccess httpapi.CapabilityReadinessOptionView
 	for _, option := range readiness.Permissions {
-		if option.Value == string(domain.RunExecutionPermissionFullAccess) {
+		if option.Value == string(domain.RunExecutionPermissionFull) {
 			fullAccess = option
 			break
 		}
 	}
-	if !fullAccess.Selected || fullAccess.RuntimeAvailable ||
+	if fullAccess.Value != string(domain.RunExecutionPermissionFull) ||
+		!fullAccess.Selected || fullAccess.RuntimeAvailable ||
 		!containsDesktopReadinessValue(fullAccess.BlockedBy,
 			string(application.CapabilityBlockerStartupGateClosed)) ||
 		readiness.CapabilityGrant || readiness.CommandRuntime.AdapterInstalled ||
@@ -278,6 +244,66 @@ func TestControlPlaneReopenKeepsOldHighRiskIntentNonAuthorizing(t *testing.T) {
 		t.Fatalf("Desktop reopen restored old runtime authority: option=%#v runtime=%#v grant=%t",
 			fullAccess, readiness.CommandRuntime, readiness.CapabilityGrant)
 	}
+}
+
+//go:embed testdata/legacy-permission-v177.db.bz2
+var desktopLegacyPermissionV177 []byte
+
+//go:embed testdata/legacy-permission-v177.json
+var desktopLegacyPermissionV177Facts []byte
+
+type desktopLegacyPermissionFixture struct {
+	Run        domain.Run
+	Permission domain.RunExecutionPermissionSnapshot
+	ToolRun    toolrun.ToolRun
+	Approval   approval.DecisionResult
+	Lease      domain.RunExecutionLeaseAcquisition
+}
+
+// Restore a genuine old database; never manufacture old modes through a current
+// writer or weaken a current insertion trigger. See testdata's generator/source.
+func restoreDesktopLegacyPermissionFixture(t *testing.T, path string) desktopLegacyPermissionFixture {
+	t.Helper()
+	data, err := io.ReadAll(io.LimitReader(
+		bzip2.NewReader(bytes.NewReader(desktopLegacyPermissionV177)), 8*1024*1024))
+	if err != nil || len(data) != 7643136 ||
+		fmt.Sprintf("%x", sha256.Sum256(data)) != "130b22b8db230627cbc1838b6c0af81975c090d01cb872a0d86a926f635e9f5f" {
+		t.Fatalf("historical Desktop fixture bytes changed: size=%d err=%v", len(data), err)
+	}
+	var facts desktopLegacyPermissionFixture
+	if err := json.Unmarshal(desktopLegacyPermissionV177Facts, &facts); err != nil {
+		t.Fatal(err)
+	}
+	if facts.Permission.ProtocolVersion != domain.RunExecutionPermissionProtocolVersion ||
+		facts.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		facts.Permission.RunID != facts.Run.ID {
+		t.Fatal("fixture is not retained v1 Full Access history")
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var first, last, count int
+	if err := db.QueryRowContext(t.Context(),
+		"SELECT MIN(version),MAX(version),COUNT(*) FROM schema_migrations").Scan(&first, &last, &count); err != nil || first != 1 || last != 177 || count != 177 {
+		t.Fatalf("fixture ledger is not exactly schema versions 1 through 177: %d/%d/%d err=%v", first, last, count, err)
+	}
+	rows, err := db.QueryContext(t.Context(), "PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Fatal("historical Desktop fixture has a foreign-key violation")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return facts
 }
 
 func containsDesktopReadinessValue(values []string, want string) bool {
@@ -360,9 +386,13 @@ func TestControlPlaneBootstrapsOnlyAnEmptyWorkspaceRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedRoot, err := filepath.EvalSymlinks(filepath.Join(home, "workspaces", "default"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(records) != 1 || records[0].ID != "ws-default" ||
 		records[0].Name != "default" ||
-		records[0].RootPath != filepath.Join(home, "workspaces", "default") {
+		records[0].RootPath != expectedRoot {
 		t.Fatalf("unexpected first-run Workspace: %#v", records)
 	}
 }
@@ -445,9 +475,8 @@ func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
 		UserTerminalEnabled:               true,
 		ExecutionPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled:   true,
-			DangerFullAccessEnabled:   true,
-			DebugMaximumAccessEnabled: true,
+			OperatorApprovalEnabled: true,
+			DangerFullAccessEnabled: true,
 		},
 		AppVersion: "desktop-test",
 	})

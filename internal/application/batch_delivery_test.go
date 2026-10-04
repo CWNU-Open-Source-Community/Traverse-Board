@@ -31,10 +31,11 @@ type batchDeliveryApplicationFixture struct {
 	root       domain.AgentNode
 	proposal   domain.ChildTaskProposal
 	spec       domain.BatchDeliverySpec
+	caps       domain.ExecutionPermissionRuntimeCapabilities
 }
 
 func TestBatchDeliveryRealGitWorktreesReviewMergeAndReplay(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	ctx := t.Context()
 	worktreeParent := t.TempDir()
 	prepared, err := fixture.service.Prepare(ctx, PrepareBatchDeliveryRequest{
@@ -170,7 +171,7 @@ func TestBatchDeliveryRealGitWorktreesReviewMergeAndReplay(t *testing.T) {
 }
 
 func TestBatchDeliveryDirtySubmissionRejectedAndCancellationPreservesIt(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, err := fixture.service.Prepare(t.Context(), PrepareBatchDeliveryRequest{
 		RunID: fixture.run.ID, ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-dirty-prepare-0001", RequestedBy: fixture.root.ID,
@@ -215,7 +216,7 @@ func TestBatchDeliveryDirtySubmissionRejectedAndCancellationPreservesIt(t *testi
 }
 
 func TestBatchDeliveryNarrowedWorkspaceToolsEnforceOwnershipAndCommit(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, err := fixture.service.Prepare(t.Context(), PrepareBatchDeliveryRequest{
 		RunID: fixture.run.ID, ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-tools-prepare-0001", RequestedBy: fixture.root.ID,
@@ -315,7 +316,7 @@ func TestBatchDeliveryNarrowedWorkspaceToolsEnforceOwnershipAndCommit(t *testing
 }
 
 func TestBatchDeliveryGitCommitRecoversDurableIntentAfterProcessCrash(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, err := fixture.service.Prepare(t.Context(), PrepareBatchDeliveryRequest{
 		RunID: fixture.run.ID, ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-commit-crash-prepare-01", RequestedBy: fixture.root.ID,
@@ -378,7 +379,7 @@ func TestBatchDeliveryGitCommitRecoversDurableIntentAfterProcessCrash(t *testing
 }
 
 func TestBatchDeliveryGitCommitRecoveryRejectsMultipleExternalCommits(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, err := fixture.service.Prepare(t.Context(), PrepareBatchDeliveryRequest{
 		RunID: fixture.run.ID, ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-commit-multiple-prepare-01", RequestedBy: fixture.root.ID,
@@ -432,7 +433,7 @@ func TestBatchDeliveryGitCommitRecoveryRejectsMultipleExternalCommits(t *testing
 }
 
 func TestBatchDeliveryRestartRestoresMissingWorktreeWithoutDuplicateDispatch(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	request := PrepareBatchDeliveryRequest{RunID: fixture.run.ID,
 		ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-restart-prepare-0001", RequestedBy: fixture.root.ID,
@@ -501,7 +502,7 @@ func TestBatchDeliveryRestartRestoresMissingWorktreeWithoutDuplicateDispatch(t *
 }
 
 func TestBatchDeliveryBaseDriftRequiresConfirmationAndTextConflictRollsBack(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, receipts := prepareAcceptedBatchTextDeliveries(t, fixture,
 		"batch-conflict")
 	conflictPath := filepath.Join(fixture.repository, "internal", "one", "delivery.txt")
@@ -541,7 +542,7 @@ func TestBatchDeliveryBaseDriftRequiresConfirmationAndTextConflictRollsBack(t *t
 }
 
 func TestBatchDeliveryHostValidationRequiresExplicitProcessCapability(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	spec := fixture.spec
 	spec.Tasks[0].Validations = append(spec.Tasks[0].Validations,
 		domain.BatchDeliveryValidationRequirement{ID: "go-owned",
@@ -560,7 +561,7 @@ func TestBatchDeliveryHostValidationRequiresExplicitProcessCapability(t *testing
 }
 
 func TestBatchDeliveryHostValidationRechecksCurrentRunPermission(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	fixture.spec.Tasks[0].Validations = append(fixture.spec.Tasks[0].Validations,
 		domain.BatchDeliveryValidationRequirement{ID: "go-current-authority",
 			Kind: domain.BatchValidationGoTest, Scope: "."})
@@ -574,7 +575,7 @@ func TestBatchDeliveryHostValidationRechecksCurrentRunPermission(t *testing.T) {
 		OperationKey: "batch-current-authority-prepare-01", RequestedBy: fixture.root.ID,
 		WorktreeParent: t.TempDir(), Confirm: true})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("prepare host validation: %v (chain: %s)", err, testErrorChain(err))
 	}
 	if _, _, _, err := fixture.service.SendMessage(t.Context(),
 		SendBatchDeliveryMessageRequest{PlanID: prepared.Plan.ID, Ordinal: 1,
@@ -595,15 +596,21 @@ func TestBatchDeliveryHostValidationRechecksCurrentRunPermission(t *testing.T) {
 	if _, err := runs.Pause(t.Context(), fixture.run.ID); err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+	granted, err := fixture.store.GetRunExecutionPermission(t.Context(), fixture.run.ID)
+	if err != nil || !fixture.caps.AllowsSnapshot(granted) {
+		t.Fatalf("host validation grant before downgrade=%#v err=%v", granted, err)
 	}
-	if _, err := NewRunExecutionPermissionService(fixture.store, capabilities).Change(
+	downgraded, err := NewRunExecutionPermissionService(fixture.store, fixture.caps).Change(
 		t.Context(), ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID,
-			Mode:         string(domain.RunExecutionPermissionConservative),
+			Mode:         string(domain.RunExecutionPermissionAsk),
 			OperationKey: "batch-current-authority-downgrade-01", RequestedBy: "operator",
-			Reason: "remove host validation authority before child submission"}); err != nil {
+			Reason: "remove host validation authority before child submission"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if downgraded.Permission.Mode != domain.RunExecutionPermissionAsk ||
+		fixture.caps.AllowsSnapshot(granted) {
+		t.Fatal("Ask downgrade retained the prior Full runtime fence")
 	}
 	if _, err := runs.Start(t.Context(), fixture.run.ID); err != nil {
 		t.Fatal(err)
@@ -618,7 +625,7 @@ func TestBatchDeliveryHostValidationRechecksCurrentRunPermission(t *testing.T) {
 }
 
 func TestBatchDeliveryReconcileDoesNotReviveInactiveRun(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionAsk)
 	prepared, err := fixture.service.Prepare(t.Context(), PrepareBatchDeliveryRequest{
 		RunID: fixture.run.ID, ProposalID: fixture.proposal.ID, Spec: fixture.spec,
 		OperationKey: "batch-inactive-reconcile-prepare-01", RequestedBy: fixture.root.ID,
@@ -645,7 +652,7 @@ func TestBatchDeliveryReconcileDoesNotReviveInactiveRun(t *testing.T) {
 }
 
 func TestBatchDeliveryReviewRejectsValidationStateDrift(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	fixture.spec.Tasks[0].Validations = append(fixture.spec.Tasks[0].Validations,
 		domain.BatchDeliveryValidationRequirement{ID: "go-review-state",
 			Kind: domain.BatchValidationGoTest, Scope: "."})
@@ -719,7 +726,7 @@ func TestValidationStateIsStable(t *testing.T) {
 }
 
 func TestBatchDeliverySemanticValidationFailureRollsBackOnlyMergeStep(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	for index := range fixture.spec.Tasks {
 		fixture.spec.Tasks[index].Validations = append(fixture.spec.Tasks[index].Validations,
 			domain.BatchDeliveryValidationRequirement{ID: "go-all-" + string(rune('1'+index)),
@@ -821,7 +828,7 @@ func TestBaseValue(t *testing.T) {
 }
 
 func TestBatchDeliveryLaterMergeRerunsEarlierValidationContract(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	fixture.spec.Tasks[0].Validations = append(fixture.spec.Tasks[0].Validations,
 		domain.BatchDeliveryValidationRequirement{ID: "go-earlier-contract",
 			Kind: domain.BatchValidationGoTest, Scope: "."})
@@ -922,7 +929,7 @@ func TestTaskOneContract(t *testing.T) {
 }
 
 func TestBatchDeliveryMergePreservesValidationStateDriftForRecovery(t *testing.T) {
-	fixture := newBatchDeliveryApplicationFixture(t, false)
+	fixture := newBatchDeliveryApplicationFixture(t, false, domain.RunExecutionPermissionFull)
 	fixture.spec.Tasks[0].Validations = append(fixture.spec.Tasks[0].Validations,
 		domain.BatchDeliveryValidationRequirement{ID: "go-integration-state",
 			Kind: domain.BatchValidationGoTest, Scope: "."})
@@ -1068,7 +1075,7 @@ func prepareAcceptedBatchTextDeliveries(t *testing.T,
 }
 
 func newBatchDeliveryApplicationFixture(t *testing.T,
-	withDependency bool,
+	withDependency bool, mode domain.RunExecutionPermissionMode,
 ) batchDeliveryApplicationFixture {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -1123,14 +1130,29 @@ func newBatchDeliveryApplicationFixture(t *testing.T,
 	}
 	hostCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
-	if _, err := NewRunExecutionPermissionService(state, hostCapabilities).Change(ctx,
-		ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "batch-application-full-access-0001", RequestedBy: "operator",
-			Reason:                  "exercise explicitly enabled host batch validation",
-			ConfirmDangerFullAccess: true}); err != nil {
-		t.Fatal(err)
+	// Git-only batches retain the real initial Ask preference. Host Go/npm
+	// validation opts into Full through the current writer and its live fence.
+	if mode != domain.RunExecutionPermissionAsk {
+		if _, err := NewRunExecutionPermissionService(state, hostCapabilities).Change(ctx,
+			ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: string(mode),
+				OperationKey: "batch-application-permission-0001", RequestedBy: "operator",
+				Reason:      "exercise explicitly enabled host batch validation",
+				ConfirmFull: mode == domain.RunExecutionPermissionFull}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || permission.Mode != mode ||
+		permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.ProcessEnabled || permission.ExecutionAuthorized || permission.CapabilityGrant {
+		t.Fatalf("current batch permission=%#v err=%v", permission, err)
+	}
+	if mode == domain.RunExecutionPermissionFull {
+		if generation, allowed := hostCapabilities.FullAccessGeneration(permission); !allowed || generation == 0 {
+			t.Fatal("host validation fixture lacks a live Full runtime fence")
+		}
 	}
 	run, err = NewRunService(state).Start(ctx, run.ID)
 	if err != nil {
@@ -1217,7 +1239,7 @@ func newBatchDeliveryApplicationFixture(t *testing.T,
 	return batchDeliveryApplicationFixture{store: state,
 		service: NewBatchDeliveryService(state).WithHostValidationExecution(true,
 			hostCapabilities),
-		database: database, repository: repositoryRoot,
+		database: database, repository: repositoryRoot, caps: hostCapabilities,
 		run: run, root: root, proposal: proposal, spec: spec}
 }
 

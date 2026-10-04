@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -94,41 +96,77 @@ type clientTransportScript struct {
 	failMethod  string
 }
 
-func (t *clientTransportScript) Exchange(_ context.Context, request Envelope) (Envelope, error) {
-	if request.Method == t.failMethod {
-		return Envelope{}, errors.New("fixture transport disconnected")
-	}
-	var result any
-	switch request.Method {
-	case "initialize":
-		result = map[string]any{"protocolVersion": ProtocolVersion,
-			"capabilities": map[string]any{"tools": map[string]any{}},
-			"serverInfo":   map[string]string{"name": "fixture", "version": "1.0.0"}}
-	case "tools/list":
-		if t.onToolsList != nil {
-			t.onToolsList()
+// The Manager fixture uses the same SDK session and real HTTP exchange as
+// production; no fake Client/Envelope dispatcher remains.
+func (script *clientTransportScript) client(t *testing.T) *Client {
+	t.Helper()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
-		items := make([]map[string]any, 0)
-		for _, tool := range t.tools() {
-			items = append(items, map[string]any{"name": tool.Name,
-				"description": tool.Description, "inputSchema": tool.InputSchema})
+		var request Envelope
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
 		}
-		result = map[string]any{"tools": items}
-	case "tools/call":
-		if t.onToolCall != nil {
-			t.onToolCall()
+		if request.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
 		}
-		result = map[string]any{"content": []map[string]string{{
-			"type": "text", "text": "AKIAABCDEFGHIJKLMNOP credential-value"}}}
-	default:
-		return Envelope{}, errors.New("unexpected method " + request.Method)
-	}
-	raw, err := json.Marshal(result)
-	return Envelope{JSONRPC: "2.0", ID: append(json.RawMessage(nil), request.ID...), Result: raw}, err
-}
+		if request.Method == script.failMethod {
+			http.Error(w, "fixture transport disconnected", http.StatusInternalServerError)
+			return
+		}
+		var result any
+		switch request.Method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": ProtocolVersion,
+				"capabilities": map[string]any{"tools": map[string]any{}},
+				"serverInfo":   map[string]string{"name": "fixture", "version": "1.0.0"}}
+		case "tools/list":
+			if script.onToolsList != nil {
+				script.onToolsList()
+			}
+			items := make([]map[string]any, 0)
+			for _, tool := range script.tools() {
+				items = append(items, map[string]any{"name": tool.Name,
+					"description": tool.Description, "inputSchema": tool.InputSchema})
+			}
+			result = map[string]any{"tools": items}
+		case "tools/call":
+			if script.onToolCall != nil {
+				script.onToolCall()
+			}
+			result = map[string]any{"content": []map[string]string{{
+				"type": "text", "text": "AKIAABCDEFGHIJKLMNOP credential-value"}}}
+		default:
+			http.Error(w, "unexpected method "+request.Method, http.StatusBadRequest)
+			return
+		}
 
-func (*clientTransportScript) Notify(context.Context, Envelope) error { return nil }
-func (*clientTransportScript) Close() error                           { return nil }
+		raw, err := json.Marshal(result)
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(500)
+			return
+		}
+		sdkWriteResponse(w, request.ID, string(raw))
+	}))
+	t.Cleanup(server.Close)
+	client, err := newRemoteClientTransport(clientTransportDescriptor(TransportStreamableHTTP, server.URL, nil), "", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if script.failMethod == "tools/call" {
+		// The original fake disconnected before dispatch. Keep that failure
+		// phase; post-dispatch uncertainty has separate real transport tests.
+		client.beforeCall = func(context.Context) error { return errors.New("fixture transport disconnected") }
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
 
 type credentialReaderFake struct{ value string }
 
@@ -161,9 +199,9 @@ func TestClientManagerRequiresTwoReviewsAndQuarantinesCapabilityDrift(t *testing
 		ManagerOptions{Now: func() time.Time { return time.Date(2026, 8, 20, 1, 2, 3, 0, time.UTC) },
 			TransportFactory: func(_ context.Context, _ ServerDescriptor, bearer string) (clientTransport, error) {
 				bearerSeen = bearer
-				return &clientTransportScript{tools: func() []RemoteTool {
+				return (&clientTransportScript{tools: func() []RemoteTool {
 					return append([]RemoteTool(nil), toolSet...)
-				}}, nil
+				}}).client(t), nil
 			}})
 	if err != nil {
 		t.Fatal(err)
@@ -305,14 +343,14 @@ func TestClientManagerRechecksRevocationImmediatelyBeforeToolCall(t *testing.T) 
 	manager, err := NewClientManager(store, credentialReaderFake{}, ManagerOptions{
 		Now: func() time.Time { return now.Add(time.Second) },
 		TransportFactory: func(context.Context, ServerDescriptor, string) (clientTransport, error) {
-			return &clientTransportScript{tools: func() []RemoteTool { return []RemoteTool{tool} },
+			return (&clientTransportScript{tools: func() []RemoteTool { return []RemoteTool{tool} },
 				onToolsList: func() {
 					store.mu.Lock()
 					defer store.mu.Unlock()
 					store.record.State = TrustDisabled
 					store.record.Generation++
 					store.record.UpdatedAt = now.Add(time.Second)
-				}, onToolCall: func() { toolCalls++ }}, nil
+				}, onToolCall: func() { toolCalls++ }}).client(t), nil
 		},
 	})
 	if err != nil {
@@ -351,8 +389,8 @@ func TestClientManagerRemovesDisconnectedServerFromHealthyCapabilities(t *testin
 	manager, err := NewClientManager(store, credentialReaderFake{}, ManagerOptions{
 		Now: func() time.Time { return now.Add(time.Second) },
 		TransportFactory: func(context.Context, ServerDescriptor, string) (clientTransport, error) {
-			return &clientTransportScript{tools: func() []RemoteTool { return []RemoteTool{tool} },
-				failMethod: "tools/call"}, nil
+			return (&clientTransportScript{tools: func() []RemoteTool { return []RemoteTool{tool} },
+				failMethod: "tools/call"}).client(t), nil
 		},
 	})
 	if err != nil {

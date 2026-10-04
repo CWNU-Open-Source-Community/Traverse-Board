@@ -169,15 +169,12 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.StandardCodePresetEnabled || !bootstrap.SessionMessageEnabled ||
 		!bootstrap.RunLifecycleEnabled || !bootstrap.RunExecutionEnabled ||
 		bootstrap.PlanDeliveryControlEnabled || bootstrap.ApprovalControlEnabled ||
-		bootstrap.ControlledCommandProposalControlEnabled ||
-		bootstrap.HostCommandProposalControlEnabled ||
 		bootstrap.ModelControlEnabled || bootstrap.ProviderCredentialEnabled ||
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
 		bootstrap.FullCDPSessionControlEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
-		bootstrap.WorkspaceSandboxEnabled || bootstrap.DebugMaximumAccessEnabled ||
-		!bootstrap.CommandRuntimeProtocolAvailable ||
+		bootstrap.WorkspaceSandboxEnabled || !bootstrap.CommandRuntimeProtocolAvailable ||
 		bootstrap.CommandRuntimeAdapterInstalled || bootstrap.CommandRuntimeAdapterReady ||
 		bootstrap.CommandRuntimeEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
@@ -211,13 +208,11 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"agent_code_tools_enabled", "api_base_url", "api_version", "app_version", "approval_control_enabled",
 		"code_intel_enabled",
 		"control_enabled", "control_token",
-		"controlled_command_proposal_control_enabled",
-		"host_command_proposal_control_enabled",
 		"execution_permission_control_enabled", "workspace_sandbox_enabled",
 		"operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"full_cdp_session_control_enabled",
-		"danger_full_access_enabled", "debug_maximum_access_enabled",
+		"danger_full_access_enabled",
 		"command_runtime_enabled", "command_runtime_protocol_available",
 		"command_runtime_adapter_installed", "command_runtime_adapter_ready",
 		"thread_control_enabled",
@@ -269,8 +264,7 @@ func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t
 		!bootstrap.CommandRuntimeAdapterInstalled || !bootstrap.CommandRuntimeAdapterReady ||
 		!bootstrap.CommandRuntimeEnabled || !bootstrap.ProcessExecutionEnabled ||
 		!bootstrap.ShellExecutionEnabled || bootstrap.UserTerminalEnabled ||
-		bootstrap.AgentTerminalInputDefault || bootstrap.DebugMaximumAccessEnabled ||
-		bootstrap.DockerExecutionEnabled {
+		bootstrap.AgentTerminalInputDefault || bootstrap.DockerExecutionEnabled {
 		t.Fatalf("command runtime ownership projection is wrong: %#v", bootstrap)
 	}
 }
@@ -355,8 +349,7 @@ func TestDesktopBridgeProjectsOnlyTheProcessLocalDockerCapability(t *testing.T) 
 	}
 	if !bootstrap.DockerExecutionEnabled || bootstrap.ReadOnlyDefault ||
 		bootstrap.ProcessExecutionEnabled || bootstrap.ShellExecutionEnabled ||
-		bootstrap.DangerFullAccessEnabled || bootstrap.DebugMaximumAccessEnabled ||
-		bootstrap.UserTerminalEnabled || bootstrap.AgentTerminalInputDefault {
+		bootstrap.DangerFullAccessEnabled || bootstrap.UserTerminalEnabled || bootstrap.AgentTerminalInputDefault {
 		t.Fatalf("Docker bootstrap widened unrelated process authority: %#v", bootstrap)
 	}
 }
@@ -783,16 +776,7 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 			c.DockerExecutionEnabled = true
 		}},
 		{name: "approval without token", change: func(c *DesktopBridgeConfig) { c.ApprovalControlEnabled = true }},
-		{name: "command proposal without token", change: func(c *DesktopBridgeConfig) {
-			c.ControlledCommandProposalControlEnabled = true
-		}},
-		{name: "host command proposal without token", change: func(c *DesktopBridgeConfig) {
-			c.HostCommandProposalControlEnabled = true
-		}},
-		{name: "host command proposal without operator gate", change: func(c *DesktopBridgeConfig) {
-			c.ControlToken = testDesktopControlToken
-			c.HostCommandProposalControlEnabled = true
-		}},
+
 		{name: "Full CDP session control without production permission stack", change: func(c *DesktopBridgeConfig) {
 			c.ControlToken = testDesktopControlToken
 			c.FullCDPSessionControlEnabled = true

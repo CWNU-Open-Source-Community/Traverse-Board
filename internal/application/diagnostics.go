@@ -219,8 +219,7 @@ func (s *DiagnosticsService) Doctor(ctx context.Context,
 		}
 		repairEligible := mode.Surface == domain.ExecutionSurfaceCode &&
 			mode.Phase == domain.ExecutionPhaseDeliver &&
-			(permission.Mode == domain.RunExecutionPermissionApproval ||
-				permission.Mode.IncludesFullAccess()) &&
+			permission.Mode == domain.RunExecutionPermissionFull &&
 			permission.OperatorConfirmed
 		runSnapshot = &DoctorRunSnapshot{
 			RunID: run.ID, Status: run.Status, Profile: mission.Profile,

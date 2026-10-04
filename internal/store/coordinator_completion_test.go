@@ -259,7 +259,7 @@ func TestConcurrentSpecialistCompletionConvergesAcrossStores(t *testing.T) {
 
 func TestSQLiteUpgradesV22ToSpecialistCompletionReports(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v22.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

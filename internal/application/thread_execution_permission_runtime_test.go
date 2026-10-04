@@ -30,14 +30,13 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: authority,
+		DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	service := application.NewThreadExecutionPermissionService(state, capabilities)
 	first, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "thread-full-first-confirmation-0001", RequestedBy: "test_operator",
-		Reason: "confirm Full Access for the current task", ConfirmDangerFullAccess: true,
+		Reason: "confirm Full Access for the current task", ConfirmFull: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -61,9 +60,9 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	freshService := application.NewThreadExecutionPermissionService(state, freshCapabilities)
 	coldReplay, err := freshService.Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "thread-full-first-confirmation-0001", RequestedBy: "test_operator",
-			Reason: "confirm Full Access for the current task", ConfirmDangerFullAccess: true,
+			Reason: "confirm Full Access for the current task", ConfirmFull: true,
 		})
 	if err != nil || !coldReplay.Replayed || coldReplay.Permission.ID != first.Permission.ID {
 		t.Fatalf("fresh process exact replay=%+v err=%v", coldReplay, err)
@@ -86,10 +85,10 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 
 	reconfirmed, err := service.Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "thread-full-second-confirmation-0001", RequestedBy: "test_operator",
-			Reason:                  "explicitly reactivate Full Access for the current task",
-			ConfirmDangerFullAccess: true,
+			Reason:      "explicitly reactivate Full Access for the current task",
+			ConfirmFull: true,
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -108,10 +107,10 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	}
 	replayed, err := service.Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "thread-full-second-confirmation-0001", RequestedBy: "test_operator",
-			Reason:                  "explicitly reactivate Full Access for the current task",
-			ConfirmDangerFullAccess: true,
+			Reason:      "explicitly reactivate Full Access for the current task",
+			ConfirmFull: true,
 		})
 	if err != nil || !replayed.Replayed {
 		t.Fatalf("same-mode Full retry was not replayed: result=%+v err=%v", replayed, err)
@@ -122,15 +121,15 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	}
 }
 
-func TestThreadExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t *testing.T) {
+func TestThreadExecutionPermissionExactAutoReplayPreservesAuthorizationFence(t *testing.T) {
 	ctx := context.Background()
-	state, err := store.Open(filepath.Join(t.TempDir(), "thread-debug-replay.db"))
+	state, err := store.Open(filepath.Join(t.TempDir(), "thread-auto-replay.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	_, run, err := application.NewRunService(state).Create(ctx,
-		application.CreateRunRequest{Goal: "verify Debug replay fencing",
+		application.CreateRunRequest{Goal: "verify Auto replay fencing",
 			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
 		t.Fatal(err)
@@ -143,13 +142,12 @@ func TestThreadExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t 
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
 			RuntimeAuthority: authority,
 		})
 	request := application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "thread-debug-replay-operation-0001", RequestedBy: "test_operator",
-		Reason: "select Debug for the current task", ConfirmDebugAccess: true,
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
+		OperationKey: "thread-auto-replay-operation-0001", RequestedBy: "test_operator",
+		Reason: "select Auto for the current task",
 	}
 	first, err := service.Change(ctx, request)
 	if err != nil {
@@ -161,22 +159,22 @@ func TestThreadExecutionPermissionExactDebugReplayPreservesAuthorizationFence(t 
 	}
 	replayed, err := service.Change(ctx, request)
 	if err != nil || !replayed.Replayed || replayed.Permission.ID != first.Permission.ID {
-		t.Fatalf("exact Thread Debug replay=%+v err=%v", replayed, err)
+		t.Fatalf("exact Thread Auto replay=%+v err=%v", replayed, err)
 	}
 	if !authority.AllowsRunAuthorizationFence(run.ID, fence) {
-		t.Fatal("exact Thread Debug replay rotated its current Run fence")
+		t.Fatal("exact Thread Auto replay rotated its current Run fence")
 	}
 }
 
-func TestThreadExecutionPermissionFreshSameDebugPreservesAuthorizationFence(t *testing.T) {
+func TestThreadExecutionPermissionFreshSameAutoPreservesAuthorizationFence(t *testing.T) {
 	ctx := context.Background()
-	state, err := store.Open(filepath.Join(t.TempDir(), "thread-debug-fresh-reaffirmation.db"))
+	state, err := store.Open(filepath.Join(t.TempDir(), "thread-auto-fresh-reaffirmation.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	_, run, err := application.NewRunService(state).Create(ctx,
-		application.CreateRunRequest{Goal: "verify fresh Debug reaffirmation fencing",
+		application.CreateRunRequest{Goal: "verify fresh Auto reaffirmation fencing",
 			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
 		t.Fatal(err)
@@ -189,13 +187,12 @@ func TestThreadExecutionPermissionFreshSameDebugPreservesAuthorizationFence(t *t
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
 			RuntimeAuthority: authority,
 		})
 	first, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "thread-debug-fresh-first-0001", RequestedBy: "test_operator",
-		Reason: "select Debug for this task", ConfirmDebugAccess: true,
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
+		OperationKey: "thread-auto-fresh-first-0001", RequestedBy: "test_operator",
+		Reason: "select Auto for this task",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,9 +206,9 @@ func TestThreadExecutionPermissionFreshSameDebugPreservesAuthorizationFence(t *t
 		t.Fatal(err)
 	}
 	reaffirmed, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "thread-debug-fresh-second-0001", RequestedBy: "test_operator",
-		Reason: "reaffirm Debug for this task", ConfirmDebugAccess: true,
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
+		OperationKey: "thread-auto-fresh-second-0001", RequestedBy: "test_operator",
+		Reason: "reaffirm Auto for this task",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,11 +218,11 @@ func TestThreadExecutionPermissionFreshSameDebugPreservesAuthorizationFence(t *t
 		reaffirmed.Permission.Revision <= first.Permission.Revision ||
 		reaffirmed.CurrentRunEffect != domain.ThreadExecutionPermissionApplied ||
 		after.ID != before.ID || after.Revision != before.Revision {
-		t.Fatalf("fresh Debug reaffirmation changed the Run snapshot: result=%+v before=%+v after=%+v err=%v",
+		t.Fatalf("fresh Auto reaffirmation changed the Run snapshot: result=%+v before=%+v after=%+v err=%v",
 			reaffirmed, before, after, err)
 	}
 	if !authority.AllowsRunAuthorizationFence(run.ID, fence) {
-		t.Fatal("fresh same-mode Debug operation revoked the unchanged Run fence")
+		t.Fatal("fresh same-mode Auto operation revoked the unchanged Run fence")
 	}
 }
 
@@ -237,7 +234,7 @@ func TestDeferredThreadEscalationPreservesCurrentRunAuthorizationFence(t *testin
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	_, run, err := application.NewRunService(state).Create(ctx,
-		application.CreateRunRequest{Goal: "preserve current authority while deferring Debug",
+		application.CreateRunRequest{Goal: "preserve current authority while deferring Full",
 			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
 		t.Fatal(err)
@@ -249,14 +246,13 @@ func TestDeferredThreadEscalationPreservesCurrentRunAuthorizationFence(t *testin
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
 		RuntimeAuthority: authority,
 	}
 	service := application.NewThreadExecutionPermissionService(state, capabilities)
-	full, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-		OperationKey: "thread-deferred-full-operation-0001", RequestedBy: "test_operator",
-		Reason: "establish current Full authority", ConfirmDangerFullAccess: true,
+	auto, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
+		OperationKey: "thread-deferred-auto-operation-0001", RequestedBy: "test_operator",
+		Reason: "establish the current Auto preference",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -264,29 +260,32 @@ func TestDeferredThreadEscalationPreservesCurrentRunAuthorizationFence(t *testin
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	fullRun, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || !authority.AllowsThreadFullAccess(full.Permission, &fullRun) {
-		t.Fatalf("Full authority was not active: permission=%+v err=%v", fullRun, err)
+	autoRun, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || autoRun.Mode != domain.RunExecutionPermissionAuto ||
+		authority.AllowsThreadFullAccess(auto.Permission, &autoRun) {
+		t.Fatalf("Auto preference unexpectedly granted Full authority: permission=%+v err=%v", autoRun, err)
 	}
 	fence, err := authority.IssueRunAuthorizationFence(run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	debug, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
-		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionDebug),
-		OperationKey: "thread-deferred-debug-operation-0001", RequestedBy: "test_operator",
-		Reason: "use Debug on the next Run", ConfirmDebugAccess: true,
+	full, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
+		OperationKey: "thread-deferred-full-operation-0001", RequestedBy: "test_operator",
+		Reason: "use Full on the next Run", ConfirmFull: true,
 	})
-	if err != nil || debug.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
-		t.Fatalf("Debug preference was not deferred: result=%+v err=%v", debug, err)
+	if err != nil || full.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
+		t.Fatalf("Full preference was not deferred: result=%+v err=%v", full, err)
 	}
 	if !authority.AllowsRunAuthorizationFence(run.ID, fence) {
 		t.Fatal("deferred preference rotated the current Run authorization fence")
 	}
 	current, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil || current.ID != fullRun.ID ||
-		current.Mode != domain.RunExecutionPermissionFullAccess {
+	if err != nil || current.ID != autoRun.ID || current.Mode != domain.RunExecutionPermissionAuto {
 		t.Fatalf("deferred preference changed current Run permission: %+v err=%v", current, err)
+	}
+	if authority.AllowsThreadFullAccess(full.Permission, &current) {
+		t.Fatal("deferred Full preference activated authority for the current Auto Run")
 	}
 }

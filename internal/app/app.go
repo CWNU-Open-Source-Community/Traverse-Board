@@ -70,8 +70,6 @@ type App struct {
 	runtimeResourceRead   sandbox.DockerRuntimeInputResourceInspector
 	runtimeResourceClean  sandbox.DockerRuntimeInputResourceCleanupTransport
 	productionEvidence    sandbox.DockerProductionEvidenceCollector
-	controlledCommands    controlledCommandExecutor
-	hostCommands          hostCommandExecutor
 	codeIntel             *codeintel.Manager
 	codeIntelConfigPath   string
 	codeIntelConfigDigest string
@@ -139,12 +137,6 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 		WithChildTaskProposalExecutor(application.NewChildTaskToolExecutor(a.store)).
 		WithSkillCandidateExecutor(application.NewSkillCandidateToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
-		WithControlledCommandProposalExecutor(
-			application.NewControlledCommandProposalToolExecutor(a.store)).
-		WithOneShotCommandProposalExecutor(
-			application.NewOneShotCommandProposalToolExecutor(a.store)).
-		WithHostCommandProposalExecutor(
-			application.NewHostCommandProposalToolExecutor(a.store)).
 		WithWorkspaceRootResolver(func(ctx context.Context, workspaceID string) (string, error) {
 			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
 			return rec.RootPath, err
@@ -199,7 +191,11 @@ func (a *App) newMCPClientManager() *mcp.Manager {
 	if a == nil || a.store == nil {
 		return nil
 	}
-	manager, err := mcp.NewClientManager(a.store, a.credentials, mcp.ManagerOptions{})
+	nativeSources, err := application.NewNativeMCPSourceResolver(a.store, filepath.Join(a.home, "plugins", "mcp"))
+	if err != nil {
+		return nil
+	}
+	manager, err := mcp.NewClientManager(a.store, a.credentials, mcp.ManagerOptions{NativeSources: nativeSources})
 	if err != nil {
 		return nil
 	}

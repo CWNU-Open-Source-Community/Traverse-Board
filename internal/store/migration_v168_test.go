@@ -19,7 +19,7 @@ func TestSchemaV168BackfillsOriginalMessageIdentityAndKeepsRevisionReceiptGuard(
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 167); err != nil {
 		t.Fatal(err)
 	}
-	_, created, err := application.NewRunService(state).Create(ctx,
+	_, created, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "v168 queued message upgrade", Profile: "review",
 			Interactive: true, Budget: domain.Budget{MaxTurns: 8}})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestSchemaV168LegacyCancelledAttachmentNeverEntersModelHistoryOrCompaction(
 		Name: "v168 context", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	_, created, err := application.NewRunService(state).Create(ctx,
+	_, created, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "exclude withdrawn legacy attachment evidence",
 			WorkspaceID: "workspace-v168-context", Profile: "review", Interactive: true,
 			Budget: domain.Budget{MaxTurns: 8}})

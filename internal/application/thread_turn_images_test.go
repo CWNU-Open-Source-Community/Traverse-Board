@@ -82,14 +82,14 @@ func TestPureImageInputSurvivesApprovalAndToolBoundary(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected request %d", index)
 			}
-			turns := toolBoundaryService(st, st, p)
+			turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: approval})
 			result, err := turns.Execute(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if approval {
 				edits, err := st.ListFileEdits(t.Context(), fileedit.ListFilter{SessionID: run.SessionID})
-				if err != nil || len(edits) != 1 {
+				if err != nil || len(edits) != 1 || edits[0].Status != fileedit.StatusProposed {
 					t.Fatalf("edits %v err=%v", edits, err)
 				}
 				if _, err := application.NewFileEditReviewService(st).Review(t.Context(), application.ReviewFileEditRequest{Version: application.FileEditReviewProtocolVersion, RunID: run.ID, EditID: edits[0].ID, Action: application.FileEditDeny}); err != nil {

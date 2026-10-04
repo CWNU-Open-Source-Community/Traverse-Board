@@ -18,7 +18,6 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/runmutation"
-	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
 )
@@ -224,26 +223,17 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 				"supervisor tool payload exceeds its durable limit")
 		}
 		normalized[index].Arguments = append(json.RawMessage(nil), safe...)
-		riskEscalationAuthority := false
-		if name == toolgateway.HostCommandProposeTool {
-			hostSpec, _, hostErr := toolgateway.NormalizeHostCommandProposalPayload(safe)
-			if hostErr != nil {
-				return nil, apperror.Wrap(apperror.CodeInvalidArgument,
-					"host command supervisor payload is invalid", hostErr)
-			}
-			riskEscalationAuthority = hostSpec.Version == runner.RiskEscalationProtocolVersion
-		}
-		if toolgateway.IsAgentCodeTool(name) || riskEscalationAuthority {
+		if toolgateway.IsAgentCodeTool(name) {
 			authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 				normalized[index].Authority)
 			if authorityErr != nil || authority.RunID != runID {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
-					"agent code or risk escalation supervisor tool is missing its exact durable authority")
+					"agent code supervisor tool is missing its exact durable authority")
 			}
 			canonicalAuthority, authorityErr := toolgateway.EncodeAgentCodeCallAuthority(authority)
 			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
-					"agent code or risk escalation supervisor tool authority is invalid")
+					"agent code supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
 		} else if name == toolgateway.CommandRuntimeTool {
@@ -698,6 +688,9 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 	}
 	if !executionStarted {
 		preflight, preflightErr := validateAgentBrowserPreflightResultTx(ctx, tx, call, result)
+		if !preflight && preflightErr == nil {
+			preflight, preflightErr = validatePendingOperationPreflightResultTx(ctx, tx, call, result)
+		}
 		if preflightErr != nil {
 			return domain.SupervisorToolCall{}, false, preflightErr
 		}
@@ -705,7 +698,7 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 			return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition, "supervisor tool result requires a durable execution start")
 		}
 	}
-	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result, true)
+	call, err = recordSupervisorToolResultTx(ctx, tx, run, current, call, result, executionStarted)
 	if err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
@@ -753,7 +746,7 @@ func recordSupervisorToolResultTx(ctx context.Context, tx *sql.Tx, run domain.Ru
 			payload["error_code"] = call.ErrorCode
 			if !dispatched {
 				payload["outcome"] = "not_dispatched"
-				payload["reason"] = "steering_superseded"
+				payload["reason"] = result.ErrorCode
 			}
 			return payload
 		}()); err != nil {

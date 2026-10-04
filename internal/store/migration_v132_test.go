@@ -46,7 +46,7 @@ func removeSchemaV132ForTestStatements() []string {
 func TestSchemaV132PreservesLifecycleActionsAndFencesStdinAttach(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "docker-stdin-v131.db")
-	state, runRecord, root := openSandboxManifestStoreAt(t, ctx, path)
+	state, runRecord, root := openSandboxManifestStoreAt(t, ctx, path, 177)
 	intent, request := newDockerContainerLifecycleStoreIntent(t, ctx, state,
 		runRecord.ID, root, "docker-stdin-v132")
 	record, _, err := state.BeginDockerContainerLifecycle(ctx, intent,

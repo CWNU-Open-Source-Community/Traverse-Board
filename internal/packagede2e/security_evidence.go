@@ -306,7 +306,7 @@ func validateSecurityBackends(backends []SecurityBackendEvidence) (map[string]st
 			return nil, fmt.Errorf("security backend %q is invalid", backend.Backend)
 		}
 		if backend.Availability == SecurityBackendUnavailable {
-			if backend.UnavailableSignal != "approval_required" || !backend.ApprovalFallback {
+			if backend.UnavailableSignal != "backend_unavailable" || backend.ApprovalFallback {
 				return nil, fmt.Errorf("security backend %q did not fail closed", backend.Backend)
 			}
 		} else if backend.UnavailableSignal != "" || backend.ApprovalFallback {

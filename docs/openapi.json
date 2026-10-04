@@ -7142,7 +7142,7 @@
       "post": {
         "operationId": "selectRunBrowserCDPPermission",
         "summary": "Select a Run browser CDP permission mode",
-        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.",
+        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under modern Full with live process activation; it defaults on when entering Full, can be disabled independently, and is forced off outside Full.",
         "tags": [
           "Control"
         ],
@@ -8048,141 +8048,6 @@
           }
         },
         "x-cyberagent-read-only": true
-      }
-    },
-    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
-      "post": {
-        "operationId": "reviewControlledCommandProposal",
-        "summary": "Approve or deny one fixed command proposal",
-        "description": "Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.",
-        "tags": [
-          "Control"
-        ],
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run identity",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "proposal_id",
-            "in": "path",
-            "description": "Controlled command proposal identity",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "description": "Opaque review key; only a domain-separated digest is persisted",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 16,
-              "pattern": "^\\S+$",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Control request accepted or idempotently replayed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/ControlledCommandProposalView"
-                    },
-                    "request_id": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "version": {
-                      "const": "api.v1",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "version",
-                    "request_id",
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "412": {
-            "$ref": "#/components/responses/FailedPrecondition"
-          },
-          "413": {
-            "$ref": "#/components/responses/RequestEntityTooLarge"
-          },
-          "414": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "429": {
-            "$ref": "#/components/responses/ResourceExhausted"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "503": {
-            "$ref": "#/components/responses/Unavailable"
-          },
-          "504": {
-            "$ref": "#/components/responses/GatewayTimeout"
-          }
-        },
-        "security": [
-          {
-            "ControlBearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ControlledCommandProposalReviewRequestView"
-              }
-            }
-          }
-        },
-        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/runs/{run_id}/context-summary": {
@@ -9249,7 +9114,7 @@
       "post": {
         "operationId": "selectRunExecutionPermission",
         "summary": "Select a Run execution permission mode",
-        "description": "Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.",
+        "description": "Selects Ask, Auto or Full operation approval. Full requires explicit confirmation and live activation in the current process. Persisted snapshots and historical approvals never restore execution authority; each operation rechecks its exact inputs, policy, runtime epoch and Run fence.",
         "tags": [
           "Control"
         ],
@@ -10956,7 +10821,7 @@
       "post": {
         "operationId": "openRunFullCDPSession",
         "summary": "Open a confirmed Full CDP session",
-        "description": "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
+        "description": "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires modern Full with live process activation, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
         "tags": [
           "Control"
         ],
@@ -12371,8 +12236,8 @@
     "/api/v1/runs/{run_id}/host-command-proposals": {
       "get": {
         "operationId": "listHostCommandProposals",
-        "summary": "List exact host command proposals",
-        "description": "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
+        "summary": "List historical host command proposals",
+        "description": "Reads saved Host and Risk proposal evidence. Creation, review and execution are retired; these records cannot authorize a new command. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
         "tags": [
           "Control"
         ],
@@ -12469,8 +12334,8 @@
     "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}": {
       "get": {
         "operationId": "getHostCommandProposal",
-        "summary": "Inspect one exact host command proposal",
-        "description": "Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.",
+        "summary": "Inspect one historical host command proposal",
+        "description": "Reads the saved immutable command envelope, review, historical grant and consumption metadata, invalidation state, result and receipt. Only a saved outcome may continue its exact original call; pending or approved records do not regain execution authority. An execution intent without a durable result remains unknown and is never resent.",
         "tags": [
           "Control"
         ],
@@ -12562,11 +12427,11 @@
         "x-cyberagent-read-only": true
       }
     },
-    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume": {
       "post": {
-        "operationId": "reviewHostCommandProposal",
-        "summary": "Approve or deny one exact host command proposal",
-        "description": "Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
+        "operationId": "resumeHostCommandProposal",
+        "summary": "Resume a saved historical command outcome",
+        "description": "Resumes only the exact durable Supervisor call or approval continuation from saved history. Requires control authorization and an available Run controller. Does not accept command, review or grant parameters. A historical intent without a result remains unknown and is never re-executed.",
         "tags": [
           "Control"
         ],
@@ -12592,18 +12457,6 @@
               "maxLength": 256,
               "minLength": 1,
               "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "description": "Opaque review key; only a domain-separated digest is persisted",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 16,
-              "pattern": "^\\S+$",
               "type": "string"
             }
           }
@@ -12684,16 +12537,6 @@
             "ControlBearerAuth": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HostCommandProposalReviewRequestView"
-              }
-            }
-          }
-        },
         "x-cyberagent-read-only": false
       }
     },
@@ -20582,7 +20425,7 @@
       "post": {
         "operationId": "installSkillPackage",
         "summary": "Install one inert Skill package",
-        "description": "Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.",
+        "description": "Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.",
         "tags": [
           "Control"
         ],
@@ -20609,7 +20452,14 @@
                   "additionalProperties": false,
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/SkillPackageInstallView"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SkillPackageInstallView"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginSkillInstallView"
+                        }
+                      ]
                     },
                     "request_id": {
                       "maxLength": 256,
@@ -20690,7 +20540,7 @@
       "post": {
         "operationId": "createStandardCodeRun",
         "summary": "Create and configure a Standard Code Run",
-        "description": "Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
+        "description": "Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
         "tags": [
           "Control"
         ],
@@ -27267,6 +27117,9 @@
           },
           "permission_mode": {
             "enum": [
+              "ask",
+              "auto",
+              "full",
               "conservative",
               "approval",
               "full_access",
@@ -27634,9 +27487,22 @@
             "enum": [
               "approve_once",
               "approve_for_thread",
+              "approve_for_run",
               "deny"
             ],
             "type": "string"
+          },
+          "grant_max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "grant_ttl_seconds": {
+            "format": "int32",
+            "maximum": 900,
+            "minimum": 1,
+            "type": "integer"
           },
           "reason": {
             "maxLength": 2048,
@@ -27662,6 +27528,7 @@
             "enum": [
               "approve_once",
               "approve_for_thread",
+              "approve_for_run",
               "deny"
             ],
             "type": "string"
@@ -27670,6 +27537,9 @@
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
+          },
+          "bounded_grant": {
+            "$ref": "#/components/schemas/BoundedCommandGrantView"
           },
           "capability_grant": {
             "type": "boolean"
@@ -27783,6 +27653,8 @@
               "file_review_required",
               "fetch_public_https",
               "browser_sensitive_action",
+              "mcp_server_and_tool",
+              "command_process",
               "unavailable"
             ],
             "type": "string"
@@ -29374,6 +29246,64 @@
         ],
         "type": "object"
       },
+      "BoundedCommandGrantView": {
+        "additionalProperties": false,
+        "properties": {
+          "each_command_requires_review": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scope_fingerprint": {
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "format": "int32",
+            "maximum": 900,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "use_ordinal": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "uses_remaining": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope_fingerprint",
+          "ttl_seconds",
+          "max_uses",
+          "uses_remaining",
+          "use_ordinal",
+          "expires_at",
+          "each_command_requires_review"
+        ],
+        "type": "object"
+      },
       "BrowserCDPPermissionRuntimeView": {
         "additionalProperties": false,
         "properties": {
@@ -29593,6 +29523,9 @@
           },
           "value": {
             "enum": [
+              "ask",
+              "auto",
+              "full",
               "conservative",
               "workspace_access",
               "approval",
@@ -32230,28 +32163,6 @@
         ],
         "type": "object"
       },
-      "ControlledCommandProposalReviewRequestView": {
-        "additionalProperties": false,
-        "properties": {
-          "confirm_execution": {
-            "type": "boolean"
-          },
-          "decision": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "version",
-          "decision"
-        ],
-        "type": "object"
-      },
       "ControlledCommandProposalReviewView": {
         "additionalProperties": false,
         "properties": {
@@ -33991,9 +33902,6 @@
           "danger_full_access_enabled": {
             "type": "boolean"
           },
-          "debug_maximum_access_enabled": {
-            "type": "boolean"
-          },
           "operator_approval_enabled": {
             "type": "boolean"
           },
@@ -34004,8 +33912,7 @@
         "required": [
           "workspace_sandbox_enabled",
           "operator_approval_enabled",
-          "danger_full_access_enabled",
-          "debug_maximum_access_enabled"
+          "danger_full_access_enabled"
         ],
         "type": "object"
       },
@@ -34168,6 +34075,45 @@
         ],
         "type": "object"
       },
+      "ExtensionMCPNativeSourceView": {
+        "additionalProperties": false,
+        "properties": {
+          "component_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installation_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "package_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "package_id",
+          "component_id",
+          "revision",
+          "installation_generation",
+          "surface"
+        ],
+        "type": "object"
+      },
       "ExtensionMCPReviewRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -34232,6 +34178,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "native_source": {
+            "$ref": "#/components/schemas/ExtensionMCPNativeSourceView"
           },
           "protocol_version": {
             "type": "string"
@@ -34339,6 +34288,9 @@
           "signature_valid": {
             "type": "boolean"
           },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExtensionPortableSnapshotView"
+          },
           "source": {
             "$ref": "#/components/schemas/ExtensionSourceView"
           },
@@ -34439,6 +34391,26 @@
           "expected_package_fingerprint",
           "expected_generation",
           "confirm_untrusted"
+        ],
+        "type": "object"
+      },
+      "ExtensionPortableSnapshotView": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "revision",
+          "surface"
         ],
         "type": "object"
       },
@@ -40049,55 +40021,6 @@
         ],
         "type": "object"
       },
-      "HostCommandProposalReviewRequestView": {
-        "additionalProperties": false,
-        "properties": {
-          "authorization": {
-            "enum": [
-              "once",
-              "run_scope"
-            ],
-            "type": "string"
-          },
-          "confirm_execution": {
-            "type": "boolean"
-          },
-          "decision": {
-            "enum": [
-              "approve",
-              "deny"
-            ],
-            "type": "string"
-          },
-          "grant_max_uses": {
-            "format": "int32",
-            "maximum": 8,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "grant_ttl_seconds": {
-            "format": "int32",
-            "maximum": 900,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "reason": {
-            "maxLength": 2048,
-            "type": "string"
-          },
-          "version": {
-            "enum": [
-              "host_command_review.v1"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "version",
-          "decision"
-        ],
-        "type": "object"
-      },
       "HostCommandProposalReviewView": {
         "additionalProperties": false,
         "properties": {
@@ -42337,6 +42260,86 @@
         ],
         "type": "object"
       },
+      "PackagePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "ArchiveBytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ArchiveSHA256": {
+            "type": "string"
+          },
+          "EntryCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ExecutableAssetCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ImportCommandExecution": {
+            "type": "boolean"
+          },
+          "ImportNetworkAccess": {
+            "type": "boolean"
+          },
+          "ImportProviderCalls": {
+            "type": "boolean"
+          },
+          "InstallHookCount": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "InstallationAuthorized": {
+            "type": "boolean"
+          },
+          "Manifest": {
+            "$ref": "#/components/schemas/SkillPackageManifest"
+          },
+          "PackageFingerprint": {
+            "type": "string"
+          },
+          "ProtocolVersion": {
+            "type": "string"
+          },
+          "RiskCodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ToolCapabilityGrant": {
+            "type": "boolean"
+          },
+          "TrustClass": {
+            "type": "string"
+          },
+          "UncompressedBytes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ProtocolVersion",
+          "Manifest",
+          "ArchiveSHA256",
+          "PackageFingerprint",
+          "ArchiveBytes",
+          "UncompressedBytes",
+          "EntryCount",
+          "TrustClass",
+          "RiskCodes",
+          "ExecutableAssetCount",
+          "InstallHookCount",
+          "ImportCommandExecution",
+          "ImportNetworkAccess",
+          "ImportProviderCalls",
+          "ToolCapabilityGrant",
+          "InstallationAuthorized"
+        ],
+        "type": "object"
+      },
       "Page": {
         "additionalProperties": false,
         "properties": {
@@ -43111,6 +43114,97 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "PluginSkillInstallView": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+          },
+          "protocol_version": {
+            "enum": [
+              "plugin-installation.v2"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "installation",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "PortableSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "author_version": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ToolContractDiagnostic"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "string"
+          },
+          "inventory": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotEntry"
+            },
+            "type": "array"
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/PackagePreview"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ToolContractContentRef"
+          },
+          "name": {
+            "type": "string"
+          },
+          "package_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "root_name": {
+            "type": "string"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotSkill"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ToolContractSourceRef"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "package_id",
+          "revision",
+          "root_name",
+          "format",
+          "name",
+          "source",
+          "manifest",
+          "inventory",
+          "skills"
         ],
         "type": "object"
       },
@@ -47006,25 +47100,14 @@
       "RunExecutionPermissionControlRequestView": {
         "additionalProperties": false,
         "properties": {
-          "confirm_danger_full_access": {
-            "type": "boolean"
-          },
-          "confirm_debug_access": {
-            "type": "boolean"
-          },
-          "confirm_user_approval": {
-            "type": "boolean"
-          },
-          "confirm_workspace_access": {
+          "confirm_full": {
             "type": "boolean"
           },
           "mode": {
             "enum": [
-              "conservative",
-              "workspace_access",
-              "approval",
-              "full_access",
-              "debug"
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -47034,7 +47117,8 @@
           }
         },
         "required": [
-          "mode"
+          "mode",
+          "confirm_full"
         ],
         "type": "object"
       },
@@ -47060,12 +47144,21 @@
           "agent_terminal_input": {
             "type": "boolean"
           },
+          "approval_mode": {
+            "enum": [
+              "ask",
+              "auto",
+              "full"
+            ],
+            "type": "string"
+          },
           "approval_policy": {
             "enum": [
               "fixed_templates",
               "out_of_scope_exact_once",
               "per_command",
-              "none"
+              "none",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47083,7 +47176,8 @@
               "fixed_templates",
               "sandboxed_workspace",
               "arbitrary_stateless",
-              "arbitrary_persistent"
+              "arbitrary_persistent",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47097,8 +47191,20 @@
           "filesystem_scope": {
             "enum": [
               "workspace_guarded",
-              "host_full"
+              "host_full",
+              "per_operation"
             ],
+            "type": "string"
+          },
+          "full_activation": {
+            "enum": [
+              "inactive",
+              "active",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "full_unavailable_reason": {
             "type": "string"
           },
           "mode": {
@@ -47107,14 +47213,18 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
           "network_scope": {
             "enum": [
               "disabled",
-              "host"
+              "host",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -47126,7 +47236,8 @@
           },
           "policy_version": {
             "enum": [
-              "execution_permission_policy.v1"
+              "execution_permission_policy.v1",
+              "execution_permission_policy.v2"
             ],
             "type": "string"
           },
@@ -47135,7 +47246,8 @@
           },
           "protocol_version": {
             "enum": [
-              "run_execution_permission.v1"
+              "run_execution_permission.v1",
+              "run_execution_permission.v2"
             ],
             "type": "string"
           },
@@ -47145,7 +47257,8 @@
               "workspace_sandbox_adapter",
               "operator_approval",
               "danger_full_access",
-              "debug_maximum_access"
+              "debug_maximum_access",
+              "operation_authority"
             ],
             "type": "string"
           },
@@ -47173,6 +47286,8 @@
           "protocol_version",
           "revision",
           "mode",
+          "approval_mode",
+          "full_activation",
           "approval_policy",
           "command_scope",
           "filesystem_scope",
@@ -48289,13 +48404,7 @@
           "command_runtime_protocol_available": {
             "type": "boolean"
           },
-          "controlled_command_proposal_control_enabled": {
-            "type": "boolean"
-          },
           "danger_full_access_enabled": {
-            "type": "boolean"
-          },
-          "debug_maximum_access_enabled": {
             "type": "boolean"
           },
           "docker_execution_enabled": {
@@ -48329,9 +48438,6 @@
             "type": "boolean"
           },
           "github_review_control_enabled": {
-            "type": "boolean"
-          },
-          "host_command_proposal_control_enabled": {
             "type": "boolean"
           },
           "model_control_enabled": {
@@ -48432,7 +48538,6 @@
           "workspace_sandbox_enabled",
           "operator_approval_enabled",
           "danger_full_access_enabled",
-          "debug_maximum_access_enabled",
           "command_runtime_enabled",
           "command_runtime_protocol_available",
           "command_runtime_adapter_installed",
@@ -48451,8 +48556,6 @@
           "run_execution_enabled",
           "plan_delivery_control_enabled",
           "approval_control_enabled",
-          "controlled_command_proposal_control_enabled",
-          "host_command_proposal_control_enabled",
           "model_control_enabled",
           "provider_credential_enabled",
           "file_edit_review_enabled",
@@ -50436,11 +50539,14 @@
         "additionalProperties": false,
         "properties": {
           "archive_base64": {
-            "maxLength": 87384,
+            "maxLength": 5592408,
             "type": "string"
           },
           "confirm_untrusted": {
             "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/PortableSnapshot"
           },
           "surface": {
             "enum": [
@@ -50451,7 +50557,8 @@
           },
           "version": {
             "enum": [
-              "skill_package_installation.v1"
+              "skill_package_installation.v1",
+              "plugin-installation.v2"
             ],
             "type": "string"
           }
@@ -50586,6 +50693,93 @@
         ],
         "type": "object"
       },
+      "SkillPackageManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "content_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "content_path": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "content_token_upper_bound": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "explicit_only": {
+            "type": "boolean"
+          },
+          "model_invocable": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "surfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tool_dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user_invocable": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol",
+          "name",
+          "version",
+          "description",
+          "profiles",
+          "tool_dependencies",
+          "content_path",
+          "content_sha256",
+          "content_bytes",
+          "content_token_upper_bound"
+        ],
+        "type": "object"
+      },
       "Snapshot": {
         "additionalProperties": false,
         "properties": {
@@ -50614,6 +50808,35 @@
           "Generation",
           "Providers",
           "Routes"
+        ],
+        "type": "object"
+      },
+      "SnapshotEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mode": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "bytes",
+          "mode"
         ],
         "type": "object"
       },
@@ -50695,6 +50918,26 @@
           "citeable",
           "untrusted",
           "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "SnapshotSkill": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "$ref": "#/components/schemas/ToolContractContentRef"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instructions",
+          "name",
+          "description"
         ],
         "type": "object"
       },
@@ -52019,7 +52262,7 @@
                 "pause_and_configure",
                 "wait_for_quiescence",
                 "select_docker",
-                "select_approval",
+                "select_ask",
                 "retry_readiness",
                 "create_new_run"
               ],
@@ -53582,25 +53825,14 @@
       "ThreadExecutionPermissionControlRequestView": {
         "additionalProperties": false,
         "properties": {
-          "confirm_danger_full_access": {
-            "type": "boolean"
-          },
-          "confirm_debug_access": {
-            "type": "boolean"
-          },
-          "confirm_user_approval": {
-            "type": "boolean"
-          },
-          "confirm_workspace_access": {
+          "confirm_full": {
             "type": "boolean"
           },
           "mode": {
             "enum": [
-              "conservative",
-              "workspace_access",
-              "approval",
-              "full_access",
-              "debug"
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -53610,7 +53842,8 @@
           }
         },
         "required": [
-          "mode"
+          "mode",
+          "confirm_full"
         ],
         "type": "object"
       },
@@ -53637,7 +53870,10 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
@@ -53670,12 +53906,21 @@
           "applies_to_future_successor_runs": {
             "type": "boolean"
           },
+          "approval_mode": {
+            "enum": [
+              "ask",
+              "auto",
+              "full"
+            ],
+            "type": "string"
+          },
           "approval_policy": {
             "enum": [
               "fixed_templates",
               "out_of_scope_exact_once",
               "per_command",
-              "none"
+              "none",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53693,7 +53938,8 @@
               "fixed_templates",
               "sandboxed_workspace",
               "arbitrary_stateless",
-              "arbitrary_persistent"
+              "arbitrary_persistent",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53707,8 +53953,20 @@
           "filesystem_scope": {
             "enum": [
               "workspace_guarded",
-              "host_full"
+              "host_full",
+              "per_operation"
             ],
+            "type": "string"
+          },
+          "full_activation": {
+            "enum": [
+              "inactive",
+              "active",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "full_unavailable_reason": {
             "type": "string"
           },
           "mode": {
@@ -53717,14 +53975,18 @@
               "workspace_access",
               "approval",
               "full_access",
-              "debug"
+              "debug",
+              "ask",
+              "auto",
+              "full"
             ],
             "type": "string"
           },
           "network_scope": {
             "enum": [
               "disabled",
-              "host"
+              "host",
+              "per_operation"
             ],
             "type": "string"
           },
@@ -53736,7 +53998,8 @@
           },
           "policy_version": {
             "enum": [
-              "execution_permission_policy.v1"
+              "execution_permission_policy.v1",
+              "execution_permission_policy.v2"
             ],
             "type": "string"
           },
@@ -53745,7 +54008,8 @@
           },
           "protocol_version": {
             "enum": [
-              "thread_execution_permission.v1"
+              "thread_execution_permission.v1",
+              "thread_execution_permission.v2"
             ],
             "type": "string"
           },
@@ -53755,7 +54019,8 @@
               "workspace_sandbox_adapter",
               "operator_approval",
               "danger_full_access",
-              "debug_maximum_access"
+              "debug_maximum_access",
+              "operation_authority"
             ],
             "type": "string"
           },
@@ -53788,6 +54053,8 @@
           "protocol_version",
           "revision",
           "mode",
+          "approval_mode",
+          "full_activation",
           "approval_policy",
           "command_scope",
           "filesystem_scope",
@@ -56481,6 +56748,86 @@
           "citeable",
           "untrusted",
           "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "ToolContractComponentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "ComponentID": {
+            "type": "string"
+          },
+          "PackageID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "PackageID",
+          "ComponentID"
+        ],
+        "type": "object"
+      },
+      "ToolContractContentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "Component": {
+            "$ref": "#/components/schemas/ToolContractComponentRef"
+          },
+          "Path": {
+            "type": "string"
+          },
+          "SHA256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Component",
+          "Path",
+          "SHA256"
+        ],
+        "type": "object"
+      },
+      "ToolContractDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "Code": {
+            "type": "string"
+          },
+          "Component": {
+            "$ref": "#/components/schemas/ToolContractComponentRef"
+          },
+          "Message": {
+            "type": "string"
+          },
+          "Severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Component",
+          "Code",
+          "Severity",
+          "Message"
+        ],
+        "type": "object"
+      },
+      "ToolContractSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "Revision": {
+            "type": "string"
+          },
+          "SHA256": {
+            "type": "string"
+          },
+          "URI": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "URI",
+          "Revision",
+          "SHA256"
         ],
         "type": "object"
       },

@@ -22,12 +22,12 @@ const storePlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[` 
 
 func TestSchemaV41UpgradeSupportsImmutablePlanDeliveryLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v41-plan-delivery.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	runs := application.NewRunService(st)
+	runs := newMigrationFixtureRunService(t, st)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "upgrade and preserve Plan/Delivery", Profile: "review", Phase: "plan",
 		ModelRoute: "store-plan/model",

@@ -11,7 +11,7 @@ import (
 	"cyberagent-workbench/internal/events"
 )
 
-func TestRunBrowserCDPPermissionIsImmutableIdempotentAndDebugGated(t *testing.T) {
+func TestRunBrowserCDPPermissionIsImmutableIdempotentAndFullGated(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "run-browser-cdp-permission.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,11 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndDebugGated(t *testing.T)
 	capabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled: true, FullDebugEnabled: true,
 	}
-	service := application.NewRunBrowserCDPPermissionService(st, capabilities)
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+	}
+	service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(st, capabilities, executionCapabilities)
 	initial, err := service.Current(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -46,26 +50,22 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndDebugGated(t *testing.T)
 		ConfirmFullCDPDebug: true,
 	}
 	if _, err := service.Change(ctx, request); apperror.CodeOf(err) != apperror.CodePolicyDenied {
-		t.Fatalf("full CDP bypassed execution Debug gate: %v", err)
+		t.Fatalf("full CDP bypassed current Full activation: %v", err)
 	}
-	executionPermissions := application.NewRunExecutionPermissionService(st,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
-		})
+	executionPermissions := application.NewRunExecutionPermissionService(st, executionCapabilities)
 	if _, err := executionPermissions.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionDebug),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "browser-cdp-debug-execution-permission-0001",
-			RequestedBy:  "test_operator", Reason: "prepare exact Debug boundary",
-			ConfirmDebugAccess: true,
+			RequestedBy:  "test_operator", Reason: "activate current Full in this process",
+			ConfirmFull: true,
 		}); err != nil {
 		t.Fatal(err)
 	}
 	defaulted, err := service.Current(ctx, run.ID)
 	if err != nil || defaulted.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		defaulted.Revision != 2 {
-		t.Fatalf("Debug execution did not atomically default Full CDP on: %+v err=%v",
+		t.Fatalf("Full preference did not atomically default Full CDP on: %+v err=%v",
 			defaulted, err)
 	}
 	if _, err := service.Change(ctx,
@@ -113,12 +113,12 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndDebugGated(t *testing.T)
 
 func TestSchemaV91BackfillsRestrictedBrowserCDPPermission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v90-browser-cdp-permission.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "legacy v90 Run", Profile: "review",
 		Budget: domain.Budget{MaxTurns: 2},
 	})

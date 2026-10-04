@@ -308,16 +308,12 @@ type WebEvidenceCapabilityContext struct {
 	Role                            domain.AgentRole
 	Profile                         domain.Profile
 	PermissionMode                  domain.RunExecutionPermissionMode
-	PermissionSnapshotID            string
-	PermissionGeneration            uint64
-	PermissionRuntimeEpoch          string
 	PermissionRevision              int64
 	ModeRevision                    int64
 	NetworkMode                     string
 	AllowedTargets                  []string
 	ProviderAvailable               bool
 	ProviderFingerprint             string
-	ProviderSearchIndependent       bool
 	SourceConnectorAvailable        bool
 	SourceConnectorFingerprint      string
 	InlineWebFetchApprovalAvailable bool
@@ -346,22 +342,18 @@ func WebEvidenceCapabilitySnapshot(scope WebEvidenceCapabilityContext) WebEviden
 		baseAvailable, refusal = false, "web evidence is available only to the root Agent"
 	case networkErr != nil:
 		baseAvailable, refusal = false, "web evidence Run network authority is invalid"
-	case !providerBindingValid || (scope.ProviderSearchIndependent && !scope.ProviderAvailable):
+	case !providerBindingValid:
 		baseAvailable, refusal = false, "web evidence search Provider binding is invalid"
 	case !connectorBindingValid:
 		baseAvailable, refusal = false, "source connector binding is invalid"
 	}
-	inlineApprovalAvailable := scope.InlineWebFetchApprovalAvailable &&
-		(scope.PermissionMode == domain.RunExecutionPermissionConservative ||
-			scope.PermissionMode == domain.RunExecutionPermissionApproval)
 	preauthorizedFetch := scope.NetworkMode == "allowlist" && len(scope.AllowedTargets) > 0
-	fetchAvailable := baseAvailable && (preauthorizedFetch || inlineApprovalAvailable)
-	searchAvailable := baseAvailable && scope.ProviderAvailable &&
-		(scope.ProviderSearchIndependent || preauthorizedFetch)
-	sourceSearchAvailable := baseAvailable && preauthorizedFetch && scope.SourceConnectorAvailable
+	fetchAvailable := baseAvailable && (preauthorizedFetch || scope.InlineWebFetchApprovalAvailable)
+	searchAvailable := baseAvailable && scope.ProviderAvailable
+	sourceSearchAvailable := baseAvailable && scope.SourceConnectorAvailable
 	available := fetchAvailable || searchAvailable || sourceSearchAvailable
 	if baseAvailable && !available {
-		refusal = "web_evidence_network_disabled: direct fetch requires Run network authority; hosted Provider search requires an eligible Provider route"
+		refusal = "web evidence is unavailable: configure a search provider or enable public HTTPS fetch approval"
 	}
 	generation := webEvidenceGeneration(scope, available, refusal)
 	return WebEvidenceCapabilities{ProtocolVersion: WebEvidenceRegistryVersion,
@@ -382,16 +374,12 @@ type WebEvidenceCallAuthority struct {
 	Role                            domain.AgentRole                  `json:"role"`
 	Profile                         domain.Profile                    `json:"profile"`
 	PermissionMode                  domain.RunExecutionPermissionMode `json:"permission_mode"`
-	PermissionSnapshotID            string                            `json:"permission_snapshot_id,omitempty"`
-	PermissionGeneration            uint64                            `json:"permission_generation,omitempty"`
-	PermissionRuntimeEpoch          string                            `json:"permission_runtime_epoch,omitempty"`
 	PermissionRevision              int64                             `json:"permission_revision"`
 	ModeRevision                    int64                             `json:"mode_revision"`
 	NetworkMode                     string                            `json:"network_mode"`
 	AllowedTargets                  []string                          `json:"allowed_targets"`
 	ProviderAvailable               bool                              `json:"provider_available"`
 	ProviderFingerprint             string                            `json:"provider_fingerprint,omitempty"`
-	ProviderSearchIndependent       bool                              `json:"provider_search_independent"`
 	SourceConnectorAvailable        bool                              `json:"source_connector_available"`
 	SourceConnectorFingerprint      string                            `json:"source_connector_fingerprint,omitempty"`
 	InlineWebFetchApprovalAvailable bool                              `json:"inline_web_fetch_approval_available"`
@@ -405,14 +393,10 @@ func NewWebEvidenceCallAuthority(scope WebEvidenceCapabilityContext) (WebEvidenc
 		RootAgentID: scope.RootAgentID, WorkspaceID: scope.WorkspaceID, Surface: scope.Surface,
 		Phase: scope.Phase, Role: scope.Role, Profile: scope.Profile,
 		PermissionMode: scope.PermissionMode, ModeRevision: scope.ModeRevision,
-		PermissionSnapshotID:   scope.PermissionSnapshotID,
-		PermissionGeneration:   scope.PermissionGeneration,
-		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
-		PermissionRevision:     scope.PermissionRevision,
-		NetworkMode:            scope.NetworkMode, AllowedTargets: append([]string(nil), scope.AllowedTargets...),
+		PermissionRevision: scope.PermissionRevision,
+		NetworkMode:        scope.NetworkMode, AllowedTargets: append([]string(nil), scope.AllowedTargets...),
 		ProviderAvailable:               scope.ProviderAvailable,
 		ProviderFingerprint:             scope.ProviderFingerprint,
-		ProviderSearchIndependent:       scope.ProviderSearchIndependent,
 		SourceConnectorAvailable:        scope.SourceConnectorAvailable,
 		SourceConnectorFingerprint:      scope.SourceConnectorFingerprint,
 		InlineWebFetchApprovalAvailable: scope.InlineWebFetchApprovalAvailable,
@@ -425,14 +409,10 @@ func (a WebEvidenceCallAuthority) Validate() error {
 		SessionID: a.SessionID, RootAgentID: a.RootAgentID, WorkspaceID: a.WorkspaceID,
 		Surface: a.Surface, Phase: a.Phase, Role: a.Role, Profile: a.Profile,
 		PermissionMode: a.PermissionMode, ModeRevision: a.ModeRevision,
-		PermissionSnapshotID:   a.PermissionSnapshotID,
-		PermissionGeneration:   a.PermissionGeneration,
-		PermissionRuntimeEpoch: a.PermissionRuntimeEpoch,
-		PermissionRevision:     a.PermissionRevision,
-		NetworkMode:            a.NetworkMode, AllowedTargets: append([]string(nil), a.AllowedTargets...),
+		PermissionRevision: a.PermissionRevision,
+		NetworkMode:        a.NetworkMode, AllowedTargets: append([]string(nil), a.AllowedTargets...),
 		ProviderAvailable:               a.ProviderAvailable,
 		ProviderFingerprint:             a.ProviderFingerprint,
-		ProviderSearchIndependent:       a.ProviderSearchIndependent,
 		SourceConnectorAvailable:        a.SourceConnectorAvailable,
 		SourceConnectorFingerprint:      a.SourceConnectorFingerprint,
 		InlineWebFetchApprovalAvailable: a.InlineWebFetchApprovalAvailable}
@@ -441,10 +421,6 @@ func (a WebEvidenceCallAuthority) Validate() error {
 		!validMCPIdentity(a.RootAgentID) || (a.WorkspaceID != "" && !validMCPIdentity(a.WorkspaceID)) ||
 		!a.Surface.Valid() || !a.Phase.Valid() || !domain.ValidAgentRole(a.Role) ||
 		!a.PermissionMode.Valid() || a.ModeRevision < 1 || a.PermissionRevision < 1 ||
-		((a.PermissionSnapshotID == "") != (a.PermissionGeneration == 0)) ||
-		((a.PermissionRuntimeEpoch == "") != (a.PermissionGeneration == 0)) ||
-		(a.PermissionSnapshotID != "" && !validMCPIdentity(a.PermissionSnapshotID)) ||
-		(a.PermissionRuntimeEpoch != "" && !validMCPIdentity(a.PermissionRuntimeEpoch)) ||
 		!validAgentCodeDigest(a.Generation, false) ||
 		WebEvidenceCapabilitySnapshot(scope).Generation != a.Generation {
 		return errors.New("web evidence authority is invalid")
@@ -468,45 +444,44 @@ func EncodeWebEvidenceCallAuthority(authority WebEvidenceCallAuthority) (json.Ra
 func DecodeWebEvidenceCallAuthority(raw json.RawMessage) (WebEvidenceCallAuthority, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	var authority WebEvidenceCallAuthority
-	if err := decoder.Decode(&authority); err != nil {
+	// Retired fields may occur in stored history. They confer no current
+	// authority; its generation must still pass the current contract below.
+	var decoded struct {
+		WebEvidenceCallAuthority
+		PermissionSnapshotID      json.RawMessage `json:"permission_snapshot_id"`
+		PermissionGeneration      json.RawMessage `json:"permission_generation"`
+		PermissionRuntimeEpoch    json.RawMessage `json:"permission_runtime_epoch"`
+		ProviderSearchIndependent json.RawMessage `json:"provider_search_independent"`
+	}
+	if err := decoder.Decode(&decoded); err != nil {
 		return WebEvidenceCallAuthority{}, errors.New("web evidence authority is malformed")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return WebEvidenceCallAuthority{}, errors.New("web evidence authority has trailing JSON")
 	}
-	return authority, authority.Validate()
+	return decoded.WebEvidenceCallAuthority, decoded.WebEvidenceCallAuthority.Validate()
 }
 
 func webEvidenceGeneration(scope WebEvidenceCapabilityContext, available bool,
 	refusal string,
 ) string {
 	hash := sha256.New()
-	parts := []string{WebEvidenceRegistryVersion, scope.RunID, scope.MissionID,
+	// Invalidate pending calls admitted by the retired Full-dependent policy.
+	// Completed calls replay their stored results without reauthorizing I/O.
+	parts := []string{WebEvidenceRegistryVersion, "independent-web-permissions",
+		scope.RunID, scope.MissionID,
 		scope.SessionID, scope.RootAgentID, scope.WorkspaceID, string(scope.Surface),
 		string(scope.Phase), string(scope.Role), string(scope.Profile),
 		string(scope.PermissionMode), fmt.Sprint(scope.ModeRevision), scope.NetworkMode,
 		fmt.Sprint(scope.PermissionRevision),
 		fmt.Sprint(scope.ProviderAvailable), scope.ProviderFingerprint,
 		fmt.Sprint(available), refusal}
-	// False is the legacy default for both additive capability facts. Append
-	// explicit markers only when enabled so pre-existing directly authorized
-	// calls retain their generation, while either new capability still rotates
-	// it and stale calls fail closed.
-	if scope.ProviderSearchIndependent {
-		parts = append(parts, "provider_search_independent=true")
-	}
 	if scope.SourceConnectorAvailable {
 		parts = append(parts, "source_connector_available=true",
 			"source_connector_fingerprint="+scope.SourceConnectorFingerprint)
 	}
 	if scope.InlineWebFetchApprovalAvailable {
 		parts = append(parts, "inline_web_fetch_approval_available=true")
-	}
-	if scope.PermissionGeneration != 0 {
-		parts = append(parts, "permission_snapshot_id="+scope.PermissionSnapshotID,
-			fmt.Sprintf("permission_generation=%d", scope.PermissionGeneration),
-			"permission_runtime_epoch="+scope.PermissionRuntimeEpoch)
 	}
 	parts = append(parts, scope.AllowedTargets...)
 	for _, part := range parts {
@@ -528,8 +503,6 @@ type WebEvidenceExecutionScope struct {
 	Role                 domain.AgentRole
 	Profile              domain.Profile
 	PermissionMode       domain.RunExecutionPermissionMode
-	PermissionSnapshotID string
-	PermissionGeneration uint64
 	PermissionRevision   int64
 	ModeRevision         int64
 	CapabilityGeneration string
@@ -549,8 +522,6 @@ func (s WebEvidenceExecutionScope) Validate() error {
 		!validMCPIdentity(s.RootAgentID) || (s.WorkspaceID != "" && !validMCPIdentity(s.WorkspaceID)) ||
 		!s.Surface.Valid() || !s.Phase.Valid() || s.Role != domain.AgentRoleRoot ||
 		!s.PermissionMode.Valid() || s.ModeRevision < 1 ||
-		((s.PermissionSnapshotID == "") != (s.PermissionGeneration == 0)) ||
-		(s.PermissionSnapshotID != "" && !validMCPIdentity(s.PermissionSnapshotID)) ||
 		s.PermissionRevision < 1 || !validAgentCodeDigest(s.CapabilityGeneration, false) ||
 		(s.ProviderFingerprint != "" && !validAgentCodeDigest(s.ProviderFingerprint, false)) ||
 		(s.ConnectorFingerprint != "" && !validAgentCodeDigest(s.ConnectorFingerprint, false)) ||
@@ -610,8 +581,6 @@ func (g *Gateway) invokeWebEvidence(ctx context.Context, call ToolCall) (Outcome
 		SessionID: call.SessionID, WorkspaceID: call.WorkspaceID, RootAgentID: call.AgentID,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role, Profile: call.Profile,
 		PermissionMode: call.PermissionMode, ModeRevision: call.ModeRevision,
-		PermissionSnapshotID: call.PermissionSnapshotID,
-		PermissionGeneration: call.PermissionGeneration,
 		PermissionRevision:   call.PermissionRevision,
 		CapabilityGeneration: call.CapabilityGeneration, LeaseID: call.LeaseID,
 		ProviderFingerprint:  call.ProviderFingerprint,

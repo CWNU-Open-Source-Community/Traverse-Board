@@ -63,12 +63,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		"enable operator-selected Run execution permissions")
 	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
 		"probe and enable the verified process-local Workspace Sandbox")
-	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
-		"enable exact process or canonical PowerShell/Git Bash proposals with independent operator review")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"enable danger-full-access permission selection")
-	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
-		"enable maximum Debug permission selection")
 	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
 		"enable operator-selected browser CDP permissions")
 	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
@@ -90,11 +86,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		"code-intel-config":          true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-scheduled-job-worker": false,
-		"enable-permission-control":     false,
-		"enable-workspace-sandbox":      false,
-		"enable-host-command-proposals": false,
-		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
-		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
+		"enable-permission-control": false,
+		"enable-workspace-sandbox":  false,
+		"enable-danger-full-access": false, "enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
 		"enable-docker-execution": false, "enable-batch-validation-execution": false,
 		"enable-git-advanced": false, "enable-github-review": false,
 		"git-worktree-root": true})); err != nil {
@@ -122,7 +116,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 			"--enable-workspace-import requires CYBERAGENT_API_CONTROL_TOKEN")
 	}
 	permissionCapabilities := newAPIExecutionPermissionCapabilities(
-		*permissionControl, *dangerFullAccess, *debugMaximumAccess)
+		*permissionControl, *dangerFullAccess)
 	if *workspaceSandbox && !*permissionControl {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-workspace-sandbox requires --enable-permission-control")
@@ -171,10 +165,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		return apperror.New(apperror.CodeInvalidArgument,
 			"full CDP requires danger Full Access execution capability")
 	}
-	if *hostCommandProposals && !permissionCapabilities.OperatorApprovalEnabled {
-		return apperror.New(apperror.CodeInvalidArgument,
-			"host command proposals require --enable-permission-control")
-	}
+
 	if *dockerExecution && !permissionCapabilities.OperatorApprovalEnabled {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-docker-execution requires --enable-permission-control")
@@ -199,7 +190,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 			"--enable-batch-validation-execution requires permission control and danger-full-access")
 	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker || *scheduledJobWorker ||
-		*permissionControl || *hostCommandProposals || *browserCDPControl ||
+		*permissionControl || *browserCDPControl ||
 		*dockerExecution || *batchValidationExecution || *gitAdvancedEnabled ||
 		*githubReviewEnabled) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
@@ -386,8 +377,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		}
 	}()
 	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
-	if controlToken != "" && permissionCapabilities.Allows(
-		domain.RunExecutionPermissionFullAccess) {
+	if controlToken != "" && permissionCapabilities.DangerFullAccessEnabled {
 		hostRuntime, serviceErr := application.NewCommandRuntimeService(a.store,
 			commandManager, permissionCapabilities)
 		if serviceErr != nil {
@@ -564,20 +554,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	}
 	skillInstallation := application.NewSkillPackageRegistryService(a.store,
 		skillObjects, builtinSkills)
-	controlledCommandExecutor, err := a.controlledCommandExecutor()
-	if err != nil {
-		return err
-	}
-	controlledCommandProposals :=
-		application.NewControlledCommandProposalReviewService(
-			a.store, controlledCommandExecutor, permissionCapabilities)
-	hostCommandExecutor, err := a.hostCommandExecutor()
-	if err != nil {
-		return err
-	}
-	hostCommandProposalControl :=
-		application.NewHostCommandProposalReviewService(
-			a.store, hostCommandExecutor, permissionCapabilities)
+	controlledCommandProposals := application.NewControlledCommandHistory(a.store)
+	hostCommandProposalControl := application.NewHostCommandHistory(a.store)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(a.store)
 	installedCommandRuntimeAdapters := []commandruntimeadapter.Identity{}
 	if commandRuntime != nil {
@@ -649,63 +627,61 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		AccessToken: accessToken, ControlToken: controlToken,
 		WorkspaceImportEnabled: *workspaceImport, WorkspaceImporter: workspaceImporter,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
-		StandardCodePresetEnabled:               standardCodePreset != nil,
-		SessionMessageEnabled:                   controlToken != "",
-		SessionSteeringControlEnabled:           controlToken != "",
-		RunLifecycleEnabled:                     controlToken != "",
-		RunExecutionEnabled:                     controlToken != "",
-		PlanDeliveryControlEnabled:              controlToken != "",
-		ApprovalControlEnabled:                  controlToken != "",
-		WebFetchAuthorizationSchedulerEnabled:   webFetchAuthorizationSchedulerEnabled,
-		ControlledCommandProposalControlEnabled: controlToken != "",
-		HostCommandProposalControlEnabled:       *hostCommandProposals,
-		ModelControlEnabled:                     controlToken != "",
-		ProviderDefinitionEnabled:               controlToken != "",
-		ProviderCredentialEnabled:               *providerCredentials,
-		FileEditReviewEnabled:                   controlToken != "",
-		FileEditProposalEnabled:                 *fileEditProposals,
-		RunWakeControlEnabled:                   controlToken != "",
-		FileEditApplyEnabled:                    controlToken != "",
-		RunWakeExecutionEnabled:                 controlToken != "",
-		RunWakeWorkerEnabled:                    *wakeWorker,
-		ScheduledJobControlEnabled:              controlToken != "",
-		ScheduledJobWorkerEnabled:               *scheduledJobWorker,
-		ExecutionPermissionControlEnabled:       *permissionControl,
-		ExecutionPermissionCapabilities:         permissionCapabilities,
-		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
-		BrowserCDPPermissionCapabilities:        browserCDPCapabilities,
-		FullCDPSessionControlEnabled:            fullCDPSessions != nil,
-		FullCDPSessionController:                fullCDPSessions,
-		CapabilityReadinessRuntime:              localReadinessRuntime,
-		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
-		CommandRuntimeAdvertiser:                commandRuntime,
-		SkillInstallationEnabled:                controlToken != "",
-		EvidenceAttachmentEnabled:               controlToken != "",
-		VerificationEvidenceEnabled:             controlToken != "",
-		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
-		WorkspaceCheckpointControlEnabled:       controlToken != "",
-		GitAdvancedControlEnabled:               *gitAdvancedEnabled,
-		GitHubReviewControlEnabled:              *githubReviewEnabled,
-		BatchDeliveryControlEnabled:             controlToken != "",
-		BatchDeliveryHostValidationEnabled:      *batchValidationExecution,
-		ExtensionControlEnabled:                 controlToken != "",
-		LifecycleHooks:                          hookEngine,
-		RunLifecycleController:                  lifecycleControl,
-		ThreadTurnController:                    threadTurnControl,
-		StandardCodePresetController:            standardCodePreset,
-		StandardCodeDeliveryController:          standardCodeDeliveryController,
-		RunExecutionController:                  executionControl,
-		PublicModelStreamSource:                 executionControl,
-		AgentBrowserController:                  agentBrowserController,
-		PlanDeliveryController:                  planDeliveryControl,
-		ApprovalController:                      approvalControl,
-		ControlledCommandProposalController:     controlledCommandProposals,
-		HostCommandProposalController:           hostCommandProposalControl,
-		ModelControlController:                  modelControl,
-		ThreadModelRouteController:              threadModelRoutes,
-		ProviderSearchReadinessController:       providerSearchReadiness,
-		ProviderDefinitionController:            providerDefinitionControl,
-		PriceSnapshotController:                 a.store,
+		StandardCodePresetEnabled:             standardCodePreset != nil,
+		SessionMessageEnabled:                 controlToken != "",
+		SessionSteeringControlEnabled:         controlToken != "",
+		RunLifecycleEnabled:                   controlToken != "",
+		RunExecutionEnabled:                   controlToken != "",
+		PlanDeliveryControlEnabled:            controlToken != "",
+		ApprovalControlEnabled:                controlToken != "",
+		WebFetchAuthorizationSchedulerEnabled: webFetchAuthorizationSchedulerEnabled,
+		ModelControlEnabled:                   controlToken != "",
+		ProviderDefinitionEnabled:             controlToken != "",
+		ProviderCredentialEnabled:             *providerCredentials,
+		FileEditReviewEnabled:                 controlToken != "",
+		FileEditProposalEnabled:               *fileEditProposals,
+		RunWakeControlEnabled:                 controlToken != "",
+		FileEditApplyEnabled:                  controlToken != "",
+		RunWakeExecutionEnabled:               controlToken != "",
+		RunWakeWorkerEnabled:                  *wakeWorker,
+		ScheduledJobControlEnabled:            controlToken != "",
+		ScheduledJobWorkerEnabled:             *scheduledJobWorker,
+		ExecutionPermissionControlEnabled:     *permissionControl,
+		ExecutionPermissionCapabilities:       permissionCapabilities,
+		BrowserCDPPermissionControlEnabled:    *browserCDPControl,
+		BrowserCDPPermissionCapabilities:      browserCDPCapabilities,
+		FullCDPSessionControlEnabled:          fullCDPSessions != nil,
+		FullCDPSessionController:              fullCDPSessions,
+		CapabilityReadinessRuntime:            localReadinessRuntime,
+		CommandRuntimeAdapters:                installedCommandRuntimeAdapters,
+		CommandRuntimeAdvertiser:              commandRuntime,
+		SkillInstallationEnabled:              controlToken != "",
+		EvidenceAttachmentEnabled:             controlToken != "",
+		VerificationEvidenceEnabled:           controlToken != "",
+		EmbeddedAnalyzerExecutionEnabled:      controlToken != "",
+		WorkspaceCheckpointControlEnabled:     controlToken != "",
+		GitAdvancedControlEnabled:             *gitAdvancedEnabled,
+		GitHubReviewControlEnabled:            *githubReviewEnabled,
+		BatchDeliveryControlEnabled:           controlToken != "",
+		BatchDeliveryHostValidationEnabled:    *batchValidationExecution,
+		ExtensionControlEnabled:               controlToken != "",
+		LifecycleHooks:                        hookEngine,
+		RunLifecycleController:                lifecycleControl,
+		ThreadTurnController:                  threadTurnControl,
+		StandardCodePresetController:          standardCodePreset,
+		StandardCodeDeliveryController:        standardCodeDeliveryController,
+		RunExecutionController:                executionControl,
+		PublicModelStreamSource:               executionControl,
+		AgentBrowserController:                agentBrowserController,
+		PlanDeliveryController:                planDeliveryControl,
+		ApprovalController:                    approvalControl,
+		ControlledCommandProposalController:   controlledCommandProposals,
+		HostCommandProposalController:         hostCommandProposalControl,
+		ModelControlController:                modelControl,
+		ThreadModelRouteController:            threadModelRoutes,
+		ProviderSearchReadinessController:     providerSearchReadiness,
+		ProviderDefinitionController:          providerDefinitionControl,
+		PriceSnapshotController:               a.store,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			a.store, a.router, a.checker),
 		ChildTaskControlController:   application.NewChildTaskControlService(a.store),
@@ -837,12 +813,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
 	fmt.Fprintf(a.out, "scheduled_job_control_enabled: %t\nscheduled_job_worker_enabled: %t\nscheduled_job_worker_concurrency: %d\nscheduled_job_persistent_service: false\n",
 		controlToken != "", *scheduledJobWorker, scheduler.WorkerConcurrency)
-	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\nworkspace_sandbox_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\ncommand_runtime_enabled: %t\n",
+	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\nworkspace_sandbox_enabled: %t\noperator_approval_enabled: %t\ndanger_full_access_enabled: %t\ncommand_runtime_enabled: %t\n",
 		*permissionControl, permissionCapabilities.WorkspaceSandboxEnabled,
 		permissionCapabilities.OperatorApprovalEnabled,
-		*hostCommandProposals,
 		permissionCapabilities.DangerFullAccessEnabled,
-		permissionCapabilities.DebugMaximumAccessEnabled, commandRuntime != nil)
+		commandRuntime != nil)
 	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",
 		*browserCDPControl, browserCDPCapabilities.FullDebugEnabled)
 	fmt.Fprintf(a.out, "docker_execution_enabled: %t\n", *dockerExecution)
@@ -856,12 +831,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	return server.Serve(ctx, listener)
 }
 
-func newAPIExecutionPermissionCapabilities(approval, fullAccess, debug bool) domain.ExecutionPermissionRuntimeCapabilities {
+func newAPIExecutionPermissionCapabilities(approval, fullAccess bool) domain.ExecutionPermissionRuntimeCapabilities {
 	return domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:        approval,
-		DangerFullAccessEnabled:        fullAccess,
-		DebugMaximumAccessEnabled:      debug,
-		FullAccessRequiresRuntimeGrant: fullAccess,
+		OperatorApprovalEnabled: approval,
+		DangerFullAccessEnabled: fullAccess,
 		// All API services share this process-local revocation fence. Creating
 		// it grants nothing. Like Desktop, Full requires explicit current Run
 		// activation; a process restart never inherits that activation.

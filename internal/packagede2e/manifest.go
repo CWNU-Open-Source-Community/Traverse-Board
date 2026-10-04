@@ -117,7 +117,7 @@ var repositoryCommands = map[string]FixtureCommand{
 
 var requiredAttackCategories = []string{
 	"filesystem_escape", "credential_access", "network_escape", "process_escape",
-	"prompt_injection", "authority_replay", "approval_fallback", "output_safety", "recovery",
+	"prompt_injection", "authority_replay", "output_safety", "recovery",
 }
 
 func LoadDefinition() (Definition, error) {
@@ -266,7 +266,7 @@ func validateAttackMatrix(matrix AttackMatrix, manifest FixtureManifest) error {
 	if matrix.ProtocolVersion != AttackMatrixProtocol || matrix.Issue != 140 ||
 		matrix.FailurePolicy != "fail_closed_no_waiver" ||
 		!reflect.DeepEqual(matrix.RequiredCategories, requiredAttackCategories) ||
-		len(matrix.Cases) != 40 {
+		len(matrix.Cases) != 39 {
 		return errors.New("matrix header or case count is invalid")
 	}
 	repositoryIDs := map[string]bool{}
@@ -281,11 +281,11 @@ func validateAttackMatrix(matrix AttackMatrix, manifest FixtureManifest) error {
 	allowedPhases := map[string]bool{"standard_code_execution": true, "recovery": true,
 		"manual_host": true}
 	allowedOutcomes := map[string]bool{"deny": true, "redact": true, "truncate": true,
-		"recover": true, "preserve": true, "propose": true}
+		"recover": true, "preserve": true}
 	allowedSignals := map[string]bool{"invalid_argument": true, "permission_denied": true,
 		"failed_precondition": true, "conflict": true, "resource_exhausted": true,
 		"redacted": true, "truncated": true, "interrupted": true,
-		"recovery_required": true, "approval_required": true}
+		"recovery_required": true}
 	allowedEvidence := map[string]bool{"operator_ui": true, "immutable_event": true,
 		"workspace_digest": true, "process_receipt": true, "network_observation": true,
 		"artifact_digest": true, "thread_transcript": true, "checkpoint": true}
@@ -306,10 +306,6 @@ func validateAttackMatrix(matrix AttackMatrix, manifest FixtureManifest) error {
 		} else if attack.Phase != "standard_code_execution" ||
 			attack.ExpectedOutcome == "recover" || attack.ExpectedOutcome == "preserve" {
 			return fmt.Errorf("case %q execution contract is invalid", attack.ID)
-		}
-		if attack.Category == "approval_fallback" &&
-			(attack.ExpectedOutcome != "propose" || attack.ExpectedSignal != "approval_required") {
-			return fmt.Errorf("case %q approval fallback contract is invalid", attack.ID)
 		}
 		seenCases[attack.ID] = true
 		seenBackends := map[string]bool{}

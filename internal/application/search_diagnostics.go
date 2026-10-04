@@ -67,11 +67,8 @@ func (s *ProviderSearchReadinessService) Check(ctx context.Context, threadID str
 	if err != nil {
 		return result, apperror.Normalize(err)
 	}
-	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		return result, apperror.Normalize(err)
-	}
-	authority := effectiveWebEvidenceAuthority(mode.Scope, permission.Mode)
+	authority := webevidence.NetworkAuthority{Mode: "allowlist",
+		AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
 	probeCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	selection, err := s.resolver.diagnosticSelection(probeCtx, webevidence.SearchRoute{ModelRoute: run.Config.ModelRoute}, authority)
@@ -119,13 +116,12 @@ func (s *ProviderSearchReadinessService) Check(ctx context.Context, threadID str
 		result.State, result.Code, result.ResultCount = "succeeded", "none", len(items)
 	}
 	// Never present the observation as current after a concurrent Thread route,
-	// permission or Provider configuration change.
+	// web policy or Provider configuration change.
 	current, currentErr := s.Get(ctx, threadID)
-	currentPermission, permissionErr := s.store.GetRunExecutionPermission(ctx, run.ID)
-	currentSelection, selectionErr := s.resolver.diagnosticSelection(ctx, webevidence.SearchRoute{ModelRoute: run.Config.ModelRoute}, effectiveWebEvidenceAuthority(mode.Scope, permission.Mode))
-	if currentErr != nil || permissionErr != nil || current.RunID != ready.RunID || current.ModelRoute != ready.ModelRoute ||
+	currentSelection, selectionErr := s.resolver.diagnosticSelection(ctx, webevidence.SearchRoute{ModelRoute: run.Config.ModelRoute}, authority)
+	if currentErr != nil || current.RunID != ready.RunID || current.ModelRoute != ready.ModelRoute ||
 		current.Provider != ready.Provider || current.Model != ready.Model || current.SearchPolicy != ready.SearchPolicy ||
-		current.ModeRevision != ready.ModeRevision || currentPermission.Revision != permission.Revision ||
+		current.ModeRevision != ready.ModeRevision ||
 		s.resolver.registry.Generation() != generation || selectionErr != nil || currentSelection.Binding != selection.Binding {
 		result.State, result.Code, result.ResultCount = "failed", "configuration_changed", 0
 		result.RetryAfter, result.RateLimitReset = "", ""

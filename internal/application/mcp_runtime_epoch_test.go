@@ -8,7 +8,6 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/toolgateway"
@@ -40,17 +39,16 @@ func epochMCPPayload() toolgateway.MCPToolCallPayload {
 
 func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 	for _, scenario := range []struct {
-		name    string
-		mode    domain.RunExecutionPermissionMode
-		dynamic bool
+		name string
+		mode domain.RunExecutionPermissionMode
 	}{
-		{"startup_full_access", domain.RunExecutionPermissionFullAccess, false},
-		{"dynamic_full_access", domain.RunExecutionPermissionFullAccess, true},
-		{"debug", domain.RunExecutionPermissionDebug, true},
+		{"dynamic_full", domain.RunExecutionPermissionFull},
+		{"ask", domain.RunExecutionPermissionAsk},
+		{"auto", domain.RunExecutionPermissionAuto},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := context.Background()
-			state, run, _, lease, _ := newCommandRuntimeTestRuntimeWithPermission(t, ctx, scenario.mode)
+			state, run, _, lease, _ := newMCPApprovalModeRuntime(t, ctx, scenario.mode)
 			permission, err := state.GetRunExecutionPermission(ctx, run.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -61,7 +59,7 @@ func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 				t.Fatal("test requires distinct nonempty runtime epochs")
 			}
 			generation := uint64(0)
-			if scenario.dynamic && scenario.mode == domain.RunExecutionPermissionFullAccess {
+			if scenario.mode == domain.RunExecutionPermissionFull {
 				oldGrant, err := oldAuthority.ActivateRunFullAccess(permission)
 				if err != nil {
 					t.Fatal(err)
@@ -87,8 +85,7 @@ func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 				t.Fatal("test must reproduce numeric fence collision after restart")
 			}
 			capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-				FullAccessRequiresRuntimeGrant: scenario.dynamic, RuntimeAuthority: newAuthority,
+				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: newAuthority,
 			}
 			client := &epochMCPClient{}
 			executor, err := NewMCPClientToolExecutor(client, state, capabilities)
@@ -114,9 +111,9 @@ func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 	}
 }
 
-func TestMCPRuntimeEpochLegacyHostAcceptsOnlyUnfencedLegacyCalls(t *testing.T) {
+func TestMCPRuntimeEpochLegacyHostCannotActivateNewFull(t *testing.T) {
 	ctx := context.Background()
-	state, run, _, lease, _ := newCommandRuntimeTestRuntime(t, ctx)
+	state, run, _, lease, _ := newMCPApprovalModeRuntime(t, ctx)
 	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -139,19 +136,23 @@ func TestMCPRuntimeEpochLegacyHostAcceptsOnlyUnfencedLegacyCalls(t *testing.T) {
 		}
 	}
 	scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence = "", 0
-	if _, err := executor.ExecuteMCP(ctx, scope, epochMCPPayload()); err != nil || client.calls != 1 {
-		t.Fatalf("legacy host rejected unfenced legacy call: calls=%d err=%v", client.calls, err)
+	if _, err := executor.ExecuteMCP(ctx, scope, epochMCPPayload()); err == nil || client.calls != 0 {
+		t.Fatalf("unfenced legacy host activated new Full: calls=%d err=%v", client.calls, err)
 	}
 }
 
 func TestMCPRuntimeEpochRechecksRevocationAfterDispatchWithoutRetry(t *testing.T) {
 	ctx := context.Background()
-	state, run, _, lease, _ := newCommandRuntimeTestRuntime(t, ctx)
+	state, run, _, lease, _ := newMCPApprovalModeRuntime(t, ctx)
 	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	grant, err := authority.ActivateRunFullAccess(permission)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fence, err := authority.IssueRunAuthorizationFence(run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +165,7 @@ func TestMCPRuntimeEpochRechecksRevocationAfterDispatchWithoutRetry(t *testing.T
 		t.Fatal(err)
 	}
 	scope := exactPermissionMCPScope(run, lease, permission)
+	scope.PermissionGeneration = grant.Generation
 	scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence = authority.RuntimeEpoch(), fence
 	for attempt := 0; attempt < 2; attempt++ {
 		result, err := executor.ExecuteMCP(ctx, scope, epochMCPPayload())
@@ -174,57 +176,16 @@ func TestMCPRuntimeEpochRechecksRevocationAfterDispatchWithoutRetry(t *testing.T
 }
 
 func TestMCPRuntimeEpochRevocationPersistsFailedReceiptOnResume(t *testing.T) {
-	ctx := context.Background()
-	state, run, _, lease, _ := newCommandRuntimeTestRuntime(t, ctx)
-	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority := domain.NewExecutionPermissionRuntimeAuthority()
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: authority,
-	}
-	client := &epochMCPClient{onInvoke: func() { authority.RevokeRun(run.ID) },
-		capabilities: mcp.ScopedCapabilities{ProtocolVersion: mcp.ClientProtocolVersion,
-			Generation: strings.Repeat("b", 64), Servers: []mcp.ScopedServerCapability{{
-				ServerID: "docs", Name: "Documentation", CapabilityFingerprint: strings.Repeat("a", 64),
-				Tools: []mcp.RemoteTool{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
-			}}},
-	}
-	supervisor := NewRunSupervisor(state, nil, policy.NewDefaultChecker()).
-		WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
-	turn, err := state.BeginSupervisorTurn(ctx, lease, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	advertisement, err := supervisor.supervisorMCPCapabilities(ctx, turn, permission)
-	if err != nil || len(advertisement.Authority) == 0 {
-		t.Fatalf("advertisement=%#v err=%v", advertisement, err)
-	}
-	decoded, err := mcp.DecodeSupervisorCallAuthority(advertisement.Authority)
+	ctx := t.Context()
+	f := newMCPOperationApprovalFixture(t, domain.RunExecutionPermissionFull, false, false)
+	state, turn, capabilities := f.st, f.turn, f.capabilities
+	authority := capabilities.RuntimeAuthority
+	decoded, err := mcp.DecodeSupervisorCallAuthority(json.RawMessage(f.call.AuthorityJSON))
 	if err != nil || decoded.PermissionRuntimeEpoch != authority.RuntimeEpoch() {
-		t.Fatalf("Supervisor omitted the runtime epoch: %#v %v", decoded, err)
+		t.Fatal("missing durable runtime epoch", err)
 	}
-	payload, err := json.Marshal(epochMCPPayload())
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "provider-mcp", Name: string(toolgateway.MCPToolCallTool), Arguments: payload}},
-		run.ID, turn.Checkpoint.NextTurn, 1, domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		permission.Mode, false, false, supervisorToolOptions{MCP: advertisement})
-	if err != nil || len(prepared) != 1 {
-		t.Fatalf("prepared=%#v err=%v", prepared, err)
-	}
-	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1, Provider: "test", Model: "model"}
-	if _, err := state.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil {
-		t.Fatal(err)
-	}
-	attempt.Outcome = llm.OutcomeSuccess
-	turn.Checkpoint, err = state.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt,
-		llm.ChatResponse{Provider: "test", Model: "model", ToolCalls: prepared})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := &epochMCPClient{onInvoke: func() { authority.RevokeRun(f.call.RunID) }}
+	supervisor := NewRunSupervisor(state, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
 	rounds, err := state.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 	if err != nil {
 		t.Fatal(err)

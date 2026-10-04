@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119 的来源绑定真实浏览器 UI 证据、schema v120-v121 的脱敏 MCP/Plugin 控制面、schema v122 的持久计划任务/结构化诊断，以及 schema v123 的审批式高级 Git/hunk/冲突序列/受管 worktree。进程级只读 `code-intel-lsp.v1` 投影只显示显式审查 Server 的 metadata 和资格，不新增 SQLite schema。schema v99 的精确 Docker Sandbox 产品执行仍默认关闭。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受通用 Shell/argv/stdin、raw Git argv 或 Job mutation endpoint；UI 证据启动只接受完整受审阅的有界 recipe/fixture/step 合同。命令、UI 验证和高级 Git 均由认证 Run execution 内的同一 Tool Gateway/Application 服务发起，并分别重新检查适用的 Code/Local/Deliver/full-access、当前租约、Policy、无外部网络/无凭证、restricted CDP 与进程启动 capability。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、历史固定命令证据读取、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119 的来源绑定真实浏览器 UI 证据、schema v120-v121 的脱敏 MCP/Plugin 控制面、schema v122 的持久计划任务/结构化诊断，以及 schema v123 的审批式高级 Git/hunk/冲突序列/受管 worktree。进程级只读 `code-intel-lsp.v1` 投影只显示显式审查 Server 的 metadata 和资格，不新增 SQLite schema。schema v99 的精确 Docker Sandbox 产品执行仍默认关闭。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受通用 Shell/argv/stdin、raw Git argv 或 Job mutation endpoint；UI 证据启动只接受完整受审阅的有界 recipe/fixture/step 合同。命令、UI 验证和高级 Git 均由认证 Run execution 内的同一 Tool Gateway/Application 服务发起，并分别重新检查适用的 Code/Deliver 与对应现代操作权限、当前租约、Policy、无外部网络/无凭证、restricted CDP 与进程启动 capability。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, the redacted schema-v120-v121 MCP/Plugin control plane, schema-v122 durable schedules/structured diagnostics, and schema-v123 approval-gated advanced Git/hunks/conflict sequences/managed worktrees. A process-local read-only `code-intel-lsp.v1` projection exposes only reviewed-server metadata and qualification and adds no SQLite schema. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin, raw Git argv, or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Local/Deliver/full-access, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, read-only historical fixed-command evidence, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, the redacted schema-v120-v121 MCP/Plugin control plane, schema-v122 durable schedules/structured diagnostics, and schema-v123 approval-gated advanced Git/hunks/conflict sequences/managed worktrees. A process-local read-only `code-intel-lsp.v1` projection exposes only reviewed-server metadata and qualification and adds no SQLite schema. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin, raw Git argv, or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Deliver and current per-operation authority, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
 
 ## 词汇与兼容身份 / Vocabulary and durable compatibility
 
@@ -24,11 +24,10 @@ returns a search snippet, page body, citation claim, operation key, DNS address,
 private authority. Network execution remains available only through the Supervisor's
 separately gated Web tools; see [Web Evidence](web-evidence.md).
 
-Schema v136 extends the existing host-command proposal surface with durable
-`risk_escalation.v1` proposals for Workspace Access Standard Code. It reuses the
-Approval/Grant ledgers and does not add a generic command endpoint or switch a Run to
-Full Access. Exact operator review may authorize once or create a bounded grant only
-for the current Run and exact risk scope. See [Durable risk escalation](risk-escalation.md).
+Schema v136 risk-escalation and legacy command proposals are historical evidence.
+Their producers, review endpoints, and execution paths are retired. Saved results
+can continue only their original waiting tool call; resume never authorizes a new
+command. See [retirement boundaries](adr/0165-retire-legacy-command-execution.md).
 
 ## 启动 / Start
 
@@ -44,17 +43,11 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist
 # Representative optional independent controls in the current v91 API surface.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist --enable-file-edit-proposals --enable-provider-credentials --enable-wake-worker
 
-# Five-level permission selector. Debug is the startup-gated strict superset.
+# Ask / Auto / Full preferences. Full additionally needs current explicit
+# activation through permission control; startup capability alone grants nothing.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-danger-full-access `
-  --enable-debug-maximum-access
-
-# Full-CDP adapter for Full Access; add --enable-debug-maximum-access only when
-# this process must also allow selection of the higher Debug tier.
-go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
-  --enable-permission-control --enable-danger-full-access `
-  --enable-browser-cdp-control `
-  --enable-full-cdp-debug
+  --enable-browser-cdp-control --enable-full-cdp-debug
 
 # Docker Sandbox product admission/start. This still requires an exact per-call
 # Sandbox approval and a matching current Run permission/profile.
@@ -62,22 +55,17 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-docker-execution
 ```
 
-权限开关不会让数据库快照自动获得执行权。Schema v131 保留同一
-`command-runtime.v2` 工具并按进程实际 readiness 安装 exact adapter：Local 或固定
-Docker 只接受当前 Code/Deliver/root `workspace_access` Run 与 Drydock；宿主 adapter
-接受 Code/Local/Deliver `full_access` 或 `debug`、root Supervisor lease、
-`--enable-permission-control` 和 `--enable-danger-full-access`。模型不能指定 backend，
-Sandbox 不可用也不会回退宿主。未设置 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission
-control 与 Run execution 都不能启动。
+Ask and Auto retain exact operation approval and policy checks. Full additionally
+requires an explicit current runtime activation, bound to the same Run/Thread and
+revoked on downgrade or restart. Persisted permission and startup flags do not
+activate it. The former five-level selectors and Debug startup flag are retired.
 
-Full Access 是当前任务的动态能力，切换时不要求重启；Debug 在继承所有
-Full Access 宿主 sink 的基础上额外提供持久终端、后台与有界终端输入，因而仍需
-`--enable-debug-maximum-access` 启动闸门。Full CDP 是 Full Access 的子开关并由 Debug
-继承，不是 Debug 独占能力。
-
-Full CDP 只面向 Traverse 管理的隔离内置浏览器，不作用于 Wails WebView 或系统
-Chrome。Windows Wails Desktop 安装 Run-scoped 的生产会话控制器；普通 `api serve`、
-CLI 和 Supervisor 不构造其浏览器进程 authority，因而该可选路由保持不可用。
+CommandRuntime selects the existing local or Docker adapter from the current
+execution profile and actual readiness. The same current permission, root
+Supervisor lease, approval, budget, and cancellation fences reach every adapter.
+Full CDP uses a Traverse-owned isolated browser session and current Full authority;
+it never attaches to the system browser or Wails WebView. TerminalAgent requires
+current Full, Debug interaction mode, and the separate terminal lease.
 
 ```text
 GET  /api/v1/runs/{run_id}/full-cdp-session
@@ -85,59 +73,28 @@ POST /api/v1/runs/{run_id}/full-cdp-session
 POST /api/v1/runs/{run_id}/full-cdp-session/close
 ```
 
-GET 使用 read bearer。两个 POST 使用 control bearer、唯一的 16–256 字节且不含空白或
-控制字符的 `Idempotency-Key`、`application/json` 严格单对象且拒绝 query。Open 必须提交
-`full_cdp_session.v1`、单一 literal-loopback target、Chrome/Edge product/channel、
-两个当前 permission revision CAS 与 `confirm_full_cdp=true`；浏览器路径、PID、Profile、
-argv/env、DevTools endpoint 和 WebSocket URL 既不能提交也不会返回。Open 只在浏览器与
-CDP ready 后返回 `201`。Close 提交 `full_cdp_session_close.v1` 与精确
-`expected_session_id`，不要求高风险确认；它只在 CDP 关闭、完整 Job 进程树静止、
-精确 Profile 释放/删除和脱敏审计完成后返回 `200`。TTL、浏览器退出、权限撤销、Run
-终态与 Desktop 退出复用同一幂等清理路径。
-
-设置独立 control token 后，普通 `api serve` 同时开放固定提案 review route；
-Desktop 则必须额外使用 `--enable-command-proposals`。三条 endpoint 为：
+Historical command evidence is available through the ordinary read bearer,
+without an execution feature flag or control token:
 
 ```text
 GET  /api/v1/runs/{run_id}/command-proposals
 GET  /api/v1/runs/{run_id}/command-proposals/{proposal_id}
-POST /api/v1/runs/{run_id}/command-proposals/{proposal_id}/review
-```
-
-POST 需要 control bearer、稳定 `Idempotency-Key` 和
-`controlled_command_proposal_review.v1`。`approve` 必须携带
-`confirm_execution=true`；`deny` 必须为 false。批准只执行提案中已编译的同一
-Go 固定模板一次，不能提交 Shell、argv、env 或网络字段。一次性响应可返回最多
-16 KiB 的脱敏不可信证据；后续 GET 只返回 metadata，不返回 raw stdout/stderr。
-
-With a distinct control token, ordinary `api serve` also enables fixed-proposal
-review. Desktop requires `--enable-command-proposals`. Approval requires an
-exact idempotency key and `confirm_execution=true`, then revalidates all durable
-bindings and current process gates before one restricted execution. No endpoint
-accepts Shell, argv, environment, or network intent. The approving response may
-return up to 16 KiB of redacted untrusted evidence; later reads return metadata
-only.
-
-The separately existing host-command proposal routes also carry the schema-v136
-risk variant:
-
-```text
 GET  /api/v1/runs/{run_id}/host-command-proposals
 GET  /api/v1/runs/{run_id}/host-command-proposals/{proposal_id}
-POST /api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review
+POST /api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume
 ```
 
-The risk proposal is created only by the Run Supervisor and exposes the complete
-immutable executable/argv/cwd envelope, categorized network target and purpose,
-credential kinds without values, host paths, Policy refusal, resource bounds,
-Supervisor call ownership, snapshots/revisions, Workspace-root and scope
-fingerprints, grant consumption, invalidation, uncertainty, result, and receipt.
-The control POST accepts `deny`, exact `once`, or `run_scope`; `run_scope` requires
-an explicit TTL of 1-900 seconds and total-use count of 1-8. It cannot accept a new
-command, risk scope, reviewer identity, grant ID/generation, credential value, or
-capability bearer. Review revalidates every binding and resumes only the same durable
-Supervisor call. Replaying a terminal review is idempotent; an uncertain prepared
-execution is never retried.
+The proposal `review` POST routes and their startup flags are retired. GET retains
+the immutable proposal envelope, saved review/result/receipt, bounded saved output
+and uncertainty facts. Missing saved output is not synthesized or executed again.
+
+`resume` accepts no body or query, requires the control bearer and enabled Run
+execution control, and checks exact Run/proposal ownership. Ordinary Host resumes
+only a saved denial or terminal result; an unknown intent remains blocked. Risk
+recovery consumes a saved outcome only for its original Supervisor turn/call;
+unknown intent becomes `execution_uncertain`, never another dispatch. Pending
+historical proposals cannot be approved or executed. New commands use
+`command_runtime` and [bounded command approval](convergence/command-bounded-approval.md).
 
 The command prints:
 
@@ -208,7 +165,7 @@ invalid UTF-8, oversized bodies, changed intent under one key, and a mismatched 
 digest fail closed.
 
 `auto` selects only ready Local. Docker requires explicit intent and its current fixed
-image/daemon readiness; neither path can request a host runner or `full_access`.
+image/daemon readiness; neither path can select a host runner or activate Full.
 Running Runs use only the pause-and-configure route, whose durable intent may be
 retried with the same key until the lease and Supervisor become quiescent. React and
 Desktop do not sequence the lower-level profile/interaction/permission routes.
@@ -708,8 +665,8 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `POST` | `/api/v1/runs/{run_id}/active-call/cancel` | Separately authorized exact active-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
-| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|workspace_access|approval|full_access|debug`; Full Access is dynamic for the current task, Debug is its startup-gated strict superset, Workspace Access never falls back to host execution, and persisted selection never grants authority |
-| `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Control the Full-CDP sub-permission: entering Full Access or Debug defaults it on, either tier may turn it off, re-enable requires the dedicated gate plus exact risk confirmation, and lower tiers force it off; selection never launches or connects a browser |
+| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Select `ask|auto|full`; Full requires explicit confirmation and current process activation. Each operation rechecks its inputs and authority; historical selectors and saved snapshots cannot grant new execution |
+| `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Control the Full-CDP sub-permission: entering modern Full defaults it on, Full may turn it off, re-enable requires live activation plus the dedicated gate and exact risk confirmation, and leaving Full forces it off; selection never launches or connects a browser |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |
 | `GET` | `/api/v1/sessions/{session_id}/tree` | Browse stored/derived continuity nodes with memory/Git drift and fixed `capability_grant=false` |

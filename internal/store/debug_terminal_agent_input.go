@@ -136,9 +136,9 @@ func validateDebugTerminalAgentInputSnapshotBinding(
 		permission.MissionID != record.MissionID ||
 		permission.Revision != record.PermissionRevision ||
 		permission.Mode != record.PermissionMode ||
-		permission.Mode != domain.RunExecutionPermissionDebug ||
-		!permission.PersistentTerminal || !permission.BackgroundProcess ||
-		!permission.AgentTerminalInput {
+		(permission.Mode != domain.RunExecutionPermissionFull &&
+			(permission.Mode != domain.RunExecutionPermissionDebug ||
+				!permission.PersistentTerminal || !permission.BackgroundProcess || !permission.AgentTerminalInput)) {
 		return apperror.New(apperror.CodeConflict,
 			"debug terminal Agent-input snapshot binding is inconsistent")
 	}

@@ -91,26 +91,30 @@ func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 		return nil
 	case "consume":
 		fs := newFlagSet("run wake consume", a.errOut)
+		confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this invocation")
 		operator := fs.String("operator", "cli_foreground", "foreground owner identity")
 		maxSteps := fs.Int("max-steps", 1, "bounded Run Supervisor handoff steps")
 		enablePermissionControl := fs.Bool("enable-permission-control", false,
 			"enable execution permission evaluation for this process")
 		enableFullAccess := fs.Bool("enable-danger-full-access", false,
 			"enable the ordinary full-access command runtime for this process")
-		enableDebug := fs.Bool("enable-debug-maximum-access", false,
-			"allow Debug Runs to inherit the full-access command runtime")
 		if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 			"operator": true, "max-steps": true, "enable-permission-control": false,
-			"enable-danger-full-access":   false,
-			"enable-debug-maximum-access": false,
+			"enable-danger-full-access": false,
+			"confirm-full":              false,
 		})); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
+			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access --confirm-full]")
 		}
-		runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
-			*enablePermissionControl, *enableFullAccess, *enableDebug), true)
+		capabilities := cliExecutionPermissionCapabilities(*enablePermissionControl, *enableFullAccess)
+		releaseFull, err := a.activateCLIInvocationFull(ctx, fs.Arg(0), capabilities, *confirmFull)
+		if err != nil {
+			return err
+		}
+		defer releaseFull()
+		runtime, err := a.newCLIExecutionRuntime(ctx, capabilities, true)
 		if err != nil {
 			return err
 		}

@@ -67,7 +67,7 @@ func TestStandardCodePresetConfiguresOneAtomicLocalTupleAndReplays(t *testing.T)
 		configured.Mode.Phase != domain.ExecutionPhasePlan ||
 		configured.Profile == nil || configured.Profile.Profile != domain.RunExecutionProfileLocal ||
 		configured.Interaction == nil || configured.Interaction.Mode != domain.RunExecutionInteractionControlled ||
-		configured.Permission == nil || configured.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		configured.Permission == nil || configured.Permission.Mode != domain.RunExecutionPermissionAsk ||
 		configured.BrowserCDP == nil || configured.BrowserCDP.Mode != domain.RunBrowserCDPPermissionRestricted ||
 		configured.CapabilityGrant {
 		t.Fatalf("configured=%+v", configured)
@@ -206,7 +206,7 @@ func TestStandardCodePresetCreatesConfiguredCodeRunFromWorkspace(t *testing.T) {
 		configured.Mode.Phase != domain.ExecutionPhasePlan ||
 		configured.Profile == nil || configured.Profile.Profile != domain.RunExecutionProfileLocal ||
 		configured.Interaction == nil || configured.Interaction.Mode != domain.RunExecutionInteractionControlled ||
-		configured.Permission == nil || configured.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		configured.Permission == nil || configured.Permission.Mode != domain.RunExecutionPermissionAsk ||
 		configured.BrowserCDP == nil || configured.BrowserCDP.Mode != domain.RunBrowserCDPPermissionRestricted ||
 		!configured.DrydockReady || configured.Network != "disabled" ||
 		configured.Credentials != "none" || configured.CapabilityGrant {
@@ -295,7 +295,7 @@ func TestStandardCodePresetRequiresExplicitDockerWhenLocalIsUnavailable(t *testi
 		blocked.SelectedBackend != "" || blocked.TrustRequired ||
 		len(blocked.NextSteps) != 2 ||
 		blocked.NextSteps[0] != StandardCodeNextSelectDocker ||
-		blocked.NextSteps[1] != StandardCodeNextSelectApproval {
+		blocked.NextSteps[1] != StandardCodeNextSelectAsk {
 		t.Fatalf("auto result=%+v err=%v", blocked, err)
 	}
 	if _, found, err := fixture.state.GetStandardCodePresetOperation(t.Context(),
@@ -326,7 +326,9 @@ func TestStandardCodePresetRequiresExplicitDockerWhenLocalIsUnavailable(t *testi
 		configured.Interaction.RequiredGate != domain.ExecutionInteractionGateDockerSandbox ||
 		configured.Interaction.NetworkScope != domain.ExecutionNetworkDisabled ||
 		configured.Permission == nil ||
-		configured.Permission.NetworkScope != domain.ExecutionPermissionNetworkDisabled {
+		configured.Permission.Mode != domain.RunExecutionPermissionAsk ||
+		configured.Mode == nil || configured.Mode.Scope.NetworkMode != "disabled" ||
+		len(configured.Mode.Scope.AllowedTargets) != 0 || configured.Network != "disabled" {
 		t.Fatalf("docker configured=%+v err=%v", configured, err)
 	}
 }
@@ -571,8 +573,8 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 	}
 	t.Cleanup(func() { _ = raw.Close() })
 	if _, err := raw.Exec(`CREATE TRIGGER test_standard_code_permission_failure
-		BEFORE INSERT ON run_execution_permission_snapshots
-		WHEN NEW.mode = 'workspace_access' BEGIN
+		BEFORE UPDATE ON standard_code_preset_operations
+		WHEN NEW.status = 'configured' BEGIN
 			SELECT RAISE(ABORT, 'injected Standard Code tuple failure');
 		END`); err != nil {
 		t.Fatal(err)
@@ -627,9 +629,8 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 		t.Fatalf("retry=%+v err=%v", retried, err)
 	}
 	preference, err := state.GetThreadExecutionPermission(t.Context(), thread.ID)
-	if err != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		preference.Revision != beforeThreadPermission.Revision+1 {
-		t.Fatalf("successful retry did not atomically synchronize Thread: %+v err=%v", preference, err)
+	if err != nil || !reflect.DeepEqual(preference, beforeThreadPermission) {
+		t.Fatalf("successful retry changed the Thread approval preference: %+v err=%v", preference, err)
 	}
 }
 

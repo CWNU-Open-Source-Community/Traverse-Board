@@ -12,7 +12,9 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/credential"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/githubreview"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 type fakeGitHubReviewRemote struct {
@@ -20,6 +22,7 @@ type fakeGitHubReviewRemote struct {
 	snapshot      githubreview.Snapshot
 	executeCalls  int
 	recoverCalls  int
+	executeError  error
 }
 
 func (f *fakeGitHubReviewRemote) Qualify(context.Context,
@@ -34,17 +37,35 @@ func (f *fakeGitHubReviewRemote) ReadSnapshot(context.Context,
 	return f.snapshot, nil
 }
 
-func (f *fakeGitHubReviewRemote) ExecuteWrite(_ context.Context,
-	_ githubreview.WriteSpec, preview githubreview.WritePreview,
+func (f *fakeGitHubReviewRemote) ExecuteWrite(ctx context.Context,
+	spec githubreview.WriteSpec, preview githubreview.WritePreview, guards ...toolcontract.DispatchGuard,
 ) (githubreview.WriteReceipt, error) {
-	f.executeCalls++
 	now := time.Now().UTC()
-	return githubreview.WriteReceipt{ProtocolVersion: githubreview.ReceiptProtocolVersion,
+	receipt := githubreview.WriteReceipt{ProtocolVersion: githubreview.ReceiptProtocolVersion,
 		ID: "receipt-success", PreviewID: preview.ID, Operation: preview.Operation,
 		Status: githubreview.ReceiptSucceeded, Identity: preview.Identity,
 		TargetID: preview.TargetID, ResultID: "comment-result",
 		IdempotencyMarker: preview.IdempotencyMarker, StartedAt: now,
-		CompletedAt: now.Add(time.Millisecond)}, nil
+		CompletedAt: now.Add(time.Millisecond)}
+	op, err := githubreview.ReviewWriteOperation(spec, preview)
+	if err == nil {
+		var fingerprint string
+		fingerprint, err = toolcontract.FingerprintOperation(op)
+		if err == nil && len(guards) == 1 && guards[0] != nil {
+			err = guards[0](ctx, fingerprint)
+		} else if err == nil {
+			err = apperror.New(apperror.CodePolicyDenied, "test remote requires the host guard")
+		}
+	}
+	if err != nil {
+		receipt.Status = githubreview.ReceiptFailed
+		return receipt, err
+	}
+	f.executeCalls++
+	if f.executeError != nil {
+		receipt.Status = githubreview.ReceiptFailed
+	}
+	return receipt, f.executeError
 }
 
 func (f *fakeGitHubReviewRemote) RecoverWrite(_ context.Context,
@@ -60,8 +81,18 @@ func (f *fakeGitHubReviewRemote) RecoverWrite(_ context.Context,
 		StartedAt: now, CompletedAt: now.Add(time.Millisecond)}, nil
 }
 
-func TestGitHubReviewServiceEvidenceApprovalAndReceipt(t *testing.T) {
-	fixture := newGitAdvancedApplicationFixture(t)
+type githubReviewApplicationFixture struct {
+	native      gitAdvancedApplicationFixture
+	service     *GitHubReviewService
+	remote      *fakeGitHubReviewRemote
+	credentials credential.Store
+	configured  GitHubReviewConfigureResult
+	request     GitHubReviewWriteReviewRequest
+}
+
+func newGitHubReviewApplicationFixture(t *testing.T, mode domain.RunExecutionPermissionMode) githubReviewApplicationFixture {
+	t.Helper()
+	fixture := newGitAdvancedApplicationFixture(t, mode)
 	base := strings.TrimSpace(runFixtureGit(t, "-C", fixture.root, "rev-parse", "HEAD"))
 	path := filepath.Join(fixture.root, "base.txt")
 	raw, err := os.ReadFile(path)
@@ -165,6 +196,16 @@ func TestGitHubReviewServiceEvidenceApprovalAndReceipt(t *testing.T) {
 		ProtocolVersion: GitHubReviewAPIProtocolVersion, RunID: fixture.run.ID,
 		ConnectionID: configured.Connection.ID, SnapshotID: snapshot.ID,
 		OperationKey: "reply-once", RequestedBy: "test_operator", Spec: spec}
+	return githubReviewApplicationFixture{fixture, service, remote, credentials, configured, reviewRequest}
+}
+
+func TestGitHubReviewServiceEvidenceApprovalAndReceipt(t *testing.T) {
+	f := newGitHubReviewApplicationFixture(t, domain.RunExecutionPermissionAsk)
+	fixture, service, remote, credentials := f.native, f.service, f.remote, f.credentials
+	configured, reviewRequest := f.configured, f.request
+	spec := reviewRequest.Spec
+	identity, repositoryID, credentialRef := spec.Identity, spec.Identity.Repository, spec.Credential
+	snapshot := remote.snapshot
 	reviewed, err := service.ReviewWrite(t.Context(), reviewRequest)
 	if err != nil || reviewed.Approval.Status != approval.StatusPending {
 		t.Fatalf("review: %v %#v", err, reviewed)

@@ -11,6 +11,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
 )
 
@@ -66,6 +67,11 @@ func (s *SQLiteStore) CreateExternalSkillSelection(ctx context.Context,
 	if err != nil {
 		return skills.ExternalSelection{}, false, err
 	}
+	for _, role := range []domain.AgentRole{domain.AgentRoleRoot, domain.AgentRoleSpecialist} {
+		if err := validatePluginSkillSelectionTx(ctx, tx, selection, role); err != nil {
+			return skills.ExternalSelection{}, false, err
+		}
+	}
 	if event.RunID != run.ID || event.MissionID != mission.ID ||
 		mode.ID != selection.ModeSnapshotID || !event.CreatedAt.Equal(selection.CreatedAt) {
 		return skills.ExternalSelection{}, false, apperror.New(apperror.CodeInvalidArgument,
@@ -86,18 +92,27 @@ func (s *SQLiteStore) CreateExternalSkillSelection(ctx context.Context,
 		return skills.ExternalSelection{}, false, err
 	}
 	for _, item := range selection.Items {
+		binding := "{}"
+		var legacyID, pluginID any = item.InstallationID, nil
+		if item.Plugin != nil {
+			raw, err := json.Marshal(item.Plugin)
+			if err != nil {
+				return skills.ExternalSelection{}, false, err
+			}
+			binding, legacyID, pluginID = string(raw), nil, item.InstallationID
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO run_external_skill_selection_items
 			(selection_id, ordinal, installation_id, installation_fingerprint,
 			install_result_fingerprint, name, version, surface, content_sha256,
 			content_bytes, token_upper_bound, archive_sha256, archive_bytes,
 			package_fingerprint, object_key, trust_class, tool_dependency_count,
-			specialist_eligible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			specialist_eligible, plugin_binding_json, legacy_installation_id, plugin_installation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			item.SelectionID, item.Ordinal, item.InstallationID,
 			item.InstallationFingerprint, item.InstallResultFingerprint, item.Name,
 			item.Version, item.Surface, item.ContentSHA256, item.ContentBytes,
 			item.TokenUpperBound, item.ArchiveSHA256, item.ArchiveBytes,
 			item.PackageFingerprint, item.ObjectKey, item.TrustClass,
-			item.ToolDependencyCount, boolInt(item.SpecialistEligible)); err != nil {
+			item.ToolDependencyCount, boolInt(item.SpecialistEligible), binding, legacyID, pluginID); err != nil {
 			return skills.ExternalSelection{}, false, err
 		}
 	}
@@ -314,7 +329,7 @@ func loadExternalSkillSelectionItems(ctx context.Context, queryer skillSelection
 		installation_id, installation_fingerprint, install_result_fingerprint,
 		name, version, surface, content_sha256, content_bytes, token_upper_bound,
 		archive_sha256, archive_bytes, package_fingerprint, object_key, trust_class,
-		tool_dependency_count, specialist_eligible
+		tool_dependency_count, specialist_eligible, plugin_binding_json
 		FROM run_external_skill_selection_items WHERE selection_id = ? ORDER BY ordinal`,
 		selection.ID)
 	if err != nil {
@@ -325,13 +340,22 @@ func loadExternalSkillSelectionItems(ctx context.Context, queryer skillSelection
 	for rows.Next() {
 		var item skills.ExternalSelectionItem
 		var specialist int
+		var binding string
 		if err := rows.Scan(&item.SelectionID, &item.Ordinal, &item.InstallationID,
 			&item.InstallationFingerprint, &item.InstallResultFingerprint, &item.Name,
 			&item.Version, &item.Surface, &item.ContentSHA256, &item.ContentBytes,
 			&item.TokenUpperBound, &item.ArchiveSHA256, &item.ArchiveBytes,
 			&item.PackageFingerprint, &item.ObjectKey, &item.TrustClass,
-			&item.ToolDependencyCount, &specialist); err != nil {
+			&item.ToolDependencyCount, &specialist, &binding); err != nil {
 			return err
+		}
+		if binding != "{}" {
+			if err := json.Unmarshal([]byte(binding), &item.Plugin); err != nil {
+				return err
+			}
+			if item.Plugin == nil {
+				return errors.New("selected Plugin binding is absent")
+			}
 		}
 		item.SpecialistEligible = specialist != 0
 		items = append(items, item)
@@ -410,4 +434,29 @@ func (s *SQLiteStore) recoverExternalSkillSelection(ctx context.Context,
 		return skills.ExternalSelection{}, false, err
 	}
 	return selection, true, nil
+}
+
+// The existing selection/context write transaction also fences Plugin lifecycle
+// changes. Replayed preparation and each model delivery recheck current state.
+func validatePluginSkillSelectionTx(ctx context.Context, tx *sql.Tx, selection skills.ExternalSelection, role domain.AgentRole) error {
+	for _, item := range selection.Items {
+		if item.Plugin == nil || (role == domain.AgentRoleSpecialist && !item.SpecialistEligible) {
+			continue
+		}
+		mode, err := getCurrentRunModeSnapshot(ctx, tx, selection.RunID)
+		if err != nil {
+			return err
+		}
+		if mode.MissionID != selection.MissionID || mode.Surface != selection.Surface || mode.Profile != selection.Profile {
+			return apperror.New(apperror.CodeConflict, "selected Plugin Skill Run mode changed")
+		}
+		installed, err := getPluginInstallation(ctx, tx, item.InstallationID)
+		if err != nil {
+			return err
+		}
+		if _, err := plugins.ValidateSkillSelection(installed, item, mode, role); err != nil {
+			return apperror.Wrap(apperror.CodePolicyDenied, "selected Plugin Skill is no longer available", err)
+		}
+	}
+	return nil
 }

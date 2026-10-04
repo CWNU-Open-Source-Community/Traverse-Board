@@ -223,7 +223,7 @@ func TestDockerHostInputRequirementIndependentCandidateIDsConverge(t *testing.T)
 func TestSchemaV58UpgradePreservesV57AttemptWithoutFabricatingRequirement(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "docker-host-input-v57.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, path, 177)
 	intent, plan, _, _ := newDockerContainerAttemptStoreIntent(t, ctx, st, run.ID, root,
 		"docker-host-input-v58-upgrade")
 	requirement := newDockerContainerAttemptRequirement(t, intent, plan, false)

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, CyberAgentClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
@@ -52,7 +52,9 @@ function detail(): RunDetailView {
     },
     execution_permission: {
       protocol_version: "run_execution_permission.v1", revision: 1,
-      mode: "conservative", approval_policy: "fixed_templates",
+      // The current Go reader preserves legacy mode while projecting the UI fields.
+      mode: "conservative", approval_mode: "ask", full_activation: "inactive",
+      approval_policy: "fixed_templates",
       command_scope: "fixed_templates", filesystem_scope: "workspace_guarded",
       network_scope: "disabled", persistent_terminal: false, background_process: false,
       agent_terminal_input: false, risk_tier: "minimal",
@@ -61,7 +63,7 @@ function detail(): RunDetailView {
       runtime_gate_available: true,
       runtime: { workspace_sandbox_enabled: false,
         operator_approval_enabled: true, danger_full_access_enabled: true,
-        debug_maximum_access_enabled: false },
+         },
       created_at: "2026-07-27T00:00:00Z", process_enabled: false,
       execution_authorized: false, capability_grant: false,
     },
@@ -93,8 +95,49 @@ function standardCodeReadyReadiness() {
 describe("ExecutionPermissionPanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("disables modes whose process-local startup gate is unavailable and explains every blocker", async () => {
-    const user = userEvent.setup();
+  it("keeps only three preferences and disables Full with the exact host unavailability reason", async () => {
+    const unavailable = detail();
+    unavailable.execution_permission.full_activation = "unavailable";
+    unavailable.execution_permission.full_unavailable_reason = "Full adapter unavailable: host policy; restart required";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<QueryClientProvider client={new QueryClient()}>
+      <ExecutionPermissionPanel
+        client={new CyberAgentClient("read", "/api/v1", "control", {
+          executionPermissionControlEnabled: true,
+        })}
+        detail={unavailable}
+        readiness={capabilityReadinessFixture()}
+      />
+    </QueryClientProvider>);
+    const choices = within(screen.getByRole("group", { name: "执行权限档位" }));
+    expect(choices.getAllByRole("button")).toHaveLength(3);
+    expect(choices.getByRole("button", { name: "请求批准" })).toBeDisabled();
+    expect(choices.getByRole("button", { name: "请求批准" })).toHaveAttribute("aria-pressed", "true");
+    expect(choices.getByRole("button", { name: "帮我批准" })).toBeEnabled();
+    const full = choices.getByRole("button", { name: "完全访问权限" });
+    expect(full).toBeDisabled();
+    expect(full).toHaveAccessibleDescription(expect.stringContaining(
+      unavailable.execution_permission.full_unavailable_reason));
+    expect(screen.getByText(unavailable.execution_permission.full_unavailable_reason)).toBeVisible();
+    await userEvent.setup().click(full);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("writes Auto as a preference without a Workspace or host authority grant", async () => {
+    const selected = {
+      ...detail().execution_permission,
+      protocol_version: "run_execution_permission.v2", policy_version: "execution_permission_policy.v2",
+      mode: "auto", approval_mode: "auto", approval_policy: "per_operation",
+      command_scope: "per_operation", filesystem_scope: "per_operation", network_scope: "per_operation",
+      required_gate: "operation_authority", revision: 2,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-auto-preference",
+      data: { execution_permission: selected, replayed: false },
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionPermissionPanel
         client={new CyberAgentClient("read", "/api/v1", "control", {
@@ -104,85 +147,33 @@ describe("ExecutionPermissionPanel", () => {
         readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
-    expect(screen.getByRole("button", { name: /工作区执行/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /工作区执行/ })).toHaveTextContent(
-      "启动闸门未开启 · 沙箱隔离尚未证明 → 开启闸门并重启 · 安装并验证沙箱 · 需重启");
-    await user.click(screen.getByText("高级风险权限"));
-    expect(screen.getByRole("button", { name: /调试/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /调试/ }))
-      .toHaveTextContent("启动时不可用");
-    expect(screen.getByRole("button", { name: /完全访问/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /完全访问/ }))
-      .toHaveTextContent("高级风险");
-  });
-
-  it("confirms Workspace Access without implying a host fallback", async () => {
-    const available = {
-      ...detail(),
-      execution_permission: {
-        ...detail().execution_permission,
-        runtime: {
-          ...detail().execution_permission.runtime,
-          workspace_sandbox_enabled: true,
-        },
-      },
-    } as RunDetailView;
-    const selected = {
-      ...available.execution_permission,
-      mode: "workspace_access" as const,
-      approval_policy: "out_of_scope_exact_once" as const,
-      command_scope: "sandboxed_workspace" as const,
-      required_gate: "workspace_sandbox_adapter" as const,
-      operator_confirmed: true,
-      revision: 2,
-    };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      version: "api.v1", request_id: "req-workspace-access",
-      data: { execution_permission: selected, replayed: false },
-    }), { status: 202, headers: { "Content-Type": "application/json" } }));
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
-      "permissions", "workspace_access", {
-        selectable: true, runtime_available: false,
-        blocked_by: ["sandbox_unproven"], remediation: ["verify_sandbox"],
-        restart_required: false,
-      });
-    render(<QueryClientProvider client={new QueryClient()}>
-      <ExecutionPermissionPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
-          executionPermissionControlEnabled: true,
-        })}
-        detail={available}
-        readiness={readiness}
-      />
-    </QueryClientProvider>);
-    await user.click(screen.getByRole("button", { name: /工作区执行/ }));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/宿主进程、持久终端和完整 CDP 均被拒绝/))
-      .toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "确认" }));
+    expect(screen.getByText(/影响未知、敏感数据外发、破坏性或共享写入操作不会/u)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "帮我批准" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/execution-permission");
+    expect(init.method).toBe("POST");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer control");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toMatch(/^run-approval-preference-/u);
     expect(JSON.parse(String(init.body))).toEqual({
-      mode: "workspace_access",
-      reason: "settings execution permission selection",
-      confirm_workspace_access: true,
+      mode: "auto", confirm_full: false, reason: "Run approval preference selection",
     });
   });
 
-  it("requires an inline confirmation before selecting full access", async () => {
+  it("requires an explicit confirmation before selecting Full and cancellation never writes", async () => {
     const selected = {
-      ...detail().execution_permission, mode: "full_access" as const,
-      approval_policy: "none" as const, command_scope: "arbitrary_stateless" as const,
-      filesystem_scope: "host_full" as const, network_scope: "host" as const,
-      risk_tier: "high" as const, required_gate: "danger_full_access" as const,
-      operator_confirmed: true, revision: 2,
+      ...detail().execution_permission,
+      protocol_version: "run_execution_permission.v2", policy_version: "execution_permission_policy.v2",
+      mode: "full", approval_mode: "full", full_activation: "active", approval_policy: "per_operation",
+      command_scope: "per_operation", filesystem_scope: "per_operation", network_scope: "per_operation",
+      risk_tier: "high", required_gate: "operation_authority", operator_confirmed: true, revision: 2,
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-permission",
       data: { execution_permission: selected, replayed: false },
-    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
@@ -194,18 +185,29 @@ describe("ExecutionPermissionPanel", () => {
         readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
-    await user.click(screen.getByText("高级风险权限"));
-    await user.click(screen.getByRole("button", { name: /完全访问/ }));
+    await user.click(screen.getByRole("button", { name: "完全访问权限" }));
     expect(fetchMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "确认" }));
+    let dialog = within(screen.getByRole("dialog", { name: "启用完全访问权限？" }));
+    expect(dialog.getByText(/实际可用范围仍受操作系统、供应商和运行环境限制/u)).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "取消" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "完全访问权限" }));
+    dialog = within(screen.getByRole("dialog", { name: "启用完全访问权限？" }));
+    await user.click(dialog.getByRole("button", { name: "确认启用" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      mode: "full_access", confirm_danger_full_access: true,
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/execution-permission");
+    expect(init.method).toBe("POST");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer control");
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: "full", confirm_full: true, reason: "Run approval preference selection",
     });
   });
 
   it("drops an elevated confirmation when the selected Run changes", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read", "/api/v1", "control", {
       runControlEnabled: true,
       executionPermissionControlEnabled: true,
@@ -229,17 +231,43 @@ describe("ExecutionPermissionPanel", () => {
       <RunPermissionSettings client={client} runID="run-1" />
     </QueryClientProvider>);
 
-    await user.click(screen.getByText("高级风险权限"));
-    await user.click(screen.getByRole("button", { name: /完全访问/ }));
-    expect(screen.getByRole("button", { name: "确认" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "完全访问权限" }));
+    const oldConfirm = screen.getByRole("button", { name: "确认启用" });
+    expect(oldConfirm).toBeInTheDocument();
 
     view.rerender(<QueryClientProvider client={queryClient}>
       <RunPermissionSettings client={client} runID="run-2" />
     </QueryClientProvider>);
-    expect(screen.queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认启用" })).not.toBeInTheDocument();
+    await act(async () => { fireEvent.click(oldConfirm); });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(["run", "run-1"])).toEqual(runOne);
+    expect(queryClient.getQueryData(["run", "run-2"])).toEqual(runTwo);
     expect(screen.getByText((_, element) =>
       element?.tagName === "SPAN" && element.textContent?.startsWith("run-2") === true,
     )).toBeInTheDocument();
+  });
+
+  it.each([
+    ["read token only", "", true],
+    ["control gate disabled", "control", false],
+  ] as const)("cannot write any preference with %s", async (_name, controlToken, enabled) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <ExecutionPermissionPanel client={new CyberAgentClient("read", "/api/v1", controlToken, {
+        executionPermissionControlEnabled: enabled,
+      })} detail={detail()} readiness={capabilityReadinessFixture()} />
+    </QueryClientProvider>);
+    const buttons = within(screen.getByRole("group", { name: "执行权限档位" })).getAllByRole("button");
+    expect(buttons).toHaveLength(3);
+    for (const button of buttons) {
+      expect(button).toBeDisabled();
+      await user.click(button);
+    }
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -545,7 +573,7 @@ describe("BrowserCDPPermissionPanel", () => {
       ...detail(),
       execution_permission: {
         ...detail().execution_permission,
-        mode: "debug" as const,
+        mode: "debug" as const, approval_mode: "full" as const,
       },
       browser_cdp_permission: {
         ...detail().browser_cdp_permission,

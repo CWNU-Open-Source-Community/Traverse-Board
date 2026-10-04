@@ -26,7 +26,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     workspace_sandbox_enabled: false,
-    danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+    danger_full_access_enabled: true,
     command_runtime_enabled: true,
     command_runtime_protocol_available: true,
     command_runtime_adapter_installed: true,
@@ -40,8 +40,8 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     session_steering_control_enabled: true,
     run_lifecycle_enabled: true, run_execution_enabled: true,
     plan_delivery_control_enabled: true, approval_control_enabled: true,
-    controlled_command_proposal_control_enabled: true,
-    host_command_proposal_control_enabled: false,
+
+
     model_control_enabled: true, provider_credential_enabled: true,
     file_edit_review_enabled: true, file_edit_proposal_enabled: true,
     file_edit_apply_enabled: true, run_wake_control_enabled: true,
@@ -615,7 +615,7 @@ describe("CyberAgentClient", () => {
       code_intel_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
       workspace_sandbox_enabled: false,
-      danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+      danger_full_access_enabled: true,
       command_runtime_enabled: true,
       command_runtime_protocol_available: true,
       command_runtime_adapter_installed: true,
@@ -629,8 +629,8 @@ describe("CyberAgentClient", () => {
       session_steering_control_enabled: true,
       run_lifecycle_enabled: true, run_execution_enabled: true,
       plan_delivery_control_enabled: true, approval_control_enabled: true,
-      controlled_command_proposal_control_enabled: true,
-      host_command_proposal_control_enabled: false,
+
+
       model_control_enabled: true, provider_credential_enabled: true,
       file_edit_review_enabled: true, file_edit_proposal_enabled: true,
       file_edit_apply_enabled: true, run_wake_control_enabled: true,
@@ -662,7 +662,7 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
       workspaceSandboxEnabled: false,
-      dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
+      dangerFullAccessEnabled: true,
       commandRuntimeEnabled: true,
       commandRuntimeProtocolAvailable: true,
       commandRuntimeAdapterInstalled: true,
@@ -671,7 +671,7 @@ describe("CyberAgentClient", () => {
       codeIntelEnabled: true,
       browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
       fullCDPSessionControlEnabled: true,
-      controlledCommandProposalControlEnabled: true,
+
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,
@@ -713,7 +713,7 @@ describe("CyberAgentClient", () => {
   });
 
   it("accepts Full CDP with Full Access while the Debug runtime is disabled", async () => {
-    const data = runtimeCapabilitiesData({ debug_maximum_access_enabled: false });
+    const data = runtimeCapabilitiesData({  });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-full-cdp-with-full-access", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
@@ -725,7 +725,7 @@ describe("CyberAgentClient", () => {
   it("rejects Full CDP without the Full Access adapter", async () => {
     const data = runtimeCapabilitiesData({
       danger_full_access_enabled: false,
-      debug_maximum_access_enabled: false,
+
       full_cdp_debug_enabled: true,
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -2858,30 +2858,27 @@ describe("CyberAgentClient", () => {
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
-      runControlEnabled: false, controlledCommandProposalControlEnabled: true,
+      runControlEnabled: false,
     });
 
     await expect(client.controlledCommandProposals("run-1"))
       .resolves.toMatchObject({ items: [pending], requestID: "request-proposals" });
-    const body = { version: "controlled_command_proposal_review.v1",
-      decision: "approve", reason: "Operator approved the exact fixed Go command",
-      confirm_execution: true };
-    await expect(client.reviewControlledCommandProposal(
-      "run-1", "command-proposal-1", body, "web-command-proposal-operation-0001",
+    await expect(client.controlledCommandProposal(
+      "run-1", "command-proposal-1",
     )).resolves.toEqual(reviewed);
     expect(fetchMock.mock.calls[0]?.[0])
       .toBe("/api/v1/runs/run-1/command-proposals?limit=100");
     expect(fetchMock.mock.calls[1]?.[0])
-      .toBe("/api/v1/runs/run-1/command-proposals/command-proposal-1/review");
+      .toBe("/api/v1/runs/run-1/command-proposals/command-proposal-1");
     const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
-    expect(reviewInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
-    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
-    await expect(client.reviewControlledCommandProposal(
-      "run-1", "command-proposal-1", body, "web-command-proposal-operation-0002",
+    expect(reviewInit.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+    expect(reviewInit.body).toBeUndefined();
+    await expect(client.controlledCommandProposal(
+      "run-1", "command-proposal-1",
     )).rejects.toThrow("invalid");
   });
 
-  it("reviews an exact host command envelope and rejects widened receipts", async () => {
+  it("reads exact historical host evidence and resumes without new execution", async () => {
     const pending = {
       id: "host-command-proposal-1", protocol_version: "host_command_proposal.v1",
       policy_version: "host_command_policy.v1", run_id: "run-1",
@@ -2944,26 +2941,41 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, operatorApprovalEnabled: true,
-      hostCommandProposalControlEnabled: true,
+
     });
 
     await expect(client.hostCommandProposals("run-1"))
       .resolves.toMatchObject({ items: [pending], requestID: "request-host-proposals" });
-    const body = { version: "host_command_review.v1", decision: "approve",
-      reason: "Operator verified the exact host command", confirm_execution: true } as const;
-    await expect(client.reviewHostCommandProposal(
-      "run-1", "host-command-proposal-1", body, "web-host-command-operation-0001",
+    await expect(client.resumeHostCommandProposal(
+      "run-1", "host-command-proposal-1",
     )).resolves.toEqual(reviewed);
     expect(fetchMock.mock.calls[0]?.[0])
       .toBe("/api/v1/runs/run-1/host-command-proposals?limit=100");
     expect(fetchMock.mock.calls[1]?.[0])
-      .toBe("/api/v1/runs/run-1/host-command-proposals/host-command-proposal-1/review");
+      .toBe("/api/v1/runs/run-1/host-command-proposals/host-command-proposal-1/resume");
     const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect(reviewInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
-    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
-    await expect(client.reviewHostCommandProposal(
-      "run-1", "host-command-proposal-1", body, "web-host-command-operation-0002",
+    expect(reviewInit.body).toBeUndefined();
+    await expect(client.hostCommandProposal(
+      "run-1", "host-command-proposal-1",
     )).rejects.toThrow("boundary");
+    const readOnly = new CyberAgentClient("read-secret", "/api/v1", "", {
+       operatorApprovalEnabled: false,
+    });
+    const unknown = { ...pending, uncertain: true, review: reviewed.review };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+      request_id: "history-unknown", data: unknown }), { status: 200 }));
+    await expect(readOnly.hostCommandProposal("run-1", pending.id)).resolves.toEqual(unknown);
+    expect((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).headers)
+      .toMatchObject({ Authorization: "Bearer read-secret" });
+    const reads = fetchMock.mock.calls.length;
+    await expect(readOnly.resumeHostCommandProposal("run-1", pending.id)).rejects.toThrow("control");
+    expect(fetchMock).toHaveBeenCalledTimes(reads);
+    for (const uncertain of ["true", 1]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "history-invalid-unknown", data: { ...unknown, uncertain } }), { status: 200 }));
+      await expect(readOnly.hostCommandProposal("run-1", pending.id)).rejects.toThrow("invalid");
+    }
     for (const continuation of [
       { ...reviewed.continuation, state: "unknown" },
       { ...reviewed.continuation, model_called: undefined },
@@ -2971,8 +2983,7 @@ describe("CyberAgentClient", () => {
     ]) {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
         request_id: "invalid-continuation", data: { ...reviewed, continuation } }), { status: 200 }));
-      await expect(client.reviewHostCommandProposal("run-1", "host-command-proposal-1", body,
-        "web-host-command-operation-0003")).rejects.toThrow("continuation");
+      await expect(client.hostCommandProposal("run-1", "host-command-proposal-1")).rejects.toThrow("continuation");
     }
     const savedOutput = {
       result_id: reviewed.result.id, request_id: reviewed.receipt.request_id,
@@ -3000,7 +3011,7 @@ describe("CyberAgentClient", () => {
     }
   });
 
-  it("accepts durable risk escalation state and validates bounded current-Run grants", async () => {
+  it("reads historical risk state and resumes without granting authority", async () => {
     const pending = {
       id: "risk-escalation-0001", protocol_version: "risk_escalation.v1",
       policy_version: "risk_escalation_policy.v1", run_id: "run-1",
@@ -3070,22 +3081,19 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, operatorApprovalEnabled: true,
-      hostCommandProposalControlEnabled: true,
+
     });
 
     await expect(client.hostCommandProposals("run-1"))
       .resolves.toMatchObject({ items: [pending], requestID: "request-risk-proposals" });
-    const body = { version: "host_command_review.v1", decision: "approve",
-      authorization: "run_scope", reason: "Operator approved bounded exact scope",
-      confirm_execution: true, grant_ttl_seconds: 300, grant_max_uses: 1 } as const;
-    await expect(client.reviewHostCommandProposal(
-      "run-1", "risk-escalation-0001", body, "web-risk-escalation-operation-0001",
-    )).resolves.toEqual(reviewed);
-    const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
-    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
-    await expect(client.reviewHostCommandProposal("run-1", "risk-escalation-0001",
-      { ...body, grant_ttl_seconds: 901 }, "web-risk-escalation-operation-0002"))
-      .rejects.toThrow("exact host command review");
+    await expect(client.resumeHostCommandProposal("run-1", "risk-escalation-0001")).resolves.toEqual(reviewed);
+    const init = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(init.body).toBeUndefined();
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/runs/run-1/host-command-proposals/risk-escalation-0001/resume");
+    await expect(client.resumeHostCommandProposal(" run-1", "risk-escalation-0001")).rejects.toThrow("exact identities");
+
   });
 
   it("validates content-free model diagnostics and exact persisted routes", async () => {

@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -79,6 +83,79 @@ func (a *API) runApprovalPreview(request *http.Request, runID, approvalID string
 	view.SourceCurrent = !run.Terminal() && record.Status == approval.StatusPending &&
 		record.GrantID == "" && record.Mode != "never"
 	switch record.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		source, ok := a.store.(interface {
+			GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+		})
+		if !ok {
+			return stale()
+		}
+		call, started, err := source.GetSupervisorApprovalCall(ctx, run.ID, record.ProposalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		input, _, err := toolgateway.NormalizeCommandRuntimePayload(json.RawMessage(call.PayloadJSON))
+		if err != nil || record.RequestFingerprint != commandruntimeadapter.OperationApprovalFingerprint(call) || call.ToolName != string(toolgateway.CommandRuntimeTool) {
+			return stale()
+		}
+		base, ok := a.store.(application.ApprovalControlStore)
+		view.SourceCurrent = view.SourceCurrent && !started && ok
+		if view.SourceCurrent {
+			view.SourceCurrent = application.RecheckCommandApproval(ctx, base, record) == nil
+		}
+		view.Effect = "command_process"
+		add("action", input.Action)
+		add("intent", call.PayloadJSON)
+		if input.ReviewScope != nil {
+			risk, _ := json.Marshal(input.ReviewScope)
+			add("review_scope", string(risk))
+			add("bounded_review", "Optional bounded Run review groups this purpose/risk scope for at most 8 uses and 900 seconds. Each exact new command still needs explicit review; declarations do not enforce isolation.")
+			if ledger, ok := a.store.(interface {
+				GetCommandApprovalGrantScope(context.Context, string) (approval.GrantQuery, error)
+				FindActiveSessionGrant(context.Context, approval.GrantQuery) (approval.SessionGrant, bool, error)
+			}); ok && view.SourceCurrent {
+				query, queryErr := ledger.GetCommandApprovalGrantScope(ctx, record.ProposalID)
+				if queryErr != nil {
+					return nil, nil, apperror.New(apperror.CodeFailedPrecondition, "bounded review limits are unavailable; refresh before approving")
+				}
+				grant, found, grantErr := ledger.FindActiveSessionGrant(ctx, query)
+				if grantErr != nil {
+					return nil, nil, apperror.New(apperror.CodeFailedPrecondition, "bounded review limits are unavailable; refresh before approving")
+				}
+				if found && approval.MatchesBoundedGrantScope(grant, query) && grant.Status == approval.GrantActive && grant.ExpiresAt != nil && time.Now().UTC().Before(*grant.ExpiresAt) && grant.UsesRemaining > 0 {
+					add("grant_ttl_seconds", strconv.Itoa(int(grant.ExpiresAt.Sub(grant.CreatedAt)/time.Second)))
+					add("grant_max_uses", strconv.Itoa(grant.MaxUses))
+					add("grant_uses_remaining", strconv.Itoa(grant.UsesRemaining))
+					add("grant_expires_at", grant.ExpiresAt.Format(time.RFC3339))
+				}
+			}
+		}
+		add("summary", "Approve only this pinned command batch or these stdin bytes for the original Run-owned process. A host working directory and network declaration do not enforce isolation; changed inputs require a new proposal.")
+	case mcp.OperationApprovalTool:
+		source, ok := a.store.(interface {
+			GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+		})
+		if !ok {
+			return stale()
+		}
+		call, started, err := source.GetSupervisorApprovalCall(ctx, run.ID, record.ProposalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		payload, _, err := toolgateway.NormalizeMCPToolPayload(json.RawMessage(call.PayloadJSON))
+		if err != nil || record.RequestFingerprint != mcp.OperationApprovalFingerprint(call) || call.ToolName != mcp.OperationApprovalTool {
+			return stale()
+		}
+		base, ok := a.store.(application.ApprovalControlStore)
+		view.SourceCurrent = view.SourceCurrent && !started && ok
+		if view.SourceCurrent {
+			view.SourceCurrent = application.RecheckMCPApproval(ctx, base, record) == nil
+		}
+		view.Effect = "mcp_server_and_tool"
+		add("server", payload.ServerID)
+		add("tool", payload.ToolName)
+		add("arguments", string(payload.Arguments))
+		add("summary", "Start/connect to this reviewed MCP server, discover its capabilities and invoke this exact tool. External effects are unverified.")
 	case "shell":
 		source, ok := a.store.(interface {
 			GetToolRun(context.Context, string) (toolrun.ToolRun, error)
@@ -176,12 +253,12 @@ func (a *API) runApprovalPreview(request *http.Request, runID, approvalID string
 		view.Redacted = view.Redacted || value.SecretsRedacted
 	case toolgateway.AgentBrowserApprovalTool:
 		source, ok := a.store.(interface {
-			GetAgentBrowserCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
+			GetSupervisorApprovalCall(context.Context, string, string) (domain.SupervisorToolCall, bool, error)
 		})
 		if !ok {
 			return stale()
 		}
-		call, started, err := source.GetAgentBrowserCall(ctx, run.ID, record.ProposalID)
+		call, started, err := source.GetSupervisorApprovalCall(ctx, run.ID, record.ProposalID)
 		if err != nil {
 			return nil, nil, err
 		}

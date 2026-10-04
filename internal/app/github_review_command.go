@@ -35,8 +35,6 @@ func (a *App) githubReviewCommand(ctx context.Context, args []string) error {
 		"enable exact operator approval checks")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"allow an existing full-access Run permission")
-	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
-		"allow an existing maximum Debug Run permission")
 	managedRoot := fs.String("managed-root", "", "product-managed Git worktree root")
 	connectionID := fs.String("connection", "", "GitHub review connection identity")
 	repositoryName := fs.String("repository", "", "exact GitHub owner/name")
@@ -59,6 +57,8 @@ func (a *App) githubReviewCommand(ctx context.Context, args []string) error {
 	reviewEvent := fs.String("event", "", "COMMENT, APPROVE, or REQUEST_CHANGES")
 	changeSummary := fs.String("change-summary", "", "bounded local change summary")
 	validationSummary := fs.String("validation-summary", "", "bounded validation summary")
+	confirmFull := fs.Bool("confirm-full", false,
+		"activate the current Full preference only for this invocation")
 	confirm := fs.Bool("confirm", false, "confirm the exact local or remote mutation")
 	limit := fs.Int("limit", 100, "maximum audit records")
 	loginTimeout := fs.Duration("timeout", 15*time.Minute, "device authorization deadline")
@@ -67,15 +67,14 @@ func (a *App) githubReviewCommand(ctx context.Context, args []string) error {
 	fs.Var(&reviewers, "reviewer", "reviewer login (repeatable)")
 	values := map[string]bool{
 		"enable-github-review": false, "enable-permission-control": false,
-		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
-		"managed-root": true, "connection": true, "repository": true,
+		"enable-danger-full-access": false, "managed-root": true, "connection": true, "repository": true,
 		"credential": true, "auth": true, "client-id": true,
 		"expected-generation": true, "enabled": true, "allow-write": false,
 		"pr": true, "run": true,
 		"snapshot": true, "operation-key": true, "target": true, "body": true,
 		"body-file": true, "event": true, "change-summary": true,
 		"validation-summary": true, "reviewer": true, "log-host": true,
-		"confirm": false, "limit": true, "timeout": true,
+		"confirm": false, "confirm-full": false, "limit": true, "timeout": true,
 	}
 	flagArgs := args[1:]
 	var writeOperation githubreview.WriteOperation
@@ -93,13 +92,12 @@ func (a *App) githubReviewCommand(ctx context.Context, args []string) error {
 	if err := fs.Parse(reorderFlags(flagArgs, values)); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || !*enable || !*permissionControl {
+	if fs.NArg() != 0 || !*enable || !*permissionControl ||
+		*confirmFull && (action != "write" || !*confirm) {
 		return errors.New(githubReviewCLIUsage)
 	}
-	service, err := a.newGitHubReviewService(*managedRoot,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled:   *dangerFullAccess,
-			DebugMaximumAccessEnabled: *debugMaximumAccess})
+	capabilities := cliExecutionPermissionCapabilities(*permissionControl, *dangerFullAccess)
+	service, err := a.newGitHubReviewService(*managedRoot, capabilities)
 	if err != nil {
 		return err
 	}
@@ -172,6 +170,11 @@ func (a *App) githubReviewCommand(ctx context.Context, args []string) error {
 		}
 		return writeExtensionJSON(a.out, value)
 	case "write":
+		release, activationErr := a.activateCLIInvocationFull(ctx, *runID, capabilities, *confirmFull)
+		if activationErr != nil {
+			return activationErr
+		}
+		defer release()
 		return a.githubReviewWrite(ctx, service, writeOperation, githubReviewWriteCLIValues{
 			runID: *runID, connectionID: *connectionID, snapshotID: *snapshotID,
 			operationKey: *operationKey, targetID: *targetID, body: *body,

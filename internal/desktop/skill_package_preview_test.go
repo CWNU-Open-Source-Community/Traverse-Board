@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
@@ -113,7 +114,7 @@ func TestDesktopSkillPackagePreviewUsesOneTimePathlessSnapshot(t *testing.T) {
 	}
 }
 
-func TestDesktopSkillPackageInstallConsumesConfirmationIntoInertRegistry(t *testing.T) {
+func TestDesktopSkillPackageInstallConsumesConfirmationIntoPluginStaging(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	packagePath := filepath.Join(home, "install.zip")
@@ -157,12 +158,18 @@ func TestDesktopSkillPackageInstallConsumesConfirmationIntoInertRegistry(t *test
 		ConfirmationHandle: preview.ConfirmationHandle, Surface: "code",
 		OperationKey: "desktop-skill-install-0001", ConfirmUntrusted: true,
 	})
-	if err != nil || result.Name != preview.Name || result.Version != preview.Version ||
+	if err != nil || result.Installation == nil || result.Installation.State != plugins.StateStaged ||
+		result.Name != preview.Name || result.Version != preview.Version ||
 		result.ArchiveSHA256 != preview.ArchiveSHA256 || result.Replayed ||
 		result.ImportCommandExecution || result.ImportNetworkAccess ||
 		result.ImportProviderCalls || result.ToolCapabilityGrant ||
 		result.RunSelectionAuthorized || result.ContextInjectionAuthorized {
 		t.Fatalf("install result=%#v err=%v", result, err)
+	}
+	serialized, err := json.Marshal(result)
+	if err != nil || !bytes.Contains(serialized, []byte("plugin-installation.v2")) ||
+		bytes.Contains(serialized, []byte("operation_receipt.v1")) || bytes.Contains(serialized, []byte("object_key")) {
+		t.Fatalf("Desktop fabricated a legacy installation result: %s err=%v", serialized, err)
 	}
 	if _, err := bridge.InstallSkillPackage(SkillPackageInstallRequest{
 		ProtocolVersion:    SkillPackageInstallProtocolVersion,
@@ -362,5 +369,88 @@ func assertExactJSONKeys(t *testing.T, raw string, expected []string) {
 		if _, ok := object[key]; !ok {
 			t.Fatalf("JSON is missing key %q: %s", key, raw)
 		}
+	}
+}
+
+func TestDesktopNativeSkillPreviewPreservesFrozenFilesAndStagesPlugin(t *testing.T) {
+	ctx := t.Context()
+	directory := filepath.Join(t.TempDir(), "native-desktop")
+	if err := os.MkdirAll(filepath.Join(directory, "assets"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("---\nname: native-desktop\ndescription: Preserve all original files.\n---\nOriginal instructions.\n")
+	path := filepath.Join(directory, "SKILL.md")
+	if err := os.WriteFile(path, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "assets", "data.bin"), []byte{0, 255, 1}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "native-desktop.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	objects, _ := skills.NewLocalPackageObjectStore(t.TempDir())
+	builtins, _ := skills.BuiltinRegistry()
+	selector, previewer := NewSkillPackagePreviewBoundary()
+	bridge, err := NewDesktopBridge(DesktopBridgeConfig{ContextProvider: func() context.Context { return ctx }, FilePicker: &testSkillPackagePicker{path: path},
+		ReadToken: testDesktopReadToken, ControlToken: testDesktopControlToken, SkillInstallationEnabled: true,
+		SkillInstaller: application.NewSkillPackageRegistryService(st, objects, builtins), APIVersion: "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: previewer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialog, err := bridge.SelectSkillPackage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := bridge.PreviewSkillPackage(dialog.Selection.Handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := json.Marshal(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(view), directory) || bytes.Contains(view, []byte("profiles")) || !bytes.Contains(view, []byte("agent-skills")) {
+		t.Fatalf("native preview fabricated legacy metadata or exposed a path: %s", view)
+	}
+	if err := os.WriteFile(path, []byte("changed after selection"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := bridge.InstallSkillPackage(SkillPackageInstallRequest{ProtocolVersion: SkillPackageInstallProtocolVersion,
+		ConfirmationHandle: preview.ConfirmationHandle, Surface: "code", OperationKey: "native-desktop-operation", ConfirmUntrusted: true})
+	if err != nil || result.Installation == nil || result.Installation.State != plugins.StateStaged {
+		t.Fatalf("native install=%+v err=%v", result, err)
+	}
+	value := result.Installation
+	raw, err := st.LoadPluginObject(ctx, value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := plugins.OpenPortableSnapshot(ctx, *value.Snapshot, raw, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	got, _, err := reader.Read(ctx, value.Snapshot.Skills[0].Instructions.Component, "", 4096)
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatal("preview consumed live changed bytes", err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope) != 3 || envelope["protocol_version"] != plugins.PortableInstallationProtocol || bytes.Contains(encoded, []byte("operation_receipt.v1")) {
+		t.Fatalf("native result has legacy fields: %s", encoded)
+	}
+	installation := envelope["installation"].(map[string]any)
+	if installation["source"].(map[string]any)["uri"] != "" {
+		t.Fatal("native path exposed to renderer")
 	}
 }

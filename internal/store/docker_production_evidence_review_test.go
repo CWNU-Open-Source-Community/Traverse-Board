@@ -272,7 +272,7 @@ func TestDockerProductionEvidenceReviewConcurrentStoresConverge(t *testing.T) {
 func TestSchemaV68PreservesV67ReceiptWithoutFabricatingReview(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v67-review.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	gateReview := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-review-upgrade")
 	evidence, _ := completeDockerProductionEvidenceHarnessReviewFixture(

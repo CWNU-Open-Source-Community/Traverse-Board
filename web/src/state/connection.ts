@@ -21,7 +21,6 @@ interface ConnectionState {
   fullCDPSessionControlEnabled: boolean;
   operatorApprovalEnabled: boolean;
   dangerFullAccessEnabled: boolean;
-  debugMaximumAccessEnabled: boolean;
   commandRuntimeEnabled: boolean;
   commandRuntimeProtocolAvailable: boolean;
   commandRuntimeAdapterInstalled: boolean;
@@ -36,8 +35,6 @@ interface ConnectionState {
   threadExecutionReadEnabled: boolean;
   planDeliveryControlEnabled: boolean;
   approvalControlEnabled: boolean;
-  controlledCommandProposalControlEnabled: boolean;
-  hostCommandProposalControlEnabled: boolean;
   modelControlEnabled: boolean;
   providerCredentialEnabled: boolean;
   fileEditReviewEnabled: boolean;
@@ -90,7 +87,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   fullCDPSessionControlEnabled: false,
   operatorApprovalEnabled: false,
   dangerFullAccessEnabled: false,
-  debugMaximumAccessEnabled: false,
+
   commandRuntimeEnabled: false,
   commandRuntimeProtocolAvailable: false,
   commandRuntimeAdapterInstalled: false,
@@ -105,8 +102,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   threadExecutionReadEnabled: false,
   planDeliveryControlEnabled: false,
   approvalControlEnabled: false,
-  controlledCommandProposalControlEnabled: false,
-  hostCommandProposalControlEnabled: false,
+
+
   modelControlEnabled: false,
   providerCredentialEnabled: false,
   fileEditReviewEnabled: false,
@@ -148,7 +145,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
         (capabilities.fullCDPSessionControlEnabled ?? false),
       operatorApprovalEnabled: present && (capabilities.operatorApprovalEnabled ?? false),
       dangerFullAccessEnabled: present && (capabilities.dangerFullAccessEnabled ?? false),
-      debugMaximumAccessEnabled: present && (capabilities.debugMaximumAccessEnabled ?? false),
+
       commandRuntimeEnabled: present && (capabilities.commandRuntimeEnabled ?? false),
       commandRuntimeProtocolAvailable: present &&
         (capabilities.commandRuntimeProtocolAvailable ?? false),
@@ -171,11 +168,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       planDeliveryControlEnabled: present &&
         (capabilities.planDeliveryControlEnabled ?? true),
       approvalControlEnabled: present && (capabilities.approvalControlEnabled ?? true),
-      controlledCommandProposalControlEnabled: present &&
-        (capabilities.controlledCommandProposalControlEnabled ?? false),
-	  hostCommandProposalControlEnabled: present &&
-	    (capabilities.hostCommandProposalControlEnabled ?? false) &&
-	    (capabilities.operatorApprovalEnabled ?? false),
+
+
 	  modelControlEnabled: present && (capabilities.modelControlEnabled ?? true),
 	  providerCredentialEnabled: present && (capabilities.providerCredentialEnabled ?? false),
 	  fileEditReviewEnabled: present && (capabilities.fileEditReviewEnabled ?? true),
@@ -218,15 +212,15 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     operatorApprovalEnabled: false,
     browserCDPPermissionControlEnabled: false, fullCDPDebugEnabled: false,
     fullCDPSessionControlEnabled: false,
-    dangerFullAccessEnabled: false, debugMaximumAccessEnabled: false,
+    dangerFullAccessEnabled: false,
     commandRuntimeEnabled: false, commandRuntimeProtocolAvailable: false,
     commandRuntimeAdapterInstalled: false, commandRuntimeAdapterReady: false,
     sessionSteeringControlEnabled: false,
     runLifecycleEnabled: false, runExecutionEnabled: false,
     threadExecutionReadEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,
-	controlledCommandProposalControlEnabled: false,
-	hostCommandProposalControlEnabled: false,
+
+
 	modelControlEnabled: false, providerCredentialEnabled: false,
 	fileEditReviewEnabled: false, fileEditProposalEnabled: false, fileEditApplyEnabled: false,
 	runWakeControlEnabled: false, runWakeExecutionEnabled: false, runWakeWorkerEnabled: false,

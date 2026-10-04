@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -24,7 +25,6 @@ type Manager struct {
 }
 
 type WorkspaceStore interface {
-	SaveWorkspace(ctx context.Context, rec session.WorkspaceRecord) error
 	CreateWorkspaceIfAbsent(ctx context.Context, rec session.WorkspaceRecord) (bool, error)
 	GetWorkspaceByName(ctx context.Context, name string) (session.WorkspaceRecord, error)
 	ListWorkspaces(ctx context.Context) ([]session.WorkspaceRecord, error)
@@ -38,6 +38,11 @@ func NewManager(home string, st WorkspaceStore) *Manager {
 
 func (m *Manager) Init(ctx context.Context, name string) (session.WorkspaceRecord, error) {
 	slug := Slug(name)
+	if rec, err := m.Store.GetWorkspaceByName(ctx, slug); err == nil {
+		return rec, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return session.WorkspaceRecord{}, err
+	}
 	root := filepath.Join(m.Home, "workspaces", slug)
 	for _, dir := range []string{"attachments", "scripts", "outputs", "logs", "writeups", filepath.Join("tests", "sample_input")} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
@@ -51,25 +56,32 @@ func (m *Manager) Init(ctx context.Context, name string) (session.WorkspaceRecor
 			return session.WorkspaceRecord{}, err
 		}
 	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return session.WorkspaceRecord{}, err
+	}
+	root, err = canonicalImportRoot(root)
+	if err != nil {
+		return session.WorkspaceRecord{}, err
+	}
 	rec := session.WorkspaceRecord{
 		ID:        "ws-" + slug,
 		Name:      slug,
 		RootPath:  root,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := m.Store.SaveWorkspace(ctx, rec); err != nil {
+	created, err := m.Store.CreateWorkspaceIfAbsent(ctx, rec)
+	if err != nil {
 		return session.WorkspaceRecord{}, err
+	}
+	if !created {
+		return m.Store.GetWorkspaceByName(ctx, slug)
 	}
 	return rec, nil
 }
 
 func (m *Manager) Ensure(ctx context.Context, name string) (session.WorkspaceRecord, error) {
-	slug := Slug(name)
-	rec, err := m.Store.GetWorkspaceByName(ctx, slug)
-	if err == nil {
-		return rec, nil
-	}
-	return m.Init(ctx, slug)
+	return m.Init(ctx, name)
 }
 
 // Import registers an existing directory without creating or modifying any
@@ -161,7 +173,7 @@ func canonicalImportRoot(selectedPath string) (string, error) {
 		return "", fmt.Errorf("%w: selected path is not an existing directory",
 			ErrInvalidImportDirectory)
 	}
-	resolved, err := filepath.EvalSymlinks(root)
+	resolved, err := resolveWorkspaceDirectory(root)
 	if err != nil {
 		return "", fmt.Errorf("%w: selected directory cannot be resolved",
 			ErrInvalidImportDirectory)
@@ -180,7 +192,7 @@ func sameWorkspaceRoot(left, right string) bool {
 	if left == right || runtime.GOOS == "windows" && strings.EqualFold(left, right) {
 		return true
 	}
-	// Init and older registrations retain the caller's path spelling. Match
+	// Older registrations retain the caller's path spelling. Match
 	// existing directory aliases without rewriting the durable registration.
 	leftInfo, leftErr := os.Stat(left)
 	rightInfo, rightErr := os.Stat(right)

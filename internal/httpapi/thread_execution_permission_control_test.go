@@ -38,17 +38,17 @@ func TestThreadExecutionPermissionControlSynchronizesCurrentRunAndReportsGETStat
 		"127.0.0.1:8765", "127.0.0.1:45000", nil)
 	var initial ThreadExecutionPermissionControlView
 	decodeDataStatus(t, initialResponse, http.StatusOK, &initial)
-	if initial.ExecutionPermission.Mode != string(domain.RunExecutionPermissionConservative) ||
+	if initial.ExecutionPermission.Mode != string(domain.RunExecutionPermissionAsk) ||
 		initial.CurrentRunID != run.ID || initial.CurrentRunEffect !=
 		string(domain.ThreadExecutionPermissionApplied) ||
-		initial.CurrentRunMode != string(domain.RunExecutionPermissionConservative) ||
+		initial.CurrentRunMode != string(domain.RunExecutionPermissionAsk) ||
 		!initial.CurrentRunSynchronized || !initial.ExecutionPermission.AppliesToCurrentRun ||
 		!initial.ExecutionPermission.AppliesToFutureSuccessorRuns || initial.Replayed {
 		t.Fatalf("initial Thread permission projection is misleading: %+v", initial)
 	}
 
-	body := `{"mode":"workspace_access","reason":"use the bounded Workspace sandbox",` +
-		`"confirm_workspace_access":true}`
+	body := `{"mode":"auto","reason":"use the bounded Workspace sandbox",` +
+		`"confirm_full":false}`
 	unauthorized := performRequest(t, api, http.MethodPost, path, testAccessToken,
 		"127.0.0.1:8765", "127.0.0.1:45000", strings.NewReader(body))
 	assertAPIError(t, unauthorized, http.StatusUnauthorized, "POLICY_DENIED")
@@ -58,10 +58,10 @@ func TestThreadExecutionPermissionControlSynchronizesCurrentRunAndReportsGETStat
 	var selected ThreadExecutionPermissionControlView
 	decodeDataStatus(t, selectedResponse, http.StatusAccepted, &selected)
 	if selected.ExecutionPermission.Mode !=
-		string(domain.RunExecutionPermissionWorkspaceAccess) ||
+		string(domain.RunExecutionPermissionAuto) ||
 		selected.CurrentRunID != run.ID || selected.CurrentRunEffect !=
 		string(domain.ThreadExecutionPermissionApplied) ||
-		selected.CurrentRunMode != string(domain.RunExecutionPermissionWorkspaceAccess) ||
+		selected.CurrentRunMode != string(domain.RunExecutionPermissionAuto) ||
 		!selected.CurrentRunSynchronized || !selected.ExecutionPermission.AppliesToCurrentRun ||
 		selected.ExecutionPermission.ProcessEnabled ||
 		selected.ExecutionPermission.ExecutionAuthorized ||
@@ -69,7 +69,7 @@ func TestThreadExecutionPermissionControlSynchronizesCurrentRunAndReportsGETStat
 		t.Fatalf("Thread permission selection escaped its boundary: %+v", selected)
 	}
 	runPermission, err := fixture.store.GetRunExecutionPermission(t.Context(), run.ID)
-	if err != nil || runPermission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	if err != nil || runPermission.Mode != domain.RunExecutionPermissionAuto {
 		t.Fatalf("current Run did not receive Thread permission: %+v err=%v",
 			runPermission, err)
 	}
@@ -80,7 +80,7 @@ func TestThreadExecutionPermissionControlSynchronizesCurrentRunAndReportsGETStat
 	decodeDataStatus(t, afterResponse, http.StatusOK, &after)
 	if after.CurrentRunID != run.ID || !after.CurrentRunSynchronized ||
 		after.CurrentRunEffect != string(domain.ThreadExecutionPermissionApplied) ||
-		after.CurrentRunMode != string(domain.RunExecutionPermissionWorkspaceAccess) ||
+		after.CurrentRunMode != string(domain.RunExecutionPermissionAuto) ||
 		!after.ExecutionPermission.AppliesToCurrentRun {
 		t.Fatalf("GET lost current Run synchronization: %+v", after)
 	}
@@ -116,7 +116,7 @@ func TestThreadExecutionPermissionControlRejectsMissingGateAndDefersLeasedRun(t 
 	response := performControlPathRequest(t, api,
 		"/api/v1/threads/"+threadRecord.ID+"/execution-permission",
 		"http-thread-permission-closed-0001",
-		strings.NewReader(`{"mode":"workspace_access","confirm_workspace_access":true}`))
+		strings.NewReader(`{"mode":"full","confirm_full":true}`))
 	assertAPIError(t, response, http.StatusForbidden, "POLICY_DENIED")
 
 	if _, err := application.NewRunService(fixture.store).Start(t.Context(), run.ID); err != nil {
@@ -138,18 +138,18 @@ func TestThreadExecutionPermissionControlRejectsMissingGateAndDefersLeasedRun(t 
 	leased := performControlPathRequest(t, open,
 		"/api/v1/threads/"+threadRecord.ID+"/execution-permission",
 		"http-thread-permission-leased-0001",
-		strings.NewReader(`{"mode":"workspace_access","confirm_workspace_access":true}`))
+		strings.NewReader(`{"mode":"auto","confirm_full":false}`))
 	var deferred ThreadExecutionPermissionControlView
 	decodeDataStatus(t, leased, http.StatusAccepted, &deferred)
 	if deferred.CurrentRunID != run.ID ||
 		deferred.CurrentRunEffect != string(domain.ThreadExecutionPermissionDeferred) ||
-		deferred.CurrentRunMode != string(domain.RunExecutionPermissionConservative) ||
+		deferred.CurrentRunMode != string(domain.RunExecutionPermissionAsk) ||
 		deferred.CurrentRunSynchronized ||
 		deferred.ExecutionPermission.AppliesToCurrentRun {
 		t.Fatalf("leased Thread preference did not report next-Run semantics: %+v", deferred)
 	}
 	preference, err := fixture.store.GetThreadExecutionPermission(t.Context(), threadRecord.ID)
-	if err != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+	if err != nil || preference.Mode != domain.RunExecutionPermissionAuto ||
 		preference.Revision != 2 {
 		t.Fatalf("leased request did not persist the future preference: %+v err=%v",
 			preference, err)

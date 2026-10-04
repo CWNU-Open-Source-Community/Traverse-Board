@@ -176,8 +176,8 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
-	if _, e = application.NewRunExecutionPermissionService(st, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "full_access", OperationKey: "browser-product-full-access", RequestedBy: "test_operator", Reason: "test-owned real browser integration", ConfirmDangerFullAccess: true}); e != nil {
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if _, e = application.NewRunExecutionPermissionService(st, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "full_access", OperationKey: "browser-product-full-access", RequestedBy: "test_operator", Reason: "test-owned real browser integration", ConfirmFull: true}); e != nil {
 		t.Fatal(e)
 	}
 	browser := application.NewAgentBrowserService(st, application.AgentBrowserOptions{HomePath: home, Capabilities: capabilities, Headless: true, SessionLifetime: time.Minute})
@@ -201,7 +201,7 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	if e != nil || len(records) != 1 {
 		t.Fatalf("approvals %v %+v", e, records)
 	}
-	call, started, e := st.GetAgentBrowserCall(ctx, run.ID, records[0].ProposalID)
+	call, started, e := st.GetSupervisorApprovalCall(ctx, run.ID, records[0].ProposalID)
 	if e != nil || started || call.Status != domain.SupervisorToolPending {
 		t.Fatalf("approval already started %v %t %+v", e, started, call)
 	}
@@ -246,7 +246,7 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	}
 
 	if scenario != "" {
-		done, started, e := st.GetAgentBrowserCall(ctx, run.ID, call.CallID)
+		done, started, e := st.GetSupervisorApprovalCall(ctx, run.ID, call.CallID)
 		if e != nil || started || done.Status == domain.SupervisorToolPending {
 			t.Fatalf("unsettled %v %+v", e, done)
 		}

@@ -11,7 +11,7 @@ const FullCDPStartAuthorizationProtocolVersion = "browser_full_cdp_start_authori
 
 // FullCDPStartAuthorization is the process-launch authorization for the Full
 // CDP debug channel. It is independent from the Safe Web start authorization:
-// it requires live Full Access or Debug permission and never carries the Safe
+// it requires live Full permission and never carries the Safe
 // Web WFP containment or loopback-navigation flags.
 type FullCDPStartAuthorization struct {
 	ProtocolVersion               string    `json:"protocol_version"`
@@ -43,7 +43,7 @@ type FullCDPStartAuthorization struct {
 }
 
 // AuthorizeFullCDPStart issues the process-launch authorization for the Full
-// CDP channel. It requires live Full Access or Debug permission, the separately
+// CDP channel. It requires live Full permission, the separately
 // confirmed Full CDP sub-permission, its installed adapter, and a live launch lease, and it
 // never grants the Safe Web network-containment or loopback-navigation flags.
 func AuthorizeFullCDPStart(session SessionPlan, identity BrowserExecutableIdentity,
@@ -86,13 +86,12 @@ func AuthorizeFullCDPStart(session SessionPlan, identity BrowserExecutableIdenti
 		!runtimeCapabilities.StartEnabled ||
 		!runtimeCapabilities.DisposableProfileEnabled ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!executionAllowed || executionCapabilities.RuntimeAuthority == nil ||
 		executionFence == 0 || !executionCapabilities.RuntimeAuthority.
 		AllowsRunAuthorizationFence(session.RunID, executionFence) {
 		return FullCDPStartAuthorization{}, errors.New(
-			"full CDP launch requires live Full Access or Debug authority and its confirmed sub-permission")
+			"full CDP launch requires live Full authority and its confirmed sub-permission")
 	}
 	now = now.UTC()
 	if now.IsZero() || now.Before(review.CreatedAt) || !now.Before(lease.ExpiresAt) {
@@ -136,7 +135,7 @@ func AuthorizeFullCDPStart(session SessionPlan, identity BrowserExecutableIdenti
 }
 
 // ValidateFullCDPStartAuthorization re-checks that a Full CDP launch
-// authorization still binds the exact live Full Access or Debug permission, session,
+// authorization still binds the exact live Full permission, session,
 // executable, ownership, attempt, lease, and review, and that it carries the
 // process-launch authority without any Safe Web containment flag.
 func ValidateFullCDPStartAuthorization(authorization FullCDPStartAuthorization,
@@ -189,8 +188,7 @@ func ValidateFullCDPStartAuthorization(authorization FullCDPStartAuthorization,
 		permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!authorization.ProcessStartAuthorized || !authorization.ProcessTerminationAuthorized ||
 		!authorization.ProfileCreateAuthorized || !authorization.ProfileReleaseAuthorized ||
 		!authorization.ExactOwnedCleanupAuthorized ||

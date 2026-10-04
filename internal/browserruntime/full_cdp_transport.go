@@ -73,14 +73,13 @@ func OpenFullCDPSession(ctx context.Context, authorization FullCDPAuthorization,
 		return nil, err
 	}
 	if executionPermission.RunID != session.RunID ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!executionCapabilities.AllowsSnapshot(executionPermission) ||
 		executionCapabilities.RuntimeAuthority == nil || executionFence == 0 ||
 		!executionCapabilities.RuntimeAuthority.AllowsRunAuthorizationFence(
 			executionPermission.RunID, executionFence) {
 		return nil, errors.New(
-			"full CDP requires the exact live Full Access or Debug execution authority")
+			"full CDP requires the exact live Full execution authority")
 	}
 	return openFullCDPSession(ctx, authorization, session, identity, acceptance,
 		ownership, permission, executionPermission, executionCapabilities,

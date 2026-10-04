@@ -31,7 +31,7 @@ func recordSnapshotReceiptFixture(t *testing.T, state *SQLiteStore,
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "review exact snapshot receipt metadata",
 			Profile: "code", WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestVerificationSnapshotReceiptReviewIsImmutableIdempotentAndNonAuthorizing
 func TestSchemaV84UpgradeFabricatesNoSnapshotReceiptReview(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v83-snapshot-receipt-review.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

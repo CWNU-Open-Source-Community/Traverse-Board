@@ -1303,7 +1303,7 @@ export interface paths {
         put?: never;
         /**
          * Select a Run browser CDP permission mode
-         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.
+         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under modern Full with live process activation; it defaults on when entering Full, can be disabled independently, and is forced off outside Full.
          */
         post: operations["selectRunBrowserCDPPermission"];
         delete?: never;
@@ -1466,26 +1466,6 @@ export interface paths {
         get: operations["getControlledCommandProposal"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve or deny one fixed command proposal
-         * @description Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.
-         */
-        post: operations["reviewControlledCommandProposal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1687,7 +1667,7 @@ export interface paths {
         put?: never;
         /**
          * Select a Run execution permission mode
-         * @description Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.
+         * @description Selects Ask, Auto or Full operation approval. Full requires explicit confirmation and live activation in the current process. Persisted snapshots and historical approvals never restore execution authority; each operation rechecks its exact inputs, policy, runtime epoch and Run fence.
          */
         post: operations["selectRunExecutionPermission"];
         delete?: never;
@@ -1991,7 +1971,7 @@ export interface paths {
         put?: never;
         /**
          * Open a confirmed Full CDP session
-         * @description Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.
+         * @description Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires modern Full with live process activation, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.
          */
         post: operations["openRunFullCDPSession"];
         delete?: never;
@@ -2248,8 +2228,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List exact host command proposals
-         * @description Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.
+         * List historical host command proposals
+         * @description Reads saved Host and Risk proposal evidence. Creation, review and execution are retired; these records cannot authorize a new command. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.
          */
         get: operations["listHostCommandProposals"];
         put?: never;
@@ -2268,8 +2248,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Inspect one exact host command proposal
-         * @description Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.
+         * Inspect one historical host command proposal
+         * @description Reads the saved immutable command envelope, review, historical grant and consumption metadata, invalidation state, result and receipt. Only a saved outcome may continue its exact original call; pending or approved records do not regain execution authority. An execution intent without a durable result remains unknown and is never resent.
          */
         get: operations["getHostCommandProposal"];
         put?: never;
@@ -2280,7 +2260,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -2290,10 +2270,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve or deny one exact host command proposal
-         * @description Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.
+         * Resume a saved historical command outcome
+         * @description Resumes only the exact durable Supervisor call or approval continuation from saved history. Requires control authorization and an available Run controller. Does not accept command, review or grant parameters. A historical intent without a result remains unknown and is never re-executed.
          */
-        post: operations["reviewHostCommandProposal"];
+        post: operations["resumeHostCommandProposal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3551,7 +3531,7 @@ export interface paths {
         put?: never;
         /**
          * Install one inert Skill package
-         * @description Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.
+         * @description Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.
          */
         post: operations["installSkillPackage"];
         delete?: never;
@@ -3571,7 +3551,7 @@ export interface paths {
         put?: never;
         /**
          * Create and configure a Standard Code Run
-         * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
+         * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
          */
         post: operations["createStandardCodeRun"];
         delete?: never;
@@ -4776,7 +4756,7 @@ export interface components {
         AgentCodeCapabilitiesView: {
             generation: string;
             /** @enum {string} */
-            permission_mode: "conservative" | "approval" | "full_access" | "debug";
+            permission_mode: "ask" | "auto" | "full" | "conservative" | "approval" | "full_access" | "debug";
             /** @enum {string} */
             phase: "plan" | "deliver";
             /** @enum {string} */
@@ -4864,15 +4844,20 @@ export interface components {
         };
         ApprovalDecisionControlRequestView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
+            /** Format: int32 */
+            grant_max_uses?: number;
+            /** Format: int32 */
+            grant_ttl_seconds?: number;
             reason?: string;
             /** @enum {string} */
             version: "approval_control.v1";
         };
         ApprovalDecisionControlView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
             approval_id: string;
+            bounded_grant?: components["schemas"]["BoundedCommandGrantView"];
             capability_grant: boolean;
             continuation?: components["schemas"]["ApprovalContinuationResult"];
             docker_execution_enabled: boolean;
@@ -4899,7 +4884,7 @@ export interface components {
         ApprovalPreviewView: {
             approval_id: string;
             /** @enum {string} */
-            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "unavailable";
+            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "mcp_server_and_tool" | "command_process" | "unavailable";
             fields: components["schemas"]["ApprovalPreviewFieldView"][];
             proposal_id: string;
             /** @enum {string} */
@@ -5294,6 +5279,22 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        BoundedCommandGrantView: {
+            /** @enum {boolean} */
+            each_command_requires_review: true;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            /** Format: int32 */
+            max_uses: number;
+            scope_fingerprint: string;
+            /** Format: int32 */
+            ttl_seconds: number;
+            /** Format: int32 */
+            use_ordinal: number;
+            /** Format: int32 */
+            uses_remaining: number;
+        };
         BrowserCDPPermissionRuntimeView: {
             control_enabled: boolean;
             execution_debug_selected: boolean;
@@ -5347,7 +5348,7 @@ export interface components {
             selectable: boolean;
             selected: boolean;
             /** @enum {string} */
-            value: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
+            value: "ask" | "auto" | "full" | "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
         };
         Change: {
             binary: boolean;
@@ -6009,12 +6010,6 @@ export interface components {
             source_ref: string;
             status: string;
         };
-        ControlledCommandProposalReviewRequestView: {
-            confirm_execution?: boolean;
-            decision: string;
-            reason?: string;
-            version: string;
-        };
         ControlledCommandProposalReviewView: {
             capability_grant: boolean;
             created_at: string;
@@ -6466,7 +6461,6 @@ export interface components {
         };
         ExecutionPermissionRuntimeView: {
             danger_full_access_enabled: boolean;
-            debug_maximum_access_enabled: boolean;
             operator_approval_enabled: boolean;
             workspace_sandbox_enabled: boolean;
         };
@@ -6504,6 +6498,15 @@ export interface components {
             server_version?: string;
             tools: string[];
         };
+        ExtensionMCPNativeSourceView: {
+            component_id: string;
+            /** Format: int64 */
+            installation_generation: number;
+            installation_id: string;
+            package_id: string;
+            revision: string;
+            surface: string;
+        };
         ExtensionMCPReviewRequestView: {
             action: string;
             expected_capability_fingerprint?: string;
@@ -6523,6 +6526,7 @@ export interface components {
             health_message?: string;
             id: string;
             name: string;
+            native_source?: components["schemas"]["ExtensionMCPNativeSourceView"];
             protocol_version: string;
             reviewed_at?: string;
             reviewed_by?: string;
@@ -6550,6 +6554,7 @@ export interface components {
             reviewed_by?: string;
             signature_present: boolean;
             signature_valid: boolean;
+            snapshot?: components["schemas"]["ExtensionPortableSnapshotView"];
             source: components["schemas"]["ExtensionSourceView"];
             staged_by: string;
             state: string;
@@ -6571,6 +6576,11 @@ export interface components {
             expected_generation: number;
             expected_package_fingerprint: string;
             version: string;
+        };
+        ExtensionPortableSnapshotView: {
+            format: string;
+            revision: string;
+            surface: string;
         };
         ExtensionRefreshRequestView: {
             version: string;
@@ -8043,20 +8053,6 @@ export interface components {
             /** @enum {string} */
             status: "completed" | "failed";
         };
-        HostCommandProposalReviewRequestView: {
-            /** @enum {string} */
-            authorization?: "once" | "run_scope";
-            confirm_execution?: boolean;
-            /** @enum {string} */
-            decision: "approve" | "deny";
-            /** Format: int32 */
-            grant_max_uses?: number;
-            /** Format: int32 */
-            grant_ttl_seconds?: number;
-            reason?: string;
-            /** @enum {string} */
-            version: "host_command_review.v1";
-        };
         HostCommandProposalReviewView: {
             capability_grant: boolean;
             created_at: string;
@@ -8594,6 +8590,29 @@ export interface components {
             capture_stdout: boolean;
             paths?: string[];
         };
+        PackagePreview: {
+            /** Format: int32 */
+            ArchiveBytes: number;
+            ArchiveSHA256: string;
+            /** Format: int32 */
+            EntryCount: number;
+            /** Format: int32 */
+            ExecutableAssetCount: number;
+            ImportCommandExecution: boolean;
+            ImportNetworkAccess: boolean;
+            ImportProviderCalls: boolean;
+            /** Format: int32 */
+            InstallHookCount: number;
+            InstallationAuthorized: boolean;
+            Manifest: components["schemas"]["SkillPackageManifest"];
+            PackageFingerprint: string;
+            ProtocolVersion: string;
+            RiskCodes: string[];
+            ToolCapabilityGrant: boolean;
+            TrustClass: string;
+            /** Format: int32 */
+            UncompressedBytes: number;
+        };
         Page: {
             /** Format: int32 */
             limit: number;
@@ -8783,6 +8802,27 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "plan_delivery_control.v1";
+        };
+        PluginSkillInstallView: {
+            installation: components["schemas"]["ExtensionPluginInstallationView"];
+            /** @enum {string} */
+            protocol_version: "plugin-installation.v2";
+            replayed: boolean;
+        };
+        PortableSnapshot: {
+            author_version?: string;
+            diagnostics?: components["schemas"]["ToolContractDiagnostic"][];
+            format: string;
+            inventory: components["schemas"]["SnapshotEntry"][];
+            legacy?: components["schemas"]["PackagePreview"];
+            manifest: components["schemas"]["ToolContractContentRef"];
+            name: string;
+            package_id: string;
+            protocol_version: string;
+            revision: string;
+            root_name: string;
+            skills: components["schemas"]["SnapshotSkill"][];
+            source: components["schemas"]["ToolContractSourceRef"];
         };
         Preview: {
             changes: components["schemas"]["Change"][];
@@ -9752,12 +9792,9 @@ export interface components {
             status: "active" | "released";
         };
         RunExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         RunExecutionPermissionControlView: {
@@ -9767,30 +9804,35 @@ export interface components {
         RunExecutionPermissionView: {
             agent_terminal_input: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "run_execution_permission.v1";
+            protocol_version: "run_execution_permission.v1" | "run_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -10086,9 +10128,7 @@ export interface components {
             command_runtime_adapters: components["schemas"]["CommandRuntimeAdapterView"][];
             command_runtime_enabled: boolean;
             command_runtime_protocol_available: boolean;
-            controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
-            debug_maximum_access_enabled: boolean;
             docker_execution_enabled: boolean;
             embedded_analyzer_execution_enabled: boolean;
             evidence_attachment_enabled: boolean;
@@ -10100,7 +10140,6 @@ export interface components {
             full_cdp_session_control_enabled: boolean;
             git_advanced_control_enabled: boolean;
             github_review_control_enabled: boolean;
-            host_command_proposal_control_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
             plan_delivery_control_enabled: boolean;
@@ -10630,10 +10669,11 @@ export interface components {
         SkillPackageInstallRequestView: {
             archive_base64: string;
             confirm_untrusted: boolean;
+            snapshot?: components["schemas"]["PortableSnapshot"];
             /** @enum {string} */
             surface: "code" | "cyber";
             /** @enum {string} */
-            version: "skill_package_installation.v1";
+            version: "skill_package_installation.v1" | "plugin-installation.v2";
         };
         SkillPackageInstallView: {
             archive_sha256: string;
@@ -10663,12 +10703,42 @@ export interface components {
             user_invocable: boolean;
             version: string;
         };
+        SkillPackageManifest: {
+            /** Format: int32 */
+            content_bytes: number;
+            content_path: string;
+            content_sha256: string;
+            /** Format: int32 */
+            content_token_upper_bound: number;
+            description: string;
+            explicit_only?: boolean;
+            model_invocable?: boolean;
+            name: string;
+            phases?: string[];
+            profiles: string[];
+            protocol: string;
+            publisher?: string;
+            roles?: string[];
+            surfaces?: string[];
+            tool_dependencies: string[];
+            user_invocable?: boolean;
+            version: string;
+        };
         Snapshot: {
             /** Format: int64 */
             Generation: number;
             ProtocolVersion: string;
             Providers: components["schemas"]["ProviderAvailability"][];
             Routes: components["schemas"]["RouteAvailability"][];
+        };
+        SnapshotEntry: {
+            /** Format: int32 */
+            bytes: number;
+            kind: string;
+            /** Format: int64 */
+            mode: number;
+            path: string;
+            sha256?: string;
         };
         SnapshotPresentation: {
             citeable: boolean;
@@ -10690,6 +10760,11 @@ export interface components {
             truncated: boolean;
             untrusted: boolean;
             url: string;
+        };
+        SnapshotSkill: {
+            description: string;
+            instructions: components["schemas"]["ToolContractContentRef"];
+            name: string;
         };
         SourcePresentation: {
             citeable: boolean;
@@ -10979,7 +11054,7 @@ export interface components {
             mode?: components["schemas"]["RunModeView"];
             /** @enum {string} */
             network: "disabled";
-            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_approval" | "retry_readiness" | "create_new_run")[];
+            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_ask" | "retry_readiness" | "create_new_run")[];
             /** @enum {string} */
             protocol_version: "standard_code_preset.v1";
             replayed: boolean;
@@ -11361,12 +11436,9 @@ export interface components {
             type: string;
         };
         ThreadExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         ThreadExecutionPermissionControlView: {
@@ -11374,7 +11446,7 @@ export interface components {
             current_run_effect?: "applied" | "paused_and_applied" | "deferred" | "no_active_run";
             current_run_id?: string;
             /** @enum {string} */
-            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
             current_run_synchronized: boolean;
             execution_permission: components["schemas"]["ThreadExecutionPermissionView"];
             replayed: boolean;
@@ -11384,30 +11456,35 @@ export interface components {
             applies_to_current_run: boolean;
             applies_to_future_successor_runs: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "thread_execution_permission.v1";
+            protocol_version: "thread_execution_permission.v1" | "thread_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -12054,6 +12131,26 @@ export interface components {
             untrusted: boolean;
             url: string;
             version: string;
+        };
+        ToolContractComponentRef: {
+            ComponentID: string;
+            PackageID: string;
+        };
+        ToolContractContentRef: {
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Path: string;
+            SHA256: string;
+        };
+        ToolContractDiagnostic: {
+            Code: string;
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Message: string;
+            Severity: string;
+        };
+        ToolContractSourceRef: {
+            Revision: string;
+            SHA256: string;
+            URI: string;
         };
         ToolUsageView: {
             /** Format: int64 */
@@ -16669,56 +16766,6 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
-    reviewControlledCommandProposal: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Opaque review key; only a domain-separated digest is persisted */
-                "Idempotency-Key": string;
-            };
-            path: {
-                /** @description Run identity */
-                run_id: string;
-                /** @description Controlled command proposal identity */
-                proposal_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ControlledCommandProposalReviewRequestView"];
-            };
-        };
-        responses: {
-            /** @description Control request accepted or idempotently replayed */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["ControlledCommandProposalView"];
-                        request_id: string;
-                        /** @constant */
-                        version: "api.v1";
-                    };
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            412: components["responses"]["FailedPrecondition"];
-            413: components["responses"]["RequestEntityTooLarge"];
-            414: components["responses"]["RequestTooLarge"];
-            415: components["responses"]["UnsupportedMediaType"];
-            429: components["responses"]["ResourceExhausted"];
-            500: components["responses"]["InternalError"];
-            503: components["responses"]["Unavailable"];
-            504: components["responses"]["GatewayTimeout"];
-        };
-    };
     getRunContextSummary: {
         parameters: {
             query?: never;
@@ -18483,13 +18530,10 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
-    reviewHostCommandProposal: {
+    resumeHostCommandProposal: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Opaque review key; only a domain-separated digest is persisted */
-                "Idempotency-Key": string;
-            };
+            header?: never;
             path: {
                 /** @description Run identity */
                 run_id: string;
@@ -18498,11 +18542,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HostCommandProposalReviewRequestView"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Control request accepted or idempotently replayed */
             202: {
@@ -21643,7 +21683,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["SkillPackageInstallView"];
+                        data: components["schemas"]["SkillPackageInstallView"] | components["schemas"]["PluginSkillInstallView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

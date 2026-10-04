@@ -101,7 +101,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 			"%w: execution scope does not match the Docker Standard Code adapter",
 			runner.ErrCommandRuntimeBoundary)
 	}
-	if scope.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+	if !e.identity.AllowsPermission(scope.PermissionMode) ||
 		spec.Spec.Profile != runner.CommandRuntimeProcess ||
 		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinClosed &&
 			(stdin != nil || !spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "")) ||
@@ -156,6 +156,9 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 	}
 	executionCtx, output := withDockerCommandRuntimeOutput(ctx, scope.RunID,
 		spec.Spec.Output.ArtifactBytes)
+	if err := runner.CheckCommandRuntimeDispatch(executionCtx, spec); err != nil {
+		return runner.CommandRuntimeSandboxResult{}, err
+	}
 	executed, err := e.service.executeCommandRuntime(executionCtx,
 		StandardCodeDockerExecuteRequest{
 			RunID: scope.RunID, ExpectedGeneration: workspace.Generation,

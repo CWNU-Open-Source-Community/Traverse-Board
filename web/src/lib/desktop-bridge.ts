@@ -1,3 +1,5 @@
+import { parsePluginSkillInstall } from "../api/client";
+import type { PluginSkillInstallView } from "../api/types";
 import { validImageAttachments, type WorkspaceImageAttachment } from "../api/image-attachments";
 import { validFileAttachments, type WorkspaceFileAttachment } from "../api/file-attachments";
 
@@ -75,7 +77,6 @@ export interface DesktopConnectionBootstrap {
   full_cdp_session_control_enabled: boolean;
   operator_approval_enabled: boolean;
   danger_full_access_enabled: boolean;
-  debug_maximum_access_enabled: boolean;
   command_runtime_enabled: boolean;
   command_runtime_protocol_available: true;
   command_runtime_adapter_installed: boolean;
@@ -89,8 +90,6 @@ export interface DesktopConnectionBootstrap {
   run_execution_enabled: boolean;
   plan_delivery_control_enabled: boolean;
   approval_control_enabled: boolean;
-  controlled_command_proposal_control_enabled: boolean;
-  host_command_proposal_control_enabled: boolean;
   model_control_enabled: boolean;
   provider_credential_enabled: boolean;
   file_edit_review_enabled: boolean;
@@ -237,7 +236,7 @@ export interface DesktopSkillDialogResult {
   selection: DesktopSkillSelection | null;
 }
 
-export interface DesktopSkillPreview {
+export interface DesktopLegacySkillPreview {
   protocol_version: typeof desktopSkillPreviewProtocol;
   package_protocol: string;
   skill_protocol: string;
@@ -267,6 +266,22 @@ export interface DesktopSkillPreview {
   confirmation_expires_at: string;
 }
 
+export interface DesktopNativeSkillPreview {
+  protocol_version: typeof desktopSkillPreviewProtocol;
+  package_protocol: "plugin-installation.v2";
+  format: "agent-skills" | "agent-plugins";
+  name: string;
+  version: string;
+  archive_sha256: string;
+  archive_bytes: number;
+  entry_count: number;
+  skill_count: number;
+  validated: true;
+  confirmation_handle: string;
+  confirmation_expires_at: string;
+}
+export type DesktopSkillPreview = DesktopLegacySkillPreview | DesktopNativeSkillPreview;
+
 export interface DesktopSkillInstallRequest {
   protocol_version: typeof desktopSkillInstallProtocol;
   confirmation_handle: string;
@@ -275,7 +290,9 @@ export interface DesktopSkillInstallRequest {
   confirm_untrusted: true;
 }
 
-export interface DesktopSkillInstallResult {
+export type DesktopSkillInstallResult = DesktopLegacySkillInstallResult | PluginSkillInstallView;
+
+export interface DesktopLegacySkillInstallResult {
   protocol_version: typeof desktopSkillInstallProtocol;
   name: string;
   version: string;
@@ -342,7 +359,7 @@ interface NativeDesktopBridge {
     run_id: string;
     terminal_session_id: string;
     ttl_seconds: number;
-    confirm_debug_maximum_access: true;
+    confirm_full_access: true;
     confirm_agent_terminal_input: true;
   }) => Promise<unknown>;
   GetDebugTerminalAgentInput?: (runID: string) => Promise<unknown>;
@@ -455,7 +472,7 @@ export function desktopDebugRestartEnabled(): boolean {
 
 export function desktopCurrentRiskProfile(): DesktopRuntimeRiskProfile | null {
   if (!activeBootstrap) return null;
-  if (activeBootstrap.debug_maximum_access_enabled) return "debug";
+  if (activeBootstrap.user_terminal_enabled) return "debug";
   return "safe";
 }
 
@@ -600,7 +617,7 @@ export function desktopUserTerminalEnabled(): boolean {
 
 export function desktopDebugTerminalAgentInputEnabled(): boolean {
   return activeBootstrap?.user_terminal_enabled === true &&
-    activeBootstrap.debug_maximum_access_enabled === true &&
+    activeBootstrap.danger_full_access_enabled === true &&
     getDebugTerminalAgentInputBridge() !== null;
 }
 
@@ -723,7 +740,7 @@ export async function grantDesktopDebugTerminalAgentInput(runID: string,
     run_id: runID,
     terminal_session_id: terminalSessionID,
     ttl_seconds: ttlSeconds,
-    confirm_debug_maximum_access: true,
+    confirm_full_access: true,
     confirm_agent_terminal_input: true,
   });
   if (!validDebugTerminalAgentInputBinding(value, runID, terminalSessionID)) {
@@ -833,13 +850,11 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "approval_control_enabled", "command_runtime_enabled",
     "command_runtime_protocol_available", "command_runtime_adapter_installed",
     "command_runtime_adapter_ready",
-    "controlled_command_proposal_control_enabled",
-    "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "workspace_sandbox_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "full_cdp_session_control_enabled",
-    "danger_full_access_enabled", "debug_maximum_access_enabled",
+    "danger_full_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
 	"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
@@ -878,7 +893,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.full_cdp_session_control_enabled === "boolean" &&
     typeof value.operator_approval_enabled === "boolean" &&
     typeof value.danger_full_access_enabled === "boolean" &&
-    typeof value.debug_maximum_access_enabled === "boolean" &&
     typeof value.command_runtime_enabled === "boolean" &&
     value.command_runtime_protocol_available === true &&
     typeof value.command_runtime_adapter_installed === "boolean" &&
@@ -893,8 +907,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.run_execution_enabled === "boolean" &&
     typeof value.plan_delivery_control_enabled === "boolean" &&
     typeof value.approval_control_enabled === "boolean" &&
-    typeof value.controlled_command_proposal_control_enabled === "boolean" &&
-	typeof value.host_command_proposal_control_enabled === "boolean" &&
 	typeof value.model_control_enabled === "boolean" &&
 	typeof value.provider_credential_enabled === "boolean" &&
 	typeof value.file_edit_review_enabled === "boolean" &&
@@ -931,8 +943,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
-	  value.controlled_command_proposal_control_enabled ||
-	  value.host_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
@@ -949,12 +959,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
     ((!value.execution_permission_control_enabled &&
-      !value.workspace_sandbox_enabled && !value.operator_approval_enabled && !value.danger_full_access_enabled &&
-      !value.debug_maximum_access_enabled) ||
+      !value.workspace_sandbox_enabled && !value.operator_approval_enabled && !value.danger_full_access_enabled) ||
       (value.execution_permission_control_enabled &&
-      (!value.danger_full_access_enabled || value.operator_approval_enabled) &&
-      (!value.debug_maximum_access_enabled || value.danger_full_access_enabled))) &&
-    (!value.host_command_proposal_control_enabled || value.operator_approval_enabled) &&
+      (!value.danger_full_access_enabled || value.operator_approval_enabled))) &&
+
     (!value.batch_delivery_host_validation_enabled ||
       (value.batch_delivery_control_enabled &&
         value.execution_permission_control_enabled && value.operator_approval_enabled &&
@@ -984,8 +992,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
-	  value.controlled_command_proposal_control_enabled ||
-	  value.host_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
@@ -1172,6 +1178,18 @@ function validSelection(value: unknown): value is DesktopSkillSelection {
 }
 
 function validPreview(value: unknown): value is DesktopSkillPreview {
+  if (isRecord(value) && value.package_protocol === "plugin-installation.v2") {
+    return hasExactKeys(value, ["protocol_version", "package_protocol", "format", "name", "version",
+      "archive_sha256", "archive_bytes", "entry_count", "skill_count", "validated",
+      "confirmation_handle", "confirmation_expires_at"]) &&
+      value.protocol_version === desktopSkillPreviewProtocol &&
+      ["agent-skills", "agent-plugins"].includes(String(value.format)) &&
+      boundedText(value.name, 1, 256) && (value.version === "" || boundedText(value.version, 1, 256)) &&
+      isSHA256(value.archive_sha256) && safeCount(value.archive_bytes) && safeCount(value.entry_count) &&
+      safeCount(value.skill_count) && value.validated === true &&
+      typeof value.confirmation_handle === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.confirmation_handle) &&
+      typeof value.confirmation_expires_at === "string" && Number.isFinite(Date.parse(value.confirmation_expires_at));
+  }
   if (!hasExactKeys(value, [
     "archive_bytes", "archive_sha256", "confirmation_expires_at", "confirmation_handle",
     "content_bytes", "content_token_upper_bound",
@@ -1204,7 +1222,15 @@ function validPreview(value: unknown): value is DesktopSkillPreview {
 
 function validInstallResult(value: unknown, preview: DesktopSkillPreview,
   surface: "code" | "cyber"): value is DesktopSkillInstallResult {
-  return hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
+  if (isRecord(value) && value.protocol_version === "plugin-installation.v2") {
+    try {
+      const { installation } = parsePluginSkillInstall(value, surface, true);
+      return installation.archive_sha256 === preview.archive_sha256 &&
+        installation.manifest.name === preview.name && installation.manifest.version === preview.version &&
+        (installation.source.kind !== "local_directory" || installation.source.uri === "");
+    } catch { return false; }
+  }
+  return "package_fingerprint" in preview && hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
     "import_command_execution", "import_network_access", "import_provider_calls", "name",
     "package_fingerprint", "protocol_version", "receipt", "recovered_pending", "replayed",
     "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"]) &&

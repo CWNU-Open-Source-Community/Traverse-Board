@@ -65,7 +65,6 @@ func NewRunBrowserCDPPermissionService(store RunBrowserCDPPermissionStore,
 	if capabilities.FullDebugEnabled {
 		executionCapabilities = domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
 		}
 	}
 	return &RunBrowserCDPPermissionService{store: store, capabilities: capabilities,
@@ -177,16 +176,15 @@ func (s *RunBrowserCDPPermissionService) Change(ctx context.Context,
 		return ChangeRunBrowserCDPPermissionResult{}, apperror.Normalize(err)
 	}
 	if target == domain.RunBrowserCDPPermissionFullDebug {
-		if executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug {
+		if executionPermission.Mode != domain.RunExecutionPermissionFull {
 			return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
 				apperror.CodePolicyDenied,
-				"Full CDP requires the current Run execution permission to be Full Access or Debug")
+				"Full CDP requires the current Full approval preference")
 		}
 		if !s.executionCapabilities.AllowsSnapshot(executionPermission) {
 			return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
 				apperror.CodePolicyDenied,
-				"Full CDP requires the current Run's live Full Access or Debug authority")
+				"Full CDP requires the current Run's live Full authority")
 		}
 	}
 	current, err := s.store.GetRunBrowserCDPPermission(ctx, run.ID)

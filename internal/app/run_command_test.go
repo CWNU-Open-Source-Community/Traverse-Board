@@ -3,15 +3,17 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -160,14 +162,17 @@ func TestRunCapabilityReadinessCLIEmitsStrictNonAuthorizingProjection(t *testing
 		t.Fatal(err)
 	}
 	if projection.RunID != runID || projection.CapabilityGrant ||
-		projection.Validate() != nil || len(projection.Permissions) != 5 ||
+		projection.Validate() != nil || len(projection.Permissions) != 3 ||
 		len(projection.Presets) != 1 {
 		t.Fatalf("invalid CLI readiness projection: %#v", projection)
 	}
-	workspace := projection.Permissions[1]
-	if workspace.Value != "workspace_access" || workspace.Selectable ||
-		workspace.RuntimeAvailable || !workspace.RestartRequired {
-		t.Fatalf("CLI readiness widened Workspace Access: %#v", workspace)
+	for index, mode := range []string{"ask", "auto", "full"} {
+		option := projection.Permissions[index]
+		if option.Value != mode || option.Selected != (mode == "ask") ||
+			option.Selectable || !option.RestartRequired ||
+			option.RuntimeAvailable != (mode != "full") {
+			t.Fatalf("CLI readiness widened current %s preference: %#v", mode, option)
+		}
 	}
 	if strings.Contains(strings.ToLower(output), "root_path") ||
 		strings.Contains(strings.ToLower(output), "lease_id") {
@@ -286,117 +291,140 @@ func TestRunExecutionInteractionCLIRequiresExplicitOperatorBoundaries(t *testing
 }
 
 func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"choose an execution permission boundary", "--max-turns", "2")
 	if code != 0 || stderr != "" {
 		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
 	}
 	runID := runIDPattern.FindString(created)
-	shown, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		runID)
-	if code != 0 || stderr != "" ||
-		!strings.Contains(shown, "mode: conservative") ||
-		!strings.Contains(shown, "approval_policy: fixed_templates") ||
-		!strings.Contains(shown, "sandboxed_command_runtime: false") ||
-		!strings.Contains(shown, "unsandboxed_host_process: false") ||
-		!strings.Contains(shown, "runtime_gate_available: true") ||
-		!strings.Contains(shown, "execution_authorized: false") {
-		t.Fatalf("unexpected initial permission output=%q stderr=%q code=%d",
-			shown, stderr, code)
+	assertPreference := func(shown, stderr string, code int, mode string, active bool) {
+		t.Helper()
+		if code != 0 || stderr != "" {
+			t.Fatalf("permission output=%q stderr=%q code=%d", shown, stderr, code)
+		}
+		for _, want := range []string{"mode: " + mode,
+			"approval_policy: per_operation", "command_scope: per_operation",
+			"filesystem_scope: per_operation", "network_scope: per_operation",
+			"persistent_terminal: false", "background_process: false", "agent_terminal_input: false",
+			"sandboxed_command_runtime: true", "unsandboxed_host_process: true",
+			fmt.Sprintf("runtime_gate_available: %t", active),
+			"process_enabled: false", "execution_authorized: false", "capability_grant: false"} {
+			if !strings.Contains(shown, want) {
+				t.Fatalf("permission omitted %q: %s", want, shown)
+			}
+		}
+	}
+	shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+	assertPreference(shown, stderr, code, "ask", true)
+	initialEvents, stderr, code := executeTestCommand(t, "run", "events", runID)
+	if code != 0 || stderr != "" {
+		t.Fatalf("initial events stderr=%q code=%d", stderr, code)
+	}
+	assertRejectedWithoutEffects := func(retired string) {
+		t.Helper()
+		current, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+		assertPreference(current, stderr, code, "ask", true)
+		if current != shown {
+			t.Fatalf("retired argument %s changed permission: before=%q after=%q", retired, shown, current)
+		}
+		currentEvents, stderr, code := executeTestCommand(t, "run", "events", runID)
+		if code != 0 || stderr != "" || currentEvents != initialEvents {
+			t.Fatalf("retired argument %s changed events: before=%q after=%q stderr=%q code=%d",
+				retired, initialEvents, currentEvents, stderr, code)
+		}
+		st, err := store.Open(filepath.Join(home, "cyberagent.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		jobs, err := st.ListCommandRuntimeJobs(context.Background(), runner.CommandRuntimeListFilter{
+			RunID: runID, Limit: 1,
+		})
+		if err != nil || len(jobs) != 0 {
+			t.Fatalf("retired argument %s created command jobs: jobs=%+v err=%v", retired, jobs, err)
+		}
+		rounds, err := st.ListRunSupervisorToolRoundsPage(context.Background(), runID, 0, 1)
+		if err != nil || len(rounds) != 0 {
+			t.Fatalf("retired argument %s created tool calls: rounds=%+v err=%v", retired, rounds, err)
+		}
+	}
+	assertRejectedWithoutEffects("initial state")
+	for _, retired := range []string{"conservative", "workspace_access", "approval", "full_access", "debug"} {
+		_, stderr, code := executeTestCommand(t, "run", "execution-permission", "set", runID,
+			retired, "--operation-key", "cli-retired-"+retired)
+		if code != 2 || !strings.Contains(stderr, "approval mode must be ask, auto, or full") {
+			t.Fatalf("retired selector %s stderr=%q code=%d", retired, stderr, code)
+		}
+		assertRejectedWithoutEffects(retired)
+	}
+	for _, retired := range []string{"--confirm-workspace-access", "--confirm-user-approval",
+		"--confirm-danger-full-access", "--confirm-debug-access"} {
+		if stdout, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
+			runID, "full", "--operation-key", "cli-retired-confirmation", retired); code != 2 || stdout != "" ||
+			!strings.Contains(stderr, "usage: cyberagent run execution-permission ") {
+			t.Fatalf("retired confirmation %s stdout=%q stderr=%q code=%d", retired, stdout, stderr, code)
+		}
+		assertRejectedWithoutEffects(retired)
+	}
+	for _, mode := range []string{"auto", "ask"} {
+		shown, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
+			runID, mode, "--operation-key", "cli-current-permission-"+mode+"-0001")
+		assertPreference(shown, stderr, code, mode, true)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "workspace_access",
-		"--operation-key", "cli-workspace-access-no-adapter-0001",
-		"--confirm-workspace-access"); code != 5 ||
-		!strings.Contains(stderr, "workspace_sandbox_adapter") {
-		t.Fatalf("Workspace Access without adapter stderr=%q code=%d", stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-no-runtime-gate-0001",
+		"--confirm-full"); code != 5 || !strings.Contains(stderr, "lacks gate") {
+		t.Fatalf("closed Full runtime gate stderr=%q code=%d", stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-no-runtime-gate-0001",
-		"--confirm-user-approval"); code != 5 ||
-		!strings.Contains(stderr, "lacks gate") {
-		t.Fatalf("closed runtime gate stderr=%q code=%d", stderr, code)
-	}
-	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-no-confirmation-0001",
-		"--enable-permission-control"); code != 2 ||
-		!strings.Contains(stderr, "exact user-approval confirmation") {
-		t.Fatalf("missing approval confirmation stderr=%q code=%d", stderr, code)
-	}
-	approval, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-approval-0001",
-		"--enable-permission-control", "--confirm-user-approval")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(approval, "mode: approval") ||
-		!strings.Contains(approval, "approval_policy: per_command") ||
-		!strings.Contains(approval, "command_scope: arbitrary_stateless") ||
-		!strings.Contains(approval, "runtime_gate_available: true") ||
-		!strings.Contains(approval, "execution_authorized: false") {
-		t.Fatalf("unexpected approval output=%q stderr=%q code=%d",
-			approval, stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-no-confirmation-0001",
+		"--enable-permission-control", "--enable-danger-full-access"); code != 2 ||
+		!strings.Contains(stderr, "full requires explicit confirm_full=true") {
+		t.Fatalf("missing Full confirmation stderr=%q code=%d", stderr, code)
 	}
 	full, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "full_access",
-		"--operation-key", "cli-permission-full-access-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--confirm-danger-full-access")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(full, "mode: full_access") ||
-		!strings.Contains(full, "approval_policy: none") ||
-		!strings.Contains(full, "filesystem_scope: host_full") ||
-		!strings.Contains(full, "network_scope: host") ||
-		!strings.Contains(full, "persistent_terminal: false") ||
-		!strings.Contains(full, "execution_authorized: false") {
-		t.Fatalf("unexpected full-access output=%q stderr=%q code=%d",
-			full, stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-full-0001",
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full")
+	assertPreference(full, stderr, code, "full", true)
+	if !strings.Contains(full, "activation_lifetime: this CLI process only") {
+		t.Fatalf("Full activation lifetime missing: %s", full)
 	}
-	debug, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "debug",
-		"--operation-key", "cli-permission-debug-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--confirm-debug-access")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(debug, "mode: debug") ||
-		!strings.Contains(debug, "command_scope: arbitrary_persistent") ||
-		!strings.Contains(debug, "persistent_terminal: true") ||
-		!strings.Contains(debug, "background_process: true") ||
-		!strings.Contains(debug, "agent_terminal_input: true") ||
-		!strings.Contains(debug, "capability_grant: false") {
-		t.Fatalf("unexpected debug output=%q stderr=%q code=%d",
-			debug, stderr, code)
-	}
+	cold, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+	assertPreference(cold, stderr, code, "full", false)
+
 	cdp, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
 	if code != 0 || stderr != "" ||
 		!strings.Contains(cdp, "mode: full_debug") ||
 		!strings.Contains(cdp, "navigate_allowed: true") ||
 		!strings.Contains(cdp, "request_mutation_allowed: true") ||
 		!strings.Contains(cdp, "transport_enabled: false") {
-		t.Fatalf("Full/Debug did not default Full CDP on safely: output=%q stderr=%q code=%d",
+		t.Fatalf("Full did not default Full CDP on safely: output=%q stderr=%q code=%d",
 			cdp, stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-no-gate-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-no-gate-0001",
 		"--enable-browser-cdp-control", "--confirm-full-cdp-debug"); code != 5 ||
 		!strings.Contains(stderr, "lacks gate") {
 		t.Fatalf("closed browser CDP gate stderr=%q code=%d", stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-no-confirmation-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-no-confirmation-0001",
 		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access"); code != 2 ||
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"); code != 2 ||
 		!strings.Contains(stderr, "exact highly-sensitive confirmation") {
 		t.Fatalf("missing browser CDP confirmation stderr=%q code=%d", stderr, code)
 	}
+	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-cold-full-0001",
+		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full-cdp-debug"); code != 5 ||
+		!strings.Contains(stderr, "live Full authority") {
+		t.Fatalf("cold Full gained CDP authority stderr=%q code=%d", stderr, code)
+	}
 	restrictedCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "restricted",
-		"--operation-key", "cli-browser-cdp-disable-0001",
+		"set", runID, "restricted", "--operation-key", "cli-browser-cdp-disable-0001",
 		"--enable-browser-cdp-control")
 	if code != 0 || stderr != "" ||
 		!strings.Contains(restrictedCDP, "mode: restricted") ||
@@ -406,11 +434,10 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 			restrictedCDP, stderr, code)
 	}
 	fullCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-full-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-full-0001",
 		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--confirm-full-cdp-debug")
+		"--confirm-full", "--confirm-full-cdp-debug")
 	if code != 0 || stderr != "" ||
 		!strings.Contains(fullCDP, "mode: full_debug") ||
 		!strings.Contains(fullCDP, "request_mutation_allowed: true") ||
@@ -422,15 +449,11 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 			fullCDP, stderr, code)
 	}
 	if lowered, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-lower-forces-cdp-off-0001",
-		"--enable-permission-control", "--confirm-user-approval"); code != 0 ||
-		stderr != "" || !strings.Contains(lowered, "mode: approval") {
+		"set", runID, "ask", "--operation-key", "cli-permission-lower-forces-cdp-off-0001"); code != 0 || stderr != "" || !strings.Contains(lowered, "mode: ask") {
 		t.Fatalf("execution downgrade failed output=%q stderr=%q code=%d",
 			lowered, stderr, code)
 	}
-	forcedRestricted, stderr, code := executeTestCommand(t, "run",
-		"browser-cdp-permission", runID)
+	forcedRestricted, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
 	if code != 0 || stderr != "" ||
 		!strings.Contains(forcedRestricted, "mode: restricted") ||
 		!strings.Contains(forcedRestricted, "request_mutation_allowed: false") {
@@ -445,6 +468,11 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 	if _, stderr, code := executeTestCommand(t, "workspace", "init",
 		"command-plan-demo"); code != 0 {
 		t.Fatalf("workspace init failed: %s", stderr)
+	}
+	rawRoot := filepath.Join(home, "workspaces", "command-plan-demo")
+	canonicalRoot, err := filepath.EvalSymlinks(rawRoot)
+	if err != nil {
+		t.Fatal(err)
 	}
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"plan one controlled command", "--workspace", "command-plan-demo",
@@ -475,8 +503,7 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 		!strings.Contains(planned, "start_blocked: true") ||
 		!strings.Contains(planned, "product_execution_enabled: false") ||
 		strings.Contains(planned, "Get-ChildItem") ||
-		strings.Contains(planned,
-			filepath.Join(home, "workspaces", "command-plan-demo")) {
+		strings.Contains(planned, rawRoot) || strings.Contains(planned, canonicalRoot) {
 		t.Fatalf("unexpected command plan output=%q stderr=%q code=%d",
 			planned, stderr, code)
 	}
@@ -486,152 +513,23 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 	}
 }
 
-type controlledCommandExecutorStub struct {
-	calls int
-}
-
-func (s *controlledCommandExecutorStub) Available() bool {
-	return true
-}
-
-func (s *controlledCommandExecutorStub) Execute(_ context.Context,
-	request runner.ControlledExecutionRequest,
-) (runner.ControlledExecutionResult, error) {
-	s.calls++
-	stdout := []byte("go version controlled-test")
-	stdoutDigest := sha256.Sum256(stdout)
-	emptyDigest := sha256.Sum256(nil)
-	now := time.Date(2026, 7, 26, 18, 0, 0, 0, time.UTC)
-	return runner.ControlledExecutionResult{
-		ProtocolVersion:          runner.ControlledExecutionProtocolVersion,
-		PolicyVersion:            runner.ControlledExecutionPolicyVersion,
-		RequestID:                runner.ControlledExecutionRequestID(request.Plan),
-		PlanID:                   request.Plan.ID,
-		PlanFingerprint:          request.Plan.Fingerprint,
-		RunID:                    request.Plan.RunID,
-		WorkspaceID:              request.Plan.WorkspaceID,
-		InteractionSnapshotID:    request.Plan.InteractionSnapshotID,
-		InteractionRevision:      request.Plan.InteractionRevision,
-		ExecutionProfileRevision: request.Plan.ExecutionProfileRevision,
-		Kind:                     request.Plan.Kind,
-		Backend:                  "controlled-cli-test",
-		Stdout: runner.ControlledOutput{
-			Data: stdout, ObservedBytes: int64(len(stdout)),
-			CapturedBytes:        len(stdout),
-			CapturedPrefixSHA256: fmt.Sprintf("%x", stdoutDigest),
-		},
-		Stderr: runner.ControlledOutput{
-			CapturedPrefixSHA256: fmt.Sprintf("%x", emptyDigest),
-		},
-		StartedAt: now, CompletedAt: now.Add(time.Second),
-		TreeReaped: true, RestrictedToken: true, LowIntegrityToken: true,
-		JobAssignedAtCreation: true, KillOnJobClose: true,
-		ActiveProcessLimit: 1,
-		ProcessMemoryLimit: runner.MaxControlledProcessMemoryBytes,
-		StdinClosed:        true, ProductExecutionEnabled: true,
-	}, nil
-}
-
-type hostCommandExecutorStub struct {
-	calls   int
-	request runner.HostExecutionRequest
-}
-
-func (s *hostCommandExecutorStub) Available() bool {
-	return true
-}
-
-func (s *hostCommandExecutorStub) Execute(_ context.Context,
-	request runner.HostExecutionRequest,
-) (runner.HostExecutionResult, error) {
-	s.calls++
-	s.request = request
-	stdout := []byte("host command test output")
-	stdoutDigest := sha256.Sum256(stdout)
-	emptyDigest := sha256.Sum256(nil)
-	now := time.Date(2026, 7, 30, 18, 0, 0, 0, time.UTC)
-	intent := request.Intent
-	return runner.HostExecutionResult{
-		ProtocolVersion:          runner.HostExecutionProtocolVersion,
-		PolicyVersion:            runner.HostExecutionPolicyVersion,
-		RequestID:                intent.RequestID,
-		OperationKeyDigest:       intent.OperationKeyDigest,
-		RunID:                    intent.RunID,
-		MissionID:                intent.MissionID,
-		SessionID:                intent.SessionID,
-		WorkspaceID:              intent.WorkspaceID,
-		InteractionSnapshotID:    intent.InteractionSnapshotID,
-		InteractionRevision:      intent.InteractionRevision,
-		ExecutionProfileRevision: intent.ExecutionProfileRevision,
-		PermissionSnapshotID:     intent.PermissionSnapshotID,
-		PermissionRevision:       intent.PermissionRevision,
-		PermissionMode:           intent.PermissionMode,
-		SpecFingerprint:          intent.Spec.Fingerprint,
-		Backend:                  "host-cli-test",
-		Stdout: runner.ControlledOutput{
-			Data:                 stdout,
-			ObservedBytes:        int64(len(stdout)),
-			CapturedBytes:        len(stdout),
-			CapturedPrefixSHA256: fmt.Sprintf("%x", stdoutDigest),
-		},
-		Stderr: runner.ControlledOutput{
-			CapturedPrefixSHA256: fmt.Sprintf("%x", emptyDigest),
-		},
-		StartedAt: now, CompletedAt: now.Add(time.Second),
-		TreeReaped: true, NonSandboxed: true,
-		JobAssignedAtCreation: true, KillOnJobClose: true,
-		ActiveProcessLimit: runner.MaxHostActiveProcesses,
-		JobMemoryLimit:     runner.MaxHostProcessMemoryBytes,
-		StdinClosed:        true, NetworkRequested: true,
-		ProductExecutionEnabled: true,
-	}, nil
-}
-
-func TestRunCommandProposalCLIRequiresExactReviewWithoutImplicitExecution(t *testing.T) {
+func TestRetiredProposalCLIRejectsNewReviewAndOnceExecution(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
-	stub := &controlledCommandExecutorStub{}
-	execute := func(arguments ...string) (string, string, int) {
-		t.Helper()
-		var out bytes.Buffer
-		var errOut bytes.Buffer
-		code := executeContextWithConfig(context.Background(), arguments,
-			&out, &errOut, func(app *App) {
-				app.controlledCommands = stub
-			})
-		return out.String(), errOut.String(), code
-	}
-
-	listed, stderr, code := execute(
-		"run", "command-proposal", "list", "missing-run")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(listed, "no controlled command proposals") ||
-		stub.calls != 0 {
-		t.Fatalf("proposal list executed a command: output=%q stderr=%q code=%d calls=%d",
-			listed, stderr, code, stub.calls)
-	}
-
-	_, stderr, code = execute(
-		"run", "command-proposal", "review",
-		"missing-proposal", "approve",
-		"--operation-key", "cli-command-proposal-review-0001")
-	if code != 2 || !strings.Contains(stderr,
-		"approval requires exact execution confirmation") || stub.calls != 0 {
-		t.Fatalf("unconfirmed proposal approval was not closed: stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
-	}
-
-	_, stderr, code = execute(
-		"run", "command-proposal", "review",
-		"missing-proposal", "deny",
-		"--operation-key", "cli-command-proposal-review-0002")
-	if code == 0 || strings.TrimSpace(stderr) == "" || stub.calls != 0 {
-		t.Fatalf("proposal denial reached command execution: stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
+	for _, args := range [][]string{{"run", "command-proposal", "review", "old", "approve"}, {"run", "host-command-proposal", "review", "old", "approve"}, {"once-command", "run", "old"}} {
+		if _, stderr, code := executeTestCommand(t, args...); code == 0 || strings.TrimSpace(stderr) == "" {
+			t.Fatalf("retired execution accepted: %v %d %s", args, code, stderr)
+		}
 	}
 }
 
 func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
-	home := t.TempDir()
+	if runtime.GOOS != "windows" {
+		t.Skip("fixed restricted native adapter is Windows-only; exercised in Windows CI")
+	}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CYBERAGENT_HOME", home)
 	if _, stderr, code := executeTestCommand(t, "workspace", "init",
 		"command-execute-demo"); code != 0 {
@@ -639,6 +537,7 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 	}
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"execute one controlled command", "--workspace", "command-execute-demo",
+		"--surface", "code", "--phase", "deliver",
 		"--max-turns", "2")
 	if code != 0 || stderr != "" {
 		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
@@ -656,197 +555,110 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 		"cli-command-execute-interaction-0001"); code != 0 {
 		t.Fatalf("controlled interaction selection failed: %s", stderr)
 	}
-	stub := &controlledCommandExecutorStub{}
-	execute := func(arguments ...string) (string, string, int) {
-		t.Helper()
-		var out bytes.Buffer
-		var errOut bytes.Buffer
-		code := executeContextWithConfig(context.Background(), arguments,
-			&out, &errOut, func(app *App) {
-				app.controlledCommands = stub
-			})
-		return out.String(), errOut.String(), code
-	}
+	execute := func(args ...string) (string, string, int) { return executeTestCommand(t, args...) }
 	if _, stderr, code := execute("run", "command-execute", runID,
-		"go-version", "--operation-key", "controlled-execute-0001"); code != 2 || !strings.Contains(stderr, "--confirm-execution") ||
-		stub.calls != 0 {
-		t.Fatalf("missing confirmation stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
+		"go-version", "--operation-key", "controlled-execute-0001"); code != 2 || !strings.Contains(stderr, "--confirm-execution") {
+		t.Fatalf("missing confirmation stderr=%q code=%d",
+			stderr, code)
+	}
+	if plan, stderr, code := execute("run", "command-plan", runID, "go-version"); code != 0 || stderr != "" || !strings.Contains(plan, "go-version") {
+		t.Fatalf("plan output=%q stderr=%q code=%d", plan, stderr, code)
 	}
 	first, stderr, code := execute("run", "command-execute", runID,
 		"go-version", "--operation-key", "controlled-execute-0001",
-		"--confirm-execution")
-	if code != 0 || stderr != "" || stub.calls != 1 ||
-		!strings.Contains(first, "raw_output_persisted: false") ||
-		!strings.Contains(first, "raw_output_available: true") ||
+		"--confirm-execution", "--enable-permission-control")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(first, "command_job: command-job-") ||
+		!strings.Contains(first, "state: completed") ||
 		!strings.Contains(first, "replayed: false") ||
-		!strings.Contains(first, "stdout_begin\ngo version controlled-test\nstdout_end") {
-		t.Fatalf("first execution output=%q stderr=%q code=%d calls=%d",
-			first, stderr, code, stub.calls)
+		!strings.Contains(first, "stdout_begin\ngo version ") {
+		t.Fatalf("first execution output=%q stderr=%q code=%d",
+			first, stderr, code)
 	}
 	replayed, stderr, code := execute("run", "command-execute", runID,
 		"go-version", "--operation-key", "controlled-execute-0001",
 		"--confirm-execution")
-	if code != 0 || stderr != "" || stub.calls != 1 ||
-		!strings.Contains(replayed, "raw_output_available: false") ||
+	if code != 0 || stderr != "" ||
 		!strings.Contains(replayed, "replayed: true") ||
-		strings.Contains(replayed, "go version controlled-test") {
-		t.Fatalf("replay output=%q stderr=%q code=%d calls=%d",
-			replayed, stderr, code, stub.calls)
+		!strings.Contains(replayed, "go version ") {
+		t.Fatalf("replay output=%q stderr=%q code=%d",
+			replayed, stderr, code)
 	}
 	if _, stderr, code := execute("run", "command-execute", runID,
 		"git-status", "--operation-key", "controlled-execute-0001",
 		"--confirm-execution"); code == 0 ||
-		!strings.Contains(stderr, "different intent") || stub.calls != 1 {
-		t.Fatalf("conflict stderr=%q code=%d calls=%d", stderr, code, stub.calls)
+		!strings.Contains(stderr, "another request") {
+		t.Fatalf("conflict stderr=%q code=%d", stderr, code)
+	}
+	if output, stderr, code := execute("run", "show", runID); code != 0 || stderr != "" || !strings.Contains(output, "status: created") {
+		t.Fatalf("command changed Run output=%q stderr=%q code=%d", output, stderr, code)
 	}
 }
 
 func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
-	home := t.TempDir()
+	home := newCanonicalCLIHome(t)
 	t.Setenv("CYBERAGENT_HOME", home)
-	if _, stderr, code := executeTestCommand(t, "workspace", "init",
-		"host-execute-demo"); code != 0 {
-		t.Fatalf("workspace init failed: %s", stderr)
+	if _, stderr, code := executeTestCommand(t, "workspace", "init", "host-execute-demo"); code != 0 {
+		t.Fatal(stderr)
 	}
-	created, stderr, code := executeTestCommand(t, "run", "create",
-		"execute one explicit non-sandboxed host command",
-		"--workspace", "host-execute-demo", "--max-turns", "2")
-	if code != 0 || stderr != "" {
-		t.Fatalf("run create output=%q stderr=%q code=%d",
-			created, stderr, code)
+	created, stderr, code := executeTestCommand(t, "run", "create", "execute one host command", "--workspace", "host-execute-demo", "--surface", "code", "--phase", "deliver", "--max-turns", "2")
+	if code != 0 {
+		t.Fatal(stderr)
 	}
 	runID := runIDPattern.FindString(created)
-	if _, stderr, code := executeTestCommand(t, "run", "execution-profile",
-		"set", runID, "local", "--operation-key",
-		"cli-host-execute-profile-0001"); code != 0 {
-		t.Fatalf("local profile selection failed: %s", stderr)
+	for _, args := range [][]string{
+		{"run", "execution-profile", "set", runID, "local", "--operation-key", "host-profile-0001"},
+		{"run", "execution-interaction", "set", runID, "controlled", "--trust", "trusted", "--confirm-workspace-trust", "--operation-key", "host-interaction-0001"},
+		{"run", "execution-permission", "set", runID, "full", "--operation-key", "host-permission-0001", "--enable-permission-control", "--enable-danger-full-access", "--confirm-full"},
+	} {
+		if _, stderr, code := executeTestCommand(t, args...); code != 0 {
+			t.Fatal(args, stderr)
+		}
 	}
-	if _, stderr, code := executeTestCommand(t, "run",
-		"execution-interaction", "set", runID, "controlled",
-		"--trust", "trusted", "--confirm-workspace-trust",
-		"--operation-key",
-		"cli-host-execute-interaction-0001"); code != 0 {
-		t.Fatalf("controlled interaction selection failed: %s", stderr)
-	}
-	if _, stderr, code := executeTestCommand(t, "run",
-		"execution-permission", "set", runID, "full_access",
-		"--operation-key", "cli-host-execute-permission-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--confirm-danger-full-access"); code != 0 {
-		t.Fatalf("full-access permission selection failed: %s", stderr)
-	}
-	executable, err := os.Executable()
+	executable, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stub := &hostCommandExecutorStub{}
-	execute := func(arguments ...string) (string, string, int) {
-		t.Helper()
-		var out bytes.Buffer
-		var errOut bytes.Buffer
-		code := executeContextWithConfig(context.Background(), arguments,
-			&out, &errOut, func(app *App) {
-				app.hostCommands = stub
-			})
-		return out.String(), errOut.String(), code
+	base := []string{"run", "host-execute", runID, "--executable", executable, "--arg", "version", "--operation-key", "host-execute-0001", "--confirm-non-sandboxed-host-execution", "--enable-permission-control", "--enable-danger-full-access"}
+	if _, stderr, code := executeTestCommand(t, append(base, "--confirm-full")...); code == 0 || !strings.Contains(stderr, "stopped Run require exact operator confirmation") {
+		t.Fatal("Full bypassed exact execution confirmation", code, stderr)
 	}
-	base := []string{
-		"run", "host-execute", runID,
-		"--executable", executable, "--arg", "version",
-		"--operation-key", "host-execute-0001",
-		"--confirm-danger-full-access",
-		"--confirm-non-sandboxed-host-execution",
-		"--enable-permission-control", "--enable-danger-full-access",
+	base = append(base, "--confirm-execution")
+	if _, stderr, code := executeTestCommand(t, base...); code == 0 || !strings.Contains(stderr, "runtime authority is unavailable") {
+		t.Fatal("cold Full was not rejected by runtime authority", code, stderr)
 	}
-	withoutConfirmation := append([]string(nil), base...)
-	withoutConfirmation = withoutConfirmation[:len(withoutConfirmation)-3]
-	if _, stderr, code := execute(withoutConfirmation...); code != 2 ||
-		!strings.Contains(stderr,
-			"--confirm-non-sandboxed-host-execution") ||
-		stub.calls != 0 {
-		t.Fatalf("missing confirmation stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
+	first, stderr, code := executeTestCommand(t, append(base, "--confirm-full")...)
+	if code != 0 || !strings.Contains(first, "state: completed") || !strings.Contains(first, "replayed: false") || !strings.Contains(first, "go version ") {
+		t.Fatal(code, first, stderr)
 	}
-	withoutGate := append([]string(nil), base[:len(base)-1]...)
-	if _, stderr, code := execute(withoutGate...); code != 5 ||
-		!strings.Contains(stderr, "required permission gate") ||
-		stub.calls != 0 {
-		t.Fatalf("missing runtime gate stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
+	replay, stderr, code := executeTestCommand(t, base...)
+	if code != 0 || !strings.Contains(replay, "replayed: true") || !strings.Contains(replay, "go version ") {
+		t.Fatal(code, replay, stderr)
 	}
-
-	first, stderr, code := execute(base...)
-	if code != 0 ||
-		!strings.Contains(stderr, "NON-SANDBOXED HOST EXECUTION") ||
-		stub.calls != 1 ||
-		!strings.Contains(first, "non_sandboxed: true") ||
-		!strings.Contains(first, "automatic_retry_allowed: false") ||
-		!strings.Contains(first, "environment_values_persisted: false") ||
-		!strings.Contains(first, "raw_output_available: true") ||
-		!strings.Contains(first, "replayed: false") ||
-		!strings.Contains(first,
-			"stdout_begin\nhost command test output\nstdout_end") {
-		t.Fatalf("first execution output=%q stderr=%q code=%d calls=%d",
-			first, stderr, code, stub.calls)
+	if strings.Split(first, "\n")[0] != strings.Split(replay, "\n")[0] {
+		t.Fatal("receipt changed identity")
 	}
-	if !stub.request.ExplicitlyConfirmed ||
-		stub.request.Permission.Mode !=
-			domain.RunExecutionPermissionFullAccess ||
-		stub.request.Intent.AutomaticRetryAllowed ||
-		len(stub.request.Environment) == 0 {
-		t.Fatalf("unexpected host request: %+v", stub.request)
+	if _, stderr, code := executeTestCommand(t, append(base, "--arg", "different")...); code == 0 || !strings.Contains(stderr, "another request") {
+		t.Fatal("conflicting request accepted", code, stderr)
 	}
-	replayed, stderr, code := execute(base...)
-	if code != 0 ||
-		!strings.Contains(stderr, "NON-SANDBOXED HOST EXECUTION") ||
-		stub.calls != 1 ||
-		!strings.Contains(replayed, "raw_output_available: false") ||
-		!strings.Contains(replayed, "replayed: true") ||
-		strings.Contains(replayed, "host command test output") {
-		t.Fatalf("replay output=%q stderr=%q code=%d calls=%d",
-			replayed, stderr, code, stub.calls)
+	state, err := store.Open(filepath.Join(home, "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	conflict := append([]string(nil), base...)
-	conflict = append(conflict, "--arg", "different")
-	if _, stderr, code := execute(conflict...); code == 0 ||
-		!strings.Contains(stderr, "different intent") ||
-		stub.calls != 1 {
-		t.Fatalf("conflict stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
+	defer state.Close()
+	jobs, err := state.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: runID, Limit: 10})
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("expected one completed host Job: %+v err=%v", jobs, err)
 	}
-	denied := append([]string(nil), base...)
-	for index := range denied {
-		if denied[index] == "host-execute-0001" {
-			denied[index] = "host-execute-policy-denied-0001"
+	for _, flag := range []string{"--confirm-danger-full-access", "--enable-debug-maximum-access"} {
+		if stdout, stderr, code := executeTestCommand(t, append(base, flag)...); code != 2 || stdout != "" ||
+			!strings.Contains(stderr, "usage: cyberagent run host-execute ") {
+			t.Fatal("retired flag was not rejected", flag, code, stdout, stderr)
 		}
-	}
-	denied = append(denied, "--arg", "masscan", "--arg", "0.0.0.0/0")
-	if _, stderr, code := execute(denied...); code != 5 ||
-		!strings.Contains(stderr, "safety pattern") || stub.calls != 1 {
-		t.Fatalf("policy denial stderr=%q code=%d calls=%d",
-			stderr, code, stub.calls)
-	}
-	if _, stderr, code := executeTestCommand(t, "run",
-		"execution-permission", "set", runID, "debug",
-		"--operation-key", "cli-host-execute-debug-permission-0002",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--confirm-debug-access"); code != 0 {
-		t.Fatalf("Debug permission selection failed: %s", stderr)
-	}
-	debugBase := append([]string(nil), base...)
-	for index := range debugBase {
-		if debugBase[index] == "host-execute-0001" {
-			debugBase[index] = "host-execute-debug-0002"
+		current, err := state.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: runID, Limit: 10})
+		if err != nil || !reflect.DeepEqual(current, jobs) {
+			t.Fatalf("retired flag %s changed the Job ledger: %+v err=%v", flag, current, err)
 		}
-	}
-	debugBase = append(debugBase, "--enable-debug-maximum-access")
-	debugOutput, stderr, code := execute(debugBase...)
-	if code != 0 || stub.calls != 2 ||
-		stub.request.Permission.Mode != domain.RunExecutionPermissionDebug ||
-		!strings.Contains(debugOutput, "replayed: false") {
-		t.Fatalf("Debug host execution output=%q stderr=%q code=%d calls=%d request=%+v",
-			debugOutput, stderr, code, stub.calls, stub.request)
 	}
 }
 

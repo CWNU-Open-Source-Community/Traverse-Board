@@ -59,28 +59,40 @@ type ExtensionMCPCapabilityView struct {
 }
 
 type ExtensionMCPServerView struct {
-	ProtocolVersion               string                     `json:"protocol_version"`
-	ID                            string                     `json:"id"`
-	Name                          string                     `json:"name"`
-	Transport                     string                     `json:"transport"`
-	Target                        string                     `json:"target"`
-	CredentialRef                 string                     `json:"credential_ref,omitempty"`
-	DeclaredCapabilities          []string                   `json:"declared_capabilities"`
-	Scope                         string                     `json:"scope"`
-	RunID                         string                     `json:"run_id,omitempty"`
-	WorkspaceID                   string                     `json:"workspace_id"`
-	Source                        ExtensionSourceView        `json:"source"`
-	DescriptorFingerprint         string                     `json:"descriptor_fingerprint"`
-	State                         string                     `json:"state"`
-	Capabilities                  ExtensionMCPCapabilityView `json:"capabilities"`
-	ApprovedCapabilityFingerprint string                     `json:"approved_capability_fingerprint,omitempty"`
-	Health                        string                     `json:"health"`
-	HealthMessage                 string                     `json:"health_message,omitempty"`
-	Generation                    int64                      `json:"generation"`
-	ReviewedBy                    string                     `json:"reviewed_by,omitempty"`
-	ReviewedAt                    string                     `json:"reviewed_at,omitempty"`
-	CreatedAt                     string                     `json:"created_at"`
-	UpdatedAt                     string                     `json:"updated_at"`
+	ProtocolVersion               string                        `json:"protocol_version"`
+	ID                            string                        `json:"id"`
+	Name                          string                        `json:"name"`
+	Transport                     string                        `json:"transport"`
+	Target                        string                        `json:"target"`
+	NativeSource                  *ExtensionMCPNativeSourceView `json:"native_source,omitempty"`
+	CredentialRef                 string                        `json:"credential_ref,omitempty"`
+	DeclaredCapabilities          []string                      `json:"declared_capabilities"`
+	Scope                         string                        `json:"scope"`
+	RunID                         string                        `json:"run_id,omitempty"`
+	WorkspaceID                   string                        `json:"workspace_id"`
+	Source                        ExtensionSourceView           `json:"source"`
+	DescriptorFingerprint         string                        `json:"descriptor_fingerprint"`
+	State                         string                        `json:"state"`
+	Capabilities                  ExtensionMCPCapabilityView    `json:"capabilities"`
+	ApprovedCapabilityFingerprint string                        `json:"approved_capability_fingerprint,omitempty"`
+	Health                        string                        `json:"health"`
+	HealthMessage                 string                        `json:"health_message,omitempty"`
+	Generation                    int64                         `json:"generation"`
+	ReviewedBy                    string                        `json:"reviewed_by,omitempty"`
+	ReviewedAt                    string                        `json:"reviewed_at,omitempty"`
+	CreatedAt                     string                        `json:"created_at"`
+	UpdatedAt                     string                        `json:"updated_at"`
+}
+
+// Native registrations have no legacy target. Expose only the pinned host
+// source identity needed for review; original launch fields stay in the object.
+type ExtensionMCPNativeSourceView struct {
+	InstallationID         string `json:"installation_id"`
+	PackageID              string `json:"package_id"`
+	ComponentID            string `json:"component_id"`
+	Revision               string `json:"revision"`
+	InstallationGeneration int64  `json:"installation_generation"`
+	Surface                string `json:"surface"`
 }
 
 type ExtensionMCPCallAuditView struct {
@@ -109,23 +121,32 @@ type ExtensionPluginManifestView struct {
 }
 
 type ExtensionPluginInstallationView struct {
-	ProtocolVersion      string                      `json:"protocol_version"`
-	ID                   string                      `json:"id"`
-	Manifest             ExtensionPluginManifestView `json:"manifest"`
-	Source               ExtensionSourceView         `json:"source"`
-	ArchiveSHA256        string                      `json:"archive_sha256"`
-	PackageFingerprint   string                      `json:"package_fingerprint"`
-	SignaturePresent     bool                        `json:"signature_present"`
-	SignatureValid       bool                        `json:"signature_valid"`
-	PublisherFingerprint string                      `json:"publisher_fingerprint,omitempty"`
-	State                string                      `json:"state"`
-	EnabledCapabilities  []string                    `json:"enabled_capabilities"`
-	Generation           int64                       `json:"generation"`
-	StagedBy             string                      `json:"staged_by"`
-	ReviewedBy           string                      `json:"reviewed_by,omitempty"`
-	ReviewedAt           string                      `json:"reviewed_at,omitempty"`
-	CreatedAt            string                      `json:"created_at"`
-	UpdatedAt            string                      `json:"updated_at"`
+	ProtocolVersion      string                         `json:"protocol_version"`
+	ID                   string                         `json:"id"`
+	Manifest             ExtensionPluginManifestView    `json:"manifest"`
+	Snapshot             *ExtensionPortableSnapshotView `json:"snapshot,omitempty"`
+	Source               ExtensionSourceView            `json:"source"`
+	ArchiveSHA256        string                         `json:"archive_sha256"`
+	PackageFingerprint   string                         `json:"package_fingerprint"`
+	SignaturePresent     bool                           `json:"signature_present"`
+	SignatureValid       bool                           `json:"signature_valid"`
+	PublisherFingerprint string                         `json:"publisher_fingerprint,omitempty"`
+	State                string                         `json:"state"`
+	EnabledCapabilities  []string                       `json:"enabled_capabilities"`
+	Generation           int64                          `json:"generation"`
+	StagedBy             string                         `json:"staged_by"`
+	ReviewedBy           string                         `json:"reviewed_by,omitempty"`
+	ReviewedAt           string                         `json:"reviewed_at,omitempty"`
+	CreatedAt            string                         `json:"created_at"`
+	UpdatedAt            string                         `json:"updated_at"`
+}
+
+// Portable author version is optional. The acquired revision is a separate
+// host identity; it must never be represented as an invented author version.
+type ExtensionPortableSnapshotView struct {
+	Format   string `json:"format"`
+	Revision string `json:"revision"`
+	Surface  string `json:"surface"`
 }
 
 type ExtensionMCPReviewRequestView struct {
@@ -203,7 +224,7 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 		result.MCPCalls = append(result.MCPCalls, extensionMCPCallAuditView(call))
 	}
 	for _, installation := range value.Plugins {
-		result.Plugins = append(result.Plugins, extensionPluginInstallationView(installation))
+		result.Plugins = append(result.Plugins, ProjectPluginInstallation(installation))
 	}
 	return result, nil, nil
 }
@@ -296,7 +317,7 @@ func (a *API) serveExtensionMutation(writer http.ResponseWriter, request *http.R
 			a.writeError(writer, requestID, err, 0)
 			return
 		}
-		a.writeSuccessStatus(writer, requestID, extensionPluginInstallationView(value), nil,
+		a.writeSuccessStatus(writer, requestID, ProjectPluginInstallation(value), nil,
 			http.StatusAccepted)
 	}
 }
@@ -340,6 +361,11 @@ func extensionMCPServerView(value mcp.ServerRecord) ExtensionMCPServerView {
 		Generation: value.Generation, ReviewedBy: value.ReviewedBy,
 		CreatedAt: value.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: value.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	if source := value.Descriptor.NativeSource; source != nil {
+		result.NativeSource = &ExtensionMCPNativeSourceView{InstallationID: source.InstallationID,
+			PackageID: source.Component.PackageID, ComponentID: source.Component.ComponentID,
+			Revision: source.Revision, InstallationGeneration: source.InstallationGeneration, Surface: source.Surface}
+	}
 	if value.ReviewedAt != nil {
 		result.ReviewedAt = value.ReviewedAt.UTC().Format(time.RFC3339Nano)
 	}
@@ -357,9 +383,10 @@ func extensionMCPCallAuditView(value mcp.CallAudit) ExtensionMCPCallAuditView {
 		CompletedAt: value.CompletedAt.UTC().Format(time.RFC3339Nano)}
 }
 
-func extensionPluginInstallationView(value plugins.Installation) ExtensionPluginInstallationView {
-	capabilities := make([]string, 0, len(value.Manifest.Capabilities))
-	for _, capability := range value.Manifest.Capabilities {
+// ProjectPluginInstallation exposes persisted installation metadata without package content.
+func ProjectPluginInstallation(value plugins.Installation) ExtensionPluginInstallationView {
+	capabilities := make([]string, 0, len(value.Capabilities()))
+	for _, capability := range value.Capabilities() {
 		capabilities = append(capabilities, string(capability))
 	}
 	enabled := make([]string, 0, len(value.EnabledCapabilities))
@@ -367,8 +394,8 @@ func extensionPluginInstallationView(value plugins.Installation) ExtensionPlugin
 		enabled = append(enabled, string(capability))
 	}
 	result := ExtensionPluginInstallationView{ProtocolVersion: value.ProtocolVersion,
-		ID: value.ID, Manifest: ExtensionPluginManifestView{ID: value.Manifest.ID,
-			Name: value.Manifest.Name, Version: value.Manifest.Version,
+		ID: value.ID, Manifest: ExtensionPluginManifestView{ID: value.PackageID(),
+			Name: value.DisplayName(), Version: value.Manifest.Version,
 			Publisher: value.Manifest.Publisher, Description: value.Manifest.Description,
 			Capabilities: capabilities},
 		Source: ExtensionSourceView{Kind: value.Source.Kind, URI: value.Source.URI,
@@ -381,6 +408,10 @@ func extensionPluginInstallationView(value plugins.Installation) ExtensionPlugin
 		StagedBy: value.StagedBy, ReviewedBy: value.ReviewedBy,
 		CreatedAt: value.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: value.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	if value.Snapshot != nil {
+		result.Manifest.Version = value.Snapshot.AuthorVersion
+		result.Snapshot = &ExtensionPortableSnapshotView{Format: value.Snapshot.Format, Revision: value.Revision(), Surface: value.Source.Surface}
+	}
 	if value.ReviewedAt != nil {
 		result.ReviewedAt = value.ReviewedAt.UTC().Format(time.RFC3339Nano)
 	}

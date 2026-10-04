@@ -1,5 +1,11 @@
 # Drydock 工作目录 / Drydock Workspaces
 
+Current execution uses Ask / Auto / Full. A confirmed mutation for a Full Run
+also needs `--enable-permission-control --enable-danger-full-access --confirm-full`
+in the same CLI invocation. The existing `--confirm` and exact approval checks
+remain required. Full activation ends when the command returns; read-only and
+receipt recovery operations do not activate it.
+
 Schema v127 的 `drydock-workspace.v1` 为一个 Standard Code Run 创建独立的产品管理 Git
 worktree 和分支。它提供的是身份、所有权、检查点和崩溃恢复合同；进程、网络、凭证和宿主文件
 系统隔离必须由另一个运行时能力提供。

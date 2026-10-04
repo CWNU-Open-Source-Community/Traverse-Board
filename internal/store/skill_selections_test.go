@@ -176,7 +176,7 @@ func TestSkillSelectionConvergesAcrossStoresAndReplaysAfterStart(t *testing.T) {
 
 func TestSkillSelectionEventFailureRollsBackAndV38UpgradesCleanly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "skill-selection-migration.db")
-	st, run := createSkillSelectionRun(t, path, "code")
+	st, run := createSkillSelectionRun(t, path, "code", 177)
 	ctx := context.Background()
 	registry, err := skills.BuiltinRegistry()
 	if err != nil {
@@ -256,14 +256,20 @@ func TestSkillSelectionEventFailureRollsBackAndV38UpgradesCleanly(t *testing.T) 
 	}
 }
 
-func createSkillSelectionRun(t *testing.T, path string, profile string) (*SQLiteStore, domain.Run) {
+func createSkillSelectionRun(t *testing.T, path string, profile string, historicalVersion ...int) (*SQLiteStore, domain.Run) {
 	t.Helper()
-	st, err := Open(path)
+	var st *SQLiteStore
+	var err error
+	if len(historicalVersion) == 0 {
+		st, err = Open(path)
+	} else {
+		st, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, run, err := application.NewRunService(st).Create(context.Background(), application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(context.Background(), application.CreateRunRequest{
 		Goal: "Skill selection fixture", Profile: profile,
 		Budget: domain.Budget{MaxTurns: 8, MaxTokens: 8192},
 	})

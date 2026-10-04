@@ -29,7 +29,7 @@ func TestSchemaV147AllowsAtomicInitialExplicitModelRoute(t *testing.T) {
 		WorkspaceID: workspace.ID, Profile: "code", ModelRoute: "custom-provider/model-one",
 		OperationKey: "migration-v147-model-route-operation-0001", RequestedBy: "http_control",
 	}
-	service := application.NewControlledRunCreationService(state)
+	service := application.NewControlledRunCreationService(legacyControlledRunSeedStore{state})
 	if _, err := service.Create(ctx, request); err == nil {
 		t.Fatal("v146 unexpectedly accepted an explicit initial model route")
 	}

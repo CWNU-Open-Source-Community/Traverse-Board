@@ -101,7 +101,7 @@ type GrantDebugTerminalAgentInputRequest struct {
 	TerminalSessionID         string
 	RequestedBy               string
 	TTL                       time.Duration
-	ConfirmDebugMaximumAccess bool
+	ConfirmFullAccess         bool
 	ConfirmAgentTerminalInput bool
 }
 
@@ -210,11 +210,14 @@ type debugTerminalOperation struct {
 }
 
 type debugTerminalBindingEntry struct {
-	binding     DebugTerminalAgentInputBinding
-	token       string
-	scope       executionauth.TerminalInputScope
-	outputFloor uint64
-	operations  map[string]debugTerminalOperation
+	binding              DebugTerminalAgentInputBinding
+	token                string
+	scope                executionauth.TerminalInputScope
+	outputFloor          uint64
+	permissionGeneration uint64
+	runtimeEpoch         string
+	runFence             uint64
+	operations           map[string]debugTerminalOperation
 }
 
 type DebugTerminalAgentInputService struct {
@@ -266,14 +269,13 @@ func (s *DebugTerminalAgentInputService) Grant(
 	// Expired process-local bindings must not consume the bounded registry and
 	// block a later explicit operator grant.
 	s.Reconcile(ctx)
-	bindings, decision, err := s.loadAuthorizedBindings(ctx, normalized.RunID)
+	bindings, err := s.loadAuthorizedBindings(ctx, normalized.RunID)
 	if err != nil {
 		return DebugTerminalAgentInputBinding{}, err
 	}
-	if !decision.Allowed || !decision.PersistentTerminal ||
-		!decision.BackgroundProcess || !decision.AgentTerminalInput {
-		return DebugTerminalAgentInputBinding{}, apperror.New(
-			apperror.CodePolicyDenied, decision.Reason)
+	snapshotID, generation, epoch, fence, live := bindAgentCodeRuntime(s.capabilities, bindings.permission)
+	if !live {
+		return DebugTerminalAgentInputBinding{}, apperror.New(apperror.CodePolicyDenied, "terminal input requires active Full permission")
 	}
 	s.mu.Lock()
 	if len(s.bindings) >= MaxDebugTerminalAgentInputBindings {
@@ -323,8 +325,9 @@ func (s *DebugTerminalAgentInputService) Grant(
 			apperror.CodeConflict,
 			"debug terminal Agent-input lease binding is inconsistent")
 	}
-	current, _, err := s.loadAuthorizedBindings(ctx, normalized.RunID)
-	if err != nil || !sameDebugTerminalBindings(bindings, current) {
+	current, err := s.loadAuthorizedBindings(ctx, normalized.RunID)
+	if err != nil || !sameDebugTerminalBindings(bindings, current) ||
+		!agentCodeRuntimeCurrent(s.capabilities, current.permission, snapshotID, generation, epoch, fence) {
 		_, _ = s.bridge.Revoke(issued.Lease.ID, normalized.RequestedBy, true)
 		if err != nil {
 			return DebugTerminalAgentInputBinding{}, err
@@ -360,6 +363,18 @@ func (s *DebugTerminalAgentInputService) Grant(
 		_, _ = s.bridge.Revoke(binding.ID, binding.RequestedBy, true)
 		return DebugTerminalAgentInputBinding{}, apperror.Normalize(err)
 	}
+	// The audit store may block across a permission change. Do not publish a
+	// lease from a revoked activation after that durable write completes.
+	current, err = s.loadAuthorizedBindings(ctx, normalized.RunID)
+	if err != nil || !sameDebugTerminalBindings(bindings, current) ||
+		!agentCodeRuntimeCurrent(s.capabilities, current.permission, snapshotID, generation, epoch, fence) {
+		_, _ = s.bridge.Revoke(binding.ID, binding.RequestedBy, true)
+		revoked := binding
+		revoked.Revoked = true
+		_ = s.store.RecordDebugTerminalAgentInputAudit(ctx, debugTerminalAuditRecord(revoked,
+			terminalruntime.AgentInputAuditRevoked, "", "", 0, 0, s.now().UTC()))
+		return DebugTerminalAgentInputBinding{}, apperror.New(apperror.CodePolicyDenied, "terminal input authorization changed during grant")
+	}
 	s.mu.Lock()
 	duplicateRun := false
 	for _, entry := range s.bindings {
@@ -390,8 +405,9 @@ func (s *DebugTerminalAgentInputService) Grant(
 	}
 	s.bindings[binding.ID] = &debugTerminalBindingEntry{
 		binding: binding, token: issued.Token, scope: issued.Lease.Scope,
-		outputFloor: outputFence.Page.NextCursor,
-		operations:  make(map[string]debugTerminalOperation),
+		outputFloor:          outputFence.Page.NextCursor,
+		permissionGeneration: generation, runtimeEpoch: epoch, runFence: fence,
+		operations: make(map[string]debugTerminalOperation),
 	}
 	s.mu.Unlock()
 	return binding, nil
@@ -493,6 +509,12 @@ func (s *DebugTerminalAgentInputService) Write(
 	if err := s.store.RecordDebugTerminalAgentInputAudit(ctx, prepared); err != nil {
 		s.removePendingOperation(entry.binding.ID, operationDigest)
 		return DebugTerminalAgentInputWriteResult{}, apperror.Normalize(err)
+	}
+	// Recheck after the durable prepare and immediately before the native
+	// sink, which independently authorizes the exact bytes using PolicyAuthorizer.
+	if err := s.revalidateBinding(ctx, entry); err != nil {
+		s.markOperationUncertain(entry.binding.ID, operationDigest)
+		return DebugTerminalAgentInputWriteResult{}, err
 	}
 	written, writeErr := s.bridge.Write(ctx, terminalruntime.AgentWriteRequest{
 		Token: entry.token, Scope: entry.scope, Data: normalized.Data,
@@ -701,14 +723,16 @@ func (s *DebugTerminalAgentInputService) Reconcile(ctx context.Context) int {
 	s.mu.Unlock()
 	revoked := 0
 	for _, entry := range entries {
-		current, decision, err := s.loadAuthorizedBindings(
+		current, err := s.loadAuthorizedBindings(
 			ctx, entry.binding.RunID)
-		if err == nil && decision.Allowed &&
-			decision.AgentTerminalInput &&
+		if err == nil && s.bindingRuntimeCurrent(entry, current) &&
 			sameBindingAndDurableState(entry.binding, current) &&
 			s.now().UTC().Before(entry.binding.ExpiresAt) &&
 			s.bridgeBindingLive(ctx, entry) {
 			continue
+		}
+		if ctx.Err() != nil {
+			return revoked
 		}
 		if s.invalidateBindingWithAudit(ctx, entry) {
 			revoked++
@@ -752,9 +776,9 @@ func (s *DebugTerminalAgentInputService) requireAvailable(
 		return apperror.Normalize(ctx.Err())
 	}
 	if err := s.capabilities.Validate(); err != nil ||
-		!s.capabilities.Allows(domain.RunExecutionPermissionDebug) {
+		!s.capabilities.Allows(domain.RunExecutionPermissionFull) {
 		return apperror.New(apperror.CodePolicyDenied,
-			"debug terminal Agent input requires the current debug maximum-access process gate")
+			"debug terminal Agent input requires the current Full process gate")
 	}
 	return nil
 }
@@ -762,40 +786,40 @@ func (s *DebugTerminalAgentInputService) requireAvailable(
 func (s *DebugTerminalAgentInputService) loadAuthorizedBindings(
 	ctx context.Context,
 	runID string,
-) (debugTerminalAgentBindings, executionauth.PermissionDecision, error) {
+) (debugTerminalAgentBindings, error) {
 	var empty debugTerminalAgentBindings
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	if run.Terminal() {
-		return empty, executionauth.PermissionDecision{}, apperror.New(
+		return empty, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"debug terminal Agent input cannot bind a terminal Run")
 	}
 	mission, err := s.store.GetMission(ctx, run.MissionID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	workspace, err := s.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	mode, err := s.store.GetRunMode(ctx, run.ID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	profile, err := s.store.GetRunExecutionProfile(ctx, run.ID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	interaction, err := s.store.GetRunExecutionInteraction(ctx, run.ID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Normalize(err)
+		return empty, apperror.Normalize(err)
 	}
 	if run.MissionID != mission.ID || run.SessionID == "" ||
 		mission.WorkspaceID != workspace.ID ||
@@ -814,41 +838,32 @@ func (s *DebugTerminalAgentInputService) loadAuthorizedBindings(
 		interaction.AgentInputDefault ||
 		permission.RunID != run.ID ||
 		permission.MissionID != mission.ID ||
-		permission.Mode != domain.RunExecutionPermissionDebug ||
-		!permission.PersistentTerminal || !permission.BackgroundProcess ||
-		!permission.AgentTerminalInput {
-		return empty, executionauth.PermissionDecision{}, apperror.New(
+		permission.Mode != domain.RunExecutionPermissionFull || permission.Validate() != nil {
+		return empty, apperror.New(
 			apperror.CodeConflict,
 			"debug terminal Agent-input durable binding is stale")
 	}
-	decision, err := executionauth.EvaluateExecutionPermission(
-		permission, s.capabilities, executionauth.PermissionRequest{
-			Kind:               executionauth.PermissionOperationPersistentTerminal,
-			HostFilesystem:     true,
-			Network:            true,
-			BackgroundProcess:  true,
-			AgentTerminalInput: true,
-		})
-	if err != nil {
-		return empty, executionauth.PermissionDecision{}, apperror.Wrap(
-			apperror.CodeInvalidArgument,
-			"debug terminal Agent-input permission request is invalid", err)
+	if _, live := s.capabilities.FullAccessGeneration(permission); !live {
+		return empty, apperror.New(apperror.CodePolicyDenied, "terminal input requires active Full permission")
 	}
 	return debugTerminalAgentBindings{
 		run: run, mission: mission, workspace: workspace, mode: mode,
 		profile: profile, interaction: interaction, permission: permission,
-	}, decision, nil
+	}, nil
 }
 
 func (s *DebugTerminalAgentInputService) revalidateBinding(
 	ctx context.Context,
 	entry *debugTerminalBindingEntry,
 ) error {
-	current, decision, err := s.loadAuthorizedBindings(ctx, entry.binding.RunID)
+	current, err := s.loadAuthorizedBindings(ctx, entry.binding.RunID)
 	if err == nil && sameBindingAndDurableState(entry.binding, current) &&
-		decision.Allowed && decision.AgentTerminalInput &&
+		s.bindingRuntimeCurrent(entry, current) &&
 		s.bridgeBindingLive(ctx, entry) {
 		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	s.invalidateBindingWithAudit(ctx, entry)
 	if err != nil && apperror.CodeOf(err) != apperror.CodeConflict {
@@ -886,10 +901,10 @@ func normalizeDebugTerminalGrant(
 		!domain.ValidAgentID(request.RunID) ||
 		!domain.ValidAgentID(request.TerminalSessionID) ||
 		!validDebugTerminalOperator(request.RequestedBy) ||
-		!request.ConfirmDebugMaximumAccess ||
+		!request.ConfirmFullAccess ||
 		!request.ConfirmAgentTerminalInput {
 		return GrantDebugTerminalAgentInputRequest{}, errors.New(
-			"an operator must explicitly confirm debug maximum access and Agent terminal input")
+			"an operator must explicitly confirm Full activation and Agent terminal input")
 	}
 	if request.TTL == 0 {
 		request.TTL = executionauth.DefaultTerminalInputLeaseTTL
@@ -1175,4 +1190,9 @@ func (s *DebugTerminalAgentInputService) markOperationUncertain(
 		operation.state = debugTerminalOperationUncertain
 		entry.operations[operationDigest] = operation
 	}
+}
+
+func (s *DebugTerminalAgentInputService) bindingRuntimeCurrent(entry *debugTerminalBindingEntry, current debugTerminalAgentBindings) bool {
+	return entry != nil && agentCodeRuntimeCurrent(s.capabilities, current.permission,
+		entry.binding.PermissionSnapshotID, entry.permissionGeneration, entry.runtimeEpoch, entry.runFence)
 }

@@ -102,10 +102,12 @@ func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *tes
 func TestSchemaV127DowngradeFixtureRestoresV126AndReupgrades(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "drydock-downgrade.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the original inverse on v1 historical data. Starting from the
+	// current schema would retain newer ledgers or reinterpret v2 authority.
 	for _, statement := range removeSchemaV127ForTestStatements() {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)

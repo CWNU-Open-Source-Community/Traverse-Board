@@ -4,8 +4,12 @@ import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
 import type { ThreadView } from "../../api/types";
 import { V2Settings } from "./settings";
+import { LocaleProvider } from "../../lib/locale";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.localStorage.removeItem("prayu.locale.v1");
+});
 
 function archivedThread(id: string, title: string, version: number): ThreadView {
   return {
@@ -220,15 +224,19 @@ describe("V2 model provider catalog", () => {
 });
 
 describe("V2 permission settings hierarchy", () => {
-  it("keeps Debug visible but makes task Full Access unavailable without a selected task", () => {
+  it("keeps Debug visible but leaves task permissions unavailable without a selected Thread", () => {
+    window.localStorage.setItem("prayu.locale.v1", "zh-CN");
     const getThreadExecutionPermission = vi.fn();
-    const client = { hasExecutionPermissionControl: true,
-      getThreadExecutionPermission } as unknown as CyberAgentClient;
+    const get = vi.fn();
+    const changeThreadExecutionPermission = vi.fn();
+    const postControl = vi.fn();
+    const client = { hasExecutionPermissionControl: true, get,
+      getThreadExecutionPermission, changeThreadExecutionPermission, postControl } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={queryClient}>
+    render(<LocaleProvider><QueryClientProvider client={queryClient}>
       <V2Settings client={client} onOpenInspector={vi.fn()} onSelectSection={vi.fn()}
         section="permissions" threadID="" workspaces={[]} />
-    </QueryClientProvider>);
+    </QueryClientProvider></LocaleProvider>);
 
     expect(screen.getByRole("heading", { name: "调试运行时" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "任务权限" })).toBeInTheDocument();
@@ -237,9 +245,17 @@ describe("V2 permission settings hierarchy", () => {
     const debugGroup = screen.getByRole("group", { name: "调试运行时能力" });
     expect(within(debugGroup).getByText("调试模式")).toBeInTheDocument();
     expect(within(debugGroup).getByRole("button")).toBeVisible();
-    expect(screen.getByRole("switch", { name: "完整 CDP 控制" })).toBeDisabled();
+    // CDP belongs to the selected task. No Thread means no task permission host.
+    // The CDP component's no-current-Run disabled state is covered separately.
+    expect(screen.queryByRole("switch", { name: "完整 CDP 控制" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "执行权限档位" })).not.toBeInTheDocument();
+    expect(within(debugGroup).getByRole("button")).toBeDisabled();
+    expect(screen.getByText("当前页面没有可验证的桌面运行时能力信息。")).toBeVisible();
     expect(screen.getByText(/完全访问无需重启，但当前执行需暂停并处于静止边界后才能生效/u))
       .toBeInTheDocument();
     expect(getThreadExecutionPermission).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+    expect(changeThreadExecutionPermission).not.toHaveBeenCalled();
+    expect(postControl).not.toHaveBeenCalled();
   });
 });

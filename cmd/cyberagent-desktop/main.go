@@ -45,7 +45,6 @@ type desktopOptions struct {
 	permissionControl           bool
 	workspaceSandbox            bool
 	dangerFullAccess            bool
-	debugMaximumAccess          bool
 	browserCDPControl           bool
 	fullCDPDebug                bool
 	runCreation                 bool
@@ -55,8 +54,6 @@ type desktopOptions struct {
 	runExecution                bool
 	planDeliveryControl         bool
 	approvalControl             bool
-	commandProposalControl      bool
-	hostCommandProposals        bool
 	modelControl                bool
 	providerCredentials         bool
 	fileEditReview              bool
@@ -128,9 +125,9 @@ func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, e
 		return "", errors.New("desktop lifecycle is unavailable")
 	}
 	return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Select Traverse Board Skill package",
+		Title: "Select SKILL.md, plugin.json or a legacy Skill archive",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Traverse Board Skill package (*.zip)", Pattern: "*.zip"},
+			{DisplayName: "Skills and Agent Plugins", Pattern: "SKILL.md;plugin.json;*.zip"},
 		},
 		ShowHiddenFiles:      false,
 		CanCreateDirectories: false,
@@ -317,8 +314,6 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"probe and enable the verified Windows Workspace Sandbox")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"enable unsandboxed one-shot host execution permission selection")
-	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
-		"enable persistent maximum-access debug permission selection")
 	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
 		"enable browser CDP permission selection")
 	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
@@ -337,10 +332,6 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable operator Plan direction selection and explicit Deliver transition")
 	approvalControl := fs.Bool("enable-approvals", false,
 		"enable bounded approve-once and deny decisions for durable approvals")
-	commandProposalControl := fs.Bool("enable-command-proposals", false,
-		"enable review and one-shot execution of Agent-proposed fixed Go commands")
-	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
-		"enable exact process or canonical PowerShell/Git Bash proposals with independent operator review")
 	modelControl := fs.Bool("enable-model-control", false,
 		"enable persisted model route selection and explicit connectivity diagnostics")
 	providerCredentials := fs.Bool("enable-provider-credentials", false,
@@ -449,7 +440,6 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
 		workspaceSandbox:        *workspaceSandbox,
-		debugMaximumAccess:      *debugMaximumAccess,
 		browserCDPControl:       *browserCDPControl,
 		fullCDPDebug:            *fullCDPDebug,
 		sessionMessages:         *sessionMessages,
@@ -458,8 +448,6 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		runExecution:            *runExecution,
 		planDeliveryControl:     *planDeliveryControl,
 		approvalControl:         *approvalControl,
-		commandProposalControl:  *commandProposalControl,
-		hostCommandProposals:    *hostCommandProposals,
 		modelControl:            *modelControl,
 		providerCredentials:     *providerCredentials,
 		fileEditReview:          *fileEditReview,
@@ -508,21 +496,13 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		config.scheduledJobObservationOnly = false
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   config.permissionControl,
-		DangerFullAccessEnabled:   config.dangerFullAccess,
-		DebugMaximumAccessEnabled: config.debugMaximumAccess,
+		OperatorApprovalEnabled: config.permissionControl,
+		DangerFullAccessEnabled: config.dangerFullAccess,
 	}
 	if err := capabilities.Validate(); err != nil {
 		return desktopOptions{}, err
 	}
-	if config.debugMaximumAccess && !config.userTerminal {
-		return desktopOptions{}, errors.New(
-			"debug maximum access requires --enable-user-terminal")
-	}
-	if config.hostCommandProposals && !config.permissionControl {
-		return desktopOptions{}, errors.New(
-			"host command proposals require --enable-permission-control")
-	}
+
 	if config.workspaceSandbox && !config.permissionControl {
 		return desktopOptions{}, errors.New(
 			"Workspace Sandbox requires --enable-permission-control")
@@ -579,8 +559,6 @@ func enableSafeDesktopProductBundle(config *desktopOptions) {
 	config.runExecution = true
 	config.planDeliveryControl = true
 	config.approvalControl = true
-	config.commandProposalControl = true
-	config.hostCommandProposals = true
 	config.modelControl = true
 	config.providerCredentials = true
 	config.fileEditReview = true
@@ -633,12 +611,10 @@ func runDesktop(config desktopOptions) error {
 		executionRuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 	}
 	executionPermissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		WorkspaceSandboxEnabled:        workspaceSandboxAvailable,
-		OperatorApprovalEnabled:        config.permissionControl,
-		DangerFullAccessEnabled:        config.dangerFullAccess,
-		DebugMaximumAccessEnabled:      config.debugMaximumAccess,
-		FullAccessRequiresRuntimeGrant: config.dangerFullAccess,
-		RuntimeAuthority:               executionRuntimeAuthority,
+		WorkspaceSandboxEnabled: workspaceSandboxAvailable,
+		OperatorApprovalEnabled: config.permissionControl,
+		DangerFullAccessEnabled: config.dangerFullAccess,
+		RuntimeAuthority:        executionRuntimeAuthority,
 	}
 	if err := executionPermissionCapabilities.Validate(); err != nil {
 		return err
@@ -658,8 +634,7 @@ func runDesktop(config desktopOptions) error {
 	if config.profileControl || config.permissionControl || config.browserCDPControl ||
 		config.runCreation || config.sessionMessages || config.sessionSteeringControl ||
 		config.runLifecycle || config.runExecution || config.planDeliveryControl ||
-		config.approvalControl || config.modelControl || config.commandProposalControl ||
-		config.hostCommandProposals || config.providerCredentials ||
+		config.approvalControl || config.modelControl || config.providerCredentials ||
 		config.fileEditReview || config.fileEditProposals || config.runWakeControl ||
 		config.fileEditApply || config.runWakeExecution || config.runWakeWorker ||
 		config.scheduledJobControl || config.scheduledJobWorker ||
@@ -696,32 +671,30 @@ func runDesktop(config desktopOptions) error {
 			DisposableProfileEnabled: config.fullCDPDebug,
 			TransportEnabled:         config.fullCDPDebug,
 		},
-		SessionMessageEnabled:                   config.sessionMessages,
-		SessionSteeringControlEnabled:           config.sessionSteeringControl,
-		RunLifecycleEnabled:                     config.runLifecycle,
-		RunExecutionEnabled:                     config.runExecution,
-		PlanDeliveryControlEnabled:              config.planDeliveryControl,
-		ApprovalControlEnabled:                  config.approvalControl,
-		ControlledCommandProposalControlEnabled: config.commandProposalControl,
-		HostCommandProposalControlEnabled:       config.hostCommandProposals,
-		ModelControlEnabled:                     config.modelControl,
-		ProviderCredentialEnabled:               config.providerCredentials,
-		FileEditReviewEnabled:                   config.fileEditReview,
-		FileEditProposalEnabled:                 config.fileEditProposals,
-		RunWakeControlEnabled:                   config.runWakeControl,
-		FileEditApplyEnabled:                    config.fileEditApply,
-		RunWakeExecutionEnabled:                 config.runWakeExecution,
-		RunWakeWorkerEnabled:                    config.runWakeWorker,
-		ScheduledJobControlEnabled:              config.scheduledJobControl,
-		ScheduledJobWorkerEnabled:               config.scheduledJobWorker,
-		ScheduledJobObservationOnly:             config.scheduledJobObservationOnly,
-		SkillInstallationEnabled:                config.skillInstallation,
-		EvidenceAttachmentEnabled:               config.evidenceAttachment,
-		VerificationEvidenceEnabled:             config.verificationEvidence,
-		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
-		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
-		BatchDeliveryHostValidationEnabled:      config.batchValidation,
-		UIEvidenceControlEnabled:                config.uiEvidence,
+		SessionMessageEnabled:              config.sessionMessages,
+		SessionSteeringControlEnabled:      config.sessionSteeringControl,
+		RunLifecycleEnabled:                config.runLifecycle,
+		RunExecutionEnabled:                config.runExecution,
+		PlanDeliveryControlEnabled:         config.planDeliveryControl,
+		ApprovalControlEnabled:             config.approvalControl,
+		ModelControlEnabled:                config.modelControl,
+		ProviderCredentialEnabled:          config.providerCredentials,
+		FileEditReviewEnabled:              config.fileEditReview,
+		FileEditProposalEnabled:            config.fileEditProposals,
+		RunWakeControlEnabled:              config.runWakeControl,
+		FileEditApplyEnabled:               config.fileEditApply,
+		RunWakeExecutionEnabled:            config.runWakeExecution,
+		RunWakeWorkerEnabled:               config.runWakeWorker,
+		ScheduledJobControlEnabled:         config.scheduledJobControl,
+		ScheduledJobWorkerEnabled:          config.scheduledJobWorker,
+		ScheduledJobObservationOnly:        config.scheduledJobObservationOnly,
+		SkillInstallationEnabled:           config.skillInstallation,
+		EvidenceAttachmentEnabled:          config.evidenceAttachment,
+		VerificationEvidenceEnabled:        config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:   config.embeddedAnalyzer,
+		BatchDeliveryControlEnabled:        config.batchDeliveryControl,
+		BatchDeliveryHostValidationEnabled: config.batchValidation,
+		UIEvidenceControlEnabled:           config.uiEvidence,
 		BrowserRuntimeCapabilities: browserruntime.ProductionRuntimeCapabilities{
 			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
 			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
@@ -767,48 +740,45 @@ func runDesktop(config desktopOptions) error {
 		ContextProvider: lifecycle.Context, FilePicker: nativeSkillPackagePicker{},
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
-		StandardCodePresetEnabled:               controlPlane.StandardCodePresetEnabled(),
-		ExecutionPermissionControlEnabled:       config.permissionControl,
-		WorkspaceSandboxEnabled:                 workspaceSandboxAvailable,
-		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
-		FullCDPDebugEnabled:                     config.fullCDPDebug,
-		FullCDPSessionControlEnabled:            controlPlane.FullCDPSessionControlEnabled(),
-		OperatorApprovalEnabled:                 config.permissionControl,
-		DangerFullAccessEnabled:                 config.dangerFullAccess,
-		DebugMaximumAccessEnabled:               config.debugMaximumAccess,
-		CommandRuntimeAdapterInstalled:          commandRuntimeAdapterInstalled,
-		CommandRuntimeAdapterReady:              commandRuntimeAdapterReady,
-		SessionMessageEnabled:                   config.sessionMessages,
-		SessionSteeringControlEnabled:           config.sessionSteeringControl,
-		RunLifecycleEnabled:                     config.runLifecycle,
-		RunExecutionEnabled:                     config.runExecution,
-		PlanDeliveryControlEnabled:              config.planDeliveryControl,
-		ApprovalControlEnabled:                  config.approvalControl,
-		ControlledCommandProposalControlEnabled: config.commandProposalControl,
-		HostCommandProposalControlEnabled:       config.hostCommandProposals,
-		ModelControlEnabled:                     config.modelControl,
-		ProviderCredentialEnabled:               config.providerCredentials,
-		FileEditReviewEnabled:                   config.fileEditReview,
-		FileEditProposalEnabled:                 config.fileEditProposals,
-		RunWakeControlEnabled:                   config.runWakeControl,
-		FileEditApplyEnabled:                    config.fileEditApply,
-		RunWakeExecutionEnabled:                 config.runWakeExecution,
-		RunWakeWorkerEnabled:                    config.runWakeWorker,
-		ScheduledJobControlEnabled:              config.scheduledJobControl,
-		ScheduledJobWorkerEnabled:               config.scheduledJobWorker,
-		SkillInstallationEnabled:                config.skillInstallation,
-		EvidenceAttachmentEnabled:               config.evidenceAttachment,
-		VerificationEvidenceEnabled:             config.verificationEvidence,
-		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
-		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
-		BatchDeliveryHostValidationEnabled:      config.batchValidation,
-		UIEvidenceControlEnabled:                config.uiEvidence,
-		UserTerminalEnabled:                     config.userTerminal,
-		DockerExecutionEnabled:                  dockerExecutionEnabled,
-		CodeIntelEnabled:                        controlPlane.CodeIntelEnabled(),
-		GitAdvancedControlEnabled:               config.gitAdvanced,
-		GitHubReviewControlEnabled:              config.githubReview,
-		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
+		StandardCodePresetEnabled:          controlPlane.StandardCodePresetEnabled(),
+		ExecutionPermissionControlEnabled:  config.permissionControl,
+		WorkspaceSandboxEnabled:            workspaceSandboxAvailable,
+		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
+		FullCDPDebugEnabled:                config.fullCDPDebug,
+		FullCDPSessionControlEnabled:       controlPlane.FullCDPSessionControlEnabled(),
+		OperatorApprovalEnabled:            config.permissionControl,
+		DangerFullAccessEnabled:            config.dangerFullAccess,
+		CommandRuntimeAdapterInstalled:     commandRuntimeAdapterInstalled,
+		CommandRuntimeAdapterReady:         commandRuntimeAdapterReady,
+		SessionMessageEnabled:              config.sessionMessages,
+		SessionSteeringControlEnabled:      config.sessionSteeringControl,
+		RunLifecycleEnabled:                config.runLifecycle,
+		RunExecutionEnabled:                config.runExecution,
+		PlanDeliveryControlEnabled:         config.planDeliveryControl,
+		ApprovalControlEnabled:             config.approvalControl,
+		ModelControlEnabled:                config.modelControl,
+		ProviderCredentialEnabled:          config.providerCredentials,
+		FileEditReviewEnabled:              config.fileEditReview,
+		FileEditProposalEnabled:            config.fileEditProposals,
+		RunWakeControlEnabled:              config.runWakeControl,
+		FileEditApplyEnabled:               config.fileEditApply,
+		RunWakeExecutionEnabled:            config.runWakeExecution,
+		RunWakeWorkerEnabled:               config.runWakeWorker,
+		ScheduledJobControlEnabled:         config.scheduledJobControl,
+		ScheduledJobWorkerEnabled:          config.scheduledJobWorker,
+		SkillInstallationEnabled:           config.skillInstallation,
+		EvidenceAttachmentEnabled:          config.evidenceAttachment,
+		VerificationEvidenceEnabled:        config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:   config.embeddedAnalyzer,
+		BatchDeliveryControlEnabled:        config.batchDeliveryControl,
+		BatchDeliveryHostValidationEnabled: config.batchValidation,
+		UIEvidenceControlEnabled:           config.uiEvidence,
+		UserTerminalEnabled:                config.userTerminal,
+		DockerExecutionEnabled:             dockerExecutionEnabled,
+		CodeIntelEnabled:                   controlPlane.CodeIntelEnabled(),
+		GitAdvancedControlEnabled:          config.gitAdvanced,
+		GitHubReviewControlEnabled:         config.githubReview,
+		AppVersion:                         app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
 		WorkspaceDirectoryPicker:          nativeWorkspaceDirectoryPicker{},

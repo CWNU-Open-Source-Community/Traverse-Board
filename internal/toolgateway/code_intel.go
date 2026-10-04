@@ -341,6 +341,8 @@ func (g *Gateway) invokeCodeIntel(ctx context.Context, call ToolCall) (Outcome, 
 		WorkspaceID: call.WorkspaceID, RootFingerprint: call.RootFingerprint,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role, Profile: call.Profile,
 		PermissionMode: call.PermissionMode, ModeRevision: call.ModeRevision,
+		PermissionSnapshotID: call.PermissionSnapshotID, PermissionGeneration: call.PermissionGeneration,
+		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch, RunAuthorizationFence: call.RunAuthorizationFence,
 		PermissionRevision: call.PermissionRevision,
 	}); !available {
 		return deniedOutcome(call, policy.Decision{Allowed: false, Reason: reason, Risk: "high"})

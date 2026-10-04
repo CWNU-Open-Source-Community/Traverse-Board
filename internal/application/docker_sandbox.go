@@ -610,8 +610,9 @@ func (s *DockerSandboxService) validateDockerStandardCodeAuthority(
 		binding.PermissionRevision != authority.Permission.Revision ||
 		binding.CapabilityGeneration != s.standardCodeCapability ||
 		authority.Profile.Profile != domain.RunExecutionProfileDocker ||
-		authority.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		!s.permissionCapabilities.WorkspaceSandboxEnabled {
+		!authority.Permission.Mode.IsApprovalMode() ||
+		!s.permissionCapabilities.WorkspaceSandboxEnabled ||
+		!s.permissionCapabilities.AllowsSnapshot(authority.Permission) {
 		return apperror.New(apperror.CodeConflict,
 			"Standard Code Docker authority changed")
 	}
@@ -632,8 +633,7 @@ func (s *DockerSandboxService) evaluateCurrentDockerSandboxGates(
 		return deny(domain.DockerSandboxReasonPermissionDenied,
 			domain.DockerSandboxRemediationSelectDockerProfile)
 	}
-	if authority.Permission.Mode == domain.RunExecutionPermissionConservative ||
-		!s.permissionCapabilities.AllowsSnapshot(authority.Permission) {
+	if !s.permissionCapabilities.AllowsSnapshot(authority.Permission) {
 		return deny(domain.DockerSandboxReasonPermissionDenied,
 			domain.DockerSandboxRemediationRetryFreshRequest)
 	}
@@ -905,8 +905,7 @@ func dockerSandboxRuntimeEpochFingerprint(epoch string,
 		fmt.Sprint(dockerCapabilities.Enabled),
 		fmt.Sprint(dockerCapabilities.ManagedEgressEnabled),
 		fmt.Sprint(permissionCapabilities.OperatorApprovalEnabled),
-		fmt.Sprint(permissionCapabilities.DangerFullAccessEnabled),
-		fmt.Sprint(permissionCapabilities.DebugMaximumAccessEnabled))
+		fmt.Sprint(permissionCapabilities.DangerFullAccessEnabled))
 }
 
 func canonicalDockerSandboxStagingRoot(value string) (string, error) {

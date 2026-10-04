@@ -16,10 +16,10 @@ execution result carries one exact identity:
 - backend family, installed backend identity, and process generation;
 - effective isolation grade, network policy, and credential policy.
 
-`sandboxed_workspace` accepts only `workspace_access` and reports
+`sandboxed_workspace` accepts current Ask/Auto under native admission and reports
 `workspace_sandbox`, `network=denied`, and `credentials=none`.
-`host_unsandboxed` accepts `full_access` or its strict superset `debug` behind the
-danger startup gate and
+`host_unsandboxed` requires modern Full, live process activation and the
+danger startup gate, and
 truthfully reports that host network and host credentials remain available. The
 input fields `network=disabled` and `credentials=none` are intent and Policy facts
 for that host adapter, not isolation evidence. A receipt cannot change kind without
@@ -31,17 +31,16 @@ requires the same Run, adapter kind, backend identity, and generation. The
 Application layer then rechecks Run, Mission, Session, root Agent, Code/Deliver
 mode, profile and permission revisions, Drydock/root fingerprint, lease identity
 and generation, and process-owned adapter generation before every operation.
-Full Access authority is activated dynamically for the current task and is fenced
-on permission drift; it does not require an application restart. Debug uses the
-same adapter and checks, then adds its separately startup-gated persistent terminal,
-background, and bounded terminal-input capabilities.
+Full authority is activated dynamically for the current task and fenced on
+permission drift. The Debug interaction retains its explicit terminal lease; it
+does not supply another execution permission or restore an old `debug` snapshot.
 
 ## Sandboxed backends
 
 The Windows Local adapter compiles the normalized command into the existing
 AppContainer/LPAC Local backend. It is installed only after the AppContainer, WFP,
 Job Object, ACL, and runtime-generation readiness proof succeeds. A current Run is
-advertised only for `local + workspace_access + controlled`; execution mounts the
+advertised only for `local + Ask/Auto + controlled`; execution mounts the
 exact Run-owned Drydock at `/workspace` and a read-only executable toolchain root.
 
 The `process` profile accepts native development runtimes such as Node.js and
@@ -53,7 +52,7 @@ excluded as process targets. Removing the former language-runtime name blacklist
 does not replace isolation: already-allowed programs such as `go test` execute
 project code. LPAC/WFP, input mounts, Policy, permissions, and leases remain the
 actual Local boundary. The shared normalizer also applies to the existing Full
-Access/Debug Host adapter, which remains explicitly unsandboxed; this change
+Host adapter, which remains explicitly unsandboxed; this change
 neither grants that authority nor supplies a Host fallback.
 
 The adapter uses the existing Local default disk-write budget of 2 GiB per
@@ -134,3 +133,54 @@ CLI, HTTP, and Desktop expose separate facts:
 Global runtime capabilities list installed adapter receipts without granting them.
 `run_capability_readiness.v1` adds the current-Run projection. Persisted readiness,
 an installed backend, or a selected permission never becomes execution authority.
+
+## Universal Code process dispatch increment
+
+New application `command_runtime` starts and stdin writes now use the common
+`executionauth.PolicyAuthorizer`. The host binds the final resolved executable,
+argv, environment, cwd, input, adapter generation and native scope to a transient
+operation. Secret-bearing inputs use a fresh private HMAC key, which is not
+persisted. Plugin declarations and a host working directory do not attest
+isolation: an unsandboxed process retains unknown effects. A sandbox is considered
+bounded only through the already installed, validated adapter and Drydock path.
+
+The Job manager checks the operation after durable preparation. Windows and POSIX
+host starters check again before creating the process, then revalidate executable
+bytes and the launch directory. Local and Docker sandbox bridges check before
+calling their existing execution boundary; their lower-level admission and lease
+checks remain in force. These are live checks, not an atomic lock shared with an
+OS syscall or container service. Revocation after dispatch can encounter an
+in-flight effect; existing process ownership, reconciliation and tree cleanup
+remain responsible for stopping owned work, without claiming to undo its effects.
+
+Background process lifetime may outlive a request. Before process dispatch, the
+original request's cancellation remains enforced even through a detached context.
+After the manager has durably committed the running Job and started its ownership,
+wait and timeout workers, asynchronous initial stdin uses the Job lifetime. A
+completed HTTP request no longer cancels those already-bound initial bytes. This
+handoff detaches request cancellation only: the same operation's authority check
+still re-reads current permission, activation and lease state before writing.
+Initial stdin and subsequent writes recheck authority; later writes do so after
+acquiring the per-Job input gate. Existing exact Job/input replays return their original receipt
+without consuming another dispatch grant. Failed or uncertain effects are not
+automatically retried. Cleanup-only cancellation remains usable after revocation.
+
+Retired in this increment: the application-only, pre-`Start` authorization checks
+in foreground and background launch paths, and the application's direct unguarded
+`WriteStdin` call. They are replaced by operation-bound checks at the effect
+boundary. The runner's compatibility methods remain for existing internal callers
+and tests; they do not decode grants from persisted state or model input.
+
+Public ask/auto/full writers and production MCP stdio/HTTP operation checks are
+now wired. The shared policy classifies effects verified by the host: Ask permits
+verified workspace reads, reversible writes, and bounded workspace processes;
+Auto additionally permits verified public-network effects. Auto does not invoke
+a model to approve operations. Full still requires current runtime activation and
+preserves native guards and existing exact-consent decisions; it does not select
+or create an OS sandbox. These names do not claim equivalence with modes in other
+agent products.
+
+Legacy Host/Risk/Controlled/Once execution paths are retired; historical rows
+and saved-outcome readers remain. See [ADR 0165](../adr/0165-retire-legacy-command-execution.md).
+Existing Code/Deliver/root and native admission checks remain in force. This
+change creates no new Run, Session, Job or approval database.

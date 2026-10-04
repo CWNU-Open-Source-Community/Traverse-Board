@@ -124,8 +124,7 @@ func (s *SQLiteStore) TransitionThreadExecutionPermission(ctx context.Context,
 	}
 	if snapshot.MissionID != threadRecord.MissionID ||
 		snapshot.Revision != current.Revision+1 ||
-		snapshot.ProtocolVersion != current.ProtocolVersion ||
-		snapshot.PolicyVersion != current.PolicyVersion ||
+		!domain.PermissionPolicyTransition(current.ProtocolVersion, current.PolicyVersion, snapshot.ProtocolVersion, snapshot.PolicyVersion, true) ||
 		snapshot.CreatedAt.Before(current.CreatedAt) {
 		return domain.ThreadExecutionPermissionSnapshot{},
 			domain.ThreadExecutionPermissionOperation{}, false, apperror.New(
@@ -222,7 +221,7 @@ func applyThreadExecutionPermissionToCurrentRunTx(ctx context.Context, tx *sql.T
 	operation.CurrentRunEffect = domain.ThreadExecutionPermissionApplied
 	operation.CurrentRunPermissionSnapshotID = current.ID
 	if runPermissionMatchesThreadPreference(current, preference) &&
-		preference.Mode != domain.RunExecutionPermissionFullAccess {
+		!preference.Mode.IsFullPreference() {
 		if err := operation.Validate(); err != nil {
 			return domain.ThreadExecutionPermissionOperation{}, err
 		}
@@ -354,10 +353,7 @@ func applyThreadExecutionPermissionToCurrentRunTx(ctx context.Context, tx *sql.T
 func threadPermissionTransitionRevokesHighRisk(current,
 	target domain.RunExecutionPermissionMode,
 ) bool {
-	return current == domain.RunExecutionPermissionDebug &&
-		target != domain.RunExecutionPermissionDebug ||
-		current == domain.RunExecutionPermissionFullAccess &&
-			!target.IncludesFullAccess()
+	return domain.PermissionTransitionRevokes(current, target)
 }
 
 func releaseRunExecutionLeaseForPermissionDowngradeTx(ctx context.Context, tx *sql.Tx,
@@ -419,7 +415,7 @@ func insertInitialThreadExecutionPermissionSnapshotTx(ctx context.Context, tx *s
 	}
 	if snapshot.Revision != 1 || snapshot.ThreadID != threadRecord.ID ||
 		snapshot.MissionID != threadRecord.MissionID ||
-		snapshot.Mode != domain.RunExecutionPermissionConservative ||
+		snapshot.Mode != domain.RunExecutionPermissionAsk ||
 		threadRecord.Status != domain.ThreadActive ||
 		snapshot.CreatedAt.Before(threadRecord.CreatedAt) {
 		return apperror.New(apperror.CodeInvalidArgument,
@@ -659,7 +655,11 @@ func materializeThreadExecutionPermissionForSuccessorTx(ctx context.Context, tx 
 	if err != nil {
 		return domain.RunExecutionPermissionSnapshot{}, false, err
 	}
-	if preference.Mode == domain.RunExecutionPermissionConservative {
+	// Successors write only the current three-mode schema, even when their
+	// immutable Thread preference is historical. This projection grants no
+	// process-local Full activation and never rewrites the historical row.
+	mode := domain.RunExecutionPermissionMode(preference.Mode.ApprovalPreference())
+	if mode == current.Mode {
 		return current, false, nil
 	}
 	at := run.CreatedAt
@@ -669,8 +669,8 @@ func materializeThreadExecutionPermissionForSuccessorTx(ctx context.Context, tx 
 	if at.Before(preference.CreatedAt) {
 		at = preference.CreatedAt
 	}
-	next, err := current.Next(idgen.New("run-exec-permission"), preference.Mode,
-		preference.OperatorConfirmed, preference.RequestedBy,
+	next, err := current.Next(idgen.New("run-exec-permission"), mode,
+		mode == domain.RunExecutionPermissionFull, preference.RequestedBy,
 		"materialized Thread execution permission preference "+preference.ID+
 			" for successor Run; runtime authority reset", at)
 	if err != nil {
@@ -701,8 +701,7 @@ func materializeThreadExecutionPermissionForSuccessorTx(ctx context.Context, tx 
 }
 
 func executionModeIncludesFullCDP(mode domain.RunExecutionPermissionMode) bool {
-	return mode == domain.RunExecutionPermissionFullAccess ||
-		mode == domain.RunExecutionPermissionDebug
+	return mode.IncludesFullAccess()
 }
 
 // synchronizeRunBrowserCDPForThreadPermissionTx keeps Full CDP as a

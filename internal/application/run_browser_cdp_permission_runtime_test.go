@@ -80,7 +80,7 @@ func browserCDPRuntimeFenceFixture(t *testing.T) (*browserCDPRuntimeFenceStore,
 		t.Fatal(err)
 	}
 	execution, err := initialExecution.Next("execution-browser-cdp-full",
-		domain.RunExecutionPermissionFullAccess, true, "test_operator",
+		domain.RunExecutionPermissionFull, true, "test_operator",
 		"confirm full access", now)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func browserCDPRuntimeFenceFixture(t *testing.T) (*browserCDPRuntimeFenceStore,
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	return &browserCDPRuntimeFenceStore{run: run, execution: execution,
 		browser: browser}, authority, capabilities

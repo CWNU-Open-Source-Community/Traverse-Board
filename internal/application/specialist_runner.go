@@ -650,7 +650,7 @@ func (r *SpecialistRunner) prepareSpecialistExternalSkillContext(ctx context.Con
 	specialistBudget := max(skills.DefaultExternalSpecialistTokenBudget,
 		selected.TokenUpperBound)
 	assembly, err := skills.AssembleExternalSpecialistContext(ctx, selection, mode,
-		child, attempt, loader, specialistBudget)
+		child, attempt, selectedSkillLoader{PackageObjectLoader: loader, source: r.store, mode: mode, role: domain.AgentRoleSpecialist}, specialistBudget)
 	if err != nil {
 		return skills.ExternalSpecialistContextAssembly{},
 			skills.ExternalSpecialistContextPreparation{}, apperror.Wrap(

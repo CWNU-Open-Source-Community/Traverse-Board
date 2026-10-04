@@ -14,13 +14,13 @@ import (
 	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/standardcodedelivery"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const GitHubReviewAPIProtocolVersion = "github-review-api.v1"
@@ -66,7 +66,7 @@ type githubReviewRemote interface {
 	Qualify(context.Context, githubreview.RepositoryIdentity, int64,
 		githubreview.CredentialReference) (githubreview.Qualification, error)
 	ReadSnapshot(context.Context, githubreview.SnapshotRequest) (githubreview.Snapshot, error)
-	ExecuteWrite(context.Context, githubreview.WriteSpec, githubreview.WritePreview) (
+	ExecuteWrite(context.Context, githubreview.WriteSpec, githubreview.WritePreview, ...toolcontract.DispatchGuard) (
 		githubreview.WriteReceipt, error)
 	RecoverWrite(context.Context, githubreview.WriteSpec, githubreview.WritePreview) (
 		githubreview.WriteReceipt, error)
@@ -549,6 +549,10 @@ func (s *GitHubReviewService) ReviewWrite(ctx context.Context,
 		return GitHubReviewWriteReviewResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			"GitHub review write preview is invalid", err)
 	}
+	approvalFingerprint, err := s.writeApprovalFingerprint(ctx, authority, connection, request.Spec, preview, true)
+	if err != nil {
+		return GitHubReviewWriteReviewResult{}, err
+	}
 	operationKey := runmutation.OperationKeyDigest("github_review_write.v1",
 		authority.run.ID, request.OperationKey)
 	record := githubreview.WriteRecord{ID: idgen.New("github-review-write"),
@@ -557,7 +561,7 @@ func (s *GitHubReviewService) ReviewWrite(ctx context.Context,
 		RequestFingerprint: githubreview.Fingerprint("github-review-write-request",
 			authority.run.ID, authority.workspace.ID, connection.ID,
 			fmt.Sprint(connection.Generation), snapshot.ID, preview.ID, request.RequestedBy),
-		ApprovalFingerprint: preview.ApprovalFingerprint,
+		ApprovalFingerprint: approvalFingerprint,
 		RunID:               authority.run.ID, SessionID: authority.session.ID,
 		WorkspaceID: authority.workspace.ID, ConnectionID: connection.ID,
 		Preview: preview, Spec: request.Spec, Status: githubreview.OperationProposed,
@@ -571,14 +575,7 @@ func (s *GitHubReviewService) ReviewWrite(ctx context.Context,
 		if approvalErr != nil {
 			return GitHubReviewWriteReviewResult{}, apperror.Normalize(approvalErr)
 		}
-		if approvalRecord.Status != approval.StatusApproved ||
-			approvalRecord.ProposalID != record.ID || approvalRecord.RunID != record.RunID ||
-			approvalRecord.SessionID != record.SessionID ||
-			approvalRecord.WorkspaceID != record.WorkspaceID ||
-			approvalRecord.ToolName != githubreview.ApprovalToolName ||
-			approvalRecord.ActionClass != githubreview.ApprovalActionClass ||
-			approvalRecord.Mode != "per_call" || approvalRecord.GrantID != "" ||
-			approvalRecord.RequestFingerprint != record.ApprovalFingerprint {
+		if approvalRecord.Status != approval.StatusApproved || !githubReviewApprovalMatches(record, approvalRecord) {
 			return GitHubReviewWriteReviewResult{}, apperror.New(apperror.CodeConflict,
 				"replayed GitHub review write approval binding is invalid")
 		}
@@ -598,9 +595,7 @@ func (s *GitHubReviewService) ReviewWrite(ctx context.Context,
 	if err != nil {
 		return GitHubReviewWriteReviewResult{}, apperror.Normalize(err)
 	}
-	if approvalRecord.ProposalID != record.ID || approvalRecord.RunID != record.RunID ||
-		approvalRecord.Status == approval.StatusDenied ||
-		approvalRecord.RequestFingerprint != record.ApprovalFingerprint {
+	if approvalRecord.Status == approval.StatusDenied || !githubReviewApprovalMatches(record, approvalRecord) {
 		return GitHubReviewWriteReviewResult{}, apperror.New(apperror.CodeConflict,
 			"GitHub review write approval binding is invalid or denied")
 	}
@@ -682,16 +677,13 @@ func (s *GitHubReviewService) ExecuteWrite(ctx context.Context,
 	if err != nil {
 		return GitHubReviewWriteExecuteResult{}, apperror.Normalize(err)
 	}
-	if approvalRecord.Status != approval.StatusApproved ||
-		approvalRecord.ProposalID != record.ID || approvalRecord.RunID != record.RunID ||
-		approvalRecord.SessionID != record.SessionID ||
-		approvalRecord.WorkspaceID != record.WorkspaceID ||
-		approvalRecord.ToolName != githubreview.ApprovalToolName ||
-		approvalRecord.ActionClass != githubreview.ApprovalActionClass ||
-		approvalRecord.Mode != "per_call" || approvalRecord.GrantID != "" ||
-		approvalRecord.RequestFingerprint != record.ApprovalFingerprint {
+	if approvalRecord.Status != approval.StatusApproved || !githubReviewApprovalMatches(record, approvalRecord) {
 		return GitHubReviewWriteExecuteResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"GitHub review write requires exact one-time approval")
+	}
+	guard, err := s.writeDispatchGuard(ctx, record, request.ApprovalID)
+	if err != nil {
+		return GitHubReviewWriteExecuteResult{}, err
 	}
 	qualification, err := client.Qualify(ctx, connection.Repository,
 		record.Spec.Identity.Number, connection.Credential)
@@ -715,8 +707,10 @@ func (s *GitHubReviewService) ExecuteWrite(ctx context.Context,
 			apperror.New(apperror.CodeFailedPrecondition,
 				"GitHub review write already began; use recovery instead of replaying it")
 	}
-	receipt, executeErr := client.ExecuteWrite(ctx, record.Spec, record.Preview)
-	if executeErr != nil && ambiguousGitHubWriteError(executeErr) {
+	receipt, executeErr := client.ExecuteWrite(ctx, record.Spec, record.Preview, guard)
+	dispatchState, hasDispatchState := githubreview.WriteDispatchState(executeErr)
+	if executeErr != nil && ((hasDispatchState && dispatchState == toolcontract.ReceiptOutcomeUnknown) ||
+		(!hasDispatchState && ambiguousGitHubWriteError(executeErr))) {
 		return GitHubReviewWriteExecuteResult{ProtocolVersion: GitHubReviewAPIProtocolVersion,
 			Operation: record, Receipt: receipt}, githubReviewApplicationError(executeErr)
 	}
@@ -908,13 +902,14 @@ func (s *GitHubReviewService) loadRunBinding(ctx context.Context, runID string,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
-	decision, err := executionauth.EvaluateExecutionPermission(value.permission,
-		s.permissionCapabilities, executionauth.PermissionRequest{
-			Kind:    executionauth.PermissionOperationStatelessCommand,
-			Network: true, OperatorApproved: true})
-	if err != nil || !decision.Allowed || !decision.Network {
+	// Readiness can create a pending review; it cannot authorize the write.
+	// Retired modes remain readable but cannot issue new mutation authority.
+	if !value.permission.Mode.IsApprovalMode() || value.permission.Validate() != nil ||
+		value.permission.RunID != value.run.ID || value.permission.MissionID != value.mission.ID ||
+		!s.permissionCapabilities.OperatorApprovalEnabled || s.permissionCapabilities.RuntimeAuthority == nil ||
+		!s.permissionCapabilities.AllowsSnapshot(value.permission) {
 		return value, apperror.New(apperror.CodePolicyDenied,
-			"GitHub review write requires a network-enabled execution permission and exact approval")
+			"GitHub review write requires an active approval mode and runtime authority")
 	}
 	return value, nil
 }

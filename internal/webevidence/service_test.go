@@ -412,11 +412,6 @@ func TestServicePersistsProviderGroundedCitationsWithoutDirectFetchAuthority(t *
 	scope := ExecutionScope{RunID: "run-provider-grounded",
 		MissionID: "mission-provider-grounded", WorkspaceID: "workspace-provider-grounded",
 		ModelRoute: "responses/model", Authority: NetworkAuthority{Mode: "disabled"}}
-	if !service.SearchProviderIndependentForScope(t.Context(), scope) {
-		selection, endpoint, resolveErr := service.resolveSearch(t.Context(), scope)
-		t.Fatalf("hosted Provider search was not separated from direct Web authority: selection=%#v endpoint=%q err=%v",
-			selection, endpoint, resolveErr)
-	}
 	scope = bindSearchProvider(t, service, scope)
 	result, err := service.Search(t.Context(), scope,
 		SearchRequest{Query: "grounded evidence", Limit: 1}, "provider-grounded-operation")

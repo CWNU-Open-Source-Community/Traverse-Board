@@ -75,6 +75,7 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 		"command_runtime",
 		"mcp_tool_call",
 		"web_search",
+		"source_search",
 		"web_fetch",
 		"web_citation",
 		"workspace_list",
@@ -107,6 +108,12 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 			}
 			if err := call.Validate(); err != nil {
 				t.Fatalf("durable tool %q was rejected: %v", toolName, err)
+			}
+			if isWebEvidenceSupervisorTool(toolName) {
+				call.AuthorityJSON = ""
+				if err := call.Validate(); err == nil {
+					t.Fatalf("web tool %q without durable authority was accepted", toolName)
+				}
 			}
 		})
 	}

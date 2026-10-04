@@ -6,15 +6,26 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func TestFullCDPBrowserToolsHonorStaticAuthorityAndRejectRevokedDynamicGrant(t *testing.T) {
+func TestFullCDPCurrentFullNeverUsesLegacyStaticActivation(t *testing.T) {
+	service, store, launches, _ := newFullCDPProductionServiceFixture(t)
+	service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	t.Cleanup(func() { _ = service.Close(context.Background()) })
+	_, err := service.OpenFullCDPSession(t.Context(), fullCDPOpenFixture(service, store, "current-full-without-activation"))
+	if apperror.CodeOf(err) != apperror.CodePolicyDenied || *launches != 0 {
+		t.Fatalf("current Full borrowed static activation: launches=%d err=%v", *launches, err)
+	}
+}
+
+func TestFullCDPRejectsLegacyAuthorityAndRevokedCurrentFull(t *testing.T) {
 	for _, mode := range []string{"static_debug", "static_full", "dynamic_full"} {
 		t.Run(mode, func(t *testing.T) {
-			service, baseStore, _, latest := newFullCDPProductionServiceFixture(t)
+			service, baseStore, launches, latest := newFullCDPProductionServiceFixture(t)
 			if mode == "static_debug" {
 				// The fixture rounds its initial clock and advances the full-access
 				// snapshot. Derive the next time from that snapshot, not wall time.
@@ -24,15 +35,30 @@ func TestFullCDPBrowserToolsHonorStaticAuthorityAndRejectRevokedDynamicGrant(t *
 					t.Fatal(err)
 				}
 				baseStore.executionPermission = permission
-				service.executionCapabilities.DebugMaximumAccessEnabled = true
 				service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 			} else if mode == "static_full" {
-				service.executionCapabilities.FullAccessRequiresRuntimeGrant = false
+				// Retained Full Access is historical evidence, not live authority.
+				permission, err := baseStore.executionPermission.Next("execution-static-full",
+					domain.RunExecutionPermissionFullAccess, true, "runtime-operator", "retained static Full Access", baseStore.executionPermission.CreatedAt.Add(time.Millisecond))
+				if err != nil {
+					t.Fatal(err)
+				}
+				baseStore.executionPermission = permission
 				service.executionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 			}
 			service.store = &fakeFullCDPBrowserActionStore{fakeFullCDPProductionStore: baseStore,
 				workspace: session.WorkspaceInfo{ID: baseStore.mission.WorkspaceID, Name: "static authority", RootPath: t.TempDir()}}
 			t.Cleanup(func() { _ = service.Close(context.Background()) })
+			if mode != "dynamic_full" {
+				_, err := service.OpenFullCDPSession(t.Context(), fullCDPOpenFixture(service, baseStore, "reject-retained-authority"))
+				if apperror.CodeOf(err) != apperror.CodePolicyDenied || *launches != 0 {
+					t.Fatalf("retained authority launched browser: %s %d %v", mode, *launches, err)
+				}
+				if _, live, err := service.browserActionBinding(t.Context(), baseStore.run.ID); err != nil || live {
+					t.Fatalf("retained browser advertised: %v %v", live, err)
+				}
+				return
+			}
 			if _, err := service.OpenFullCDPSession(t.Context(), fullCDPOpenFixture(service, baseStore, "open-static-authority")); err != nil {
 				t.Fatal(err)
 			}

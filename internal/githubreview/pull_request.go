@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 // PullRequest is public remote evidence. Its text never grants instructions or
@@ -188,13 +190,28 @@ func (c *Client) ObserveDraft(ctx context.Context, d PullRequestDraft) (PullRequ
 
 // CreateDraft is invoked only after the application durably claims its exact
 // reviewed operation. It never retries, creates forks, pushes or publishes ready.
-func (c *Client) CreateDraft(ctx context.Context, d PullRequestDraft) (PullRequest, error) {
+func (c *Client) CreateDraft(ctx context.Context, d PullRequestDraft, guards ...toolcontract.DispatchGuard) (result PullRequest, resultErr error) {
 	if err := d.Validate(); err != nil {
 		return PullRequest{}, err
 	}
 	if !c.network.WriteEnabled {
 		return PullRequest{}, &Error{Code: FailureNetworkPolicy, Message: "GitHub write-back is disabled"}
 	}
+	// Draft fields are value-only, so the adapter owns the exact frozen input.
+	ctx, dispatch, err := bindDraftDispatch(ctx, d, guards)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	defer func() {
+		if dispatch == nil || resultErr == nil {
+			return
+		}
+		state := toolcontract.ReceiptNotDispatched
+		if dispatch.posted.Load() {
+			state = toolcontract.ReceiptOutcomeUnknown
+		}
+		resultErr = &nativeWriteDispatchError{err: resultErr, state: state}
+	}()
 	for branch, expected := range map[string]string{d.HeadBranch: d.HeadSHA, d.BaseBranch: d.BaseSHA} {
 		actual, err := c.BranchSHA(ctx, d.Repository, branch, d.Credential)
 		if err != nil {

@@ -81,7 +81,10 @@ func TestWebEvidenceExecutorInlineApprovalProjectsDisabledToExactAuthority(t *te
 		t.Fatal(err)
 	}
 	mode, _ := state.GetRunMode(ctx, run.ID)
-	permission, _ := state.GetRunExecutionPermission(ctx, run.ID)
+	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk {
+		t.Fatalf("inline approval requires the current Ask fixture: %#v err=%v", permission, err)
+	}
 	root, found, err := state.GetRootAgent(ctx, run.ID)
 	if err != nil || !found {
 		t.Fatalf("root found=%t err=%v", found, err)
@@ -201,6 +204,15 @@ func TestWebEvidenceExecutorInlineApprovalProjectsDisabledToExactAuthority(t *te
 }
 
 func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		t.Run(string(mode), func(t *testing.T) { testWebEvidenceExactRunAuthority(t, mode) })
+	}
+}
+
+func testWebEvidenceExactRunAuthority(t *testing.T, permissionMode domain.RunExecutionPermissionMode) {
+	t.Helper()
 	ctx := context.Background()
 	state, err := store.Open(filepath.Join(t.TempDir(), "web-evidence-application.db"))
 	if err != nil {
@@ -214,6 +226,7 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 	if err != nil {
 		t.Fatal(err)
 	}
+	setWebTestPermission(t, state, created.ID, permissionMode)
 	run, err := application.NewRunService(state).Start(ctx, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -271,9 +284,19 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`))
 	if err != nil || backend.calls != 1 || result.Metadata["untrusted"] != "true" ||
 		result.Metadata["instruction_authorized"] != "false" ||
+		backend.lastRobotsPolicy != webevidence.RobotsPolicyEnforce ||
 		result.Metadata["stale"] != "true" || result.Metadata["state"] != "stale" ||
 		!strings.Contains(result.Content, "private bounded evidence body") {
 		t.Fatalf("result=%#v calls=%d err=%v", result, backend.calls, err)
+	}
+
+	for _, target := range []string{"https://127.0.0.1/private", "https://other.example.net/outside"} {
+		bad := scope
+		bad.OperationKey = "outside-web-target"
+		payload, _ := json.Marshal(toolgateway.WebFetchPayload{Version: "web_fetch.v1", URL: target})
+		if _, err := executor.ExecuteWebEvidence(ctx, bad, toolgateway.WebFetchTool, payload); err == nil || backend.calls != 1 {
+			t.Fatalf("outside target %s was fetched: calls=%d err=%v", target, backend.calls, err)
+		}
 	}
 	replayScope := scope
 	replayScope.InvocationID = "web-invocation-replay"
@@ -334,12 +357,6 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 	searchCapabilityContext := capabilityContext
 	searchCapabilityContext.ProviderAvailable = true
 	searchCapabilityContext.ProviderFingerprint = searchFingerprint
-	searchCapabilityContext.ProviderSearchIndependent =
-		searchService.SearchProviderIndependentForScope(ctx,
-			webevidence.ExecutionScope{RunID: run.ID, MissionID: mission.ID,
-				WorkspaceID: mission.WorkspaceID, ModelRoute: run.Config.ModelRoute,
-				Authority: webevidence.NetworkAuthority{Mode: mode.Scope.NetworkMode,
-					AllowedTargets: append([]string(nil), mode.Scope.AllowedTargets...)}})
 	searchScope := scope
 	searchScope.InvocationID = "web-invocation-3"
 	searchScope.OperationKey = "application-search-operation"
@@ -375,177 +392,29 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 	}
 }
 
-func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
-	ctx := context.Background()
-	state, err := store.Open(filepath.Join(t.TempDir(), "web-evidence-full-access.db"))
+// Full is deliberately left without a live activation. Web tools must not
+// depend on a process grant intended for native host operations.
+func setWebTestPermission(t *testing.T, state *store.SQLiteStore, runID string, mode domain.RunExecutionPermissionMode) {
+	t.Helper()
+	current, err := state.GetRunExecutionPermission(t.Context(), runID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer state.Close()
-	mission, created, err := application.NewRunService(state).Create(ctx,
-		application.CreateRunRequest{Goal: "Read public documentation", Profile: "review",
-			NetworkMode: "disabled", Budget: domain.Budget{MaxTurns: 4, MaxToolCalls: 8}})
-	if err != nil {
-		t.Fatal(err)
+	if current.Mode == mode {
+		return
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true}
-	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "web-evidence-full-access-permission-0001",
-			RequestedBy:  "test_operator", Reason: "exercise safe public HTTPS projection",
-			ConfirmDangerFullAccess: true}); err != nil {
-		t.Fatal(err)
-	}
-	run, err := application.NewRunService(state).Start(ctx, created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mode, err := state.GetRunMode(ctx, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, found, err := state.GetRootAgent(ctx, run.ID)
-	if err != nil || !found {
-		t.Fatalf("root found=%t err=%v", found, err)
-	}
-	lease, err := state.AcquireRunExecutionLease(ctx,
-		domain.AcquireRunExecutionLeaseRequest{RunID: run.ID,
-			OwnerID: "web-evidence-full-access-test", TTL: time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	backend := &applicationWebFetchBackend{robotsState: "bypassed_disallow"}
-	executor, err := application.NewWebEvidenceToolExecutor(state,
-		webevidence.NewService(state, nil, backend))
-	if err != nil {
-		t.Fatal(err)
-	}
-	capabilityContext := toolgateway.WebEvidenceCapabilityContext{RunID: run.ID,
-		MissionID: mission.ID, SessionID: run.SessionID, RootAgentID: root.ID,
-		WorkspaceID: mission.WorkspaceID, Surface: mode.Surface, Phase: mode.Phase,
-		Role: root.Role, Profile: mode.Profile, PermissionMode: permission.Mode,
-		PermissionRevision: permission.Revision, ModeRevision: mode.Revision,
-		NetworkMode: "allowlist", AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
-	scope := toolgateway.WebEvidenceExecutionScope{InvocationID: "web-full-access-invocation-1",
-		OperationKey: "web-full-access-fetch-0001", RunID: run.ID,
-		SupervisorTurn: 1, SupervisorToolCallID: "web-full-access-call-1",
-		MissionID: mission.ID, SessionID: run.SessionID, RootAgentID: root.ID,
-		WorkspaceID: mission.WorkspaceID, Surface: mode.Surface, Phase: mode.Phase,
-		Role: root.Role, Profile: mode.Profile, PermissionMode: permission.Mode,
-		PermissionRevision: permission.Revision, ModeRevision: mode.Revision,
-		CapabilityGeneration: toolgateway.WebEvidenceCapabilitySnapshot(capabilityContext).Generation,
-		LeaseID:              lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation,
-		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{Allowed: true,
-			Approval: toolgateway.ApprovalAutomatic, Risk: "high", Reason: "test policy"}}
-	if err := scope.Validate(); err != nil {
-		t.Fatalf("constructed Full Access web evidence scope=%#v err=%v", scope, err)
-	}
-
-	result, err := executor.ExecuteWebEvidence(ctx, scope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/reference"}`))
-	if err != nil || backend.calls != 1 || result.Metadata["untrusted"] != "true" ||
-		backend.lastRobotsPolicy != webevidence.RobotsPolicyAuditOnly ||
-		result.Metadata["robots_policy"] != string(webevidence.RobotsPolicyAuditOnly) ||
-		result.Metadata["robots"] != "bypassed_disallow" ||
-		!strings.Contains(result.Content, `"robots":"bypassed_disallow"`) {
-		t.Fatalf("public result=%#v calls=%d err=%v", result, backend.calls, err)
-	}
-	unsafeScope := scope
-	unsafeScope.InvocationID = "web-full-access-invocation-2"
-	unsafeScope.OperationKey = "web-full-access-fetch-unsafe-0001"
-	if _, err := executor.ExecuteWebEvidence(ctx, unsafeScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://127.0.0.1/private"}`)); err == nil || backend.calls != 1 {
-		t.Fatalf("unsafe target err=%v calls=%d", err, backend.calls)
-	}
-
-	// The normal desktop requires a process-local activation in addition to the
-	// durable Full Access snapshot. An old call must not acquire that authority
-	// after a cold start or after a revoke/re-activation cycle.
-	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
-	liveCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+	runtime := domain.NewExecutionPermissionRuntimeAuthority()
+	caps := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
-	executor.WithExecutionPermissionCapabilities(liveCapabilities)
-	oldScope := scope
-	oldScope.InvocationID = "web-full-access-invocation-cold"
-	oldScope.OperationKey = "web-full-access-fetch-cold-0001"
-	if _, err := executor.ExecuteWebEvidence(ctx, oldScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/cold"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 1 {
-		t.Fatalf("cold Full Access was not fenced: calls=%d err=%v", backend.calls, err)
+		RuntimeAuthority: runtime,
 	}
-	grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+	_, err = application.NewRunExecutionPermissionService(state, caps).Change(t.Context(),
+		application.ChangeRunExecutionPermissionRequest{RunID: runID, Mode: string(mode),
+			OperationKey: "web-permission-" + string(mode), RequestedBy: "test_operator",
+			Reason:      "web permissions are independent of native host activation",
+			ConfirmFull: mode == domain.RunExecutionPermissionFull})
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveContext := capabilityContext
-	liveContext.PermissionSnapshotID = permission.ID
-	liveContext.PermissionGeneration = grant.Generation
-	liveContext.PermissionRuntimeEpoch = runtimeAuthority.RuntimeEpoch()
-	liveScope := scope
-	liveScope.InvocationID = "web-full-access-invocation-live"
-	liveScope.OperationKey = "web-full-access-fetch-live-0001"
-	liveScope.PermissionSnapshotID = permission.ID
-	liveScope.PermissionGeneration = grant.Generation
-	liveScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(liveContext).Generation
-	if _, err := executor.ExecuteWebEvidence(ctx, liveScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/live"}`)); err != nil || backend.calls != 2 {
-		t.Fatalf("live Full Access fetch calls=%d err=%v", backend.calls, err)
-	}
-	// A new process can issue the same numeric generation for the same durable
-	// permission snapshot. The old capability must still fail before fetch.
-	freshRuntimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
-	freshGrant, err := freshRuntimeAuthority.ActivateRunFullAccess(permission)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if freshGrant.Generation != grant.Generation ||
-		freshRuntimeAuthority.RuntimeEpoch() == runtimeAuthority.RuntimeEpoch() {
-		t.Fatal("cross-instance generation collision fixture was not established")
-	}
-	executor.WithExecutionPermissionCapabilities(domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: freshRuntimeAuthority})
-	oldProcessScope := liveScope
-	oldProcessScope.InvocationID = "web-full-access-invocation-old-process"
-	oldProcessScope.OperationKey = "web-full-access-fetch-old-process-0001"
-	if _, err := executor.ExecuteWebEvidence(ctx, oldProcessScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/old-process"}`)); err == nil || backend.calls != 2 {
-		t.Fatalf("old process authority revived: calls=%d err=%v", backend.calls, err)
-	}
-	freshContext := liveContext
-	freshContext.PermissionRuntimeEpoch = freshRuntimeAuthority.RuntimeEpoch()
-	freshScope := liveScope
-	freshScope.InvocationID = "web-full-access-invocation-new-process"
-	freshScope.OperationKey = "web-full-access-fetch-new-process-0001"
-	freshScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(freshContext).Generation
-	if _, err := executor.ExecuteWebEvidence(ctx, freshScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/new-process"}`)); err != nil || backend.calls != 3 {
-		t.Fatalf("new process authority failed: calls=%d err=%v", backend.calls, err)
-	}
-	executor.WithExecutionPermissionCapabilities(liveCapabilities)
-	runtimeAuthority.RevokeRun(run.ID)
-	revokedScope := liveScope
-	revokedScope.InvocationID = "web-full-access-invocation-revoked"
-	revokedScope.OperationKey = "web-full-access-fetch-revoked-0001"
-	if _, err := executor.ExecuteWebEvidence(ctx, revokedScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
-		t.Fatalf("revoked Full Access was not fenced: calls=%d err=%v", backend.calls, err)
-	}
-	newGrant, err := runtimeAuthority.ActivateRunFullAccess(permission)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if newGrant.Generation == grant.Generation {
-		t.Fatal("reactivation reused a revoked runtime generation")
-	}
-	if _, err := executor.ExecuteWebEvidence(ctx, revokedScope, toolgateway.WebFetchTool,
-		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
-		t.Fatalf("old generation was revived: calls=%d err=%v", backend.calls, err)
-	}
+	runtime.RevokeRun(runID)
 }

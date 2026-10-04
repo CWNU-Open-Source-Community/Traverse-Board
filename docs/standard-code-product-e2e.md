@@ -77,12 +77,10 @@ Go Workspace Trust 完成后、交付前，从另一个 PowerShell 执行：
 或本次 session 中的实际文件。所有 edge 的 `evidence_sha256` 必须等于文件最终
 `expected_sha256`。
 
-Local 与 Docker ready 时都必须各完成四个场景，并且 Job 为
-`sandboxed_workspace + workspace_access + network=disabled + credentials=none`。若某个
-backend 确实不可用，必须保留一个 `waiting_approval` Run 和 pending Approval；不得批准
-宿主执行，也不得改为 Full Access/Debug。该待审批项必须是仍绑定 `workspace_access` 的
-`host_command_propose/risk_escalation/per_call` proposal，而不是预先扩大 Run 权限。runbook
-将其写成 `approval_required`，并提供 readiness 与 Approval UI 两个独立证据文件。
+Local 与 Docker 必须各完成四个语言，所有 Job 必须绑定当前 Ask/Auto/Full
+权限快照与 `sandboxed_workspace + network=disabled + credentials=none`。后端不可用
+会阻断新产品报告和发布聚合，必须修复就绪条件后重新取得实际执行证据。
+历史 `approval_required` 报告仍可解码，但已退役的宿主提案不能作为新验收证据。
 
 ## runbook 与人工证据
 
@@ -95,7 +93,7 @@ backend 确实不可用，必须保留一个 `waiting_approval` Run 和 pending 
 | `candidate_sha256` | 与精确 ZIP 内 EXE 相同 |
 | `fixture_manifest_sha256` | 与当前内嵌 fixture manifest 相同 |
 | `default_launch` | 空 `arguments`、四个入口状态为 true、三个危险开关为 false，并绑定 `launch/default.json` |
-| `backends` | 恰好 Local、Docker；每个为四语言 `ready` 或显式 `approval_required` |
+| `backends` | 恰好 Local、Docker；每个必须提供四语言 `ready` 实际执行证据 |
 | `edges` | 中文、空格、长路径、CRLF、dirty、untracked、binary、concurrent 八类闭集 |
 | `continuity` | `completed`、`failed`、`approval_wait`、`restart`，Composer 均保持可用 |
 | `platforms` | Windows 10/11 × 100%/200%，`zh-CN`、中文 IME、键盘/焦点/名称/a11y 均通过 |

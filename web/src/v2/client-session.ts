@@ -14,7 +14,7 @@ function capabilities(state: ConnectionSnapshot): ClientCapabilities {
     fullCDPSessionControlEnabled: state.fullCDPSessionControlEnabled,
     operatorApprovalEnabled: state.operatorApprovalEnabled,
     dangerFullAccessEnabled: state.dangerFullAccessEnabled,
-    debugMaximumAccessEnabled: state.debugMaximumAccessEnabled,
+
     commandRuntimeEnabled: state.commandRuntimeEnabled,
     commandRuntimeProtocolAvailable: state.commandRuntimeProtocolAvailable,
     commandRuntimeAdapterInstalled: state.commandRuntimeAdapterInstalled,
@@ -29,8 +29,8 @@ function capabilities(state: ConnectionSnapshot): ClientCapabilities {
     threadExecutionReadEnabled: state.threadExecutionReadEnabled,
     planDeliveryControlEnabled: state.planDeliveryControlEnabled,
     approvalControlEnabled: state.approvalControlEnabled,
-    controlledCommandProposalControlEnabled: state.controlledCommandProposalControlEnabled,
-    hostCommandProposalControlEnabled: state.hostCommandProposalControlEnabled,
+
+
     modelControlEnabled: state.modelControlEnabled,
     providerCredentialEnabled: state.providerCredentialEnabled,
     fileEditReviewEnabled: state.fileEditReviewEnabled,

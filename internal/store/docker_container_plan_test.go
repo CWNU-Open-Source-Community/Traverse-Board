@@ -233,62 +233,79 @@ func TestDockerContainerPlanConcurrentReplayConvergesAcrossStores(t *testing.T) 
 }
 
 func TestDockerContainerPlanLimitCancellationAndSchemaV53Upgrade(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "docker-plan-v53.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, path)
-	service, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
-		run.ID, root, "docker-plan-limit")
-	plan, operation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
-		"docker-plan-limit-operation")
-	if _, _, err := st.CreateDockerContainerPlan(ctx, plan, operation); err != nil {
-		t.Fatal(err)
-	}
-	second, secondOperation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
-		"docker-plan-second-operation")
-	if _, _, err := st.CreateDockerContainerPlan(ctx, second, secondOperation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
-		t.Fatalf("Docker plan per-observation limit error=%v code=%s", err, apperror.CodeOf(err))
-	}
-
-	_, manifest2, observation2 := createDockerContainerPlanStoreAuthority(t, ctx, st,
-		run.ID, root, "docker-plan-cancelled")
-	cancelled, _ := newDockerContainerPlanStoreRecord(t, ctx, observation2, manifest2,
-		"docker-plan-cancelled-operation")
-	if _, err := service.CancelDisabledExecution(ctx, application.CancelSandboxExecutionRequest{
-		ExecutionID: observation2.ExecutionID, OperationKey: "docker-plan-cancelled-request",
-		RequestedBy: observation2.RequestedBy,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := st.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := insertDockerContainerPlanTx(ctx, tx, cancelled); err == nil ||
-		!strings.Contains(err.Error(), "authority binding is invalid") {
-		_ = tx.Rollback()
-		t.Fatalf("SQLite accepted a Docker plan after cancellation: %v", err)
-	}
-	_ = tx.Rollback()
-
-	for _, statement := range removeSchemaV54ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v53 with %q: %v", statement, err)
+	for _, historical := range []bool{false, true} {
+		name := "current"
+		if historical {
+			name = "historical_upgrade"
 		}
-	}
-	if err := st.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
-		t.Fatalf("schema v53 did not upgrade to v54: version=%d err=%v", version, err)
-	}
-	loaded, err := st.GetDockerObservation(ctx, observation.ID)
-	if err != nil || loaded.ID != observation.ID {
-		t.Fatalf("schema v53 observation was not preserved: %#v err=%v", loaded, err)
+		t.Run(name, func(t *testing.T) {
+			var historicalVersion []int
+			if historical {
+				historicalVersion = []int{177}
+			}
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "docker-plan-v53.db")
+			st, run, root := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			t.Cleanup(func() { _ = st.Close() })
+			service, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
+				run.ID, root, "docker-plan-limit")
+			plan, operation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
+				"docker-plan-limit-operation")
+			if _, _, err := st.CreateDockerContainerPlan(ctx, plan, operation); err != nil {
+				t.Fatal(err)
+			}
+			second, secondOperation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
+				"docker-plan-second-operation")
+			if _, _, err := st.CreateDockerContainerPlan(ctx, second, secondOperation); apperror.CodeOf(err) != apperror.CodeResourceExhausted {
+				t.Fatalf("Docker plan per-observation limit error=%v code=%s", err, apperror.CodeOf(err))
+			}
+
+			_, manifest2, observation2 := createDockerContainerPlanStoreAuthority(t, ctx, st,
+				run.ID, root, "docker-plan-cancelled")
+			cancelled, _ := newDockerContainerPlanStoreRecord(t, ctx, observation2, manifest2,
+				"docker-plan-cancelled-operation")
+			if _, err := service.CancelDisabledExecution(ctx, application.CancelSandboxExecutionRequest{
+				ExecutionID: observation2.ExecutionID, OperationKey: "docker-plan-cancelled-request",
+				RequestedBy: observation2.RequestedBy,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			tx, err := st.db.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := insertDockerContainerPlanTx(ctx, tx, cancelled); err == nil ||
+				!strings.Contains(err.Error(), "authority binding is invalid") {
+				_ = tx.Rollback()
+				t.Fatalf("SQLite accepted a Docker plan after cancellation: %v", err)
+			}
+			_ = tx.Rollback()
+
+			if !historical {
+				return
+			}
+
+			for _, statement := range removeSchemaV54ForTestStatements() {
+				if _, err := st.db.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("simulate schema v53 with %q: %v", statement, err)
+				}
+			}
+			if err := st.Close(); err != nil {
+				t.Fatal(err)
+			}
+			st, err = Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			if version, err := st.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+				t.Fatalf("schema v53 did not upgrade to v54: version=%d err=%v", version, err)
+			}
+			loaded, err := st.GetDockerObservation(ctx, observation.ID)
+			if err != nil || loaded.ID != observation.ID {
+				t.Fatalf("schema v53 observation was not preserved: %#v err=%v", loaded, err)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package producte2e
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -14,6 +15,20 @@ import (
 
 	"cyberagent-workbench/internal/packagede2e"
 )
+
+func TestProduceRejectsRetiredFallbackBeforeReadingProductState(t *testing.T) {
+	runbook := validRunbook()
+	content, err := json.Marshal(runbook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeRunbook(content); err != nil {
+		t.Fatalf("historical runbook remains readable: %v", err)
+	}
+	if _, err := Produce(context.Background(), ProduceOptions{Runbook: runbook}); err == nil || !strings.Contains(err.Error(), "retired approval fallback") {
+		t.Fatalf("retired fallback accepted for new product evidence: %v", err)
+	}
+}
 
 func TestRunbookRequiresClosedProductMatrix(t *testing.T) {
 	runbook := validRunbook()

@@ -13,11 +13,11 @@ import (
 )
 
 func TestAPIFullCDPAssemblyProvidesSharedRevocationAuthority(t *testing.T) {
-	capabilities := newAPIExecutionPermissionCapabilities(true, true, true)
+	capabilities := newAPIExecutionPermissionCapabilities(true, true)
 	if err := capabilities.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if capabilities.RuntimeAuthority == nil || !capabilities.FullAccessRequiresRuntimeGrant {
+	if capabilities.RuntimeAuthority == nil {
 		t.Fatal("API lost its shared fence or per-Run Full Access activation")
 	}
 	// Copies supplied to sibling services must fence the same Run. Creating a
@@ -31,7 +31,7 @@ func TestAPIFullCDPAssemblyProvidesSharedRevocationAuthority(t *testing.T) {
 	if browserCapabilities.RuntimeAuthority.AllowsRunAuthorizationFence("run-api-preview", fence) {
 		t.Fatal("permission revocation did not invalidate the browser fence")
 	}
-	fresh := newAPIExecutionPermissionCapabilities(true, true, true)
+	fresh := newAPIExecutionPermissionCapabilities(true, true)
 	if fresh.RuntimeAuthority == capabilities.RuntimeAuthority ||
 		fresh.RuntimeAuthority.AllowsRunAuthorizationFence("run-api-preview", fence) {
 		t.Fatal("an API restart inherited a runtime authority")
@@ -72,9 +72,9 @@ func TestAPIFullCDPAssemblyProvidesSharedRevocationAuthority(t *testing.T) {
 	}
 	defer service.Close(context.Background())
 	for _, denied := range []domain.ExecutionPermissionRuntimeCapabilities{
-		newAPIExecutionPermissionCapabilities(false, false, false),
-		newAPIExecutionPermissionCapabilities(true, false, false),
-		{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true},
+		newAPIExecutionPermissionCapabilities(false, false),
+		newAPIExecutionPermissionCapabilities(true, false),
+		{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true},
 	} {
 		if _, err := application.NewHomeFullCDPProductionService(state, controller, runtime,
 			browser, denied, home); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {

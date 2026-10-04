@@ -22,9 +22,11 @@ import (
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -784,6 +786,18 @@ func newSpecialistRunnerFixtureWithExternal(t testing.TB, provider llm.Provider,
 			t.Fatal(err)
 		}
 		raw := buildSpecialistExternalPackage(t)
+		// This fixture exercises retained legacy selections, so start from an
+		// actual pre-existing intent instead of using the new-install writer.
+		parsed, err := skills.ParsePackage(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := runmutation.Fingerprint("skill_package_install_operation.v1", "specialist-external-import-0001")
+		historical, err := skills.NewPackageInstallation(idgen.New("historical-skill"), parsed, domain.ExecutionSurfaceCode, key, "operator", time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyskill.Seed(t, filepath.Join(home, "cyberagent.db"), historical)
 		installed, err := application.NewSkillPackageRegistryService(st, objects, registry).
 			Import(ctx, application.ImportSkillPackageRequest{
 				Raw: raw, Surface: domain.ExecutionSurfaceCode,

@@ -31,7 +31,6 @@ type WebEvidenceToolExecutor struct {
 	store                                 WebEvidenceToolStore
 	service                               *webevidence.Service
 	webFetchAuthorizationSchedulerEnabled bool
-	executionCapabilities                 domain.ExecutionPermissionRuntimeCapabilities
 }
 
 var errWebFetchWaitingApproval = errors.New("web fetch is waiting for exact host approval")
@@ -109,15 +108,6 @@ func (e *WebEvidenceToolExecutor) WithWebFetchAuthorizationScheduler(
 	return e
 }
 
-func (e *WebEvidenceToolExecutor) WithExecutionPermissionCapabilities(
-	capabilities domain.ExecutionPermissionRuntimeCapabilities,
-) *WebEvidenceToolExecutor {
-	if e != nil {
-		e.executionCapabilities = capabilities
-	}
-	return e
-}
-
 func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 	scope toolgateway.WebEvidenceExecutionScope, name toolgateway.ToolName,
 	payload json.RawMessage,
@@ -148,56 +138,27 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"web evidence Run route no longer matches the Supervisor scope")
 	}
-	checkLiveFullAccess := func() error {
-		if permission.Mode != domain.RunExecutionPermissionFullAccess ||
-			!e.executionCapabilities.FullAccessRequiresRuntimeGrant {
-			return nil
-		}
-		generation, live := e.executionCapabilities.FullAccessGeneration(permission)
-		epoch := ""
-		if e.executionCapabilities.RuntimeAuthority != nil {
-			epoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-		}
-		if scope.PermissionSnapshotID != permission.ID || !live ||
-			generation != scope.PermissionGeneration || epoch == "" {
-			return apperror.New(apperror.CodePolicyDenied,
-				"Full Access web evidence requires the exact live permission activation")
-		}
-		return nil
-	}
-	if err := checkLiveFullAccess(); err != nil {
-		return toolgateway.WebEvidenceExecutionResult{}, err
-	}
-	networkAuthority := effectiveWebEvidenceAuthority(mode.Scope, permission.Mode)
+	networkAuthority := webevidence.NetworkAuthority{Mode: mode.Scope.NetworkMode,
+		AllowedTargets: append([]string(nil), mode.Scope.AllowedTargets...)}
+	searchAuthority := webevidence.NetworkAuthority{Mode: "allowlist",
+		AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
 	providerFingerprint := e.service.SearchProviderFingerprintForScope(ctx,
 		webevidence.ExecutionScope{RunID: scope.RunID, MissionID: scope.MissionID,
 			WorkspaceID: scope.WorkspaceID, ModelRoute: run.Config.ModelRoute,
-			Authority: networkAuthority})
-	providerIndependent := e.service.SearchProviderIndependentForScope(ctx,
-		webevidence.ExecutionScope{RunID: scope.RunID, MissionID: scope.MissionID,
-			WorkspaceID: scope.WorkspaceID, ModelRoute: run.Config.ModelRoute,
-			Authority: networkAuthority})
-	connectorFingerprint := e.service.SourceConnectorFingerprintFor(networkAuthority)
+			Authority: searchAuthority})
+	connectorFingerprint := e.service.SourceConnectorFingerprintFor(searchAuthority)
 	capabilityContext := toolgateway.WebEvidenceCapabilityContext{
 		RunID: scope.RunID, MissionID: scope.MissionID, SessionID: scope.SessionID,
 		RootAgentID: scope.RootAgentID, WorkspaceID: scope.WorkspaceID,
 		Surface: mode.Surface, Phase: mode.Phase, Role: scope.Role, Profile: mode.Profile,
 		PermissionMode: permission.Mode, PermissionRevision: permission.Revision,
-		PermissionSnapshotID: scope.PermissionSnapshotID,
-		PermissionGeneration: scope.PermissionGeneration,
-		ModeRevision:         mode.Revision, NetworkMode: networkAuthority.Mode,
+		ModeRevision: mode.Revision, NetworkMode: networkAuthority.Mode,
 		AllowedTargets:                  append([]string(nil), networkAuthority.AllowedTargets...),
 		ProviderAvailable:               providerFingerprint != "",
 		ProviderFingerprint:             providerFingerprint,
-		ProviderSearchIndependent:       providerIndependent,
 		SourceConnectorAvailable:        connectorFingerprint != "",
 		SourceConnectorFingerprint:      connectorFingerprint,
 		InlineWebFetchApprovalAvailable: e.webFetchAuthorizationSchedulerEnabled}
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant &&
-		e.executionCapabilities.RuntimeAuthority != nil {
-		capabilityContext.PermissionRuntimeEpoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-	}
 	capabilities := toolgateway.WebEvidenceCapabilitySnapshot(capabilityContext)
 	if mode.RunID != scope.RunID || mode.MissionID != scope.MissionID ||
 		mode.Revision != scope.ModeRevision || permission.Mode != scope.PermissionMode ||
@@ -215,16 +176,14 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 	executionScope := webevidence.ExecutionScope{RunID: scope.RunID,
 		MissionID: scope.MissionID, WorkspaceID: scope.WorkspaceID,
 		ModelRoute: run.Config.ModelRoute, Authority: networkAuthority,
-		RobotsPolicy:         effectiveWebEvidenceRobotsPolicy(permission.Mode),
+		RobotsPolicy:         webevidence.RobotsPolicyEnforce,
 		ProviderFingerprint:  scope.ProviderFingerprint,
 		ConnectorFingerprint: scope.ConnectorFingerprint}
 	switch name {
 	case toolgateway.WebSearchTool:
+		executionScope.Authority = searchAuthority
 		var request toolgateway.WebSearchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
-			return toolgateway.WebEvidenceExecutionResult{}, err
-		}
-		if err := checkLiveFullAccess(); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
 		result, err := e.service.Search(ctx, executionScope, webevidence.SearchRequest{
@@ -253,11 +212,9 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 				"locally_verified":   "false", "untrusted": "true",
 				"instruction_authorized": "false"}}, nil
 	case toolgateway.SourceSearchTool:
+		executionScope.Authority = searchAuthority
 		var request toolgateway.SourceSearchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
-			return toolgateway.WebEvidenceExecutionResult{}, err
-		}
-		if err := checkLiveFullAccess(); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
 		result, err := e.service.SourceSearch(ctx, executionScope,
@@ -313,9 +270,6 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			// that disabled authority would still make the approved retry fail.
 			executionScope.Authority = webevidence.NetworkAuthority{Mode: "allowlist",
 				AllowedTargets: []string{inlineAuthorization.ExactTarget}}
-		}
-		if err := checkLiveFullAccess(); err != nil {
-			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
 		result, err := e.service.Fetch(ctx, executionScope, webevidence.FetchRequest{
 			SourceID: request.SourceID, URL: request.URL,
@@ -416,14 +370,6 @@ func (e *WebEvidenceToolExecutor) authorizeInlineWebFetch(ctx context.Context,
 	if !e.webFetchAuthorizationSchedulerEnabled {
 		return domain.WebFetchAuthorization{}, apperror.New(
 			apperror.CodePolicyDenied, "inline web fetch approval scheduler is unavailable")
-	}
-	// Inline approval is deliberately limited to the two user-mediated modes.
-	// Workspace Access remains networkless, while Full/Debug receive their
-	// separately projected public-HTTPS authority before reaching this path.
-	if scope.PermissionMode != domain.RunExecutionPermissionConservative &&
-		scope.PermissionMode != domain.RunExecutionPermissionApproval {
-		return domain.WebFetchAuthorization{}, apperror.New(
-			apperror.CodePolicyDenied, "web fetch target is outside Run network authority")
 	}
 	parsed, err := url.Parse(canonicalURL)
 	if err != nil || parsed.Hostname() == "" {

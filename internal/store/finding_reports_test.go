@@ -157,7 +157,7 @@ func TestFindingReportProjectionConvergesAcrossStores(t *testing.T) {
 }
 
 func TestSchemaV34ExecutionSurvivesFindingReportMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-report-v34.db", 1)
+	st, run, _ := createReadOnlyFanoutFixture(t, "finding-report-v34.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-report-v34-plan", "finding-report-v34-execution")

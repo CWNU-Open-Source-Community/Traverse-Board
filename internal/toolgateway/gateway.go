@@ -64,9 +64,6 @@ type Gateway struct {
 	delegationProposals        SpecialistDelegationExecutor
 	childTaskProposals         ChildTaskProposalExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
-	controlledCommandProposals ControlledCommandProposalExecutor
-	oneShotCommandProposals    OneShotCommandProposalExecutor
-	hostCommandProposals       HostCommandProposalExecutor
 	dockerSandboxProposals     DockerSandboxProposalExecutor
 	skillCandidates            SkillCandidateExecutor
 	debugTerminal              DebugTerminalExecutor
@@ -213,17 +210,6 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	if normalized.Name == PlanDeliveryProposeTool && g.planDeliveryProposals == nil {
 		return Outcome{}, errors.New("Plan/Delivery proposal executor is required")
 	}
-	if normalized.Name == ControlledCommandProposeTool &&
-		g.controlledCommandProposals == nil {
-		return Outcome{}, errors.New("controlled command proposal executor is required")
-	}
-	if normalized.Name == OneShotCommandProposeTool &&
-		g.oneShotCommandProposals == nil {
-		return Outcome{}, errors.New("one-shot command proposal executor is required")
-	}
-	if normalized.Name == HostCommandProposeTool && g.hostCommandProposals == nil {
-		return Outcome{}, errors.New("host command proposal executor is required")
-	}
 	if normalized.Name == DockerSandboxRunProposeTool &&
 		g.dockerSandboxProposals == nil {
 		return Outcome{}, errors.New("Docker Sandbox proposal executor is required")
@@ -305,12 +291,6 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 		return g.invokeChildTaskProposal(ctx, normalized)
 	case PlanDeliveryProposeTool:
 		return g.invokePlanDelivery(ctx, normalized)
-	case ControlledCommandProposeTool:
-		return g.invokeControlledCommandProposal(ctx, normalized)
-	case OneShotCommandProposeTool:
-		return g.invokeOneShotCommandProposal(ctx, normalized)
-	case HostCommandProposeTool:
-		return g.invokeHostCommandProposal(ctx, normalized)
 	case DockerSandboxRunProposeTool:
 		return g.invokeDockerSandboxProposal(ctx, normalized)
 	case SkillCandidateProposeTool:
@@ -896,8 +876,6 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == SpecialistDelegationProposeTool ||
 		call.Name == ChildTaskProposeTool ||
 		call.Name == PlanDeliveryProposeTool ||
-		call.Name == ControlledCommandProposeTool ||
-		call.Name == OneShotCommandProposeTool ||
 		call.Name == HostCommandProposeTool ||
 		call.Name == DockerSandboxRunProposeTool ||
 		call.Name == SkillCandidateProposeTool ||
@@ -939,19 +917,6 @@ func validateToolArguments(call ToolCall) error {
 			}
 			_, _, err := normalizePlanDeliveryPayload(call.Payload)
 			return err
-		case ControlledCommandProposeTool:
-			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {
-				return errors.New("controlled command proposals require a fenced root Supervisor")
-			}
-			_, _, err := normalizeControlledCommandProposalPayload(call.Payload)
-			return err
-		case OneShotCommandProposeTool:
-			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
-				call.WorkspaceID == "" || call.LeaseID == "" {
-				return errors.New("one-shot command proposals require a fenced root Supervisor")
-			}
-			_, _, err := normalizeOneShotCommandProposalPayload(call.Payload)
-			return err
 		case HostCommandProposeTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {
 				return errors.New("host command proposals require a fenced root Supervisor")
@@ -989,7 +954,7 @@ func validateToolArguments(call ToolCall) error {
 		case MCPToolCallTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
 				call.WorkspaceID == "" || call.LeaseID == "" {
-				return errors.New("MCP tool calls require a fenced root Supervisor")
+				return errors.New("MCP tool calls require a fenced host actor")
 			}
 			_, _, err := NormalizeMCPToolPayload(call.Payload)
 			return err

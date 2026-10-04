@@ -18,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 // SelectedGitFile is immutable evidence of the bytes selected by the operator.
@@ -336,6 +337,9 @@ func (e *MutationExecutor) threadGitWithAuthor(ctx context.Context, root, index 
 	var stdout, stderr boundedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", err
+	}
 	if err := cmd.Run(); err != nil {
 		return "", apperror.New(apperror.CodeFailedPrecondition, "Git operation failed: "+redact.String(boundedOutput(stderr.String())))
 	}
@@ -365,6 +369,7 @@ type PreparedSelectedCommit struct {
 	root                           string
 	executor                       *MutationExecutor
 	renameIndex                    func(string, string) error
+	dispatch                       func(context.Context) error
 }
 
 func (p *PreparedSelectedCommit) Close() {
@@ -398,11 +403,15 @@ func (e *MutationExecutor) PrepareSelectedCommit(ctx context.Context, root strin
 		return nil, err
 	}
 	indexPath = strings.TrimSpace(indexPath)
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return nil, err
+	}
 	lock, err := os.OpenFile(indexPath+".lock", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, apperror.New(apperror.CodeConflict, "Git index is busy; no changes were made")
 	}
 	p := &PreparedSelectedCommit{ParentOID: review.Binding.Head, Branch: review.Binding.Branch, Marker: marker, CommitAuthor: &author, lock: lock, lockPath: indexPath + ".lock", indexPath: indexPath, root: root, executor: e}
+	p.dispatch, _ = ctx.Value(threadGitDispatchKey{}).(func(context.Context) error)
 	failed := true
 	defer func() {
 		if failed {
@@ -415,6 +424,9 @@ func (e *MutationExecutor) PrepareSelectedCommit(ctx context.Context, root strin
 	}
 	if !review.Binding.SameState(current) {
 		return nil, apperror.New(apperror.CodeConflict, "repository changed after review")
+	}
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return nil, err
 	}
 	temp, err := os.CreateTemp(filepath.Dir(indexPath), "thread-git-index-")
 	if err != nil {
@@ -497,6 +509,9 @@ func (e *MutationExecutor) PrepareSelectedCommit(ctx context.Context, root strin
 	}
 	_ = os.Remove(p.tempIndex)
 	if len(original) > 0 {
+		if err := checkThreadGitDispatch(ctx); err != nil {
+			return nil, err
+		}
 		err = os.WriteFile(p.tempIndex, original, 0600)
 	} else {
 		_, err = e.threadGit(ctx, root, p.tempIndex, nil, "read-tree", "--empty")
@@ -519,6 +534,9 @@ func (e *MutationExecutor) PrepareSelectedCommit(ctx context.Context, root strin
 	}
 	entriesSum := sha256.Sum256([]byte(entriesText))
 	p.ExpectedIndexEntriesSHA256 = hex.EncodeToString(entriesSum[:])
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return nil, err
+	}
 	if _, err = p.lock.Write(next); err != nil {
 		return nil, err
 	}
@@ -537,6 +555,9 @@ func (e *MutationExecutor) PrepareSelectedCommit(ctx context.Context, root strin
 }
 
 func (p *PreparedSelectedCommit) Publish(ctx context.Context) error {
+	if p.dispatch != nil {
+		ctx = context.WithValue(ctx, threadGitDispatchKey{}, p.dispatch)
+	}
 	if p.CommitOID != "" && p.CommitAuthor != nil {
 		author, err := p.executor.ReadCommitAuthor(ctx, p.root)
 		if err != nil {
@@ -563,23 +584,39 @@ func (p *PreparedSelectedCommit) Publish(ctx context.Context) error {
 	if rename == nil {
 		rename = os.Rename
 	}
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return err
+	}
 	if err := rename(p.lockPath, p.indexPath); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e *MutationExecutor) PrepareSelectedIndex(ctx context.Context, root string, review SelectedGitReview, unstage bool) (*PreparedSelectedCommit, error) {
+func (e *MutationExecutor) PrepareSelectedIndex(ctx context.Context, root string, review SelectedGitReview, unstage bool, guards ...toolcontract.DispatchGuard) (*PreparedSelectedCommit, error) {
+	review = freezeSelectedReview(review)
+	operation, err := SelectedIndexOperation(root, review, unstage)
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = threadGitDispatchContext(ctx, operation, guards)
+	if err != nil {
+		return nil, err
+	}
 	indexPath, err := e.gitOutput(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index")
 	if err != nil {
 		return nil, err
 	}
 	indexPath = strings.TrimSpace(indexPath)
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return nil, err
+	}
 	lock, err := os.OpenFile(indexPath+".lock", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, apperror.New(apperror.CodeConflict, "Git index is busy")
 	}
 	p := &PreparedSelectedCommit{lock: lock, lockPath: indexPath + ".lock", indexPath: indexPath, root: root, executor: e}
+	p.dispatch, _ = ctx.Value(threadGitDispatchKey{}).(func(context.Context) error)
 	ok := false
 	defer func() {
 		if !ok {
@@ -593,6 +630,9 @@ func (e *MutationExecutor) PrepareSelectedIndex(ctx context.Context, root string
 	if !current.SameState(review.Binding) {
 		return nil, apperror.New(apperror.CodeConflict, "repository changed after review")
 	}
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return nil, err
+	}
 	temp, err := os.CreateTemp(filepath.Dir(indexPath), "thread-git-index-")
 	if err != nil {
 		return nil, err
@@ -604,6 +644,9 @@ func (e *MutationExecutor) PrepareSelectedIndex(ctx context.Context, root string
 		return nil, err
 	}
 	if len(original) > 0 {
+		if err := checkThreadGitDispatch(ctx); err != nil {
+			return nil, err
+		}
 		err = os.WriteFile(p.tempIndex, original, 0600)
 	} else {
 		_ = os.Remove(p.tempIndex)
@@ -643,6 +686,9 @@ func (e *MutationExecutor) PrepareSelectedIndex(ctx context.Context, root string
 	}
 	next, err := os.ReadFile(p.tempIndex)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkThreadGitDispatch(ctx); err != nil {
 		return nil, err
 	}
 	if _, err = p.lock.Write(next); err != nil {
@@ -745,7 +791,15 @@ func (e *MutationExecutor) ReadBranchTarget(ctx context.Context, root, branch st
 	return value, nil
 }
 
-func (e *MutationExecutor) ExecuteThreadBranch(ctx context.Context, root string, spec MutationSpec, binding gitadvanced.RepositoryBinding, target string) (MutationReceipt, error) {
+func (e *MutationExecutor) ExecuteThreadBranch(ctx context.Context, root string, spec MutationSpec, binding gitadvanced.RepositoryBinding, target string, guards ...toolcontract.DispatchGuard) (MutationReceipt, error) {
+	operation, err := ThreadBranchOperation(root, spec, binding, target)
+	if err != nil {
+		return MutationReceipt{}, err
+	}
+	ctx, err = threadGitDispatchContext(ctx, operation, guards)
+	if err != nil {
+		return MutationReceipt{}, err
+	}
 	if err := validateBranchName(spec.Branch); err != nil {
 		return MutationReceipt{}, err
 	}
@@ -774,7 +828,13 @@ func (e *MutationExecutor) ExecuteThreadBranch(ctx context.Context, root string,
 			return MutationReceipt{}, err
 		}
 		path = strings.TrimSpace(path)
+		if err := checkThreadGitDispatch(ctx); err != nil {
+			return MutationReceipt{}, err
+		}
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return MutationReceipt{}, err
+		}
+		if err := checkThreadGitDispatch(ctx); err != nil {
 			return MutationReceipt{}, err
 		}
 		lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)

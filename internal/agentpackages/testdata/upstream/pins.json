@@ -1,0 +1,191 @@
+[
+  {
+    "repository": "agentplugins/agent-plugins-example",
+    "commit": "5f3f5084a821aefa792e79500dd8f0462ab83473",
+    "upstream_subdirectory": "",
+    "files": [
+      {
+        "path": "LICENSE",
+        "git_blob": "14fac913ccf80234b1848540089a3bbcb6e5283d",
+        "sha256": "1126322e2cc8d165adc4c792eeb195717de2bcc7b39be1ce77959d78e87ef685",
+        "bytes": 1056,
+        "git_mode": "100644"
+      },
+      {
+        "path": "README.md",
+        "git_blob": "e4c692847c1627b1978f2c789174a9ff74a6c847",
+        "sha256": "a2a8a0f1427fe855a692b6e94236d7ab2d95925ff68ca17a0698c06c21816dfb",
+        "bytes": 4214,
+        "git_mode": "100644"
+      },
+      {
+        "path": "plugin.json",
+        "git_blob": "e422ca83127c2365e4f0c9438d5dd7655bf53eec",
+        "sha256": "febc5269ac2154f2ca38257e15e126dfb481a5f4558a35bdf126d1ce10aff885",
+        "bytes": 317,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/migrate-agent-plugin/SKILL.md",
+        "git_blob": "7fa96b56703af741a9f26c38958da9a2ee09d3f7",
+        "sha256": "cbcfa4804eaf880593f382f8e873d5c59f57dbb0762e481891c5b1ca1d1db41c",
+        "bytes": 4053,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/migrate-agent-plugin/references/client-extensions.md",
+        "git_blob": "1284ab6f44fc7d75f8670a7f8027749a6e6f3e69",
+        "sha256": "c984d550a7ae69b13af027498138f365ff8b7fc8c52916614c808a3ee0a32a81",
+        "bytes": 3038,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/migrate-agent-plugin/references/migration-guide.md",
+        "git_blob": "1186a3445241a89885dc1dc3f6c4e27f58bb6f67",
+        "sha256": "e890734311a58041323594525ca1094b235bbd73f34dffe4ff14d2b51e8b0df8",
+        "bytes": 5372,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/migrate-agent-plugin/references/validation-checklist.md",
+        "git_blob": "9be44204ee8a0822dfd0e2a398cb3cf8bc505886",
+        "sha256": "398ea49d9f61ea64adf927a447e15ae9c6c5f78b1af68e9ce3fcb646c5ce89b6",
+        "bytes": 2553,
+        "git_mode": "100644"
+      }
+    ]
+  },
+  {
+    "repository": "anthropics/skills",
+    "commit": "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
+    "upstream_subdirectory": "skills/skill-creator/",
+    "files": [
+      {
+        "path": "skills/skill-creator/LICENSE.txt",
+        "git_blob": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+        "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+        "bytes": 11345,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/SKILL.md",
+        "git_blob": "65b3a402dbd09b8e83f9d637c6b553875189085c",
+        "sha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
+        "bytes": 33168,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/agents/analyzer.md",
+        "git_blob": "14e41d6068635f4dd3fb878fd1626312395dda63",
+        "sha256": "bf68f4cac5a56c673a928c2e6d619586c5b93ea364026ab37547772cb45a663a",
+        "bytes": 10376,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/agents/comparator.md",
+        "git_blob": "80e00eb45db3ee53a132fc2ba97fd59a7339e563",
+        "sha256": "fe1fc9787c495d864c5d6eada47396478572325fde1b33a96d78bf4b849b7a3e",
+        "bytes": 7287,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/agents/grader.md",
+        "git_blob": "558ab05c0a9a8bb062ef4c51823d4d76c3acf7c4",
+        "sha256": "57134da0c1a4eea33fbd74a1c9c44aa814f07d6bc64de303edb586f941e5d21a",
+        "bytes": 9049,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/assets/eval_review.html",
+        "git_blob": "938ff32aed9bffabf723bd5492d720f4736c8e4d",
+        "sha256": "ce477dcc74dc1c0d1d3352646a79167b5a63634e936b1019160025065974e452",
+        "bytes": 7058,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/eval-viewer/generate_review.py",
+        "git_blob": "7fa5978631fed1ed545591dbb2b0eb21ce3f3d08",
+        "sha256": "fc9d1b9243fe5ab6012ebd579bd76d0035de1b79fd3b969de114defab26478fb",
+        "bytes": 16365,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/eval-viewer/viewer.html",
+        "git_blob": "6d8e96348a02e66c3363d2ff3b3ae58ac11e6382",
+        "sha256": "a53213426ee1100441d701a3a0d49cda7a842f992d2c36463f4d3cc0258575fa",
+        "bytes": 44998,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/references/schemas.md",
+        "git_blob": "b6eeaa2d4a34c1653069585c6c5603da39a5bdbe",
+        "sha256": "8e8876180a8989b406a4d3edddf875b04cdfd5805cc8616686d552b11ce4455f",
+        "bytes": 12061,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/scripts/__init__.py",
+        "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "git_mode": "100644"
+      },
+      {
+        "path": "skills/skill-creator/scripts/aggregate_benchmark.py",
+        "git_blob": "3e66e8c105be9bab9f0e9c61f0d1482619401580",
+        "sha256": "123ef128ea5ccc01a4b1ac212ef5567f21e9c13d3d240609780beeb3200c49aa",
+        "bytes": 14386,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/generate_report.py",
+        "git_blob": "959e30a0014ec165c41a2bb7420b7dfe1416bbac",
+        "sha256": "13df7118a3c50c83c4c3250a606d5f2b20b25a3d44cbc392b3d669ec75281453",
+        "bytes": 12847,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/improve_description.py",
+        "git_blob": "06bcec76122446986e3610c20a39c466de36f495",
+        "sha256": "87d864570220b699fac52da309d2d6efdb060647bfebc74f768128e646accf80",
+        "bytes": 11116,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/package_skill.py",
+        "git_blob": "f48eac444656ddc41204aac1760a217951ce609e",
+        "sha256": "1a33059b0db1ef73375d46d513e5ea81369d2e8838c970597b0d52ddef8d1c0f",
+        "bytes": 4234,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/quick_validate.py",
+        "git_blob": "ed8e1dddce77b16af13c6f36b3fe86c4ac7c590c",
+        "sha256": "67cf5703402013936c8fb75ad6a1afecd8841d45cc5e606b634eb05825fde365",
+        "bytes": 3972,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/run_eval.py",
+        "git_blob": "e58c70bea39d5b252a1e819f242bbdcdf20e8b87",
+        "sha256": "43e3b8f80dbf69c343967ba77e268fae991d9fa3ed68b32a0ff02532cd48657f",
+        "bytes": 11464,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/run_loop.py",
+        "git_blob": "30a263d674ef19de11c756d6f7537f91a421909e",
+        "sha256": "7bd6f674203168520517eec94c55f493c0d154339b061b4d7c0f0dad187d0f21",
+        "bytes": 13605,
+        "git_mode": "100755"
+      },
+      {
+        "path": "skills/skill-creator/scripts/utils.py",
+        "git_blob": "51b6a07dd57174197a937034b7eecebd5768ff8a",
+        "sha256": "3af8ae62c40c73ab712207436a0d9a981e845f25c5a7040229eb189cc8e45bb1",
+        "bytes": 1661,
+        "git_mode": "100644"
+      }
+    ]
+  }
+]

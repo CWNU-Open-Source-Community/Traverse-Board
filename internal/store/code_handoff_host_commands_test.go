@@ -13,21 +13,16 @@ import (
 	"cyberagent-workbench/internal/runner"
 )
 
-// The surrounding fixture uses a scripted model and a constructed process
-// result, but real SQLite proposal/review/intent/result transactions and HTTP.
-// It is a receipt projection regression, not an OS test execution claim.
+// Historical rows pass through a real SQLite upgrade and HTTP projection.
+// This helper verifies saved evidence without granting current control.
+// Constructed receipts make no claim about native process execution.
 func assertHostCommandHandoffHTTP(t *testing.T, state *SQLiteStore, run domain.Run,
 	proposal runner.HostCommandProposal, receipt *runner.HostExecutionReceipt, review string,
 ) {
 	t.Helper()
 	const access = "host-handoff-access-token-12345678"
-	const control = "host-handoff-control-token-12345678"
-	api, err := httpapi.New(state, httpapi.Config{AccessToken: access, ControlToken: control,
-		AppVersion: "host-handoff-test", HostCommandProposalControlEnabled: true,
-		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities:   domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true},
-		HostCommandProposalController: application.NewHostCommandProposalReviewService(state, nil,
-			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true})})
+	api, err := httpapi.New(state, httpapi.Config{AccessToken: access,
+		AppVersion: "host-handoff-test", HostCommandProposalController: application.NewHostCommandHistory(state)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,7 +36,7 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	qualificationFixture := &anthropicHarnessFixture{}
 
 	var requestMu sync.Mutex
-	modelRequests := make([]desktopSourceWiringRequest, 0, 2)
+	modelRequests := make([]desktopSourceWiringRequest, 0, 3)
 	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/messages" || request.Method != http.MethodPost {
 			t.Errorf("unexpected Provider request %s %s", request.Method, request.URL.Path)
@@ -91,12 +91,14 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true,
 		DangerFullAccessEnabled: true,
+		RuntimeAuthority:        domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	plane, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(t.TempDir(), "source-wiring.db"),
 		ReadToken:    desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
 		RunCreationEnabled: true, SessionMessageEnabled: true,
 		RunLifecycleEnabled: true, RunExecutionEnabled: true, ModelControlEnabled: true,
+		ApprovalControlEnabled:            true,
 		ExecutionPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities:   permissionCapabilities,
 		CredentialStore:                   credential.NewMemoryStore(),
@@ -132,66 +134,66 @@ func TestControlPlaneWiresDefaultSourceConnectorsIntoCurrentRunTools(t *testing.
 		t.Fatalf("route selection status=%d body=%s", route.Code, route.Body.String())
 	}
 
-	fullThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Full Access source connector wiring", "desktop-source-wiring-full-thread-0001")
-	permission := desktopControlRequest(plane.Handler(), http.MethodPost,
-		"/api/v1/threads/"+fullThread.Thread.ID+"/execution-permission",
-		"desktop-source-wiring-full-permission-0001",
-		`{"mode":"full_access","reason":"exercise the current Run source connector authority","confirm_danger_full_access":true}`)
-	if permission.Code != http.StatusAccepted {
-		t.Fatalf("Full Access selection status=%d body=%s", permission.Code, permission.Body.String())
+	modes := []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
 	}
-	var selected httpapi.ThreadExecutionPermissionControlView
-	decodeDesktopControlData(t, permission, &selected)
-	if selected.CurrentRunID != fullThread.Run.ID ||
-		selected.CurrentRunEffect != string(domain.ThreadExecutionPermissionApplied) ||
-		selected.CurrentRunMode != string(domain.RunExecutionPermissionFullAccess) ||
-		!selected.CurrentRunSynchronized || !selected.ExecutionPermission.AppliesToCurrentRun {
-		t.Fatalf("Full Access did not bind to the current Run: %#v", selected)
+	for _, mode := range modes {
+		thread := createDesktopSourceWiringThread(t, plane, workspace.ID,
+			string(mode)+" source connector wiring", "desktop-source-wiring-"+string(mode)+"-thread-0001")
+		if mode != domain.RunExecutionPermissionAsk {
+			permission := desktopControlRequest(plane.Handler(), http.MethodPost,
+				"/api/v1/threads/"+thread.Thread.ID+"/execution-permission",
+				"desktop-source-wiring-"+string(mode)+"-permission-0001",
+				fmt.Sprintf(`{"mode":%q,"reason":"exercise configured web tools","confirm_full":%t}`,
+					mode, mode == domain.RunExecutionPermissionFull))
+			if permission.Code != http.StatusAccepted {
+				t.Fatalf("%s selection status=%d body=%s", mode, permission.Code, permission.Body.String())
+			}
+			var selected httpapi.ThreadExecutionPermissionControlView
+			decodeDesktopControlData(t, permission, &selected)
+			if selected.CurrentRunID != thread.Run.ID ||
+				selected.CurrentRunEffect != string(domain.ThreadExecutionPermissionApplied) ||
+				selected.CurrentRunMode != string(mode) ||
+				!selected.CurrentRunSynchronized || !selected.ExecutionPermission.AppliesToCurrentRun {
+				t.Fatalf("%s did not bind to the current Run: %#v", mode, selected)
+			}
+		}
+		assertDesktopCurrentApproval(t, plane, permissionCapabilities, thread.Run.ID, mode)
+		completeDesktopSourceWiringTurn(t, plane, thread,
+			"Inspect configured web tools with exact fetch approval",
+			"desktop-source-wiring-"+string(mode)+"-turn-0001")
 	}
-	completeDesktopSourceWiringTurn(t, plane, fullThread,
-		"Inspect the tools available to this Full Access Run",
-		"desktop-source-wiring-full-turn-0001")
-
-	restrictedThread := createDesktopSourceWiringThread(t, plane, workspace.ID,
-		"Conservative source connector boundary", "desktop-source-wiring-restricted-thread-0001")
-	completeDesktopSourceWiringTurn(t, plane, restrictedThread,
-		"Inspect the tools available without network authority",
-		"desktop-source-wiring-restricted-turn-0001")
 
 	requestMu.Lock()
 	capturedRequests := append([]desktopSourceWiringRequest(nil), modelRequests...)
 	requestMu.Unlock()
-	if len(capturedRequests) != 2 {
-		t.Fatalf("Supervisor model request count=%d, want one Full Access and one conservative request",
+	if len(capturedRequests) != len(modes) {
+		t.Fatalf("Supervisor model request count=%d, want one Ask, Auto, and Full request",
 			len(capturedRequests))
 	}
-	fullTools := desktopSourceWiringToolsByName(capturedRequests[0].Tools)
-	sourceSearch, found := fullTools["source_search"]
-	if !found {
-		t.Fatalf("Full Access Provider tools omitted source_search: %v",
-			desktopSourceWiringToolNames(capturedRequests[0].Tools))
-	}
-	if !strings.Contains(sourceSearch.Description, "GitHub") ||
-		!strings.Contains(sourceSearch.Description, "Hacker News") {
-		t.Fatalf("source_search description omitted default platform coverage: %q",
-			sourceSearch.Description)
-	}
-	webFetch, found := fullTools["web_fetch"]
-	if !found {
-		t.Fatalf("Full Access Provider tools omitted web_fetch: %v",
-			desktopSourceWiringToolNames(capturedRequests[0].Tools))
-	}
-	webFetchSchema := string(webFetch.InputSchema)
-	for _, expected := range []string{`"connector"`, `"rss"`, `"max_items"`} {
-		if !strings.Contains(webFetchSchema, expected) {
-			t.Fatalf("web_fetch input schema omitted %s: %s", expected, webFetchSchema)
+	for index, mode := range modes {
+		tools := desktopSourceWiringToolsByName(capturedRequests[index].Tools)
+		sourceSearch, found := tools["source_search"]
+		if !found {
+			t.Fatalf("%s Provider tools omitted source_search: %v", mode,
+				desktopSourceWiringToolNames(capturedRequests[index].Tools))
 		}
-	}
-	restrictedTools := desktopSourceWiringToolsByName(capturedRequests[1].Tools)
-	if _, found := restrictedTools["source_search"]; found {
-		t.Fatalf("network-disabled conservative Run received source_search: %v",
-			desktopSourceWiringToolNames(capturedRequests[1].Tools))
+		if !strings.Contains(sourceSearch.Description, "GitHub") ||
+			!strings.Contains(sourceSearch.Description, "Hacker News") {
+			t.Fatalf("%s source_search description omitted default platform coverage: %q", mode,
+				sourceSearch.Description)
+		}
+		webFetch, found := tools["web_fetch"]
+		if !found {
+			t.Fatalf("%s Provider tools omitted web_fetch: %v", mode,
+				desktopSourceWiringToolNames(capturedRequests[index].Tools))
+		}
+		webFetchSchema := string(webFetch.InputSchema)
+		for _, expected := range []string{`"connector"`, `"rss"`, `"max_items"`} {
+			if !strings.Contains(webFetchSchema, expected) {
+				t.Fatalf("%s web_fetch input schema omitted %s: %s", mode, expected, webFetchSchema)
+			}
+		}
 	}
 }
 
@@ -244,4 +246,26 @@ func desktopSourceWiringToolNames(tools []desktopSourceWiringTool) []string {
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+// The current writer must bind the v2 preference to this process's authority.
+// Historical Full Access/Debug rows cannot stand in for this explicit action.
+func assertDesktopCurrentApproval(t *testing.T, plane *ControlPlane,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities, runID string,
+	want domain.RunExecutionPermissionMode,
+) {
+	t.Helper()
+	permission, err := plane.stateStore.GetRunExecutionPermission(t.Context(), runID)
+	if err != nil || permission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		permission.Mode != want || permission.ProcessEnabled || permission.ExecutionAuthorized ||
+		permission.CapabilityGrant {
+		t.Fatalf("current Desktop approval=%#v want=%s err=%v", permission, want, err)
+	}
+	if capabilities.RuntimeAuthority == nil {
+		t.Fatal("Desktop fixture omitted the shared runtime authority")
+	}
+	_, activated := capabilities.RuntimeAuthority.AllowsFullAccess(permission)
+	if activated != (want == domain.RunExecutionPermissionFull) {
+		t.Fatalf("Desktop approval activation=%t want mode=%s", activated, want)
+	}
 }

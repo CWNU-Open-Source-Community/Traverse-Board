@@ -63,7 +63,7 @@ func TestSessionContextProvenanceRoundTripAndDatabaseGuards(t *testing.T) {
 
 func TestSchemaV43BackfillsLegacyWorkspaceReadsAsUntrustedEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

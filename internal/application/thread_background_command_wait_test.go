@@ -12,7 +12,6 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
-	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -31,9 +30,10 @@ func TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause(t *testing.T) {
 					OperationKey: "background-local-profile", RequestedBy: "test_operator", Reason: "isolated managed job"}); err != nil {
 				t.Fatal(err)
 			}
-			capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+			capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+				RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 			if _, err := application.NewThreadExecutionPermissionService(st, capabilities).Change(ctx,
-				application.ChangeThreadExecutionPermissionRequest{ThreadID: request.ThreadID, Mode: "full_access", ConfirmDangerFullAccess: true,
+				application.ChangeThreadExecutionPermissionRequest{ThreadID: request.ThreadID, Mode: "full", ConfirmFull: true,
 					OperationKey: "background-full-access", RequestedBy: "test_operator", Reason: "isolated owned process"}); err != nil {
 				t.Fatal(err)
 			}
@@ -76,7 +76,7 @@ func TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause(t *testing.T) {
 				"The managed process is started; waiting for your next choice.", "", "user input required")))
 			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 			router.RegisterProvider(provider)
-			execution := application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()).
+			execution := application.NewRunExecutionHandoffService(st, router, &fileOperationPolicy{review: pendingApproval}).
 				WithExecutionPermissionCapabilities(capabilities).WithCommandRuntime(commands)
 			turns := application.NewThreadTurnServiceWithExecutionCapabilities(st, application.NewRunLifecycleControlService(st), execution, capabilities)
 			request.Content = "Start one bounded owned background process, then wait for my next input."

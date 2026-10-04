@@ -58,7 +58,10 @@ func toolBoundaryFixture(t *testing.T, budget domain.Budget) (*store.SQLiteStore
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("original text\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +81,14 @@ func toolBoundaryFixture(t *testing.T, budget domain.Budget) (*store.SQLiteStore
 }
 
 func toolBoundaryService(st application.RunExecutionHandoffStore, threadStore application.ThreadStore, provider llm.Provider) *application.ThreadTurnService {
+	return toolBoundaryServiceWithPolicy(st, threadStore, provider, policy.NewDefaultChecker())
+}
+
+func toolBoundaryServiceWithPolicy(st application.RunExecutionHandoffStore, threadStore application.ThreadStore, provider llm.Provider, checker policy.Checker) *application.ThreadTurnService {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	return application.NewThreadTurnService(threadStore, application.NewRunLifecycleControlService(st.(application.RunLifecycleControlStore)),
-		application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(false)) // fixed extractive/tool-boundary script
+		application.NewRunExecutionHandoffService(st, router, checker).WithGeneratedContextCompaction(false)) // fixed extractive/tool-boundary script
 }
 
 func boundaryRead(id string, line int) *llm.ChatResponse {

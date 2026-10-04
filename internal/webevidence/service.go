@@ -151,7 +151,7 @@ func (s *Service) SearchProviderFingerprintFor(authority NetworkAuthority) strin
 }
 
 // SearchProviderFingerprintForScope binds the advertised web_search tool to
-// both the live Run authority and the model route's selected backend. An exact
+// both the supplied web authority and the model route's selected backend. An exact
 // provider_native policy may return a locally validated declared binding before
 // its first bounded runtime probe; invalid configuration, missing credentials,
 // disabled network, and unauthorized endpoints still return an empty value.
@@ -163,16 +163,6 @@ func (s *Service) SearchProviderFingerprintForScope(ctx context.Context,
 		return ""
 	}
 	return searchSelectionFingerprint(selection, scope.ModelRoute, endpoint)
-}
-
-// SearchProviderIndependentForScope reports whether the selected hosted search
-// route uses an exact Provider API egress boundary instead of the Run's direct
-// web_fetch allowlist. It performs no Provider request and exposes no secret.
-func (s *Service) SearchProviderIndependentForScope(ctx context.Context,
-	scope ExecutionScope,
-) bool {
-	selection, _, err := s.resolveSearch(ctx, scope)
-	return err == nil && selection.ProviderAuthorityIndependent
 }
 
 func searchSelectionFingerprint(selection SearchSelection, modelRoute string,

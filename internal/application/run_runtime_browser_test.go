@@ -117,8 +117,7 @@ func TestRunRuntimeBrowserSelectionKeepsExplicitSessionAndOriginalPendingBackend
 
 func TestRunRuntimeKeepsDefaultsAndSharedAuthorityWithoutGrant(t *testing.T) {
 	caps := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	calls := NewActiveCallRegistry()
 	deps := RunRuntimeDependencies{ActiveCalls: calls, ExecutionCapabilities: caps}
 	// No Store methods or host resource creation are needed for pure assembly.

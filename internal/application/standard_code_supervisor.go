@@ -51,6 +51,7 @@ type standardCodeSupervisorTurn struct {
 	store             standardCodeSupervisorStore
 	turn              domain.SupervisorTurn
 	permission        domain.RunExecutionPermissionSnapshot
+	fileAuthority     toolgateway.AgentCodeCallAuthority
 	preset            domain.StandardCodePresetOperation
 	snapshot          domain.StandardCodeSupervisorSnapshot
 	ledger            []domain.StandardCodeSupervisorLedgerEntry
@@ -114,7 +115,10 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 		agentCodeAuthority.Profile != turn.Mode.Profile ||
 		agentCodeAuthority.PermissionMode != permission.Mode ||
 		agentCodeAuthority.ModeRevision != turn.Mode.Revision ||
-		agentCodeAuthority.PermissionRevision != permission.Revision {
+		agentCodeAuthority.PermissionRevision != permission.Revision ||
+		!agentCodeRuntimeCurrent(s.executionCapabilities, permission,
+			agentCodeAuthority.PermissionSnapshotID, agentCodeAuthority.PermissionGeneration,
+			agentCodeAuthority.PermissionRuntimeEpoch, agentCodeAuthority.RunAuthorizationFence) {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"configured Standard Code Run has no exact Agent Code authority")
 	}
@@ -158,7 +162,7 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 		return nil, err
 	}
 	machine := &standardCodeSupervisorTurn{store: store, turn: turn,
-		permission: permission, preset: preset, delivery: s.standardCodeDelivery,
+		permission: permission, fileAuthority: agentCodeAuthority, preset: preset, delivery: s.standardCodeDelivery,
 		fileWorkspaceID: files.Workspace.ID}
 	if selected {
 		machine.effectiveManualAcceptance = selection.EffectiveManualAcceptance()
@@ -273,7 +277,7 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 		}
 		stopReason, _ := standardCodeTurnDriftReason(current, turn, profile,
 			interaction, permission, browserCDP, selected,
-			agentCodeAuthority.RootFingerprint, capabilityGeneration)
+			agentCodeAuthority, agentCodeAuthority.RootFingerprint, capabilityGeneration)
 		if stopReason == "" {
 			return machine, nil
 		}
@@ -319,7 +323,7 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 	}
 	stopReason, expectedDeliverTransition := standardCodeTurnDriftReason(current,
 		turn, profile, interaction, permission, browserCDP, selected,
-		agentCodeAuthority.RootFingerprint, capabilityGeneration)
+		agentCodeAuthority, agentCodeAuthority.RootFingerprint, capabilityGeneration)
 	if len(machine.ledger) >= domain.StandardCodeSupervisorMaximumLedgerEntries-2 {
 		stopReason = "durable_ledger_budget_exhausted"
 	}
@@ -385,8 +389,7 @@ func standardCodeInitialAuthorityDriftReason(preset domain.StandardCodePresetOpe
 	browserCDP domain.RunBrowserCDPPermissionSnapshot,
 	continued ...bool,
 ) string {
-	if permission.ID != preset.PermissionSnapshotID ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	if permission.ID != preset.PermissionSnapshotID {
 		return "permission_drift"
 	}
 	if turn.Mode.ID != preset.ModeSnapshotID ||
@@ -408,6 +411,7 @@ func standardCodeTurnDriftReason(current domain.StandardCodeSupervisorSnapshot,
 	interaction domain.RunExecutionInteractionSnapshot,
 	permission domain.RunExecutionPermissionSnapshot,
 	browserCDP domain.RunBrowserCDPPermissionSnapshot, selected bool,
+	fileAuthority toolgateway.AgentCodeCallAuthority,
 	workspaceRootFingerprint, capabilityGeneration string,
 ) (string, bool) {
 	expectedDeliverTransition := (current.State == domain.StandardCodeSupervisorInspect ||
@@ -419,8 +423,7 @@ func standardCodeTurnDriftReason(current domain.StandardCodeSupervisorSnapshot,
 		turn.Mode.Phase == domain.ExecutionPhaseDeliver && selected &&
 		current.InspectionComplete
 	if permission.ID != current.PermissionSnapshotID ||
-		permission.Revision != current.PermissionRevision ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+		permission.Revision != current.PermissionRevision {
 		return "permission_drift", expectedDeliverTransition
 	}
 	if turn.Mode.Surface != domain.ExecutionSurfaceCode ||
@@ -460,7 +463,11 @@ func standardCodeTurnDriftReason(current domain.StandardCodeSupervisorSnapshot,
 			Surface:         turn.Mode.Surface, Phase: turn.Mode.Phase,
 			Role: turn.Agent.Role, Profile: turn.Mode.Profile,
 			PermissionMode: permission.Mode, ModeRevision: turn.Mode.Revision,
-			PermissionRevision: permission.Revision,
+			PermissionRevision:     permission.Revision,
+			PermissionSnapshotID:   fileAuthority.PermissionSnapshotID,
+			PermissionGeneration:   fileAuthority.PermissionGeneration,
+			PermissionRuntimeEpoch: fileAuthority.PermissionRuntimeEpoch,
+			RunAuthorizationFence:  fileAuthority.RunAuthorizationFence,
 		}).Generation
 	if capabilityGeneration != expectedCapabilityGeneration ||
 		(current.ExpectedCapabilityGeneration != "" &&
@@ -889,9 +896,13 @@ func (m *standardCodeSupervisorTurn) observeWorkspaceMutation(ctx context.Contex
 					RootFingerprint: checkpoint.RootFingerprint,
 					Surface:         m.turn.Mode.Surface, Phase: m.turn.Mode.Phase,
 					Role: m.turn.Agent.Role, Profile: m.turn.Mode.Profile,
-					PermissionMode:     m.permission.Mode,
-					ModeRevision:       m.snapshot.ModeRevision,
-					PermissionRevision: m.snapshot.PermissionRevision,
+					PermissionMode:         m.permission.Mode,
+					ModeRevision:           m.snapshot.ModeRevision,
+					PermissionRevision:     m.snapshot.PermissionRevision,
+					PermissionSnapshotID:   m.fileAuthority.PermissionSnapshotID,
+					PermissionGeneration:   m.fileAuthority.PermissionGeneration,
+					PermissionRuntimeEpoch: m.fileAuthority.PermissionRuntimeEpoch,
+					RunAuthorizationFence:  m.fileAuthority.RunAuthorizationFence,
 				})
 			if capabilities.Generation == "" {
 				m.snapshot.State = domain.StandardCodeSupervisorStopped

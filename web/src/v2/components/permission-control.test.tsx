@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
+import { LocaleProvider } from "../../lib/locale";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../../api/client";
 import type { WorkspaceFileAttachment } from "../../api/file-attachments";
@@ -11,18 +13,20 @@ import { V2Composer } from "./composer";
 import { v2ImageReferenceKey } from "./image-input";
 import { V2PermissionControl } from "./permission-control";
 
+afterEach(() => window.localStorage.removeItem("prayu.locale.v1"));
+
 function permission(overrides: Partial<ThreadExecutionPermissionView> = {}):
 ThreadExecutionPermissionView {
   return {
     thread_id: "thread-1", protocol_version: "thread_execution_permission.v1",
-    revision: 1, mode: "conservative", approval_policy: "fixed_templates",
+    revision: 1, mode: "ask", approval_mode: "ask", full_activation: "inactive", approval_policy: "fixed_templates",
     command_scope: "fixed_templates", filesystem_scope: "workspace_guarded",
     network_scope: "disabled", persistent_terminal: false, background_process: false,
     agent_terminal_input: false, risk_tier: "minimal",
     required_gate: "conservative_control", policy_version: "execution_permission_policy.v1",
     operator_confirmed: false, runtime_gate_available: true,
     runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-      danger_full_access_enabled: true, debug_maximum_access_enabled: true },
+      danger_full_access_enabled: true,  },
     capability_matrix: { workspace_read: true, workspace_write: true,
       sandboxed_command_runtime: false, unsandboxed_host_process: false,
       network_access: false, credential_access: false, user_home_access: false,
@@ -41,33 +45,7 @@ function control(executionPermission = permission()): ThreadExecutionPermissionC
     current_run_synchronized: true, replayed: false };
 }
 
-function renderPermission(initial = control(), changed = control(permission({
-  mode: "full_access", risk_tier: "high", operator_confirmed: true, revision: 2,
-}))) {
-  const getThreadExecutionPermission = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(changed);
-  const changeThreadExecutionPermission = vi.fn().mockResolvedValue(changed);
-  const client = { hasExecutionPermissionControl: true, getThreadExecutionPermission,
-    changeThreadExecutionPermission } as unknown as CyberAgentClient;
-  const queryClient = new QueryClient({ defaultOptions: {
-    queries: { retry: false }, mutations: { retry: false },
-  } });
-  render(<QueryClientProvider client={queryClient}>
-    <V2PermissionControl client={client} threadID="thread-1" />
-  </QueryClientProvider>);
-  return { getThreadExecutionPermission, changeThreadExecutionPermission };
-}
-
-describe("V2PermissionControl", () => {
-  it.each([
-    ["full_access", "完全访问", "lucide-shield-off"],
-    ["debug", "调试模式", "lucide-bug"],
-  ] as const)("shows the saved %s risk icon without suggesting conservative protection", async (mode, label, icon) => {
-    renderPermission(control(permission({ mode, risk_tier: "high" })));
-    const trigger = await screen.findByRole("button", { name: label });
-    expect(trigger.querySelector(`.${icon}`)).not.toBeNull();
-    expect(trigger.querySelector(".lucide-shield-check")).toBeNull();
-  });
-
+describe("Composer permission integration", () => {
   it("reads webpage and search status only when expanded inside permissions, without granting access", async () => {
     const user = userEvent.setup();
     const get = vi.fn().mockResolvedValue({ run: { status: "paused" },
@@ -80,16 +58,16 @@ describe("V2PermissionControl", () => {
       changeThreadExecutionPermission, expandRunNetworkAuthority } as unknown as CyberAgentClient;
     const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queries}><V2PermissionControl client={client} threadID="thread-1" /></QueryClientProvider>);
-    await user.click(await screen.findByRole("button", { name: "保守模式" }));
+    await user.click(await screen.findByRole("button", { name: "请求批准" }));
     expect(get).not.toHaveBeenCalled(); expect(providerSearchReadiness).not.toHaveBeenCalled();
-    await user.click(screen.getByText("网页访问与搜索"));
+    await user.click(screen.getByRole("button", { name: "网页访问与搜索" }));
     expect(await screen.findByText("网页搜索 · 搜索待验证")).toBeInTheDocument();
     expect(screen.getByText("直接 URL 抓取")).toBeInTheDocument();
     expect(get).toHaveBeenCalledExactlyOnceWith("/runs/run-1", {}, expect.any(AbortSignal));
     expect(providerSearchReadiness).toHaveBeenCalledExactlyOnceWith("thread-1", expect.any(AbortSignal));
     expect(changeThreadExecutionPermission).not.toHaveBeenCalled();
     expect(expandRunNetworkAuthority).not.toHaveBeenCalled();
-    await user.click(screen.getByText("网页访问与搜索"));
+    await user.click(screen.getByRole("button", { name: "网页访问与搜索" }));
     await waitFor(() => expect(screen.queryByText("直接 URL 抓取")).not.toBeInTheDocument());
   });
 
@@ -107,7 +85,7 @@ describe("V2PermissionControl", () => {
     const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     queries.setQueryData(v2ImageReferenceKey(workspaceID, "thread-1"), [image]);
     queries.setQueryData(v2AttachmentReferenceKey(workspaceID, "thread-1"), files);
-    const changed = control(permission({ mode: "full_access", revision: 2, operator_confirmed: true }));
+    const changed = control(permission({ mode: "full", approval_mode: "full", full_activation: "active", revision: 2, operator_confirmed: true }));
     const changeThreadExecutionPermission = vi.fn().mockResolvedValue(changed);
     const client = { baseURL: "/api/v1", hasThreadControl: true, hasModelControl: true,
       hasExecutionPermissionControl: true,
@@ -123,10 +101,10 @@ describe("V2PermissionControl", () => {
     fireEvent.change(textarea, { target: { value: draft } });
     await waitFor(() => expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled());
     const openConfirmation = async () => {
-      await user.click(await screen.findByRole("button", { name: "保守模式" }));
-      await user.click(within(screen.getByRole("group", { name: "对话执行权限" }))
-        .getByRole("button", { name: /完全访问/u }));
-      return screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
+      await user.click(await screen.findByRole("button", { name: "请求批准" }));
+      await user.click(within(screen.getByRole("group", { name: "执行权限档位" }))
+        .getByRole("menuitemradio", { name: "完全访问权限" }));
+      return screen.getByRole("dialog", { name: "启用完全访问权限？" });
     };
     const cancelled = await openConfirmation();
     await user.click(within(cancelled).getByRole("button", { name: "取消" }));
@@ -135,13 +113,13 @@ describe("V2PermissionControl", () => {
     expect(textarea).toHaveValue(draft);
 
     const dialog = await openConfirmation();
-    const confirm = within(dialog).getByRole("button", { name: "启用完全访问" });
+    const confirm = within(dialog).getByRole("button", { name: "确认启用" });
     if (activation === "click") await user.click(confirm);
     else { confirm.focus(); await user.keyboard("{Enter}"); }
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(changeThreadExecutionPermission).toHaveBeenCalledExactlyOnceWith("thread-1", {
-      mode: "full_access", reason: "v2 Thread permission selection", confirm_danger_full_access: true,
-    }, expect.stringMatching(/^v2-thread-permission-/u));
+      mode: "full", reason: "Thread approval preference selection", confirm_full: true,
+    }, expect.stringMatching(/^thread-approval-preference-/u));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea).toHaveValue(draft);
     expect(queries.getQueryData(v2ImageReferenceKey(workspaceID, "thread-1"))).toEqual([image]);
@@ -172,7 +150,7 @@ describe("V2PermissionControl", () => {
     fireEvent.change(textarea, { target: { value: "搜索文件不能代我发送" } });
     await user.click(screen.getByRole("button", { name: "添加附件" }));
     await user.click(screen.getByRole("menuitem", { name: /引用项目文件/u }));
-    const search = await screen.findByRole("searchbox", { name: "Search Workspace evidence" });
+    const search = await screen.findByRole("searchbox", { name: "搜索工作区证据" });
     await user.type(search, "README{Enter}");
     await waitFor(() => expect(workspaceSearch).toHaveBeenCalledExactlyOnceWith("workspace-1", "README", expect.any(AbortSignal)));
     expect(onSubmit).not.toHaveBeenCalled();
@@ -182,157 +160,10 @@ describe("V2PermissionControl", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("搜索文件不能代我发送"));
   });
 
-  it("requires explicit confirmation and sends the exact full-access acknowledgement", async () => {
-    const user = userEvent.setup();
-    const controls = renderPermission();
-    const trigger = await screen.findByRole("button", { name: "保守模式" });
-    await user.click(trigger);
-    const options = screen.getByRole("group", { name: "对话执行权限" });
-    await user.click(within(options).getByRole("button", { name: /完全访问/u }));
-
-    expect(controls.changeThreadExecutionPermission).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
-    expect(within(dialog).getByText(/完整 CDP 默认开启，可单独关闭/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/当前执行必须已暂停并处于静止边界/u)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "启用完全访问" }));
-
-    await waitFor(() => expect(controls.changeThreadExecutionPermission).toHaveBeenCalledWith(
-      "thread-1",
-      { mode: "full_access", reason: "v2 Thread permission selection",
-        confirm_danger_full_access: true },
-      expect.stringMatching(/^v2-thread-permission-/u),
-    ));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveFocus();
-  });
-
-  it("returns focus to the permission chip when a popover confirmation is cancelled", async () => {
-    const user = userEvent.setup();
-    renderPermission();
-    const trigger = await screen.findByRole("button", { name: "保守模式" });
-    await user.click(trigger);
-    await user.click(within(screen.getByRole("group", { name: "对话执行权限" }))
-      .getByRole("button", { name: /完全访问/u }));
-    const dialog = screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
-
-    await user.click(within(dialog).getByRole("button", { name: "取消" }));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-  });
-
-  it("disables permission levels whose runtime gates are unavailable", async () => {
-    const user = userEvent.setup();
-    renderPermission(control(permission({ runtime: {
-      workspace_sandbox_enabled: false, operator_approval_enabled: true,
-      danger_full_access_enabled: false, debug_maximum_access_enabled: false,
-    } })));
-    await user.click(await screen.findByRole("button", { name: "保守模式" }));
-    const options = screen.getByRole("group", { name: "对话执行权限" });
-    expect(within(options).getByRole("button", { name: /工作区访问/u })).toBeDisabled();
-    expect(within(options).getByRole("button", { name: /完全访问/u })).toBeDisabled();
-    expect(within(options).getByRole("button", { name: /调试模式/u })).toBeDisabled();
-  });
-
-  it("can reactivate a persisted Full choice after a safe cold start", async () => {
-    const user = userEvent.setup();
-    const initial = control(permission({
-      mode: "full_access", approval_policy: "none", command_scope: "arbitrary_stateless",
-      filesystem_scope: "host_full", network_scope: "host", risk_tier: "high",
-      required_gate: "danger_full_access", operator_confirmed: true,
-      runtime_gate_available: false,
-      runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-        danger_full_access_enabled: true, debug_maximum_access_enabled: false },
-    }));
-    const activated = control(permission({
-      mode: "full_access", approval_policy: "none", command_scope: "arbitrary_stateless",
-      filesystem_scope: "host_full", network_scope: "host", risk_tier: "high",
-      required_gate: "danger_full_access", operator_confirmed: true, revision: 3,
-      runtime_gate_available: true,
-      runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-        danger_full_access_enabled: true, debug_maximum_access_enabled: false },
-    }));
-    const controls = renderPermission(initial, activated);
-
-    const trigger = await screen.findByRole("button", { name: "完全访问" });
-    await user.click(trigger);
-    expect(screen.getByText("已选择 · 当前进程未授权")).toBeInTheDocument();
-    const selected = within(screen.getByRole("group", { name: "对话执行权限" }))
-      .getByRole("button", { name: "完全访问" });
-    expect(selected).toHaveAttribute("aria-pressed", "true");
-    expect(selected).toBeEnabled();
-    expect(selected).toHaveTextContent("已保存 · 暂停且静止后确认激活");
-
-    await user.click(selected);
-    const dialog = screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
-    await user.click(within(dialog).getByRole("button", { name: "启用完全访问" }));
-
-    await waitFor(() => expect(controls.changeThreadExecutionPermission).toHaveBeenCalledWith(
-      "thread-1",
-      { mode: "full_access", reason: "v2 Thread permission selection",
-        confirm_danger_full_access: true },
-      expect.stringMatching(/^v2-thread-permission-/u),
-    ));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await user.click(trigger);
-    expect(await screen.findByText("已应用到当前和后续执行")).toBeInTheDocument();
-  });
-
-  it("requires Full Access confirmation when a persisted Debug choice is cold", async () => {
-    const user = userEvent.setup();
-    const initial = control(permission({
-      mode: "debug", approval_policy: "none", command_scope: "arbitrary_persistent",
-      filesystem_scope: "host_full", network_scope: "host", risk_tier: "high",
-      required_gate: "debug_maximum_access", operator_confirmed: true,
-      persistent_terminal: true, background_process: true, agent_terminal_input: true,
-      runtime_gate_available: false,
-      runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-        danger_full_access_enabled: true, debug_maximum_access_enabled: false },
-    }));
-    const activated = control(permission({
-      mode: "full_access", approval_policy: "none", command_scope: "arbitrary_stateless",
-      filesystem_scope: "host_full", network_scope: "host", risk_tier: "high",
-      required_gate: "danger_full_access", operator_confirmed: true, revision: 3,
-      runtime_gate_available: true,
-      runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-        danger_full_access_enabled: true, debug_maximum_access_enabled: false },
-    }));
-    const controls = renderPermission(initial, activated);
-
-    await user.click(await screen.findByRole("button", { name: "调试模式" }));
-    await user.click(within(screen.getByRole("group", { name: "对话执行权限" }))
-      .getByRole("button", { name: "完全访问" }));
-
-    expect(controls.changeThreadExecutionPermission).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("dialog", { name: "要开启完全访问权限吗？" });
-    await user.click(within(dialog).getByRole("button", { name: "启用完全访问" }));
-    await waitFor(() => expect(controls.changeThreadExecutionPermission).toHaveBeenCalledWith(
-      "thread-1",
-      { mode: "full_access", reason: "v2 Thread permission selection",
-        confirm_danger_full_access: true },
-      expect.stringMatching(/^v2-thread-permission-/u),
-    ));
-  });
-
-  it("drops a high-risk task to conservative mode immediately without another dialog", async () => {
-    const user = userEvent.setup();
-    const initial = control(permission({
-      mode: "full_access", approval_policy: "none", command_scope: "arbitrary_stateless",
-      filesystem_scope: "host_full", network_scope: "host", risk_tier: "high",
-      required_gate: "danger_full_access", operator_confirmed: true,
-    }));
-    const changed = control(permission({ revision: 3 }));
-    const controls = renderPermission(initial, changed);
-    await user.click(await screen.findByRole("button", { name: "完全访问" }));
-
-    await user.click(screen.getByRole("button", { name: /立即降为保守模式/u }));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await waitFor(() => expect(controls.changeThreadExecutionPermission).toHaveBeenCalledWith(
-      "thread-1",
-      { mode: "conservative", reason: "v2 Thread permission selection" },
-      expect.stringMatching(/^v2-thread-permission-/u),
-    ));
-  });
 });
+
+// Match the production locale boundary instead of the isolated English default.
+function render(ui: ReactNode) {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
+  return renderComponent(ui, { wrapper: LocaleProvider });
+}

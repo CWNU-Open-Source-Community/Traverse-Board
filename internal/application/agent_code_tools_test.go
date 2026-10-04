@@ -52,12 +52,12 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(state, runtimeCapabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: created.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: created.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "auto-file-edit-full-permission-0001", RequestedBy: "test_operator",
-			Reason: "select Full Access for ordinary file edits", ConfirmDangerFullAccess: true})
+			Reason: "select Full Access for ordinary file edits", ConfirmFull: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +94,18 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	fence, err := runtimeAuthority.IssueRunAuthorizationFence(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	capabilityContext := toolgateway.AgentCodeCapabilityContext{
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: rootAgent.ID,
 		WorkspaceID: workspaceRecord.ID, RootFingerprint: rootFingerprint,
 		Surface: mode.Surface, Phase: mode.Phase, Role: rootAgent.Role,
 		Profile: rootAgent.Profile, PermissionMode: permission.Mode,
 		PermissionSnapshotID: permission.ID, PermissionGeneration: generation,
-		PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(),
-		ModeRevision:           mode.Revision, PermissionRevision: permission.Revision}
+		PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence,
+		ModeRevision: mode.Revision, PermissionRevision: permission.Revision}
 	scope := toolgateway.AgentCodeExecutionScope{
 		InvocationID: "auto-file-edit-propose-invocation", OperationKey: "auto-file-edit-create-0001",
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: rootAgent.ID,
@@ -110,15 +114,15 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 		Surface: mode.Surface, Phase: mode.Phase, Role: rootAgent.Role,
 		Profile: rootAgent.Profile, PermissionMode: permission.Mode,
 		PermissionSnapshotID: permission.ID, PermissionGeneration: generation,
-		PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(),
-		ModeRevision:           mode.Revision, PermissionRevision: permission.Revision,
+		PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence,
+		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
 		CapabilityGeneration: toolgateway.AgentCodeCapabilities(capabilityContext).Generation,
 		LeaseID:              lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{
 			Allowed: true, Approval: toolgateway.ApprovalAutomatic,
 			Risk: "low", Reason: "test allowed"}}
-	executor := application.NewAgentCodeToolExecutor(state,
-		policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(runtimeCapabilities)
+	checker := &fileOperationPolicy{reviewDelete: true}
+	executor := application.NewAgentCodeToolExecutor(state, checker).WithExecutionPermissionCapabilities(runtimeCapabilities)
 	proposed, err := executor.ExecuteAgentCode(ctx, scope, toolgateway.WorkspaceChangeTool,
 		mustAgentCodePayload(t, toolgateway.WorkspaceChangePayload{
 			Version: toolgateway.AgentCodeRegistryVersion, Action: "create",
@@ -133,7 +137,7 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 	}
 	if edit.Status != fileedit.StatusApproved || proposalResult["review_required"] != false ||
 		proposalResult["apply_authorized"] != true ||
-		proposalResult["authorization_source"] != "full_access_automatic" {
+		proposalResult["authorization_source"] != "operation_policy_automatic" {
 		t.Fatalf("Full Access proposal was not automatically authorized: %s", proposed.JSON)
 	}
 	approvalRecord, err := state.GetApprovalByProposal(ctx, edit.EditID)
@@ -374,7 +378,7 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 	}
 	if moveEdit.Status != fileedit.StatusApproved || moveProposal["review_required"] != false ||
 		moveProposal["apply_authorized"] != true ||
-		moveProposal["authorization_source"] != "full_access_automatic" {
+		moveProposal["authorization_source"] != "operation_policy_automatic" {
 		t.Fatalf("Full Access move was not automatically authorized: %s", moveResult.JSON)
 	}
 	if _, err := os.Stat(filepath.Join(rootPath, "moved.txt")); !os.IsNotExist(err) {
@@ -615,7 +619,7 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 		AppliedBy: rootAgent.ID, InvocationID: "auto-file-edit-pending-apply-invocation",
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
 		LeaseGeneration: scope.LeaseGeneration, PermissionSnapshotID: permission.ID,
-		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch()}
+		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence}
 	applyService := application.NewFileEditApplyService(state,
 		policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(runtimeCapabilities)
 	completedReplay, err := applyService.Apply(ctx, application.ApplyFileEditRequest{
@@ -624,7 +628,7 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 		AppliedBy: rootAgent.ID, InvocationID: applyScope.InvocationID,
 		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
 		LeaseGeneration: scope.LeaseGeneration, PermissionSnapshotID: permission.ID,
-		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch()})
+		PermissionGeneration: generation, PermissionRuntimeEpoch: runtimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence})
 	if err != nil || !completedReplay.Replayed || completedReplay.FileWritten {
 		t.Fatalf("completed FileEdit receipt was not read-only after revoke: result=%+v err=%v",
 			completedReplay, err)
@@ -729,10 +733,9 @@ func testAgentCodeReviewedCreate(t *testing.T, targetPath string) {
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
 	if _, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: created.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+			RunID: created.ID, Mode: string(domain.RunExecutionPermissionAuto),
 			OperationKey: "agent-code-permission-setup-0001", RequestedBy: "test_operator",
-			Reason:                 "select workspace access before exercising Agent Code",
-			ConfirmWorkspaceAccess: true,
+			Reason: "select workspace access before exercising Agent Code",
 		}); err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +769,7 @@ func testAgentCodeReviewedCreate(t *testing.T, targetPath string) {
 		MissionID: mission.ID, RootAgentID: rootAgent.ID, WorkspaceID: record.ID,
 		RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: rootAgent.Role, Profile: rootAgent.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision}
+		PermissionSnapshotID: permission.ID, ModeRevision: mode.Revision, PermissionRevision: permission.Revision}
 	capabilities := toolgateway.AgentCodeCapabilities(capabilityContext)
 	scope := toolgateway.AgentCodeExecutionScope{InvocationID: "invocation-agent-code-1",
 		OperationKey: "agent-code-create-operation-0001", RunID: run.ID,
@@ -774,12 +777,12 @@ func testAgentCodeReviewedCreate(t *testing.T, targetPath string) {
 		WorkspaceID: record.ID, WorkspaceRoot: workspaceRoot,
 		RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
 		Role: rootAgent.Role, Profile: rootAgent.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
+		PermissionSnapshotID: permission.ID, ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
 		CapabilityGeneration: capabilities.Generation, LeaseID: leaseResult.Lease.LeaseID,
 		LeaseGeneration: leaseResult.Lease.Generation, RequestedBy: "run_supervisor",
 		PolicyDecision: toolgateway.Decision{Allowed: true,
 			Approval: toolgateway.ApprovalAutomatic, Risk: "low", Reason: "test allowed"}}
-	executor := application.NewAgentCodeToolExecutor(state, policy.NewDefaultChecker())
+	executor := application.NewAgentCodeToolExecutor(state, &fileOperationPolicy{review: true})
 
 	createPayload := mustAgentCodePayload(t, toolgateway.WorkspaceChangePayload{
 		Version: toolgateway.AgentCodeRegistryVersion, Action: "create", Path: targetPath,
@@ -957,7 +960,7 @@ func testAgentCodeReviewedCreate(t *testing.T, targetPath string) {
 	}
 	permissionResult, err := permissionService.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionConservative),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk),
 			OperationKey: "agent-code-permission-drift-0001", RequestedBy: "test_operator",
 			Reason: "verify permission revision fencing through a quiescent downgrade",
 		})

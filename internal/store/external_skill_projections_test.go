@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 )
 
 func TestExternalSkillProjectionIsBoundedReadOnlyAndMetadataOnly(t *testing.T) {
@@ -80,8 +81,8 @@ func TestExternalSkillProjectionIsBoundedReadOnlyAndMetadataOnly(t *testing.T) {
 func TestSchemaV70ExternalSelectionUpgradesToProjectionWithoutFabricatingFacts(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "external-skill-projection-upgrade.db")
-	st, run, _, _ := createExternalSkillProjectionFixture(t, path)
-	_, runWithoutSelection, err := application.NewRunService(st).Create(ctx,
+	st, run, _, _ := createExternalSkillProjectionFixture(t, path, 177)
+	_, runWithoutSelection, err := newMigrationFixtureRunService(t, st).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "projection migration must not invent a selection", Profile: "review",
 			Budget: domain.Budget{MaxTurns: 2, MaxTokens: 1024},
@@ -138,19 +139,25 @@ func TestSchemaV70ExternalSelectionUpgradesToProjectionWithoutFabricatingFacts(t
 	}
 }
 
-func createExternalSkillProjectionFixture(t *testing.T, path string) (*SQLiteStore,
+func createExternalSkillProjectionFixture(t *testing.T, path string, historicalVersion ...int) (*SQLiteStore,
 	domain.Run, skills.PackageInstallation, application.SelectExternalSkillsResult,
 ) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := Open(path)
+	var st *SQLiteStore
+	var err error
+	if len(historicalVersion) == 0 {
+		st, err = Open(path)
+	} else {
+		st, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation, operation, result := fixturePackageInstallation(t,
+	installation, _, result := fixturePackageInstallation(t,
 		"projection-review", "1.0.0", "projection-install-operation",
 		time.Now().UTC().Add(-time.Minute))
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+	if err := legacyskill.Insert(ctx, st.db, installation); err != nil {
 		_ = st.Close()
 		t.Fatal(err)
 	}
@@ -158,7 +165,7 @@ func createExternalSkillProjectionFixture(t *testing.T, path string) (*SQLiteSto
 		_ = st.Close()
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(st).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "inspect safe external Skill provenance", Profile: "review",
 			Budget: domain.Budget{MaxTurns: 4, MaxTokens: 4096},
@@ -167,7 +174,11 @@ func createExternalSkillProjectionFixture(t *testing.T, path string) (*SQLiteSto
 		_ = st.Close()
 		t.Fatal(err)
 	}
-	selected, err := application.NewExternalSkillSelectionService(st).Select(ctx,
+	var selectionStore application.ExternalSkillSelectionStore = st
+	if len(historicalVersion) != 0 {
+		selectionStore = historicalExternalSelectionSeedStore{st}
+	}
+	selected, err := application.NewExternalSkillSelectionService(selectionStore).Select(ctx,
 		application.SelectExternalSkillsRequest{
 			RunID: run.ID, PackageRefs: []string{"projection-review@1.0.0"},
 			SpecialistRef: "projection-review@1.0.0", TokenBudget: 1024,

@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runmutation"
 )
 
 func removeSchemaV153ForTestStatements() []string {
@@ -38,12 +40,29 @@ func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	applied, err := application.NewFileEditApplyService(state, policy.NewDefaultChecker(), nil).Apply(ctx,
-		application.ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: run.ID, EditID: reviewed.Edit.ID,
-			OperationKey: "v152-historical-source-apply", AppliedBy: "test_operator"})
-	if err != nil || !applied.FileWritten {
-		t.Fatalf("legacy source apply: %+v %v", applied, err)
+	// This is a v152 database fixture, not a request to the current executor.
+	// Preserve its historical operation, receipt and published bytes directly.
+	operationSeed := v153ApplyOperation(run, reviewed.Edit, "v152-historical-source-apply")
+	operationSeed.KeyDigest = runmutation.FileEditApplyOperationDigest(run.ID, edit.ID, "v152-historical-source-apply")
+	operationSeed.RequestFingerprint = runmutation.FileEditApplyRequestFingerprint(run.ID, edit.ID, "test_operator")
+	historicalOperation, _, _, err := state.PrepareFileEditApply(ctx, operationSeed)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(source.RootPath, reviewed.Edit.Path), []byte(reviewed.Edit.ProposedText), 0600); err != nil {
+		t.Fatal(err)
+	}
+	historicalEdit := reviewed.Edit
+	historicalEdit.Status = fileedit.StatusApplied
+	historicalEdit, err = state.SaveFileEdit(ctx, historicalEdit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalResult, _, err := state.CompleteFileEditApply(ctx, fileedit.ApplyResult{OperationKeyDigest: historicalOperation.KeyDigest, Status: fileedit.ApplyCompleted, CompletedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := application.ApplyFileEditResult{Operation: historicalOperation, Result: historicalResult, Edit: historicalEdit}
 	ledgerBefore, err := state.loadAppliedMigrations(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +102,18 @@ func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T
 			OperationKey: "v152-historical-source-apply", AppliedBy: "test_operator"})
 	if err != nil || !replay.Replayed || replay.Operation != applied.Operation {
 		t.Fatalf("historical replay: %+v %v", replay, err)
+	}
+	// Historical permissions grant no new execution. Select the current Ask
+	// mode before exercising a freshly reviewed source-only application.
+	runs := application.NewRunService(upgraded)
+	if _, err := runs.Pause(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionPermissionService(upgraded, domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: string(domain.RunExecutionPermissionAsk), OperationKey: "v153-current-ask", RequestedBy: "test_operator"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
 	}
 	// The new guard also preserves ordinary source-only application.
 	next := v153Propose(t, upgraded, run, source.ID, source.RootPath, "ordinary-after-upgrade", time.Now().UTC())
@@ -216,7 +247,7 @@ func newV153SourceRun(t *testing.T, state *SQLiteStore, suffix string) (domain.R
 	if err := state.SaveWorkspace(t.Context(), workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(t.Context(), application.CreateRunRequest{Goal: "v153 " + suffix, Profile: "code", WorkspaceID: workspace.ID})
+	_, run, err := newMigrationFixtureRunService(t, state).Create(t.Context(), application.CreateRunRequest{Goal: "v153 " + suffix, Profile: "code", WorkspaceID: workspace.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

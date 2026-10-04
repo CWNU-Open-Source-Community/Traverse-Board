@@ -33,15 +33,14 @@ func (b *diagnosticBackend) Search(context.Context, string, int, webevidence.Net
 
 func diagnosticStore() *providerSearchReadinessStoreFake {
 	return &providerSearchReadinessStoreFake{
-		thread:     domain.Thread{ID: "thread-search-check", ActiveRunID: "run-search-check"},
-		run:        domain.Run{ID: "run-search-check", Config: domain.RunConfig{ModelRoute: "code"}},
-		mode:       domain.RunModeSnapshot{Revision: 3, Scope: domain.Scope{NetworkMode: "allowlist", AllowedTargets: []string{"search.example.com"}}},
-		permission: domain.RunExecutionPermissionSnapshot{Mode: domain.RunExecutionPermissionConservative, Revision: 1},
+		thread: domain.Thread{ID: "thread-search-check", ActiveRunID: "run-search-check"},
+		run:    domain.Run{ID: "run-search-check", Config: domain.RunConfig{ModelRoute: "code"}},
+		mode:   domain.RunModeSnapshot{Revision: 3, Scope: domain.Scope{NetworkMode: "allowlist", AllowedTargets: []string{"search.example.com"}}},
 	}
 }
 
 func TestSearchDiagnosticsProbeAndConfigurationDrift(t *testing.T) {
-	for _, change := range []string{"none", "permission", "run", "route", "rate_limit", "disabled"} {
+	for _, change := range []string{"none", "mode", "run", "route", "rate_limit", "shell_network_disabled"} {
 		t.Run(change, func(t *testing.T) {
 			definition := testProviderSearchDefinition("diagnostic-drift", modelregistry.ProviderSearchModeSearXNG)
 			registry, settings, credentials := testProviderSearchRegistry(t, definition)
@@ -53,8 +52,8 @@ func TestSearchDiagnosticsProbeAndConfigurationDrift(t *testing.T) {
 			st := diagnosticStore()
 			backend.action = func() {
 				switch change {
-				case "permission":
-					st.permission.Revision++
+				case "mode":
+					st.mode.Revision++
 				case "run":
 					st.thread.ActiveRunID = "run-other"
 					st.run.ID = "run-other"
@@ -68,8 +67,9 @@ func TestSearchDiagnosticsProbeAndConfigurationDrift(t *testing.T) {
 			if change == "rate_limit" {
 				backend.err = &webevidence.SearchDiagnosticError{Code: "rate_limited", HTTPStatus: 429, RetryAfter: "60", Message: "limited"}
 			}
-			if change == "disabled" {
+			if change == "shell_network_disabled" {
 				st.mode.Scope.NetworkMode = "disabled"
+				st.mode.Scope.AllowedTargets = nil
 			}
 			service := NewProviderSearchReadinessService(st, resolver)
 			if _, err := service.Get(t.Context(), st.thread.ID); err != nil {
@@ -83,15 +83,10 @@ func TestSearchDiagnosticsProbeAndConfigurationDrift(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch change {
-			case "none":
+			case "none", "shell_network_disabled":
 				if got.State != "succeeded" || got.Code != "none" || got.ResultCount != 1 {
 					t.Fatalf("%+v", got)
 				}
-			case "disabled":
-				if got.Code != "not_authorized" || got.NetworkRequestAttempted || backend.calls != 0 {
-					t.Fatalf("%+v calls=%d", got, backend.calls)
-				}
-				return
 			case "rate_limit":
 				if got.Code != "rate_limited" || got.HTTPStatus != 429 || got.RetryAfter != "60" {
 					t.Fatalf("%+v", got)

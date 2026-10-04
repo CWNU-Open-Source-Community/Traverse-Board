@@ -1761,17 +1761,36 @@ func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
 			repository.DrydockObservation{}, apperror.New(apperror.CodeFailedPrecondition,
 				"Drydock requires operator recovery")
 	}
-	source, err := s.executor.InspectSource(ctx, binding.workspace.ID,
+	// These are independent read-only observations of the source and its owned
+	// worktree. The stored common-directory digest is only a lookup coordinate,
+	// not an authority result: both repositories are inspected afresh below and
+	// all source, root, branch and ancestry checks still have to succeed. Keeping
+	// results local to this call also prevents a later execution fence from using
+	// a previous inspection after files or authority have changed.
+	observationCtx, cancelObservation := context.WithCancel(ctx)
+	defer cancelObservation()
+	var observed repository.DrydockObservation
+	var observationErr error
+	observedDone := make(chan struct{})
+	go func() {
+		defer close(observedDone)
+		observed, observationErr = s.executor.Inspect(observationCtx,
+			binding.workspace.RootPath,
+			gitadvanced.RepositoryBinding{CommonDirSHA256: workspace.Source.CommonDirSHA256},
+			workspace.Name)
+	}()
+	source, err := s.executor.InspectSource(observationCtx, binding.workspace.ID,
 		binding.workspace.RootPath)
 	if err != nil || source.Identity.Fingerprint() != workspace.Source.Fingerprint() {
+		cancelObservation()
+		<-observedDone
 		return workspace, source, repository.DrydockObservation{},
 			apperror.New(apperror.CodeConflict,
 				"Drydock source root, repository, branch, or base commit drifted")
 	}
-	observed, err := s.executor.Inspect(ctx, source.Identity.RootPath, source.Binding,
-		workspace.Name)
-	if err != nil {
-		return workspace, source, observed, apperror.Normalize(err)
+	<-observedDone
+	if observationErr != nil {
+		return workspace, source, observed, apperror.Normalize(observationErr)
 	}
 	if err := s.validateObservation(ctx, workspace, observed); err != nil {
 		return workspace, source, observed, apperror.Normalize(err)

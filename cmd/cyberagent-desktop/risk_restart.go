@@ -151,7 +151,6 @@ func desktopOptionsForRiskProfile(profile desktop.DesktopRiskProfile) (desktopOp
 	config := desktopOptions{riskProfileRestart: true}
 	enableSafeDesktopProductBundle(&config)
 	if profile == desktop.DesktopRiskProfileDebug {
-		config.debugMaximumAccess = true
 		config.userTerminal = true
 	}
 	return config, nil
@@ -235,10 +234,9 @@ func desktopRiskRestartDialogOptions(profile desktop.DesktopRiskProfile) (
 	message := ""
 	switch profile {
 	case desktop.DesktopRiskProfileDebug:
-		message = "调试模式包含完整访问，并额外启用用户持久终端和后台进程。\n\n" +
-			"重启只初始化调试运行时；已保存的完全访问任务不会因此自动获得动态授权。" +
-			"完整 CDP 是完全访问和调试中的可选子能力，进入这些模式时默认开启，也可在权限页单独关闭。\n\n" +
-			"Agent 终端输入仍默认关闭并需要独立的限时授权。关闭应用后，普通启动会恢复安全默认。"
+		message = "重启以启用用户终端。终端由用户所有，Agent 输入默认关闭。\n\n" +
+			"Agent 输入仍需要当前任务的 Full 激活、Debug 交互和单独的限时终端授权。" +
+			"重启不会恢复已保存任务的执行权；终端撤销、取消和退出清理继续生效。"
 	default:
 		return runtime.MessageDialogOptions{}, errors.New("desktop risk profile is invalid")
 	}

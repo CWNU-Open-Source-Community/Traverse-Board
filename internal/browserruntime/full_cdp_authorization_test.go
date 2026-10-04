@@ -43,7 +43,7 @@ func fullCDPAuthorizationFacts(t *testing.T) (SessionPlan, BrowserExecutableIden
 	return session, identity, acceptance, full
 }
 
-func fullCDPExecutionFacts(t *testing.T, session SessionPlan) (
+func fullCDPExecutionFacts(t *testing.T, session SessionPlan, retained ...domain.RunExecutionPermissionMode) (
 	domain.RunExecutionPermissionSnapshot,
 	domain.ExecutionPermissionRuntimeCapabilities, uint64,
 ) {
@@ -57,23 +57,31 @@ func fullCDPExecutionFacts(t *testing.T, session SessionPlan) (
 	if err != nil {
 		t.Fatal(err)
 	}
+	mode := domain.RunExecutionPermissionFull
+	if len(retained) == 1 {
+		mode = retained[0]
+	}
+	if len(retained) > 1 {
+		t.Fatal("too many retained CDP permissions")
+	}
 	full, err := initial.Next("execution-permission-full",
-		domain.RunExecutionPermissionFullAccess, true, "runtime-test-operator",
+		mode, true, "runtime-test-operator",
 		"confirm full access for CDP", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
-	if _, err := authority.ActivateRunFullAccess(full); err != nil {
-		t.Fatal(err)
+	if mode == domain.RunExecutionPermissionFull {
+		if _, err := authority.ActivateRunFullAccess(full); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fence, err := authority.IssueRunAuthorizationFence(session.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	return full, capabilities, fence
 }
@@ -220,6 +228,41 @@ func TestValidateFullCDPAuthorizationRejectsTampering(t *testing.T) {
 			if err := ValidateFullCDPAuthorization(receipt, session,
 				identity, full, executionPermission, executionCapabilities); err == nil {
 				t.Fatal("tampered full CDP authorization was accepted")
+			}
+		})
+	}
+}
+
+// Retained v1 snapshots stay readable but cannot issue new native authority.
+func TestFullCDPCurrentFullKeepsFenceAndLegacyModesCannotStart(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionFull, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
+		t.Run(string(mode), func(t *testing.T) {
+			session, identity, acceptance, permission := fullCDPAuthorizationFacts(t)
+			execution, caps, fence := fullCDPExecutionFacts(t, session, mode)
+			runtimeCaps := FullCDPRuntimeCapabilities{StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true}
+			permissionCaps := domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true, FullDebugEnabled: true}
+			auth, err := AuthorizeFullCDP(session, identity, acceptance, permission, execution, runtimeCaps, permissionCaps, caps, fence, true, time.Now().UTC())
+			if mode != domain.RunExecutionPermissionFull {
+				if err == nil {
+					t.Fatal("historical mode authorized new native browser")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if auth.ExecutionPermissionMode != string(mode) {
+				t.Fatal("permission provenance was relabeled")
+			}
+			if err := ValidateFullCDPAuthorization(auth, session, identity, permission, execution, caps); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := AuthorizeFullCDP(session, identity, acceptance, permission, execution, runtimeCaps, permissionCaps, caps, fence, false, time.Now().UTC()); err == nil {
+				t.Fatal("missing exact confirmation accepted")
+			}
+			caps.RuntimeAuthority.RevokeRun(session.RunID)
+			if err := ValidateFullCDPAuthorization(auth, session, identity, permission, execution, caps); err == nil {
+				t.Fatal("revoked browser authority accepted")
 			}
 		})
 	}

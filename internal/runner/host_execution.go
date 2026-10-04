@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 )
 
 const (
@@ -265,39 +263,6 @@ func HostExecutionIntentFingerprint(intent HostExecutionIntent) string {
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
-}
-
-type HostExecutionRequest struct {
-	Intent              HostExecutionIntent
-	Environment         []string
-	Interaction         domain.RunExecutionInteractionSnapshot
-	CurrentProfile      domain.RunExecutionProfileSnapshot
-	Permission          domain.RunExecutionPermissionSnapshot
-	Runtime             domain.ExecutionPermissionRuntimeCapabilities
-	CurrentSurface      domain.ExecutionSurface
-	RequestedBy         string
-	ExplicitlyConfirmed bool
-	Review              *HostCommandReview
-	Escalation          *RiskEscalationAuthorization
-}
-
-type HostStartSpec struct {
-	RequestID   string
-	Command     HostCommandSpec
-	Environment []string
-}
-
-func (s HostStartSpec) Validate() error {
-	if !validIdentity(s.RequestID) || s.Command.Validate() != nil {
-		return ErrHostCommandBoundary
-	}
-	environment, keys, digest, err := normalizeHostEnvironment(s.Environment)
-	if err != nil || len(environment) == 0 ||
-		!equalStrings(keys, s.Command.EnvironmentKeys) ||
-		digest != s.Command.EnvironmentSHA256 {
-		return ErrHostCommandBoundary
-	}
-	return nil
 }
 
 type HostStartResult struct {
@@ -562,201 +527,4 @@ func ProjectHostExecutionReceipt(
 		return HostExecutionReceipt{}, err
 	}
 	return receipt, nil
-}
-
-type HostProcessStarter interface {
-	Name() string
-	Available() bool
-	Start(context.Context, HostStartSpec) (HostStartResult, error)
-}
-
-type HostExecutor struct {
-	starter HostProcessStarter
-}
-
-func NewHostExecutor(starter HostProcessStarter) (*HostExecutor, error) {
-	if starter == nil || !validIdentity(starter.Name()) {
-		return nil, ErrHostCommandBoundary
-	}
-	return &HostExecutor{starter: starter}, nil
-}
-
-func NewPlatformHostExecutor() (*HostExecutor, error) {
-	return NewHostExecutor(newPlatformHostStarter())
-}
-
-func (e *HostExecutor) Available() bool {
-	return e != nil && e.starter != nil && e.starter.Available()
-}
-
-func (e *HostExecutor) Execute(
-	ctx context.Context,
-	request HostExecutionRequest,
-) (HostExecutionResult, error) {
-	if e == nil || e.starter == nil || !e.starter.Available() {
-		return HostExecutionResult{}, ErrHostCommandPlatform
-	}
-	if ctx == nil {
-		return HostExecutionResult{}, ErrHostCommandBoundary
-	}
-	if err := ctx.Err(); err != nil {
-		return HostExecutionResult{}, err
-	}
-	if err := validateHostExecutionRequest(request); err != nil {
-		return HostExecutionResult{}, err
-	}
-	started, startErr := e.starter.Start(ctx, HostStartSpec{
-		RequestID:   request.Intent.RequestID,
-		Command:     request.Intent.Spec,
-		Environment: append([]string(nil), request.Environment...),
-	})
-	if startErr != nil && started.StartedAt.IsZero() {
-		return HostExecutionResult{}, startErr
-	}
-	if validationErr := started.Validate(); validationErr != nil {
-		if startErr != nil {
-			return HostExecutionResult{}, errors.Join(startErr, validationErr)
-		}
-		return HostExecutionResult{}, validationErr
-	}
-	intent := request.Intent
-	result := HostExecutionResult{
-		ProtocolVersion:    HostExecutionProtocolVersion,
-		PolicyVersion:      HostExecutionPolicyVersion,
-		RequestID:          intent.RequestID,
-		OperationKeyDigest: intent.OperationKeyDigest,
-		RunID:              intent.RunID, MissionID: intent.MissionID,
-		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
-		InteractionSnapshotID:            intent.InteractionSnapshotID,
-		InteractionRevision:              intent.InteractionRevision,
-		ExecutionProfileRevision:         intent.ExecutionProfileRevision,
-		PermissionSnapshotID:             intent.PermissionSnapshotID,
-		PermissionRevision:               intent.PermissionRevision,
-		PermissionMode:                   intent.PermissionMode,
-		AuthorizationProposalID:          intent.AuthorizationProposalID,
-		AuthorizationProposalFingerprint: intent.AuthorizationProposalFingerprint,
-		AuthorizationReviewID:            intent.AuthorizationReviewID,
-		AuthorizationReviewFingerprint:   intent.AuthorizationReviewFingerprint,
-		SpecFingerprint:                  intent.Spec.Fingerprint,
-		Backend:                          e.starter.Name(), ExitCode: started.ExitCode,
-		Stdout: started.Stdout, Stderr: started.Stderr,
-		StartedAt: started.StartedAt, CompletedAt: started.CompletedAt,
-		TimedOut: started.TimedOut, Cancelled: started.Cancelled,
-		OutputLimitExceeded: started.OutputLimitExceeded,
-		TreeReaped:          started.TreeReaped, NonSandboxed: started.NonSandboxed,
-		RestrictedToken:       started.RestrictedToken,
-		LowIntegrityToken:     started.LowIntegrityToken,
-		JobAssignedAtCreation: started.JobAssignedAtCreation,
-		KillOnJobClose:        started.KillOnJobClose,
-		ActiveProcessLimit:    started.ActiveProcessLimit,
-		JobMemoryLimit:        started.JobMemoryLimit, StdinClosed: started.StdinClosed,
-		EnvironmentInherited:    started.EnvironmentInherited,
-		NetworkRequested:        started.NetworkRequested,
-		PersistentProcess:       started.PersistentProcess,
-		ProductExecutionEnabled: started.ProductExecutionEnabled,
-	}
-	if err := result.Validate(); err != nil {
-		return HostExecutionResult{}, err
-	}
-	return result, startErr
-}
-
-func validateHostExecutionRequest(request HostExecutionRequest) error {
-	if request.Intent.Validate() != nil ||
-		request.Interaction.Validate() != nil ||
-		request.CurrentProfile.Validate() != nil ||
-		request.Permission.Validate() != nil ||
-		request.Runtime.Validate() != nil {
-		return ErrHostCommandBoundary
-	}
-	if !request.ExplicitlyConfirmed ||
-		!validExecutionOperator(request.RequestedBy) ||
-		request.RequestedBy != request.Intent.RequestedBy {
-		return ErrHostCommandDenied
-	}
-	if request.Intent.RunID != request.Interaction.RunID ||
-		request.Intent.MissionID != request.Interaction.MissionID ||
-		request.Intent.InteractionSnapshotID != request.Interaction.ID ||
-		request.Intent.InteractionRevision != request.Interaction.Revision ||
-		request.Intent.ExecutionProfileRevision != request.CurrentProfile.Revision ||
-		request.Intent.PermissionSnapshotID != request.Permission.ID ||
-		request.Intent.PermissionRevision != request.Permission.Revision ||
-		request.Intent.PermissionMode != request.Permission.Mode ||
-		request.CurrentProfile.RunID != request.Intent.RunID ||
-		request.CurrentProfile.MissionID != request.Intent.MissionID ||
-		request.Permission.RunID != request.Intent.RunID ||
-		request.Permission.MissionID != request.Intent.MissionID {
-		return fmt.Errorf("%w: durable host execution binding is stale",
-			ErrHostCommandBoundary)
-	}
-	if request.CurrentSurface != domain.ExecutionSurfaceCode ||
-		request.Interaction.Mode != domain.RunExecutionInteractionControlled ||
-		request.Interaction.Surface != domain.ExecutionSurfaceCode ||
-		request.Interaction.ExecutionProfile != domain.RunExecutionProfileLocal ||
-		request.Interaction.ExecutionProfileRevision !=
-			request.CurrentProfile.Revision ||
-		request.Interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
-		request.Interaction.CommandForm != domain.ExecutionCommandStructuredArgv ||
-		request.Interaction.PersistentTerminal ||
-		request.CurrentProfile.Profile != domain.RunExecutionProfileLocal {
-		return ErrHostCommandDenied
-	}
-	operatorApproved := false
-	if request.Permission.Mode == domain.RunExecutionPermissionApproval {
-		if request.Review == nil || request.Review.Validate() != nil ||
-			request.Escalation != nil ||
-			request.Review.Decision != HostCommandReviewApprove ||
-			!request.Review.SingleUseExecutionAuthorized ||
-			request.Intent.AuthorizationProposalID != request.Review.ProposalID ||
-			request.Intent.AuthorizationProposalFingerprint !=
-				request.Review.ProposalFingerprint ||
-			request.Intent.AuthorizationReviewID != request.Review.ID ||
-			request.Intent.AuthorizationReviewFingerprint !=
-				request.Review.Fingerprint ||
-			request.Review.ReviewedBy != request.RequestedBy {
-			return ErrHostCommandDenied
-		}
-		operatorApproved = true
-	} else if request.Permission.Mode == domain.RunExecutionPermissionWorkspaceAccess {
-		if request.Review != nil || request.Escalation == nil ||
-			request.Escalation.Validate() != nil ||
-			request.Intent.AuthorizationProposalID != request.Escalation.ProposalID ||
-			request.Intent.AuthorizationProposalFingerprint !=
-				request.Escalation.ProposalFingerprint ||
-			request.Intent.AuthorizationReviewID != request.Escalation.ApprovalID ||
-			request.Intent.AuthorizationReviewFingerprint !=
-				RiskEscalationAuthorizationFingerprint(*request.Escalation) ||
-			request.Escalation.ReviewedBy != request.RequestedBy ||
-			!request.Runtime.WorkspaceSandboxEnabled ||
-			!request.Runtime.OperatorApprovalEnabled {
-			return ErrHostCommandDenied
-		}
-		operatorApproved = true
-	} else if !request.Permission.Mode.IncludesFullAccess() ||
-		request.Review != nil || request.Escalation != nil {
-		return ErrHostCommandDenied
-	}
-	if request.Permission.Mode == domain.RunExecutionPermissionWorkspaceAccess {
-		return (HostStartSpec{
-			RequestID: request.Intent.RequestID, Command: request.Intent.Spec,
-			Environment: request.Environment,
-		}).Validate()
-	}
-	decision, err := executionauth.EvaluateExecutionPermission(
-		request.Permission, request.Runtime, executionauth.PermissionRequest{
-			Kind:           executionauth.PermissionOperationStatelessCommand,
-			HostFilesystem: true, Network: true,
-			OperatorApproved: operatorApproved,
-		})
-	if err != nil {
-		return err
-	}
-	if !decision.Allowed || !decision.HostFilesystem || !decision.Network {
-		return fmt.Errorf("%w: %s", ErrHostCommandDenied, decision.Reason)
-	}
-	return (HostStartSpec{
-		RequestID:   request.Intent.RequestID,
-		Command:     request.Intent.Spec,
-		Environment: request.Environment,
-	}).Validate()
 }

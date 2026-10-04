@@ -392,13 +392,7 @@ func validateSandboxBackendEvidenceCurrentTx(ctx context.Context, tx *sql.Tx,
 	if err != nil {
 		return sandbox.DisabledPreflight{}, err
 	}
-	if usage.TotalTokens != candidate.TokensUsed ||
-		usage.TotalExecutionMillis != candidate.ExecutionMillisUsed ||
-		toolCalls != candidate.ToolCallsUsed {
-		return sandbox.DisabledPreflight{}, apperror.New(apperror.CodeConflict,
-			"sandbox candidate usage changed before backend evidence")
-	}
-	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
+	if err := requireSandboxCandidateStoreCurrentBudget(candidate, run.Budget, usage, toolCalls); err != nil {
 		return sandbox.DisabledPreflight{}, err
 	}
 	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)

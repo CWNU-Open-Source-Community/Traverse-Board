@@ -2124,6 +2124,9 @@ func (s *WorkspaceCheckpointService) requireBoundaryLease(ctx context.Context,
 		return apperror.Normalize(err)
 	}
 	operatorIdle := false
+	if request.Kind == workspacecheckpoint.TransactionCommandBatch {
+		operatorIdle = operatorCommandOwnsStoppedRun(ctx, binding.run, lease)
+	}
 	if s.operatorGitThreadID != "" {
 		checker, ok := s.store.(interface {
 			CheckThreadGitIdle(context.Context, string, string, *domain.RunExecutionLease) error
@@ -2177,7 +2180,7 @@ func (s *WorkspaceCheckpointService) requireRestoreAuthority(ctx context.Context
 	if mode.RunID != binding.run.ID || mode.MissionID != binding.mission.ID ||
 		mode.Surface != domain.ExecutionSurfaceCode || mode.Phase != domain.ExecutionPhaseDeliver ||
 		permission.RunID != binding.run.ID || permission.MissionID != binding.mission.ID ||
-		permission.Mode == domain.RunExecutionPermissionConservative ||
+		(permission.Mode.IsApprovalMode() && !s.capabilities.OperatorApprovalEnabled) ||
 		!s.capabilities.AllowsSnapshot(permission) {
 		return apperror.New(apperror.CodePolicyDenied,
 			"workspace restore is not authorized by the current execution permission")

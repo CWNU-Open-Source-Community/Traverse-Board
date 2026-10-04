@@ -180,7 +180,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 		t.Fatalf("rewind preview=%+v err=%v", rewindPreview, err)
 	}
 	rewindRequest.Confirm = true
-	authorizeDrydockRestoreForTest(t, fixture)
+	prepareDrydockRestoreForTest(t, fixture)
 	rewound, err := fixture.service.Rewind(t.Context(), rewindRequest)
 	if err != nil || !rewound.Confirmed || rewound.After == nil || rewound.Receipt == nil ||
 		rewound.Receipt.Operation != drydock.OperationRewind ||
@@ -571,7 +571,7 @@ func TestDrydockRewindSupportsCheckpointsAtACommittedDescendant(t *testing.T) {
 		t.Fatalf("descendant rewind preview=%+v err=%v", preview, err)
 	}
 	request.Confirm = true
-	authorizeDrydockRestoreForTest(t, fixture)
+	prepareDrydockRestoreForTest(t, fixture)
 	rewound, err := fixture.service.Rewind(t.Context(), request)
 	if err != nil || rewound.After == nil || rewound.After.BaseCommit != committedHead {
 		t.Fatalf("descendant rewind=%+v err=%v", rewound, err)
@@ -700,20 +700,7 @@ func TestDrydockForkUsesCheckpointAndCreatesAuthorityResetRun(t *testing.T) {
 		t.Fatalf("descendant fork checkpoint=%+v err=%v", descendant, err)
 	}
 	created = descendant.Workspace
-	if _, err := NewRunExecutionPermissionService(fixture.state, capabilities).Change(
-		t.Context(), ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID,
-			Mode:         string(domain.RunExecutionPermissionApproval),
-			OperationKey: "drydock-fork-permission-0001", RequestedBy: "operator",
-			Reason: "test an explicit checkpoint fork", ConfirmUserApproval: true}); err != nil {
-		t.Fatal(err)
-	}
-	runs := NewRunService(fixture.state)
-	if _, err := runs.Start(t.Context(), fixture.run.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runs.Pause(t.Context(), fixture.run.ID); err != nil {
-		t.Fatal(err)
-	}
+	prepareDrydockRestoreForTest(t, fixture)
 	fixture.service.WithCheckpointService(checkpoints)
 	sourceTimeline, err := checkpoints.Timeline(t.Context(), fixture.run.ID, 100)
 	if err != nil || sourceTimeline.WorkspaceID != fixture.workspace.ID ||

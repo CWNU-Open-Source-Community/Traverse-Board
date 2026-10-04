@@ -33,7 +33,8 @@ func TestExternalSkillSelectionCLIRequiresSecondConfirmationAndReplays(t *testin
 		ContentTokenUpperBound: skills.ContentTokenUpperBound(content),
 	}
 	packagePath := filepath.Join(t.TempDir(), "external-review-run.zip")
-	writeTestSkillPackage(t, packagePath, manifest, content)
+	raw := writeTestSkillPackage(t, packagePath, manifest, content)
+	seedLegacyCLIIntent(t, home, raw, "external-run-import-0001")
 	if _, stderr, code := executeTestCommand(t, "skill", "import", packagePath,
 		"--surface", "code", "--operation-key", "external-run-import-0001",
 		"--confirm-untrusted-skill"); code != 0 || stderr != "" {

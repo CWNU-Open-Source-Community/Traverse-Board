@@ -1,13 +1,13 @@
 # Standard Code Docker backend
 
-Schema v128 extends the existing immutable Docker admission permission check with
-`workspace_access`. Schema v132 adds the metadata-only, lease-fenced `attach_stdin`
-lifecycle action used by the shared Command Runtime; all execution, log, and Drydock
-state continues to use the established ledgers.
+The fixed Docker adapter uses current Ask/Auto/Full operation authority and the
+existing immutable Docker admission ledger. Full requires live process activation.
+The metadata-only, lease-fenced `attach_stdin` lifecycle action is shared with
+Command Runtime; execution, log and Drydock state use the established ledgers.
 
 The Docker backend is an explicit, fixed `network=none` Standard Code fallback. It is
 available only for a Code Run whose current execution profile is `docker`, current
-permission is `workspace_access`, exact Drydock is ready, exact per-call approval is
+permission has current operation authority, exact Drydock is ready, per-call approval is
 approved, and the current process enables both Workspace Sandbox and Docker execution.
 It never falls back to an unsandboxed host command.
 
@@ -53,7 +53,8 @@ The JSON response is `standard-code-backend-readiness.v1` and includes stable
 `blocked_by` and `remediation`. A missing daemon or image is an expected blocked result,
 not host fallback or an image pull.
 
-Preparation creates the existing exact sandbox approval proposal:
+The following standalone CLI workflow is for Ask/Auto; these commands do not
+activate Full. Preparation creates the existing exact sandbox approval proposal:
 
 ```powershell
 cyberagent run standard-code docker-prepare <run-id> `

@@ -122,35 +122,48 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-workspace-import",
 			"--enable-permission-control", "--enable-danger-full-access",
-			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 			"--enable-batch-validation-execution",
 		}, &stdout, &stderr)
 	}()
 
+	expectedMetadata := []struct{ field, value string }{
+		{"api_token_source", apiTokenEnvironment},
+		{"api_token_generated", "false"},
+		{"api_control_enabled", "true"},
+		{"workspace_import_enabled", "true"},
+		{"api_control_token_source", apiControlTokenEnvironment},
+		{"execution_permission_control_enabled", "true"},
+		{"operator_approval_enabled", "true"},
+		{"danger_full_access_enabled", "true"},
+		{"browser_cdp_permission_control_enabled", "true"},
+		{"full_cdp_debug_enabled", "true"},
+		{"batch_delivery_host_validation_enabled", "true"},
+	}
 	output := waitForAPIProcessOutput(t, &stdout, &stderr, done, func(output string) bool {
-		return outputField(output, "api_url") != "" && strings.Contains(output,
-			"api_control_token_source: "+apiControlTokenEnvironment)
+		if outputField(output, "api_url") == "" {
+			return false
+		}
+		// Startup metadata spans several writes. Wait for every required field;
+		// incorrect values must still reach the assertions below immediately.
+		for _, expected := range expectedMetadata {
+			if outputField(output, expected.field) == "" {
+				return false
+			}
+		}
+		return true
 	})
 	baseURL := outputField(output, "api_url")
 	if baseURL == "" {
 		t.Fatalf("API did not report its URL: stdout=%s stderr=%s", output, stderr.String())
 	}
-	if strings.Contains(output, token) || strings.Contains(output, controlToken) ||
-		!strings.Contains(output, "api_token_source: "+apiTokenEnvironment) ||
-		!strings.Contains(output, "api_token_generated: false") ||
-		!strings.Contains(output, "api_control_enabled: true") ||
-		!strings.Contains(output, "workspace_import_enabled: true") ||
-		!strings.Contains(output, "api_control_token_source: "+apiControlTokenEnvironment) ||
-		!strings.Contains(output, "execution_permission_control_enabled: true") ||
-		!strings.Contains(output, "operator_approval_enabled: true") ||
-		!strings.Contains(output, "host_command_proposal_control_enabled: true") ||
-		!strings.Contains(output, "danger_full_access_enabled: true") ||
-		!strings.Contains(output, "debug_maximum_access_enabled: false") ||
-		!strings.Contains(output, "browser_cdp_permission_control_enabled: true") ||
-		!strings.Contains(output, "full_cdp_debug_enabled: true") ||
-		!strings.Contains(output, "batch_delivery_host_validation_enabled: true") {
-		t.Fatalf("environment token reporting is unsafe or incomplete: %s", output)
+	if strings.Contains(output, token) || strings.Contains(output, controlToken) {
+		t.Fatal("API startup output exposed an environment token")
+	}
+	for _, expected := range expectedMetadata {
+		if outputField(output, expected.field) != expected.value {
+			t.Fatalf("API startup metadata %s has an unexpected value", expected.field)
+		}
 	}
 
 	request, err := http.NewRequest(http.MethodGet, baseURL+"/health", nil)
@@ -185,10 +198,6 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!bytes.Contains(capabilityBody, []byte(`"workspace_import_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"execution_permission_control_enabled":true`)) ||
-		!bytes.Contains(capabilityBody,
-			[]byte(`"host_command_proposal_control_enabled":true`)) ||
-		!bytes.Contains(capabilityBody,
-			[]byte(`"debug_maximum_access_enabled":false`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"browser_cdp_permission_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) ||
@@ -312,8 +321,8 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 		"api", "serve", "--enable-host-command-proposals",
 	}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(),
-		"host command proposals require --enable-permission-control") {
-		t.Fatalf("invalid host command hierarchy stdout=%q stderr=%q code=%d",
+		"flag provided but not defined: -enable-host-command-proposals") {
+		t.Fatalf("retired host command flag stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 	stdout.Reset()

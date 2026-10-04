@@ -23,7 +23,7 @@ func TestSchemaV145UpgradesExistingRunForExactNetworkAuthorityExpansion(t *testi
 	if err := applyMigrationPrefixForTest(ctx, state, plan, 144); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve a v144 Run",
 			Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
@@ -164,7 +164,9 @@ func TestSchemaV145ResetsLegacyBroadThreadNetworkPreference(t *testing.T) {
 		t.Fatal(err)
 	}
 	created.CreatedAt = now
-	if err := state.CreateMissionRun(ctx, mission, predecessor, mode, linkedSession, true,
+	// Persist the legacy broad scope with v1 permission tuples under the real
+	// v144 guards. Current Run creation deliberately writes v2 permissions.
+	if err := (legacyRunSeedStore{state}).CreateMissionRun(ctx, mission, predecessor, mode, linkedSession, true,
 		[]eventpkg.Event{created}); err != nil {
 		t.Fatal(err)
 	}

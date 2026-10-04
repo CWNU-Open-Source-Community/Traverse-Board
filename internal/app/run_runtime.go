@@ -27,6 +27,43 @@ func (a *App) runRuntimeDependencies() application.RunRuntimeDependencies {
 	return d
 }
 
+// Full is a durable preference, but its grant belongs only to this invocation.
+// Every adapter receives the same authority; returning never persists a grant.
+func (a *App) activateCLIInvocationFull(ctx context.Context, runID string,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities, confirmFull bool,
+) (func(), error) {
+	if err := capabilities.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidArgument, "invalid CLI runtime capabilities", err)
+	}
+	if !confirmFull {
+		return func() {}, nil
+	}
+	if !capabilities.OperatorApprovalEnabled || !capabilities.DangerFullAccessEnabled ||
+		capabilities.RuntimeAuthority == nil {
+		return nil, apperror.New(apperror.CodePolicyDenied,
+			"--confirm-full requires --enable-permission-control and --enable-danger-full-access")
+	}
+	run, err := a.store.GetRun(ctx, runID)
+	if err != nil {
+		return nil, apperror.Normalize(err)
+	}
+	permission, err := a.store.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		return nil, apperror.Normalize(err)
+	}
+	if permission.Mode != domain.RunExecutionPermissionFull ||
+		permission.RunID != run.ID || permission.MissionID != run.MissionID {
+		return nil, apperror.New(apperror.CodePolicyDenied,
+			"--confirm-full requires the Run's current Full preference")
+	}
+	if _, err := capabilities.RuntimeAuthority.ActivateRunFullAccess(permission); err != nil {
+		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"CLI Full could not be activated", err)
+	}
+	var released sync.Once
+	return func() { released.Do(func() { capabilities.RuntimeAuthority.RevokeRun(run.ID) }) }, nil
+}
+
 // A foreground CLI invocation owns its adapters until it returns. The same
 // capability value (including its revocation fence) reaches every sibling.
 type cliExecutionRuntime struct {

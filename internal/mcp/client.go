@@ -6,22 +6,45 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"cyberagent-workbench/internal/redact"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Client owns one SDK session. Manager-facing methods only project durable,
+// redacted records; JSON-RPC framing and request identity belong to the SDK.
 type Client struct {
-	transport  clientTransport
-	descriptor ServerDescriptor
-	secrets    []string
-	nextID     atomic.Uint64
-	closed     atomic.Bool
+	resolved        *resolvedClient
+	descriptor      ServerDescriptor
+	secrets         []string
+	closed          atomic.Bool
+	tap             *sdkResponseTap
+	protocolVersion string
+	transport       sdk.Transport
+	mu              sync.Mutex
+	session         *sdk.ClientSession
+	connectErr      error
+	connected       bool
+	lifetime        context.Context
+	stop            context.CancelFunc
+	closeOnce       sync.Once
+	closeErr        error
+	// Legacy adapter test hooks stay private; resolved clients use ExecutionGuards.
+	// The progress handler is the only callback mutable after connection.
+	beforeConnect   func(context.Context) error
+	beforeCall      func(context.Context) error
+	progress        func(context.Context, *sdk.ProgressNotificationParams)
+	progressMu      sync.RWMutex
+	allowedVersions []string
 }
+
+// Keep the existing Manager factory signature without a second transport API.
+type clientTransport = *Client
 
 func newClient(transport clientTransport, descriptor ServerDescriptor, secrets ...string) *Client {
 	filtered := make([]string, 0, len(secrets))
@@ -30,45 +53,38 @@ func newClient(transport clientTransport, descriptor ServerDescriptor, secrets .
 			filtered = append(filtered, secret)
 		}
 	}
-	return &Client{transport: transport, descriptor: descriptor, secrets: filtered}
-}
-
-type clientInitializeResult struct {
-	ProtocolVersion string `json:"protocolVersion"`
-	Capabilities    struct {
-		Tools     json.RawMessage `json:"tools,omitempty"`
-		Resources json.RawMessage `json:"resources,omitempty"`
-		Prompts   json.RawMessage `json:"prompts,omitempty"`
-	} `json:"capabilities"`
-	ServerInfo ClientInfo `json:"serverInfo"`
+	transport.descriptor, transport.secrets = descriptor, filtered
+	return transport
 }
 
 func (c *Client) Discover(ctx context.Context, at time.Time) (CapabilitySnapshot, error) {
 	if c == nil || c.transport == nil || c.closed.Load() {
 		return CapabilitySnapshot{}, errors.New("MCP client is closed")
 	}
-	params := map[string]any{"protocolVersion": ProtocolVersion,
-		"capabilities": map[string]any{},
-		"clientInfo":   map[string]string{"name": ClientName, "version": ClientVersion}}
-	var initialized clientInitializeResult
-	if err := c.request(ctx, "initialize", params, &initialized); err != nil {
-		return CapabilitySnapshot{}, err
+	session, err := c.connect(ctx)
+	if err != nil {
+		return CapabilitySnapshot{}, c.sdkError(err)
 	}
-	initialized.ServerInfo.Name = c.sanitizeText(initialized.ServerInfo.Name)
-	initialized.ServerInfo.Version = c.sanitizeText(initialized.ServerInfo.Version)
-	if initialized.ProtocolVersion != ProtocolVersion ||
-		!validClientIdentity(initialized.ServerInfo.Name) ||
-		!validClientText(initialized.ServerInfo.Version, 128, false) {
+	initialized := session.InitializeResult()
+	if initialized == nil || initialized.ServerInfo == nil {
+		return CapabilitySnapshot{}, errors.New("MCP initialize response has no server identity")
+	}
+	serverInfo := *initialized.ServerInfo
+	serverInfo.Name = c.sanitizeText(serverInfo.Name)
+	serverInfo.Version = c.sanitizeText(serverInfo.Version)
+	if !supportedClientProtocol(initialized.ProtocolVersion) ||
+		!validClientIdentity(serverInfo.Name) ||
+		!validClientText(serverInfo.Version, 128, false) {
 		return CapabilitySnapshot{}, errors.New("MCP initialize response has an unsupported protocol or invalid server identity")
 	}
 	advertised := make([]CapabilityKind, 0, 3)
-	if capabilityPresent(initialized.Capabilities.Tools) {
+	if initialized.Capabilities != nil && initialized.Capabilities.Tools != nil {
 		advertised = append(advertised, CapabilityTools)
 	}
-	if capabilityPresent(initialized.Capabilities.Resources) {
+	if initialized.Capabilities != nil && initialized.Capabilities.Resources != nil {
 		advertised = append(advertised, CapabilityResources)
 	}
-	if capabilityPresent(initialized.Capabilities.Prompts) {
+	if initialized.Capabilities != nil && initialized.Capabilities.Prompts != nil {
 		advertised = append(advertised, CapabilityPrompts)
 	}
 	for _, capability := range advertised {
@@ -76,57 +92,47 @@ func (c *Client) Discover(ctx context.Context, at time.Time) (CapabilitySnapshot
 			return CapabilitySnapshot{}, fmt.Errorf("MCP server advertised undeclared %s capability", capability)
 		}
 	}
-	if err := c.transport.Notify(ctx, Envelope{JSONRPC: "2.0", Method: "notifications/initialized"}); err != nil {
-		return CapabilitySnapshot{}, err
-	}
 	var tools []RemoteTool
 	var resources []RemoteResource
 	var prompts []RemotePrompt
-	var err error
 	if slices.Contains(advertised, CapabilityTools) {
-		tools, err = c.listTools(ctx)
+		tools, err = c.listTools(ctx, session)
 	}
 	if err == nil && slices.Contains(advertised, CapabilityResources) {
-		resources, err = c.listResources(ctx)
+		resources, err = c.listResources(ctx, session)
 	}
 	if err == nil && slices.Contains(advertised, CapabilityPrompts) {
-		prompts, err = c.listPrompts(ctx)
+		prompts, err = c.listPrompts(ctx, session)
 	}
 	if err != nil {
 		return CapabilitySnapshot{}, err
 	}
-	return NewCapabilitySnapshot(initialized.ServerInfo.Name, initialized.ServerInfo.Version,
+	snapshot, err := NewCapabilitySnapshot(serverInfo.Name, serverInfo.Version,
 		advertised, tools, resources, prompts, at)
+	if err == nil {
+		snapshot.ProtocolVersion = initialized.ProtocolVersion
+		snapshot.Fingerprint = capabilityFingerprint(snapshot)
+	}
+	return snapshot, err
 }
 
-func capabilityPresent(raw json.RawMessage) bool {
-	value := bytes.TrimSpace(raw)
-	return len(value) > 0 && !bytes.Equal(value, []byte("null"))
-}
-
-type toolListResult struct {
-	Tools []struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description,omitempty"`
-		InputSchema json.RawMessage `json:"inputSchema"`
-	} `json:"tools"`
-	NextCursor string `json:"nextCursor,omitempty"`
-}
-
-func (c *Client) listTools(ctx context.Context) ([]RemoteTool, error) {
+func (c *Client) listTools(ctx context.Context, session *sdk.ClientSession) ([]RemoteTool, error) {
 	items := make([]RemoteTool, 0)
 	cursor := ""
 	for page := 0; page < 16; page++ {
-		params := map[string]string{}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		var result toolListResult
-		if err := c.request(ctx, "tools/list", params, &result); err != nil {
-			return nil, err
+		result, err := session.ListTools(ctx, &sdk.ListToolsParams{Cursor: cursor})
+		if err != nil {
+			return nil, c.sdkError(err)
 		}
 		for _, item := range result.Tools {
-			schema, err := c.sanitizeJSON(item.InputSchema)
+			if item == nil {
+				return nil, errors.New("MCP tool catalog contains null")
+			}
+			encoded, err := json.Marshal(item.InputSchema)
+			if err != nil {
+				return nil, err
+			}
+			schema, err := c.sanitizeJSON(encoded)
 			if err != nil {
 				return nil, fmt.Errorf("sanitize MCP tool schema: %w", err)
 			}
@@ -152,29 +158,18 @@ func (c *Client) listTools(ctx context.Context) ([]RemoteTool, error) {
 	return nil, errors.New("MCP tool pagination exceeded its page limit")
 }
 
-type resourceListResult struct {
-	Resources []struct {
-		URI         string `json:"uri"`
-		Name        string `json:"name"`
-		Description string `json:"description,omitempty"`
-		MIMEType    string `json:"mimeType,omitempty"`
-	} `json:"resources"`
-	NextCursor string `json:"nextCursor,omitempty"`
-}
-
-func (c *Client) listResources(ctx context.Context) ([]RemoteResource, error) {
+func (c *Client) listResources(ctx context.Context, session *sdk.ClientSession) ([]RemoteResource, error) {
 	items := make([]RemoteResource, 0)
 	cursor := ""
 	for page := 0; page < 16; page++ {
-		params := map[string]string{}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		var result resourceListResult
-		if err := c.request(ctx, "resources/list", params, &result); err != nil {
-			return nil, err
+		result, err := session.ListResources(ctx, &sdk.ListResourcesParams{Cursor: cursor})
+		if err != nil {
+			return nil, c.sdkError(err)
 		}
 		for _, item := range result.Resources {
+			if item == nil {
+				return nil, errors.New("MCP resource catalog contains null")
+			}
 			candidate := RemoteResource{URI: strings.TrimSpace(c.sanitizeText(item.URI)),
 				Name:        strings.TrimSpace(c.sanitizeText(item.Name)),
 				Description: strings.TrimSpace(c.sanitizeText(item.Description)),
@@ -198,27 +193,18 @@ func (c *Client) listResources(ctx context.Context) ([]RemoteResource, error) {
 	return nil, errors.New("MCP resource pagination exceeded its page limit")
 }
 
-type promptListResult struct {
-	Prompts []struct {
-		Name        string `json:"name"`
-		Description string `json:"description,omitempty"`
-	} `json:"prompts"`
-	NextCursor string `json:"nextCursor,omitempty"`
-}
-
-func (c *Client) listPrompts(ctx context.Context) ([]RemotePrompt, error) {
+func (c *Client) listPrompts(ctx context.Context, session *sdk.ClientSession) ([]RemotePrompt, error) {
 	items := make([]RemotePrompt, 0)
 	cursor := ""
 	for page := 0; page < 16; page++ {
-		params := map[string]string{}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		var result promptListResult
-		if err := c.request(ctx, "prompts/list", params, &result); err != nil {
-			return nil, err
+		result, err := session.ListPrompts(ctx, &sdk.ListPromptsParams{Cursor: cursor})
+		if err != nil {
+			return nil, c.sdkError(err)
 		}
 		for _, item := range result.Prompts {
+			if item == nil {
+				return nil, errors.New("MCP prompt catalog contains null")
+			}
 			candidate := RemotePrompt{Name: strings.TrimSpace(c.sanitizeText(item.Name)),
 				Description: strings.TrimSpace(c.sanitizeText(item.Description))}
 			if err := candidate.Validate(); err != nil {
@@ -262,11 +248,12 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 		StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
 		IsError           bool            `json:"isError,omitempty"`
 	}
-	if err := c.request(ctx, "tools/call", struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}{Name: name, Arguments: arguments}, &result); err != nil {
-		return ClientCallResult{}, err
+	_, raw, err := c.callTool(ctx, &sdk.CallToolParams{Name: name, Arguments: json.RawMessage(bytes.Clone(arguments))})
+	if err != nil {
+		return ClientCallResult{}, c.sdkError(err)
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return ClientCallResult{}, errors.New("MCP tool result content is invalid")
 	}
 	value := result.Content
 	if len(result.StructuredContent) > 0 && !bytes.Equal(bytes.TrimSpace(result.StructuredContent), []byte("null")) {
@@ -276,7 +263,7 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 	if len(value) == 0 || !json.Valid(value) {
 		return ClientCallResult{}, errors.New("MCP tool result content is invalid")
 	}
-	value, err := c.sanitizeJSON(value)
+	value, err = c.sanitizeJSON(value)
 	if err != nil {
 		return ClientCallResult{}, errors.New("MCP tool result content could not be sanitized")
 	}
@@ -291,43 +278,6 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMe
 	}
 	return ClientCallResult{Content: content, IsError: result.IsError,
 		Bytes: len([]byte(content)), Truncated: truncated}, nil
-}
-
-func (c *Client) request(ctx context.Context, method string, params any, target any) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
-	id := c.nextID.Add(1)
-	idRaw := json.RawMessage(fmt.Sprintf("%d", id))
-	response, err := c.transport.Exchange(ctx, Envelope{JSONRPC: "2.0", ID: idRaw,
-		Method: method, Params: raw})
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		return errors.New(c.sanitizeText(err.Error()))
-	}
-	if !bytes.Equal(bytes.TrimSpace(response.ID), idRaw) || response.Method != "" {
-		return errors.New("MCP response identity does not match its request")
-	}
-	if response.Error != nil {
-		return fmt.Errorf("MCP %s failed with remote code %d", method, response.Error.Code)
-	}
-	if len(response.Result) == 0 || len(response.Result) > MaxMessageBytes {
-		return errors.New("MCP response result is missing or oversized")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(response.Result))
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("decode MCP %s result: %w", method, err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("MCP response result contains trailing JSON")
-	}
-	return nil
 }
 
 func (c *Client) sanitizeText(value string) string {
@@ -389,11 +339,4 @@ func (c *Client) sanitizeJSONValue(value any) (any, error) {
 	default:
 		return current, nil
 	}
-}
-
-func (c *Client) Close() error {
-	if c == nil || c.closed.Swap(true) {
-		return nil
-	}
-	return c.transport.Close()
 }

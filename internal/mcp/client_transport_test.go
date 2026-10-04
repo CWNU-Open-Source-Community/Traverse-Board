@@ -12,18 +12,36 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type blockingMCPWriteCloser struct {
-	closed chan struct{}
+	closed   chan struct{}
+	entered  chan struct{}
+	returned chan struct{}
 }
 
-func (w *blockingMCPWriteCloser) Write([]byte) (int, error) {
+func (w *blockingMCPWriteCloser) Write(context.Context, jsonrpc.Message) error {
+	close(w.entered)
+	defer close(w.returned)
 	<-w.closed
-	return 0, io.ErrClosedPipe
+	return io.ErrClosedPipe
 }
+
+func (w *blockingMCPWriteCloser) Read(ctx context.Context) (jsonrpc.Message, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-w.closed:
+		return nil, io.EOF
+	}
+}
+func (*blockingMCPWriteCloser) SessionID() string { return "" }
 
 func (w *blockingMCPWriteCloser) Close() error {
 	select {
@@ -101,16 +119,65 @@ func TestStdioClientTransportRunsApprovedAbsoluteExecutable(t *testing.T) {
 }
 
 func TestStdioClientTransportCancelsBlockedWrite(t *testing.T) {
-	writer := &blockingMCPWriteCloser{closed: make(chan struct{})}
-	transport := &stdioClientTransport{stdin: writer, done: writer.closed,
-		stderr: newBoundedBuffer(128)}
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	writer := &blockingMCPWriteCloser{closed: make(chan struct{}), entered: make(chan struct{}), returned: make(chan struct{})}
+	transport := &stdioSDKConnection{Connection: writer, writeGate: make(chan struct{}, 1)}
+	defer transport.Close()
+	deadline, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	ctx, cancel := context.WithCancel(deadline)
 	defer cancel()
-	err := transport.write(ctx, Envelope{JSONRPC: "2.0", ID: json.RawMessage(`1`),
-		Method: "tools/call"})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("blocked stdio write error=%v, want deadline exceeded", err)
+	done := make(chan error, 1)
+	go func() { done <- transport.Write(ctx, &jsonrpc.Request{Method: "notifications/initialized"}) }()
+	select {
+	case <-writer.entered:
+	case <-deadline.Done():
+		t.Fatal("stdio write was not entered")
 	}
+	// The SDK Write is still blocked. Cancellation must fail the connection
+	// closed, since a partly written frame cannot be shared with another call.
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("blocked stdio write error=%v, want cancellation", err)
+		}
+	case <-deadline.Done():
+		t.Fatal("blocked stdio write was not cancelled")
+	}
+	select {
+	case <-writer.returned:
+	case <-deadline.Done():
+		t.Fatal("cancelled write did not close the pipe and release its writer")
+	}
+}
+
+// This observer sits outside the real stdio adapter. Peer progress alone does
+// not prove that the local SDK Write has returned or that its gate was released.
+type completedMCPWriteTransport struct {
+	sdk.Transport
+	toolWritten chan struct{}
+}
+
+func (t *completedMCPWriteTransport) Connect(ctx context.Context) (sdk.Connection, error) {
+	connection, err := t.Transport.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &completedMCPWriteConnection{Connection: connection, toolWritten: t.toolWritten}, nil
+}
+
+type completedMCPWriteConnection struct {
+	sdk.Connection
+	toolWritten chan struct{}
+	once        sync.Once
+}
+
+func (c *completedMCPWriteConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	err := c.Connection.Write(ctx, message)
+	if request, ok := message.(*jsonrpc.Request); err == nil && ok && request.Method == "tools/call" {
+		c.once.Do(func() { close(c.toolWritten) })
+	}
+	return err
 }
 
 func TestMCPStdioHelperProcess(t *testing.T) {

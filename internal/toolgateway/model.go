@@ -83,8 +83,6 @@ func TypedActionIDs() map[string]struct{} {
 		string(PlanDeliveryProposeTool):         {},
 		string(SpecialistDelegationProposeTool): {},
 		string(ChildTaskProposeTool):            {},
-		string(ControlledCommandProposeTool):    {},
-		string(OneShotCommandProposeTool):       {},
 		string(DockerSandboxRunProposeTool):     {},
 		string(MCPToolCallTool):                 {},
 	}
@@ -110,15 +108,10 @@ func (n ToolName) Valid() bool {
 	switch n {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
-		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
-		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
+		SpecialistDelegationProposeTool, ChildTaskProposeTool, DockerSandboxRunProposeTool,
 		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
 		return true
 	case MCPToolCallTool, WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
-		return true
-	case HostCommandProposeTool:
-		// Host commands remain proposals at this layer; execution is owned by
-		// the separate control-token review path.
 		return true
 	default:
 		return false

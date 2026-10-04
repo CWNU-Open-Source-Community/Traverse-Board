@@ -308,7 +308,7 @@ func newFullCDPProductionServiceFixture(t *testing.T) (*FullCDPProductionService
 		t.Fatal(err)
 	}
 	executionFull, err := executionInitial.Next("execution-production-full",
-		domain.RunExecutionPermissionFullAccess, true, "runtime-operator",
+		domain.RunExecutionPermissionFull, true, "runtime-operator",
 		"confirmed full access", now.Add(time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +319,7 @@ func newFullCDPProductionServiceFixture(t *testing.T) (*FullCDPProductionService
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	store := &fakeFullCDPProductionStore{run: run, mission: mission,
 		browserPermission: browserFull, executionPermission: executionFull}

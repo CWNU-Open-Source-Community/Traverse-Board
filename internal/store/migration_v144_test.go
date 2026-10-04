@@ -29,7 +29,7 @@ func TestSchemaV144EnablesExactNetworkAllowlistForControlledRunCreation(t *testi
 		AllowedTargets: []string{"docs.example.com"},
 		OperationKey:   "migration-v144-network-operation-0001", RequestedBy: "http_control",
 	}
-	service := application.NewControlledRunCreationService(state)
+	service := application.NewControlledRunCreationService(legacyControlledRunSeedStore{state})
 	if _, err := service.Create(ctx, request); err == nil {
 		t.Fatal("v143 unexpectedly accepted controlled network creation")
 	}

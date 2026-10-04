@@ -1,3 +1,5 @@
+import { V2ApprovalModeControl } from "../v2/components/approval-mode-control";
+import type { ApprovalModeSelectionRequest } from "../v2/components/approval-mode-contract";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -181,140 +183,39 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
   );
 }
 
-const executionPermissions: Array<{
-  id: RunExecutionPermissionView["mode"];
-  chinese: string;
-  english: string;
-  detailChinese: string;
-  detailEnglish: string;
-  icon: typeof ShieldCheck;
-}> = [
-  { id: "conservative", chinese: "保守模式", english: "Conservative", detailChinese: "固定安全模板", detailEnglish: "Fixed safe templates", icon: ShieldCheck },
-  { id: "workspace_access", chinese: "工作区执行", english: "Workspace access", detailChinese: "隔离运行 · 无网络", detailEnglish: "Sandboxed · no network", icon: Container },
-  { id: "approval", chinese: "用户审批", english: "User approval", detailChinese: "逐条人工确认", detailEnglish: "Per-command confirmation", icon: UserCheck },
-  { id: "full_access", chinese: "完全访问", english: "Full access", detailChinese: "宿主机无沙箱", detailEnglish: "Unsandboxed host access", icon: ShieldOff },
-  { id: "debug", chinese: "调试模式", english: "Debug", detailChinese: "持久交互终端", detailEnglish: "Persistent interactive terminal", icon: Bug },
-];
-
-export function ExecutionPermissionPanel({ client, detail, readiness }: {
+type ExecutionPermissionPanelProps = {
   client: CyberAgentClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
-}) {
-  const { t } = useLocale();
+};
+
+export function ExecutionPermissionPanel(props: ExecutionPermissionPanelProps) {
+  // The exported panel also owns target isolation when a caller reuses it.
+  // Keep pending callbacks and confirmation state attached to the original Run.
+  return <RunExecutionPermissionControl key={props.detail.run.id} {...props} />;
+}
+
+function RunExecutionPermissionControl({ client, detail }: ExecutionPermissionPanelProps) {
   const queryClient = useQueryClient();
   const permission = detail.execution_permission;
-  const [pendingMode, setPendingMode] =
-    useState<RunExecutionPermissionView["mode"] | null>(null);
   const mutation = useMutation({
-    mutationFn: (target: RunExecutionPermissionView["mode"]) => {
-      const body: {
-        mode: RunExecutionPermissionView["mode"];
-        reason: string;
-        confirm_workspace_access?: boolean;
-        confirm_user_approval?: boolean;
-        confirm_danger_full_access?: boolean;
-        confirm_debug_access?: boolean;
-      } = { mode: target, reason: "settings execution permission selection" };
-      if (target === "workspace_access") body.confirm_workspace_access = true;
-      if (target === "approval") body.confirm_user_approval = true;
-      if (target === "full_access") body.confirm_danger_full_access = true;
-      if (target === "debug") body.confirm_debug_access = true;
-      return client.postControl<RunExecutionPermissionControlView>(
-        `/runs/${encodeURIComponent(detail.run.id)}/execution-permission`,
-        body,
-        `settings-execution-permission-${globalThis.crypto.randomUUID()}`,
-      );
-    },
+    mutationFn: (request: ApprovalModeSelectionRequest) => client.postControl<RunExecutionPermissionControlView>(
+      `/runs/${encodeURIComponent(detail.run.id)}/execution-permission`,
+      { mode: request.mode, confirm_full: request.confirmFull, reason: "Run approval preference selection" },
+      `run-approval-preference-${globalThis.crypto.randomUUID()}`,
+    ),
     onSuccess: (result) => {
-      setPendingMode(null);
       queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
-        ? { ...current, execution_permission: result.execution_permission }
-        : current);
+        ? { ...current, execution_permission: result.execution_permission } : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["run", detail.run.id, "capability-readiness"],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "capability-readiness"] });
     },
   });
-  const choose = (target: RunExecutionPermissionView["mode"]) => {
-    if (target === "conservative") mutation.mutate(target);
-    else setPendingMode(target);
-  };
-  const selectedReadiness = selectedCapabilityReadiness(readiness.permissions);
-  const boundary = capabilityReadinessSummary(selectedReadiness,
-    t("Run 策略快照", "Run policy snapshot"), t);
-  const renderOption = ({ id, chinese, english, detailChinese, detailEnglish,
-    icon: Icon }: typeof executionPermissions[number]) => {
-    const option = capabilityReadinessOption(readiness.permissions, id);
-    const advancedRisk = id === "full_access" || id === "debug";
-    return <button aria-pressed={option.selected}
-      className={advancedRisk ? "danger" : ""}
-      disabled={mutation.isPending || option.selected || !option.selectable}
-      key={id} onClick={() => choose(id)} type="button">
-      <Icon aria-hidden="true" size={17} />
-      <span><strong>{t(chinese, english)}</strong>
-        <CapabilityState advancedRisk={advancedRisk} option={option} />
-        <small>{capabilityReadinessDetail(option,
-          t(detailChinese, detailEnglish), t)}</small></span>
-      {option.selected && <Check aria-hidden="true" size={15} />}
-    </button>;
-  };
-  const safePermissions = executionPermissions.filter(({ id }) =>
-    id !== "full_access" && id !== "debug");
-  const advancedPermissions = executionPermissions.filter(({ id }) =>
-    id === "full_access" || id === "debug");
-  const advancedSelected = advancedPermissions.some(({ id }) =>
-    capabilityReadinessOption(readiness.permissions, id).selected);
-  return (
-    <section className="permission-control-card execution-permission-section">
-      <div className="section-heading">
-        <div>
-          <h2><ShieldCheck aria-hidden="true" size={16} />{t("权限档位", "Permission level")}</h2>
-          <span>{boundary}</span>
-        </div>
-        <StatusBadge status={permission.risk_tier} />
-      </div>
-      <div aria-label={t("Run 执行权限", "Run execution permission")}
-        className="permission-option-grid permission-option-grid-three" role="group">
-        {safePermissions.map(renderOption)}
-      </div>
-      <details className="permission-advanced-disclosure" open={advancedSelected || undefined}>
-        <summary><ShieldAlert aria-hidden="true" size={15} />
-          <span><strong>{t("高级风险权限", "Advanced risk permissions")}</strong>
-            <small>{t("Full Access 与 Debug 需要额外启动门和显式确认",
-              "Full Access and Debug require additional startup gates and explicit confirmation")}</small></span>
-        </summary>
-        <div aria-label={t("高级 Run 执行权限", "Advanced Run execution permissions")}
-          className="permission-option-grid permission-option-grid-two" role="group">
-          {advancedPermissions.map(renderOption)}
-        </div>
-      </details>
-      {pendingMode && <PermissionConfirmation
-        description={pendingMode === "workspace_access"
-          ? t("只允许受控工作区读写与经过验证的沙箱命令；网络、凭证、主目录、宿主进程、持久终端和完整 CDP 均被拒绝。", "Allows controlled Workspace access and verified sandbox commands only; network, credentials, home, host processes, persistent terminals, and Full CDP are denied.")
-          : pendingMode === "approval"
-          ? t("每一条宿主机命令都需要用户批准。", "Every host command requires user approval.")
-          : pendingMode === "full_access"
-            ? t("将允许无沙箱宿主机文件与网络访问。", "Allows unsandboxed host filesystem and network access.")
-            : t("将允许持久终端、后台进程和限时 Agent 输入。", "Allows a persistent terminal, background processes, and time-limited Agent input.")}
-        label={(() => { const option = executionPermissions.find(({ id }) => id === pendingMode); return option ? t(option.chinese, option.english) : pendingMode; })()}
-        loading={mutation.isPending} onCancel={() => setPendingMode(null)}
-        onConfirm={() => mutation.mutate(pendingMode)} />}
-      <dl className="permission-facts">
-        <div><dt>{t("命令", "Commands")}</dt><dd>{localizedProtocolValue(permission.command_scope, t)}</dd></div>
-        <div><dt>{t("文件系统", "Filesystem")}</dt><dd>{localizedProtocolValue(permission.filesystem_scope, t)}</dd></div>
-        <div><dt>{t("网络", "Network")}</dt><dd>{localizedProtocolValue(permission.network_scope, t)}</dd></div>
-      </dl>
-      {permission.mode === "workspace_access" && <p className="permission-closed-note">
-        {capabilityReadinessOption(readiness.permissions, "workspace_access").runtime_available
-          ? t("该选择仍只是策略上限；每次启动都必须重新验证沙箱 adapter。", "This selection remains a policy ceiling; every start must revalidate the sandbox adapter.")
-          : t("当前没有通过 readiness 的沙箱 adapter，因此此档不可执行命令，也不会回退到宿主进程。", "No sandbox adapter has passed readiness, so this level cannot execute commands and never falls back to a host process.")}
-      </p>}
-      {mutation.isError && <MutationError error={mutation.error}
-        fallback={t("权限档位切换失败", "Permission level switch failed")} />}
-    </section>
-  );
+  return <V2ApprovalModeControl mode={permission.approval_mode} fullActivation={permission.full_activation}
+    fullUnavailableReason={permission.full_unavailable_reason} pending={mutation.isPending}
+    disabled={!client.hasExecutionPermissionControl} variant="settings"
+    error={mutation.isError ? mutation.error instanceof Error ? mutation.error.message : "权限更新失败" : undefined}
+    onRequestChange={(request) => { mutation.reset(); mutation.mutate(request); }} />;
 }
 
 const browserCDPPermissions: Array<{
@@ -780,7 +681,7 @@ function localizedStandardCodeNextStep(value: string, t: ReadinessTranslator): s
     pause_and_configure: ["显式暂停并配置", "Pause and configure explicitly"],
     wait_for_quiescence: ["等待执行静止", "Wait for quiescence"],
     select_docker: ["显式选择 Docker", "Select Docker explicitly"],
-    select_approval: ["改用逐命令审批", "Use per-command Approval"],
+    select_ask: ["改用 Ask 审批", "Use Ask approval"],
     retry_readiness: ["修复后重试 readiness", "Repair and retry readiness"],
     create_new_run: ["创建新的 Code Run", "Create a new Code Run"],
   };

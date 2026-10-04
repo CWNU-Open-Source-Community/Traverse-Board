@@ -29,7 +29,7 @@ const commandRuntimeJobColumns = `id, operation_digest, request_fingerprint,
 	version, created_at, started_at, completed_at, updated_at,
 	adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
 	adapter_isolation_grade, adapter_network_policy, adapter_credential_policy,
-	permission_runtime_epoch, permission_generation`
+	permission_runtime_epoch, permission_generation, run_authorization_fence`
 
 type commandRuntimeJobQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -104,6 +104,7 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 			existing.RunID != job.RunID || existing.InvocationID != job.InvocationID ||
 			existing.PermissionRuntimeEpoch != job.PermissionRuntimeEpoch ||
 			existing.PermissionGeneration != job.PermissionGeneration ||
+			existing.RunAuthorizationFence != job.RunAuthorizationFence ||
 			existing.Adapter != job.Adapter {
 			return runner.CommandRuntimeJob{}, false, apperror.New(
 				apperror.CodeConflict, "command runtime operation key was reused")
@@ -134,6 +135,9 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		return existing, true, nil
 	}
 	if requestedAttribution != nil {
+		if attribution.Source == domain.AgentAttributionOperatorRoot && !runner.OperatorCommandJobPrepared(ctx, job) {
+			return runner.CommandRuntimeJob{}, false, apperror.New(apperror.CodePolicyDenied, "operator command preparation requires live host provenance")
+		}
 		if err := requireCommandRuntimeAttributionTx(ctx, tx, job.RunID,
 			job.RootAgentID, attribution); err != nil {
 			return runner.CommandRuntimeJob{}, false, err
@@ -156,10 +160,10 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		version, created_at, started_at, completed_at, updated_at,
 		adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
 		adapter_isolation_grade, adapter_network_policy, adapter_credential_policy,
-		permission_runtime_epoch, permission_generation)
+		permission_runtime_epoch, permission_generation, run_authorization_fence, operator_invocation)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, runner.CommandRuntimeProtocolVersion, job.OperationDigest,
 		job.RequestFingerprint, job.InvocationID, job.RunID, job.MissionID,
 		job.SessionID, job.WorkspaceID, job.RootAgentID, job.WorkspaceRootSHA256,
@@ -183,7 +187,8 @@ func (s *SQLiteStore) prepareCommandRuntimeJob(ctx context.Context,
 		job.Adapter.BackendIdentity, job.Adapter.Generation,
 		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
 		job.Adapter.CredentialPolicy, job.PermissionRuntimeEpoch,
-		job.PermissionGeneration)
+		job.PermissionGeneration, job.RunAuthorizationFence,
+		boolInt(requestedAttribution != nil && attribution.Source == domain.AgentAttributionOperatorRoot))
 	if err != nil {
 		return runner.CommandRuntimeJob{}, false, apperror.Wrap(
 			apperror.CodeConflict, "command runtime launch scope was rejected", err)
@@ -214,7 +219,14 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		return runner.CommandRuntimeJob{}, apperror.New(
 			apperror.CodeInvalidArgument, "command runtime transition is invalid")
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE command_runtime_jobs SET
+	// The owner retains expectedVersion if this call fails. Keep the update
+	// and readback atomic so a cancelled read cannot consume that version.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE command_runtime_jobs SET
 		state = ?, pid = ?, process_group = ?, stdout = ?, stderr = ?,
 		stdout_observed_bytes = ?, stderr_observed_bytes = ?, output_cursor = ?,
 		output_base_cursor = ?, output_frames_json = ?, stdout_sha256 = ?,
@@ -249,13 +261,20 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		return runner.CommandRuntimeJob{}, err
 	}
 	if changed != 1 {
-		if _, getErr := s.GetCommandRuntimeJob(ctx, job.ID); getErr != nil {
+		if _, getErr := getCommandRuntimeJob(ctx, tx, job.ID); getErr != nil {
 			return runner.CommandRuntimeJob{}, getErr
 		}
 		return runner.CommandRuntimeJob{}, apperror.New(
 			apperror.CodeConflict, "command runtime record version changed")
 	}
-	return s.GetCommandRuntimeJob(ctx, job.ID)
+	stored, err := getCommandRuntimeJob(ctx, tx, job.ID)
+	if err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	return stored, nil
 }
 
 func (s *SQLiteStore) GetCommandRuntimeJob(ctx context.Context,
@@ -393,7 +412,7 @@ func scanCommandRuntimeJob(scanner commandRuntimeJobScanner) (
 		&completedAt, &updatedAt, &adapterKind, &job.Adapter.Backend,
 		&job.Adapter.BackendIdentity, &job.Adapter.Generation, &adapterIsolation,
 		&adapterNetwork, &adapterCredentials, &job.PermissionRuntimeEpoch,
-		&job.PermissionGeneration)
+		&job.PermissionGeneration, &job.RunAuthorizationFence)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, err
 	}

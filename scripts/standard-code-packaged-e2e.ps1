@@ -416,7 +416,25 @@ function Test-SentinelPersisted {
                     $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
                     break
                 } catch {
-                    if ($attempt -eq 5) { throw "Sentinel evidence file remained unreadable" }
+                    if ($attempt -eq 5) {
+                        $readError = $_.Exception
+                        while ($null -ne $readError.InnerException) {
+                            $readError = $readError.InnerException
+                        }
+                        $failure = [System.IO.IOException]::new("Sentinel evidence file remained unreadable")
+                        # Fixed categories and numeric error facts only: no local
+                        # path, file bytes, exception message or sentinel value.
+                        $failure.Data["sentinel_evidence_read"] = [pscustomobject][ordered]@{
+                            root_index = [array]::IndexOf($Roots, $root)
+                            webview2_data = $file.FullName.StartsWith(
+                                (Join-Path $Roots[0] "webview2") + [System.IO.Path]::DirectorySeparatorChar,
+                                [System.StringComparison]::OrdinalIgnoreCase)
+                            exception_type = $readError.GetType().FullName
+                            hresult = [int]$readError.HResult
+                            file_attributes = [int]$file.Attributes
+                        }
+                        throw $failure
+                    }
                     Start-Sleep -Milliseconds 200
                 }
             }
@@ -543,14 +561,14 @@ try {
     Assert-E2ECondition ($fixtureReport.protocol_version -ceq "standard_code_fixture_set.v1" -and
         [bool]$fixtureReport.oracle_verified -and [bool]$fixtureReport.all_attack_cases_bound -and
         [int]$fixtureReport.repository_count -eq 4 -and
-        [int]$fixtureReport.attack_case_count -eq 40 -and
+        [int]$fixtureReport.attack_case_count -eq 39 -and
         @($repositoryReports | Where-Object {
             -not [bool]$_.clean -or -not [bool]$_.baseline_failure_observed -or
             -not [bool]$_.repair_pass_verified
         }).Count -eq 0) "fixture_oracle_report"
     Add-E2EResult "fixed_repository_oracle" "pass" ([pscustomobject][ordered]@{
         repository_count = 4
-        attack_case_count = 40
+        attack_case_count = 39
         baseline_failures_observed = 4
         repair_passes_verified = 4
     })
@@ -699,6 +717,7 @@ try {
         phase = $bootstrapPhase
         launch_ordinal = $script:startedCandidates.Count
         candidate_exit_code = Get-SafeCandidateExitCode
+        sentinel_evidence_read = $_.Exception.Data["sentinel_evidence_read"]
         detail_redacted = $true
     })
 } finally {
@@ -775,12 +794,12 @@ $report = [pscustomobject][ordered]@{
     fixture_set = $fixtureEvidence
     results = @($results)
     attack_matrix = [pscustomobject][ordered]@{
-        required_case_count = 40
+        required_case_count = 39
         prepared_case_count = $(if ($null -ne $fixtureReport) {
             [int]$fixtureReport.attack_case_count
         } else { 0 })
         evidenced_case_count = 0
-        remaining_required_case_count = 40
+        remaining_required_case_count = 39
         status = "needs_full_matrix"
         failure_policy = "fail_closed_no_waiver"
         unexecuted_cases_are_not_pass_or_skip = $true

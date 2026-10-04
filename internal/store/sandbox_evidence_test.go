@@ -240,7 +240,7 @@ func TestSandboxOutputSimulationLimitFailsClosedInServiceAndSQL(t *testing.T) {
 func TestSchemaV51UpgradeAddsSandboxEvidenceWithoutLosingPreflight(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v51.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	_, _, preflight := createDockerPreflightStoreFixture(t, ctx, st, run.ID, "upgrade-evidence")
 	for _, statement := range removeSchemaV52ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {

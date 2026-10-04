@@ -122,8 +122,7 @@ func (s *FullCDPProductionService) browserActionBinding(ctx context.Context,
 	if !runtimeOK || !entryPermissionMatches || !authorityLive ||
 		browserPermission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!browserPermission.OperatorConfirmed ||
-		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!s.executionCapabilities.AllowsSnapshot(executionPermission) {
 		return fullCDPBrowserActionBinding{}, false, nil
 	}

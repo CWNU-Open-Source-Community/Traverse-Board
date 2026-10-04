@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const (
@@ -187,7 +188,7 @@ func (e *RemoteExecutor) ValidateSpec(spec RemoteSpec) error {
 // ExecuteFetch/PullFF/Push run git with the hardened environment plus
 // credential askpass and proxy/ssh/wrapper kill-switches.
 func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec RemoteSpec,
-	binding RemoteBinding, operationKey string,
+	binding RemoteBinding, operationKey string, guards ...toolcontract.DispatchGuard,
 ) (RemoteReceipt, error) {
 	if e == nil || !e.Available() {
 		return RemoteReceipt{}, apperror.New(apperror.CodeFailedPrecondition, "remote executor is unavailable")
@@ -197,6 +198,14 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 	}
 	if spec.Operation == RemoteCreatePR || spec.Operation == RemoteUpdatePR {
 		return RemoteReceipt{}, errors.New("PR operations use the API executor")
+	}
+	operation, err := ThreadRemoteOperation(root, spec, binding, operationKey)
+	if err != nil {
+		return RemoteReceipt{}, err
+	}
+	ctx, err = threadGitDispatchContext(ctx, operation, guards)
+	if err != nil {
+		return RemoteReceipt{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(spec.NetworkTTLMillis)*time.Millisecond)
 	defer cancel()
@@ -229,6 +238,9 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 				// Explicit CAS protects a concurrent update; the independent
 				// ancestry test disallows every history rewrite.
 				cmd := e.remoteGitCommand(ctx, root, askpass, secret, "merge-base", "--is-ancestor", expected, spec.CommitOID)
+				if err := checkThreadGitDispatch(ctx); err != nil {
+					return RemoteReceipt{}, err
+				}
 				if err := cmd.Run(); err != nil {
 					return RemoteReceipt{}, apperror.New(apperror.CodeFailedPrecondition, "push must fast-forward the exact reviewed remote commit; fetch and review first")
 				}
@@ -251,6 +263,9 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return RemoteReceipt{}, err
+	}
 	runErr := command.Run()
 	completed := time.Now().UTC()
 	receipt := RemoteReceipt{
@@ -315,6 +330,9 @@ func (e *RemoteExecutor) readRemoteOID(ctx context.Context, root string, spec Re
 	var stdout, stderr boundedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", err
+	}
 	if err := cmd.Run(); err != nil {
 		return "", apperror.New(apperror.CodeUnavailable, "remote branch could not be observed")
 	}
@@ -337,6 +355,9 @@ func (e *RemoteExecutor) remoteBranchExists(ctx context.Context, root string, sp
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return false, err
+	}
 	err := command.Run()
 	if err != nil {
 		return false, apperror.New(apperror.CodeFailedPrecondition, "remote branch probe failed")
@@ -363,6 +384,9 @@ func (e *RemoteExecutor) currentHead(ctx context.Context, root string) (string, 
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", err
+	}
 	if err := command.Run(); err != nil {
 		return "", apperror.New(apperror.CodeFailedPrecondition, "post-readback failed")
 	}
@@ -373,6 +397,9 @@ func (e *RemoteExecutor) currentHead(ctx context.Context, root string) (string, 
 // secret travels in a child-process environment variable consumed by a
 // temporary helper script, never in argv, logs, or storage.
 func (e *RemoteExecutor) askpassHelper(ctx context.Context, credentialName string) (string, string, error) {
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", "", err
+	}
 	if credentialName == "" || e.credentials == nil || !e.credentials.Available() {
 		return "", "", nil
 	}
@@ -388,6 +415,9 @@ func (e *RemoteExecutor) askpassHelper(ctx context.Context, credentialName strin
 	} else {
 		path = filepath.Join(os.TempDir(), "askpass-"+digest+".sh")
 		script = "#!/bin/sh\necho \"$GIT_PASSWORD\"\n"
+	}
+	if err := checkThreadGitDispatch(ctx); err != nil {
+		return "", "", err
 	}
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		return "", "", err

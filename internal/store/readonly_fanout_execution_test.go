@@ -274,7 +274,7 @@ func TestReadOnlyFanoutRecoveryFencesOldLeaseAndChargesUnknownCall(t *testing.T)
 }
 
 func TestSchemaV33PlanSurvivesReadOnlyExecutionMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "readonly-v33-upgrade.db", 4)
+	st, run, _ := createReadOnlyFanoutFixture(t, "readonly-v33-upgrade.db", 4, 177)
 	ctx := context.Background()
 	plan := createReadOnlyFanoutExecutionPlan(t, ctx, st, run.ID, "4",
 		"readonly-v33-upgrade-plan")

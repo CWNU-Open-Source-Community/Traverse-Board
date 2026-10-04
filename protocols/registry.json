@@ -362,7 +362,8 @@
       "source_of_truth": [
         "internal/approval",
         "internal/executionauth",
-        "internal/store"
+        "internal/store",
+        "internal/toolcontract"
       ],
       "writers": [
         {
@@ -372,6 +373,22 @@
             1
           ],
           "mode": "write-current"
+        },
+        {
+          "id": "universal-tool-binding-writer",
+          "source": "internal/toolcontract",
+          "versions": [
+            1
+          ],
+          "mode": "write-new"
+        },
+        {
+          "id": "approval-preference-writer",
+          "source": "internal/application/run_execution_permission.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
         }
       ],
       "readers": [
@@ -380,6 +397,23 @@
           "source": "internal/store",
           "versions": [
             1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "universal-tool-binding-reader",
+          "source": "internal/executionauth",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "approval-preference-reader",
+          "source": "internal/domain",
+          "versions": [
+            1,
+            2
           ],
           "status": "active"
         }
@@ -400,6 +434,7 @@
         "approval_grant_operation_key.v1",
         "approval_operation_key.v1",
         "approval_record.v1",
+        "executionauth.authorization.v1",
         "full-cdp-session-operation.v1",
         "once_command.v1",
         "once_command_approval.v1",
@@ -432,6 +467,7 @@
         "run_network_authority_request.v1",
         "run_phase_change_request.v1",
         "thread_execution_permission.v1",
+        "thread_execution_permission.v2",
         "thread_execution_permission_browser_cdp_materialization_operation.v1",
         "thread_execution_permission_browser_cdp_operation.v1",
         "thread_execution_permission_change_request.v1",
@@ -442,7 +478,10 @@
         "thread_message_intent_operation.v1",
         "thread_message_intent_request.v1",
         "thread_model_route_operation.v1",
-        "thread_model_route_request.v1"
+        "thread_model_route_request.v1",
+        "toolcontract.discovery.v1",
+        "toolcontract.launch.v1",
+        "toolcontract.operation.v1"
       ],
       "retired_identifiers": []
     },
@@ -1260,12 +1299,29 @@
             2
           ],
           "mode": "write-new"
+        },
+        {
+          "id": "portable-plugin-installation-writer",
+          "source": "internal/plugins",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
         }
       ],
       "readers": [
         {
           "id": "extension-package-contracts-reader",
           "source": "internal/skills",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        },
+        {
+          "id": "plugin-installation-reader",
+          "source": "internal/plugins",
           "versions": [
             1,
             2
@@ -1285,15 +1341,19 @@
         ]
       },
       "active_identifiers": [
+        "agent-package-snapshot.v1",
         "extension-control.v1",
         "extension-inventory.v1",
         "external_skill_context.v1",
         "external_skill_guidance.v1",
         "external_skill_selection.v1",
+        "external_skill_selection.v2",
         "external_skill_selection_intent.v1",
+        "external_skill_selection_intent.v2",
         "external_skill_selection_operation.v1",
         "external_specialist_skill_context.v1",
         "plugin-installation.v1",
+        "plugin-installation.v2",
         "plugin-publisher-trust.v1",
         "plugin-signature.v1",
         "plugin.v1",
@@ -1301,8 +1361,10 @@
         "skill.v1",
         "skill_candidate.v1",
         "skill_candidate_import.v1",
+        "skill_candidate_import.v2",
         "skill_candidate_import_operation.v1",
         "skill_candidate_import_request.v1",
+        "skill_candidate_import_request.v2",
         "skill_candidate_proposal.v1",
         "skill_candidate_request.v1",
         "skill_candidate_review.v1",
@@ -1394,6 +1456,7 @@
         "doctor-snapshot.v1",
         "execution_interaction_policy.v1",
         "execution_permission_policy.v1",
+        "execution_permission_policy.v2",
         "execution_profile_policy.v1",
         "file_edit_apply.v1",
         "file_edit_change_set.v1",
@@ -1437,6 +1500,7 @@
         "run_execution_handoff.v1",
         "run_execution_interaction.v1",
         "run_execution_permission.v1",
+        "run_execution_permission.v2",
         "run_execution_profile.v1",
         "run_lifecycle_control.v1",
         "run_mode.v1",
@@ -1601,7 +1665,8 @@
           "id": "mcp-interchange-writer",
           "source": "internal/mcp",
           "versions": [
-            1
+            1,
+            2
           ],
           "mode": "write-current"
         }
@@ -1611,7 +1676,8 @@
           "id": "mcp-interchange-reader",
           "source": "internal/mcp",
           "versions": [
-            1
+            1,
+            2
           ],
           "status": "active"
         }
@@ -1630,7 +1696,10 @@
       "active_identifiers": [
         "mcp-client-call-audit.v1",
         "mcp-client-server.v1",
-        "mcp-client.v1"
+        "mcp-client.v1",
+        "mcp-client.v2",
+        "mcp.call.input.v1",
+        "mcp.capabilities.v1"
       ],
       "retired_identifiers": []
     },
@@ -1727,10 +1796,13 @@
         "application_docker_container_lifecycle_running.v1",
         "application_docker_container_lifecycle_start_authority.v1",
         "command-runtime-adapter-authority.v1",
+        "command-runtime-adapter-authority.v2",
         "command-runtime-batch.v2",
         "command-runtime-policy.v2",
         "command-runtime-result.v2",
         "command-runtime-workspace-boundary.v1",
+        "command_grant_binding.v1",
+        "command_grant_review.v1",
         "command_runtime_adapter_generation.v1",
         "command_runtime_docker_adapter_operation.v1",
         "command_runtime_local_sandbox_operation.v1",
@@ -1746,7 +1818,6 @@
         "controlled_command_proposal_policy.v1",
         "controlled_command_proposal_result.v1",
         "controlled_command_proposal_review.v1",
-        "controlled_command_proposal_review_operation.v1",
         "debug_terminal.v1",
         "debug_terminal_agent_input.v1",
         "debug_terminal_agent_input_audit_record.v1",
@@ -1762,23 +1833,58 @@
         "host_command_execution_receipt.v1",
         "host_command_policy.v1",
         "host_command_proposal.v1",
-        "host_command_proposal_execution_operation.v1",
         "host_command_proposal_result.v1",
-        "host_command_proposal_review_operation.v1",
         "host_command_review.v1",
         "once_execution.v1",
+        "operator_command_key.v1",
+        "operator_command_request.v1",
         "permission_runtime_epoch.v1",
         "risk_escalation.v1",
-        "risk_escalation_execution.v1",
-        "risk_escalation_invalidation.v1",
         "risk_escalation_policy.v1",
-        "risk_escalation_result.v1",
         "risk_escalation_resume.v1",
         "terminal_agent_input_audit.v1",
         "terminal_agent_input_bridge.v1",
-        "terminal_input_lease.v1"
+        "terminal_input_lease.v1",
+        "windows-fixed-restricted.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "controlled_command_proposal_review_operation.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        },
+        {
+          "identifier": "host_command_proposal_execution_operation.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        },
+        {
+          "identifier": "host_command_proposal_review_operation.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        },
+        {
+          "identifier": "risk_escalation_execution.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        },
+        {
+          "identifier": "risk_escalation_invalidation.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        },
+        {
+          "identifier": "risk_escalation_result.v1",
+          "decision": "ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.",
+          "migration_evidence": "Historical tables, immutable receipts, proposal decoders and saved-outcome readers are retained. HistoricalHostProposalUpgrade and HistoricalRiskResume tests open schema177 fixtures under original constraints, upgrade, read and resume saved outcomes without changing historical rows. No data migration or automatic re-execution is introduced.",
+          "rollback": "Retain history readers and saved receipts. Restore a writer only after a separate authorized execution design and regression review; never infer live authority from historical approvals or unknown intents."
+        }
+      ]
     },
     {
       "id": "project-configuration-contract",
@@ -2662,6 +2768,22 @@
       ],
       "writers": [
         {
+          "id": "native-git-reviewed-authority-writer",
+          "source": "internal/application/git_advanced_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
+        },
+        {
+          "id": "native-github-review-authority-writer",
+          "source": "internal/application/github_review_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "mode": "write-new"
+        },
+        {
           "id": "tool-mutation-ledgers-writer",
           "source": "internal/application",
           "versions": [
@@ -2671,6 +2793,22 @@
         }
       ],
       "readers": [
+        {
+          "id": "native-git-reviewed-authority-reader",
+          "source": "internal/application/git_advanced_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        },
+        {
+          "id": "native-github-review-authority-reader",
+          "source": "internal/application/github_review_operation_authority.go",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        },
         {
           "id": "tool-mutation-ledgers-reader",
           "source": "internal/store",
@@ -2694,6 +2832,8 @@
       "active_identifiers": [
         "agent_code_file_edit_proposal.v1",
         "agent_code_file_edit_source.v1",
+        "authorized-native-git.v2",
+        "file-operation-proposal.v1",
         "file_edit_apply_operation.v1",
         "file_edit_apply_request.v1",
         "file_edit_revert_proposal.v1",
@@ -2721,6 +2861,7 @@
         "github-review-snapshot.v1",
         "github-review-write.v1",
         "github_review_write.v1",
+        "native-github-review-approval.v2",
         "note_create.v1",
         "repository_mutation.v1",
         "repository_mutation_binding.v1",
@@ -3219,14 +3360,6 @@
       "reason": "Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol."
     },
     {
-      "identifier": "controlled_command_proposal.v2",
-      "kind": "test-fixture",
-      "sources": [
-        "internal/toolgateway/controlled_command_proposal_test.go"
-      ],
-      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
-    },
-    {
       "identifier": "desktop_test_matrix.v2",
       "kind": "test-fixture",
       "sources": [
@@ -3403,6 +3536,7 @@
         "internal/application/standard_code_supervisor_test.go",
         "internal/commandruntimeadapter/adapter_test.go",
         "internal/store/migration_v163_test.go",
+        "internal/store/migration_v180_test.go",
         "internal/toolgateway/command_runtime_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
@@ -3596,6 +3730,14 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "skill.v99",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/agentpackages/edge_cases_test.go"
+      ],
+      "reason": "Unknown legacy Skill version rejection fixture; never a supported production reader."
+    },
+    {
       "identifier": "slsa_provenance.v1",
       "kind": "test-fixture",
       "sources": [
@@ -3764,6 +3906,14 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "web-mode-test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/web_permissions_integration_test.go"
+      ],
+      "reason": "Test connector identity for the real Supervisor search path across Ask, Auto, and cold Full; not a production protocol."
+    },
+    {
       "identifier": "web_search.v0",
       "kind": "test-fixture",
       "sources": [
@@ -3777,6 +3927,7 @@
       "sources": [
         "internal/application/command_runtime_test.go",
         "internal/application/supervisor_tool_permission_test.go",
+        "internal/desktop/standard_code_security_ledger_windows_test.go",
         "internal/store/supervisor_tool_registry_migration_test.go",
         "internal/store/supervisor_tools_test.go"
       ],

@@ -99,8 +99,6 @@ type ProviderSearchReadinessStore interface {
 	GetThread(context.Context, string) (domain.Thread, error)
 	GetRun(context.Context, string) (domain.Run, error)
 	GetRunMode(context.Context, string) (domain.RunModeSnapshot, error)
-	GetRunExecutionPermission(context.Context, string) (
-		domain.RunExecutionPermissionSnapshot, error)
 }
 
 type ProviderSearchReadinessService struct {
@@ -146,11 +144,8 @@ func (s *ProviderSearchReadinessService) Get(ctx context.Context,
 	if err != nil {
 		return ProviderSearchReadiness{}, apperror.Normalize(err)
 	}
-	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		return ProviderSearchReadiness{}, apperror.Normalize(err)
-	}
-	authority := effectiveWebEvidenceAuthority(mode.Scope, permission.Mode)
+	authority := webevidence.NetworkAuthority{Mode: "allowlist",
+		AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
 	readiness := s.resolver.SearchReadiness(ctx,
 		webevidence.SearchRoute{ModelRoute: run.Config.ModelRoute},
 		authority)

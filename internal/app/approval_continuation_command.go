@@ -26,7 +26,9 @@ type cliWebFetchContinuationProjection struct {
 // The review invocation owns its continuation until the next product boundary.
 // There is no worker left behind when the CLI process exits. Runtime support
 // here never changes the Run's durable permission selection.
-func (a *App) newCLIApprovalExecution(ctx context.Context, runID string) (
+func (a *App) newCLIApprovalExecution(ctx context.Context, runID string,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities, confirmFull bool,
+) (
 	*application.RunExecutionHandoffService, func() error, error,
 ) {
 	drydocks, err := a.newRunFileDrydockService(ctx, runID)
@@ -41,12 +43,19 @@ func (a *App) newCLIApprovalExecution(ctx context.Context, runID string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	runtime, err := a.newCLIExecutionRuntime(ctx,
-		cliExecutionPermissionCapabilities(true, true, false), matrix.SandboxedCommandRuntime)
+	releaseFull, err := a.activateCLIInvocationFull(ctx, runID, capabilities, confirmFull)
 	if err != nil {
 		return nil, nil, err
 	}
-	closeRuntime := runtime.close
+	runtime, err := a.newCLIExecutionRuntime(ctx, capabilities, matrix.SandboxedCommandRuntime)
+	if err != nil {
+		releaseFull()
+		return nil, nil, err
+	}
+	closeRuntime := func() error {
+		defer releaseFull()
+		return runtime.close()
+	}
 	dependencies := runtime.dependencies(a)
 	dependencies.Drydocks = drydocks
 	if _, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx, runID); err != nil {
@@ -147,11 +156,17 @@ func (a *App) approvalDecideAndContinue(ctx context.Context, actionName string, 
 	fs := newFlagSet("approval "+actionName, a.errOut)
 	operationKey := fs.String("operation-key", "", "stable review operation key; defaults to this approval and decision")
 	reason := fs.String("reason", "", "denial reason (deny only)")
-	if err := fs.Parse(reorderFlags(args, map[string]bool{"operation-key": true, "reason": true})); err != nil {
+	enablePermission := fs.Bool("enable-permission-control", false, "enable the permission-control runtime gate")
+	enableFull := fs.Bool("enable-danger-full-access", false, "enable the Full runtime gate")
+	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this continuation only")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"operation-key": true, "reason": true,
+		"enable-permission-control": false, "enable-danger-full-access": false, "confirm-full": false,
+	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: cyberagent approval %s <approval-id> [--reason <text>] [--operation-key <key>]", actionName)
+		return fmt.Errorf("usage: cyberagent approval %s <approval-id> [--reason <text>] [--operation-key <key>] [--confirm-full --enable-permission-control --enable-danger-full-access]", actionName)
 	}
 	record, err := a.store.GetApproval(ctx, fs.Arg(0))
 	if err != nil {
@@ -187,7 +202,8 @@ func (a *App) approvalDecideAndContinue(ctx context.Context, actionName string, 
 		}
 		return nil
 	}
-	handoff, closeRuntime, err := a.newCLIApprovalExecution(ctx, record.RunID)
+	capabilities := cliExecutionPermissionCapabilities(*enablePermission, *enableFull)
+	handoff, closeRuntime, err := a.newCLIApprovalExecution(ctx, record.RunID, capabilities, *confirmFull)
 	if err != nil {
 		return fmt.Errorf("approval saved; continuation setup failed: %w", err)
 	}
@@ -208,15 +224,17 @@ func (a *App) approvalDecideAndContinue(ctx context.Context, actionName string, 
 	return nil
 }
 
-func (a *App) continueReviewedFileEdit(ctx context.Context, runID, editID string) (resultErr error) {
-	handoff, closeRuntime, err := a.newCLIApprovalExecution(ctx, runID)
+func (a *App) continueReviewedFileEdit(ctx context.Context, runID, editID string,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities, confirmFull bool,
+) (resultErr error) {
+	handoff, closeRuntime, err := a.newCLIApprovalExecution(ctx, runID, capabilities, confirmFull)
 	if err != nil {
 		return fmt.Errorf("review saved; continuation setup failed: %w", err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, closeRuntime()) }()
 	turns := application.NewThreadTurnServiceWithExecutionCapabilities(a.store,
 		application.NewRunLifecycleControlService(a.store), handoff,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true})
+		capabilities)
 	result := turns.ResumeApproval(ctx, application.ApprovalContinuationRequest{RunID: runID, Kind: "file_edit", ProposalID: editID})
 	fmt.Fprintf(a.out, "continuation: %s\ncontinuation_replayed: %t\nbackground_worker: false\nmodel_called: %t\ntool_called: %t\n", result.State, result.Replayed, result.ModelCalled, result.ToolCalled)
 	if result.State == "failed" {

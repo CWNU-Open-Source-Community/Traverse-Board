@@ -39,6 +39,7 @@ type UIEvidenceStore interface {
 	GetMission(context.Context, string) (domain.Mission, error)
 	GetWorkspaceByID(context.Context, string) (session.WorkspaceRecord, error)
 	GetRootAgent(context.Context, string) (domain.AgentNode, bool, error)
+	GetRunMode(context.Context, string) (domain.RunModeSnapshot, error)
 	GetRunExecutionPermission(context.Context, string) (
 		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
@@ -178,20 +179,21 @@ func (b uiEvidenceCommandCleanupBinding) Validate() error {
 }
 
 type UIEvidenceService struct {
-	store       UIEvidenceStore
-	commands    uiEvidenceCommandRuntime
-	browsers    UIEvidenceBrowserProvider
-	profileRoot string
-	now         func() time.Time
-	mu          sync.Mutex
-	cancel      map[string]context.CancelFunc
-	wg          sync.WaitGroup
-	closed      bool
+	store        UIEvidenceStore
+	commands     uiEvidenceCommandRuntime
+	browsers     UIEvidenceBrowserProvider
+	profileRoot  string
+	capabilities domain.ExecutionPermissionRuntimeCapabilities
+	now          func() time.Time
+	mu           sync.Mutex
+	cancel       map[string]context.CancelFunc
+	wg           sync.WaitGroup
+	closed       bool
 }
 
 func NewUIEvidenceService(store UIEvidenceStore,
 	commands uiEvidenceCommandRuntime, browsers UIEvidenceBrowserProvider,
-	profileRoot string,
+	profileRoot string, capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) (*UIEvidenceService, error) {
 	service, err := NewUIEvidenceReadService(store)
 	if err != nil {
@@ -199,10 +201,11 @@ func NewUIEvidenceService(store UIEvidenceStore,
 	}
 	profileRoot = strings.TrimSpace(profileRoot)
 	if commands == nil || browsers == nil || profileRoot == "" ||
-		!filepath.IsAbs(profileRoot) {
+		!filepath.IsAbs(profileRoot) || capabilities.Validate() != nil {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"UI evidence requires store, command runtime, browser runtime, and private Profile root")
 	}
+	service.capabilities = capabilities
 	service.commands = commands
 	service.browsers = browsers
 	service.profileRoot = filepath.Clean(profileRoot)
@@ -452,6 +455,7 @@ type preparedUIEvidence struct {
 	root      domain.AgentNode
 	lease     domain.RunExecutionLease
 	adapter   commandruntimeadapter.Identity
+	command   toolgateway.CommandRuntimeContext
 }
 
 func (s *UIEvidenceService) prepare(ctx context.Context,
@@ -494,10 +498,18 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 	if err != nil {
 		return preparedUIEvidence{}, uievidence.Attempt{}, err
 	}
-	if !executionPermission.Mode.IncludesFullAccess() {
+	if executionPermission.Mode != domain.RunExecutionPermissionFull {
 		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"UI evidence requires current Full Access or Debug permission")
+			apperror.CodeFailedPrecondition, "UI evidence requires current Full permission")
+	}
+	snapshotID, generation, epoch, fence, live := bindAgentCodeRuntime(s.capabilities, executionPermission)
+	if !live {
+		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
+			apperror.CodeFailedPrecondition, "UI evidence requires active Full runtime authority")
+	}
+	mode, err := s.store.GetRunMode(ctx, runRecord.ID)
+	if err != nil {
+		return preparedUIEvidence{}, uievidence.Attempt{}, err
 	}
 	adapter, available, err := s.commands.AdvertisedCommandRuntimeAdapter(ctx,
 		runRecord.ID, executionPermission.Mode)
@@ -584,7 +596,19 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 	}
 	return preparedUIEvidence{request: request, attempt: stored, browser: browser,
 			run: runRecord, mission: mission, workspace: workspace, root: root, lease: lease,
-			adapter: adapter},
+			adapter: adapter,
+			command: toolgateway.CommandRuntimeContext{
+				RunID: runRecord.ID, MissionID: mission.ID, RootAgentID: root.ID, AgentID: root.ID,
+				SessionID: runRecord.SessionID, WorkspaceID: mission.WorkspaceID,
+				Surface: mode.Surface, Phase: mode.Phase, Role: root.Role, Profile: mode.Profile, ModeRevision: mode.Revision,
+				PermissionMode: executionPermission.Mode, PermissionRevision: executionPermission.Revision,
+				PermissionSnapshotID: snapshotID, PermissionGeneration: generation,
+				PermissionRuntimeEpoch: epoch, RunAuthorizationFence: fence,
+				CapabilityGeneration: adapter.Generation, Adapter: adapter,
+				LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation,
+				RequestedBy: toolgateway.CommandRuntimeRequestedByUIEvidenceOperator,
+				PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "high",
+					Reason: "exact ui-evidence.v1 recipe passed the Run execution boundary"}}},
 		uievidence.Attempt{}, nil
 }
 
@@ -1031,20 +1055,12 @@ func (s *UIEvidenceService) cleanup(ctx context.Context,
 func (s *UIEvidenceService) commandScope(prepared preparedUIEvidence,
 	suffix string,
 ) toolgateway.CommandRuntimeContext {
-	identity := uiEvidenceRuntimeIdentity(prepared, suffix)
-	return toolgateway.CommandRuntimeContext{
-		InvocationID: identity,
-		OperationKey: identity,
-		RunID:        prepared.run.ID, MissionID: prepared.mission.ID,
-		RootAgentID: prepared.root.ID, AgentID: prepared.root.ID,
-		SessionID: prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
-		CapabilityGeneration: prepared.adapter.Generation,
-		LeaseID:              prepared.lease.LeaseID, LeaseGeneration: prepared.lease.Generation,
-		RequestedBy: toolgateway.CommandRuntimeRequestedByUIEvidenceOperator,
-		PolicyDecision: toolgateway.Decision{
-			Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "high",
-			Reason: "exact ui-evidence.v1 recipe passed the Run execution boundary"},
-		Adapter: prepared.adapter}
+	// Preserve the original activation through build/start/read/wait. A later
+	// confirmation must not revive an attempt admitted under a revoked fence.
+	scope := prepared.command
+	scope.InvocationID = uiEvidenceRuntimeIdentity(prepared, suffix)
+	scope.OperationKey = scope.InvocationID
+	return scope
 }
 
 func (s *UIEvidenceService) startCommand(ctx context.Context,

@@ -2,7 +2,6 @@ package application
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,40 +22,6 @@ func TestSupervisorWebSearchTimeoutOutlivesCredentialedProviderRequest(t *testin
 	}
 	if timeout := supervisorToolExecutionTimeout(toolgateway.WebFetchTool); timeout != supervisorToolCallTimeout {
 		t.Fatalf("web_fetch timeout=%s want=%s", timeout, supervisorToolCallTimeout)
-	}
-}
-
-func TestSupervisorHostCommandToolIsExposedOnlyInApprovalPermission(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		surface domain.ExecutionSurface
-		mode    domain.RunExecutionPermissionMode
-		want    bool
-	}{
-		{name: "conservative", surface: domain.ExecutionSurfaceCode,
-			mode: domain.RunExecutionPermissionConservative},
-		{name: "approval", surface: domain.ExecutionSurfaceCode,
-			mode: domain.RunExecutionPermissionApproval, want: true},
-		{name: "Cyber approval", surface: domain.ExecutionSurfaceCyber,
-			mode: domain.RunExecutionPermissionApproval},
-		{name: "full access", surface: domain.ExecutionSurfaceCode,
-			mode: domain.RunExecutionPermissionFullAccess},
-		{name: "debug", surface: domain.ExecutionSurfaceCode,
-			mode: domain.RunExecutionPermissionDebug},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			found := false
-			for _, spec := range supervisorStructuredToolSpecs(
-				test.surface, domain.ExecutionPhaseDeliver,
-				test.mode, false, false) {
-				if spec.Name == string(toolgateway.HostCommandProposeTool) {
-					found = true
-				}
-			}
-			if found != test.want {
-				t.Fatalf("host command tool visible=%t want=%t for %s", found, test.want, test.mode)
-			}
-		})
 	}
 }
 
@@ -98,59 +63,6 @@ func TestSupervisorAcceptsAdvertisedDockerSandboxProposal(t *testing.T) {
 	}
 }
 
-func TestSupervisorExposesAndAcceptsOneShotCommandProposal(t *testing.T) {
-	found := false
-	for _, spec := range supervisorStructuredToolSpecs(
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionConservative, false, false) {
-		if spec.Name == string(toolgateway.OneShotCommandProposeTool) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("one-shot command proposal is not exposed to the Supervisor")
-	}
-	payload, err := json.Marshal(toolgateway.OneShotCommandProposalSpec{
-		Version: "once_command.v1", ExecutablePath: filepath.Join(t.TempDir(), "tool.exe"),
-		Argv: []string{"version"}, WorkingDirectory: t.TempDir(),
-		Environment: []string{}, TimeoutMS: 1000, Purpose: "inspect tool version",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	calls := []llm.ToolCall{{ID: "provider-call-once",
-		Name: string(toolgateway.OneShotCommandProposeTool), Arguments: payload}}
-	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionConservative, false, false)
-	if err != nil || len(prepared) != 1 ||
-		prepared[0].Name != string(toolgateway.OneShotCommandProposeTool) {
-		t.Fatalf("one-shot command proposal was rejected: %#v err=%v", prepared, err)
-	}
-}
-
-func TestSupervisorRejectsForgedHostCommandToolOutsideApprovalPermission(t *testing.T) {
-	payload := json.RawMessage(`{"version":"host_command_proposal.v1","executable_path":"/workspace/tool","argv":["version"],"working_directory":"/workspace","timeout_milliseconds":1000,"purpose":"inspect the exact tool version"}`)
-	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.HostCommandProposeTool), Arguments: payload}}
-	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionConservative, false, false); err == nil {
-		t.Fatal("forged host command proposal was accepted outside approval permission")
-	}
-	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionApproval, false, false)
-	if err != nil || len(prepared) != 1 || prepared[0].Name != string(toolgateway.HostCommandProposeTool) {
-		t.Fatalf("approval host command proposal was rejected: %#v err=%v", prepared, err)
-	}
-	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCyber, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionApproval, false, false); err == nil {
-		t.Fatal("forged host command proposal was accepted on the Cyber surface")
-	}
-}
-
 func TestSupervisorSkillCandidateToolRequiresExplicitGeneratorContext(t *testing.T) {
 	found := func(enabled bool) bool {
 		for _, spec := range supervisorStructuredToolSpecs(
@@ -180,7 +92,7 @@ func TestSupervisorSkillCandidateToolRequiresExplicitGeneratorContext(t *testing
 	}
 }
 
-func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
+func TestSupervisorDebugTerminalRequiresDeliverFullAndRuntime(t *testing.T) {
 	tests := []struct {
 		name    string
 		surface domain.ExecutionSurface
@@ -191,19 +103,19 @@ func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
 	}{
 		{name: "enabled", surface: domain.ExecutionSurfaceCode,
 			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionDebug, enabled: true, want: true},
+			mode:  domain.RunExecutionPermissionFull, enabled: true, want: true},
 		{name: "no runtime", surface: domain.ExecutionSurfaceCode,
 			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionDebug},
+			mode:  domain.RunExecutionPermissionFull},
 		{name: "Plan", surface: domain.ExecutionSurfaceCode,
 			phase: domain.ExecutionPhasePlan,
-			mode:  domain.RunExecutionPermissionDebug, enabled: true},
+			mode:  domain.RunExecutionPermissionFull, enabled: true},
 		{name: "approval permission", surface: domain.ExecutionSurfaceCode,
 			phase: domain.ExecutionPhaseDeliver,
 			mode:  domain.RunExecutionPermissionApproval, enabled: true},
 		{name: "Cyber surface", surface: domain.ExecutionSurfaceCyber,
 			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionDebug, enabled: true},
+			mode:  domain.RunExecutionPermissionFull, enabled: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -221,7 +133,7 @@ func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
 	calls := []llm.ToolCall{{ID: "provider-call-debug", Name: string(toolgateway.DebugTerminalTool), Arguments: payload}}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCyber, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, false, true); err == nil {
+		domain.RunExecutionPermissionFull, false, true); err == nil {
 		t.Fatal("forged Debug terminal call was accepted on the Cyber surface")
 	}
 	if recoverableSupervisorToolError(toolgateway.NoteCreateTool,
@@ -234,136 +146,58 @@ func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
 	}
 }
 
-func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *testing.T) {
-	adapter := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
-	authority, err := commandruntimeadapter.EncodeAuthority(
-		commandruntimeadapter.NewAuthority("run-1", adapter))
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtimeOptions := func(enabled bool) supervisorToolOptions {
-		if !enabled {
-			return supervisorToolOptions{}
-		}
-		return supervisorToolOptions{CommandRuntime: supervisorCommandRuntimeTools{
-			Adapter: adapter, Authority: authority,
-		}}
-	}
-	tests := []struct {
-		name    string
-		surface domain.ExecutionSurface
-		phase   domain.ExecutionPhase
-		mode    domain.RunExecutionPermissionMode
-		enabled bool
-		want    bool
-	}{
-		{name: "enabled", surface: domain.ExecutionSurfaceCode,
-			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionFullAccess, enabled: true, want: true},
-		{name: "no runtime", surface: domain.ExecutionSurfaceCode,
-			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionFullAccess},
-		{name: "Plan", surface: domain.ExecutionSurfaceCode,
-			phase: domain.ExecutionPhasePlan,
-			mode:  domain.RunExecutionPermissionFullAccess, enabled: true},
-		{name: "approval permission", surface: domain.ExecutionSurfaceCode,
-			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionApproval, enabled: true},
-		{name: "Debug permission", surface: domain.ExecutionSurfaceCode,
-			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionDebug, enabled: true, want: true},
-		{name: "Cyber surface", surface: domain.ExecutionSurfaceCyber,
-			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionFullAccess, enabled: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			found := false
-			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
-				test.mode, false, false,
-				runtimeOptions(test.enabled)) {
-				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
-			}
-			if found != test.want {
-				t.Fatalf("command runtime visible=%t want=%t", found, test.want)
-			}
-		})
-	}
-	payload := json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`)
-	calls := []llm.ToolCall{{ID: "provider-call-command-runtime",
-		Name: string(toolgateway.CommandRuntimeTool), Arguments: payload}}
-	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false,
-		supervisorToolOptions{}); err == nil {
-		t.Fatal("forged command runtime call was accepted without the runtime")
-	}
-	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false,
-		runtimeOptions(true)); err != nil {
-		t.Fatalf("authorized command runtime call was rejected: %v", err)
-	}
-	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, false, false,
-		runtimeOptions(true)); err != nil {
-		t.Fatalf("Debug did not inherit the authorized command runtime: %v", err)
-	}
-	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,
-		apperror.CodeFailedPrecondition) {
-		t.Fatal("command runtime lifecycle conflict was not model-recoverable")
-	}
-}
-
-func TestSupervisorCommandRuntimeSandboxRequiresWorkspaceAccess(t *testing.T) {
-	adapter := commandruntimeadapter.SandboxedWorkspace(
-		CommandRuntimeLocalSandboxBackend, "windows-local-sandbox.v1",
-		strings.Repeat("b", 64))
-	authority, err := commandruntimeadapter.EncodeAuthority(
-		commandruntimeadapter.NewAuthority("run-1", adapter))
-	if err != nil {
-		t.Fatal(err)
-	}
-	options := supervisorToolOptions{CommandRuntime: supervisorCommandRuntimeTools{
-		Adapter: adapter, Authority: authority}}
-	for _, test := range []struct {
-		name       string
-		surface    domain.ExecutionSurface
-		phase      domain.ExecutionPhase
-		permission domain.RunExecutionPermissionMode
-		want       bool
-	}{
-		{"workspace Code Deliver", domain.ExecutionSurfaceCode,
-			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionWorkspaceAccess, true},
-		{"full access", domain.ExecutionSurfaceCode,
-			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionFullAccess, false},
-		{"Plan", domain.ExecutionSurfaceCode,
-			domain.ExecutionPhasePlan, domain.RunExecutionPermissionWorkspaceAccess, false},
-		{"Cyber", domain.ExecutionSurfaceCyber,
-			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionWorkspaceAccess, false},
+func TestSupervisorCommandRuntimeAdvertisesAndPreparesOnlyCurrentModes(t *testing.T) {
+	for _, adapter := range []commandruntimeadapter.Identity{
+		commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)),
+		commandruntimeadapter.SandboxedWorkspace(CommandRuntimeLocalSandboxBackend, "windows-local-sandbox.v1", strings.Repeat("b", 64)),
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			found := false
-			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
-				test.permission, false, false, options) {
-				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
-			}
-			if found != test.want {
-				t.Fatalf("sandbox command runtime visible=%t want=%t", found, test.want)
-			}
-		})
+		for _, mode := range []domain.RunExecutionPermissionMode{
+			domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+			domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionWorkspaceAccess,
+			domain.RunExecutionPermissionApproval, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug,
+		} {
+			t.Run(string(adapter.Kind)+"/"+string(mode), func(t *testing.T) {
+				authority := commandruntimeadapter.NewAuthority("run-1", adapter)
+				if mode.IsApprovalMode() {
+					authority.ProtocolVersion = commandruntimeadapter.OperationAuthorityVersion
+					authority.PermissionMode, authority.PermissionRevision = mode, 1
+					authority.PermissionSnapshotID = "permission-1"
+					authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence = "runtime-1", 1
+					if mode == domain.RunExecutionPermissionFull {
+						authority.PermissionGeneration = 1
+					}
+				}
+				encoded, err := commandruntimeadapter.EncodeAuthority(authority)
+				if err != nil {
+					t.Fatal(err)
+				}
+				options := supervisorToolOptions{CommandRuntime: supervisorCommandRuntimeTools{Adapter: adapter, Authority: encoded}}
+				for _, variant := range []string{"ready", "missing_runtime", "plan", "cyber"} {
+					surface, phase, current := domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver, options
+					switch variant {
+					case "missing_runtime":
+						current = supervisorToolOptions{}
+					case "plan":
+						phase = domain.ExecutionPhasePlan
+					case "cyber":
+						surface = domain.ExecutionSurfaceCyber
+					}
+					want := variant == "ready" && mode.IsApprovalMode()
+					found := false
+					for _, spec := range supervisorStructuredToolSpecs(surface, phase, mode, false, false, current) {
+						found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
+					}
+					calls := []llm.ToolCall{{ID: "provider-command", Name: string(toolgateway.CommandRuntimeTool), Arguments: json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`)}}
+					_, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1, surface, phase, mode, false, false, current)
+					if found != want || (err == nil) != want {
+						t.Fatalf("%s advertised=%t prepared=%t want=%t err=%v", variant, found, err == nil, want, err)
+					}
+				}
+			})
+		}
 	}
-	payload := json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`)
-	prepared, err := prepareSupervisorToolCalls([]llm.ToolCall{{
-		ID:   "provider-call-command-runtime-sandbox",
-		Name: string(toolgateway.CommandRuntimeTool), Arguments: payload,
-	}}, "run-1", 1, 1, domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionWorkspaceAccess, false, false, options)
-	if err != nil || len(prepared) != 1 ||
-		string(prepared[0].Authority) != string(authority) {
-		t.Fatalf("sandbox command runtime authority was not attached: %#v err=%v",
-			prepared, err)
+	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool, apperror.CodeFailedPrecondition) {
+		t.Fatal("command lifecycle conflict is not recoverable")
 	}
 }
 
@@ -371,15 +205,16 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 	fingerprint := strings.Repeat("a", 64)
 	capabilities := mcp.ScopedCapabilities{ProtocolVersion: mcp.ClientProtocolVersion,
 		Generation: strings.Repeat("b", 64), Servers: []mcp.ScopedServerCapability{{
-			ServerID: "docs", Name: "Documentation", CapabilityFingerprint: fingerprint,
+			ServerID: "docs", Name: "Documentation", CapabilityFingerprint: fingerprint, DescriptorFingerprint: strings.Repeat("d", 64), RegistrationGeneration: 1,
 			Tools: []mcp.RemoteTool{{Name: "lookup", Description: "Look up a document.",
 				InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string"}}}`)}},
 		}}}
 	authority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
-		Version: mcp.SupervisorCallAuthorityVersion,
-		RunID:   "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		Version:  mcp.SupervisorOperationAuthorityVersion,
+		ServerID: "docs", DescriptorFingerprint: strings.Repeat("d", 64), ServerGeneration: 1,
+		RunID: "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
 		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
-		PermissionMode: domain.RunExecutionPermissionFullAccess,
+		PermissionMode: domain.RunExecutionPermissionFull,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -398,33 +233,26 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		return false, nil
 	}
 	found, schema := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, options)
+		domain.RunExecutionPermissionFull, options)
 	if !found || !json.Valid(schema) || !strings.Contains(string(schema), `"const":"docs"`) ||
 		!strings.Contains(string(schema), `"const":"lookup"`) ||
 		!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
 		t.Fatalf("reviewed MCP capability was not encoded exactly: %s", schema)
 	}
 	if found, _ := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, options); !found {
-		t.Fatal("Debug did not inherit the reviewed MCP capability")
+		domain.RunExecutionPermissionAuto, options); !found {
+		t.Fatal("Auto did not expose the reviewed MCP capability")
 	}
-	for _, test := range []struct {
-		surface    domain.ExecutionSurface
-		phase      domain.ExecutionPhase
-		permission domain.RunExecutionPermissionMode
-		options    supervisorToolOptions
-	}{
-		{domain.ExecutionSurfaceCyber, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionFullAccess, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
-			domain.RunExecutionPermissionFullAccess, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionApproval, options},
-		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-			domain.RunExecutionPermissionFullAccess, supervisorToolOptions{}},
-	} {
-		if found, _ := visible(test.surface, test.phase, test.permission, test.options); found {
-			t.Fatal("MCP tool leaked outside the exact reviewed runtime scope")
+	for _, surface := range []domain.ExecutionSurface{domain.ExecutionSurfaceCode, domain.ExecutionSurfaceCyber} {
+		for _, phase := range []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver} {
+			for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+				if found, _ := visible(surface, phase, mode, options); !found {
+					t.Fatal("reviewed MCP was hidden behind a retired surface/phase/mode gate", surface, phase, mode)
+				}
+				if found, _ := visible(surface, phase, mode, supervisorToolOptions{}); found {
+					t.Fatal("unreviewed MCP capability was exposed")
+				}
+			}
 		}
 	}
 	payload := json.RawMessage(`{"version":"mcp-client.v1","server_id":"docs","tool_name":"lookup","capability_fingerprint":"` + fingerprint + `","arguments":{"query":"bounded"}}`)
@@ -432,26 +260,28 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		Arguments: payload}}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, options); err != nil {
+		domain.RunExecutionPermissionFull, false, false, options); err != nil {
 		t.Fatalf("exact reviewed MCP call was rejected: %v", err)
 	}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionDebug, false, false, options); err != nil {
-		t.Fatalf("Debug did not inherit the exact reviewed MCP call: %v", err)
+		domain.RunExecutionPermissionAuto, false, false, options); err != nil {
+		t.Fatalf("Auto did not expose the exact reviewed MCP call: %v", err)
 	}
 	forged := options
+	forged.MCP.Capabilities.Servers = append([]mcp.ScopedServerCapability(nil), options.MCP.Capabilities.Servers...)
 	forged.MCP.Capabilities.Servers[0].CapabilityFingerprint = strings.Repeat("c", 64)
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, forged); err == nil {
+		domain.RunExecutionPermissionFull, false, false, forged); err == nil {
 		t.Fatal("stale MCP capability fingerprint was accepted")
 	}
 	wrongRunAuthority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
-		Version: mcp.SupervisorCallAuthorityVersion,
-		RunID:   "run-other", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		Version:  mcp.SupervisorOperationAuthorityVersion,
+		ServerID: "docs", DescriptorFingerprint: strings.Repeat("d", 64), ServerGeneration: 1,
+		RunID: "run-other", MissionID: "mission-1", WorkspaceID: "workspace-1",
 		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
-		PermissionMode: domain.RunExecutionPermissionFullAccess,
+		PermissionMode: domain.RunExecutionPermissionFull,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -460,14 +290,14 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 	wrongRun.MCP.Authority = wrongRunAuthority
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, wrongRun); err == nil {
+		domain.RunExecutionPermissionFull, false, false, wrongRun); err == nil {
 		t.Fatal("MCP advertisement authority for another Run was accepted")
 	}
 	malformed := options
 	malformed.MCP.Authority = json.RawMessage(`{"version":1}`)
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, malformed); err == nil {
+		domain.RunExecutionPermissionFull, false, false, malformed); err == nil {
 		t.Fatal("malformed MCP advertisement authority was accepted")
 	}
 	if !recoverableSupervisorToolError(toolgateway.MCPToolCallTool,
@@ -548,6 +378,26 @@ func TestSupervisorCodeIntelRequiresPinnedSnapshotAuthorityAndCodeScope(t *testi
 		apperror.CodeFailedPrecondition, apperror.CodeUnavailable} {
 		if !recoverableSupervisorToolError(toolgateway.CodeWorkspaceSymbolsTool, code) {
 			t.Fatalf("Code Intel lifecycle error %s was not model-recoverable", code)
+		}
+	}
+}
+
+func TestSupervisorRetiredCommandToolsAreNeitherAdvertisedNorAccepted(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+		domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionApproval, domain.RunExecutionPermissionWorkspaceAccess, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
+		for _, phase := range []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver} {
+			for _, name := range []toolgateway.ToolName{toolgateway.ControlledCommandProposeTool, toolgateway.OneShotCommandProposeTool, toolgateway.HostCommandProposeTool} {
+				for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode, phase, mode, false, false) {
+					if spec.Name == string(name) {
+						t.Fatalf("retired tool %s advertised in %s/%s", name, mode, phase)
+					}
+				}
+				_, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "retired-call", Name: string(name), Arguments: json.RawMessage(`{}`)}}, "run-retired", 1, 1,
+					domain.ExecutionSurfaceCode, phase, mode, false, false)
+				if err == nil {
+					t.Fatalf("retired tool %s accepted in %s/%s", name, mode, phase)
+				}
+			}
 		}
 	}
 }

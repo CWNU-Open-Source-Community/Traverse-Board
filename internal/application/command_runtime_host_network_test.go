@@ -28,13 +28,12 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 	ctx := context.Background()
 	state, runRecord, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
-	capabilities.FullAccessRequiresRuntimeGrant = true
 	capabilities.RuntimeAuthority = authority
 	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := authority.ActivateRunFullAccess(permission)
+	_, err = authority.ActivateRunFullAccess(permission)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,19 +84,10 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 	}
 	scope := commandRuntimeTestScope(t, ctx, state, service, runRecord, root,
 		lease, "full-access-host-network-0001")
-	mode, err := state.GetRunMode(ctx, runRecord.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope.Surface, scope.Phase = mode.Surface, mode.Phase
-	scope.Role, scope.Profile = domain.AgentRoleRoot, mode.Profile
-	scope.ModeRevision = mode.Revision
-	scope.PermissionMode = domain.RunExecutionPermissionFullAccess
-	scope.PermissionRevision = permission.Revision
-	scope.PermissionSnapshotID = permission.ID
-	scope.PermissionGeneration = grant.Generation
-	scope.PermissionRuntimeEpoch = authority.RuntimeEpoch()
-	result, err := service.ExecuteCommandRuntime(ctx, scope, input)
+	f := commandFixtureForScope(t, state, service, scope)
+	round := 1
+	result, err := f.execute(t, ctx, input, round)
+	scope, _ = f.scope(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,19 +99,17 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 		t.Fatalf("host request failed or duplicated: jobs=%+v artifacts=%+v count=%d",
 			result.Jobs, result.Artifacts, requests.Load())
 	}
-	replay, err := service.ExecuteCommandRuntime(ctx, scope, input)
-	if err != nil || !replay.Replayed || requests.Load() != 1 ||
-		len(replay.Jobs) != 1 || replay.Jobs[0].ID != result.Jobs[0].ID {
-		t.Fatalf("replay started another request: jobs=%+v replayed=%t count=%d err=%v",
-			replay.Jobs, replay.Replayed, requests.Load(), err)
+	before, _, err := state.GetSupervisorApprovalCall(ctx, runRecord.ID, f.call.CallID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	changed := input
-	changed.Commands = append([]runner.CommandRuntimeSpec(nil), input.Commands...)
-	changed.Commands[0].Purpose = "changed purpose with the same operation key"
-	if _, err := service.ExecuteCommandRuntime(ctx, scope, changed); err == nil ||
-		apperror.CodeOf(err) != apperror.CodeConflict || requests.Load() != 1 {
-		t.Fatalf("changed same-key intent started another request: count=%d err=%v",
-			requests.Load(), err)
+	if waiting, err := f.resume(t); err != nil || waiting {
+		t.Fatalf("network replay: %t %v", waiting, err)
+	}
+	after, _, err := state.GetSupervisorApprovalCall(ctx, runRecord.ID, f.call.CallID)
+	jobs, listErr := state.ListCommandRuntimeJobs(ctx, runner.CommandRuntimeListFilter{RunID: runRecord.ID, Limit: 10})
+	if err != nil || listErr != nil || before.ResultJSON != after.ResultJSON || requests.Load() != 1 || len(jobs) != 1 || jobs[0].ID != result.Jobs[0].ID {
+		t.Fatalf("network replay duplicated or changed receipt: %v %v", err, listErr)
 	}
 	if os.Getenv("TRAVERSE_HOST_NETWORK_SMOKE") == "1" {
 		gitInput := input
@@ -159,10 +147,8 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 					bridgeURL, routeDigest != "")
 			}
 		}
-		gitScope := scope
-		gitScope.InvocationID = "full-access-host-network-git-0001"
-		gitScope.OperationKey = "full-access-host-network-git-0001"
-		gitResult, gitErr := service.ExecuteCommandRuntime(ctx, gitScope, gitInput)
+		round++
+		gitResult, gitErr := f.execute(t, ctx, gitInput, round)
 		if gitErr != nil || len(gitResult.Jobs) != 1 ||
 			gitResult.Jobs[0].ExitCode == nil || *gitResult.Jobs[0].ExitCode != 0 ||
 			len(gitResult.Artifacts) != 1 ||
@@ -181,10 +167,8 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 				nodeInput.Commands[0].Arguments = []string{"-e",
 					"fetch('https://www.example.com/').then(r => { console.log('http_status='+r.status); if (r.status !== 200) process.exit(1) }).catch(e => { console.error(e.message); process.exit(2) })"}
 				nodeInput.Commands[0].Purpose = "verify Node default fetch uses the managed system proxy"
-				nodeScope := scope
-				nodeScope.InvocationID = "full-access-host-network-node-0001"
-				nodeScope.OperationKey = "full-access-host-network-node-0001"
-				nodeResult, nodeErr := service.ExecuteCommandRuntime(ctx, nodeScope, nodeInput)
+				round++
+				nodeResult, nodeErr := f.execute(t, ctx, nodeInput, round)
 				if nodeErr != nil || len(nodeResult.Jobs) != 1 ||
 					nodeResult.Jobs[0].ExitCode == nil || *nodeResult.Jobs[0].ExitCode != 0 ||
 					len(nodeResult.Artifacts) != 1 ||
@@ -209,10 +193,13 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		background.Commands[0].Script = "Start-Sleep -Seconds 5; Invoke-WebRequest -UseBasicParsing -Uri '" + server.URL + "'"
 	}
-	backgroundScope := scope
-	backgroundScope.InvocationID = "full-access-host-network-background-0001"
-	backgroundScope.OperationKey = "full-access-host-network-background-0001"
-	started, err := service.ExecuteCommandRuntime(ctx, backgroundScope, background)
+	if round >= 3 {
+		f.nextTurn(t, lease)
+		round = 0
+	}
+	round++
+	started, err := f.execute(t, ctx, background, round)
+	backgroundScope, _ := f.scope(t)
 	if err != nil || len(started.Jobs) != 1 ||
 		started.Jobs[0].State != runner.CommandRuntimeJobRunning {
 		t.Fatalf("background host command did not start: jobs=%+v err=%v", started.Jobs, err)
@@ -238,17 +225,15 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 			t.Fatal("revoked host job did not terminate")
 		}
 	}
-	stale := scope
-	stale.InvocationID = "full-access-host-network-stale-0001"
-	stale.OperationKey = "full-access-host-network-stale-0001"
-	if _, err := service.ExecuteCommandRuntime(ctx, stale, input); err == nil ||
+	stale := backgroundScope
+	if _, err := service.ExecuteCommandRuntime(ctx, stale, background); err == nil ||
 		apperror.CodeOf(err) != apperror.CodePolicyDenied || requests.Load() != 1 {
 		t.Fatalf("revoked grant started network: count=%d err=%v", requests.Load(), err)
 	}
 	if _, err := authority.ActivateRunFullAccess(permission); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.ExecuteCommandRuntime(ctx, stale, input); err == nil ||
+	if _, err := service.ExecuteCommandRuntime(ctx, stale, background); err == nil ||
 		apperror.CodeOf(err) != apperror.CodePolicyDenied || requests.Load() != 1 {
 		t.Fatalf("regranted Run revived an old invocation: count=%d err=%v", requests.Load(), err)
 	}
@@ -262,7 +247,7 @@ func TestFullAccessHostCommandNetworkRunsOnceAndRejectsOldGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := coldService.ExecuteCommandRuntime(ctx, stale, input); err == nil ||
+	if _, err := coldService.ExecuteCommandRuntime(ctx, stale, background); err == nil ||
 		apperror.CodeOf(err) != apperror.CodePolicyDenied || requests.Load() != 1 {
 		t.Fatalf("new process epoch revived an old invocation: count=%d err=%v",
 			requests.Load(), err)

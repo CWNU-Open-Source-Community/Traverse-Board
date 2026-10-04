@@ -17,7 +17,6 @@ type dockerSandboxCapabilityFlags struct {
 	execution         *bool
 	permissionControl *bool
 	dangerFullAccess  *bool
-	debugMaximum      *bool
 }
 
 func addDockerSandboxCapabilityFlags(fs *flag.FlagSet) dockerSandboxCapabilityFlags {
@@ -28,8 +27,6 @@ func addDockerSandboxCapabilityFlags(fs *flag.FlagSet) dockerSandboxCapabilityFl
 			"enable operator-approved execution permissions in this process"),
 		dangerFullAccess: fs.Bool("enable-danger-full-access", false,
 			"enable the danger-full-access process capability"),
-		debugMaximum: fs.Bool("enable-debug-maximum-access", false,
-			"enable the maximum Debug process capability"),
 	}
 }
 
@@ -37,7 +34,7 @@ func (value dockerSandboxCapabilityFlags) capabilities(requireExecution bool) (
 	bool, domain.ExecutionPermissionRuntimeCapabilities, error,
 ) {
 	if value.execution == nil || value.permissionControl == nil ||
-		value.dangerFullAccess == nil || value.debugMaximum == nil {
+		value.dangerFullAccess == nil {
 		return false, domain.ExecutionPermissionRuntimeCapabilities{},
 			errors.New("Docker Sandbox capability flags are unavailable")
 	}
@@ -51,11 +48,7 @@ func (value dockerSandboxCapabilityFlags) capabilities(requireExecution bool) (
 			apperror.CodeInvalidArgument,
 			"--enable-docker-execution requires --enable-permission-control")
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *value.permissionControl,
-		DangerFullAccessEnabled:   *value.dangerFullAccess,
-		DebugMaximumAccessEnabled: *value.debugMaximum,
-	}
+	capabilities := cliExecutionPermissionCapabilities(*value.permissionControl, *value.dangerFullAccess)
 	if err := capabilities.Validate(); err != nil {
 		return false, domain.ExecutionPermissionRuntimeCapabilities{},
 			apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
@@ -65,10 +58,9 @@ func (value dockerSandboxCapabilityFlags) capabilities(requireExecution bool) (
 
 func dockerSandboxCapabilityFlagShape() map[string]bool {
 	return map[string]bool{
-		"enable-docker-execution":     false,
-		"enable-permission-control":   false,
-		"enable-danger-full-access":   false,
-		"enable-debug-maximum-access": false,
+		"enable-docker-execution":   false,
+		"enable-permission-control": false,
+		"enable-danger-full-access": false,
 	}
 }
 
@@ -131,8 +123,11 @@ func (a *App) runDockerSandboxAdmit(ctx context.Context, args []string) error {
 	manifestPath := fs.String("manifest-file", "", "sandbox manifest JSON file")
 	operationKey := fs.String("operation-key", "", "stable admission operation key")
 	operator := fs.String("operator", "cli_operator", "requesting operator identity")
+	confirmFull := fs.Bool("confirm-full", false,
+		"activate the current Full preference only for this invocation")
 	capabilityFlags := addDockerSandboxCapabilityFlags(fs)
 	shape := dockerSandboxCapabilityFlagShape()
+	shape["confirm-full"] = false
 	shape["manifest-file"], shape["operation-key"], shape["operator"] = true, true, true
 	if err := fs.Parse(reorderFlags(args, shape)); err != nil {
 		return err
@@ -153,6 +148,15 @@ func (a *App) runDockerSandboxAdmit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	plan, err := a.store.GetDockerContainerPlan(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	release, err := a.activateCLIInvocationFull(ctx, plan.RunID, permissionCapabilities, *confirmFull)
+	if err != nil {
+		return err
+	}
+	defer release()
 	result, err := service.Admit(ctx, application.DockerSandboxAdmissionRequest{
 		PlanID: fs.Arg(0), Manifest: manifest, OperationKey: *operationKey,
 		RequestedBy: *operator,
@@ -174,8 +178,11 @@ func (a *App) runDockerSandboxStart(ctx context.Context, args []string) error {
 	admissionKey := fs.String("admission-operation-key", "", "stable admission operation key")
 	operationKey := fs.String("operation-key", "", "stable start operation key")
 	operator := fs.String("operator", "cli_operator", "requesting operator identity")
+	confirmFull := fs.Bool("confirm-full", false,
+		"activate the current Full preference only for this invocation")
 	capabilityFlags := addDockerSandboxCapabilityFlags(fs)
 	shape := dockerSandboxCapabilityFlagShape()
+	shape["confirm-full"] = false
 	shape["manifest-file"], shape["admission-operation-key"] = true, true
 	shape["operation-key"], shape["operator"] = true, true
 	if err := fs.Parse(reorderFlags(args, shape)); err != nil {
@@ -197,6 +204,15 @@ func (a *App) runDockerSandboxStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	plan, err := a.store.GetDockerContainerPlan(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	release, err := a.activateCLIInvocationFull(ctx, plan.RunID, permissionCapabilities, *confirmFull)
+	if err != nil {
+		return err
+	}
+	defer release()
 	admission, err := service.Admit(ctx, application.DockerSandboxAdmissionRequest{
 		PlanID: fs.Arg(0), Manifest: manifest, OperationKey: *admissionKey,
 		RequestedBy: *operator,

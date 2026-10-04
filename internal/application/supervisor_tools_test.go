@@ -11,8 +11,8 @@ import (
 )
 
 func TestSupervisorUnavailableWebSearchRejectionExplainsOperatorPath(t *testing.T) {
-	// Default network permissions advertise per-call authorized web fetch
-	// without search. A provider that still calls web_search must receive a
+	// A missing search provider leaves per-call authorized web fetch available.
+	// A model that still calls web_search must receive a
 	// durable reason naming the operator path and stopping the per-round retry
 	// loop, instead of the bare 2026-09-14 acceptance failure.
 	capabilities := toolgateway.WebEvidenceCapabilities{
@@ -38,7 +38,7 @@ func TestSupervisorUnavailableWebSearchRejectionExplainsOperatorPath(t *testing.
 	}
 	for _, want := range []string{
 		"not opened for the current Run",
-		"conversation permissions",
+		"Configure a search backend",
 		"Do not retry web_search",
 	} {
 		if !strings.Contains(err.Error(), want) {

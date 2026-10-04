@@ -19,7 +19,7 @@ const bootstrap = {
   full_cdp_session_control_enabled: false,
   operator_approval_enabled: false,
   danger_full_access_enabled: false,
-  debug_maximum_access_enabled: false,
+
   workspace_sandbox_enabled: false,
   command_runtime_enabled: false,
   command_runtime_protocol_available: true,
@@ -34,8 +34,8 @@ const bootstrap = {
   run_execution_enabled: false,
   plan_delivery_control_enabled: false,
   approval_control_enabled: false,
-  controlled_command_proposal_control_enabled: false,
-  host_command_proposal_control_enabled: false,
+
+
   model_control_enabled: false,
   provider_credential_enabled: false,
   file_edit_review_enabled: false,
@@ -229,7 +229,7 @@ describe("desktop native bridge", () => {
       [bootstrap, "safe"],
       [{ ...restartBootstrap, danger_full_access_enabled: true }, "safe"],
       [{ ...restartBootstrap, danger_full_access_enabled: true,
-        debug_maximum_access_enabled: true }, "debug"],
+        user_terminal_enabled: true, process_execution_enabled: true, shell_execution_enabled: true }, "debug"],
     ] as const;
     for (const [fixture, expected] of fixtures) {
       vi.resetModules();
@@ -346,17 +346,6 @@ describe("desktop native bridge", () => {
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(approvalOnly);
   });
 
-  it("accepts fixed command proposal review as an independent capability", async () => {
-    const commandProposalOnly = {
-      ...bootstrap,
-      control_token: "control-token-0123456789abcdefghijkl",
-      controlled_command_proposal_control_enabled: true,
-      read_only_default: false,
-    };
-    installBridge({ Bootstrap: vi.fn().mockResolvedValue(commandProposalOnly) });
-    const module = await import("./desktop-bridge");
-    await expect(module.loadDesktopBootstrap()).resolves.toEqual(commandProposalOnly);
-  });
 
   it("accepts Docker execution with permission control and operator approval", async () => {
     const dockerEnabled = {
@@ -533,6 +522,37 @@ describe("desktop native bridge", () => {
       operation_key: "desktop-install-operation-0001",
       confirm_untrusted: true,
     });
+  });
+
+  it("previews native original files and validates the real staged Plugin result", async () => {
+    const native = { protocol_version: "desktop_skill_package_preview.v1", package_protocol: "plugin-installation.v2",
+      format: "agent-skills", name: "native-skill", version: "", archive_sha256: "b".repeat(64), archive_bytes: 1024,
+      entry_count: 4, skill_count: 1, validated: true, confirmation_handle: preview.confirmation_handle,
+      confirmation_expires_at: preview.confirmation_expires_at } as const;
+    const installation = { protocol_version: "plugin-installation.v2", id: "plugin-import-native",
+      manifest: { id: "portable-native", name: native.name, version: "", publisher: "", description: "", capabilities: ["skills"] },
+      snapshot: { format: native.format, revision: native.archive_sha256, surface: "code" },
+      source: { kind: "local_directory", uri: "", sha256: native.archive_sha256 },
+      archive_sha256: native.archive_sha256, package_fingerprint: "c".repeat(64),
+      signature_present: false, signature_valid: false, state: "staged", enabled_capabilities: [], generation: 1,
+      staged_by: "desktop_operator", created_at: "2026-10-03T00:00:00Z", updated_at: "2026-10-03T00:00:00Z" };
+    const result = { protocol_version: "plugin-installation.v2", installation, replayed: false };
+    const install = vi.fn().mockResolvedValue(result);
+    const previewCall = vi.fn().mockResolvedValue(native);
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({ ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl", skill_installation_enabled: true, read_only_default: false }),
+      SelectSkillPackage: vi.fn().mockResolvedValue({ protocol_version: "desktop_skill_package_dialog.v1", status: "selected", selection }),
+      PreviewSkillPackage: previewCall, InstallSkillPackage: install });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.selectDesktopSkillPreview()).resolves.toEqual(native);
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).resolves.toEqual(result);
+    install.mockResolvedValueOnce({ ...result, installation: { ...installation, archive_sha256: "d".repeat(64) } });
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).rejects.toThrow("rejected");
+    install.mockResolvedValueOnce({ ...result, installation: { ...installation, source: { ...installation.source, uri: "C:\\private" } } });
+    await expect(module.installDesktopSkillPackage(native, "code", "native-install-operation")).rejects.toThrow("rejected");
+    previewCall.mockResolvedValueOnce({ ...native, source_path: "C:\\private" });
+    await expect(module.selectDesktopSkillPreview()).rejects.toThrow("rejected");
   });
 
   it("does not consume a cancelled selection or path-bearing preview", async () => {
@@ -799,12 +819,12 @@ describe("desktop native bridge", () => {
       .rejects.toThrow("output was rejected");
   });
 
-  it("grants only a bounded process-local Debug terminal Agent-input lease", async () => {
+  it("grants only a bounded process-local Full terminal Agent-input lease", async () => {
     const enabled = {
       ...bootstrap,
       control_token: "control-token-0123456789abcdefghijkl",
       read_only_default: false,
-      debug_maximum_access_enabled: true,
+
       workspace_sandbox_enabled: false,
       execution_permission_control_enabled: true,
       operator_approval_enabled: true,
@@ -846,7 +866,7 @@ describe("desktop native bridge", () => {
       run_id: "run-1",
       terminal_session_id: "user-terminal-1",
       ttl_seconds: 300,
-      confirm_debug_maximum_access: true,
+      confirm_full_access: true,
       confirm_agent_terminal_input: true,
     });
     expect(revoke).toHaveBeenCalledWith({
