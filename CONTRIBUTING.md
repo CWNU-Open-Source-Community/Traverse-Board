@@ -227,6 +227,8 @@ git status --short
 - 不要提交 `CYBERAGENT_HOME` 中的数据、`.cyberagent-workbench/`、`cyberagent.db`、SQLite/WAL 文件、`build/`、`web/dist/`、`node_modules/` 或 Rust `target/`。
 - 手工/集成测试应使用独立临时目录或专用 `CYBERAGENT_HOME`，并默认使用 Mock Provider。不要在测试中扫描公网、产生攻击流量、启动未授权 Docker/LocalRunner，或读取系统凭证。
 - Fixture 应最小化、确定、去标识化。日志、错误、Artifact 和快照必须经过现有脱敏边界；不要为了测试方便降低上限或把私有正文写入公开投影。
+- Store 迁移测试使用 `openHistoricalTestDatabase(t, path, version)` 准备所需历史版本，在独立副本中写入旧数据，再通过 `Open` 或被测迁移执行升级。该 helper 复用真实历史迁移生成的数据库，不共享连接或测试数据；准备失败由 helper 直接报告。
+- 检验迁移引擎、事务回滚及历史 schema 的独立对照测试仍从空数据库逐步执行迁移。新增升级测试直接选择所需历史起点，避免先建到较新版本再维护一串反向删除语句；原有数据保留、约束、拒绝及恢复断言应随测试保留。
 
 如果误提交了秘密，请立即停止推送并轮换凭证；仅从 Git 历史删除并不能撤销已经泄露的值。不要在公开 Issue 中粘贴可利用细节、可用凭证或敏感主机数据；如果尚无私密报告渠道，只提供最小、脱敏的影响说明，并请求维护者建立私密沟通。
 

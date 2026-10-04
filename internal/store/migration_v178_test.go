@@ -16,10 +16,7 @@ import (
 func TestSchemaV178PreservesFiveModeHistoryAndOnlyAcceptsNewSelections(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "legacy-approval-preference.db")
-	st := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 177); err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	tx, err := st.db.BeginTx(ctx, nil)
 	if err != nil {

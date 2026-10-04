@@ -156,10 +156,8 @@ func TestRunCreationOperationTriggerRejectsNonInitialGraph(t *testing.T) {
 func TestSchemaV72UpgradePreservesRunWithoutFabricatingCreationOperation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v71.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	workspace := WorkspaceRecord{ID: "workspace-v72-upgrade", Name: "v72-upgrade",
 		RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

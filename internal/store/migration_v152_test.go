@@ -10,12 +10,8 @@ import (
 )
 
 func TestSchemaV152PreservesLegacySteeringAndInstallsImmutableIntent(t *testing.T) {
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "schema-v151-message-intent.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "schema-v151-message-intent.db"), 151)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(t.Context(), state, plan, 151); err != nil {
-		t.Fatal(err)
-	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	_, run := createWorkItemTestRun(t, t.Context(), state, "legacy Thread intent upgrade")
 	request := domain.ThreadMessageIntentRequest{ThreadID: domain.InitialThreadID(run.ID), Content: "existing queued input", OperationKey: "thread-intent-migration-operation-0001", RequestedBy: "test_operator"}

@@ -212,11 +212,9 @@ func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	// The inverse is a historical fixture builder, not a downgrade of current
 	// authority. Retain the current migration check above and exercise the
 	// removal chain separately on the last complete v1 historical prefix.
-	historical, err := openHistoricalMigrationFixture(t,
+	historical := openHistoricalTestDatabase(t,
 		filepath.Join(t.TempDir(), "skill-catalog-historical-removal.db"), 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+
 	defer historical.Close()
 	for _, statement := range removeSchemaV105ForTestStatements() {
 		if _, err := historical.db.ExecContext(ctx, statement); err != nil {

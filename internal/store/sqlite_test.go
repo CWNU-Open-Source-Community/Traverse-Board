@@ -510,10 +510,8 @@ func TestSQLiteStoreUpgradesLegacyDatabaseWithoutLosingData(t *testing.T) {
 
 func TestSQLiteStoreUpgradesSchemaV8ToLatestWithoutLosingRun(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v8.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve this v8 run", Profile: "code", Budget: domain.Budget{MaxTurns: 4},
@@ -574,10 +572,8 @@ func TestSQLiteStoreUpgradesSchemaV8ToLatestWithoutLosingRun(t *testing.T) {
 
 func TestSQLiteStoreUpgradesSchemaV9ToNotesWithoutLosingWorkItems(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v9.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	mission, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v9 work board", Profile: "code", Budget: domain.Budget{MaxTurns: 4},
@@ -1452,10 +1448,8 @@ func removeSchemaV51ForTestStatements() []string {
 
 func TestSQLiteUpgradesV21MemoryRowsToOptionalAgentOwnership(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{

@@ -121,10 +121,7 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 func TestSchemaV129DowngradeFixtureRestoresV128AndReupgrades(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-v129-downgrade.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
 	for _, statement := range removeSchemaV129ForTestStatements() {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("downgrade v129 with %q: %v", statement, err)

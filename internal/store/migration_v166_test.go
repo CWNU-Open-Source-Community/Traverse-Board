@@ -65,11 +65,8 @@ func (f *v166FetchBackend) Fetch(_ context.Context, target string, _ webevidence
 
 func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "web-fetch-observation-v166.db"))
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "web-fetch-observation-v166.db"), 165)
 	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 165); err != nil {
-		t.Fatal(err)
-	}
 	// Current services need queue columns introduced after this historical
 	// boundary. Restore the exact v165 schema before exercising its migration.
 	restoreHistoricalQueue := addV166FixtureQueueCompatibility(t, state)

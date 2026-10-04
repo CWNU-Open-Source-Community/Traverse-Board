@@ -79,31 +79,8 @@ func seedPreV117SupervisorLease(t *testing.T, ctx context.Context, st *SQLiteSto
 func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v112-supervisor-tools.db")
-	db, err := sql.Open("sqlite3", sqliteDSN(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		checksum TEXT NOT NULL,
-		applied_at TEXT NOT NULL
-	);`); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	legacy := &SQLiteStore{db: db, home: filepath.Dir(path)}
-	for _, item := range migrationPlan()[:112] {
-		if err := legacy.applyMigration(ctx, item); err != nil {
-			_ = legacy.Close()
-			t.Fatalf("apply v112 migration %d: %v", item.Version, err)
-		}
-	}
+	legacy := openHistoricalTestDatabase(t, path, 112)
+	db := legacy.db
 	// The current writer always supplies the Go-issued authority column. Add it
 	// only while constructing a representative legacy call; migration v115
 	// deliberately ignores this compatibility column when it rebuilds the
@@ -203,31 +180,8 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v115-supervisor-tools.db")
-	db, err := sql.Open("sqlite3", sqliteDSN(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		checksum TEXT NOT NULL,
-		applied_at TEXT NOT NULL
-	);`); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	legacy := &SQLiteStore{db: db, home: filepath.Dir(path)}
-	for _, item := range migrationPlan()[:115] {
-		if err := legacy.applyMigration(ctx, item); err != nil {
-			_ = legacy.Close()
-			t.Fatalf("apply v115 migration %d: %v", item.Version, err)
-		}
-	}
+	legacy := openHistoricalTestDatabase(t, path, 115)
+	db := legacy.db
 	addCurrentSupervisorToolStreamColumns(t, ctx, db)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, legacy)
 	_, run, err := newMigrationFixtureRunService(t, legacy).Create(ctx, application.CreateRunRequest{

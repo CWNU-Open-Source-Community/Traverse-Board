@@ -130,10 +130,8 @@ func TestBrowserRuntimeLifecycleRecordsAreAppendOnlyRecoverableAndAudited(t *tes
 func TestBrowserRuntimeLifecycleRejectsBrokenAncestryAndV92Migrates(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "browser-runtime-v92.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	session, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
 	attempt, _, _, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
 		ownership, "browser-runtime-v92-operation", "browser-runtime-worker")

@@ -26,11 +26,7 @@ func removeSchemaV153ForTestStatements() []string {
 func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v152-file-history.db")
-	state := openUnmigratedSQLiteStore(t, path)
-	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 152); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 152)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	restoreLegacyAutomaticSource := addEmptyCurrentAutoAuthorizationForLegacySeed(t, state)
 	run, source := newV153SourceRun(t, state, "upgrade")

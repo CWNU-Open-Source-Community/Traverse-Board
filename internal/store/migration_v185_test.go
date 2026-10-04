@@ -19,10 +19,7 @@ func TestSchemaV185PreservesRealV184CommandJobs(t *testing.T) {
 	}
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "actual-v184.db")
-	st := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 177); err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
 	job := commandRuntimeMigrationJob(t, st, domain.RunExecutionPermissionFullAccess, commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)))
 	insertV162CommandRuntimeJob(t, st, job, 73)
 	oldIntents := seedV177FixedCommandHistory(t, st, job)

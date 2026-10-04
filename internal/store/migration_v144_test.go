@@ -12,12 +12,8 @@ import (
 
 func TestSchemaV144EnablesExactNetworkAllowlistForControlledRunCreation(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v143-controlled-network.db"))
-	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 143); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v143-controlled-network.db"), 143)
 	workspace := WorkspaceRecord{ID: "workspace-v144-network", Name: "v144 network",
 		RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

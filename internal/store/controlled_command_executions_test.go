@@ -12,10 +12,8 @@ import (
 
 func TestSchemaV87AddsControlledCommandExecutionAudit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v86-controlled-execution.db")
-	st, err := openHistoricalMigrationFixture(t, path, 86)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 86)
+
 	ctx := context.Background()
 	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {

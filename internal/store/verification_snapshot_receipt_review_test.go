@@ -156,10 +156,8 @@ func TestVerificationSnapshotReceiptReviewIsImmutableIdempotentAndNonAuthorizing
 func TestSchemaV84UpgradeFabricatesNoSnapshotReceiptReview(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v83-snapshot-receipt-review.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	run, _ := recordSnapshotReceiptFixture(t, state, WorkspaceRecord{
 		ID: "workspace-v84-upgrade", Name: "v84-upgrade", RootPath: t.TempDir(),
 	})
@@ -171,7 +169,7 @@ func TestSchemaV84UpgradeFabricatesNoSnapshotReceiptReview(t *testing.T) {
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
-	state, err = Open(path)
+	state, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

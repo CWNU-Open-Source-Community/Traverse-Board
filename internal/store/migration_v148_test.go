@@ -12,13 +12,9 @@ import (
 
 func TestSchemaV148DefersPreparingThreadPermissionAndMaterializesSuccessor(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v147-preparing-thread-permission.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v147-preparing-thread-permission.db"), 147)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 147); err != nil {
-		t.Fatal(err)
-	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, threadRecord := preparingThreadPermissionFixture(t, ctx, state)
 	if _, _, err := seedHistoricalThreadWorkspacePreference(ctx, state, threadRecord.ID,

@@ -13,11 +13,8 @@ import (
 )
 
 func TestSchemaV160PreservesOldImageRowsBindingsAndForeignKeys(t *testing.T) {
-	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "migration160.db"))
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "migration160.db"), 159)
 	defer st.Close()
-	if err := applyMigrationPrefixForTest(t.Context(), st, migrationPlan(), 159); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.SaveWorkspace(t.Context(), WorkspaceRecord{ID: "ws-old-image", Name: "old image", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}

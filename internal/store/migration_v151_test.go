@@ -20,13 +20,9 @@ import (
 
 func TestSchemaV151BackfillsProvableLegacyAgentAttribution(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v150-agent-attribution.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v150-agent-attribution.db"), 150)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 150); err != nil {
-		t.Fatal(err)
-	}
 	v150Schema := legacyFixtureSchema(t, state)
 	v150Ledger, err := state.loadAppliedMigrations(ctx)
 	if err != nil || len(v150Ledger) != 150 {

@@ -142,10 +142,8 @@ func TestRunProgressGuardStateMutationResetsCounters(t *testing.T) {
 func TestSchemaV79UpgradePreservesRunWithoutFabricatingProgressGuard(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v78.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	_, run := createWorkItemTestRun(t, ctx, st, "preserve Run across v79")
 	for _, statement := range removeSchemaV79ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {

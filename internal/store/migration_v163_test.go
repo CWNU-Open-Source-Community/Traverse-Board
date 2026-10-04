@@ -17,11 +17,8 @@ import (
 func TestSchemaV163PreservesDisabledLegacyJobRowidAndAgent(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "command-runtime-v163-old-job.db")
-	state := openUnmigratedSQLiteStore(t, path)
+	state := openHistoricalTestDatabase(t, path, 162)
 	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 162); err != nil {
-		t.Fatal(err)
-	}
 	job := commandRuntimeMigrationJob(t, state,
 		domain.RunExecutionPermissionFullAccess,
 		commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)))
@@ -162,10 +159,7 @@ func TestSchemaV163HostNetworkCleanInstallAndLegacyUpgrade(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "command-runtime-v163.db")
 			if version != 0 {
-				legacy := openUnmigratedSQLiteStore(t, path)
-				if err := applyMigrationPrefixForTest(ctx, legacy, migrationPlan(), version); err != nil {
-					t.Fatal(err)
-				}
+				legacy := openHistoricalTestDatabase(t, path, version)
 				if err := legacy.Close(); err != nil {
 					t.Fatal(err)
 				}

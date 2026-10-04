@@ -22,10 +22,7 @@ func removeSchemaV137ForTestStatements() []string {
 func TestSchemaV137AddsEmptyImmutableStandardCodeDeliveryLedger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "standard-code-delivery-v136.db")
-	state, err := openHistoricalMigrationFixture(t, path, 136)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 136)
 	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 136 {
 		state.Close()

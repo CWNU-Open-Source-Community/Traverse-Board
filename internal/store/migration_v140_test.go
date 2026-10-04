@@ -45,10 +45,7 @@ func removeSchemaV140ForTestStatements() []string {
 func TestSchemaV140RepairsOnlyCanonicalThreadSessionProjection(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-session-v139.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
 	runs := newMigrationFixtureRunService(t, state)
 	_, historical, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "preserve terminal Thread history", Profile: "review",

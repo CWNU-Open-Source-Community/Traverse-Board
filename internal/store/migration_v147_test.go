@@ -12,13 +12,9 @@ import (
 
 func TestSchemaV147AllowsAtomicInitialExplicitModelRoute(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v146-explicit-model-route.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v146-explicit-model-route.db"), 146)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 146); err != nil {
-		t.Fatal(err)
-	}
 	workspace := WorkspaceRecord{ID: "workspace-v147-model-route", Name: "v147 model route",
 		RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

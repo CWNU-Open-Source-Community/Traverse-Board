@@ -122,13 +122,9 @@ func assertSupervisorToolCallSchemaV150(t *testing.T, state *SQLiteStore) {
 
 func TestSchemaV150RebuildsAuthorityBoundBrowserAndMCPSupervisorLedger(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v149-browser-actions.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v149-browser-actions.db"), 149)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 149); err != nil {
-		t.Fatal(err)
-	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run := seedV149StructuredToolRun(t, state)
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {

@@ -48,10 +48,7 @@ func removeSchemaV154ForTestStatements() []string {
 func TestSchemaV154KeepsExistingHistoryAndAddsOnlyExplicitThreadBindings(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v153-history.db")
-	state := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 153); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 153)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	run, _ := newV153SourceRun(t, state, "binding-upgrade")
 	before, err := state.loadAppliedMigrations(ctx)

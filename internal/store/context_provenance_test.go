@@ -63,10 +63,8 @@ func TestSessionContextProvenanceRoundTripAndDatabaseGuards(t *testing.T) {
 
 func TestSchemaV43BackfillsLegacyWorkspaceReadsAsUntrustedEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	sess := contextProvenanceTestSession("session-v42")
 	if err := st.SaveSession(ctx, sess); err != nil {
@@ -86,7 +84,7 @@ func TestSchemaV43BackfillsLegacyWorkspaceReadsAsUntrustedEvidence(t *testing.T)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

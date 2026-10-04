@@ -141,10 +141,8 @@ func TestBrowserNetworkReviewRequiresStoredEvidence(t *testing.T) {
 
 func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v102-browser-network-readiness.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := t.Context()
 	_, identity, acceptance, _ := browserLaunchStoreFixture(t, state)
 	now := time.Now().UTC().Round(time.Millisecond)

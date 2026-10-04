@@ -233,7 +233,7 @@ func openSandboxManifestStoreAt(t *testing.T, ctx context.Context, path string, 
 	} else if len(historicalVersion) == 1 && historicalVersion[0] == 177 {
 		// Existing inverse fixtures start before the three-mode migration;
 		// current Sandbox tests retain Open and the public Run writer.
-		st, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+		st = openHistoricalTestDatabase(t, path, historicalVersion[0])
 	} else {
 		t.Fatal("sandbox legacy fixture only supports the frozen v177 prefix")
 	}

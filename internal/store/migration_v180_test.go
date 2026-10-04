@@ -24,10 +24,7 @@ func TestSchemaV180PreservesHistoricalCommandJobsAndAuthority(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			ctx := t.Context()
 			path := filepath.Join(t.TempDir(), "command-v179-history.db")
-			state := openUnmigratedSQLiteStore(t, path)
-			if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 177); err != nil {
-				t.Fatal(err)
-			}
+			state := openHistoricalTestDatabase(t, path, 177)
 			adapter := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
 			if mode == domain.RunExecutionPermissionWorkspaceAccess {
 				adapter = commandruntimeadapter.SandboxedWorkspace("local_windows_lpac", "local-windows-lpac.v1", strings.Repeat("b", 64))

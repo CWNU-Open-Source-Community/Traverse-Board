@@ -18,10 +18,7 @@ import (
 func TestSchemaV156PreservesLegacyPlanAcceptanceAndOriginalReceipts(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "old-plan.db")
-	st := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 155); err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 155)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, st)
 	run, selected := populateV155PlanDeliveryFixture(t, st)
 	work, err := application.NewWorkItemService(st).Transition(ctx, selected.WorkItems[0].ID, 0, domain.WorkItemInProgress, "")

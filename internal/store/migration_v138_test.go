@@ -36,10 +36,7 @@ func legacyWindowsPreviewMigration136Statements(t testing.TB) []string {
 func TestSchemaV138RepairsExactLegacyWindowsPreviewV136(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy-windows-preview-v136.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 136)
 	if _, err := state.db.ExecContext(ctx, `INSERT INTO workspaces
 		(id, name, root_path, created_at) VALUES (?, ?, ?, ?)`,
 		"legacy-v136-workspace", "Legacy v136 workspace", `C:\legacy-v136-workspace`,
@@ -47,17 +44,10 @@ func TestSchemaV138RepairsExactLegacyWindowsPreviewV136(t *testing.T) {
 		state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range append(removeSchemaV139ForTestStatements(), []string{
-		`DELETE FROM schema_migrations WHERE version = 138`,
-		`DROP TRIGGER trg_standard_code_delivery_insert`,
-		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
-		`DROP TRIGGER trg_standard_code_delivery_delete_immutable`,
-		`DROP INDEX idx_standard_code_deliveries_run_event`,
-		`DROP TABLE standard_code_deliveries`,
-		`DELETE FROM schema_migrations WHERE version = 137`,
+	for _, statement := range []string{
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert`,
 		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable`,
-	}...) {
+	} {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			state.Close()
 			t.Fatalf("restore legacy v136 with %q: %v", statement, err)

@@ -31,10 +31,8 @@ func removeSchemaV118ForTestStatements() []string {
 
 func TestSchemaV118UpgradesV117Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "batch-delivery-v117.db")
-	state, err := openHistoricalMigrationFixture(t, path, 117)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 117)
+
 	// The immutable historical prefix above is the upgrade input.
 	if err := state.Close(); err != nil {
 		t.Fatal(err)

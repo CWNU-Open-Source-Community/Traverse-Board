@@ -289,10 +289,8 @@ func removeSchemaV175ForTestStatements() []string {
 
 func TestSchemaV175UpgradesV174WithoutInventingTaskDelivery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v174.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	f := prepareSpecialistAttemptFixture(t, t.Context(), st, "legacy task truth", 3, 128)
 	source := sendSpecialistInstructionTestMessage(t, t.Context(), st, f, "legacy still effective", idgen.New("brief-send"))
 	for _, stmt := range removeSchemaV175ForTestStatements() {
@@ -307,7 +305,7 @@ func TestSchemaV175UpgradesV174WithoutInventingTaskDelivery(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

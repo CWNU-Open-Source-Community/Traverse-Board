@@ -30,10 +30,8 @@ func (t durableOperationPilotTimer) Stop() bool                     { return t.t
 func TestDurableOperationPilotsPreserveLegacyIdentityAcrossMigrationAndRestart(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "durable-operation-pilots-v122.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	workspace := WorkspaceRecord{
 		ID: "workspace-controlled-create", Name: "controlled-create",
 		RootPath: t.TempDir(), CreatedAt: time.Now().UTC(),

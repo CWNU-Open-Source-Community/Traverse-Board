@@ -20,10 +20,7 @@ func TestSchemaV184PreservesRealV183SelectionRowsAndReceipts(t *testing.T) {
 		t.Fatalf("published v1-v183 prefix changed: %s", got)
 	}
 	path := filepath.Join(t.TempDir(), "actual-v183.db")
-	st, err := openHistoricalMigrationFixture(t, path, 183)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 183)
 	selected, request := seedHistoricalSelectionV183(t, st)
 	before, err := st.loadAppliedMigrations(t.Context())
 	if err != nil {

@@ -99,10 +99,8 @@ func TestAnalyzerExecutionCommitIsAtomicAppendOnlyAndIdempotent(t *testing.T) {
 
 func TestSchemaV95UpgradesV94AnalyzerDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analyzer-v94-upgrade.db")
-	state, err := openHistoricalMigrationFixture(t, path, 94)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 94)
+
 	// The immutable historical prefix above is the upgrade input.
 	if err := state.Close(); err != nil {
 		t.Fatal(err)

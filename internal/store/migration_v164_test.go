@@ -14,11 +14,8 @@ import (
 func TestSchemaV164PreservesLegacyAutomaticSourcesAndAdmitsBoundMove(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "automatic-move-v164.db")
-	state := openUnmigratedSQLiteStore(t, path)
+	state := openHistoricalTestDatabase(t, path, 163)
 	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 163); err != nil {
-		t.Fatal(err)
-	}
 	_, workspace, base := populateAutoFileEditFixture(t, state)
 	legacy, legacyAuth := prepareAutoFileEdit(t, state, workspace, base,
 		"edit-v163-auto-create", "legacy\n", "legacy-key")

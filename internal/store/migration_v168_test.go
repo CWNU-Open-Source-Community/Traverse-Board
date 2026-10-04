@@ -14,11 +14,8 @@ import (
 
 func TestSchemaV168BackfillsOriginalMessageIdentityAndKeepsRevisionReceiptGuard(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v168-upgrade.db"))
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "v168-upgrade.db"), 167)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 167); err != nil {
-		t.Fatal(err)
-	}
 	_, created, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "v168 queued message upgrade", Profile: "review",
 			Interactive: true, Budget: domain.Budget{MaxTurns: 8}})
@@ -93,11 +90,8 @@ func TestSchemaV168BackfillsOriginalMessageIdentityAndKeepsRevisionReceiptGuard(
 
 func TestSchemaV168LegacyCancelledAttachmentNeverEntersModelHistoryOrCompaction(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v168-legacy-context.db"))
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "v168-legacy-context.db"), 167)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 167); err != nil {
-		t.Fatal(err)
-	}
 	if err := state.SaveWorkspace(ctx, WorkspaceRecord{ID: "workspace-v168-context",
 		Name: "v168 context", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)

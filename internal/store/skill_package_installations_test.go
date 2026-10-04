@@ -210,10 +210,8 @@ func TestLegacySkillPackageInstallationReadsModeMetadata(t *testing.T) {
 func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-package-v110.db")
-	st, err := openHistoricalMigrationFixture(t, path, 110)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 110)
+
 	installation, _, _ := fixturePackageInstallation(t,
 		"legacy-mode-defaults", "1.0.0", "legacy-mode-install-key",
 		time.Now().UTC().Add(-time.Minute))
@@ -243,10 +241,8 @@ func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
 func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "skill-packages-v68.db")
-	st, err := openHistoricalMigrationFixture(t, path, 68)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 68)
+
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -267,10 +263,8 @@ func TestSchemaV69UpgradeDoesNotFabricateSkillPackageInstallations(t *testing.T)
 func TestSchemaV70UpgradeDoesNotFabricateExternalSkillSelections(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "external-skill-selections-v69.db")
-	st, err := openHistoricalMigrationFixture(t, path, 69)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 69)
+
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -303,10 +297,8 @@ func TestLegacySkillPackageSchemasRejectThirdArchiveEntry(t *testing.T) {
 	for _, version := range []int{69, 111, 177, LatestSchemaVersion} {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "legacy-entry-count.db")
-			st, err := openHistoricalMigrationFixture(t, path, version)
-			if err != nil {
-				t.Fatal(err)
-			}
+			st := openHistoricalTestDatabase(t, path, version)
+
 			defer st.Close()
 			valid, _, _ := fixturePackageInstallation(t, "two-entry", "1.0.0", "valid-historical-intent", time.Now().UTC().Add(-time.Minute))
 			if err := legacyskill.Insert(t.Context(), st.db, valid); err != nil {

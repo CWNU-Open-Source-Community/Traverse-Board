@@ -53,10 +53,7 @@ func removeSchemaV134ForTestStatements() []string {
 func TestSchemaV134UpgradesV133Database(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "web-evidence-v133.db")
-	state, err := openHistoricalMigrationFixture(t, path, 133)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 133)
 	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 133 {
 		state.Close()

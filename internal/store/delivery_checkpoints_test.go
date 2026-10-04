@@ -93,10 +93,8 @@ func TestDeliveryCheckpointSQLiteGuardsDirectMutationAndRunCompletion(t *testing
 }
 
 func TestSchemaV44LeavesPartiallyCompletedLegacySelectionExplicitlyExempt(t *testing.T) {
-	st, err := openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), "delivery-legacy.db"), 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "delivery-legacy.db"), 177)
+
 	st, ctx, run, selected := populateStoreDeliveryGateFixture(t, st, "legacy-exempt")
 	work := application.NewWorkItemService(st)
 	first, err := work.Transition(ctx, selected.WorkItems[0].ID, 0,
