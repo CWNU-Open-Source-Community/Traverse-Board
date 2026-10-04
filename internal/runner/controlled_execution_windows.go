@@ -576,6 +576,16 @@ func newControlledJob() (windows.Handle, error) {
 }
 
 func controlledEnvironment(spec ControlledStartSpec, systemRoot string) []uint16 {
+	values := controlledEnvironmentValues(spec, systemRoot)
+	block := make([]uint16, 0, 1024)
+	for _, value := range values {
+		block = append(block, utf16.Encode([]rune(value))...)
+		block = append(block, 0)
+	}
+	return append(block, 0)
+}
+
+func controlledEnvironmentValues(spec ControlledStartSpec, systemRoot string) []string {
 	values := []string{
 		"ComSpec=" + filepath.Join(systemRoot, "System32", "cmd.exe"),
 		"GIT_CONFIG_COUNT=2",
@@ -599,12 +609,7 @@ func controlledEnvironment(spec ControlledStartSpec, systemRoot string) []uint16
 	sort.Slice(values, func(i, j int) bool {
 		return strings.ToLower(values[i]) < strings.ToLower(values[j])
 	})
-	block := make([]uint16, 0, 1024)
-	for _, value := range values {
-		block = append(block, utf16.Encode([]rune(value))...)
-		block = append(block, 0)
-	}
-	return append(block, 0)
+	return values
 }
 
 func readControlledOutput(handle windows.Handle,

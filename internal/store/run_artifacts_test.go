@@ -200,15 +200,23 @@ func TestSQLiteRunArtifactCapturesAutomaticWorkspaceReadByInvocationID(t *testin
 
 func TestSQLiteUpgradesSchemaV13ToRunArtifactsWithoutLosingScriptProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v13.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	service, _ := newScriptProcessTestService(t, st)
-	created, err := service.Create(ctx, scriptProcessTestRequest("preserve-v13-process", "value"))
+	request := scriptProcessTestRequest("preserve-v13-process", "value")
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, request.Run)
 	if err != nil {
 		t.Fatal(err)
+	}
+	_, seedGateway := newScriptProcessTestService(t, st)
+	created, err := seedGateway.ProposeScriptProcess(ctx, toolgateway.ToolCall{
+		RunID: run.ID, SessionID: run.SessionID, WorkspaceID: request.Run.WorkspaceID,
+		RequestedBy: request.RequestedBy,
+	}, request.Process)
+	if err != nil || created.Proposal == nil {
+		t.Fatalf("seed historical ScriptProcess: %#v err=%v", created, err)
 	}
 	removeSchemaV16ForTest(t, st, ctx)
 	if _, err := st.db.ExecContext(ctx, `DROP TABLE structured_tool_operations`); err != nil {
@@ -232,14 +240,14 @@ func TestSQLiteUpgradesSchemaV13ToRunArtifactsWithoutLosingScriptProcess(t *test
 		t.Fatal(err)
 	}
 	defer st.Close()
-	persisted, err := st.GetScriptProcess(ctx, created.Process.ID)
+	persisted, err := st.GetScriptProcess(ctx, created.Proposal.ID)
 	if err != nil || persisted.Status != scriptprocess.StatusProposed {
 		t.Fatalf("v13 ScriptProcess was not preserved: %#v err=%v", persisted, err)
 	}
 	gateway := toolgateway.New(st, policy.NewDefaultChecker())
 	reviewed, err := gateway.Review(ctx, toolgateway.ReviewRequest{
 		Action: toolgateway.ReviewApprove, Tool: toolgateway.ScriptProcessTool,
-		ProposalID: created.Process.ID, ReviewedBy: "migration_test",
+		ProposalID: created.Proposal.ID, ReviewedBy: "migration_test",
 	})
 	if err != nil || reviewed.Result == nil || reviewed.Result.Metadata["artifact_stdout_id"] == "" {
 		t.Fatalf("upgraded artifact capture is unusable: %#v err=%v", reviewed, err)

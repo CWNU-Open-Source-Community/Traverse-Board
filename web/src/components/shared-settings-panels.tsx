@@ -291,6 +291,8 @@ function MCPServerCard({ action, client, server }: {
   const refreshable = ["discovery_approved", "capabilities_pending", "enabled",
     "quarantined"].includes(server.state);
   const disableable = !["disabled", "revoked"].includes(server.state);
+  const target = server.native_source
+    ? `${t("插件组件", "Plugin component")}: ${server.native_source.component_id}` : server.target;
   return <article className="extension-card">
     <header><div><PlugZap aria-hidden="true" size={17} />
       <div><strong>{server.name}</strong><span>{server.id}</span></div></div>
@@ -303,7 +305,7 @@ function MCPServerCard({ action, client, server }: {
       <div><dt>{t("凭据引用", "Credential ref")}</dt><dd>{server.credential_ref || "—"}</dd></div>
       <div><dt>{t("来源", "Source")}</dt><dd>{server.source.kind}</dd></div>
     </dl>
-    <p className="extension-target" title={server.target}>{server.target}</p>
+    <p className="extension-target" title={target}>{target}</p>
     <Fingerprint label={t("能力指纹", "Capability fingerprint")}
       value={server.capabilities.fingerprint || server.descriptor_fingerprint} />
     <div className="extension-actions">
@@ -331,7 +333,9 @@ function PluginCard({ action, client, installation }: {
   return <article className="extension-card">
     <header><div><PackageSearch aria-hidden="true" size={17} />
       <div><strong>{installation.manifest.name}</strong>
-        <span>{installation.manifest.publisher} · v{installation.manifest.version}</span></div></div>
+        <span>{[installation.manifest.publisher, installation.manifest.version ?
+          `v${installation.manifest.version}` : ""].filter(Boolean).join(" · ") ||
+          t("未提供作者或版本", "No author or version provided")}</span></div></div>
       <ExtensionState state={installation.state} /></header>
     <dl className="extension-facts">
       <div><dt>{t("签名", "Signature")}</dt><dd>{installation.signature_valid ?

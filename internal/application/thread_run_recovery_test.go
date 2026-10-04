@@ -117,12 +117,12 @@ func TestThreadRunRecoveryFailsOldRunThenExplicitSubmitMaterializesSuccessor(t *
 		t.Fatal(err)
 	}
 	permissionChange, err := application.NewThreadExecutionPermissionService(st,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}).Change(ctx,
+		domain.ExecutionPermissionRuntimeCapabilities{}).Change(ctx,
 		application.ChangeThreadExecutionPermissionRequest{
 			ThreadID:     threadRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
+			Mode:         string(domain.RunExecutionPermissionAuto),
 			OperationKey: "thread-recovery-permission-0001", RequestedBy: "recovery_test_operator",
-			Reason: "use bounded Workspace Access on the successor Run", ConfirmWorkspaceAccess: true,
+			Reason: "use the Auto preference on the successor Run",
 		})
 	if err != nil || permissionChange.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
 		t.Fatalf("successor permission preference=%+v err=%v", permissionChange, err)
@@ -179,7 +179,7 @@ func TestThreadRunRecoveryFailsOldRunThenExplicitSubmitMaterializesSuccessor(t *
 		t.Fatalf("successor=%+v err=%v", successor, err)
 	}
 	successorPermission, err := st.GetRunExecutionPermission(ctx, successor.Run.ID)
-	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionAuto {
 		t.Fatalf("successor permission=%+v err=%v", successorPermission, err)
 	}
 	bindings, err := st.ListThreadRuns(ctx, threadRecord.ID)

@@ -65,6 +65,31 @@ function renderCards(item: ApprovalQueueItemView, previewOverrides = {}, onRevie
 }
 
 describe("V2ApprovalCards", () => {
+  it("reviews each command with explicit bounded Run limits and preserves retry intent", async () => {
+    const item = pending({tool_name:"command_runtime",action_class:"command_process",allowed_actions:["approve_once","approve_for_run","deny"],canonical_url:undefined,exact_target:undefined});
+    const {decideApproval}=renderCards(item,{effect:"command_process",fields:[{name:"review_scope",value:"local verification"}]});
+    const button=await screen.findByRole("button",{name:"确认本条命令并计入有界审批"});
+    await userEvent.clear(screen.getByLabelText("有界审批命令次数"));
+    await userEvent.type(screen.getByLabelText("有界审批命令次数"),"9");
+    expect(button).toBeDisabled();
+    await userEvent.clear(screen.getByLabelText("有界审批命令次数"));
+    await userEvent.type(screen.getByLabelText("有界审批命令次数"),"3");
+    await userEvent.click(button);
+    await waitFor(()=>expect(decideApproval).toHaveBeenCalledTimes(1));
+    expect(decideApproval.mock.calls[0]?.[2]).toEqual({version:"approval_control.v1",action:"approve_for_run",grant_ttl_seconds:120,grant_max_uses:3});
+  });
+
+  it("keeps the original limits for a matching active Run scope", async () => {
+    const item=pending({tool_name:"command_runtime",action_class:"command_process",allowed_actions:["approve_once","approve_for_run","deny"],canonical_url:undefined,exact_target:undefined});
+    const {decideApproval}=renderCards(item,{effect:"command_process",fields:[{name:"grant_ttl_seconds",value:"300"},{name:"grant_max_uses",value:"4"},{name:"grant_uses_remaining",value:"2"},{name:"grant_expires_at",value:"2026-10-03T16:00:00Z"}]});
+    const button=await screen.findByRole("button",{name:"确认本条命令并计入有界审批"});
+    await waitFor(()=>expect(screen.getByLabelText("有界审批有效秒数")).toHaveValue(300));
+    expect(screen.getByLabelText("有界审批有效秒数")).toBeDisabled();
+    expect(screen.getByLabelText("有界审批命令次数")).toHaveValue(4);
+    expect(screen.getByLabelText("有界审批命令次数")).toBeDisabled();
+    await userEvent.click(button);
+    expect(decideApproval.mock.calls[0]?.[2]).toEqual({version:"approval_control.v1",action:"approve_for_run",grant_ttl_seconds:300,grant_max_uses:4});
+  });
   it("navigates to the same file proposal from the keyboard without deciding approval", async () => {
     const item = pending({ tool_name: "create_file", action_class: "workspace_write", proposal_id: "exact-edit",
       workspace_id: "original-workspace", allowed_actions: ["deny"], canonical_url: undefined, exact_target: undefined });

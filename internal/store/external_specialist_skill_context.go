@@ -78,6 +78,9 @@ func (s *SQLiteStore) PrepareExternalSpecialistSkillContext(ctx context.Context,
 		attempt, child, parent, run); err != nil {
 		return skills.ExternalSpecialistContextPreparation{}, err
 	}
+	if err := validatePluginSkillSelectionTx(ctx, tx, selection, domain.AgentRoleSpecialist); err != nil {
+		return skills.ExternalSpecialistContextPreparation{}, err
+	}
 	existing, found, err := getExternalSpecialistContextPreparationByAttemptTx(ctx, tx,
 		attempt.ID)
 	if err != nil {
@@ -166,6 +169,9 @@ func commitExternalSpecialistSkillContextTx(ctx context.Context, tx *sql.Tx,
 	if err := validateExternalSpecialistContextBinding(
 		preparation.ExternalSpecialistContextPreparationRequest, selection, mode,
 		attempt, child, parent, run); err != nil {
+		return err
+	}
+	if err := validatePluginSkillSelectionTx(ctx, tx, selection, domain.AgentRoleSpecialist); err != nil {
 		return err
 	}
 	if preparation.TokenUpperBound > selectedItem.TokenUpperBound {

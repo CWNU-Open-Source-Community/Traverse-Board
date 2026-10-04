@@ -199,7 +199,11 @@ func (a *App) newMCPClientManager() *mcp.Manager {
 	if a == nil || a.store == nil {
 		return nil
 	}
-	manager, err := mcp.NewClientManager(a.store, a.credentials, mcp.ManagerOptions{})
+	nativeSources, err := application.NewNativeMCPSourceResolver(a.store, filepath.Join(a.home, "plugins", "mcp"))
+	if err != nil {
+		return nil
+	}
+	manager, err := mcp.NewClientManager(a.store, a.credentials, mcp.ManagerOptions{NativeSources: nativeSources})
 	if err != nil {
 		return nil
 	}

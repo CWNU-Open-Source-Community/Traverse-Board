@@ -270,7 +270,7 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindFileChange, "文件修改已提议", "pending"
 	case events.FileEditApprovedEvent:
 		base.Kind, base.Title, base.Status = KindFileChange, "文件修改已批准", "approved"
-		if stringField(event.PayloadJSON, "authorization_source") == "full_access_automatic" {
+		if source := stringField(event.PayloadJSON, "authorization_source"); source == "full_access_automatic" || source == "operation_policy_automatic" {
 			base.Title = "文件修改已自动授权"
 		}
 	case events.FileEditAppliedEvent, events.FileEditApplyCompletedEvent:

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"unicode"
@@ -13,7 +14,9 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/operationreceipt"
+	"cyberagent-workbench/internal/plugins"
 )
 
 const (
@@ -131,6 +134,7 @@ type SkillPackageInstallRequest struct {
 }
 
 type SkillPackageInstallResult struct {
+	Installation               *plugins.Installation    `json:"-"`
 	ProtocolVersion            string                   `json:"protocol_version"`
 	Name                       string                   `json:"name"`
 	Version                    string                   `json:"version"`
@@ -147,6 +151,21 @@ type SkillPackageInstallResult struct {
 	RunSelectionAuthorized     bool                     `json:"run_selection_authorized"`
 	ContextInjectionAuthorized bool                     `json:"context_injection_authorized"`
 	Receipt                    operationreceipt.Receipt `json:"receipt"`
+}
+
+// MarshalJSON keeps legacy recovery responses unchanged. New installations
+// expose the Plugin contract and never claim an old Registry receipt.
+func (value SkillPackageInstallResult) MarshalJSON() ([]byte, error) {
+	if value.Installation != nil {
+		view := httpapi.ProjectPluginInstallation(*value.Installation)
+		if view.Source.Kind == "local_directory" {
+			view.Source.URI = ""
+		} // Native paths remain inside Go.
+		return json.Marshal(httpapi.PluginSkillInstallView{ProtocolVersion: plugins.PortableInstallationProtocol,
+			Installation: view, Replayed: value.Replayed})
+	}
+	type legacy SkillPackageInstallResult
+	return json.Marshal(legacy(value))
 }
 
 type DesktopBridgeConfig struct {
@@ -630,8 +649,8 @@ func (b *DesktopBridge) PreviewSkillPackage(handle string) (SkillPackagePreview,
 }
 
 // InstallSkillPackage consumes a short-lived preview confirmation. Package
-// bytes remain in Go and flow only through the inert content-addressed
-// Registry; this method cannot execute scripts, hooks, commands, tools,
+// bytes remain in Go and flow through the existing Plugin installation
+// lifecycle (or recovery of an already recorded legacy intent); this method cannot execute scripts, hooks, commands, tools,
 // provider calls, or network requests.
 func (b *DesktopBridge) InstallSkillPackage(
 	request SkillPackageInstallRequest,
@@ -660,11 +679,23 @@ func (b *DesktopBridge) InstallSkillPackage(
 		return SkillPackageInstallResult{}, err
 	}
 	result, err := b.skillInstaller.Import(ctx, application.ImportSkillPackageRequest{
-		Raw: raw, Surface: surface, OperationKey: request.OperationKey,
+		Raw: raw, Snapshot: preview.snapshot, Source: preview.source, Surface: surface, OperationKey: request.OperationKey,
 		InstalledBy: "desktop_operator", ConfirmUntrusted: true,
 	})
 	if err != nil {
 		return SkillPackageInstallResult{}, apperror.Normalize(err)
+	}
+	if result.Installation != nil {
+		installed := result.Installation
+		if installed.Snapshot == nil || installed.ArchiveSHA256 != preview.ArchiveSHA256 ||
+			installed.DisplayName() != preview.Name || installed.Snapshot.AuthorVersion != preview.Version ||
+			installed.Source.Surface != string(surface) ||
+			(installed.Snapshot.Legacy != nil && installed.Snapshot.Legacy.PackageFingerprint != preview.PackageFingerprint) {
+			return SkillPackageInstallResult{}, apperror.New(apperror.CodeInternal, "Plugin installation violated its confirmed preview")
+		}
+		return SkillPackageInstallResult{ProtocolVersion: plugins.PortableInstallationProtocol, Installation: installed,
+			Name: installed.DisplayName(), Version: installed.Snapshot.AuthorVersion, Surface: string(surface),
+			ArchiveSHA256: installed.ArchiveSHA256, PackageFingerprint: installed.PackageFingerprint, Replayed: result.Replayed}, nil
 	}
 	installation := result.Package.Installation
 	if installation.Name != preview.Name || installation.Version != preview.Version ||

@@ -1405,6 +1405,7 @@ CREATE TABLE "command_runtime_jobs" (
 		adapter_credential_policy TEXT NOT NULL,
 		permission_runtime_epoch TEXT NOT NULL DEFAULT '',
 		permission_generation INTEGER NOT NULL DEFAULT 0,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0), operator_invocation INTEGER NOT NULL DEFAULT 0 CHECK(operator_invocation IN (0,1)),
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
@@ -1414,14 +1415,22 @@ CREATE TABLE "command_runtime_jobs" (
 		FOREIGN KEY(profile_snapshot_id) REFERENCES run_execution_profile_snapshots(id) ON DELETE RESTRICT,
 		FOREIGN KEY(permission_snapshot_id) REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		CHECK(protocol_version = 'command-runtime.v2'),
-		CHECK((permission_runtime_epoch = '' AND permission_generation = 0) OR (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_runtime_epoch = trim(permission_runtime_epoch) AND instr(permission_runtime_epoch, char(0)) = 0 AND permission_generation > 0)),
+		CHECK((permission_mode NOT IN ('ask','auto','full') AND run_authorization_fence=0 AND
+			((permission_runtime_epoch='' AND permission_generation=0) OR
+			(length(permission_runtime_epoch) BETWEEN 1 AND 256 AND permission_generation>0))) OR
+			(permission_mode IN ('ask','auto','full') AND
+			 ((permission_mode IN ('ask','auto') AND permission_generation=0) OR
+			  (permission_mode='full' AND permission_generation>0 AND length(permission_runtime_epoch)>0)) AND
+			 ((permission_runtime_epoch='' AND run_authorization_fence=0) OR
+			  (length(permission_runtime_epoch) BETWEEN 1 AND 256 AND run_authorization_fence>0)))),
+		CHECK(permission_runtime_epoch=trim(permission_runtime_epoch) AND instr(permission_runtime_epoch,char(0))=0),
 		CHECK(profile IN ('powershell', 'bash', 'process')),
 		CHECK(stdin_policy IN ('closed', 'pipe')),
-		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug') AND adapter_network_policy = 'host_available'))),
-		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode = 'workspace_access'
+		CHECK(credentials = 'none' AND (network = 'disabled' OR (network = 'host' AND adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full') AND adapter_network_policy = 'host_available'))),
+		CHECK((adapter_kind = 'sandboxed_workspace' AND permission_mode IN ('workspace_access','ask','auto','full')
 				AND adapter_isolation_grade = 'workspace_sandbox'
 				AND adapter_network_policy = 'denied' AND adapter_credential_policy = 'none')
-			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access', 'debug')
+			OR (adapter_kind = 'host_unsandboxed' AND permission_mode IN ('full_access','debug','ask','auto','full')
 				AND adapter_isolation_grade = 'host_unsandboxed'
 				AND adapter_network_policy = 'host_available'
 				AND adapter_credential_policy = 'host_available')
@@ -2257,14 +2266,14 @@ CREATE TABLE file_edit_apply_results (
 		CHECK(event_sequence > 0)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE file_edit_auto_authorizations (
+CREATE TABLE "file_edit_auto_authorizations" (
 		edit_id TEXT PRIMARY KEY REFERENCES file_edits(id) ON DELETE RESTRICT,
 		operation_key_digest TEXT NOT NULL UNIQUE CHECK(length(operation_key_digest)=64),
 		proposal_fingerprint TEXT NOT NULL CHECK(length(proposal_fingerprint)=64),
 		run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
 		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
 		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
-		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move')),
+		operation_kind TEXT NOT NULL CHECK(operation_kind IN ('create','replace','move','delete')),
 		path TEXT NOT NULL,
 		destination_path TEXT NOT NULL,
 		original_hash TEXT NOT NULL,
@@ -2274,18 +2283,19 @@ CREATE TABLE file_edit_auto_authorizations (
 		permission_snapshot_id TEXT NOT NULL REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
 		permission_revision INTEGER NOT NULL CHECK(permission_revision > 0),
 		mode_revision INTEGER NOT NULL CHECK(mode_revision > 0),
-		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 1 AND 256),
-		runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+		runtime_epoch TEXT NOT NULL CHECK(length(runtime_epoch) BETWEEN 0 AND 256),
+		runtime_generation INTEGER NOT NULL CHECK(runtime_generation >= 0),
 		agent_id TEXT NOT NULL REFERENCES agent_nodes(id) ON DELETE RESTRICT,
 		capability_generation TEXT NOT NULL CHECK(length(capability_generation)=64),
 		lease_id TEXT NOT NULL CHECK(length(lease_id) BETWEEN 1 AND 256),
 		lease_generation INTEGER NOT NULL CHECK(lease_generation > 0),
 		created_at TEXT NOT NULL,
+		run_authorization_fence INTEGER NOT NULL DEFAULT 0 CHECK(run_authorization_fence >= 0),
 		CHECK((operation_kind='move' AND length(destination_path) BETWEEN 1 AND 512
 			AND destination_path<>path AND proposed_hash='missing'
 			AND destination_original_hash='missing'
 			AND destination_proposed_hash=original_hash)
-			OR (operation_kind IN ('create','replace') AND destination_path=''
+			OR (operation_kind IN ('create','replace','delete') AND destination_path=''
 				AND destination_original_hash='' AND destination_proposed_hash=''))
 	);
 -- traverse-board-clean-install-object-boundary --
@@ -4184,7 +4194,7 @@ CREATE TABLE plugin_installation_transitions (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE plugin_installations (
+CREATE TABLE "plugin_installations" (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
 		plugin_id TEXT NOT NULL,
@@ -4210,7 +4220,7 @@ CREATE TABLE plugin_installations (
 		updated_at TEXT NOT NULL,
 		FOREIGN KEY(package_fingerprint) REFERENCES plugin_objects(package_fingerprint)
 			ON DELETE RESTRICT,
-		CHECK(protocol_version = 'plugin-installation.v1'),
+		CHECK(protocol_version IN ('plugin-installation.v1','plugin-installation.v2')),
 		CHECK(json_valid(manifest_json) AND length(CAST(manifest_json AS BLOB))
 			BETWEEN 2 AND 262144),
 		CHECK(json_valid(source_json) AND length(CAST(source_json AS BLOB))
@@ -4229,7 +4239,20 @@ CREATE TABLE plugin_installations (
 			'revoked', 'quarantined')),
 		CHECK(generation > 0),
 		CHECK(length(id) BETWEEN 1 AND 256 AND length(plugin_id) BETWEEN 1 AND 256),
-		CHECK(length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256),
+		CHECK(COALESCE((protocol_version='plugin-installation.v1'
+			AND length(plugin_version) BETWEEN 5 AND 64 AND length(publisher) BETWEEN 1 AND 256)
+			OR (protocol_version='plugin-installation.v2' AND length(plugin_version)=64
+				AND plugin_version NOT GLOB '*[^0-9a-f]*' AND publisher=''
+				AND signature_present=0 AND signature_valid=0
+				AND publisher_fingerprint='' AND publisher_public_key=''
+				AND json_extract(manifest_json,'$.protocol_version')='agent-package-snapshot.v1'
+				AND json_extract(manifest_json,'$.package_id')=plugin_id
+				AND json_extract(manifest_json,'$.revision')=plugin_version
+				AND archive_sha256=plugin_version
+				AND length(json_extract(source_json,'$.operation_key_digest'))=64
+				AND json_extract(source_json,'$.operation_key_digest') NOT GLOB '*[^0-9a-f]*'
+				AND id='plugin-import-' || json_extract(source_json,'$.operation_key_digest')
+				AND json_extract(source_json,'$.surface') IN ('code','cyber')),0)),
 		CHECK(length(supersedes_installation_id) <= 256
 			AND length(staged_by) BETWEEN 1 AND 256 AND length(reviewed_by) <= 256),
 		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL
@@ -5391,10 +5414,9 @@ CREATE TABLE "run_execution_permission_snapshots" (
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		UNIQUE(run_id, revision),
 		CHECK(revision > 0),
-		CHECK(protocol_version = 'run_execution_permission.v1'),
-		CHECK(policy_version = 'execution_permission_policy.v1'),
 		CHECK(process_enabled = 0 AND execution_authorized = 0 AND capability_grant = 0),
-		CHECK(
+
+		CHECK((protocol_version = 'run_execution_permission.v1' AND policy_version = 'execution_permission_policy.v1' AND (
 			(mode = 'conservative' AND approval_policy = 'fixed_templates'
 				AND command_scope = 'fixed_templates'
 				AND filesystem_scope = 'workspace_guarded' AND network_scope = 'disabled'
@@ -5424,8 +5446,14 @@ CREATE TABLE "run_execution_permission_snapshots" (
 				AND filesystem_scope = 'host_full' AND network_scope = 'host'
 				AND persistent_terminal = 1 AND background_process = 1
 				AND agent_terminal_input = 1 AND risk_tier = 'high'
-				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)
-		),
+				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)))
+			OR (protocol_version = 'run_execution_permission.v2' AND policy_version = 'execution_permission_policy.v2'
+				AND mode IN ('ask','auto','full') AND approval_policy = 'per_operation'
+				AND command_scope = 'per_operation' AND filesystem_scope = 'per_operation' AND network_scope = 'per_operation'
+				AND persistent_terminal = 0 AND background_process = 0 AND agent_terminal_input = 0
+				AND required_gate = 'operation_authority'
+				AND ((mode = 'full' AND operator_confirmed = 1 AND risk_tier = 'high')
+					OR (mode IN ('ask','auto') AND operator_confirmed = 0 AND risk_tier = 'minimal')))),
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
 		CHECK(run_id = trim(run_id) AND length(run_id) BETWEEN 1 AND 256
 			AND instr(run_id, char(0)) = 0),
@@ -5505,7 +5533,7 @@ CREATE TABLE run_execution_profile_snapshots (
 			AND instr(reason, char(0)) = 0)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE run_external_skill_selection_items (
+CREATE TABLE "run_external_skill_selection_items" (
 		selection_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
 		installation_id TEXT NOT NULL,
@@ -5524,11 +5552,15 @@ CREATE TABLE run_external_skill_selection_items (
 		trust_class TEXT NOT NULL,
 		tool_dependency_count INTEGER NOT NULL,
 		specialist_eligible INTEGER NOT NULL,
+  plugin_binding_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(plugin_binding_json) AND json_type(plugin_binding_json) = 'object'),
+  legacy_installation_id TEXT,
+  plugin_installation_id TEXT,
 		PRIMARY KEY(selection_id, ordinal),
 		UNIQUE(selection_id, installation_id),
 		UNIQUE(selection_id, name, version),
 		FOREIGN KEY(selection_id) REFERENCES run_external_skill_selections(id) ON DELETE RESTRICT,
-		FOREIGN KEY(installation_id) REFERENCES skill_package_installations(id) ON DELETE RESTRICT,
+		FOREIGN KEY(legacy_installation_id) REFERENCES skill_package_installations(id) ON DELETE RESTRICT,
+  FOREIGN KEY(plugin_installation_id) REFERENCES plugin_installations(id) ON DELETE RESTRICT,
 		CHECK(ordinal BETWEEN 1 AND 4),
 		CHECK(surface IN ('code', 'cyber')),
 		CHECK(name = trim(name) AND length(name) BETWEEN 1 AND 64
@@ -5537,8 +5569,18 @@ CREATE TABLE run_external_skill_selection_items (
 			AND version NOT GLOB '*[^0-9.]*'),
 		CHECK(length(installation_fingerprint) = 64
 			AND installation_fingerprint NOT GLOB '*[^0-9a-f]*'),
-		CHECK(length(install_result_fingerprint) = 64
-			AND install_result_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(COALESCE((plugin_binding_json = '{}' AND legacy_installation_id = installation_id AND plugin_installation_id IS NULL
+   AND length(install_result_fingerprint) = 64 AND install_result_fingerprint NOT GLOB '*[^0-9a-f]*'
+   AND object_key = 'sha256/' || substr(archive_sha256, 1, 2) || '/' || archive_sha256 || '.zip')
+   OR (plugin_binding_json != '{}' AND plugin_installation_id = installation_id AND legacy_installation_id IS NULL
+    AND install_result_fingerprint = '' AND object_key = ''
+    AND json_type(plugin_binding_json, '$.package_id') = 'text'
+    AND length(json_extract(plugin_binding_json, '$.package_id')) BETWEEN 1 AND 256
+    AND json_type(plugin_binding_json, '$.component_id') = 'text'
+    AND length(json_extract(plugin_binding_json, '$.component_id')) BETWEEN 1 AND 256
+    AND json_extract(plugin_binding_json, '$.revision') = archive_sha256
+    AND json_type(plugin_binding_json, '$.generation') = 'integer'
+    AND json_extract(plugin_binding_json, '$.generation') >= 1), 0)),
 		CHECK(length(content_sha256) = 64 AND content_sha256 NOT GLOB '*[^0-9a-f]*'),
 		CHECK(content_bytes BETWEEN 1 AND 32768 AND token_upper_bound = content_bytes
 			AND token_upper_bound BETWEEN 1 AND 4096),
@@ -5546,7 +5588,6 @@ CREATE TABLE run_external_skill_selection_items (
 		CHECK(archive_bytes BETWEEN 1 AND 65536),
 		CHECK(length(package_fingerprint) = 64
 			AND package_fingerprint NOT GLOB '*[^0-9a-f]*'),
-		CHECK(object_key = 'sha256/' || substr(archive_sha256, 1, 2) || '/' || archive_sha256 || '.zip'),
 		CHECK(trust_class = 'operator_installed_untrusted'),
 		CHECK(tool_dependency_count BETWEEN 0 AND 8),
 		CHECK(specialist_eligible IN (0, 1)
@@ -5572,7 +5613,7 @@ CREATE TABLE run_external_skill_selection_operations (
 			AND instr(requested_by, char(0)) = 0)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE run_external_skill_selections (
+CREATE TABLE "run_external_skill_selections" (
 		id TEXT PRIMARY KEY,
 		run_id TEXT NOT NULL UNIQUE,
 		mission_id TEXT NOT NULL,
@@ -5595,7 +5636,7 @@ CREATE TABLE run_external_skill_selections (
 		FOREIGN KEY(mode_snapshot_id) REFERENCES run_mode_snapshots(id) ON DELETE RESTRICT,
 		FOREIGN KEY(id) REFERENCES run_external_skill_selection_operations(selection_id)
 			ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
-		CHECK(protocol_version = 'external_skill_selection.v1'),
+		CHECK(protocol_version IN ('external_skill_selection.v1','external_skill_selection.v2')),
 		CHECK(surface IN ('code', 'cyber')),
 		CHECK(profile IN ('code', 'review', 'learn', 'script')),
 		CHECK(surface != 'cyber' OR profile = 'script'),
@@ -8660,7 +8701,7 @@ CREATE TABLE "sandbox_docker_product_admissions" (
 		CHECK(product_entry_enabled = 1 AND execution_authorized = 1
 			AND artifact_commit_authorized = 1),
 		CHECK(network_mode = 'disabled' AND network_target_count = 0),
-		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug')),
+		CHECK(permission_mode IN ('workspace_access', 'approval', 'full_access', 'debug', 'ask', 'auto', 'full')),
 		CHECK(profile_revision >= 1 AND permission_revision >= 1 AND approval_version >= 1),
 		CHECK(cpu_quota_millis BETWEEN 1 AND 8000),
 		CHECK(memory_bytes BETWEEN 16777216 AND 8589934592),
@@ -10983,6 +11024,40 @@ CREATE TABLE skill_candidate_imports (
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256)
 	);
 -- traverse-board-clean-install-object-boundary --
+CREATE TABLE skill_candidate_plugin_imports (
+		id TEXT PRIMARY KEY,
+		protocol_version TEXT NOT NULL,
+		operation_key_digest TEXT NOT NULL UNIQUE,
+		request_fingerprint TEXT NOT NULL,
+		candidate_id TEXT NOT NULL UNIQUE,
+		candidate_fingerprint TEXT NOT NULL,
+		review_fingerprint TEXT NOT NULL UNIQUE,
+		installation_id TEXT NOT NULL UNIQUE,
+		installation_fingerprint TEXT NOT NULL UNIQUE,
+		imported_by TEXT NOT NULL,
+		import_fingerprint TEXT NOT NULL UNIQUE,
+		installation_generation INTEGER NOT NULL CHECK(installation_generation >= 1),
+		package_fingerprint TEXT NOT NULL CHECK(length(package_fingerprint) = 64 AND package_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		archive_sha256 TEXT NOT NULL CHECK(length(archive_sha256) = 64 AND archive_sha256 NOT GLOB '*[^0-9a-f]*'),
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(candidate_id) REFERENCES skill_candidates(id) ON DELETE RESTRICT,
+		FOREIGN KEY(installation_id) REFERENCES plugin_installations(id) ON DELETE RESTRICT,
+		CHECK(protocol_version = 'skill_candidate_import.v2'),
+		CHECK(length(operation_key_digest) = 64 AND operation_key_digest NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(request_fingerprint) = 64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(candidate_fingerprint) = 64
+			AND candidate_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(review_fingerprint) = 64 AND review_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(installation_fingerprint) = 64
+			AND installation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(import_fingerprint) = 64 AND import_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(imported_by = trim(imported_by) AND length(imported_by) BETWEEN 1 AND 256
+			AND length(CAST(imported_by AS BLOB)) <= 256 AND instr(imported_by, char(0)) = 0
+			AND lower(imported_by) NOT IN ('agent', 'llm', 'model', 'repository', 'repo',
+				'skill', 'supervisor', 'run_supervisor')),
+		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256)
+	);
+-- traverse-board-clean-install-object-boundary --
 CREATE TABLE skill_candidate_reviews (
 		id TEXT PRIMARY KEY,
 		protocol_version TEXT NOT NULL,
@@ -12298,7 +12373,7 @@ CREATE TABLE thread_execution_permission_operations (
 		)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE thread_execution_permission_snapshots (
+CREATE TABLE "thread_execution_permission_snapshots" (
 		id TEXT PRIMARY KEY,
 		thread_id TEXT NOT NULL,
 		mission_id TEXT NOT NULL,
@@ -12326,10 +12401,9 @@ CREATE TABLE thread_execution_permission_snapshots (
 		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		UNIQUE(thread_id, revision),
 		CHECK(revision > 0),
-		CHECK(protocol_version = 'thread_execution_permission.v1'),
-		CHECK(policy_version = 'execution_permission_policy.v1'),
 		CHECK(process_enabled = 0 AND execution_authorized = 0 AND capability_grant = 0),
-		CHECK(
+
+		CHECK((protocol_version = 'thread_execution_permission.v1' AND policy_version = 'execution_permission_policy.v1' AND (
 			(mode = 'conservative' AND approval_policy = 'fixed_templates'
 				AND command_scope = 'fixed_templates'
 				AND filesystem_scope = 'workspace_guarded' AND network_scope = 'disabled'
@@ -12359,8 +12433,14 @@ CREATE TABLE thread_execution_permission_snapshots (
 				AND filesystem_scope = 'host_full' AND network_scope = 'host'
 				AND persistent_terminal = 1 AND background_process = 1
 				AND agent_terminal_input = 1 AND risk_tier = 'high'
-				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)
-		),
+				AND required_gate = 'debug_maximum_access' AND operator_confirmed = 1)))
+			OR (protocol_version = 'thread_execution_permission.v2' AND policy_version = 'execution_permission_policy.v2'
+				AND mode IN ('ask','auto','full') AND approval_policy = 'per_operation'
+				AND command_scope = 'per_operation' AND filesystem_scope = 'per_operation' AND network_scope = 'per_operation'
+				AND persistent_terminal = 0 AND background_process = 0 AND agent_terminal_input = 0
+				AND required_gate = 'operation_authority'
+				AND ((mode = 'full' AND operator_confirmed = 1 AND risk_tier = 'high')
+					OR (mode IN ('ask','auto') AND operator_confirmed = 0 AND risk_tier = 'minimal')))),
 		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
 		CHECK(thread_id = trim(thread_id) AND length(thread_id) BETWEEN 1 AND 256
 			AND instr(thread_id, char(0)) = 0),
@@ -13202,6 +13282,19 @@ CREATE VIEW run_file_drydock_bindings AS
   SELECT b.run_id,r.mission_id,r.session_id,d.source_workspace_id,d.workspace_id,d.id AS drydock_id,b.thread_id
   FROM thread_drydock_bindings b JOIN runs r ON r.id=b.run_id JOIN drydock_workspaces d ON d.id=b.drydock_id;
 -- traverse-board-clean-install-object-boundary --
+CREATE VIEW skill_candidate_all_imports AS
+		SELECT id, protocol_version, operation_key_digest, request_fingerprint,
+			candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
+			installation_fingerprint, imported_by, import_fingerprint, created_at,
+			0 AS installation_generation, '' AS package_fingerprint, '' AS archive_sha256
+		FROM skill_candidate_imports
+		UNION ALL
+		SELECT id, protocol_version, operation_key_digest, request_fingerprint,
+			candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
+			installation_fingerprint, imported_by, import_fingerprint, created_at,
+			installation_generation, package_fingerprint, archive_sha256
+		FROM skill_candidate_plugin_imports;
+-- traverse-board-clean-install-object-boundary --
 CREATE VIEW thread_plan_completed_sources AS
  SELECT source.*, checkpoint.run_id AS origin_run_id,
    checkpoint.work_item_id AS origin_work_item_id, checkpoint.handoff_note_id,
@@ -13496,8 +13589,7 @@ CREATE INDEX idx_drydock_workspaces_expiry
 CREATE INDEX idx_file_edit_apply_operations_run_created
 		ON file_edit_apply_operations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
-CREATE INDEX idx_file_edit_auto_authorizations_run_created
-		ON file_edit_auto_authorizations(run_id, created_at);
+CREATE INDEX idx_file_edit_auto_authorizations_run_created ON file_edit_auto_authorizations(run_id, created_at);
 -- traverse-board-clean-install-object-boundary --
 CREATE INDEX idx_file_edits_session_status_updated_at
 			ON file_edits(session_id, status, updated_at);
@@ -14184,6 +14276,53 @@ CREATE TRIGGER skill_candidate_insert_guard
 			SELECT RAISE(ABORT, 'Skill candidate Run capacity exceeded')
 			WHERE (SELECT COUNT(*) FROM skill_candidates WHERE run_id = NEW.run_id) >= 4;
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_legacy_import_no_plugin_duplicate
+		BEFORE INSERT ON skill_candidate_imports
+		BEGIN
+			SELECT RAISE(ABORT, 'candidate already has a Plugin import receipt')
+			WHERE EXISTS (SELECT 1 FROM skill_candidate_plugin_imports portable
+				WHERE portable.candidate_id = NEW.candidate_id OR portable.operation_key_digest = NEW.operation_key_digest);
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_import_insert_guard
+		BEFORE INSERT ON skill_candidate_plugin_imports
+		BEGIN
+			SELECT RAISE(ABORT, 'candidate already has a legacy import receipt')
+			WHERE EXISTS (SELECT 1 FROM skill_candidate_imports legacy
+				WHERE legacy.candidate_id = NEW.candidate_id OR legacy.operation_key_digest = NEW.operation_key_digest);
+			SELECT RAISE(ABORT, 'candidate Plugin import binding is invalid')
+			WHERE NOT EXISTS (
+				SELECT 1 FROM skill_candidates candidate
+				JOIN skill_candidate_reviews review ON review.candidate_id = candidate.id
+				JOIN plugin_installations installation ON installation.id = NEW.installation_id
+				JOIN plugin_objects object ON object.archive_sha256 = installation.archive_sha256
+					AND object.package_fingerprint = installation.package_fingerprint
+				WHERE candidate.id = NEW.candidate_id
+					AND candidate.candidate_fingerprint = NEW.candidate_fingerprint
+					AND review.candidate_fingerprint = NEW.candidate_fingerprint
+					AND review.review_fingerprint = NEW.review_fingerprint
+					AND review.decision = 'approve' AND review.created_at <= NEW.created_at
+					AND installation.protocol_version = 'plugin-installation.v2'
+					AND installation.staged_by = NEW.imported_by
+					AND installation.generation = NEW.installation_generation
+					AND installation.package_fingerprint = NEW.package_fingerprint
+					AND installation.archive_sha256 = NEW.archive_sha256
+					AND installation.archive_sha256 = candidate.archive_sha256
+					AND json_extract(installation.source_json, '$.kind') = 'catalog'
+					AND json_extract(installation.source_json, '$.uri') = candidate.id
+					AND json_extract(installation.source_json, '$.surface') = 'code'
+					AND json_extract(installation.manifest_json, '$.format') = 'traverse-skill'
+					AND json_extract(installation.manifest_json, '$.legacy.PackageFingerprint') = candidate.package_fingerprint
+					AND json_extract(installation.manifest_json, '$.legacy.ArchiveSHA256') = candidate.archive_sha256
+					AND installation.created_at <= NEW.created_at);
+		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_imports_no_delete BEFORE DELETE ON skill_candidate_plugin_imports
+		BEGIN SELECT RAISE(ABORT, 'Skill candidate Plugin imports are immutable'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER skill_candidate_plugin_imports_no_update BEFORE UPDATE ON skill_candidate_plugin_imports
+		BEGIN SELECT RAISE(ABORT, 'Skill candidate Plugin imports are immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER skill_candidate_review_insert_guard
 		BEFORE INSERT ON skill_candidate_reviews
@@ -15108,7 +15247,7 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 			JOIN run_execution_leases lease ON lease.run_id = run.id
 			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
 				AND run.session_id = NEW.session_id AND mission.workspace_id = NEW.workspace_id
-				AND run.status = 'running' AND root.parent_id IS NULL AND root.role = 'root'
+				AND (run.status = 'running' OR (NEW.operator_invocation = 1 AND run.status IN ('created', 'paused'))) AND root.parent_id IS NULL AND root.role = 'root'
 				AND mode.run_id = run.id AND mode.mission_id = mission.id
 				AND mode.revision = NEW.mode_revision AND mode.surface = 'code'
 				AND mode.phase = 'deliver' AND mode.revision = (
@@ -15125,9 +15264,9 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 				AND permission.run_id = run.id AND permission.mission_id = mission.id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode
-				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access', 'debug'))
+				AND ((NEW.adapter_kind = 'host_unsandboxed' AND permission.mode IN ('full_access','debug','ask','auto','full'))
 					OR (NEW.adapter_kind = 'sandboxed_workspace'
-						AND permission.mode = 'workspace_access'))
+						AND permission.mode IN ('workspace_access','ask','auto','full')))
 				AND permission.revision = (SELECT MAX(current.revision)
 					FROM run_execution_permission_snapshots current WHERE current.run_id = run.id)
 				AND lease.lease_id = NEW.lease_id AND lease.generation = NEW.lease_generation
@@ -15161,7 +15300,7 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 			OR NEW.adapter_network_policy != OLD.adapter_network_policy
 			OR NEW.adapter_credential_policy != OLD.adapter_credential_policy
 			OR NEW.permission_runtime_epoch != OLD.permission_runtime_epoch
-			OR NEW.permission_generation != OLD.permission_generation
+			OR NEW.permission_generation != OLD.permission_generation OR NEW.run_authorization_fence != OLD.run_authorization_fence
 			OR NEW.owner_id != OLD.owner_id
 			OR NEW.owner_generation != OLD.owner_generation
 			OR julianday(NEW.owner_renewed_at) < julianday(OLD.owner_renewed_at)
@@ -15188,6 +15327,17 @@ CREATE TRIGGER trg_command_runtime_job_update_transition
 		BEGIN
 			SELECT RAISE(ABORT, 'command runtime transition is invalid');
 		END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_command_runtime_operator_actor_binding
+		 BEFORE INSERT ON command_runtime_job_agents
+		 WHEN (NEW.attribution_source = 'operator_root') !=
+		  (SELECT operator_invocation FROM command_runtime_jobs WHERE id = NEW.job_id)
+		 BEGIN SELECT RAISE(ABORT, 'Command Runtime invocation source differs from its actor'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_command_runtime_operator_invocation_immutable
+		 BEFORE UPDATE OF operator_invocation ON command_runtime_jobs
+		 WHEN NEW.operator_invocation != OLD.operator_invocation
+		 BEGIN SELECT RAISE(ABORT, 'Command Runtime invocation source is immutable'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_completion_requires_agent_attempt
 		BEFORE INSERT ON agent_completion_reports
@@ -16013,7 +16163,12 @@ CREATE TRIGGER trg_file_edit_auto_apply_insert
 					AND edit.status='approved' AND run.status='running'
 					AND approval.run_id=run.id AND approval.mode='automatic'
 					AND approval.status='approved' AND approval.reviewed_by='automatic_policy'
-					AND permission.mode='full_access'
+					AND ((permission.mode='full_access' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0 AND source.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND source.runtime_generation>0 AND length(source.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND source.runtime_generation=0 AND source.operation_kind<>'delete'))
+				AND ((source.runtime_epoch='' AND source.run_authorization_fence=0)
+					OR (length(source.runtime_epoch)>0 AND source.run_authorization_fence>0))))
 					AND permission.revision=source.permission_revision
 					AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 						WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -16038,7 +16193,7 @@ CREATE TRIGGER trg_file_edit_auto_approval_insert
 					AND NEW.action_class='workspace_write'
 					AND NEW.tool_name=CASE source.operation_kind
 						WHEN 'create' THEN 'create_file'
-						WHEN 'move' THEN 'move_file' ELSE 'replace_file' END)
+						WHEN 'move' THEN 'move_file' WHEN 'delete' THEN 'delete_file' ELSE 'replace_file' END)
 		BEGIN SELECT RAISE(ABORT, 'automatic FileEdit approval source is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_file_edit_auto_approval_update
@@ -16079,7 +16234,12 @@ CREATE TRIGGER trg_file_edit_auto_authorization_insert
 				AND NOT EXISTS (SELECT 1 FROM tool_approvals prior WHERE prior.proposal_id=edit.id)
 				AND run.status='running' AND session_record.status='active'
 				AND session_record.workspace_id=mission.workspace_id
-				AND permission.mission_id=mission.id AND permission.mode='full_access'
+				AND permission.mission_id=mission.id AND ((permission.mode='full_access' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0 AND NEW.operation_kind<>'delete')
+			OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full')
+				AND ((permission.mode='full' AND NEW.runtime_generation>0 AND length(NEW.runtime_epoch)>0)
+					OR (permission.mode IN ('ask','auto') AND NEW.runtime_generation=0 AND NEW.operation_kind<>'delete'))
+				AND ((NEW.runtime_epoch='' AND NEW.run_authorization_fence=0)
+					OR (length(NEW.runtime_epoch)>0 AND NEW.run_authorization_fence>0))))
 				AND permission.revision=NEW.permission_revision
 				AND NOT EXISTS (SELECT 1 FROM run_execution_permission_snapshots later
 					WHERE later.run_id=run.id AND later.revision>permission.revision)
@@ -19065,12 +19225,12 @@ CREATE TRIGGER trg_run_execution_permission_snapshot_delete_immutable
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_execution_permission_snapshot_insert
 		BEFORE INSERT ON run_execution_permission_snapshots
-		WHEN NOT EXISTS (
+		WHEN NEW.protocol_version <> 'run_execution_permission.v2' OR NOT EXISTS (
 			SELECT 1 FROM runs run
 			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
 				AND julianday(NEW.created_at) >= julianday(run.created_at)
 				AND (
-					(NEW.revision = 1 AND NEW.mode = 'conservative'
+					(NEW.revision = 1 AND NEW.mode = 'ask'
 						AND run.status = 'created' AND NOT EXISTS (
 							SELECT 1 FROM run_execution_permission_snapshots existing
 							WHERE existing.run_id = NEW.run_id
@@ -19080,13 +19240,13 @@ CREATE TRIGGER trg_run_execution_permission_snapshot_insert
 						SELECT 1 FROM run_execution_permission_snapshots previous
 						WHERE previous.run_id = NEW.run_id
 							AND previous.revision = NEW.revision - 1
-							AND previous.protocol_version = NEW.protocol_version
-							AND previous.policy_version = NEW.policy_version
+							AND (previous.protocol_version = NEW.protocol_version OR previous.protocol_version = 'run_execution_permission.v1')
+							AND (previous.policy_version = NEW.policy_version OR previous.policy_version = 'execution_permission_policy.v1')
 							AND julianday(NEW.created_at) >= julianday(previous.created_at)
 							AND (
-								(((previous.mode = 'debug' AND NEW.mode <> 'debug')
-									OR (previous.mode = 'full_access'
-										AND NEW.mode NOT IN ('full_access', 'debug')))
+								(((previous.mode = 'auto' AND NEW.mode = 'ask') OR (previous.mode = 'debug' AND NEW.mode <> 'debug')
+									OR (previous.mode IN ('full_access','full')
+										AND NEW.mode NOT IN ('full_access', 'debug','full')))
 									AND run.status NOT IN ('completed', 'failed', 'cancelled'))
 								OR
 								(run.status IN ('created', 'paused') AND NOT EXISTS (
@@ -19196,7 +19356,7 @@ CREATE TRIGGER trg_run_external_skill_selection_item_delete_immutable BEFORE DEL
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_external_skill_selection_item_insert
 		BEFORE INSERT ON run_external_skill_selection_items
-		WHEN NOT EXISTS (
+		WHEN NEW.plugin_binding_json = '{}' AND NOT EXISTS (
 			SELECT 1 FROM run_external_skill_selections selection
 			JOIN skill_package_installations installation ON installation.id = NEW.installation_id
 			JOIN skill_package_install_results result ON result.installation_id = installation.id
@@ -19243,6 +19403,9 @@ CREATE TRIGGER trg_run_external_skill_selection_operation_insert
 			WHERE selection.id = NEW.selection_id AND selection.run_id = NEW.run_id
 				AND selection.requested_by = NEW.requested_by
 				AND selection.created_at = NEW.created_at
+     AND (selection.protocol_version = 'external_skill_selection.v2') = EXISTS (
+      SELECT 1 FROM run_external_skill_selection_items item
+      WHERE item.selection_id = selection.id AND item.plugin_installation_id IS NOT NULL)
 				AND selection.item_count = (SELECT COUNT(*) FROM run_external_skill_selection_items item
 					WHERE item.selection_id = selection.id)
 				AND selection.token_upper_bound = (SELECT COALESCE(SUM(item.token_upper_bound), 0)
@@ -19253,6 +19416,35 @@ CREATE TRIGGER trg_run_external_skill_selection_operation_insert
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_external_skill_selection_operation_update_immutable BEFORE UPDATE ON run_external_skill_selection_operations
 		BEGIN SELECT RAISE(ABORT, 'external Skill selection operation cannot be updated'); END;
+-- traverse-board-clean-install-object-boundary --
+CREATE TRIGGER trg_run_external_skill_selection_plugin_item_insert
+ BEFORE INSERT ON run_external_skill_selection_items
+ WHEN NEW.plugin_binding_json != '{}' AND NOT EXISTS (
+  SELECT 1 FROM run_external_skill_selections selection
+  JOIN plugin_installations installation ON installation.id = NEW.plugin_installation_id
+  JOIN plugin_objects object ON object.archive_sha256 = installation.archive_sha256
+   AND object.package_fingerprint = installation.package_fingerprint
+  WHERE selection.id = NEW.selection_id AND selection.protocol_version = 'external_skill_selection.v2'
+   AND NEW.ordinal = 1 + (SELECT COUNT(*) FROM run_external_skill_selection_items existing WHERE existing.selection_id = NEW.selection_id)
+   AND installation.protocol_version = 'plugin-installation.v2' AND installation.state = 'enabled'
+   AND json_extract(installation.source_json, '$.surface') = selection.surface AND NEW.surface = selection.surface
+   AND EXISTS (SELECT 1 FROM json_each(installation.enabled_capabilities_json) WHERE value = 'skills')
+   AND installation.plugin_id = json_extract(NEW.plugin_binding_json, '$.package_id')
+   AND installation.generation = json_extract(NEW.plugin_binding_json, '$.generation')
+   AND installation.archive_sha256 = NEW.archive_sha256 AND installation.archive_bytes = NEW.archive_bytes
+   AND installation.package_fingerprint = NEW.package_fingerprint
+   AND json_extract(installation.manifest_json, '$.format') = 'traverse-skill'
+   AND json_array_length(installation.manifest_json, '$.skills') = 1
+   AND json_extract(installation.manifest_json, '$.skills[0].instructions.Component.PackageID') = installation.plugin_id
+   AND json_extract(installation.manifest_json, '$.skills[0].instructions.Component.ComponentID') = json_extract(NEW.plugin_binding_json, '$.component_id')
+   AND json_extract(installation.manifest_json, '$.skills[0].instructions.SHA256') = NEW.content_sha256
+   AND json_extract(installation.manifest_json, '$.legacy.Manifest.name') = NEW.name
+   AND json_extract(installation.manifest_json, '$.legacy.Manifest.version') = NEW.version
+   AND json_extract(installation.manifest_json, '$.legacy.Manifest.content_sha256') = NEW.content_sha256
+   AND json_extract(installation.manifest_json, '$.legacy.Manifest.content_bytes') = NEW.content_bytes
+   AND json_extract(installation.manifest_json, '$.legacy.Manifest.content_token_upper_bound') = NEW.token_upper_bound
+   AND json_array_length(installation.manifest_json, '$.legacy.Manifest.tool_dependencies') = NEW.tool_dependency_count)
+ BEGIN SELECT RAISE(ABORT, 'external Skill selection Plugin binding is invalid'); END;
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_run_external_skill_selection_update_immutable BEFORE UPDATE ON run_external_skill_selections
 		BEGIN SELECT RAISE(ABORT, 'external Skill selection cannot be updated'); END;
@@ -19987,27 +20179,37 @@ CREATE TRIGGER trg_sandbox_backend_evidence_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_backend_preflight_checks check_row
 					WHERE check_row.preflight_id = preflight.id AND check_row.required = 1
 						AND check_row.verified = 0 AND check_row.evidence_state = 'not_probed') = 16
@@ -20184,27 +20386,37 @@ CREATE TRIGGER trg_sandbox_disabled_execution_insert
 								AND lease.generation = candidate.run_lease_generation
 								AND lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'sandbox disabled execution binding is invalid');
@@ -20265,27 +20477,37 @@ CREATE TRIGGER trg_sandbox_disabled_preflight_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -20728,28 +20950,37 @@ CREATE TRIGGER trg_sandbox_docker_container_plan_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
-						WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -21692,28 +21923,37 @@ CREATE TRIGGER trg_sandbox_docker_observation_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
-						WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -21907,7 +22147,13 @@ CREATE TRIGGER trg_sandbox_docker_product_admission_insert
 				AND permission.run_id = NEW.run_id AND permission.mission_id = NEW.mission_id
 				AND permission.revision = NEW.permission_revision
 				AND permission.mode = NEW.permission_mode AND permission.mode <> 'conservative'
-				AND permission.operator_confirmed = 1
+				AND ((permission.protocol_version = 'run_execution_permission.v1'
+					AND permission.mode IN ('workspace_access','approval','full_access','debug')
+					AND permission.operator_confirmed = 1)
+				 OR (permission.protocol_version = 'run_execution_permission.v2'
+					AND permission.policy_version = 'execution_permission_policy.v2'
+					AND ((permission.mode IN ('ask','auto') AND permission.operator_confirmed = 0)
+					 OR (permission.mode = 'full' AND permission.operator_confirmed = 1))))
 				AND permission.process_enabled = 0 AND permission.execution_authorized = 0
 				AND permission.capability_grant = 0
 				AND permission.revision = (SELECT MAX(current.revision)
@@ -21939,30 +22185,50 @@ CREATE TRIGGER trg_sandbox_docker_product_admission_insert
 								AND lease.generation = candidate.run_lease_generation
 								AND lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed
-					FROM run_tool_usage usage WHERE usage.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis
-						FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis)
-						FROM specialist_model_calls call WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1
-						THEN call.elapsed_millis ELSE call.reserved_millis END)
-						FROM readonly_fanout_model_calls call WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.wall_clock_seconds = CASE
-					WHEN COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-						THEN plan.timeout_seconds
-					ELSE MIN(plan.timeout_seconds,
-						(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000
-							- candidate.execution_millis_used) / 1000)
-					END
-				AND NEW.tool_calls_remaining = CASE
-					WHEN COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-						THEN 100
-					ELSE MIN(100, CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER)
-						- candidate.tool_calls_used)
-					END
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+						AND NEW.wall_clock_seconds = CASE
+							WHEN COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+								THEN plan.timeout_seconds
+							ELSE MIN(plan.timeout_seconds,
+								(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000
+									- current_usage.execution_millis) / 1000)
+							END
+						AND NEW.tool_calls_remaining = CASE
+							WHEN COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+								THEN 100
+							ELSE MIN(100, CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER)
+								- current_usage.tool_calls)
+							END
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'Docker Sandbox product admission binding is invalid');
@@ -23334,27 +23600,37 @@ CREATE TRIGGER trg_sandbox_execution_candidate_insert
 								AND lease.generation = NEW.run_lease_generation
 								AND lease.owner_id = NEW.run_lease_owner_id
 								AND julianday(lease.expires_at) > julianday('now'))))
-				AND NEW.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND NEW.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR NEW.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR NEW.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR NEW.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= NEW.tokens_used
+						AND current_usage.execution_millis >= NEW.execution_millis_used
+						AND current_usage.tool_calls >= NEW.tool_calls_used
+						AND (NEW.lease_quiescent = 0 OR (
+							current_usage.tokens = NEW.tokens_used
+							AND current_usage.execution_millis = NEW.execution_millis_used
+							AND current_usage.tool_calls = NEW.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 		)
 		BEGIN
 			SELECT RAISE(ABORT, 'sandbox execution candidate binding is invalid');
@@ -23615,27 +23891,37 @@ CREATE TRIGGER trg_sandbox_output_simulation_insert
 								AND run_lease.generation = candidate.run_lease_generation
 								AND run_lease.owner_id = candidate.run_lease_owner_id
 								AND julianday(run_lease.expires_at) > julianday('now'))))
-				AND candidate.tokens_used =
-					COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node WHERE node.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
-						ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.execution_millis_used =
-					COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
-						WHERE checkpoint.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
-						WHERE call.run_id = NEW.run_id), 0) +
-					COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
-						ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
-						WHERE call.run_id = NEW.run_id), 0)
-				AND candidate.tool_calls_used = COALESCE((SELECT usage.consumed FROM run_tool_usage usage
-					WHERE usage.run_id = NEW.run_id), 0)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
-					OR candidate.tokens_used < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
-					OR candidate.execution_millis_used < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
-				AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
-					OR candidate.tool_calls_used < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				AND EXISTS (
+					SELECT 1 FROM (SELECT
+						COALESCE((SELECT SUM(node.tokens_used) FROM agent_nodes node
+							WHERE node.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.usage_recorded = 1 THEN call.total_tokens
+							ELSE call.reserved_total_tokens END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS tokens,
+						COALESCE((SELECT checkpoint.execution_millis FROM run_supervisor_checkpoints checkpoint
+							WHERE checkpoint.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(call.elapsed_millis) FROM specialist_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) +
+						COALESCE((SELECT SUM(CASE WHEN call.elapsed_recorded = 1 THEN call.elapsed_millis
+							ELSE call.reserved_millis END) FROM readonly_fanout_model_calls call
+							WHERE call.run_id = NEW.run_id), 0) AS execution_millis,
+						COALESCE((SELECT usage.consumed FROM run_tool_usage usage
+							WHERE usage.run_id = NEW.run_id), 0) AS tool_calls
+					) current_usage
+					WHERE current_usage.tokens >= candidate.tokens_used
+						AND current_usage.execution_millis >= candidate.execution_millis_used
+						AND current_usage.tool_calls >= candidate.tool_calls_used
+						AND (candidate.lease_quiescent = 0 OR (
+							current_usage.tokens = candidate.tokens_used
+							AND current_usage.execution_millis = candidate.execution_millis_used
+							AND current_usage.tool_calls = candidate.tool_calls_used))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER), 0) = 0
+							OR current_usage.tokens < CAST(json_extract(run.budget_json, '$.max_tokens') AS INTEGER))
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER), 0) = 0
+							OR current_usage.execution_millis < CAST(json_extract(run.budget_json, '$.timeout_seconds') AS INTEGER) * 1000)
+						AND (COALESCE(CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER), 0) = 0
+							OR current_usage.tool_calls < CAST(json_extract(run.budget_json, '$.max_tool_calls') AS INTEGER))
+				)
 				AND (SELECT COUNT(*) FROM sandbox_execution_inputs input
 					JOIN run_artifacts artifact ON artifact.id = input.artifact_id
 					WHERE input.execution_id = execution.id AND artifact.run_id = execution.run_id
@@ -25363,7 +25649,7 @@ CREATE TRIGGER trg_standard_code_preset_operation_update
 							WHERE newer.run_id = interaction.run_id AND newer.revision > interaction.revision))
 				AND EXISTS (SELECT 1 FROM run_execution_permission_snapshots permission
 					WHERE permission.id = NEW.permission_snapshot_id AND permission.run_id = NEW.run_id
-						AND (permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR EXISTS (
+						AND ((permission.mode = 'workspace_access' AND permission.network_scope = 'disabled' OR (permission.protocol_version='run_execution_permission.v2' AND permission.mode IN ('ask','auto','full') AND permission.network_scope='per_operation')) OR EXISTS (
 		SELECT 1 FROM runs next_run
 		JOIN thread_runs next_link ON next_link.run_id=next_run.id
 		JOIN thread_runs previous_link ON previous_link.run_id=next_link.predecessor_run_id
@@ -25841,13 +26127,13 @@ CREATE TRIGGER trg_thread_execution_permission_snapshot_delete_immutable
 -- traverse-board-clean-install-object-boundary --
 CREATE TRIGGER trg_thread_execution_permission_snapshot_insert
 		BEFORE INSERT ON thread_execution_permission_snapshots
-		WHEN NOT EXISTS (
+		WHEN NEW.protocol_version <> 'thread_execution_permission.v2' OR NOT EXISTS (
 			SELECT 1 FROM threads thread_record
 			WHERE thread_record.id = NEW.thread_id
 				AND thread_record.mission_id = NEW.mission_id
 				AND julianday(NEW.created_at) >= julianday(thread_record.created_at)
 				AND (
-					(NEW.revision = 1 AND NEW.mode = 'conservative'
+					(NEW.revision = 1 AND NEW.mode = 'ask'
 						AND thread_record.status = 'active' AND NOT EXISTS (
 							SELECT 1 FROM thread_execution_permission_snapshots existing
 							WHERE existing.thread_id = NEW.thread_id
@@ -25858,8 +26144,8 @@ CREATE TRIGGER trg_thread_execution_permission_snapshot_insert
 							SELECT 1 FROM thread_execution_permission_snapshots previous
 							WHERE previous.thread_id = NEW.thread_id
 								AND previous.revision = NEW.revision - 1
-								AND previous.protocol_version = NEW.protocol_version
-								AND previous.policy_version = NEW.policy_version
+								AND (previous.protocol_version = NEW.protocol_version OR previous.protocol_version = 'thread_execution_permission.v1')
+								AND (previous.policy_version = NEW.policy_version OR previous.policy_version = 'execution_permission_policy.v1')
 								AND julianday(NEW.created_at) >= julianday(previous.created_at)
 						))
 				)

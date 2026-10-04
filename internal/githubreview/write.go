@@ -6,16 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const idempotencyMarkerPrefix = "<!-- prayu-github-review:"
 
 func (c *Client) ExecuteWrite(ctx context.Context, spec WriteSpec,
-	preview WritePreview,
-) (WriteReceipt, error) {
+	preview WritePreview, guards ...toolcontract.DispatchGuard,
+) (result WriteReceipt, resultErr error) {
+	// Own mutable slices before authorization or credential callbacks run.
+	spec.Reviewers = slices.Clone(spec.Reviewers)
+	preview.Reviewers = slices.Clone(preview.Reviewers)
 	started := c.now().UTC()
 	receipt := WriteReceipt{ProtocolVersion: ReceiptProtocolVersion,
 		ID: "ghr-" + Fingerprint("receipt", preview.ID)[:32], PreviewID: preview.ID,
@@ -30,6 +36,24 @@ func (c *Client) ExecuteWrite(ctx context.Context, spec WriteSpec,
 	if err := validateWriteBinding(spec, preview); err != nil {
 		return completeWriteError(receipt, err, c.now().UTC()), err
 	}
+	op, err := ReviewWriteOperation(spec, preview)
+	if err != nil {
+		return completeWriteError(receipt, err, c.now().UTC()), err
+	}
+	ctx, dispatch, err := bindNativeWriteDispatch(ctx, op, guards, false)
+	if err != nil {
+		return completeWriteError(receipt, err, c.now().UTC()), err
+	}
+	defer func() {
+		if dispatch == nil || resultErr == nil {
+			return
+		}
+		state := toolcontract.ReceiptNotDispatched
+		if dispatch.posted.Load() {
+			state = toolcontract.ReceiptOutcomeUnknown
+		}
+		resultErr = &nativeWriteDispatchError{err: resultErr, state: state}
+	}()
 	current, err := c.readCurrentIdentity(ctx, spec.Identity.Repository,
 		spec.Identity.Number, spec.Credential)
 	if err != nil {
@@ -55,6 +79,9 @@ func (c *Client) ExecuteWrite(ctx context.Context, spec WriteSpec,
 		return recovered, nil
 	}
 
+	if dispatch != nil {
+		dispatch.mutation.Store(true)
+	}
 	resultID, resultURL, err := c.performWrite(ctx, spec, preview)
 	receipt.CompletedAt = c.now().UTC()
 	if err != nil {

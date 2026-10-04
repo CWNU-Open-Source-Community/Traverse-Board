@@ -2,10 +2,71 @@ package application
 
 import (
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/webevidence"
 )
+
+func TestWebEvidenceRuntimeBindingPreservesCurrentAndHistoricalFullContracts(t *testing.T) {
+	at := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	ask, err := domain.NewInitialRunExecutionPermissionSnapshot("web-ask", domain.Run{
+		ID: "web-run", MissionID: "web-mission"}, domain.Mission{ID: "web-mission"}, "operator", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto} {
+		permission := ask
+		if mode != permission.Mode {
+			permission, err = ask.Next("web-auto", mode, false, "operator", "exact Run scope", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if id, generation, epoch, live := bindWebEvidenceRuntime(domain.ExecutionPermissionRuntimeCapabilities{}, permission); !live || id != "" || generation != 0 || epoch != "" {
+			t.Fatalf("%s acquired or required a Full binding", mode)
+		}
+	}
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionFull, domain.RunExecutionPermissionFullAccess} {
+		permission, err := ask.Next("web-full", mode, true, "operator", "confirmed Full preference", at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, dynamic := range []bool{false, true} {
+			authority := domain.NewExecutionPermissionRuntimeAuthority()
+			caps := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
+				DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: dynamic, RuntimeAuthority: authority}
+			_, _, _, coldAllowed := bindWebEvidenceRuntime(caps, permission)
+			staticHistorical := mode == domain.RunExecutionPermissionFullAccess && !dynamic
+			if coldAllowed != staticHistorical {
+				t.Fatalf("mode=%s dynamic=%t cold=%t", mode, dynamic, coldAllowed)
+			}
+			grant, err := authority.ActivateRunFullAccess(permission)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, generation, epoch, live := bindWebEvidenceRuntime(caps, permission)
+			if !live {
+				t.Fatalf("live %s dynamic=%t denied", mode, dynamic)
+			}
+			if staticHistorical {
+				if id != "" || generation != 0 || epoch != "" {
+					t.Fatal("historical static grant changed its persisted binding")
+				}
+			} else if id != permission.ID || generation != grant.Generation || epoch != authority.RuntimeEpoch() {
+				t.Fatal("live binding lost exact snapshot, generation or epoch")
+			}
+			authority.RevokeRun(permission.RunID)
+			if _, _, _, live := bindWebEvidenceRuntime(caps, permission); live != staticHistorical {
+				t.Fatalf("mode=%s dynamic=%t revoked=%t", mode, dynamic, live)
+			}
+			caps.DangerFullAccessEnabled = false
+			if _, _, _, live := bindWebEvidenceRuntime(caps, permission); live {
+				t.Fatal("Full exceeded the process capability ceiling")
+			}
+		}
+	}
+}
 
 func TestEffectiveWebEvidenceAuthorityUsesPublicHTTPSForFullAndDebug(t *testing.T) {
 	t.Parallel()

@@ -32,15 +32,15 @@ func TestRunExecutionPermissionIsImmutableIdempotentAndRuntimeGated(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if initial.Mode != domain.RunExecutionPermissionConservative ||
+	if initial.Mode != domain.RunExecutionPermissionAsk ||
 		initial.Revision != 1 || initial.ProcessEnabled ||
 		initial.ExecutionAuthorized || initial.CapabilityGrant {
 		t.Fatalf("unexpected initial permission: %+v", initial)
 	}
 	request := application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "permission-operation-0001", RequestedBy: "test_operator",
-		Reason: "test full access", ConfirmDangerFullAccess: true,
+		Reason: "test full preference", ConfirmFull: true,
 	}
 	if _, err := closed.Change(ctx, request); apperror.CodeOf(err) != apperror.CodePolicyDenied {
 		t.Fatalf("persisted selection bypassed runtime gate: %v", err)
@@ -48,13 +48,14 @@ func TestRunExecutionPermissionIsImmutableIdempotentAndRuntimeGated(t *testing.T
 	open := application.NewRunExecutionPermissionService(st,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		})
 	selected, err := open.Change(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if selected.Replayed || selected.Permission.Revision != 2 ||
-		selected.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		selected.Permission.Mode != domain.RunExecutionPermissionFull ||
 		selected.Permission.ProcessEnabled || selected.Permission.ExecutionAuthorized ||
 		selected.Permission.CapabilityGrant {
 		t.Fatalf("unexpected selected permission: %+v", selected)
@@ -64,9 +65,8 @@ func TestRunExecutionPermissionIsImmutableIdempotentAndRuntimeGated(t *testing.T
 		replayed.Permission.ID != selected.Permission.ID {
 		t.Fatalf("permission replay changed result: %+v err=%v", replayed, err)
 	}
-	request.Mode = string(domain.RunExecutionPermissionApproval)
-	request.ConfirmDangerFullAccess = false
-	request.ConfirmUserApproval = true
+	request.Mode = string(domain.RunExecutionPermissionAuto)
+	request.ConfirmFull = false
 	if _, err := open.Change(ctx, request); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("reused operation key error=%v", err)
 	}
@@ -87,12 +87,12 @@ func TestRunExecutionPermissionIsImmutableIdempotentAndRuntimeGated(t *testing.T
 
 func TestSchemaV88BackfillsConservativeExecutionPermission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v87-execution-permission.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "legacy v87 Run", Profile: "review",
 		Budget: domain.Budget{MaxTurns: 2},
 	})

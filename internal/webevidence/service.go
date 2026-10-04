@@ -79,13 +79,34 @@ type CiteRequest struct {
 }
 
 type Service struct {
-	store      Store
-	provider   SearchProvider
-	resolver   SearchProviderResolver
-	fetcher    FetchBackend
-	now        func() time.Time
-	staleAfter time.Duration
-	connectors map[string]SourceConnector
+	store            Store
+	provider         SearchProvider
+	resolver         SearchProviderResolver
+	fetcher          FetchBackend
+	now              func() time.Time
+	staleAfter       time.Duration
+	connectors       map[string]SourceConnector
+	networkPreflight func(context.Context) error
+}
+
+// WithNetworkPreflight returns a per-call copy whose check runs immediately
+// before backend dispatch, after source and replay preparation. It does not
+// change the shared service or durable replay. A nil check preserves the
+// original behavior for callers outside the live runtime-permission path.
+func (s *Service) WithNetworkPreflight(check func(context.Context) error) *Service {
+	if s == nil {
+		return nil
+	}
+	bound := *s
+	bound.networkPreflight = check
+	return &bound
+}
+
+func (s *Service) checkNetworkPreflight(ctx context.Context) error {
+	if s.networkPreflight != nil {
+		return s.networkPreflight(ctx)
+	}
+	return nil
 }
 
 func (s *Service) WithSearchProviderResolver(resolver SearchProviderResolver) *Service {
@@ -329,6 +350,9 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 	if err != nil {
 		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"web_search_provider_unavailable: the selected search egress boundary is invalid")
+	}
+	if err := s.checkNetworkPreflight(ctx); err != nil {
+		return SearchResult{}, err
 	}
 	var providerResults []ProviderResult
 	if filter.Policy() == "" {
@@ -598,6 +622,9 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	}
 	if replay, found, replayErr := s.replayFetch(ctx, scope.RunID, keyDigest, fingerprint); found || replayErr != nil {
 		return replay, replayErr
+	}
+	if err := s.checkNetworkPreflight(ctx); err != nil {
+		return FetchResult{}, err
 	}
 	var fetched FetchedContent
 	var fetchErr error

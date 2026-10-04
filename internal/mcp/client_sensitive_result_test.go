@@ -1,27 +1,11 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 )
-
-type sensitiveResultTransport struct {
-	content json.RawMessage
-}
-
-func (t sensitiveResultTransport) Exchange(_ context.Context, request Envelope) (Envelope, error) {
-	result, err := json.Marshal(map[string]json.RawMessage{"content": t.content})
-	if err != nil {
-		return Envelope{}, err
-	}
-	return Envelope{JSONRPC: "2.0", ID: append(json.RawMessage(nil), request.ID...),
-		Result: result}, nil
-}
-
-func (sensitiveResultTransport) Notify(context.Context, Envelope) error { return nil }
-func (sensitiveResultTransport) Close() error                           { return nil }
 
 func TestClientSanitizesSensitiveResultFieldsBeforeTruncation(t *testing.T) {
 	passwordCanary := "short phrase canary"
@@ -34,7 +18,14 @@ func TestClientSanitizesSensitiveResultFieldsBeforeTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := newClient(sensitiveResultTransport{content: content}, ServerDescriptor{})
+	client, _ := sdkHTTPFixture(t, func(w http.ResponseWriter, r *http.Request, request Envelope) {
+		result, err := json.Marshal(map[string]json.RawMessage{"content": json.RawMessage("[]"), "structuredContent": content})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		sdkWriteResponse(w, request.ID, string(result))
+	})
 	result, err := client.CallTool(t.Context(), "lookup", json.RawMessage(`{}`), 128)
 	if err != nil || !result.Truncated || strings.Contains(result.Content, passwordCanary) ||
 		strings.Contains(result.Content, authCanary) ||

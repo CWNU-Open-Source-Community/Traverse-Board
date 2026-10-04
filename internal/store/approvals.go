@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -251,6 +252,10 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 		}
 	}
 	switch proposal.ToolName {
+	case string(toolgateway.CommandRuntimeTool):
+		return validateCommandApprovalSourceTx(ctx, tx, proposal)
+	case mcp.OperationApprovalTool:
+		return validateMCPApprovalSourceTx(ctx, tx, proposal)
 	case toolgateway.AgentBrowserApprovalTool:
 		return validateAgentBrowserApprovalSourceTx(ctx, tx, proposal)
 	case "thread.git":
@@ -299,7 +304,7 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			proposal.ToolName != fileedit.ApprovalToolName(edit) ||
 			proposal.ActionClass != "workspace_write" || proposal.Mode != "per_call" ||
 			proposal.Status != expectedStatus || proposal.RequestFingerprint !=
-			fileEditApprovalFingerprint(sessionID.String, workspaceID, edit) {
+			fileedit.ApprovalFingerprint(sessionID.String, workspaceID, edit) {
 			return errors.New("approval request does not match the stored file edit proposal")
 		}
 	case "script_process":
@@ -430,14 +435,14 @@ func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit,
 		}
 		mode = "automatic"
 		reviewer = "automatic_policy"
-		decisionReason = "Full Access automatically authorized this file edit"
+		decisionReason = "Current operation policy automatically authorized this exact file edit"
 	}
 	toolName := fileedit.ApprovalToolName(edit)
 	proposal := approval.Proposal{
 		IdempotencyKey: approval.ProposalIdempotencyKey(toolName, edit.ID), ProposalID: edit.ID,
 		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: toolName, ActionClass: "workspace_write",
 		Mode: mode, Status: status,
-		RequestFingerprint: fileEditApprovalFingerprint(edit.SessionID, edit.WorkspaceID, edit),
+		RequestFingerprint: fileedit.ApprovalFingerprint(edit.SessionID, edit.WorkspaceID, edit),
 		DecisionReason:     decisionReason, RequestedBy: "tool_gateway", ReviewedBy: reviewer,
 		CreatedAt: edit.CreatedAt, UpdatedAt: edit.UpdatedAt, DecidedAt: decidedAt,
 	}
@@ -446,15 +451,6 @@ func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit,
 		return err
 	}
 	return requireApprovalStatusTx(ctx, tx, proposal, status)
-}
-
-func fileEditApprovalFingerprint(sessionID, workspaceID string, edit fileedit.Edit) string {
-	if edit.Operation == "" || edit.Operation == fileedit.OperationReplace {
-		return approval.FileEditFingerprint(sessionID, workspaceID, edit.Path, edit.ProposedHash)
-	}
-	return approval.FileMutationFingerprint(fileedit.ApprovalToolName(edit), sessionID,
-		workspaceID, edit.Operation, edit.Path, edit.DestinationPath, edit.OriginalHash,
-		edit.ProposedHash, edit.DestinationOriginalHash, edit.DestinationProposedHash)
 }
 
 func approvalStateForToolRun(run toolrun.ToolRun, existed bool) (approval.Status, string, string, *time.Time, error) {

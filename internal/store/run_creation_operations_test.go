@@ -156,7 +156,7 @@ func TestRunCreationOperationTriggerRejectsNonInitialGraph(t *testing.T) {
 func TestSchemaV72UpgradePreservesRunWithoutFabricatingCreationOperation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v71.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestSchemaV72UpgradePreservesRunWithoutFabricatingCreationOperation(t *test
 		t.Fatal(err)
 	}
 	key := "run-create-v72-upgrade-operation"
-	created, err := application.NewControlledRunCreationService(state).Create(ctx,
+	created, err := application.NewControlledRunCreationService(legacyControlledRunSeedStore{state}).Create(ctx,
 		application.ControlledRunCreationRequest{Version: domain.RunCreationProtocolVersion,
 			Goal: "Preserve historical Run", WorkspaceID: workspace.ID,
 			OperationKey: key, RequestedBy: "http_control"})

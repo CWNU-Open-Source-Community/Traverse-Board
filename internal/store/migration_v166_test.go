@@ -73,7 +73,7 @@ func TestSchemaV166ObservesOnlyExactPausedWebFetchFailure(t *testing.T) {
 	// Current services need queue columns introduced after this historical
 	// boundary. Restore the exact v165 schema before exercising its migration.
 	restoreHistoricalQueue := addV166FixtureQueueCompatibility(t, state)
-	_, run, err := application.NewRunService(state).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve historical fetch failure", Profile: "review", Surface: "code", Phase: "deliver",
 		ModelRoute: "v166-fixture/model", Interactive: true, NetworkMode: "disabled",
 		Budget: domain.Budget{MaxTurns: 8, MaxToolCalls: 8},

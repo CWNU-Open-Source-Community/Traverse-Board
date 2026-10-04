@@ -23,15 +23,11 @@ func removeSchemaV125ForTestStatements() []string {
 func TestSchemaV125UpgradesCanonicalV124Database(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "canonical-v124.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 124)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV125ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatal(err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 124 {
 		t.Fatalf("downgraded schema version=%d want=124 err=%v", version, err)
 	}

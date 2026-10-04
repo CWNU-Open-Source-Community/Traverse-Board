@@ -620,9 +620,9 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 		workspace.Generation != expectedGeneration ||
 		workspace.LastCheckpointID != expectedCheckpoint ||
 		profile.Profile != domain.RunExecutionProfileDocker ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		(permission.Mode != domain.RunExecutionPermissionWorkspaceAccess && !permission.Mode.IsApprovalMode()) ||
 		!s.docker.permissionCapabilities.WorkspaceSandboxEnabled ||
-		!s.docker.permissionCapabilities.Allows(permission.Mode) ||
+		!s.docker.permissionCapabilities.AllowsSnapshot(permission) ||
 		capabilities.Validate() != nil {
 		return standardcode.ExecutionContext{}, sandbox.Manifest{}, apperror.New(
 			apperror.CodeFailedPrecondition,
@@ -689,7 +689,8 @@ func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context
 	permission, err := s.store.GetRunExecutionPermission(ctx, scope.RunID)
 	if err != nil || permission.ID != scope.PermissionSnapshotID ||
 		permission.Revision != scope.PermissionRevision ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
+		(permission.Mode != domain.RunExecutionPermissionWorkspaceAccess && !permission.Mode.IsApprovalMode()) ||
+		!s.docker.permissionCapabilities.AllowsSnapshot(permission) {
 		return false
 	}
 	if runLease != nil {

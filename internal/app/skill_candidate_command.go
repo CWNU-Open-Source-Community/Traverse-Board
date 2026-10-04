@@ -130,6 +130,9 @@ func (a *App) skillCandidateCommand(ctx context.Context, args []string,
 			return err
 		}
 		printSkillCandidate(a, result.Record, false)
+		if result.Installation != nil {
+			return a.writeStagedPlugin(*result.Installation, result.Replayed)
+		}
 		printInstalledSkillPackage(a, result.InstalledPackage)
 		fmt.Fprintf(a.out, "replayed: %t\nrecovered_pending: %t\n",
 			result.Replayed, result.RecoveredPending)

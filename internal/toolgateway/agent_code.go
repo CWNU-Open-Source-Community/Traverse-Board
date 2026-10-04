@@ -53,6 +53,7 @@ type AgentCodeCapabilityContext struct {
 	PermissionSnapshotID   string
 	PermissionGeneration   uint64
 	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
 	ModeRevision           int64
 	PermissionRevision     int64
 	// UnavailableReason lets read-only product projections expose a complete,
@@ -120,10 +121,10 @@ func AgentCodeCapabilities(scope AgentCodeCapabilityContext) AgentCodeCapability
 			if definition.Name == WorkspaceApplyTool {
 				approval = "approved_proposal_only"
 			}
-			if scope.PermissionMode == domain.RunExecutionPermissionFullAccess &&
-				scope.PermissionGeneration != 0 && scope.PermissionRuntimeEpoch != "" {
+			if scope.PermissionMode.IsApprovalMode() || (scope.PermissionMode == domain.RunExecutionPermissionFullAccess &&
+				scope.PermissionGeneration != 0 && scope.PermissionRuntimeEpoch != "") {
 				if definition.Name == WorkspaceChangeTool {
-					approval = "create_replace_automatic_other_changes_reviewed"
+					approval = "operation_policy_then_existing_proposal"
 				} else if definition.Name == WorkspaceApplyTool {
 					approval = "authorized_proposal_only"
 				}
@@ -152,9 +153,12 @@ func agentCodeCapabilityGeneration(scope AgentCodeCapabilityContext,
 	for _, item := range tools {
 		parts = append(parts, string(item.Name), fmt.Sprint(item.Available), item.Refusal)
 	}
-	if scope.PermissionGeneration != 0 {
+	if scope.PermissionSnapshotID != "" {
 		parts = append(parts, scope.PermissionSnapshotID,
 			fmt.Sprint(scope.PermissionGeneration), scope.PermissionRuntimeEpoch)
+	}
+	if scope.PermissionMode.IsApprovalMode() && scope.PermissionSnapshotID != "" {
+		parts = append(parts, fmt.Sprint(scope.RunAuthorizationFence))
 	}
 	for _, part := range parts {
 		_, _ = fmt.Fprintf(hash, "%d:", len(part))
@@ -183,6 +187,7 @@ type AgentCodeCallAuthority struct {
 	PermissionSnapshotID   string                            `json:"permission_snapshot_id,omitempty"`
 	PermissionGeneration   uint64                            `json:"permission_generation,omitempty"`
 	PermissionRuntimeEpoch string                            `json:"permission_runtime_epoch,omitempty"`
+	RunAuthorizationFence  uint64                            `json:"run_authorization_fence,omitempty"`
 	ModeRevision           int64                             `json:"mode_revision"`
 	PermissionRevision     int64                             `json:"permission_revision"`
 	CapabilityGeneration   string                            `json:"capability_generation"`
@@ -199,6 +204,7 @@ func NewAgentCodeCallAuthority(scope AgentCodeCapabilityContext, sessionID strin
 		PermissionSnapshotID:   scope.PermissionSnapshotID,
 		PermissionGeneration:   scope.PermissionGeneration,
 		PermissionRuntimeEpoch: scope.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  scope.RunAuthorizationFence,
 		ModeRevision:           scope.ModeRevision, PermissionRevision: scope.PermissionRevision,
 		CapabilityGeneration: AgentCodeCapabilities(scope).Generation}
 	if err := authority.Validate(); err != nil {
@@ -222,8 +228,7 @@ func (a AgentCodeCallAuthority) Validate() error {
 		a.PermissionRevision <= 0 {
 		return errors.New("agent code authority scope is invalid")
 	}
-	if (a.PermissionSnapshotID == "") != (a.PermissionGeneration == 0) ||
-		(a.PermissionRuntimeEpoch == "") != (a.PermissionGeneration == 0) ||
+	if !validAgentCodeRuntimeBinding(a.PermissionMode, a.PermissionSnapshotID, a.PermissionGeneration, a.PermissionRuntimeEpoch, a.RunAuthorizationFence) ||
 		(a.PermissionSnapshotID != "" && !validAgentCodeIdentity(a.PermissionSnapshotID)) ||
 		(a.PermissionRuntimeEpoch != "" && !validAgentCodeIdentity(a.PermissionRuntimeEpoch)) {
 		return errors.New("agent code runtime authority binding is invalid")
@@ -238,11 +243,26 @@ func (a AgentCodeCallAuthority) Validate() error {
 		PermissionSnapshotID:   a.PermissionSnapshotID,
 		PermissionGeneration:   a.PermissionGeneration,
 		PermissionRuntimeEpoch: a.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  a.RunAuthorizationFence,
 		ModeRevision:           a.ModeRevision, PermissionRevision: a.PermissionRevision})
 	if expected.Generation != a.CapabilityGeneration {
 		return errors.New("agent code authority capability generation is invalid")
 	}
 	return nil
+}
+
+func validAgentCodeRuntimeBinding(mode domain.RunExecutionPermissionMode, snapshot string, generation uint64, epoch string, fence uint64) bool {
+	if snapshot == "" {
+		return generation == 0 && epoch == "" && fence == 0
+	}
+	if !validAgentCodeIdentity(snapshot) || (epoch != "" && !validAgentCodeIdentity(epoch)) {
+		return false
+	}
+	if !mode.IsApprovalMode() {
+		return generation != 0 && epoch != "" && fence == 0
+	}
+	return (generation == 0 || epoch != "") && (mode != domain.RunExecutionPermissionFull || generation != 0) &&
+		((epoch == "" && fence == 0) || (epoch != "" && fence != 0))
 }
 
 func EncodeAgentCodeCallAuthority(authority AgentCodeCallAuthority) (json.RawMessage, error) {
@@ -701,6 +721,7 @@ type AgentCodeExecutionScope struct {
 	PermissionSnapshotID   string
 	PermissionGeneration   uint64
 	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
 	ModeRevision           int64
 	PermissionRevision     int64
 	CapabilityGeneration   string
@@ -738,8 +759,7 @@ func (s AgentCodeExecutionScope) Validate() error {
 		s.Surface != domain.ExecutionSurfaceCode || s.Role != domain.AgentRoleRoot ||
 		!s.Phase.Valid() || !s.PermissionMode.Valid() || s.ModeRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseID == "" || s.LeaseGeneration <= 0 ||
-		((s.PermissionSnapshotID == "") != (s.PermissionGeneration == 0)) ||
-		((s.PermissionRuntimeEpoch == "") != (s.PermissionGeneration == 0)) ||
+		!validAgentCodeRuntimeBinding(s.PermissionMode, s.PermissionSnapshotID, s.PermissionGeneration, s.PermissionRuntimeEpoch, s.RunAuthorizationFence) ||
 		s.RequestedBy != "run_supervisor" {
 		return errors.New("agent code tool requires an exact fenced Code/Root capability scope")
 	}
@@ -811,6 +831,7 @@ func (g *Gateway) invokeAgentCode(ctx context.Context, call ToolCall) (Outcome, 
 		PermissionSnapshotID:   call.PermissionSnapshotID,
 		PermissionGeneration:   call.PermissionGeneration,
 		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  call.RunAuthorizationFence,
 		PermissionRevision:     call.PermissionRevision,
 		CapabilityGeneration:   call.CapabilityGeneration, LeaseID: call.LeaseID,
 		LeaseGeneration: call.LeaseGeneration, RequestedBy: call.RequestedBy,

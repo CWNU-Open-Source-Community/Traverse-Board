@@ -21,7 +21,7 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func newCatalogFixture(t *testing.T) (*SkillCatalogService, *skills.Registry) {
+func newCatalogFixture(t *testing.T) (*SkillCatalogService, *skills.Registry, string) {
 	t.Helper()
 	home := t.TempDir()
 	st, err := store.Open(filepath.Join(home, "cyberagent.db"))
@@ -38,12 +38,12 @@ func newCatalogFixture(t *testing.T) (*SkillCatalogService, *skills.Registry) {
 		t.Fatal(err)
 	}
 	registry := NewSkillPackageRegistryService(st, objects, builtins)
-	return NewSkillCatalogService(st, registry), builtins
+	return NewSkillCatalogService(st, registry), builtins, filepath.Join(home, "cyberagent.db")
 }
 
-func TestSkillCatalogServiceTrustRevokeAndPin(t *testing.T) {
+func TestSkillCatalogServiceLegacyTrustRevokeAndPin(t *testing.T) {
 	ctx := context.Background()
-	service, _ := newCatalogFixture(t)
+	service, _, databasePath := newCatalogFixture(t)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +75,15 @@ func TestSkillCatalogServiceTrustRevokeAndPin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SIGNATURE.json"), signatureRaw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	historicalRaw, err := skills.BuildPackageFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalUnsigned, err := skills.UnsignedForm(historicalRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareHistoricalSkillIntent(t, databasePath, historicalUnsigned, domain.ExecutionSurfaceCode, "op-1-signed-dir-import", "admin")
 	imported, err := service.ImportFromDirectory(ctx, ImportSkillFromDirectoryRequest{
 		Directory: dir, Surface: domain.ExecutionSurfaceCode, OperationKey: "op-1-signed-dir-import",
 		InstalledBy: "admin", ConfirmUntrusted: true,
@@ -126,7 +135,7 @@ func TestSkillCatalogServiceTrustRevokeAndPin(t *testing.T) {
 
 func TestSkillCatalogServiceImportFromURLPinsBytes(t *testing.T) {
 	ctx := context.Background()
-	service, _ := newCatalogFixture(t)
+	service, _, _ := newCatalogFixture(t)
 	content := []byte("# URL skill\n")
 	manifest := buildCatalogManifest(content, "url-aid", "1.0.0", "")
 	dir := t.TempDir()
@@ -155,7 +164,7 @@ func TestSkillCatalogServiceImportFromURLPinsBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import from URL: %v", err)
 	}
-	if imported.Signed || imported.Import.SourceKind != "url" || imported.Import.Pin != pin {
+	if imported.Signed || imported.Portable == nil || imported.Portable.Source.Kind != "https" || imported.Portable.ArchiveSHA256 != pin || imported.Portable.Source.URI != server.URL+"/pkg.zip" {
 		t.Fatalf("unexpected URL import: %#v", imported)
 	}
 	if _, err := service.ImportFromURL(ctx, ImportSkillFromURLRequest{

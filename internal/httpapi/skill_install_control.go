@@ -10,12 +10,13 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/operationreceipt"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
 )
 
 const (
 	SkillPackageInstallPath         = "/api/v1/skills/packages/install"
-	MaxSkillPackageInstallBodyBytes = 96 * 1024
+	MaxSkillPackageInstallBodyBytes = (plugins.MaxArchiveBytes+2)/3*4 + plugins.MaxManifestBytes + 4096
 )
 
 type SkillInstallationController interface {
@@ -24,10 +25,19 @@ type SkillInstallationController interface {
 }
 
 type SkillPackageInstallRequestView struct {
-	Version          string `json:"version"`
-	ArchiveBase64    string `json:"archive_base64"`
-	Surface          string `json:"surface"`
-	ConfirmUntrusted bool   `json:"confirm_untrusted"`
+	Snapshot         *plugins.PortableSnapshot `json:"snapshot,omitempty"`
+	Version          string                    `json:"version"`
+	ArchiveBase64    string                    `json:"archive_base64"`
+	Surface          string                    `json:"surface"`
+	ConfirmUntrusted bool                      `json:"confirm_untrusted"`
+}
+
+// PluginSkillInstallView carries a real Plugin installation, without fabricated
+// legacy object keys, receipts, profile declarations or context grants.
+type PluginSkillInstallView struct {
+	ProtocolVersion string                          `json:"protocol_version"`
+	Installation    ExtensionPluginInstallationView `json:"installation"`
+	Replayed        bool                            `json:"replayed"`
 }
 
 type SkillPackageInstallView struct {
@@ -91,7 +101,8 @@ func (a *API) serveSkillPackageInstallControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	if view.Version != skills.PackageInstallationProtocolVersion ||
+	if (view.Version != skills.PackageInstallationProtocolVersion && view.Version != plugins.PortableInstallationProtocol) ||
+		(view.Version == skills.PackageInstallationProtocolVersion && view.Snapshot != nil) ||
 		!view.ConfirmUntrusted || strings.TrimSpace(view.ArchiveBase64) != view.ArchiveBase64 ||
 		strings.ContainsAny(view.ArchiveBase64, " \t\r\n") {
 		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
@@ -99,7 +110,8 @@ func (a *API) serveSkillPackageInstallControl(writer http.ResponseWriter,
 		return
 	}
 	raw, err := base64.StdEncoding.Strict().DecodeString(view.ArchiveBase64)
-	if err != nil || len(raw) == 0 || len(raw) > skills.MaxPackageArchiveBytes {
+	if err != nil || len(raw) == 0 || len(raw) > plugins.MaxArchiveBytes ||
+		(view.Version == skills.PackageInstallationProtocolVersion && len(raw) > skills.MaxPackageArchiveBytes) {
 		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
 			"Skill package archive must be canonical bounded base64"), 0)
 		return
@@ -110,11 +122,16 @@ func (a *API) serveSkillPackageInstallControl(writer http.ResponseWriter,
 		return
 	}
 	result, err := a.skillInstallationController.Import(request.Context(),
-		application.ImportSkillPackageRequest{Raw: raw, Surface: surface,
+		application.ImportSkillPackageRequest{Raw: raw, Snapshot: view.Snapshot, Surface: surface,
 			OperationKey: operationKey, InstalledBy: "http_operator",
 			ConfirmUntrusted: true})
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
+		return
+	}
+	if result.Installation != nil {
+		a.writeSuccessStatus(writer, requestID, PluginSkillInstallView{ProtocolVersion: plugins.PortableInstallationProtocol,
+			Installation: ProjectPluginInstallation(*result.Installation), Replayed: result.Replayed}, nil, http.StatusAccepted)
 		return
 	}
 	installation := result.Package.Installation

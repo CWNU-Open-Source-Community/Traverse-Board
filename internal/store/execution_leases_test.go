@@ -188,7 +188,7 @@ func TestSQLiteRunExecutionLeaseRejectsTerminalRunAndSensitiveOwner(t *testing.T
 
 func TestSQLiteSchemaV17RebindsLegacyPendingSupervisorCheckpoint(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v16.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

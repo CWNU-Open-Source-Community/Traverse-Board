@@ -216,7 +216,7 @@ func newV153SourceRun(t *testing.T, state *SQLiteStore, suffix string) (domain.R
 	if err := state.SaveWorkspace(t.Context(), workspace); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(t.Context(), application.CreateRunRequest{Goal: "v153 " + suffix, Profile: "code", WorkspaceID: workspace.ID})
+	_, run, err := newMigrationFixtureRunService(t, state).Create(t.Context(), application.CreateRunRequest{Goal: "v153 " + suffix, Profile: "code", WorkspaceID: workspace.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

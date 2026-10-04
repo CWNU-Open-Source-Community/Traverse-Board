@@ -363,7 +363,7 @@ func openWorkItemTestStore(t *testing.T) *SQLiteStore {
 
 func createWorkItemTestRun(t *testing.T, ctx context.Context, st *SQLiteStore, goal string) (domain.Mission, domain.Run) {
 	t.Helper()
-	mission, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	mission, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: goal, Profile: "code", Budget: domain.Budget{MaxTurns: 10},
 	})
 	if err != nil {

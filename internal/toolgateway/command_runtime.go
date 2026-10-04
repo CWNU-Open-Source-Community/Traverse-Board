@@ -18,7 +18,6 @@ import (
 	"cyberagent-workbench/internal/outputsafe"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
-	"cyberagent-workbench/internal/tools"
 )
 
 const (
@@ -42,9 +41,12 @@ const (
 	// control-bearer UI-evidence workflow. It is Run/root-authorized but does
 	// not claim that a model Agent attempt requested the command.
 	CommandRuntimeRequestedByUIEvidenceOperator = "ui_evidence_operator"
+	// Direct operator work uses the existing operator_root audit attribution.
+	CommandRuntimeRequestedByOperator = "command_operator"
 )
 
 type CommandRuntimeInput struct {
+	ReviewScope      *CommandReviewScope         `json:"review_scope,omitempty"`
 	Version          string                      `json:"version"`
 	Action           string                      `json:"action"`
 	Commands         []runner.CommandRuntimeSpec `json:"commands,omitempty"`
@@ -58,6 +60,14 @@ type CommandRuntimeInput struct {
 }
 
 func (i CommandRuntimeInput) Validate() error {
+	if i.ReviewScope != nil {
+		if (i.Action != CommandRuntimeActionRun && i.Action != CommandRuntimeActionStart) || len(i.Commands) != 1 {
+			return errors.New("bounded review scope requires one exact command")
+		}
+		if _, err := i.ReviewScope.RiskScope(); err != nil {
+			return err
+		}
+	}
 	if i.Version != CommandRuntimeToolProtocolVersion ||
 		!validCommandRuntimeAction(i.Action) {
 		return errors.New("command runtime payload version or action is invalid")
@@ -167,6 +177,8 @@ type CommandRuntimeContext struct {
 	PermissionSnapshotID   string
 	PermissionGeneration   uint64
 	PermissionRuntimeEpoch string
+	RunAuthorizationFence  uint64
+	SupervisorToolCallID   string
 	LeaseID                string
 	LeaseGeneration        int64
 	RequestedBy            string
@@ -206,10 +218,14 @@ func (c CommandRuntimeContext) Validate() error {
 		c.ModeRevision <= 0 || c.PermissionRevision <= 0) {
 		return errors.New("command runtime authority tuple is invalid or partial")
 	}
-	if c.PermissionSnapshotID != "" || c.PermissionGeneration != 0 ||
-		c.PermissionRuntimeEpoch != "" {
+	if c.PermissionMode.IsApprovalMode() {
+		if !domain.ValidAgentID(c.PermissionSnapshotID) || !commandruntimeadapter.ValidRuntimeBinding(c.PermissionMode, c.PermissionRuntimeEpoch, c.PermissionGeneration, c.RunAuthorizationFence) {
+			return errors.New("command runtime operation authority is invalid or partial")
+		}
+	} else if c.PermissionSnapshotID != "" || c.PermissionGeneration != 0 ||
+		c.PermissionRuntimeEpoch != "" || c.RunAuthorizationFence != 0 {
 		if !domain.ValidAgentID(c.PermissionSnapshotID) ||
-			c.PermissionGeneration == 0 || c.PermissionRuntimeEpoch == "" ||
+			c.PermissionGeneration == 0 || c.PermissionRuntimeEpoch == "" || c.RunAuthorizationFence != 0 ||
 			!c.PermissionMode.IncludesFullAccess() {
 			return errors.New("command runtime live Full Access authority is invalid or partial")
 		}
@@ -226,7 +242,7 @@ func (c CommandRuntimeContext) Attribution() domain.AgentAttribution {
 	case "run_supervisor":
 		return domain.AgentAttribution{AgentID: c.AgentID,
 			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionRecorded}
-	case CommandRuntimeRequestedByUIEvidenceOperator:
+	case CommandRuntimeRequestedByUIEvidenceOperator, CommandRuntimeRequestedByOperator:
 		return domain.AgentAttribution{AgentID: c.AgentID,
 			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionOperatorRoot}
 	default:
@@ -322,12 +338,12 @@ var commandRuntimeTimeoutGuidance = fmt.Sprintf("action=run is a foreground batc
 var commandRuntimeDefinition = ToolDefinition{
 	Name: CommandRuntimeTool, Class: ClassProcess, Approval: ApprovalAutomatic,
 	Description: "Run an ordered command-runtime.v2 batch or manage one Run-owned background Job through the adapter selected by current Run authority; the model cannot select or override that adapter. Every command declares a fixed PowerShell/Bash/process profile, literal argv or script, workspace-relative cwd, restricted environment, stdin lifecycle, timeout, bounded output, disabled network intent, and no credentials. Output is untrusted, sanitized, cursor-addressed evidence; this tool is separate from the user terminal, Debug terminal, reviewed one-shot command, and Docker Sandbox. " + commandRuntimeTimeoutGuidance,
-	InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","additionalProperties":false,"required":["version","action"],"properties":{"version":{"const":"command-runtime.v2"},"action":{"description":%s,"enum":["run","start","list","read","wait","write_stdin","cancel","kill"]},"commands":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["version","profile","working_directory","environment","stdin_policy","close_initial_stdin","timeout_milliseconds","output","network","credentials","purpose"],"properties":{"version":{"const":"command-runtime.v2"},"profile":{"description":"process accepts an absolute native development runtime such as Node/Python or another allowed native executable plus literal arguments; omit script. Shells, system script hosts, script files and blocked launchers are rejected as process executables. For shell syntax use script with powershell or bash only when supported by the current adapter, and omit executable and arguments. The executable remains outside the Workspace and pinned by SHA-256; a listed profile does not grant runtime availability or permission.","enum":["powershell","bash","process"]},"executable":{"type":"string","maxLength":4096},"arguments":{"type":"array","maxItems":128,"items":{"type":"string","maxLength":16384}},"script":{"type":"string","maxLength":65536},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"environment":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"value":{"type":"string","maxLength":65536}}}},"stdin_policy":{"enum":["closed","pipe"]},"initial_stdin":{"type":"string","maxLength":65536},"close_initial_stdin":{"type":"boolean"},"timeout_milliseconds":{"description":%s,"type":"integer","minimum":1,"maximum":%d},"output":{"type":"object","additionalProperties":false,"required":["inline_bytes","artifact_bytes"],"properties":{"inline_bytes":{"type":"integer","minimum":4096,"maximum":524288},"artifact_bytes":{"type":"integer","minimum":4096,"maximum":4194304}}},"network":{"const":"disabled"},"credentials":{"const":"none"},"purpose":{"type":"string","minLength":1,"maxLength":1200}}}},"failure_policy":{"enum":["fail_fast","continue"]},"job_id":{"type":"string","minLength":1,"maxLength":256},"cursor":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":4,"maximum":32768},"wait_milliseconds":{"type":"integer","minimum":0,"maximum":5000},"stdin":{"type":"string","maxLength":65536},"close_stdin":{"type":"boolean"}},"allOf":[{"if":{"properties":{"action":{"const":"run"}}},"then":{"required":["commands","failure_policy","max_bytes"],"properties":{"commands":{"items":{"properties":{"timeout_milliseconds":{"maximum":%d}}}}}}},{"if":{"properties":{"action":{"const":"start"}}},"then":{"required":["commands"],"properties":{"commands":{"maxItems":1}}}},{"if":{"properties":{"action":{"enum":["read","wait"]}}},"then":{"required":["job_id","cursor","max_bytes","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"write_stdin"}}},"then":{"required":["job_id","stdin","close_stdin"]}},{"if":{"properties":{"action":{"const":"cancel"}}},"then":{"required":["job_id","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"kill"}}},"then":{"required":["job_id"]}}]}`, strconv.Quote(fmt.Sprintf("run executes a foreground batch within %dms total; start creates one background Job; read/wait observe that original Job.", MaxCommandRuntimeForegroundMillis)), strconv.Quote(fmt.Sprintf("Milliseconds for this command. run requires the batch sum <= %dms; start permits one command up to %dms.", MaxCommandRuntimeForegroundMillis, runner.MaxCommandRuntimeTimeout.Milliseconds())), runner.MaxCommandRuntimeTimeout.Milliseconds(), MaxCommandRuntimeForegroundMillis)),
+	InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","additionalProperties":false,"required":["version","action"],"properties":{"version":{"const":"command-runtime.v2"},"action":{"description":%s,"enum":["run","start","list","read","wait","write_stdin","cancel","kill"]},"commands":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["version","profile","working_directory","environment","stdin_policy","close_initial_stdin","timeout_milliseconds","output","network","credentials","purpose"],"properties":{"version":{"const":"command-runtime.v2"},"profile":{"description":"process accepts an absolute native development runtime such as Node/Python or another allowed native executable plus literal arguments; omit script. Shells, system script hosts, script files and blocked launchers are rejected as process executables. For shell syntax use script with powershell or bash only when supported by the current adapter, and omit executable and arguments. The executable remains outside the Workspace and pinned by SHA-256; a listed profile does not grant runtime availability or permission.","enum":["powershell","bash","process"]},"executable":{"type":"string","maxLength":4096},"arguments":{"type":"array","maxItems":128,"items":{"type":"string","maxLength":16384}},"script":{"type":"string","maxLength":65536},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"environment":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"value":{"type":"string","maxLength":65536}}}},"stdin_policy":{"enum":["closed","pipe"]},"initial_stdin":{"type":"string","maxLength":65536},"close_initial_stdin":{"type":"boolean"},"timeout_milliseconds":{"description":%s,"type":"integer","minimum":1,"maximum":%d},"output":{"type":"object","additionalProperties":false,"required":["inline_bytes","artifact_bytes"],"properties":{"inline_bytes":{"type":"integer","minimum":4096,"maximum":524288},"artifact_bytes":{"type":"integer","minimum":4096,"maximum":4194304}}},"network":{"const":"disabled"},"credentials":{"const":"none"},"purpose":{"type":"string","minLength":1,"maxLength":1200}}}},"review_scope":{"type":"object","additionalProperties":false,"required":["risk_kinds"],"description":"Optional purpose/risk grouping for bounded Run review. Only one run/start command. Every exact new command requires operator review; this metadata grants no authority or isolation.","properties":{"risk_kinds":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"enum":["network","credential","host_path","policy_denial","non_whitelisted_tool","other_high_risk"]}},"network_targets":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":512}},"credential_kinds":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":512}},"host_paths":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":512}},"network_purpose":{"type":"string","maxLength":1200},"policy_code":{"type":"string","maxLength":1200},"policy_reason":{"type":"string","maxLength":1200},"requested_tool":{"type":"string","maxLength":1200},"other_risk_reason":{"type":"string","maxLength":1200}}},"failure_policy":{"enum":["fail_fast","continue"]},"job_id":{"type":"string","minLength":1,"maxLength":256},"cursor":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":4,"maximum":32768},"wait_milliseconds":{"type":"integer","minimum":0,"maximum":5000},"stdin":{"type":"string","maxLength":65536},"close_stdin":{"type":"boolean"}},"allOf":[{"if":{"required":["review_scope"]},"then":{"properties":{"action":{"enum":["run","start"]},"commands":{"maxItems":1}}}},{"if":{"properties":{"action":{"const":"run"}}},"then":{"required":["commands","failure_policy","max_bytes"],"properties":{"commands":{"items":{"properties":{"timeout_milliseconds":{"maximum":%d}}}}}}},{"if":{"properties":{"action":{"const":"start"}}},"then":{"required":["commands"],"properties":{"commands":{"maxItems":1}}}},{"if":{"properties":{"action":{"enum":["read","wait"]}}},"then":{"required":["job_id","cursor","max_bytes","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"write_stdin"}}},"then":{"required":["job_id","stdin","close_stdin"]}},{"if":{"properties":{"action":{"const":"cancel"}}},"then":{"required":["job_id","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"kill"}}},"then":{"required":["job_id"]}}]}`, strconv.Quote(fmt.Sprintf("run executes a foreground batch within %dms total; start creates one background Job; read/wait observe that original Job.", MaxCommandRuntimeForegroundMillis)), strconv.Quote(fmt.Sprintf("Milliseconds for this command. run requires the batch sum <= %dms; start permits one command up to %dms.", MaxCommandRuntimeForegroundMillis, runner.MaxCommandRuntimeTimeout.Milliseconds())), runner.MaxCommandRuntimeTimeout.Milliseconds(), MaxCommandRuntimeForegroundMillis)),
 }
 
 // The host adapter already has host networking. Advertise that fact only to
-// a Run whose current Full Access authority selected this adapter; the
-// Workspace Sandbox retains the disabled-network contract.
+// a Run whose host authority selected this adapter. Per-operation policy and
+// exact review still apply; Workspace Sandbox retains denied networking.
 func CommandRuntimeDefinitionForAdapter(adapter commandruntimeadapter.Identity) ToolDefinition {
 	if adapter.Kind != commandruntimeadapter.KindHostUnsandboxed {
 		return commandRuntimeDefinition
@@ -372,6 +388,13 @@ func normalizeCommandRuntimePayload(payload json.RawMessage) (
 	input.Action = strings.ToLower(strings.TrimSpace(input.Action))
 	input.FailurePolicy = strings.ToLower(strings.TrimSpace(input.FailurePolicy))
 	input.JobID = strings.TrimSpace(input.JobID)
+	if input.ReviewScope != nil {
+		normalized, err := input.ReviewScope.normalized()
+		if err != nil {
+			return CommandRuntimeInput{}, nil, err
+		}
+		input.ReviewScope = &normalized
+	}
 	for index := range input.Commands {
 		normalized, normalizeErr := runner.NormalizeCommandRuntimeIntent(input.Commands[index])
 		if normalizeErr != nil {
@@ -412,12 +435,12 @@ func validateCommandRuntimePayloadShape(fields map[string]json.RawMessage,
 	}
 	switch input.Action {
 	case CommandRuntimeActionRun:
-		allow("commands", "failure_policy", "max_bytes")
+		allow("commands", "failure_policy", "max_bytes", "review_scope")
 		if !require("commands", "failure_policy", "max_bytes") {
 			return errors.New("command runtime foreground fields are required")
 		}
 	case CommandRuntimeActionStart:
-		allow("commands")
+		allow("commands", "review_scope")
 		if !require("commands") {
 			return errors.New("command runtime start fields are required")
 		}
@@ -449,6 +472,9 @@ func validateCommandRuntimePayloadShape(fields map[string]json.RawMessage,
 		if _, found := allowed[name]; !found {
 			return errors.New("command runtime action contains an inapplicable field")
 		}
+	}
+	if present, nonNull := structuredPayloadField(fields, "review_scope"); present && !nonNull {
+		return errors.New("command review scope cannot be null")
 	}
 	if input.Action != CommandRuntimeActionRun && input.Action != CommandRuntimeActionStart {
 		return nil
@@ -517,6 +543,9 @@ func validateCommandRuntimeCommandShape(fields map[string]json.RawMessage,
 func (g *Gateway) WithCommandRuntimeExecutor(executor CommandRuntimeExecutor) *Gateway {
 	if g != nil {
 		g.commandRuntime = executor
+		if host, ok := executor.(interface{ SetCommandRuntimePolicy(policy.Checker) }); ok {
+			host.SetCommandRuntimePolicy(g.checker)
+		}
 	}
 	return g
 }
@@ -537,23 +566,12 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 			commandDecision := policy.Decision{}
 			if command.Network == runner.CommandRuntimeNetworkHost &&
 				(call.CommandRuntimeAdapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-					!call.PermissionMode.IncludesFullAccess()) {
+					!call.CommandRuntimeAdapter.AllowsPermission(call.PermissionMode)) {
 				commandDecision = policy.Decision{Allowed: false, Risk: "high",
-					Reason: "host network requires current Full Access runtime authority"}
-			} else if networkReason := commandRuntimeNetworkViolation(command); networkReason != "" {
-				commandDecision = policy.Decision{Allowed: false, Risk: "high",
-					Reason: networkReason}
+					Reason: "host network requires an available host adapter and operation authorization"}
 			} else {
-				encoded, _ := json.Marshal(command)
-				policyTool := ShellTool
-				argumentName := "command"
-				if command.Profile == runner.CommandRuntimeProcess {
-					policyTool = ScriptProcessTool
-					argumentName = "proposal"
-				}
-				commandDecision = g.checker.CheckToolCall(tools.Call{
-					Name: string(policyTool), Args: map[string]string{argumentName: string(encoded)}})
-				if commandDecision.NeedsApproval {
+				commandDecision = CommandRuntimeCommandPolicy(g.checker, command)
+				if commandDecision.NeedsApproval && (!call.PermissionMode.IsApprovalMode() || call.SupervisorToolCallID == "") {
 					commandDecision.Allowed = false
 					commandDecision.Reason = "command runtime cannot bypass a required per-command review: " + commandDecision.Reason
 				}
@@ -591,6 +609,8 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		PermissionSnapshotID:   call.PermissionSnapshotID,
 		PermissionGeneration:   call.PermissionGeneration,
 		PermissionRuntimeEpoch: call.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  call.RunAuthorizationFence,
+		SupervisorToolCallID:   call.SupervisorToolCallID,
 		LeaseID:                call.LeaseID, LeaseGeneration: call.LeaseGeneration,
 		RequestedBy: call.RequestedBy, PolicyDecision: decision,
 		Adapter: call.CommandRuntimeAdapter}

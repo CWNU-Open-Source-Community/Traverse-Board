@@ -3551,7 +3551,7 @@ export interface paths {
         put?: never;
         /**
          * Install one inert Skill package
-         * @description Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.
+         * @description Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.
          */
         post: operations["installSkillPackage"];
         delete?: never;
@@ -4864,15 +4864,20 @@ export interface components {
         };
         ApprovalDecisionControlRequestView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
+            /** Format: int32 */
+            grant_max_uses?: number;
+            /** Format: int32 */
+            grant_ttl_seconds?: number;
             reason?: string;
             /** @enum {string} */
             version: "approval_control.v1";
         };
         ApprovalDecisionControlView: {
             /** @enum {string} */
-            action: "approve_once" | "approve_for_thread" | "deny";
+            action: "approve_once" | "approve_for_thread" | "approve_for_run" | "deny";
             approval_id: string;
+            bounded_grant?: components["schemas"]["BoundedCommandGrantView"];
             capability_grant: boolean;
             continuation?: components["schemas"]["ApprovalContinuationResult"];
             docker_execution_enabled: boolean;
@@ -4899,7 +4904,7 @@ export interface components {
         ApprovalPreviewView: {
             approval_id: string;
             /** @enum {string} */
-            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "unavailable";
+            effect: "dry_run" | "record_git_approval" | "file_review_required" | "fetch_public_https" | "browser_sensitive_action" | "mcp_server_and_tool" | "command_process" | "unavailable";
             fields: components["schemas"]["ApprovalPreviewFieldView"][];
             proposal_id: string;
             /** @enum {string} */
@@ -5294,6 +5299,22 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        BoundedCommandGrantView: {
+            /** @enum {boolean} */
+            each_command_requires_review: true;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            /** Format: int32 */
+            max_uses: number;
+            scope_fingerprint: string;
+            /** Format: int32 */
+            ttl_seconds: number;
+            /** Format: int32 */
+            use_ordinal: number;
+            /** Format: int32 */
+            uses_remaining: number;
+        };
         BrowserCDPPermissionRuntimeView: {
             control_enabled: boolean;
             execution_debug_selected: boolean;
@@ -5347,7 +5368,7 @@ export interface components {
             selectable: boolean;
             selected: boolean;
             /** @enum {string} */
-            value: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
+            value: "ask" | "auto" | "full" | "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
         };
         Change: {
             binary: boolean;
@@ -6504,6 +6525,15 @@ export interface components {
             server_version?: string;
             tools: string[];
         };
+        ExtensionMCPNativeSourceView: {
+            component_id: string;
+            /** Format: int64 */
+            installation_generation: number;
+            installation_id: string;
+            package_id: string;
+            revision: string;
+            surface: string;
+        };
         ExtensionMCPReviewRequestView: {
             action: string;
             expected_capability_fingerprint?: string;
@@ -6523,6 +6553,7 @@ export interface components {
             health_message?: string;
             id: string;
             name: string;
+            native_source?: components["schemas"]["ExtensionMCPNativeSourceView"];
             protocol_version: string;
             reviewed_at?: string;
             reviewed_by?: string;
@@ -6550,6 +6581,7 @@ export interface components {
             reviewed_by?: string;
             signature_present: boolean;
             signature_valid: boolean;
+            snapshot?: components["schemas"]["ExtensionPortableSnapshotView"];
             source: components["schemas"]["ExtensionSourceView"];
             staged_by: string;
             state: string;
@@ -6571,6 +6603,11 @@ export interface components {
             expected_generation: number;
             expected_package_fingerprint: string;
             version: string;
+        };
+        ExtensionPortableSnapshotView: {
+            format: string;
+            revision: string;
+            surface: string;
         };
         ExtensionRefreshRequestView: {
             version: string;
@@ -8594,6 +8631,29 @@ export interface components {
             capture_stdout: boolean;
             paths?: string[];
         };
+        PackagePreview: {
+            /** Format: int32 */
+            ArchiveBytes: number;
+            ArchiveSHA256: string;
+            /** Format: int32 */
+            EntryCount: number;
+            /** Format: int32 */
+            ExecutableAssetCount: number;
+            ImportCommandExecution: boolean;
+            ImportNetworkAccess: boolean;
+            ImportProviderCalls: boolean;
+            /** Format: int32 */
+            InstallHookCount: number;
+            InstallationAuthorized: boolean;
+            Manifest: components["schemas"]["SkillPackageManifest"];
+            PackageFingerprint: string;
+            ProtocolVersion: string;
+            RiskCodes: string[];
+            ToolCapabilityGrant: boolean;
+            TrustClass: string;
+            /** Format: int32 */
+            UncompressedBytes: number;
+        };
         Page: {
             /** Format: int32 */
             limit: number;
@@ -8783,6 +8843,27 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "plan_delivery_control.v1";
+        };
+        PluginSkillInstallView: {
+            installation: components["schemas"]["ExtensionPluginInstallationView"];
+            /** @enum {string} */
+            protocol_version: "plugin-installation.v2";
+            replayed: boolean;
+        };
+        PortableSnapshot: {
+            author_version?: string;
+            diagnostics?: components["schemas"]["ToolContractDiagnostic"][];
+            format: string;
+            inventory: components["schemas"]["SnapshotEntry"][];
+            legacy?: components["schemas"]["PackagePreview"];
+            manifest: components["schemas"]["ToolContractContentRef"];
+            name: string;
+            package_id: string;
+            protocol_version: string;
+            revision: string;
+            root_name: string;
+            skills: components["schemas"]["SnapshotSkill"][];
+            source: components["schemas"]["ToolContractSourceRef"];
         };
         Preview: {
             changes: components["schemas"]["Change"][];
@@ -9752,12 +9833,9 @@ export interface components {
             status: "active" | "released";
         };
         RunExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         RunExecutionPermissionControlView: {
@@ -9767,30 +9845,35 @@ export interface components {
         RunExecutionPermissionView: {
             agent_terminal_input: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "run_execution_permission.v1";
+            protocol_version: "run_execution_permission.v1" | "run_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -10630,10 +10713,11 @@ export interface components {
         SkillPackageInstallRequestView: {
             archive_base64: string;
             confirm_untrusted: boolean;
+            snapshot?: components["schemas"]["PortableSnapshot"];
             /** @enum {string} */
             surface: "code" | "cyber";
             /** @enum {string} */
-            version: "skill_package_installation.v1";
+            version: "skill_package_installation.v1" | "plugin-installation.v2";
         };
         SkillPackageInstallView: {
             archive_sha256: string;
@@ -10663,12 +10747,42 @@ export interface components {
             user_invocable: boolean;
             version: string;
         };
+        SkillPackageManifest: {
+            /** Format: int32 */
+            content_bytes: number;
+            content_path: string;
+            content_sha256: string;
+            /** Format: int32 */
+            content_token_upper_bound: number;
+            description: string;
+            explicit_only?: boolean;
+            model_invocable?: boolean;
+            name: string;
+            phases?: string[];
+            profiles: string[];
+            protocol: string;
+            publisher?: string;
+            roles?: string[];
+            surfaces?: string[];
+            tool_dependencies: string[];
+            user_invocable?: boolean;
+            version: string;
+        };
         Snapshot: {
             /** Format: int64 */
             Generation: number;
             ProtocolVersion: string;
             Providers: components["schemas"]["ProviderAvailability"][];
             Routes: components["schemas"]["RouteAvailability"][];
+        };
+        SnapshotEntry: {
+            /** Format: int32 */
+            bytes: number;
+            kind: string;
+            /** Format: int64 */
+            mode: number;
+            path: string;
+            sha256?: string;
         };
         SnapshotPresentation: {
             citeable: boolean;
@@ -10690,6 +10804,11 @@ export interface components {
             truncated: boolean;
             untrusted: boolean;
             url: string;
+        };
+        SnapshotSkill: {
+            description: string;
+            instructions: components["schemas"]["ToolContractContentRef"];
+            name: string;
         };
         SourcePresentation: {
             citeable: boolean;
@@ -11361,12 +11480,9 @@ export interface components {
             type: string;
         };
         ThreadExecutionPermissionControlRequestView: {
-            confirm_danger_full_access?: boolean;
-            confirm_debug_access?: boolean;
-            confirm_user_approval?: boolean;
-            confirm_workspace_access?: boolean;
+            confirm_full: boolean;
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            mode: "ask" | "auto" | "full";
             reason?: string;
         };
         ThreadExecutionPermissionControlView: {
@@ -11374,7 +11490,7 @@ export interface components {
             current_run_effect?: "applied" | "paused_and_applied" | "deferred" | "no_active_run";
             current_run_id?: string;
             /** @enum {string} */
-            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
             current_run_synchronized: boolean;
             execution_permission: components["schemas"]["ThreadExecutionPermissionView"];
             replayed: boolean;
@@ -11384,30 +11500,35 @@ export interface components {
             applies_to_current_run: boolean;
             applies_to_future_successor_runs: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            approval_mode: "ask" | "auto" | "full";
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none" | "per_operation";
             background_process: boolean;
             capability_grant: boolean;
             capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent" | "per_operation";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            filesystem_scope: "workspace_guarded" | "host_full";
+            filesystem_scope: "workspace_guarded" | "host_full" | "per_operation";
             /** @enum {string} */
-            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            full_activation: "inactive" | "active" | "unavailable";
+            full_unavailable_reason?: string;
             /** @enum {string} */
-            network_scope: "disabled" | "host";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "ask" | "auto" | "full";
+            /** @enum {string} */
+            network_scope: "disabled" | "host" | "per_operation";
             operator_confirmed: boolean;
             persistent_terminal: boolean;
             /** @enum {string} */
-            policy_version: "execution_permission_policy.v1";
+            policy_version: "execution_permission_policy.v1" | "execution_permission_policy.v2";
             process_enabled: boolean;
             /** @enum {string} */
-            protocol_version: "thread_execution_permission.v1";
+            protocol_version: "thread_execution_permission.v1" | "thread_execution_permission.v2";
             /** @enum {string} */
-            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access" | "operation_authority";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -12054,6 +12175,26 @@ export interface components {
             untrusted: boolean;
             url: string;
             version: string;
+        };
+        ToolContractComponentRef: {
+            ComponentID: string;
+            PackageID: string;
+        };
+        ToolContractContentRef: {
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Path: string;
+            SHA256: string;
+        };
+        ToolContractDiagnostic: {
+            Code: string;
+            Component: components["schemas"]["ToolContractComponentRef"];
+            Message: string;
+            Severity: string;
+        };
+        ToolContractSourceRef: {
+            Revision: string;
+            SHA256: string;
+            URI: string;
         };
         ToolUsageView: {
             /** Format: int64 */
@@ -21643,7 +21784,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["SkillPackageInstallView"];
+                        data: components["schemas"]["SkillPackageInstallView"] | components["schemas"]["PluginSkillInstallView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

@@ -262,6 +262,12 @@ func recordControlledExecutionResultTx(
 	return receipt, false, nil
 }
 
+// GetControlledExecutionIntentByPlanID reads the retired CLI operation namespace
+// before any current runtime or permission checks. It never creates an intent.
+func (s *SQLiteStore) GetControlledExecutionIntentByPlanID(ctx context.Context, planID string) (runner.ControlledExecutionIntent, bool, error) {
+	return getControlledExecutionIntentByPlanID(ctx, s.db, planID)
+}
+
 func (s *SQLiteStore) GetControlledExecutionIntent(
 	ctx context.Context,
 	requestID string,

@@ -134,3 +134,54 @@ CLI, HTTP, and Desktop expose separate facts:
 Global runtime capabilities list installed adapter receipts without granting them.
 `run_capability_readiness.v1` adds the current-Run projection. Persisted readiness,
 an installed backend, or a selected permission never becomes execution authority.
+
+## Universal Code process dispatch increment
+
+New application `command_runtime` starts and stdin writes now use the common
+`executionauth.PolicyAuthorizer`. The host binds the final resolved executable,
+argv, environment, cwd, input, adapter generation and native scope to a transient
+operation. Secret-bearing inputs use a fresh private HMAC key, which is not
+persisted. Plugin declarations and a host working directory do not attest
+isolation: an unsandboxed process retains unknown effects. A sandbox is considered
+bounded only through the already installed, validated adapter and Drydock path.
+
+The Job manager checks the operation after durable preparation. Windows and POSIX
+host starters check again before creating the process, then revalidate executable
+bytes and the launch directory. Local and Docker sandbox bridges check before
+calling their existing execution boundary; their lower-level admission and lease
+checks remain in force. These are live checks, not an atomic lock shared with an
+OS syscall or container service. Revocation after dispatch can encounter an
+in-flight effect; existing process ownership, reconciliation and tree cleanup
+remain responsible for stopping owned work, without claiming to undo its effects.
+
+Background process lifetime may outlive a request. Before process dispatch, the
+original request's cancellation remains enforced even through a detached context.
+After the manager has durably committed the running Job and started its ownership,
+wait and timeout workers, asynchronous initial stdin uses the Job lifetime. A
+completed HTTP request no longer cancels those already-bound initial bytes. This
+handoff detaches request cancellation only: the same operation's authority check
+still re-reads current permission, activation and lease state before writing.
+Initial stdin and subsequent writes recheck authority; later writes do so after
+acquiring the per-Job input gate. Existing exact Job/input replays return their original receipt
+without consuming another dispatch grant. Failed or uncertain effects are not
+automatically retried. Cleanup-only cancellation remains usable after revocation.
+
+Retired in this increment: the application-only, pre-`Start` authorization checks
+in foreground and background launch paths, and the application's direct unguarded
+`WriteStdin` call. They are replaced by operation-bound checks at the effect
+boundary. The runner's compatibility methods remain for existing internal callers
+and tests; they do not decode grants from persisted state or model input.
+
+Public ask/auto/full writers and production MCP stdio/HTTP operation checks are
+now wired. The shared policy classifies effects verified by the host: Ask permits
+verified workspace reads, reversible writes, and bounded workspace processes;
+Auto additionally permits verified public-network effects. Auto does not invoke
+a model to approve operations. Full still requires current runtime activation and
+preserves native guards and existing exact-consent decisions; it does not select
+or create an OS sandbox. These names do not claim equivalence with modes in other
+agent products.
+
+Still pending: retirement of the remaining legacy Host/Risk/Controlled/Once
+execution paths and permission/Code/Deliver/Root admission rules. Old permission
+rows remain readable compatibility inputs, not restored runtime authority. The
+migration is not complete and creates no new Run, Session, Job or approval database.

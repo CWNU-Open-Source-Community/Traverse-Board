@@ -184,7 +184,7 @@ func TestRunExecutionHandoffIsImmutableAndRejectsStaleLease(t *testing.T) {
 func TestSchemaV73UpgradePreservesRunWithoutFabricatingControlOperations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v72.db")
-	state, run := createRunControlTestRun(t, ctx, path, false)
+	state, run := createRunControlTestRun(t, ctx, path, false, 177)
 	for _, statement := range removeSchemaV73ForTestStatements() {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			_ = state.Close()
@@ -216,14 +216,20 @@ func TestSchemaV73UpgradePreservesRunWithoutFabricatingControlOperations(t *test
 }
 
 func createRunControlTestRun(t testing.TB, ctx context.Context, path string,
-	start bool,
+	start bool, historicalVersion ...int,
 ) (*SQLiteStore, domain.Run) {
 	t.Helper()
-	state, err := Open(path)
+	var state *SQLiteStore
+	var err error
+	if len(historicalVersion) == 0 {
+		state, err = Open(path)
+	} else {
+		state, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(state).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "Run control test", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 8}})
 	if err != nil {

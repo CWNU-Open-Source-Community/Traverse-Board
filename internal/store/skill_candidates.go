@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
 )
 
@@ -244,16 +245,36 @@ func (s *SQLiteStore) CreateSkillCandidateImport(ctx context.Context,
 		return skills.SkillCandidateRecord{}, false, apperror.New(apperror.CodeFailedPrecondition,
 			"Skill candidate import requires an exact approved human review")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_candidate_imports
-		(id, protocol_version, operation_key_digest, request_fingerprint, candidate_id,
-		candidate_fingerprint, review_fingerprint, installation_id,
-		installation_fingerprint, imported_by, import_fingerprint, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, value.ID, value.ProtocolVersion,
-		value.OperationKeyDigest, value.RequestFingerprint, value.CandidateID,
-		value.CandidateFingerprint, value.ReviewFingerprint, value.InstallationID,
-		value.InstallationFingerprint, value.ImportedBy, value.ImportFingerprint,
-		ts(value.CreatedAt)); err != nil {
-		return skills.SkillCandidateRecord{}, false, err
+	var insertErr error
+	if value.ProtocolVersion == skills.SkillCandidatePluginImportProtocolVersion {
+		installed, err := getPluginInstallation(ctx, tx, value.InstallationID)
+		if err != nil {
+			return skills.SkillCandidateRecord{}, false, err
+		}
+		if installed.Generation != value.InstallationGeneration || installed.PackageFingerprint != value.PackageFingerprint ||
+			installed.ArchiveSHA256 != value.ArchiveSHA256 || plugins.InstallationFingerprint(installed) != value.InstallationFingerprint {
+			return skills.SkillCandidateRecord{}, false, apperror.New(apperror.CodeConflict, "candidate Plugin installation changed before its receipt")
+		}
+		_, insertErr = tx.ExecContext(ctx, `INSERT INTO skill_candidate_plugin_imports
+			(id, protocol_version, operation_key_digest, request_fingerprint, candidate_id,
+			candidate_fingerprint, review_fingerprint, installation_id, installation_fingerprint,
+			imported_by, import_fingerprint, created_at, installation_generation, package_fingerprint, archive_sha256)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, value.ID, value.ProtocolVersion,
+			value.OperationKeyDigest, value.RequestFingerprint, value.CandidateID, value.CandidateFingerprint,
+			value.ReviewFingerprint, value.InstallationID, value.InstallationFingerprint, value.ImportedBy,
+			value.ImportFingerprint, ts(value.CreatedAt), value.InstallationGeneration, value.PackageFingerprint, value.ArchiveSHA256)
+	} else {
+		_, insertErr = tx.ExecContext(ctx, `INSERT INTO skill_candidate_imports
+			(id, protocol_version, operation_key_digest, request_fingerprint, candidate_id,
+			candidate_fingerprint, review_fingerprint, installation_id,
+			installation_fingerprint, imported_by, import_fingerprint, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, value.ID, value.ProtocolVersion,
+			value.OperationKeyDigest, value.RequestFingerprint, value.CandidateID,
+			value.CandidateFingerprint, value.ReviewFingerprint, value.InstallationID,
+			value.InstallationFingerprint, value.ImportedBy, value.ImportFingerprint, ts(value.CreatedAt))
+	}
+	if insertErr != nil {
+		return skills.SkillCandidateRecord{}, false, insertErr
 	}
 	if err := tx.Commit(); err != nil {
 		return skills.SkillCandidateRecord{}, false, err
@@ -378,8 +399,9 @@ func getSkillCandidateImport(ctx context.Context, queryer skillCandidateQueryer,
 	return scanSkillCandidateImport(queryer.QueryRowContext(ctx,
 		`SELECT id, protocol_version, operation_key_digest, request_fingerprint,
 		candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
-		installation_fingerprint, imported_by, import_fingerprint, created_at
-		FROM skill_candidate_imports WHERE candidate_id = ?`, candidateID))
+		installation_fingerprint, imported_by, import_fingerprint, created_at,
+		installation_generation, package_fingerprint, archive_sha256
+		FROM skill_candidate_all_imports WHERE candidate_id = ?`, candidateID))
 }
 
 func getSkillCandidateImportByOperation(ctx context.Context, queryer skillCandidateQueryer,
@@ -388,8 +410,9 @@ func getSkillCandidateImportByOperation(ctx context.Context, queryer skillCandid
 	return scanSkillCandidateImport(queryer.QueryRowContext(ctx,
 		`SELECT id, protocol_version, operation_key_digest, request_fingerprint,
 		candidate_id, candidate_fingerprint, review_fingerprint, installation_id,
-		installation_fingerprint, imported_by, import_fingerprint, created_at
-		FROM skill_candidate_imports WHERE operation_key_digest = ?`, digest))
+		installation_fingerprint, imported_by, import_fingerprint, created_at,
+		installation_generation, package_fingerprint, archive_sha256
+		FROM skill_candidate_all_imports WHERE operation_key_digest = ?`, digest))
 }
 
 func scanSkillCandidateImport(row packageRowScanner) (skills.SkillCandidateImport, bool, error) {
@@ -398,7 +421,8 @@ func scanSkillCandidateImport(row packageRowScanner) (skills.SkillCandidateImpor
 	err := row.Scan(&value.ID, &value.ProtocolVersion, &value.OperationKeyDigest,
 		&value.RequestFingerprint, &value.CandidateID, &value.CandidateFingerprint,
 		&value.ReviewFingerprint, &value.InstallationID, &value.InstallationFingerprint,
-		&value.ImportedBy, &value.ImportFingerprint, &created)
+		&value.ImportedBy, &value.ImportFingerprint, &created,
+		&value.InstallationGeneration, &value.PackageFingerprint, &value.ArchiveSHA256)
 	if errors.Is(err, sql.ErrNoRows) {
 		return skills.SkillCandidateImport{}, false, nil
 	}
@@ -431,7 +455,11 @@ func sameSkillCandidateReviewRequest(left, right skills.SkillCandidateReview) bo
 }
 
 func sameSkillCandidateImportRequest(left, right skills.SkillCandidateImport) bool {
-	return left.OperationKeyDigest == right.OperationKeyDigest &&
+	if left.ProtocolVersion == skills.SkillCandidatePluginImportProtocolVersion &&
+		(left.InstallationID != right.InstallationID || left.PackageFingerprint != right.PackageFingerprint || left.ArchiveSHA256 != right.ArchiveSHA256) {
+		return false
+	}
+	return left.ProtocolVersion == right.ProtocolVersion && left.OperationKeyDigest == right.OperationKeyDigest &&
 		left.RequestFingerprint == right.RequestFingerprint &&
 		left.CandidateID == right.CandidateID &&
 		left.CandidateFingerprint == right.CandidateFingerprint &&

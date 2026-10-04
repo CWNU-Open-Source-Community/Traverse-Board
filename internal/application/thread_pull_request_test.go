@@ -11,11 +11,13 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/credential"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 type threadPRRemoteFixture struct {
@@ -51,7 +53,23 @@ func (f *threadPRRemoteFixture) ObserveDraft(context.Context, githubreview.PullR
 	}
 	return *f.created, true, nil
 }
-func (f *threadPRRemoteFixture) CreateDraft(_ context.Context, d githubreview.PullRequestDraft) (githubreview.PullRequest, error) {
+func (f *threadPRRemoteFixture) CreateDraft(ctx context.Context, d githubreview.PullRequestDraft, guards ...toolcontract.DispatchGuard) (githubreview.PullRequest, error) {
+	if len(guards) != 0 {
+		operation, err := githubreview.DraftOperation(d)
+		if err != nil {
+			return githubreview.PullRequest{}, err
+		}
+		fingerprint, err := toolcontract.FingerprintOperation(operation)
+		if err != nil {
+			return githubreview.PullRequest{}, err
+		}
+		if len(guards) != 1 {
+			return githubreview.PullRequest{}, errors.New("fixture requires exactly one native guard")
+		}
+		if err := guards[0](ctx, fingerprint); err != nil {
+			return githubreview.PullRequest{}, err
+		}
+	}
 	f.creates++
 	p := githubreview.PullRequest{Repository: d.Repository, Number: 17, NodeID: "PR17", URL: "https://github.com/acme/widget/pull/17", Title: githubreview.SanitizeRemoteText(d.Title, 1024), State: "open", Draft: true, HeadRepository: d.Repository.FullName, HeadBranch: d.HeadBranch, HeadSHA: d.HeadSHA, BaseBranch: d.BaseBranch, BaseSHA: d.BaseSHA, UpdatedAt: time.Now().UTC()}
 	f.created = &p
@@ -68,9 +86,9 @@ type threadPRFixture struct {
 	reviewer              *gitAdvancedApprovalReviewer
 }
 
-func newThreadPRFixture(t *testing.T) threadPRFixture {
+func newThreadPRFixture(t *testing.T, modes ...domain.RunExecutionPermissionMode) threadPRFixture {
 	t.Helper()
-	f := newGitAdvancedApplicationFixture(t)
+	f := newGitAdvancedApplicationFixture(t, modes...)
 	if _, _, err := f.state.ReleaseRunExecutionLease(t.Context(), f.lease); err != nil {
 		t.Fatal(err)
 	}

@@ -101,12 +101,24 @@ describe("SettingsView", () => {
   });
 
   it("never uses a stale selected Run as the Thread permission target", () => {
-    renderSettings({ capabilities, client, desktop: true, health,
+    const permissionClient = new CyberAgentClient("read-token", "/api/v1", "control-token", {
+      executionPermissionControlEnabled: true,
+    });
+    const get = vi.spyOn(permissionClient, "get");
+    const getPermission = vi.spyOn(permissionClient, "getThreadExecutionPermission");
+    const changePermission = vi.spyOn(permissionClient, "changeThreadExecutionPermission");
+    const postControl = vi.spyOn(permissionClient, "postControl");
+    renderSettings({ capabilities, client: permissionClient, desktop: true, health,
       selectedRunID: "run-stale-diagnostic", selectedThreadID: "", onBack: vi.fn(),
       onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
 
     fireEvent.click(screen.getByRole("button", { name: "权限" }));
-    expect(screen.getByText("从侧栏打开一个 Thread")).toBeInTheDocument();
+    expect(screen.getByText("先从侧栏打开一个对话。")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "执行权限档位" })).not.toBeInTheDocument();
+    expect(get).not.toHaveBeenCalled();
+    expect(getPermission).not.toHaveBeenCalled();
+    expect(changePermission).not.toHaveBeenCalled();
+    expect(postControl).not.toHaveBeenCalled();
     expect(screen.queryByText("选择一个 Run")).not.toBeInTheDocument();
     expect(screen.queryByText("run-stale-diagnostic")).not.toBeInTheDocument();
   });
@@ -123,6 +135,32 @@ describe("SettingsView", () => {
       onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() })).not.toThrow();
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     expect(screen.getByRole("button", { name: "舒展" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows the native MCP component and keeps disable pinned to its descriptor", async () => {
+    const controlClient = new CyberAgentClient("read-token", "/api/v1", "control-token", { extensionControlEnabled: true });
+    const fingerprint = "a".repeat(64);
+    vi.spyOn(controlClient, "extensionInventory").mockResolvedValue({ protocol_version: "extension-inventory.v1",
+      run_id: "run-native", workspace_id: "workspace-native", mcp_calls: [], plugins: [],
+      mcp_servers: [{ protocol_version: "mcp-client-server.v1", id: "native-server", name: "Native tools",
+        transport: "stdio", target: "", declared_capabilities: ["tools"], scope: "workspace", workspace_id: "workspace-native",
+        source: { kind: "plugin", uri: "C:\\plugins\\native" }, descriptor_fingerprint: fingerprint,
+        native_source: { installation_id: "native-installation", package_id: "native-package", component_id: "inventory-peer",
+          revision: "b".repeat(64), installation_generation: 3, surface: "code" },
+        state: "staged", capabilities: { negotiated: [], tools: [], resources: [], prompts: [] }, health: "unknown",
+        generation: 1, created_at: "2026-10-02T01:00:00Z", updated_at: "2026-10-02T01:00:00Z" }] });
+    vi.spyOn(controlClient, "codeIntelInventory").mockResolvedValue({ protocol_version: "code-intel-lsp.v1", enabled: false,
+      qualifications: [], servers: [] });
+    const disable = vi.spyOn(controlClient, "reviewMCPServer").mockResolvedValue({} as never);
+    renderSettings({ capabilities, client: controlClient, desktop: true, health, selectedRunID: "run-native",
+      selectedThreadID: "thread-native", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "Code Intel、MCP 与 Plugin" }));
+    expect(await screen.findByText("插件组件: inventory-peer")).toBeInTheDocument();
+    expect(screen.getByText("Native tools")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新发现" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "立即关闭" }));
+    await waitFor(() => expect(disable).toHaveBeenCalledWith("native-server", { version: "extension-control.v1",
+      action: "disable", expected_descriptor_fingerprint: fingerprint }));
   });
 
   it("shows scoped extension evidence and uses pinned facts for immediate disable", async () => {

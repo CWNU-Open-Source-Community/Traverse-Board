@@ -34,28 +34,37 @@ func populateAutoFileEditFixture(t *testing.T, state *SQLiteStore) (domain.Run, 
 		t.Fatal(err)
 	}
 	runs := application.NewRunService(state)
-	_, run, err := runs.Create(ctx, application.CreateRunRequest{
-		Goal: "automatic file edit", Profile: "code", Surface: "code", Phase: "plan",
-		WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2},
-	})
+	version, err := state.SchemaVersion(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runs.ChangePhase(ctx, application.ChangeRunPhaseRequest{
-		RunID: run.ID, Phase: "deliver", OperationKey: "auto-file-edit-deliver",
-		RequestedBy: "operator", Reason: "deliver work",
-	}); err != nil {
-		t.Fatal(err)
+	var run domain.Run
+	var permission domain.RunExecutionPermissionSnapshot
+	runtime := domain.NewExecutionPermissionRuntimeAuthority()
+	if version < 178 {
+		// Historical migration fixtures use the genuine old schema and tuple;
+		// the current application writer cannot create these records.
+		run = seedLegacyStructuredToolRun(t, state, workspace.ID, domain.ExecutionPhasePlan, domain.RunExecutionPermissionFullAccess)
+		permission, err = state.GetRunExecutionPermission(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		_, run, err = runs.Create(ctx, application.CreateRunRequest{Goal: "automatic file edit", Profile: "code", Surface: "code", Phase: "plan",
+			WorkspaceID: workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, changeErr := application.NewRunExecutionPermissionService(state,
+			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: runtime}).Change(ctx,
+			application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "full", OperationKey: "auto-file-edit-full", RequestedBy: "operator", Reason: "auto file edit", ConfirmFull: true})
+		if changeErr != nil {
+			t.Fatal(changeErr)
+		}
+		permission = selected.Permission
 	}
-	selected, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		}).Change(ctx, application.ChangeRunExecutionPermissionRequest{
-		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
-		OperationKey: "auto-file-edit-full", RequestedBy: "operator",
-		Reason: "auto file edit", ConfirmDangerFullAccess: true,
-	})
-	if err != nil {
+	if _, err := runs.ChangePhase(ctx, application.ChangeRunPhaseRequest{RunID: run.ID, Phase: "deliver", OperationKey: "auto-file-edit-deliver",
+		RequestedBy: "operator", Reason: "deliver work"}); err != nil {
 		t.Fatal(err)
 	}
 	run, err = runs.Start(ctx, run.ID)
@@ -76,11 +85,24 @@ func populateAutoFileEditFixture(t *testing.T, state *SQLiteStore) (domain.Run, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	epoch, generation, fence := "process-epoch-test", uint64(1), uint64(0)
+	if permission.Mode.IsApprovalMode() {
+		grant, err := runtime.ActivateRunFullAccess(permission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		generation = grant.Generation
+		fence, err = runtime.IssueRunAuthorizationFence(run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		epoch = runtime.RuntimeEpoch()
+	}
 	return run, workspace, fileedit.AutoAuthorization{
 		RunID: run.ID, SessionID: run.SessionID, WorkspaceID: workspace.ID,
-		PermissionSnapshotID: selected.Permission.ID,
-		PermissionRevision:   selected.Permission.Revision, ModeRevision: mode.Revision,
-		RuntimeEpoch: "process-epoch-test", RuntimeGeneration: 1, AgentID: root.ID,
+		PermissionSnapshotID: permission.ID,
+		PermissionRevision:   permission.Revision, ModeRevision: mode.Revision,
+		RuntimeEpoch: epoch, RuntimeGeneration: generation, RunAuthorizationFence: fence, AgentID: root.ID,
 		CapabilityGeneration: runmutation.Fingerprint("capability", run.ID),
 		LeaseID:              lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation,
 	}
@@ -149,7 +171,7 @@ func TestAutomaticFileEditSourceCannotUpgradeOldProposalOrChangeKey(t *testing.T
 	var eventSource string
 	if err := state.db.QueryRowContext(ctx, `SELECT json_extract(payload_json,'$.authorization_source')
 		FROM run_events WHERE run_id=? AND subject_id=? AND type='file_edit.approved'`,
-		base.RunID, edit.ID).Scan(&eventSource); err != nil || eventSource != "full_access_automatic" {
+		base.RunID, edit.ID).Scan(&eventSource); err != nil || eventSource != "operation_policy_automatic" {
 		t.Fatalf("approved event source=%q err=%v", eventSource, err)
 	}
 	if same, wasReplay, err := state.CreateAutomaticallyAuthorizedFileEditIfAbsent(ctx, edit, auth); err != nil || !wasReplay || same.ID != approved.ID {

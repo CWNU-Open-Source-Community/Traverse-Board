@@ -21,7 +21,7 @@ func TestSchemaV160PreservesOldImageRowsBindingsAndForeignKeys(t *testing.T) {
 	if err := st.SaveWorkspace(t.Context(), WorkspaceRecord{ID: "ws-old-image", Name: "old image", RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(st).Create(t.Context(), application.CreateRunRequest{Goal: "Preserve old image input", Profile: "review", WorkspaceID: "ws-old-image"})
+	_, run, err := newMigrationFixtureRunService(t, st).Create(t.Context(), application.CreateRunRequest{Goal: "Preserve old image input", Profile: "review", WorkspaceID: "ws-old-image"})
 	if err != nil {
 		t.Fatal(err)
 	}

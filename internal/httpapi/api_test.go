@@ -27,6 +27,7 @@ import (
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/testfixtures/legacyskill"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -81,7 +82,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	externalSelection := prepareAPIExternalSkillProjection(t, st, run)
+	externalSelection := prepareAPIExternalSkillProjection(t, st, dbPath, run)
 	run, err = runs.Start(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +209,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		externalSelection: externalSelection, workspace: workspace}
 }
 
-func prepareAPIExternalSkillProjection(t *testing.T, st *store.SQLiteStore,
+func prepareAPIExternalSkillProjection(t *testing.T, st *store.SQLiteStore, databasePath string,
 	run domain.Run,
 ) skills.ExternalSelection {
 	t.Helper()
@@ -248,12 +249,6 @@ func prepareAPIExternalSkillProjection(t *testing.T, st *store.SQLiteStore,
 	}
 	installation.RequestFingerprint = skills.PackageInstallationIntentFingerprint(installation)
 	installation.InstallationFingerprint = skills.PackageInstallationFingerprint(installation)
-	operation := skills.PackageInstallOperation{
-		KeyDigest: operationDigest, RequestFingerprint: installation.RequestFingerprint,
-		InstallationID: installation.ID, Name: name, Version: version,
-		Surface: installation.Surface, InstalledBy: installation.InstalledBy,
-		CreatedAt: installation.CreatedAt,
-	}
 	objectKey, err := skills.PackageObjectKey(installation.ArchiveSHA256)
 	if err != nil {
 		t.Fatal(err)
@@ -264,9 +259,7 @@ func prepareAPIExternalSkillProjection(t *testing.T, st *store.SQLiteStore,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
-		t.Fatal(err)
-	}
+	legacyskill.Seed(t, databasePath, installation)
 	if _, _, err := st.CompletePackageInstallation(ctx, result); err != nil {
 		t.Fatal(err)
 	}

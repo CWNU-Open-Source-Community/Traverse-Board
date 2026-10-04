@@ -193,12 +193,8 @@ func (i PackageInstallation) Validate() error {
 	if err := validatePackageManifestMetadata(i.Manifest); err != nil {
 		return err
 	}
-	if i.Manifest.HasModeMetadata() && !slices.Contains(i.Manifest.Surfaces, i.Surface) {
-		return errors.New("installed Skill manifest does not support its installation surface")
-	}
-	if i.Surface == domain.ExecutionSurfaceCyber &&
-		!slices.Equal(i.Manifest.Profiles, []domain.Profile{domain.ProfileScript}) {
-		return errors.New("cyber Skill packages must declare only the script Profile")
+	if err := i.Manifest.ValidateInstallationSurface(i.Surface); err != nil {
+		return err
 	}
 	if !validSHA256(i.ArchiveSHA256) || !validSHA256(i.PackageFingerprint) ||
 		i.ArchiveBytes <= 0 || i.ArchiveBytes > MaxPackageArchiveBytes ||
@@ -583,4 +579,16 @@ func ParseInstalledPackageRef(value string) (string, string, error) {
 		return "", "", errors.New("installed Skill package reference is invalid")
 	}
 	return name, version, nil
+}
+
+// ValidateInstallationSurface retains the legacy manifest scope for both
+// historical installations and new Plugin installations of legacy archives.
+func (m Manifest) ValidateInstallationSurface(surface domain.ExecutionSurface) error {
+	if !surface.Valid() || (m.HasModeMetadata() && !slices.Contains(m.Surfaces, surface)) {
+		return errors.New("installed Skill manifest does not support its installation surface")
+	}
+	if surface == domain.ExecutionSurfaceCyber && !slices.Equal(m.Profiles, []domain.Profile{domain.ProfileScript}) {
+		return errors.New("cyber Skill packages must declare only the script Profile")
+	}
+	return nil
 }

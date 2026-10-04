@@ -245,7 +245,7 @@ func TestFindingArtifactEvidenceAndValidationConvergeAcrossStores(t *testing.T) 
 }
 
 func TestSchemaV35ReportSurvivesFindingValidationMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-validation-v35.db", 1)
+	st, run, _ := createReadOnlyFanoutFixture(t, "finding-validation-v35.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-validation-v35-plan", "finding-validation-v35-execution")
@@ -320,7 +320,7 @@ func TestFindingCanBeRejectedWithoutArtifactEvidence(t *testing.T) {
 }
 
 func TestSchemaV36FreezesLegacyArtifactAndRejectsPreMigrationTampering(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-validation-tamper.db", 1)
+	st, run, _ := createReadOnlyFanoutFixture(t, "finding-validation-tamper.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-validation-tamper-plan", "finding-validation-tamper-execution")

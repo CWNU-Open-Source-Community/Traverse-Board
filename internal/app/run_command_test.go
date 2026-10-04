@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -631,7 +632,13 @@ func TestRunCommandProposalCLIRequiresExactReviewWithoutImplicitExecution(t *tes
 }
 
 func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
-	home := t.TempDir()
+	if runtime.GOOS != "windows" {
+		t.Skip("fixed restricted native adapter is Windows-only; exercised in Windows CI")
+	}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CYBERAGENT_HOME", home)
 	if _, stderr, code := executeTestCommand(t, "workspace", "init",
 		"command-execute-demo"); code != 0 {
@@ -639,6 +646,7 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 	}
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"execute one controlled command", "--workspace", "command-execute-demo",
+		"--surface", "code", "--phase", "deliver",
 		"--max-turns", "2")
 	if code != 0 || stderr != "" {
 		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
@@ -673,32 +681,37 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 		t.Fatalf("missing confirmation stderr=%q code=%d calls=%d",
 			stderr, code, stub.calls)
 	}
+	if plan, stderr, code := execute("run", "command-plan", runID, "go-version"); code != 0 || stderr != "" || !strings.Contains(plan, "go-version") || stub.calls != 0 {
+		t.Fatalf("plan output=%q stderr=%q code=%d calls=%d", plan, stderr, code, stub.calls)
+	}
 	first, stderr, code := execute("run", "command-execute", runID,
 		"go-version", "--operation-key", "controlled-execute-0001",
-		"--confirm-execution")
-	if code != 0 || stderr != "" || stub.calls != 1 ||
-		!strings.Contains(first, "raw_output_persisted: false") ||
-		!strings.Contains(first, "raw_output_available: true") ||
+		"--confirm-execution", "--enable-permission-control")
+	if code != 0 || stderr != "" || stub.calls != 0 ||
+		!strings.Contains(first, "command_job: command-job-") ||
+		!strings.Contains(first, "state: completed") ||
 		!strings.Contains(first, "replayed: false") ||
-		!strings.Contains(first, "stdout_begin\ngo version controlled-test\nstdout_end") {
+		!strings.Contains(first, "stdout_begin\ngo version ") {
 		t.Fatalf("first execution output=%q stderr=%q code=%d calls=%d",
 			first, stderr, code, stub.calls)
 	}
 	replayed, stderr, code := execute("run", "command-execute", runID,
 		"go-version", "--operation-key", "controlled-execute-0001",
 		"--confirm-execution")
-	if code != 0 || stderr != "" || stub.calls != 1 ||
-		!strings.Contains(replayed, "raw_output_available: false") ||
+	if code != 0 || stderr != "" || stub.calls != 0 ||
 		!strings.Contains(replayed, "replayed: true") ||
-		strings.Contains(replayed, "go version controlled-test") {
+		!strings.Contains(replayed, "go version ") {
 		t.Fatalf("replay output=%q stderr=%q code=%d calls=%d",
 			replayed, stderr, code, stub.calls)
 	}
 	if _, stderr, code := execute("run", "command-execute", runID,
 		"git-status", "--operation-key", "controlled-execute-0001",
 		"--confirm-execution"); code == 0 ||
-		!strings.Contains(stderr, "different intent") || stub.calls != 1 {
+		!strings.Contains(stderr, "another request") || stub.calls != 0 {
 		t.Fatalf("conflict stderr=%q code=%d calls=%d", stderr, code, stub.calls)
+	}
+	if output, stderr, code := execute("run", "show", runID); code != 0 || stderr != "" || !strings.Contains(output, "status: created") {
+		t.Fatalf("command changed Run output=%q stderr=%q code=%d", output, stderr, code)
 	}
 }
 

@@ -28,15 +28,11 @@ func removeSchemaV123ForTestStatements() []string {
 
 func TestSchemaV123UpgradesV122Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "git-advanced-v122.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 122)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV123ForTestStatements() {
-		if _, err := state.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v123 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(t.Context()); err != nil || version != 122 {
 		t.Fatalf("downgraded schema version=%d want=122 err=%v", version, err)
 	}

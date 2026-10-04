@@ -59,7 +59,7 @@ func (s *agentBrowserTestStore) GetRunExecutionLease(context.Context, string) (d
 func (s *agentBrowserTestStore) GetWorkspaceInfo(context.Context, string) (session.WorkspaceInfo, error) {
 	return s.workspace, nil
 }
-func (s *agentBrowserTestStore) GetAgentBrowserCall(_ context.Context, runID, id string) (domain.SupervisorToolCall, bool, error) {
+func (s *agentBrowserTestStore) GetSupervisorApprovalCall(_ context.Context, runID, id string) (domain.SupervisorToolCall, bool, error) {
 	c, ok := s.calls[id]
 	if !ok || c.RunID != runID {
 		return c, false, errors.New("call not found")

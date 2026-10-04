@@ -715,10 +715,12 @@ func validateGitHubReviewWriteRecord(record githubreview.WriteRecord, creating b
 		strings.TrimSpace(record.SessionID) == "" || strings.TrimSpace(record.WorkspaceID) == "" ||
 		strings.TrimSpace(record.ConnectionID) == "" || record.Spec.Validate() != nil ||
 		record.Preview.Validate() != nil || record.Spec.Operation != record.Preview.Operation ||
-		record.ApprovalFingerprint != record.Preview.ApprovalFingerprint ||
 		record.CreatedAt.IsZero() {
 		return errors.New("GitHub review write record identity is invalid")
 	}
+	// ApprovalFingerprint may also bind the host runtime and permission epoch.
+	// The native preview retains its separate content digest; neither a stored
+	// content-only digest nor an arbitrary host digest is execution authority.
 	switch record.Status {
 	case githubreview.OperationProposed:
 		if record.ApprovalID != "" || !record.StartedAt.IsZero() || !record.CompletedAt.IsZero() {

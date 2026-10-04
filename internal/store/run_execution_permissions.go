@@ -114,10 +114,8 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 	}
 	if snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
 		snapshot.Revision != current.Revision+1 ||
-		(snapshot.Mode == current.Mode &&
-			snapshot.Mode != domain.RunExecutionPermissionFullAccess) ||
-		snapshot.ProtocolVersion != current.ProtocolVersion ||
-		snapshot.PolicyVersion != current.PolicyVersion ||
+		(snapshot.Mode == current.Mode && !snapshot.Mode.IsFullPreference()) ||
+		!domain.PermissionPolicyTransition(current.ProtocolVersion, current.PolicyVersion, snapshot.ProtocolVersion, snapshot.PolicyVersion, false) ||
 		snapshot.CreatedAt.Before(current.CreatedAt) {
 		return domain.RunExecutionPermissionSnapshot{}, false, apperror.New(
 			apperror.CodeConflict,
@@ -221,7 +219,7 @@ func insertInitialRunExecutionPermissionSnapshotTx(ctx context.Context, tx *sql.
 	}
 	if snapshot.Revision != 1 || snapshot.RunID != run.ID ||
 		snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
-		snapshot.Mode != domain.RunExecutionPermissionConservative ||
+		snapshot.Mode != domain.RunExecutionPermissionAsk ||
 		run.Status != domain.RunCreated || snapshot.CreatedAt.Before(run.CreatedAt) {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"initial Run execution permission does not match its created Run and Mission")
@@ -358,7 +356,7 @@ func validateRunExecutionPermissionSelectedEvent(event events.Event,
 	if payload.Protocol != snapshot.ProtocolVersion || payload.Revision != snapshot.Revision ||
 		!payload.From.Valid() ||
 		(payload.From == snapshot.Mode &&
-			snapshot.Mode != domain.RunExecutionPermissionFullAccess) ||
+			!snapshot.Mode.IsFullPreference()) ||
 		payload.To != snapshot.Mode ||
 		payload.ApprovalPolicy != snapshot.ApprovalPolicy ||
 		payload.CommandScope != snapshot.CommandScope ||

@@ -22,7 +22,7 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 
-	runs := application.NewRunService(state)
+	runs := newMigrationFixtureRunService(t, state)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "prove v143 running high-risk downgrade", Profile: "code",
 		Budget: domain.Budget{MaxTurns: 2},
@@ -30,20 +30,15 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 	if err != nil {
 		t.Fatal(err)
 	}
-	permissions := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
-		})
-	debug, err := permissions.Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionDebug),
-			OperationKey: "migration-v143-debug-selection-0001",
-			RequestedBy:  "test_operator", Reason: "prepare populated v142 state",
-			ConfirmDebugAccess: true,
-		})
+	debug, err := selectHistoricalRunPermission(ctx, state, run.ID,
+		domain.RunExecutionPermissionDebug, "migration-v143-debug-selection-0001",
+		"prepare populated v142 state")
 	if err != nil || debug.Permission.Mode != domain.RunExecutionPermissionDebug {
 		t.Fatalf("prepare v142 Debug permission=%+v err=%v", debug, err)
+	}
+	browserBefore, err := state.GetRunBrowserCDPPermission(ctx, run.ID)
+	if err != nil || browserBefore.Mode != domain.RunBrowserCDPPermissionFullDebug {
+		t.Fatalf("v142 fixture did not enable Full CDP: %+v err=%v", browserBefore, err)
 	}
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
@@ -59,13 +54,9 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 	if err := state.applyMigration(ctx, migrationPlan()[142]); err != nil {
 		t.Fatal(err)
 	}
-	selected, err := permissions.Change(ctx,
-		application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionApproval),
-			OperationKey: "migration-v143-running-downgrade-0001",
-			RequestedBy:  "test_operator", Reason: "revoke live high-risk authority",
-			ConfirmUserApproval: true,
-		})
+	selected, err := selectHistoricalRunPermission(ctx, state, run.ID,
+		domain.RunExecutionPermissionApproval, "migration-v143-running-downgrade-0001",
+		"revoke live high-risk authority")
 	if err != nil || selected.Permission.Mode != domain.RunExecutionPermissionApproval {
 		t.Fatalf("v143 running downgrade=%+v err=%v", selected, err)
 	}

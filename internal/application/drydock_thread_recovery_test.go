@@ -13,7 +13,7 @@ import (
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
-func authorizeDrydockRestoreForTest(t *testing.T, fixture drydockApplicationFixture) {
+func prepareDrydockRestoreForTest(t *testing.T, fixture drydockApplicationFixture) {
 	t.Helper()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}
 	checkpoints, err := NewWorkspaceCheckpointService(fixture.state, capabilities)
@@ -21,11 +21,11 @@ func authorizeDrydockRestoreForTest(t *testing.T, fixture drydockApplicationFixt
 		t.Fatal(err)
 	}
 	fixture.service.WithCheckpointService(checkpoints)
-	_, err = NewRunExecutionPermissionService(fixture.state, capabilities).Change(t.Context(),
-		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: string(domain.RunExecutionPermissionApproval),
-			OperationKey: "authorize-reviewed-restore", RequestedBy: "operator", Reason: "Review explicit restoration", ConfirmUserApproval: true})
-	if err != nil {
-		t.Fatal(err)
+	// Ask is the initial preference; each restore or fork still needs its own
+	// exact confirmation against the reviewed checkpoint and current identity.
+	permission, err := fixture.state.GetRunExecutionPermission(t.Context(), fixture.run.ID)
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk {
+		t.Fatalf("initial Drydock restore permission=%+v err=%v", permission, err)
 	}
 	run, err := fixture.state.GetRun(t.Context(), fixture.run.ID)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestThreadDrydockRestoresHistoricalCheckpointWithCurrentIdentityAndRecovers
 	}
 	currentFixture := f
 	currentFixture.run = continued.Run
-	authorizeDrydockRestoreForTest(t, currentFixture)
+	prepareDrydockRestoreForTest(t, currentFixture)
 	interrupted := &interruptDrydockRestoreStore{SQLiteStore: f.state, once: true}
 	service, err := NewDrydockService(interrupted, f.executor)
 	if err != nil {

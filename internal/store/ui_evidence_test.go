@@ -222,7 +222,7 @@ func TestUIEvidenceStartupReconciliationNeverTurnsNotRunGreen(t *testing.T) {
 func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "ui-evidence-v118.db")
-	state, err := Open(databasePath)
+	state, err := openHistoricalMigrationFixture(t, databasePath, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) 
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	mission, runRecord, err := application.NewRunService(state).Create(ctx,
+	mission, runRecord, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve schema v118 state across v119",
 			Profile: "code", WorkspaceID: workspace.ID,
 			Budget: domain.Budget{MaxTurns: 2, MaxTokens: 500, MaxToolCalls: 4}})

@@ -26,6 +26,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/runner"
@@ -1958,7 +1959,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: SkillPackageInstallPath, Method: http.MethodPost,
 			OperationID: "installSkillPackage", Summary: "Install one inert Skill package",
 			Tag:         "Control",
-			Description: "Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.",
+			Description: "Stages one explicitly confirmed package in the existing Plugin lifecycle. Versioned Plugin results identify the actual installation; legacy results are returned only when recovering an already durable legacy intent. Installation executes no scripts, commands or Provider calls. Capabilities require separate Plugin review.",
 			DataType:    reflect.TypeOf(SkillPackageInstallView{}),
 			RequestType: reflect.TypeOf(SkillPackageInstallRequestView{}), Control: true,
 			Parameters: []openAPIParameter{
@@ -2121,6 +2122,9 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 		dataSchema := registry.ref(spec.DataType)
 		if spec.Path == SessionSteeringPromotionPathTemplate {
 			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(SessionSteeringPromotionRejectionView{}))}}
+		}
+		if spec.OperationID == "installSkillPackage" {
+			dataSchema = map[string]any{"oneOf": []any{dataSchema, registry.ref(reflect.TypeOf(PluginSkillInstallView{}))}}
 		}
 		if spec.Collection {
 			dataSchema = map[string]any{"type": "array", "items": dataSchema}
@@ -2346,6 +2350,12 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 		return r.schema(valueType)
 	}
 	name := valueType.Name()
+	if strings.HasSuffix(valueType.PkgPath(), "/toolcontract") {
+		name = "ToolContract" + name
+	}
+	if valueType == reflect.TypeOf(skills.Manifest{}) {
+		name = "SkillPackageManifest"
+	}
 	if valueType == reflect.TypeOf(repository.Change{}) {
 		name = "RepositoryChange"
 	}
@@ -2529,6 +2539,9 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 }
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
+	if typeName == "BoundedCommandGrantView" && fieldName == "each_command_requires_review" {
+		schema["enum"] = []bool{true}
+	}
 	if typeName == "SessionSteeringRevisionRequestView" && fieldName == "content" {
 		schema["minLength"], schema["maxLength"] = 0, domain.MaxOperatorSteeringContentBytes
 	}
@@ -3237,7 +3250,8 @@ var openAPIFieldEnums = map[string][]string{
 	"AgentCodeToolCapabilityView.class":                        {string(toolgateway.ClassWorkspaceRead), string(toolgateway.ClassWorkspaceWrite)},
 	"AgentCodeToolCapabilityView.source":                       {toolgateway.AgentCodeRegistryVersion},
 	"AgentCodeToolCapabilityView.approval":                     {"automatic", "proposal_then_operator_review", "approved_proposal_only"},
-	"SkillPackageInstallRequestView.version":                   {skills.PackageInstallationProtocolVersion},
+	"SkillPackageInstallRequestView.version":                   {skills.PackageInstallationProtocolVersion, plugins.PortableInstallationProtocol},
+	"PluginSkillInstallView.protocol_version":                  {plugins.PortableInstallationProtocol},
 	"SkillPackageInstallRequestView.surface":                   {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
 	"SkillPackageInstallView.protocol_version":                 {skills.PackageInstallationProtocolVersion},
 	"SkillPackageInstallView.surface":                          {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
@@ -3353,18 +3367,20 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadMessageView.provenance_version":                     {session.LegacyContextProvenanceVersion, session.ContextProvenanceVersion},
 	"ThreadMessageView.source_kind":                            {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceImage, session.SourceUploadedFile, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
 	"ThreadMessageView.status":                                 {"pending", "committed", "cancelled"},
-	"ThreadExecutionPermissionView.protocol_version":           {domain.ThreadExecutionPermissionProtocolVersion},
-	"ThreadExecutionPermissionView.mode":                       {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
-	"ThreadExecutionPermissionView.approval_policy":            {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalOutOfScopeExactOnce), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone)},
-	"ThreadExecutionPermissionView.command_scope":              {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandSandboxedWorkspace), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent)},
-	"ThreadExecutionPermissionView.filesystem_scope":           {string(domain.ExecutionPermissionFilesystemWorkspaceGuarded), string(domain.ExecutionPermissionFilesystemHostFull)},
-	"ThreadExecutionPermissionView.network_scope":              {string(domain.ExecutionPermissionNetworkDisabled), string(domain.ExecutionPermissionNetworkHost)},
+	"ThreadExecutionPermissionView.protocol_version":           {domain.ThreadExecutionPermissionProtocolVersion, domain.ThreadApprovalPermissionProtocolVersion},
+	"ThreadExecutionPermissionView.mode":                       {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), "ask", "auto", "full"},
+	"ThreadExecutionPermissionView.approval_mode":              {"ask", "auto", "full"},
+	"ThreadExecutionPermissionView.full_activation":            {"inactive", "active", "unavailable"},
+	"ThreadExecutionPermissionView.approval_policy":            {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalOutOfScopeExactOnce), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone), "per_operation"},
+	"ThreadExecutionPermissionView.command_scope":              {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandSandboxedWorkspace), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent), "per_operation"},
+	"ThreadExecutionPermissionView.filesystem_scope":           {string(domain.ExecutionPermissionFilesystemWorkspaceGuarded), string(domain.ExecutionPermissionFilesystemHostFull), "per_operation"},
+	"ThreadExecutionPermissionView.network_scope":              {string(domain.ExecutionPermissionNetworkDisabled), string(domain.ExecutionPermissionNetworkHost), "per_operation"},
 	"ThreadExecutionPermissionView.risk_tier":                  {string(domain.ExecutionRiskMinimal), string(domain.ExecutionRiskElevated), string(domain.ExecutionRiskHigh)},
-	"ThreadExecutionPermissionView.required_gate":              {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess)},
-	"ThreadExecutionPermissionView.policy_version":             {domain.RunExecutionPermissionPolicyVersion},
-	"ThreadExecutionPermissionControlRequestView.mode":         {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"ThreadExecutionPermissionView.required_gate":              {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess), "operation_authority"},
+	"ThreadExecutionPermissionView.policy_version":             {domain.RunExecutionPermissionPolicyVersion, domain.OperationPermissionPolicyVersion},
+	"ThreadExecutionPermissionControlRequestView.mode":         {"ask", "auto", "full"},
 	"ThreadExecutionPermissionControlView.current_run_effect":  {string(domain.ThreadExecutionPermissionApplied), string(domain.ThreadExecutionPermissionPausedAndApplied), string(domain.ThreadExecutionPermissionDeferred), string(domain.ThreadExecutionPermissionNoActiveRun)},
-	"ThreadExecutionPermissionControlView.current_run_mode":    {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"ThreadExecutionPermissionControlView.current_run_mode":    {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), "ask", "auto", "full"},
 	"ThreadLifecycleControlRequestView.version":                {domain.ThreadLifecycleProtocolVersion},
 	"ThreadLifecycleControlView.version":                       {domain.ThreadLifecycleProtocolVersion},
 	"ThreadExportView.protocol_version":                        {domain.ThreadExportProtocolVersion},
@@ -3384,16 +3400,18 @@ var openAPIFieldEnums = map[string][]string{
 	"RunExecutionProfileView.required_gate":                    {string(domain.ExecutionGateNone), string(domain.ExecutionGateDockerProductionStart), string(domain.ExecutionGateLocalOSSandbox)},
 	"RunExecutionProfileView.policy_version":                   {domain.RunExecutionProfilePolicyVersion},
 	"RunExecutionProfileControlRequestView.profile":            {string(domain.RunExecutionProfilePreview), string(domain.RunExecutionProfileDocker), string(domain.RunExecutionProfileLocal)},
-	"RunExecutionPermissionView.protocol_version":              {domain.RunExecutionPermissionProtocolVersion},
-	"RunExecutionPermissionView.mode":                          {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
-	"RunExecutionPermissionView.approval_policy":               {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalOutOfScopeExactOnce), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone)},
-	"RunExecutionPermissionView.command_scope":                 {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandSandboxedWorkspace), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent)},
-	"RunExecutionPermissionView.filesystem_scope":              {string(domain.ExecutionPermissionFilesystemWorkspaceGuarded), string(domain.ExecutionPermissionFilesystemHostFull)},
-	"RunExecutionPermissionView.network_scope":                 {string(domain.ExecutionPermissionNetworkDisabled), string(domain.ExecutionPermissionNetworkHost)},
+	"RunExecutionPermissionView.protocol_version":              {domain.RunExecutionPermissionProtocolVersion, domain.RunApprovalPermissionProtocolVersion},
+	"RunExecutionPermissionView.mode":                          {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), "ask", "auto", "full"},
+	"RunExecutionPermissionView.approval_mode":                 {"ask", "auto", "full"},
+	"RunExecutionPermissionView.full_activation":               {"inactive", "active", "unavailable"},
+	"RunExecutionPermissionView.approval_policy":               {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalOutOfScopeExactOnce), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone), "per_operation"},
+	"RunExecutionPermissionView.command_scope":                 {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandSandboxedWorkspace), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent), "per_operation"},
+	"RunExecutionPermissionView.filesystem_scope":              {string(domain.ExecutionPermissionFilesystemWorkspaceGuarded), string(domain.ExecutionPermissionFilesystemHostFull), "per_operation"},
+	"RunExecutionPermissionView.network_scope":                 {string(domain.ExecutionPermissionNetworkDisabled), string(domain.ExecutionPermissionNetworkHost), "per_operation"},
 	"RunExecutionPermissionView.risk_tier":                     {string(domain.ExecutionRiskMinimal), string(domain.ExecutionRiskElevated), string(domain.ExecutionRiskHigh)},
-	"RunExecutionPermissionView.required_gate":                 {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess)},
-	"RunExecutionPermissionView.policy_version":                {domain.RunExecutionPermissionPolicyVersion},
-	"RunExecutionPermissionControlRequestView.mode":            {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"RunExecutionPermissionView.required_gate":                 {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess), "operation_authority"},
+	"RunExecutionPermissionView.policy_version":                {domain.RunExecutionPermissionPolicyVersion, domain.OperationPermissionPolicyVersion},
+	"RunExecutionPermissionControlRequestView.mode":            {"ask", "auto", "full"},
 	"RunBrowserCDPPermissionView.protocol_version":             {domain.RunBrowserCDPPermissionProtocolVersion},
 	"RunBrowserCDPPermissionView.mode":                         {string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug)},
 	"RunBrowserCDPPermissionView.risk_tier":                    {string(domain.ExecutionRiskMinimal), string(domain.ExecutionRiskHigh)},
@@ -3428,7 +3446,7 @@ var openAPIFieldEnums = map[string][]string{
 	"RunExecutionInteractionControlRequestView.mode":           {string(domain.RunExecutionInteractionPreview), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionDebug), string(domain.RunExecutionInteractionCyber)},
 	"RunExecutionInteractionControlRequestView.trust":          {string(domain.WorkspaceTrustUntrusted), string(domain.WorkspaceTrustTrusted)},
 	"RunCapabilityReadinessView.protocol_version":              {application.RunCapabilityReadinessProtocolVersion},
-	"CapabilityReadinessOptionView.value":                      {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), string(domain.RunExecutionProfilePreview), string(domain.RunExecutionProfileDocker), string(domain.RunExecutionProfileLocal), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionCyber), string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug), application.StandardCodePresetValue},
+	"CapabilityReadinessOptionView.value":                      {"ask", "auto", "full", string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), string(domain.RunExecutionProfilePreview), string(domain.RunExecutionProfileDocker), string(domain.RunExecutionProfileLocal), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionCyber), string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug), application.StandardCodePresetValue},
 	"CapabilityReadinessOptionView.blocked_by":                 {string(application.CapabilityBlockerRunNotQuiescent), string(application.CapabilityBlockerExecutionLeaseActive), string(application.CapabilityBlockerStartupGateClosed), string(application.CapabilityBlockerCapabilityUnimplemented), string(application.CapabilityBlockerSurfaceMismatch), string(application.CapabilityBlockerProfileMismatch), string(application.CapabilityBlockerPermissionMismatch), string(application.CapabilityBlockerWorkspaceUntrusted), string(application.CapabilityBlockerSandboxUnproven), string(application.CapabilityBlockerDockerUnavailable), string(application.CapabilityBlockerBackendNotReady)},
 	"CapabilityReadinessOptionView.remediation":                {string(application.CapabilityRemediationPauseRun), string(application.CapabilityRemediationCreateNewRun), string(application.CapabilityRemediationWaitForExecutionLease), string(application.CapabilityRemediationRestartWithStartupGate), string(application.CapabilityRemediationUpgradeApplication), string(application.CapabilityRemediationSelectRequiredSurface), string(application.CapabilityRemediationSelectRequiredProfile), string(application.CapabilityRemediationSelectRequiredPermission), string(application.CapabilityRemediationTrustWorkspace), string(application.CapabilityRemediationVerifySandbox), string(application.CapabilityRemediationInstallOrStartDocker), string(application.CapabilityRemediationRetryBackendReadiness)},
 	"RunCreationControlRequestView.version":                    {domain.RunCreationProtocolVersion},
@@ -3489,16 +3507,16 @@ var openAPIFieldEnums = map[string][]string{
 	"PlanDeliveryWorkItemControlView.applied_status":           {string(domain.WorkItemInProgress), string(domain.WorkItemCompleted)},
 	"ApprovalQueueView.protocol_version":                       {application.ApprovalQueueProtocolVersion},
 	"ApprovalPreviewView.protocol_version":                     {application.ApprovalQueueProtocolVersion},
-	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"},
+	"ApprovalPreviewView.effect":                               {"dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "mcp_server_and_tool", "command_process", "unavailable"},
 	"AgentBrowserStatusView.version":                           {"agent_browser_status.v1"},
 	"AgentBrowserStatusView.state":                             {"unavailable", "idle", "starting", "ready", "loading", "busy", "waiting_user", "failed", "closing", "closed", "cleanup_pending"},
 	"AgentBrowserCloseRequestView.version":                     {"agent_browser_close.v1"},
 	"AgentBrowserScreenshotView.mime_type":                     {"image/png"},
 	"ApprovalQueueItemView.status":                             {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
 	"ApprovalDecisionControlRequestView.version":               {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlRequestView.action":                {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlApproveForRun), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.version":                      {application.ApprovalControlProtocolVersion},
-	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlDeny)},
+	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlApproveForRun), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.status":                       {string(approval.StatusApproved), string(approval.StatusDenied)},
 	"HostCommandProposalReviewRequestView.version":             {runner.HostCommandReviewProtocolVersion},
 	"HostCommandProposalReviewRequestView.decision":            {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
@@ -3574,6 +3592,12 @@ var openAPIFieldEnums = map[string][]string{
 }
 
 var openAPIFieldMinimums = map[string]float64{
+	"ApprovalDecisionControlRequestView.grant_ttl_seconds":                   1,
+	"ApprovalDecisionControlRequestView.grant_max_uses":                      1,
+	"BoundedCommandGrantView.ttl_seconds":                                    1,
+	"BoundedCommandGrantView.max_uses":                                       1,
+	"BoundedCommandGrantView.uses_remaining":                                 0,
+	"BoundedCommandGrantView.use_ordinal":                                    1,
 	"ThreadView.version":                                                     1,
 	"ThreadRunView.ordinal":                                                  1,
 	"ThreadEventView.id":                                                     1,
@@ -3805,6 +3829,12 @@ var openAPIFieldMinimums = map[string]float64{
 }
 
 var openAPIFieldMaximums = map[string]float64{
+	"ApprovalDecisionControlRequestView.grant_ttl_seconds":              900,
+	"ApprovalDecisionControlRequestView.grant_max_uses":                 8,
+	"BoundedCommandGrantView.ttl_seconds":                               900,
+	"BoundedCommandGrantView.max_uses":                                  8,
+	"BoundedCommandGrantView.uses_remaining":                            8,
+	"BoundedCommandGrantView.use_ordinal":                               8,
 	"HostCommandProposalReviewRequestView.grant_ttl_seconds":            runner.MaxRiskEscalationGrantTTL.Seconds(),
 	"HostCommandProposalReviewRequestView.grant_max_uses":               runner.MaxRiskEscalationGrantUses,
 	"HostCommandProposalView.grant_max_uses":                            runner.MaxRiskEscalationGrantUses,
@@ -3941,7 +3971,7 @@ var openAPIFieldMaxLengths = map[string]int{
 	"FileEditProposalRequestView.proposed_text":                  fileedit.MaxContentBytes,
 	"MessageView.source_ref":                                     session.MaxContextSourceRefRunes,
 	"MessageView.content_sha256":                                 64,
-	"SkillPackageInstallRequestView.archive_base64":              base64.StdEncoding.EncodedLen(skills.MaxPackageArchiveBytes),
+	"SkillPackageInstallRequestView.archive_base64":              base64.StdEncoding.EncodedLen(plugins.MaxArchiveBytes),
 	"WorkspaceExplorerView.path":                                 workspace.MaxExplorerPathRunes,
 	"WorkspaceExplorerProvenanceView.source_ref":                 workspace.MaxExplorerPathRunes,
 	"WorkspaceExplorerProvenanceView.content_sha256":             64,

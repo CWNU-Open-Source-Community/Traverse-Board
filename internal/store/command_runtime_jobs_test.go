@@ -3,8 +3,12 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,11 +20,14 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.T) {
 	ctx := context.Background()
-	st, err := Open(filepath.Join(t.TempDir(), "command-runtime-jobs.db"))
+	databasePath := filepath.Join(t.TempDir(), "command-runtime-jobs.db")
+	st, err := Open(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +41,7 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	runs := application.NewRunService(st)
 	mission, runRecord, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "persist one fenced managed command", Profile: "code", WorkspaceID: workspace.ID,
+		Surface: "code", Phase: "deliver",
 		Budget: domain.Budget{MaxTurns: 4, MaxTokens: 1000, MaxToolCalls: 8},
 	})
 	if err != nil {
@@ -46,17 +54,25 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
-	permissionResult, err := application.NewRunExecutionPermissionService(st, capabilities).Change(ctx,
+	caps := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	permissionResult, err := application.NewRunExecutionPermissionService(st, caps).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "command-runtime-permission-0001", RequestedBy: "test_operator",
-			Reason: "enable the managed command runtime", ConfirmDangerFullAccess: true})
+			Mode: string(domain.RunExecutionPermissionFull), ConfirmFull: true,
+			OperationKey: "command-runtime-full-0001", RequestedBy: "test_operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	startedRun, err := runs.Start(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, live := caps.FullAccessGeneration(permissionResult.Permission)
+	if !live || generation == 0 {
+		t.Fatal("confirmed current Full selection did not activate its runtime grant")
+	}
+	fence, err := caps.RuntimeAuthority.IssueRunAuthorizationFence(startedRun.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,12 +139,14 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 		SessionID: startedRun.SessionID, WorkspaceID: workspace.ID, RootAgentID: root.ID,
 		WorkspaceRootSHA256: resolved.WorkspaceRootSHA256,
 		ModeSnapshotID:      mode.ID, ModeRevision: mode.Revision,
-		ProfileSnapshotID:    profileResult.Profile.ID,
-		ProfileRevision:      profileResult.Profile.Revision,
-		PermissionSnapshotID: permissionResult.Permission.ID,
-		PermissionRevision:   permissionResult.Permission.Revision,
-		PermissionMode:       permissionResult.Permission.Mode,
-		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation, LeaseOwnerID: lease.OwnerID,
+		ProfileSnapshotID:      profileResult.Profile.ID,
+		ProfileRevision:        profileResult.Profile.Revision,
+		PermissionSnapshotID:   permissionResult.Permission.ID,
+		PermissionRevision:     permissionResult.Permission.Revision,
+		PermissionMode:         permissionResult.Permission.Mode,
+		PermissionRuntimeEpoch: caps.RuntimeAuthority.RuntimeEpoch(),
+		PermissionGeneration:   generation, RunAuthorizationFence: fence,
+		LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation, LeaseOwnerID: lease.OwnerID,
 		Adapter: commandruntimeadapter.HostUnsandboxed(strings.Repeat("d", 64)),
 		OwnerID: "command-runtime-owner-1", OwnerGeneration: 1,
 		OwnerRenewedAt: now, OwnerExpiresAt: now.Add(time.Minute), IntentJSON: `{}`,
@@ -216,6 +234,53 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil || !running.OwnerRenewedAt.Equal(renewedAt) {
 		t.Fatalf("running owner heartbeat=%#v err=%v", running, err)
 	}
+	t.Run("cancelled-heartbeat-readback", func(t *testing.T) {
+		// Cancel only after the real SQLite UPDATE succeeds. The manager keeps
+		// its prior version when renewal returns an error; its terminal write
+		// below must still be able to use that version.
+		renewCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		updates := 0
+		interleavedDB := sql.OpenDB(commandRuntimeAfterUpdateConnector{
+			dsn: sqliteDSN(databasePath), afterUpdate: func(result driver.Result) {
+				changed, err := result.RowsAffected()
+				if err != nil || changed != 1 {
+					t.Fatalf("heartbeat SQL changed=%d err=%v", changed, err)
+				}
+				updates++
+				cancel()
+			},
+		})
+		interleavedDB.SetMaxOpenConns(1)
+		originalDB := st.db
+		st.db = interleavedDB
+		defer func() {
+			st.db = originalDB
+			_ = interleavedDB.Close()
+		}()
+		attempt := running
+		attempt.OwnerRenewedAt = running.OwnerRenewedAt.Add(time.Millisecond)
+		attempt.OwnerExpiresAt = attempt.OwnerRenewedAt.Add(time.Minute)
+		attempt.UpdatedAt = attempt.OwnerRenewedAt
+		attempt.Version++
+		_, err := st.UpdateCommandRuntimeJob(renewCtx, attempt, running.Version)
+		if updates != 1 || !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled heartbeat updates=%d err=%v", updates, err)
+		}
+		durable, err := st.GetCommandRuntimeJob(ctx, running.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("heartbeat owner=%s generation=%d expected=%d attempted=%d durable=%d state=%s",
+			durable.OwnerID, durable.OwnerGeneration, running.Version, attempt.Version,
+			durable.Version, durable.State)
+		if durable.Version != running.Version || durable.OwnerID != running.OwnerID ||
+			durable.OwnerGeneration != running.OwnerGeneration ||
+			!durable.OwnerRenewedAt.Equal(running.OwnerRenewedAt) {
+			t.Errorf("cancelled heartbeat consumed the manager's retained version: durable=%d retained=%d",
+				durable.Version, running.Version)
+		}
+	})
 	if active, err := st.CommandRuntimeJobOwnershipActive(ctx, running); err != nil || !active {
 		t.Fatalf("active command runtime ownership=%t err=%v", active, err)
 	}
@@ -239,8 +304,13 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	terminal.Version++
 	terminal.UpdatedAt = completedAt
 	terminal, err = st.UpdateCommandRuntimeJob(ctx, terminal, running.Version)
+	t.Logf("terminal CAS owner=%s generation=%d expected=%d result=%d state=%s err=%v",
+		running.OwnerID, running.OwnerGeneration, running.Version, terminal.Version, terminal.State, err)
 	if err != nil || terminal.State != runner.CommandRuntimeJobCompleted {
 		t.Fatalf("terminal=%#v err=%v", terminal, err)
+	}
+	if _, err := st.UpdateCommandRuntimeJob(ctx, terminal, running.Version); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("already consumed terminal version did not remain a conflict: %v", err)
 	}
 	if active, err := st.CommandRuntimeJobOwnershipActive(ctx, terminal); err != nil || active {
 		t.Fatalf("terminal command runtime ownership=%t err=%v", active, err)
@@ -260,11 +330,57 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	operatorJob.LeaseOwnerID = operatorLease.OwnerID
 	operatorAttribution := domain.AgentAttribution{AgentID: root.ID,
 		Source: domain.AgentAttributionOperatorRoot}
-	if preparedOperator, replayed, err := st.PrepareCommandRuntimeJobForAgent(ctx,
-		operatorJob, operatorAttribution); err != nil || replayed ||
-		preparedOperator.ID != operatorJob.ID {
-		t.Fatalf("prepare operator-root=%#v replayed=%t err=%v",
-			preparedOperator, replayed, err)
+	if _, _, err := st.PrepareCommandRuntimeJobForAgent(ctx, operatorJob,
+		operatorAttribution); apperror.CodeOf(err) != apperror.CodePolicyDenied ||
+		!strings.Contains(err.Error(), "live host provenance") {
+		t.Fatalf("direct Store write forged operator provenance: %v", err)
+	}
+	if jobs, err := st.ListCommandRuntimeJobs(ctx,
+		runner.CommandRuntimeListFilter{RunID: startedRun.ID, Limit: 10}); err != nil || len(jobs) != 1 {
+		t.Fatalf("rejected operator write changed ledger: jobs=%#v err=%v", jobs, err)
+	}
+	expireTestRunExecutionLease(t, ctx, st, operatorLease)
+	probe := &commandLedgerOperatorPrepareStore{SQLiteStore: st}
+	manager, err := runner.NewPlatformCommandRuntimeManager(probe, "command-ledger-operator-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(shutdownCtx); err != nil {
+			t.Error(err)
+		}
+	}()
+	service, err := application.NewCommandRuntimeService(st, manager, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goExecutable, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal("native Go fixture is required", err)
+	}
+	operatorSpec := resolved.Spec
+	operatorSpec.Executable, operatorSpec.Arguments = goExecutable, []string{"version"}
+	operatorSpec.TimeoutMilliseconds = 10000
+	request := application.OperatorCommandRequest{RunID: startedRun.ID,
+		OperationKey: "command-ledger-native-operator", RequestedBy: "test_operator",
+		Command: operatorSpec, ConfirmExecution: true}
+	operatorResult, err := service.RunOperatorCommand(ctx, request)
+	if err != nil || operatorResult.Replayed || operatorResult.Job.State != runner.CommandRuntimeJobCompleted ||
+		!operatorResult.Job.TreeReaped || operatorResult.Job.PID <= 0 ||
+		!strings.HasPrefix(operatorResult.Job.Stdout, "go version ") {
+		t.Fatalf("native operator result=%#v err=%v", operatorResult, err)
+	}
+	if probe.prepares != 1 || !probe.privateProvenance || probe.attribution != operatorAttribution ||
+		probe.prepared.ID != operatorResult.Job.ID {
+		t.Fatalf("operator did not cross the real manager preparation boundary: %#v", probe)
+	}
+	operatorJob = probe.prepared
+	var operatorInvocation int
+	if err := st.db.QueryRowContext(ctx, `SELECT operator_invocation FROM command_runtime_jobs WHERE id = ?`,
+		operatorJob.ID).Scan(&operatorInvocation); err != nil || operatorInvocation != 1 {
+		t.Fatalf("stored operator invocation=%d err=%v", operatorInvocation, err)
 	}
 	storedOperator, err := st.GetThreadCommandRuntimeJobAgentAttribution(ctx,
 		threadRecord.ID, operatorJob.ID)
@@ -282,7 +398,16 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 		rootAttribution); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("operator-root replay accepted Agent-attempt substitution: %v", err)
 	}
-	supervisorJob := operatorJob
+	if replay, err := service.RunOperatorCommand(ctx, request); err != nil || !replay.Replayed ||
+		replay.Job.ID != operatorResult.Job.ID || replay.Job.Version != operatorResult.Job.Version ||
+		replay.Job.PID != operatorResult.Job.PID || probe.prepares != 1 {
+		t.Fatalf("terminal operator replay restarted preparation: result=%#v prepares=%d err=%v", replay, probe.prepares, err)
+	}
+	supervisorJob := job
+	supervisorLease := acquireTestRunExecutionLease(t, ctx, st, startedRun.ID)
+	supervisorJob.LeaseID = supervisorLease.LeaseID
+	supervisorJob.LeaseGeneration = supervisorLease.Generation
+	supervisorJob.LeaseOwnerID = supervisorLease.OwnerID
 	supervisorJob.ID = "command-job-ledger-supervisor-root"
 	supervisorJob.OperationDigest = testCommandRuntimeDigest("operation-supervisor-root")
 	supervisorJob.RequestFingerprint = testCommandRuntimeDigest("request-supervisor-root")
@@ -321,6 +446,57 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if _, err := st.UpdateCommandRuntimeJob(ctx, mutated, terminal.Version); err == nil {
 		t.Fatal("immutable command runtime ownership was changed")
 	}
+}
+
+// This connector uses the production SQLite driver, with one scheduling point
+// after an UPDATE and before the store reads the resulting row back.
+type commandRuntimeAfterUpdateConnector struct {
+	dsn         string
+	afterUpdate func(driver.Result)
+}
+
+func (c commandRuntimeAfterUpdateConnector) Connect(context.Context) (driver.Conn, error) {
+	conn, err := c.Driver().Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &commandRuntimeAfterUpdateConn{SQLiteConn: conn.(*sqlite3.SQLiteConn), afterUpdate: c.afterUpdate}, nil
+}
+
+func (commandRuntimeAfterUpdateConnector) Driver() driver.Driver { return &sqlite3.SQLiteDriver{} }
+
+type commandRuntimeAfterUpdateConn struct {
+	*sqlite3.SQLiteConn
+	afterUpdate func(driver.Result)
+}
+
+func (c *commandRuntimeAfterUpdateConn) ExecContext(ctx context.Context, query string,
+	args []driver.NamedValue,
+) (driver.Result, error) {
+	result, err := c.SQLiteConn.ExecContext(ctx, query, args)
+	if err == nil && strings.HasPrefix(query, "UPDATE command_runtime_jobs SET") {
+		c.afterUpdate(result)
+	}
+	return result, err
+}
+
+// Observe the public manager/store boundary without fabricating its private
+// preparation marker or substituting a fake process starter.
+type commandLedgerOperatorPrepareStore struct {
+	*SQLiteStore
+	prepared          runner.CommandRuntimeJob
+	attribution       domain.AgentAttribution
+	privateProvenance bool
+	prepares          int
+}
+
+func (s *commandLedgerOperatorPrepareStore) PrepareCommandRuntimeJobForAgent(ctx context.Context,
+	job runner.CommandRuntimeJob, attribution domain.AgentAttribution,
+) (runner.CommandRuntimeJob, bool, error) {
+	s.prepares++
+	s.prepared, s.attribution = job, attribution
+	s.privateProvenance = runner.OperatorCommandJobPrepared(ctx, job)
+	return s.SQLiteStore.PrepareCommandRuntimeJobForAgent(ctx, job, attribution)
 }
 
 func testCommandRuntimeDigest(value string) string {

@@ -264,7 +264,7 @@ func TestDockerRuntimeInputResourceLedgerIsReplayableFencedAndMetadataOnly(t *te
 func TestSchemaV63PreservesV62CleanupWithoutFabricatingStartGateReview(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-start-gate-v62.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	cleanup, application := prepareCompletedDockerRuntimeInputResourceCleanupForReviewTest(
 		t, ctx, st, run.ID, root, "start-gate-upgrade")
 	for _, statement := range removeSchemaV63ForTestStatements() {
@@ -372,7 +372,7 @@ func TestDockerStartGateReviewConvergesAcrossStores(t *testing.T) {
 func TestSchemaV62PreservesV61ApplicationWithoutFabricatingResourceRecords(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-runtime-input-resources-v61.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
 	application, _ := prepareCompletedDockerRuntimeInputApplicationForResourceTest(
 		t, ctx, st, run.ID, root, "runtime-resource-upgrade")
 	for _, statement := range removeSchemaV62ForTestStatements() {

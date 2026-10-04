@@ -77,7 +77,7 @@ func (s commandRuntimeSandboxStarter) Available() bool {
 		s.executor.Identity().Executable()
 }
 
-func (s commandRuntimeSandboxStarter) Start(_ context.Context,
+func (s commandRuntimeSandboxStarter) Start(ctx context.Context,
 	scope CommandRuntimeScope, spec CommandRuntimeResolvedSpec,
 ) (commandRuntimeProcess, error) {
 	if !s.Available() || !scope.Adapter.SameBackend(s.executor.Identity()) ||
@@ -87,7 +87,11 @@ func (s commandRuntimeSandboxStarter) Start(_ context.Context,
 			spec.Spec.StdinPolicy != CommandRuntimeStdinPipe) {
 		return nil, ErrCommandRuntimeBoundary
 	}
-	return newCommandRuntimeSandboxProcess(s.executor, scope, spec), nil
+	owned, err := ownedCommandRuntimeDispatchContext(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	return newCommandRuntimeSandboxProcess(owned, s.executor, scope, spec), nil
 }
 
 type commandRuntimeSandboxProcess struct {
@@ -106,7 +110,7 @@ type commandRuntimeSandboxProcess struct {
 	waitErr      error
 }
 
-func newCommandRuntimeSandboxProcess(executor CommandRuntimeSandboxExecutor,
+func newCommandRuntimeSandboxProcess(parent context.Context, executor CommandRuntimeSandboxExecutor,
 	scope CommandRuntimeScope, spec CommandRuntimeResolvedSpec,
 ) *commandRuntimeSandboxProcess {
 	var stdinReader *io.PipeReader
@@ -116,7 +120,7 @@ func newCommandRuntimeSandboxProcess(executor CommandRuntimeSandboxExecutor,
 	}
 	stdoutReader, stdoutWriter := io.Pipe()
 	stderrReader, stderrWriter := io.Pipe()
-	executionContext, cancel := context.WithCancel(context.Background())
+	executionContext, cancel := context.WithCancel(context.WithoutCancel(parent))
 	process := &commandRuntimeSandboxProcess{cancel: cancel,
 		stdinReader: stdinReader, stdinWriter: stdinWriter,
 		stdoutReader: stdoutReader, stdoutWriter: stdoutWriter,

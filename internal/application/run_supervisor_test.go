@@ -1834,10 +1834,10 @@ func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
 	}
 	permission, err := application.NewRunExecutionPermissionService(st, capabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "terminal-runtime-revocation-permission-0001",
 			RequestedBy:  "operator", Reason: "authorize the bounded test runtime",
-			ConfirmDangerFullAccess: true,
+			ConfirmFull: true,
 		})
 	if err != nil {
 		t.Fatal(err)

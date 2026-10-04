@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Globe2, LoaderCircle, ShieldCheck } from "lucide-react";
 import type { CyberAgentClient } from "../../api/client";
@@ -81,16 +82,22 @@ function remediationLabel(value: ProviderSearchReadinessView | undefined): strin
 }
 
 export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
-  variant = "settings", onOpenModelSettings }: {
+  variant = "settings", onOpenModelSettings, onConfirmationOpenChange }: {
   client: CyberAgentClient;
   threadID?: string;
   runID: string;
   variant?: "menu" | "settings";
   onOpenModelSettings?: () => void;
+  // Keep this instance's host open while its confirmation is portalled to body.
+  onConfirmationOpenChange?: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  useEffect(() => {
+    onConfirmationOpenChange?.(confirmOpen);
+    return () => onConfirmationOpenChange?.(false);
+  }, [confirmOpen, onConfirmationOpenChange]);
   const [open, setOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
@@ -140,7 +147,7 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
     },
   });
   useEffect(() => {
-    if (!open) return;
+    if (!open || confirmOpen) return;
     const closeOutside = (event: PointerEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -157,7 +164,7 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
       window.removeEventListener("pointerdown", closeOutside);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open]);
+  }, [open, confirmOpen]);
   const begin = () => {
     mutation.reset();
     if (mutable && additions.length > 0 && invalid.length === 0) setConfirmOpen(true);
@@ -220,7 +227,9 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
   return <div className={`v2-run-network-control is-${variant}`} ref={shellRef}>
     {variant === "menu" ? <>
       <button aria-expanded={open} aria-haspopup="dialog" aria-label="网页访问状态"
-        className="v2-composer-chip" disabled={!runID} onClick={() => setOpen((value) => !value)}
+        className="v2-composer-chip" disabled={!runID} onClick={() => {
+          if (!confirmOpen) setOpen((value) => !value);
+        }}
         ref={menuTriggerRef} type="button">
         {publicHTTPS || current.length > 0 ? <Globe2 aria-hidden="true" size={14} />
           : <ShieldCheck aria-hidden="true" size={14} />}
@@ -233,9 +242,13 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
         className="v2-run-network-popover v2-run-network-authority"
         role="dialog">{body}</section>}
     </> : <section className="v2-run-network-authority">{body}</section>}
-    <V2ConfirmDialog busy={mutation.isPending} confirmLabel="允许这些主机" danger
+    {confirmOpen && createPortal(<V2ConfirmDialog busy={mutation.isPending} confirmLabel="允许这些主机" danger
       description={`当前任务及其后续执行将能访问 ${additions.length} 个新增公网 HTTPS 主机。后端仍会拒绝私网、元数据地址、DNS 重绑定、未授权重定向和非 HTTPS 请求；网页内容始终作为不可信证据。`}
-      onCancel={() => setConfirmOpen(false)} onConfirm={() => mutation.mutate()}
-      open={confirmOpen} returnFocusRef={confirmTriggerRef} title="追加网页访问范围？" />
+      onCancel={() => {
+        setConfirmOpen(false);
+        // Backdrop mousedown may move focus after the dialog cleanup runs.
+        requestAnimationFrame(() => confirmTriggerRef.current?.focus());
+      }} onConfirm={() => mutation.mutate()}
+      open returnFocusRef={confirmTriggerRef} title="追加网页访问范围？" />, document.body)}
   </div>;
 }

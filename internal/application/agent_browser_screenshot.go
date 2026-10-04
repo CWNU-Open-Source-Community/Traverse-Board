@@ -24,7 +24,7 @@ func (s *AgentBrowserService) ReadScreenshot(ctx context.Context, runID, session
 	if !ok {
 		return nil, "", agentBrowserUnavailable("browser screenshot ledger unavailable")
 	}
-	call, _, e := st.GetAgentBrowserCall(ctx, runID, callID)
+	call, _, e := st.GetSupervisorApprovalCall(ctx, runID, callID)
 	if e != nil {
 		return nil, "", e
 	}

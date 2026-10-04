@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"cyberagent-workbench/internal/application"
@@ -19,7 +20,7 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 		t.Fatal(err)
 	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
-	runs := application.NewRunService(state)
+	runs := newMigrationFixtureRunService(t, state)
 	_, run, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal:    "defer a permission preference until the successor Run",
 		Profile: "code", Budget: domain.Budget{MaxTurns: 2},
@@ -39,17 +40,9 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 		t.Fatal(err)
 	}
 
-	permissions := application.NewThreadExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
-	selected, err := permissions.Change(ctx,
-		application.ChangeThreadExecutionPermissionRequest{
-			ThreadID:               threadRecord.ID,
-			Mode:                   string(domain.RunExecutionPermissionWorkspaceAccess),
-			OperationKey:           "migration-v146-deferred-thread-permission-0001",
-			RequestedBy:            "test_operator",
-			Reason:                 "apply bounded Workspace Access to the next Run",
-			ConfirmWorkspaceAccess: true,
-		})
+	preference, selected, err := seedHistoricalThreadWorkspacePreference(ctx, state, threadRecord.ID,
+		"migration-v146-deferred-thread-permission-0001", "test_operator",
+		"apply bounded Workspace Access to the next Run")
 	if err != nil || selected.CurrentRunID != run.ID ||
 		selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
 		t.Fatalf("deferred selection=%+v err=%v", selected, err)
@@ -72,6 +65,9 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 		t.Fatal(err)
 	}
 
+	if retained, err := state.GetThreadExecutionPermission(ctx, threadRecord.ID); err != nil || !reflect.DeepEqual(retained, preference) {
+		t.Fatalf("upgrade rewrote the historical Thread preference: %+v err=%v", retained, err)
+	}
 	if _, err := runs.Cancel(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +82,9 @@ func TestSchemaV146DefersRunningThreadPermissionAndMaterializesSuccessor(t *test
 		t.Fatalf("successor=%+v err=%v", continued, err)
 	}
 	successorPermission, err := state.GetRunExecutionPermission(ctx, continued.Run.ID)
-	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		successorPermission.Revision != 2 || successorPermission.ProcessEnabled ||
+	if err != nil || successorPermission.Mode != domain.RunExecutionPermissionAsk ||
+		successorPermission.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion ||
+		successorPermission.Revision != 1 || successorPermission.ProcessEnabled ||
 		successorPermission.ExecutionAuthorized || successorPermission.CapabilityGrant {
 		t.Fatalf("successor did not materialize deferred preference: %+v err=%v",
 			successorPermission, err)

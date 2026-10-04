@@ -318,7 +318,7 @@ func TestFindingAcceptanceRemediationAndFixConvergeAcrossStores(t *testing.T) {
 }
 
 func TestSchemaV36ValidatedFindingSurvivesRemediationMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-remediation-v36.db", 1)
+	st, run, _ := createReadOnlyFanoutFixture(t, "finding-remediation-v36.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-remediation-v36-plan", "finding-remediation-v36-execution")

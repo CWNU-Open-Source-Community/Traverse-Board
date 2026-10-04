@@ -329,17 +329,18 @@ func TestSandboxExecutionCandidateRechecksLeaseAndToolBudget(t *testing.T) {
 	}
 }
 
-func newSandboxManifestTestRuntime(t *testing.T, ctx context.Context,
+func newSandboxManifestTestRuntime(t *testing.T, ctx context.Context, retained ...domain.RunExecutionPermissionMode,
 ) (*store.SQLiteStore, domain.Run, string) {
 	return newSandboxManifestTestRuntimeWithBudget(t, ctx,
-		domain.Budget{MaxTurns: 4, MaxToolCalls: 4})
+		domain.Budget{MaxTurns: 4, MaxToolCalls: 4}, retained...)
 }
 
 func newSandboxManifestTestRuntimeWithBudget(t *testing.T, ctx context.Context,
-	budget domain.Budget,
+	budget domain.Budget, retained ...domain.RunExecutionPermissionMode,
 ) (*store.SQLiteStore, domain.Run, string) {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
+	database := filepath.Join(t.TempDir(), "cyberagent.db")
+	st, err := store.Open(database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +360,12 @@ func newSandboxManifestTestRuntimeWithBudget(t *testing.T, ctx context.Context,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(retained) != 0 {
+		if len(retained) != 1 {
+			t.Fatal("one retained fixture mode required")
+		}
+		seedRetainedNativePermission(t, database, st, run.ID, retained[0])
 	}
 	return st, run, root
 }

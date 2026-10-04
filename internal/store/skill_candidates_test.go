@@ -134,7 +134,9 @@ func TestSkillCandidateRequiresHumanReviewBeforeImport(t *testing.T) {
 	})
 	if err != nil || imported.Record.Status() != skills.SkillCandidateImported ||
 		imported.Record.Import == nil ||
-		imported.InstalledPackage.Installation.PackageFingerprint != candidate.PackageFingerprint {
+		imported.Installation == nil || imported.Installation.Snapshot.Legacy.PackageFingerprint != candidate.PackageFingerprint ||
+		imported.Record.Import.ProtocolVersion != skills.SkillCandidatePluginImportProtocolVersion ||
+		imported.InstalledPackage.Installation.ID != "" {
 		t.Fatalf("imported candidate=%#v err=%v", imported, err)
 	}
 	imported, err = service.Import(ctx, application.ImportSkillCandidateRequest{
@@ -149,7 +151,7 @@ func TestSkillCandidateRequiresHumanReviewBeforeImport(t *testing.T) {
 	for _, query := range []string{
 		`UPDATE skill_candidates SET content = 'changed' WHERE id = ?`,
 		`DELETE FROM skill_candidate_reviews WHERE candidate_id = ?`,
-		`UPDATE skill_candidate_imports SET imported_by = 'changed' WHERE candidate_id = ?`,
+		`UPDATE skill_candidate_plugin_imports SET imported_by = 'changed' WHERE candidate_id = ?`,
 	} {
 		if _, err := st.db.ExecContext(ctx, query, candidate.ID); err == nil {
 			t.Fatalf("immutable candidate ledger mutation succeeded: %s", query)
@@ -219,15 +221,11 @@ func seedSkillCandidateInvocation(t *testing.T, st *SQLiteStore, run domain.Run,
 
 func TestSchemaV112AddsEmptySkillCandidateLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v111-skill-candidates.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 111)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV112ForTestStatements() {
-		if _, err := st.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v112 with %q: %v", statement, err)
-		}
-	}
+	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

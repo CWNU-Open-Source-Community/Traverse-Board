@@ -462,40 +462,25 @@ func containsCommandRuntimeAdapter(installed []commandruntimeadapter.Identity,
 }
 
 func (p capabilityReadinessProjection) permissionOptions() []CapabilityReadinessOption {
-	modes := []domain.RunExecutionPermissionMode{
-		domain.RunExecutionPermissionConservative,
-		domain.RunExecutionPermissionWorkspaceAccess,
-		domain.RunExecutionPermissionApproval,
-		domain.RunExecutionPermissionFullAccess,
-		domain.RunExecutionPermissionDebug,
-	}
+	modes := []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull}
 	options := make([]CapabilityReadinessOption, 0, len(modes))
 	for _, target := range modes {
-		builder := newReadinessOption(string(target), p.permission.Mode == target)
-		selectable := p.runQuiescent()
-		p.addRunStateBlocker(builder)
-		gateAvailable := p.runtime.ExecutionPermissionCapabilities.Allows(target)
-		if !p.runtime.ExecutionPermissionControlEnabled || !gateAvailable {
+		builder := newReadinessOption(string(target), p.permission.Mode.ApprovalPreference() == domain.ExecutionApprovalMode(target))
+		selectable := p.runQuiescent() || domain.PermissionTransitionRevokes(p.permission.Mode, target)
+		if !selectable {
+			p.addRunStateBlocker(builder)
+		}
+		available := p.runtime.ExecutionPermissionCapabilities.Allows(target)
+		if !p.runtime.ExecutionPermissionControlEnabled || !available {
 			selectable = false
-			builder.add(CapabilityBlockerStartupGateClosed,
-				CapabilityRemediationRestartWithStartupGate)
+			builder.add(CapabilityBlockerStartupGateClosed, CapabilityRemediationRestartWithStartupGate)
 		}
-		runtimeAvailable := gateAvailable
-		if target == domain.RunExecutionPermissionConservative {
-			runtimeAvailable = true
-		}
-		if target == domain.RunExecutionPermissionWorkspaceAccess &&
-			!p.anyWorkspaceSandboxReady() {
-			runtimeAvailable = false
-			builder.add(CapabilityBlockerSandboxUnproven,
-				CapabilityRemediationVerifySandbox)
-		}
-		if target == domain.RunExecutionPermissionFullAccess &&
-			p.permission.Mode == target &&
-			!p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission) {
-			runtimeAvailable = false
-			builder.add(CapabilityBlockerPermissionMismatch,
-				CapabilityRemediationSelectRequiredPermission)
+		runtimeAvailable := available
+		if target == domain.RunExecutionPermissionFull {
+			runtimeAvailable = available && p.permission.Mode == target && p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission)
+			if available && p.permission.Mode == target && !runtimeAvailable {
+				builder.add(CapabilityBlockerPermissionMismatch, CapabilityRemediationSelectRequiredPermission)
+			}
 		}
 		options = append(options, builder.finish(selectable, runtimeAvailable))
 	}
@@ -641,7 +626,7 @@ func (p capabilityReadinessProjection) browserCDPOptions() []CapabilityReadiness
 		}
 		if target == domain.RunBrowserCDPPermissionFullDebug {
 			executionCeilingSelected :=
-				p.permission.Mode == domain.RunExecutionPermissionFullAccess ||
+				p.permission.Mode.IsFullPreference() ||
 					p.permission.Mode == domain.RunExecutionPermissionDebug
 			executionLive := executionCeilingSelected &&
 				p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission)
@@ -664,7 +649,7 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 		p.interaction.Mode == domain.RunExecutionInteractionControlled &&
 		p.interaction.ExecutionProfile == p.profile.Profile &&
 		p.interaction.ExecutionProfileRevision == p.profile.Revision &&
-		p.permission.Mode == domain.RunExecutionPermissionWorkspaceAccess &&
+		(p.permission.Mode == domain.RunExecutionPermissionWorkspaceAccess || p.permission.Mode.IsApprovalMode()) &&
 		p.cdp.Mode == domain.RunBrowserCDPPermissionRestricted && p.drydockReady
 	builder := newReadinessOption(StandardCodePresetValue, selected)
 	selectable := p.runtime.StandardCodePresetEnabled && p.runQuiescent() && !p.activeLease
@@ -840,7 +825,7 @@ func (r RunCapabilityReadiness) Validate() error {
 		expected    []string
 		maxSelected int
 	}{
-		{"permissions", r.Permissions, []string{"conservative", "workspace_access", "approval", "full_access", "debug"}, 1},
+		{"permissions", r.Permissions, []string{"ask", "auto", "full"}, 1},
 		{"profiles", r.Profiles, []string{"preview", "docker", "local"}, 1},
 		{"interactions", r.Interactions, []string{"preview", "controlled", "debug", "cyber"}, 1},
 		{"browser CDP permissions", r.BrowserCDPPermissions, []string{"restricted", "full_debug"}, 1},

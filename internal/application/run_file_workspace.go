@@ -93,6 +93,35 @@ func runHasOwnedFileWorkspace(ctx context.Context, store any, runID string) (boo
 func ResolveRunFileWorkspace(ctx context.Context, store RunFileWorkspaceStore,
 	run domain.Run, mission domain.Mission, drydocks *DrydockService,
 ) (RunFileWorkspace, error) {
+	files, err := resolveRunFileWorkspaceControl(ctx, store, run, mission, drydocks)
+	if err != nil || files.Drydock == nil {
+		return files, err
+	}
+	owned := *files.Drydock
+	exact, _, _, err := drydocks.loadExactDrydock(ctx, run.ID, owned.Generation, false)
+	if err != nil {
+		return RunFileWorkspace{}, err
+	}
+	if exact.ID != owned.ID || exact.WorkspaceID != owned.WorkspaceID ||
+		exact.RunID != owned.RunID || exact.MissionID != mission.ID ||
+		exact.SessionID != owned.SessionID || exact.SourceWorkspaceID != files.Source.ID ||
+		exact.Generation != owned.Generation ||
+		(exact.State != drydock.StateReady && exact.State != drydock.StateDelivered) {
+		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
+			"Run file workspace Drydock ownership changed during inspection")
+	}
+	return RunFileWorkspace{Source: files.Source,
+		Workspace: session.WorkspaceInfo{ID: exact.WorkspaceID, Name: exact.Name, RootPath: exact.Path},
+		Drydock:   &exact}, nil
+}
+
+// Dispatch authority rechecks the durable ownership without recursively
+// invoking Git from inside a Git dispatch guard. The ordinary resolver above
+// retains the full physical inspection before review/execution; native sinks
+// additionally bind the physical root and compare their actual Git inputs.
+func resolveRunFileWorkspaceControl(ctx context.Context, store RunFileWorkspaceStore,
+	run domain.Run, mission domain.Mission, drydocks *DrydockService,
+) (RunFileWorkspace, error) {
 	if store == nil || run.ID == "" || run.MissionID != mission.ID ||
 		run.SessionID == "" || strings.TrimSpace(mission.WorkspaceID) == "" {
 		return RunFileWorkspace{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -158,21 +187,9 @@ func ResolveRunFileWorkspace(ctx context.Context, store RunFileWorkspaceStore,
 		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
 			"Run file workspace Drydock binding changed")
 	}
-	exact, _, _, err := drydocks.loadExactDrydock(ctx, run.ID, owned.Generation, false)
-	if err != nil {
-		return RunFileWorkspace{}, err
-	}
-	if exact.ID != owned.ID || exact.WorkspaceID != owned.WorkspaceID ||
-		exact.RunID != owned.RunID || exact.MissionID != mission.ID ||
-		exact.SessionID != owned.SessionID || exact.SourceWorkspaceID != source.ID ||
-		exact.Generation != owned.Generation ||
-		(exact.State != drydock.StateReady && exact.State != drydock.StateDelivered) {
-		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
-			"Run file workspace Drydock ownership changed during inspection")
-	}
 	return RunFileWorkspace{Source: source,
-		Workspace: session.WorkspaceInfo{ID: exact.WorkspaceID, Name: exact.Name, RootPath: exact.Path},
-		Drydock:   &exact}, nil
+		Workspace: session.WorkspaceInfo{ID: owned.WorkspaceID, Name: owned.Name, RootPath: owned.Path},
+		Drydock:   &owned}, nil
 }
 
 func requireCurrentRunFileDrydock(ctx context.Context, store any, runID string, physical drydock.Workspace) error {

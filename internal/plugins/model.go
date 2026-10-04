@@ -1,6 +1,6 @@
-// Package plugins implements inert, review-gated plugin.v1 packages. A plugin
-// can describe Skills, MCP servers, UI metadata, and declarative hooks; it can
-// never carry or execute install scripts, binaries, or native code.
+// Package plugins implements inert, review-gated plugin installation. Legacy
+// plugin.v1 archives reject executable assets. Portable source snapshots retain
+// original scripts and binary resources as data; acquisition never runs them.
 package plugins
 
 import (
@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	ProtocolVersion          = "plugin.v1"
-	SignatureProtocolVersion = "plugin-signature.v1"
-	InstallationProtocol     = "plugin-installation.v1"
-	PublisherTrustProtocol   = "plugin-publisher-trust.v1"
-	ManifestPath             = "plugin.json"
-	SignaturePath            = "SIGNATURE.json"
+	ProtocolVersion              = "plugin.v1"
+	SignatureProtocolVersion     = "plugin-signature.v1"
+	InstallationProtocol         = "plugin-installation.v1"
+	PortableInstallationProtocol = "plugin-installation.v2"
+	PublisherTrustProtocol       = "plugin-publisher-trust.v1"
+	ManifestPath                 = "plugin.json"
+	SignaturePath                = "SIGNATURE.json"
 
 	MaxArchiveBytes      = 4 * 1024 * 1024
 	MaxUncompressedBytes = 8 * 1024 * 1024
@@ -220,23 +221,30 @@ type Package struct {
 func (p Package) Archive() []byte { return slices.Clone(p.raw) }
 
 type InstallSource struct {
-	Kind   string `json:"kind"`
-	URI    string `json:"uri"`
-	Commit string `json:"commit,omitempty"`
-	SHA256 string `json:"sha256"`
+	Kind               string `json:"kind"`
+	URI                string `json:"uri"`
+	Commit             string `json:"commit,omitempty"`
+	SHA256             string `json:"sha256"`
+	Surface            string `json:"surface,omitempty"` // host-selected read scope for portable installations
+	OperationKeyDigest string `json:"operation_key_digest,omitempty"`
 }
 
 func (s InstallSource) Validate() error {
 	if s.Kind != "local_file" && s.Kind != "https" && s.Kind != "git" &&
-		s.Kind != "catalog" {
+		s.Kind != "catalog" && s.Kind != "local_directory" && s.Kind != "upload" {
 		return errors.New("plugin install source kind is invalid")
 	}
 	if !validText(s.URI, 4096, false) || !validDigest(s.SHA256) ||
-		!validText(s.Commit, 128, true) {
+		!validText(s.Commit, 128, true) || (s.Surface != "" && s.Surface != "code" && s.Surface != "cyber") ||
+		(s.OperationKeyDigest != "" && !validDigest(s.OperationKeyDigest)) {
 		return errors.New("plugin install source is invalid")
 	}
 	switch s.Kind {
-	case "local_file":
+	case "upload":
+		if s.URI != "sha256:"+s.SHA256 || s.Commit != "" {
+			return errors.New("uploaded plugin source must identify its exact archive digest")
+		}
+	case "local_file", "local_directory":
 		if !filepath.IsAbs(s.URI) || s.Commit != "" {
 			return errors.New("local plugin source requires an absolute path and no commit")
 		}
@@ -295,31 +303,31 @@ func (s State) Valid() bool {
 }
 
 type Installation struct {
-	ProtocolVersion          string        `json:"protocol_version"`
-	ID                       string        `json:"id"`
-	Manifest                 Manifest      `json:"manifest"`
-	Source                   InstallSource `json:"source"`
-	ArchiveSHA256            string        `json:"archive_sha256"`
-	PackageFingerprint       string        `json:"package_fingerprint"`
-	ArchiveBytes             int           `json:"archive_bytes"`
-	SignaturePresent         bool          `json:"signature_present"`
-	SignatureValid           bool          `json:"signature_valid"`
-	PublisherFingerprint     string        `json:"publisher_fingerprint,omitempty"`
-	PublisherPublicKey       string        `json:"publisher_public_key,omitempty"`
-	State                    State         `json:"state"`
-	EnabledCapabilities      []Capability  `json:"enabled_capabilities"`
-	Generation               int64         `json:"generation"`
-	SupersedesInstallationID string        `json:"supersedes_installation_id,omitempty"`
-	StagedBy                 string        `json:"staged_by"`
-	ReviewedBy               string        `json:"reviewed_by,omitempty"`
-	ReviewedAt               *time.Time    `json:"reviewed_at,omitempty"`
-	CreatedAt                time.Time     `json:"created_at"`
-	UpdatedAt                time.Time     `json:"updated_at"`
+	ProtocolVersion          string            `json:"protocol_version"`
+	ID                       string            `json:"id"`
+	Manifest                 Manifest          `json:"manifest"`
+	Snapshot                 *PortableSnapshot `json:"snapshot,omitempty"`
+	Source                   InstallSource     `json:"source"`
+	ArchiveSHA256            string            `json:"archive_sha256"`
+	PackageFingerprint       string            `json:"package_fingerprint"`
+	ArchiveBytes             int               `json:"archive_bytes"`
+	SignaturePresent         bool              `json:"signature_present"`
+	SignatureValid           bool              `json:"signature_valid"`
+	PublisherFingerprint     string            `json:"publisher_fingerprint,omitempty"`
+	PublisherPublicKey       string            `json:"publisher_public_key,omitempty"`
+	State                    State             `json:"state"`
+	EnabledCapabilities      []Capability      `json:"enabled_capabilities"`
+	Generation               int64             `json:"generation"`
+	SupersedesInstallationID string            `json:"supersedes_installation_id,omitempty"`
+	StagedBy                 string            `json:"staged_by"`
+	ReviewedBy               string            `json:"reviewed_by,omitempty"`
+	ReviewedAt               *time.Time        `json:"reviewed_at,omitempty"`
+	CreatedAt                time.Time         `json:"created_at"`
+	UpdatedAt                time.Time         `json:"updated_at"`
 }
 
 func (i Installation) Validate() error {
-	if i.ProtocolVersion != InstallationProtocol || !validIdentity(i.ID) ||
-		i.Manifest.Validate() != nil || i.Source.Validate() != nil ||
+	if i.validateDescription() != nil || !validIdentity(i.ID) || i.Source.Validate() != nil ||
 		!validDigest(i.ArchiveSHA256) || !validDigest(i.PackageFingerprint) ||
 		i.Source.SHA256 != i.ArchiveSHA256 || i.ArchiveBytes < 1 ||
 		i.ArchiveBytes > MaxArchiveBytes || !i.State.Valid() || i.Generation < 1 ||
@@ -343,7 +351,7 @@ func (i Installation) Validate() error {
 	}
 	seen := make(map[Capability]struct{}, len(i.EnabledCapabilities))
 	for _, capability := range i.EnabledCapabilities {
-		if !capability.Valid() || !slices.Contains(i.Manifest.Capabilities, capability) {
+		if !capability.Valid() || !slices.Contains(i.Capabilities(), capability) {
 			return errors.New("plugin installation enables an undeclared capability")
 		}
 		if _, found := seen[capability]; found {

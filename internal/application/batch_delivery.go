@@ -18,10 +18,10 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 )
 
@@ -773,12 +773,17 @@ func (s *BatchDeliveryService) runBatchDeliveryValidations(ctx context.Context,
 ) ([]domain.BatchDeliveryTestReceipt, error) {
 	results := make([]domain.BatchDeliveryTestReceipt, 0, len(requirements))
 	for _, requirement := range requirements {
+		starter := runner.NewPlatformOnceProcessStarter()
 		if requirement.Kind != domain.BatchValidationGitDiffCheck {
 			if err := s.authorizeBatchHostValidation(ctx, runID); err != nil {
 				return results, err
 			}
+			starter = &batchValidationStarter{OnceStarter: starter, service: s, runID: runID}
 		}
-		result, err := repository.RunBatchValidation(ctx, root, baseCommit, requirement)
+		result, err := repository.RunBatchValidation(ctx, root, baseCommit, requirement, starter)
+		if err != nil && apperror.CodeOf(err) == apperror.CodePolicyDenied {
+			return results, err
+		}
 		receipt := domain.BatchDeliveryTestReceipt{RequirementID: result.RequirementID,
 			Kind: result.Kind, Scope: result.Scope, ExitCode: result.ExitCode,
 			OutputSHA256: result.OutputSHA256, DurationMillis: result.DurationMillis,
@@ -801,49 +806,6 @@ func (s *BatchDeliveryService) requireBatchValidationAuthority(ctx context.Conte
 				return s.authorizeBatchHostValidation(ctx, run.ID)
 			}
 		}
-	}
-	return nil
-}
-
-func (s *BatchDeliveryService) authorizeBatchHostValidation(ctx context.Context,
-	runID string,
-) error {
-	if s == nil || s.store == nil || !s.hostValidationExecutionEnabled {
-		return apperror.New(apperror.CodeFailedPrecondition,
-			"batch delivery go/npm validation requires explicitly enabled host execution")
-	}
-	if err := s.executionPermissionCapabilities.Validate(); err != nil {
-		return apperror.Wrap(apperror.CodeFailedPrecondition,
-			"batch delivery execution capabilities are invalid", err)
-	}
-	run, err := s.activeBatchRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		return apperror.Normalize(err)
-	}
-	if permission.RunID != run.ID || permission.MissionID != run.MissionID {
-		return apperror.New(apperror.CodeFailedPrecondition,
-			"batch delivery execution permission binding changed")
-	}
-	decision, err := executionauth.EvaluateExecutionPermission(permission,
-		s.executionPermissionCapabilities, executionauth.PermissionRequest{
-			Kind: executionauth.PermissionOperationStatelessCommand,
-			// Host repository tests are not an OS sandbox. Even with offline
-			// package-manager settings, child-authored code retains host filesystem
-			// and network reach, so both capabilities must be authorized honestly.
-			HostFilesystem: true,
-			Network:        true,
-		})
-	if err != nil {
-		return apperror.Wrap(apperror.CodeFailedPrecondition,
-			"batch delivery execution permission evaluation failed", err)
-	}
-	if !decision.Allowed {
-		return apperror.New(apperror.CodePolicyDenied,
-			"batch delivery host validation denied: "+decision.Reason)
 	}
 	return nil
 }

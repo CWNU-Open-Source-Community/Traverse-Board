@@ -2,6 +2,8 @@ package commandruntimeadapter
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,8 +14,9 @@ import (
 )
 
 const (
-	AuthorityProtocolVersion = "command-runtime-adapter-authority.v1"
-	MaxIdentityRunes         = 256
+	AuthorityProtocolVersion  = "command-runtime-adapter-authority.v1"
+	OperationAuthorityVersion = "command-runtime-adapter-authority.v2"
+	MaxIdentityRunes          = 256
 )
 
 type Kind string
@@ -147,6 +150,11 @@ func (i Identity) AllowsPermission(mode domain.RunExecutionPermissionMode) bool 
 	if i.Validate() != nil {
 		return false
 	}
+	// The new preference selects operation policy, not an installed backend.
+	// Native scope/isolation and the common authorizer must still admit dispatch.
+	if mode.IsApprovalMode() {
+		return i.Executable()
+	}
 	switch i.Kind {
 	case KindSandboxedWorkspace:
 		return mode == domain.RunExecutionPermissionWorkspaceAccess
@@ -165,12 +173,19 @@ func (i Identity) SameBackend(other Identity) bool {
 // the durable Supervisor tool call and checked again at execution, so a stale
 // model response cannot cross an adapter restart or backend replacement.
 type Authority struct {
-	ProtocolVersion        string   `json:"protocol_version"`
-	RunID                  string   `json:"run_id"`
-	Adapter                Identity `json:"adapter"`
-	PermissionSnapshotID   string   `json:"permission_snapshot_id,omitempty"`
-	PermissionGeneration   uint64   `json:"permission_generation,omitempty"`
-	PermissionRuntimeEpoch string   `json:"permission_runtime_epoch,omitempty"`
+	ProtocolVersion        string                            `json:"protocol_version"`
+	RunID                  string                            `json:"run_id"`
+	Adapter                Identity                          `json:"adapter"`
+	PermissionSnapshotID   string                            `json:"permission_snapshot_id,omitempty"`
+	PermissionGeneration   uint64                            `json:"permission_generation,omitempty"`
+	PermissionRuntimeEpoch string                            `json:"permission_runtime_epoch,omitempty"`
+	PermissionMode         domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
+	PermissionRevision     int64                             `json:"permission_revision,omitempty"`
+	RunAuthorizationFence  uint64                            `json:"run_authorization_fence,omitempty"`
+	// Prepared per-call native bindings contain hashes, never resolved secrets.
+	ScopeFingerprint    string   `json:"scope_fingerprint,omitempty"`
+	CommandFingerprints []string `json:"command_fingerprints,omitempty"`
+	JobFingerprint      string   `json:"job_fingerprint,omitempty"`
 }
 
 func NewAuthority(runID string, identity Identity) Authority {
@@ -179,9 +194,27 @@ func NewAuthority(runID string, identity Identity) Authority {
 }
 
 func (a Authority) Validate() error {
-	if a.ProtocolVersion != AuthorityProtocolVersion || !domain.ValidAgentID(a.RunID) ||
+	if (a.ProtocolVersion != AuthorityProtocolVersion && a.ProtocolVersion != OperationAuthorityVersion) || !domain.ValidAgentID(a.RunID) ||
 		!a.Adapter.Executable() {
 		return errors.New("command runtime adapter authority is invalid")
+	}
+	if a.ProtocolVersion == OperationAuthorityVersion {
+		if !a.PermissionMode.IsApprovalMode() || !domain.ValidAgentID(a.PermissionSnapshotID) ||
+			a.PermissionRevision <= 0 || !ValidRuntimeBinding(a.PermissionMode, a.PermissionRuntimeEpoch, a.PermissionGeneration, a.RunAuthorizationFence) ||
+			(a.ScopeFingerprint != "" && !validDigest(a.ScopeFingerprint)) || len(a.CommandFingerprints) > 4 ||
+			(a.JobFingerprint != "" && !validDigest(a.JobFingerprint)) {
+			return errors.New("command runtime operation authority is invalid")
+		}
+		for _, fingerprint := range a.CommandFingerprints {
+			if !validDigest(fingerprint) {
+				return errors.New("command runtime input pin is invalid")
+			}
+		}
+		return nil
+	}
+	if a.PermissionMode != "" || a.PermissionRevision != 0 || a.RunAuthorizationFence != 0 ||
+		a.ScopeFingerprint != "" || len(a.CommandFingerprints) != 0 || a.JobFingerprint != "" {
+		return errors.New("legacy command runtime authority contains operation fields")
 	}
 	if a.PermissionSnapshotID != "" || a.PermissionGeneration != 0 ||
 		a.PermissionRuntimeEpoch != "" {
@@ -192,6 +225,35 @@ func (a Authority) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidRuntimeBinding validates provenance shape only. It cannot reactivate a
+// stored epoch/fence or a Full generation; the host must check live authority.
+func ValidRuntimeBinding(mode domain.RunExecutionPermissionMode, epoch string, generation, fence uint64) bool {
+	if epoch != "" && (!domain.ValidAgentID(epoch) || strings.ContainsRune(epoch, 0)) {
+		return false
+	}
+	if !mode.IsApprovalMode() {
+		return fence == 0 && ((epoch == "") == (generation == 0))
+	}
+	if mode == domain.RunExecutionPermissionFull {
+		return epoch != "" && generation > 0 && fence > 0
+	}
+	return generation == 0 && ((epoch == "" && fence == 0) || (epoch != "" && fence > 0))
+}
+
+func validDigest(value string) bool {
+	b, err := hex.DecodeString(value)
+	return err == nil && len(b) == sha256.Size && len(value) == 64 && strings.ToLower(value) == value
+}
+
+// OperationApprovalFingerprint identifies the immutable host-recorded call in
+// the existing Supervisor/approval ledgers. No model-supplied approval boolean.
+func OperationApprovalFingerprint(call domain.SupervisorToolCall) string {
+	raw, _ := json.Marshal([]string{OperationAuthorityVersion, call.RunID, call.CallID,
+		call.AgentID, call.AgentAttemptID, call.AttemptID, call.ToolName, call.PayloadJSON, call.AuthorityJSON})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func EncodeAuthority(authority Authority) (json.RawMessage, error) {

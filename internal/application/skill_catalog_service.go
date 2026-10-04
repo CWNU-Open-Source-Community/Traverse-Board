@@ -3,14 +3,18 @@ package application
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"cyberagent-workbench/internal/agentpackages"
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/skills"
 )
 
@@ -29,9 +33,9 @@ type SkillCatalogStore interface {
 	FindSkillCatalogImportByPackage(context.Context, string) (skills.CatalogImport, bool, error)
 }
 
-// SkillCatalogService owns publisher trust, version pins, and the pinned
-// URL/Git import ledger. Installation itself stays in the package Registry
-// service; the catalog decides what may be pinned and enabled.
+// SkillCatalogService owns legacy publisher/version pins and source import
+// routing. All new imports use Plugin installation and review. Legacy archives
+// retain their strict codec; only already recorded intents use legacy recovery.
 type SkillCatalogService struct {
 	store      SkillCatalogStore
 	registry   *SkillPackageRegistryService
@@ -185,6 +189,7 @@ type ImportSkillFromURLRequest struct {
 }
 
 type ImportSkillFromSourceResult struct {
+	Portable  *plugins.Installation `json:"portable,omitempty"`
 	Installed skills.InstalledPackage
 	Signed    bool
 	Import    skills.CatalogImport
@@ -225,10 +230,29 @@ func (s *SkillCatalogService) ImportFromGit(ctx context.Context, request ImportS
 	if strings.TrimSpace(request.StagingRoot) == "" {
 		request.StagingRoot = os.TempDir()
 	}
-	staging := filepath.Join(request.StagingRoot, "skill-git-import-"+idgen.New("stage"))
-	defer func() { _ = os.RemoveAll(staging) }()
+	location, err := url.Parse(request.RepoURL)
+	if err != nil {
+		return ImportSkillFromSourceResult{}, err
+	}
+	rootName := strings.TrimSuffix(path.Base(location.Path), ".git")
+	if !filepath.IsLocal(rootName) || rootName == "." {
+		return ImportSkillFromSourceResult{}, apperror.New(apperror.CodeInvalidArgument, "Git source needs a named repository root")
+	}
+	stagingParent := filepath.Join(request.StagingRoot, "skill-git-import-"+idgen.New("stage"))
+	staging := filepath.Join(stagingParent, rootName)
+	defer func() { _ = os.RemoveAll(stagingParent) }()
+	if err := os.MkdirAll(stagingParent, 0o700); err != nil {
+		return ImportSkillFromSourceResult{}, err
+	}
 	if err := skills.FetchGitCommit(ctx, request.RepoURL, request.CommitSHA, staging); err != nil {
 		return ImportSkillFromSourceResult{}, apperror.Wrap(apperror.CodeInvalidArgument, "Skill Git import failed", err)
+	}
+	format, err := agentpackages.DetectDirectory(ctx, staging)
+	if err != nil {
+		return ImportSkillFromSourceResult{}, err
+	}
+	if format != agentpackages.FormatLegacySkill {
+		return s.importPortableDirectory(ctx, staging, plugins.InstallSource{Kind: "git", URI: request.RepoURL, Commit: request.CommitSHA}, request.Surface, request.OperationKey, request.InstalledBy, request.ConfirmUntrusted)
 	}
 	raw, err := skills.BuildPackageFromDir(staging)
 	if err != nil {
@@ -246,11 +270,23 @@ type ImportSkillFromDirectoryRequest struct {
 	ConfirmUntrusted bool
 }
 
-// ImportFromDirectory packages a validated local skill directory and installs
-// it through the Registry flow with a local-source ledger row.
+// ImportFromDirectory selects the native or explicit legacy format before
+// installation. Native components retain their original files and metadata;
+// the old signed codec remains authoritative for explicit legacy directories.
 func (s *SkillCatalogService) ImportFromDirectory(ctx context.Context, request ImportSkillFromDirectoryRequest) (ImportSkillFromSourceResult, error) {
 	if s == nil || s.store == nil || s.registry == nil {
 		return ImportSkillFromSourceResult{}, apperror.New(apperror.CodeFailedPrecondition, "Skill catalog service is not configured")
+	}
+	absolute, err := filepath.Abs(request.Directory)
+	if err != nil {
+		return ImportSkillFromSourceResult{}, err
+	}
+	format, err := agentpackages.DetectDirectory(ctx, absolute)
+	if err != nil {
+		return ImportSkillFromSourceResult{}, err
+	}
+	if format != agentpackages.FormatLegacySkill {
+		return s.importPortableDirectory(ctx, absolute, plugins.InstallSource{Kind: "local_directory", URI: absolute}, request.Surface, request.OperationKey, request.InstalledBy, request.ConfirmUntrusted)
 	}
 	raw, err := skills.BuildPackageFromDir(request.Directory)
 	if err != nil {
@@ -272,20 +308,28 @@ func (s *SkillCatalogService) importRaw(ctx context.Context, raw []byte, sourceK
 	if parsed.V2 != nil {
 		publisherFingerprint = parsed.V2.PublisherFingerprint
 	}
-	// The signature envelope is verified then stripped: the installation stores
-	// the canonical unsigned form, while the ledger retains the signed archive
-	// digest, pin, and publisher fingerprint as provenance.
-	installBytes, err := skills.UnsignedForm(raw)
-	if err != nil {
-		return ImportSkillFromSourceResult{}, apperror.Wrap(
-			apperror.CodeInvalidArgument, "Skill package signature envelope is invalid", err)
+	pluginSource := plugins.InstallSource{Kind: sourceKind, URI: source}
+	switch sourceKind {
+	case "url":
+		pluginSource.Kind = "https"
+	case "local":
+		pluginSource.Kind = "local_directory"
+		pluginSource.URI, err = filepath.Abs(source)
+		if err != nil {
+			return ImportSkillFromSourceResult{}, err
+		}
+	case "git":
+		pluginSource.Commit = pin
 	}
 	result, err := s.registry.Import(ctx, ImportSkillPackageRequest{
-		Raw: installBytes, Surface: surface, OperationKey: operationKey, InstalledBy: installedBy,
+		Raw: raw, Source: pluginSource, Surface: surface, OperationKey: operationKey, InstalledBy: installedBy,
 		ConfirmUntrusted: confirmUntrusted,
 	})
 	if err != nil {
 		return ImportSkillFromSourceResult{}, err
+	}
+	if result.Installation != nil {
+		return ImportSkillFromSourceResult{Portable: result.Installation, Signed: parsed.V2 != nil}, nil
 	}
 	ledger := skills.CatalogImport{
 		ID: idgen.New("skill-import"), SourceKind: sourceKind, Source: source, Pin: pin,

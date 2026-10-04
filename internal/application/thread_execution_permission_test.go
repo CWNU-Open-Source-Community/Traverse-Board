@@ -55,25 +55,37 @@ func (s *threadPermissionInspectStore) TransitionThreadExecutionPermission(conte
 		domain.ThreadExecutionPermissionOperation{}, false, errors.New("unused")
 }
 
-func TestThreadWorkspaceAccessPermissionRequiresExactOperatorConfirmation(t *testing.T) {
-	base := ChangeThreadExecutionPermissionRequest{ThreadID: "thread-workspace-access",
-		Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
-		OperationKey: "thread-workspace-access-confirmation-0001",
-		RequestedBy:  "operator", Reason: "select the bounded Workspace permission"}
-	if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(base); err == nil ||
-		!strings.Contains(err.Error(), "exact sandbox-boundary confirmation") {
-		t.Fatalf("missing Workspace confirmation error=%v", err)
-	}
-	base.ConfirmWorkspaceAccess = true
-	normalized, mode, confirmed, err := normalizeChangeThreadExecutionPermissionRequest(base)
-	if err != nil || mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		!confirmed || normalized.Mode != string(mode) {
-		t.Fatalf("normalized=%+v mode=%s confirmed=%t err=%v",
-			normalized, mode, confirmed, err)
-	}
-	base.ConfirmUserApproval = true
-	if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(base); err == nil {
-		t.Fatal("Workspace confirmation accepted an unrelated approval flag")
+func TestThreadExecutionPermissionRequiresExactCurrentConfirmation(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			base := ChangeThreadExecutionPermissionRequest{ThreadID: "thread-current-permission",
+				Mode: string(mode), OperationKey: "thread-current-confirmation-0001",
+				RequestedBy: "operator", Reason: "select the current approval preference",
+				ConfirmFull: mode == domain.RunExecutionPermissionFull}
+			normalized, actual, confirmed, err := normalizeChangeThreadExecutionPermissionRequest(base)
+			if err != nil || actual != mode || confirmed != base.ConfirmFull || normalized.Mode != string(mode) {
+				t.Fatalf("normalized=%+v mode=%s confirmed=%t err=%v", normalized, actual, confirmed, err)
+			}
+			invalid := base
+			invalid.ConfirmFull = !base.ConfirmFull
+			if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(invalid); err == nil {
+				t.Fatal("mode accepted an inexact Full confirmation")
+			}
+			for _, legacyFlag := range []func(*ChangeThreadExecutionPermissionRequest){
+				func(r *ChangeThreadExecutionPermissionRequest) { r.ConfirmWorkspaceAccess = true },
+				func(r *ChangeThreadExecutionPermissionRequest) { r.ConfirmUserApproval = true },
+				func(r *ChangeThreadExecutionPermissionRequest) { r.ConfirmDangerFullAccess = true },
+				func(r *ChangeThreadExecutionPermissionRequest) { r.ConfirmDebugAccess = true },
+			} {
+				invalid = base
+				legacyFlag(&invalid)
+				if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(invalid); err == nil {
+					t.Fatal("current mode accepted a retired confirmation flag")
+				}
+			}
+		})
 	}
 }
 
@@ -82,12 +94,12 @@ func TestThreadExecutionPermissionRejectsNonOperatorAuthoritySources(t *testing.
 		"project_config", "recovery_data", "mcp", "plugin", "hook"} {
 		request := ChangeThreadExecutionPermissionRequest{
 			ThreadID:     "thread-authority-source",
-			Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
+			Mode:         string(domain.RunExecutionPermissionAuto),
 			OperationKey: "thread-permission-source-" + requester + "-0001",
-			RequestedBy:  requester, Reason: "attempt unauthorized selection",
-			ConfirmWorkspaceAccess: true}
-		if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(request); err == nil {
-			t.Fatalf("requester %q selected a Thread permission mode", requester)
+			RequestedBy:  requester, Reason: "attempt unauthorized selection"}
+		if _, _, _, err := normalizeChangeThreadExecutionPermissionRequest(request); err == nil ||
+			!strings.Contains(err.Error(), "cannot select execution permission modes") {
+			t.Fatalf("requester %q authority rejection=%v", requester, err)
 		}
 	}
 }
@@ -103,9 +115,9 @@ func TestInspectThreadExecutionPermissionReportsCurrentRunDriftAndSynchronizatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceThread, err := initialThread.Next("thread-inspect-permission-2",
-		domain.RunExecutionPermissionWorkspaceAccess, true, "operator",
-		"use bounded Workspace Access", at.Add(time.Second))
+	autoThread, err := initialThread.Next("thread-inspect-permission-2",
+		domain.RunExecutionPermissionAuto, false, "operator",
+		"select Auto for the Thread", at.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,23 +129,23 @@ func TestInspectThreadExecutionPermissionReportsCurrentRunDriftAndSynchronizatio
 		t.Fatal(err)
 	}
 	store := &threadPermissionInspectStore{thread: threadRecord,
-		threadPermission: workspaceThread, runPermission: initialRun}
+		threadPermission: autoThread, runPermission: initialRun}
 	service := NewThreadExecutionPermissionService(store,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
+		domain.ExecutionPermissionRuntimeCapabilities{})
 
 	drifted, err := service.Inspect(t.Context(), threadRecord.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if drifted.CurrentRunID != threadRecord.ActiveRunID ||
-		drifted.CurrentRunMode != domain.RunExecutionPermissionConservative ||
+		drifted.CurrentRunMode != domain.RunExecutionPermissionAsk ||
 		drifted.CurrentRunSynchronized {
 		t.Fatalf("current Run drift was hidden: %+v", drifted)
 	}
 
 	store.runPermission, err = initialRun.Next("run-inspect-permission-2",
-		domain.RunExecutionPermissionWorkspaceAccess, true, "operator",
-		"apply Thread Workspace Access", at.Add(time.Second))
+		domain.RunExecutionPermissionAuto, false, "operator",
+		"apply Thread Auto preference", at.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +153,7 @@ func TestInspectThreadExecutionPermissionReportsCurrentRunDriftAndSynchronizatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	if synchronized.CurrentRunMode != domain.RunExecutionPermissionWorkspaceAccess ||
+	if synchronized.CurrentRunMode != domain.RunExecutionPermissionAuto ||
 		!synchronized.CurrentRunSynchronized {
 		t.Fatalf("matching current Run was reported as pending: %+v", synchronized)
 	}

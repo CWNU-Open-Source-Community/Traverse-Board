@@ -119,6 +119,10 @@ func controlledCommandTestRequest(t *testing.T,
 	kind ControlledCommandKind,
 ) ControlledCommandPlanRequest {
 	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	at := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	mission := domain.Mission{
 		ID: "mission-command", Goal: "plan a command", Profile: domain.ProfileCode,
@@ -161,7 +165,7 @@ func controlledCommandTestRequest(t *testing.T,
 	}
 	return ControlledCommandPlanRequest{
 		ID: "command-plan-test", WorkspaceID: mission.WorkspaceID,
-		WorkspaceRoot: filepath.Clean(t.TempDir()), Interaction: controlled,
+		WorkspaceRoot: root, Interaction: controlled,
 		CurrentProfile: local, CurrentSurface: mode.Surface, Kind: kind,
 	}
 }

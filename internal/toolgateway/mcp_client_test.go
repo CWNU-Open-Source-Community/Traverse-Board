@@ -42,7 +42,7 @@ func TestMCPGatewayRequiresExactFencedScopeAndRedactsOutput(t *testing.T) {
 		WorkspaceID: "workspace-1", Surface: domain.ExecutionSurfaceCode,
 		OperationKey: strings.Repeat("d", 64),
 		Phase:        domain.ExecutionPhaseDeliver, Role: domain.AgentRoleRoot,
-		PermissionMode:       domain.RunExecutionPermissionFullAccess,
+		PermissionMode:       domain.RunExecutionPermissionFull,
 		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
 		LeaseID: "lease-1", LeaseGeneration: 1, RequestedBy: "run_supervisor"}
 	outcome, err := gateway.Invoke(t.Context(), call)
@@ -56,15 +56,15 @@ func TestMCPGatewayRequiresExactFencedScopeAndRedactsOutput(t *testing.T) {
 		outcome.Result.Metadata["untrusted_output"] != "true" {
 		t.Fatalf("MCP gateway did not fence or sanitize the call: %#v %#v", executor, outcome)
 	}
-	call.PermissionMode = domain.RunExecutionPermissionDebug
+	call.PermissionMode = domain.RunExecutionPermissionAuto
 	if _, err := gateway.Invoke(t.Context(), call); err != nil || executor.calls != 2 ||
-		executor.scope.PermissionMode != domain.RunExecutionPermissionDebug {
-		t.Fatalf("Debug did not inherit the fenced MCP execution scope: calls=%d scope=%+v err=%v",
+		executor.scope.PermissionMode != domain.RunExecutionPermissionAuto {
+		t.Fatalf("Auto did not reach the host operation authorizer: calls=%d scope=%+v err=%v",
 			executor.calls, executor.scope, err)
 	}
-	call.PermissionMode = domain.RunExecutionPermissionApproval
+	call.PermissionMode = "unknown-permission"
 	if _, err := gateway.Invoke(t.Context(), call); err == nil {
-		t.Fatal("MCP gateway accepted a call outside full-access permission")
+		t.Fatal("MCP gateway accepted an unknown permission")
 	}
 }
 

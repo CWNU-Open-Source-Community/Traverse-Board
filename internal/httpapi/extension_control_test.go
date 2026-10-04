@@ -89,7 +89,7 @@ func TestExtensionProjectionOmitsSecretsAndExecutablePluginMaterial(t *testing.T
 	server := extensionTestMCPServer("mcp-extension-projection")
 	plugin := extensionTestPlugin("plugin-extension-projection")
 	view := extensionMCPServerView(server)
-	pluginView := extensionPluginInstallationView(plugin)
+	pluginView := ProjectPluginInstallation(plugin)
 	if view.CredentialRef != "extension-test-token" || view.Target != server.Descriptor.Target {
 		t.Fatalf("unexpected MCP projection: %#v", view)
 	}

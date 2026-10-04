@@ -185,7 +185,7 @@ func TestSandboxManifestConcurrentReplayConvergesAcrossStores(t *testing.T) {
 func TestSchemaV47UpgradeAddsSandboxManifestLedgerWithoutLosingRun(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v47.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
 	for _, statement := range removeSchemaV48ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("simulate schema v47 with %q: %v", statement, err)
@@ -223,10 +223,20 @@ func openSandboxManifestStore(t *testing.T, ctx context.Context,
 	return st, run, root
 }
 
-func openSandboxManifestStoreAt(t *testing.T, ctx context.Context, path string,
+func openSandboxManifestStoreAt(t *testing.T, ctx context.Context, path string, historicalVersion ...int,
 ) (*SQLiteStore, domain.Run, string) {
 	t.Helper()
-	st, err := Open(path)
+	var st *SQLiteStore
+	var err error
+	if len(historicalVersion) == 0 {
+		st, err = Open(path)
+	} else if len(historicalVersion) == 1 && historicalVersion[0] == 177 {
+		// Existing inverse fixtures start before the three-mode migration;
+		// current Sandbox tests retain Open and the public Run writer.
+		st, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+	} else {
+		t.Fatal("sandbox legacy fixture only supports the frozen v177 prefix")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +246,7 @@ func openSandboxManifestStoreAt(t *testing.T, ctx context.Context, path string,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, run, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "persist a sandbox manifest", Profile: "code", WorkspaceID: "ws-sandbox-store",
 		Budget: domain.Budget{MaxTurns: 4, MaxToolCalls: 4},
 	})

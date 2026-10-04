@@ -20,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 const (
@@ -313,8 +314,16 @@ func (e *AdvancedExecutor) ReviewAdvanced(ctx context.Context, root string,
 // ExecuteAdvanced re-renders the preview and rejects every observable drift
 // before invoking one closed command template.
 func (e *AdvancedExecutor) ExecuteAdvanced(ctx context.Context, root string,
-	preview gitadvanced.Preview,
+	preview gitadvanced.Preview, guards ...toolcontract.DispatchGuard,
 ) (gitadvanced.Receipt, error) {
+	// Freeze slice and pointer fields before inspection or the first callback.
+	// Callers cannot change the operation after its host authorization is bound.
+	frozen, cloneErr := json.Marshal(preview)
+	if cloneErr == nil {
+		var owned gitadvanced.Preview
+		cloneErr = json.Unmarshal(frozen, &owned)
+		preview = owned
+	}
 	started := time.Now().UTC()
 	if e != nil && e.now != nil {
 		started = e.now().UTC()
@@ -324,6 +333,10 @@ func (e *AdvancedExecutor) ExecuteAdvanced(ctx context.Context, root string,
 		PreviewID: preview.ID, Operation: preview.Operation, Status: gitadvanced.ReceiptFailed,
 		PreBinding: preview.Binding, Conflict: gitadvanced.ConflictState{Files: []gitadvanced.ConflictFile{}},
 		StartedAt: started}
+	if cloneErr != nil {
+		return receipt, e.advancedFailure(&receipt, gitadvanced.FailureStalePreview,
+			"Git operation inputs could not be frozen")
+	}
 	if !e.Available() || preview.Capability.Generation != e.capability.Generation {
 		return receipt, e.advancedFailure(&receipt, gitadvanced.FailureCapabilityDisabled,
 			"Git advanced capability generation changed")
@@ -368,7 +381,11 @@ func (e *AdvancedExecutor) ExecuteAdvanced(ctx context.Context, root string,
 		return receipt, e.advancedFailure(&receipt, gitadvanced.FailureStalePreview,
 			"hunk execution requires explicit identities selected from a discovery preview")
 	}
-	stdout, stderr, exitCode, operationErr := e.executeAdvancedOperation(ctx, root,
+	operationCtx, err := advancedDispatchContext(ctx, preview, guards)
+	if err != nil {
+		return receipt, e.advancedFailure(&receipt, gitadvanced.FailureStalePreview, err.Error())
+	}
+	stdout, stderr, exitCode, operationErr := e.executeAdvancedOperation(operationCtx, root,
 		preview, &receipt)
 	if observed := len(stdout) + len(stderr); receipt.ObservedBytes < observed {
 		receipt.ObservedBytes = observed
@@ -463,6 +480,12 @@ func (e *AdvancedExecutor) git(ctx context.Context, root string, stdin []byte,
 	stdout := advancedBoundedBuffer{max: MaxAdvancedTrackedBytes + 1}
 	stderr := advancedBoundedBuffer{max: MaxGitOutputBytes}
 	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := checkAdvancedDispatch(commandCtx); err != nil {
+		return "", "", 0, err
+	}
+	if err := checkThreadGitDispatch(commandCtx); err != nil {
+		return "", "", 0, err
+	}
 	err := command.Run()
 	if commandCtx.Err() != nil {
 		return stdout.String(), stderr.String(), 0, commandCtx.Err()

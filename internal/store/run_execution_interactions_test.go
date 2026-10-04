@@ -124,12 +124,12 @@ func removeSchemaV86ForTestStatements() []string {
 
 func TestSchemaV86BackfillsUntrustedPreviewInteraction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v85-interaction.db")
-	st, err := Open(path)
+	st, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, run, err := application.NewRunService(st).Create(ctx,
+	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "legacy v85 Run", Profile: "review",
 			Budget: domain.Budget{MaxTurns: 2},

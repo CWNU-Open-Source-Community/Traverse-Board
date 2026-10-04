@@ -124,7 +124,7 @@ func (s *FullCDPService) Open(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		if executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+		if !executionPermission.Mode.IsFullPreference() &&
 			executionPermission.Mode != domain.RunExecutionPermissionDebug {
 			return nil, errors.New(
 				"full CDP requires Full Access or Debug execution permission")

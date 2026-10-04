@@ -205,6 +205,8 @@ import type {
   UIEvidenceStartView,
   SkillPackageInstallRequestView,
   SkillPackageInstallView,
+  PluginSkillInstallView,
+  SkillPackageInstallResult,
   RunEventPollView,
   RunEventStreamView,
   SessionMessageControlRequestView,
@@ -399,6 +401,34 @@ function parseEventPoll(value: unknown, expectedRunID: string, requestID: string
     throw new Error("Event poll response cursor does not match its final frame");
   }
   return { ...poll, frames } as RunEventPollView;
+}
+
+function parseThreadApprovalPreference(value: unknown, threadID: string): ThreadExecutionPermissionControlView {
+  const fail = () => { throw new APIRequestError("Thread approval preference is invalid", "INVALID_RESPONSE", 502); };
+  if (!isRecord(value) || !isRecord(value.execution_permission)) return fail();
+  const permission = value.execution_permission;
+  const legacyModes = ["conservative", "workspace_access", "approval", "full_access", "debug"];
+  const modes = ["ask", "auto", "full"];
+  const legacy = permission.protocol_version === "thread_execution_permission.v1";
+  if ((!legacy && permission.protocol_version !== "thread_execution_permission.v2") ||
+    permission.thread_id !== threadID || typeof permission.mode !== "string" ||
+    !(legacy ? legacyModes : modes).includes(permission.mode) ||
+    permission.policy_version !== (legacy ? "execution_permission_policy.v1" : "execution_permission_policy.v2") ||
+    !Number.isSafeInteger(permission.revision) || Number(permission.revision) < 1 ||
+    permission.process_enabled !== false || permission.execution_authorized !== false || permission.capability_grant !== false ||
+    typeof permission.runtime_gate_available !== "boolean" || !isRecord(permission.runtime) ||
+    typeof value.replayed !== "boolean" || typeof value.current_run_synchronized !== "boolean") return fail();
+  const expectedMode = legacy ? ["full_access", "debug"].includes(permission.mode) ? "full" : "ask" : permission.mode;
+  // A legacy reader may supply no new presentation fields. Its startup flags
+  // cannot prove current-process Full activation, so the projection stays cold.
+  const approvalMode = permission.approval_mode ?? (legacy ? expectedMode : undefined);
+  const activation = permission.full_activation ?? (legacy ? "inactive" : undefined);
+  if (approvalMode !== expectedMode || typeof activation !== "string" ||
+    !["inactive", "active", "unavailable"].includes(activation) ||
+    (activation === "active" && (legacy || approvalMode !== "full" || !permission.runtime_gate_available)) ||
+    (permission.full_unavailable_reason !== undefined && typeof permission.full_unavailable_reason !== "string")) return fail();
+  return { ...value, execution_permission: { ...permission, approval_mode: approvalMode,
+    full_activation: activation } } as ThreadExecutionPermissionControlView;
 }
 
 function parseRunCreationControl(value: unknown,
@@ -1561,7 +1591,7 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
       !boundedText(item.mode, 64) || !Array.isArray(item.allowed_actions) ||
       item.allowed_actions.length > 3 ||
       !item.allowed_actions.every((action) => action === "approve_once" ||
-        action === "approve_for_thread" || action === "deny") ||
+        action === "approve_for_thread" || action === "approve_for_run" || action === "deny") ||
       new Set(item.allowed_actions).size !== item.allowed_actions.length ||
       !safePositiveInteger(item.version) || !validDate(item.created_at) ||
       !validDate(item.updated_at) || item.process_execution_enabled !== false ||
@@ -1589,6 +1619,9 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
         item.allowed_actions.includes("approve_for_thread") || recovering) {
       throw new APIRequestError("Web fetch approval projection is invalid", "INVALID_RESPONSE", 502);
     }
+    if (item.allowed_actions.includes("approve_for_run") && (item.tool_name !== "command_runtime" || item.status !== "pending")) {
+      throw new APIRequestError("Bounded approval belongs to another operation", "INVALID_RESPONSE", 502);
+    }
     identities.add(itemID);
   }
   return value as unknown as ApprovalQueueView;
@@ -1601,7 +1634,7 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
     "docker_execution_enabled", "execution_resumed", "process_execution_enabled", "proposal_id",
     "replayed", "retry_completed", "retry_scheduled", "run_id", "session_grant_created",
     "shell_execution_enabled", "status", "tool_name", "version", "workspace_write_applied"];
-  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation"]) ||
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "continuation", "bounded_grant"]) ||
     !required.every((key) => Object.hasOwn(value, key)) ||
     value.version !== "approval_control.v1" ||
     value.run_id !== expectedRunID || value.approval_id !== expectedApprovalID ||
@@ -1614,13 +1647,25 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
     (value.tool_name !== "web_fetch" && value.retry_scheduled !== false) ||
     value.process_execution_enabled !== false ||
     value.shell_execution_enabled !== false || value.docker_execution_enabled !== false ||
-    value.workspace_write_applied !== false || value.session_grant_created !== false ||
+    value.workspace_write_applied !== false || typeof value.session_grant_created !== "boolean" ||
     value.capability_grant !== false) {
     throw new APIRequestError("Approval decision violated its closed authority contract",
       "INVALID_RESPONSE", 502);
   }
+  if (request.action === "approve_for_run") {
+    const grant = value.bounded_grant;
+    if (value.tool_name !== "command_runtime" || !hasExactKeys(grant, ["id", "scope_fingerprint", "ttl_seconds", "max_uses", "uses_remaining", "use_ordinal", "expires_at", "each_command_requires_review"]) ||
+      !boundedIdentity(grant.id) || !isSHA256(grant.scope_fingerprint) || grant.ttl_seconds !== request.grant_ttl_seconds || grant.max_uses !== request.grant_max_uses ||
+      !safePositiveInteger(grant.use_ordinal) || grant.use_ordinal > request.grant_max_uses! || !safeBoundedCount(grant.uses_remaining, request.grant_max_uses!) ||
+      grant.use_ordinal > request.grant_max_uses! - grant.uses_remaining || !validDate(grant.expires_at) || grant.each_command_requires_review !== true ||
+      (value.replayed && value.session_grant_created)) {
+      throw new APIRequestError("Bounded command decision is invalid", "INVALID_RESPONSE", 502);
+    }
+  } else if (value.bounded_grant !== undefined || value.session_grant_created !== false) {
+    throw new APIRequestError("One-call decision unexpectedly created a grant", "INVALID_RESPONSE", 502);
+  }
   if (value.continuation !== undefined) {
-    if (value.tool_name !== "agent_browser_sensitive") {
+    if (!["agent_browser_sensitive", "mcp_tool_call", "command_runtime"].includes(String(value.tool_name))) {
       throw new APIRequestError("Approval continuation belongs to another operation", "INVALID_RESPONSE", 502);
     }
     validateApprovalContinuation(value.continuation, true);
@@ -3781,11 +3826,16 @@ function parseRunWakeExecution(value: unknown, runID: string): RunWakeExecutionV
 }
 
 function parseSkillPackageInstall(value: unknown,
-  request: SkillPackageInstallRequestView): SkillPackageInstallView {
-  if (!hasExactKeys(value, ["archive_sha256", "context_injection_authorized",
+  request: SkillPackageInstallRequestView): SkillPackageInstallResult {
+  if (isRecord(value) && value.protocol_version === "plugin-installation.v2") {
+    return parsePluginSkillInstall(value, request.surface);
+  }
+  const legacyKeys = ["archive_sha256", "context_injection_authorized",
     "import_command_execution", "import_network_access", "import_provider_calls", "name",
     "package_fingerprint", "protocol_version", "receipt", "recovered_pending", "replayed",
-    "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"]) ||
+    "run_selection_authorized", "surface", "tool_capability_grant", "trust_class", "version"];
+  const modeKeys = ["profiles", "surfaces", "phases", "roles", "user_invocable", "model_invocable", "explicit_only"];
+  if ((!hasExactKeys(value, legacyKeys) && !hasExactKeys(value, [...legacyKeys, ...modeKeys])) ||
     value.protocol_version !== "skill_package_installation.v1" ||
     value.surface !== request.surface || value.trust_class !== "operator_installed_untrusted" ||
     !boundedText(value.name, 128) || !boundedText(value.version, 64) ||
@@ -3796,6 +3846,12 @@ function parseSkillPackageInstall(value: unknown,
     value.run_selection_authorized !== false || value.context_injection_authorized !== false) {
     throw new APIRequestError("Skill package installation widened inert Registry authority",
       "INVALID_RESPONSE", 502);
+  }
+  if ("profiles" in value && (!boundedStringArray(value.profiles, 8, 64) ||
+    !boundedStringArray(value.surfaces, 2, 64) || !boundedStringArray(value.phases, 4, 64) ||
+    !boundedStringArray(value.roles, 4, 64) || typeof value.user_invocable !== "boolean" ||
+    typeof value.model_invocable !== "boolean" || typeof value.explicit_only !== "boolean")) {
+    throw new APIRequestError("Legacy Skill recovery metadata is invalid", "INVALID_RESPONSE", 502);
   }
   const receipt = parseOperationReceipt(value.receipt, "skill_package_install", "installed",
     value.replayed);
@@ -6080,7 +6136,7 @@ function parseCodeIntelInventory(value: unknown): CodeIntelInventoryView {
   return value as unknown as CodeIntelInventoryView;
 }
 
-function parseExtensionInventory(value: unknown): ExtensionInventoryView {
+function parseExtensionInventory(value: unknown, hiddenLocalSource = false): ExtensionInventoryView {
   if (!isRecord(value) || value.protocol_version !== "extension-inventory.v1" ||
     containsForbiddenExtensionField(value) ||
     !Array.isArray(value.mcp_servers) || value.mcp_servers.length > 64 ||
@@ -6094,7 +6150,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     if (!isRecord(item) || item.protocol_version !== "mcp-client-server.v1" ||
       !boundedIdentity(item.id) || !boundedText(item.name, 256) ||
       (item.transport !== "stdio" && item.transport !== "streamable_http") ||
-      !boundedText(item.target, 4_096) || !boundedIdentity(item.workspace_id) ||
+      !validExtensionMCPTarget(item) || !boundedIdentity(item.workspace_id) ||
       !isSHA256(item.descriptor_fingerprint) || !safePositiveInteger(item.generation) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !boundedStringArray(item.declared_capabilities, 3, 32) ||
@@ -6119,7 +6175,7 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
     }
   }
   for (const item of value.plugins) {
-    if (!isRecord(item) || item.protocol_version !== "plugin-installation.v1" ||
+    if (!isRecord(item) || !["plugin-installation.v1", "plugin-installation.v2"].includes(String(item.protocol_version)) ||
       !boundedIdentity(item.id) || !isSHA256(item.archive_sha256) ||
       !isSHA256(item.package_fingerprint) || !safePositiveInteger(item.generation) ||
       typeof item.signature_present !== "boolean" || typeof item.signature_valid !== "boolean" ||
@@ -6127,11 +6183,21 @@ function parseExtensionInventory(value: unknown): ExtensionInventoryView {
       !boundedIdentity(item.staged_by) ||
       !validDate(item.created_at) || !validDate(item.updated_at) ||
       !isRecord(item.manifest) || !boundedIdentity(item.manifest.id) ||
-      !boundedText(item.manifest.name, 256) || !boundedText(item.manifest.publisher, 256) ||
+      !boundedText(item.manifest.name, 256) ||
+      (item.protocol_version === "plugin-installation.v1" && !boundedText(item.manifest.publisher, 256)) ||
       !boundedStringArray(item.manifest.capabilities, 4, 32) ||
       !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
-      !boundedText(item.source.uri, 4_096)) {
+      !(boundedText(item.source.uri, 4_096) ||
+        (hiddenLocalSource && item.source.kind === "local_directory" && item.source.uri === ""))) {
       throw new APIRequestError("Plugin installation projection is invalid", "INVALID_RESPONSE", 502);
+    }
+    if (item.protocol_version === "plugin-installation.v2" &&
+      (!isRecord(item.snapshot) || !["agent-skills", "agent-plugins", "traverse-skill"].includes(String(item.snapshot.format)) ||
+        !isSHA256(item.snapshot.revision) || item.snapshot.revision !== item.archive_sha256 ||
+        !["code", "cyber"].includes(String(item.snapshot.surface)) ||
+        (item.manifest.version !== "" && !boundedText(item.manifest.version, 256)) || item.manifest.publisher !== "" ||
+        item.signature_present !== false || item.signature_valid !== false)) {
+      throw new APIRequestError("Portable plugin installation projection is invalid", "INVALID_RESPONSE", 502);
     }
   }
   return value as unknown as ExtensionInventoryView;
@@ -6142,9 +6208,37 @@ function parseExtensionMCPServer(value: unknown): ExtensionMCPServerView {
     mcp_servers: [value], mcp_calls: [], plugins: [] }).mcp_servers[0];
 }
 
+function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
+  if (item.native_source === undefined) return boundedText(item.target, 4_096);
+  const source = item.native_source;
+  return item.target === "" && (item.credential_ref === undefined || item.credential_ref === "") &&
+    isRecord(source) && boundedIdentity(source.installation_id) !== "" &&
+    boundedIdentity(source.package_id) !== "" && boundedIdentity(source.component_id) !== "" &&
+    isSHA256(source.revision) && safePositiveInteger(source.installation_generation) &&
+    (source.surface === "code" || source.surface === "cyber");
+}
+
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [], mcp_calls: [], plugins: [value] }).plugins[0];
+}
+
+// Shared HTTP/Desktop decoder for the actual Plugin lifecycle response.
+export function parsePluginSkillInstall(value: unknown, surface: string,
+  hiddenLocalSource = false): PluginSkillInstallView {
+  if (!hasExactKeys(value, ["protocol_version", "installation", "replayed"]) ||
+    value.protocol_version !== "plugin-installation.v2" || typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Plugin import response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const installation = parseExtensionInventory({ protocol_version: "extension-inventory.v1",
+    mcp_servers: [], mcp_calls: [], plugins: [value.installation] }, hiddenLocalSource).plugins[0];
+  if (installation.protocol_version !== "plugin-installation.v2" || installation.snapshot?.surface !== surface ||
+    !["staged", "approved", "enabled", "disabled", "revoked", "rolled_back", "quarantined"].includes(installation.state) ||
+    (!value.replayed && (installation.state !== "staged" || installation.generation !== 1 ||
+      installation.enabled_capabilities.length !== 0))) {
+    throw new APIRequestError("Plugin import lifecycle binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { protocol_version: "plugin-installation.v2", installation, replayed: value.replayed };
 }
 
 export class CyberAgentClient {
@@ -7709,7 +7803,7 @@ export class CyberAgentClient {
   }
 
   async installSkillPackage(body: SkillPackageInstallRequestView,
-    idempotencyKey: string, signal?: AbortSignal): Promise<SkillPackageInstallView> {
+    idempotencyKey: string, signal?: AbortSignal): Promise<SkillPackageInstallResult> {
     if (!this.hasSkillInstallation || body.confirm_untrusted !== true) {
       throw new Error("Explicit untrusted Skill installation capability is required");
     }
@@ -7969,8 +8063,8 @@ export class CyberAgentClient {
     if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
       throw new Error("A normalized Thread is required");
     }
-    return this.get<ThreadExecutionPermissionControlView>(
-      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal);
+    return parseThreadApprovalPreference(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal), threadID);
   }
 
   async changeThreadExecutionPermission(threadID: string,
@@ -7980,9 +8074,14 @@ export class CyberAgentClient {
       threadID.trim() !== threadID) {
       throw new Error("Thread execution permission capability is required");
     }
-    return this.sendControl<ThreadExecutionPermissionControlView>(
+    if (!["ask", "auto", "full"].includes(body.mode) ||
+      body.confirm_full !== (body.mode === "full") ||
+      Object.keys(body).some((key) => !["mode", "confirm_full", "reason"].includes(key))) {
+      throw new Error("An exact ask/auto/full selection and explicit Full confirmation are required");
+    }
+    return parseThreadApprovalPreference(await this.sendControl<unknown>(
       `/threads/${encodeURIComponent(threadID)}/execution-permission`, body,
-      idempotencyKey, signal);
+      idempotencyKey, signal), threadID);
   }
 
   async transitionThread(threadID: string, action: "archive" | "restore" | "delete",
@@ -8494,7 +8593,7 @@ export class CyberAgentClient {
       value.run_id !== runID || value.approval_id !== approvalID ||
       !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
       (value.workspace_id !== "" && !boundedIdentity(value.workspace_id)) ||
-      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "unavailable"]
+      !["dry_run", "record_git_approval", "file_review_required", "fetch_public_https", "browser_sensitive_action", "mcp_server_and_tool", "command_process", "unavailable"]
         .includes(String(value.effect)) || typeof value.working_directory !== "string" ||
       !["", "."].includes(value.working_directory) ||
       typeof value.source_current !== "boolean" || typeof value.redacted !== "boolean" ||
@@ -8509,7 +8608,7 @@ export class CyberAgentClient {
     const effects: Record<string, string> = { shell: "dry_run", script_process: "dry_run",
       "git.advanced": "record_git_approval", replace_file: "file_review_required",
       create_file: "file_review_required", move_file: "file_review_required", delete_file: "file_review_required",
-      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action" };
+      web_fetch: "fetch_public_https", agent_browser_sensitive: "browser_sensitive_action", mcp_tool_call: "mcp_server_and_tool", command_runtime: "command_process" };
     if (value.effect !== (effects[value.tool_name] ?? "unavailable")) {
       throw new APIRequestError("Approval preview returned a different effect", "INVALID_RESPONSE", 502);
     }
@@ -8641,11 +8740,16 @@ export class CyberAgentClient {
     if (!boundedIdentity(runID) || runID.trim() !== runID ||
       !boundedIdentity(approvalID) || approvalID.trim() !== approvalID ||
       body.version !== "approval_control.v1" ||
-      !["approve_once", "approve_for_thread", "deny"].includes(body.action) ||
-      (body.action !== "deny" && body.reason !== undefined) ||
+      !["approve_once", "approve_for_thread", "approve_for_run", "deny"].includes(body.action) ||
+      (body.action !== "deny" && body.action !== "approve_for_run" && body.reason !== undefined) ||
       (body.reason !== undefined && (!boundedText(body.reason, 2_048) ||
         body.reason.trim() !== body.reason || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
       throw new Error("Normalized Run and approval identities are required");
+    }
+    if (body.action === "approve_for_run" ?
+      !safePositiveInteger(body.grant_ttl_seconds) || body.grant_ttl_seconds > 900 || !safePositiveInteger(body.grant_max_uses) || body.grant_max_uses > 8
+      : body.grant_ttl_seconds !== undefined || body.grant_max_uses !== undefined) {
+      throw new Error("Bounded Run approval requires explicit limits: 1..900 seconds and 1..8 uses");
     }
     const result = await this.sendControl<unknown>(
       `/runs/${encodeURIComponent(runID)}/approvals/${encodeURIComponent(approvalID)}/decision`,

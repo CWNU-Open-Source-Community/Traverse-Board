@@ -112,7 +112,7 @@ func TestContextMemoryStoreEnforcesOptimisticVersionAndActor(t *testing.T) {
 func TestSchemaV114MigrationPreservesLegacyDataAndReopens(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v113-upgrade.db")
-	state, err := Open(path)
+	state, err := openHistoricalMigrationFixture(t, path, 177)
 	if err != nil {
 		t.Fatal(err)
 	}

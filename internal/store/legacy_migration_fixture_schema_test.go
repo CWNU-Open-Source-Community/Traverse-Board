@@ -128,13 +128,19 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, oracle, migrationPlan(), 156); err != nil {
 		t.Fatal(err)
 	}
-	state, err := Open(filepath.Join(t.TempDir(), "downgraded-v156.db"))
+	state, err := openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), "downgraded-v156.db"), 177)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer state.Close()
-	_, run := createStructuredToolTestRun(t, ctx, state, "preserve fixture rows")
-	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
+	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
+		Goal: "preserve fixture rows", Profile: "code", WorkspaceID: "ws-structured",
+		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newMigrationFixtureRunService(t, state).Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := state.BeginSupervisorTurn(ctx, acquireTestRunExecutionLease(t, ctx, state, run.ID), "historical input")
@@ -163,9 +169,7 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	}
 	job := commandRuntimeMigrationJob(t, state, domain.RunExecutionPermissionFullAccess,
 		commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64)))
-	if _, replayed, err := state.PrepareCommandRuntimeJob(ctx, job); err != nil || replayed {
-		t.Fatalf("prepare job: %t %v", replayed, err)
-	}
+	insertV162CommandRuntimeJob(t, state, job)
 	for _, statement := range []string{
 		`UPDATE run_supervisor_tool_calls SET rowid=23;`,
 		`UPDATE command_runtime_jobs SET rowid=47,version=version+1,state='running',pid=123,process_group=123,job_assigned_at_creation=1,started_at=created_at;`,
