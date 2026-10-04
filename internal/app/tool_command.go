@@ -58,7 +58,7 @@ func (a *App) toolSchema(args []string) error {
 		return err
 	}
 	if fs.NArg() > 1 {
-		return errors.New("usage: cyberagent tool schema [work_item_create|note_create|specialist_delegation_propose|plan_delivery_propose]")
+		return errors.New("usage: cyberagent tool schema [tool]")
 	}
 	var value any = toolgateway.AllSupervisorToolDefinitions()
 	if fs.NArg() == 1 {

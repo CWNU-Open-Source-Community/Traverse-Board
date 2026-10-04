@@ -67,57 +67,6 @@ const (
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
 )
 
-// TypedActionIDs returns the registered typed-action registry. Project config
-// command fields may only reference these IDs — never Shell text or paths.
-func TypedActionIDs() map[string]struct{} {
-	out := map[string]struct{}{
-		string(ReadFileTool):                    {},
-		string(ListWorkspaceTool):               {},
-		string(ReplaceFileTool):                 {},
-		string(ScriptProcessTool):               {},
-		string(WorkItemCreateTool):              {},
-		string(NoteCreateTool):                  {},
-		string(HistorySearchTool):               {},
-		string(HistoryReadTool):                 {},
-		string(SkillReadTool):                   {},
-		string(PlanDeliveryProposeTool):         {},
-		string(SpecialistDelegationProposeTool): {},
-		string(ChildTaskProposeTool):            {},
-		string(DockerSandboxRunProposeTool):     {},
-		string(MCPToolCallTool):                 {},
-	}
-	for _, name := range agentCodeToolNames() {
-		out[string(name)] = struct{}{}
-	}
-	for _, name := range codeIntelToolNames() {
-		out[string(name)] = struct{}{}
-	}
-	for _, name := range WebEvidenceToolNames() {
-		out[string(name)] = struct{}{}
-	}
-	for _, name := range append(BrowserActionToolNames(), BrowserScrollTool, BrowserKeyTool) {
-		out[string(name)] = struct{}{}
-	}
-	return out
-}
-
-func (n ToolName) Valid() bool {
-	if isAgentCodeTool(n) || IsCodeIntelTool(n) || IsBrowserActionTool(n) || IsHistoryRecallTool(n) || n == SkillReadTool {
-		return true
-	}
-	switch n {
-	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
-		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
-		SpecialistDelegationProposeTool, ChildTaskProposeTool, DockerSandboxRunProposeTool,
-		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
-		return true
-	case MCPToolCallTool, WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
-		return true
-	default:
-		return false
-	}
-}
-
 type ActionClass string
 
 const (
@@ -137,44 +86,6 @@ func (c ActionClass) Valid() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func ClassForTool(name ToolName) (ActionClass, bool) {
-	if definition, found := AgentCodeToolDefinition(name); found {
-		return definition.Class, true
-	}
-	if definition, found := CodeIntelToolDefinition(name); found {
-		return definition.Class, true
-	}
-	switch name {
-	case ReadFileTool, ListWorkspaceTool:
-		return ClassWorkspaceRead, true
-	case ReplaceFileTool:
-		return ClassWorkspaceWrite, true
-	case ShellTool:
-		return ClassShell, true
-	case DebugTerminalTool:
-		return ClassShell, true
-	case CommandRuntimeTool:
-		return ClassProcess, true
-	case ScriptProcessTool:
-		return ClassProcess, true
-	case MCPToolCallTool:
-		return ClassProcess, true
-	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
-		return ClassNetworkRead, true
-	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
-		return ClassProcess, true
-	case WorkItemCreateTool, NoteCreateTool, HistorySearchTool, HistoryReadTool, SkillReadTool:
-		return ClassRunMemory, true
-	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
-		ControlledCommandProposeTool, HostCommandProposeTool,
-		OneShotCommandProposeTool, DockerSandboxRunProposeTool, SkillCandidateProposeTool:
-		return ClassAgentProposal, true
-	default:
-		return "", false
 	}
 }
 

@@ -342,6 +342,20 @@ The current root implementation maps `wait` to a durable paused Run and resumes 
 
 ## Tool Gateway
 
+`internal/toolgateway/registry.go` is the static registration point for built-in
+tools. Each entry binds its definition, action class, payload normalizer and
+Gateway handler, together with its Supervisor and project-config eligibility.
+Definition lookup, the CLI schema catalog, model tool membership and Gateway
+dispatch derive from this registry. Adding a tool to an existing family reuses
+that family's normalizer and handler instead of adding another dispatch branch.
+
+Registration describes the tool; current capabilities determine whether the
+model receives it. Skill catalogs, language servers, MCP tool fingerprints,
+command adapters and browser backends still provide their runtime schemas and
+authority checks. The registry preserves model advertisement order and phase
+selection. Historical ledger names and migration SQL remain independent so
+stored calls can still be read after a tool is retired.
+
 Every tool invocation uses one pipeline:
 
 ```text

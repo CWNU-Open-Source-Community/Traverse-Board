@@ -239,6 +239,104 @@ func TestSupervisorAgentCodeAuthorityIsDurableAndRequired(t *testing.T) {
 	}
 }
 
+func TestSupervisorCodeIntelAuthorityIsDurableCanonicalAndRunBound(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "supervisor-code-intel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	mission, run := createStructuredToolTestRun(t, ctx, st, "durable code intel authority")
+	if _, err := application.NewRunService(st).Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := st.BeginSupervisorTurn(ctx,
+		acquireTestRunExecutionLease(t, ctx, st, run.ID), "inspect code hover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := st.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := toolgateway.AgentCodeCapabilityContext{RunID: run.ID, MissionID: mission.ID,
+		RootAgentID: turn.Agent.ID, WorkspaceID: mission.WorkspaceID,
+		RootFingerprint: strings.Repeat("c", 64), Surface: turn.Mode.Surface,
+		Phase: turn.Mode.Phase, Role: turn.Agent.Role, Profile: turn.Agent.Profile,
+		PermissionMode: permission.Mode, ModeRevision: turn.Mode.Revision,
+		PermissionRevision: permission.Revision}
+	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, run.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalAuthority, err := toolgateway.EncodeAgentCodeCallAuthority(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityInput, err := json.MarshalIndent(authority, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherScope := scope
+	otherScope.RunID = "run-code-intel-other"
+	otherAuthority, err := toolgateway.NewAgentCodeCallAuthority(otherScope, run.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherAuthorityJSON, err := toolgateway.EncodeAgentCodeCallAuthority(otherAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := toolgateway.NormalizeSupervisorToolPayload(toolgateway.CodeHoverTool,
+		mustStructuredPayload(t, toolgateway.CodeIntelPayload{
+			Version: toolgateway.CodeIntelProtocolVersion, ServerID: "gopls",
+			ServerGeneration: strings.Repeat("a", 64), CapabilityFingerprint: strings.Repeat("b", 64),
+			Path: "main.go", Line: 1, Character: 2, Limit: 20,
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(run.ID,
+		turn.Checkpoint.NextTurn, string(toolgateway.CodeHoverTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1,
+		Provider: "test", Model: "model"}
+	if inserted, err := st.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil || !inserted {
+		t.Fatalf("start model attempt: inserted=%t err=%v", inserted, err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	response := llm.ChatResponse{Provider: "test", Model: "model",
+		Usage:     llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+		ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolgateway.CodeHoverTool), Arguments: payload}}}
+	for _, rejected := range []struct {
+		name      string
+		authority json.RawMessage
+	}{{name: "missing"}, {name: "another Run", authority: otherAuthorityJSON}} {
+		response.ToolCalls[0].Authority = rejected.authority
+		if _, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt, response); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+			t.Fatalf("code hover with %s authority was accepted: %v", rejected.name, err)
+		}
+		if rounds, err := st.ListSupervisorToolRounds(ctx, turn.Checkpoint); err != nil || len(rounds) != 0 {
+			t.Fatalf("rejected authority left durable calls: %#v err=%v", rounds, err)
+		}
+	}
+	response.ToolCalls[0].Authority = authorityInput
+	checkpoint, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt, response)
+	if err != nil {
+		t.Fatalf("code hover with exact Go-issued authority was rejected: %v", err)
+	}
+	rounds, err := st.ListSupervisorToolRounds(ctx, checkpoint)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
+		rounds[0].Calls[0].ToolName != string(toolgateway.CodeHoverTool) ||
+		rounds[0].Calls[0].CallID != callID || rounds[0].Calls[0].PayloadJSON != string(payload) ||
+		rounds[0].Calls[0].AuthorityJSON != string(canonicalAuthority) {
+		t.Fatalf("code hover authority and intent were not durable and canonical: %#v err=%v", rounds, err)
+	}
+}
+
 func TestSupervisorCommandRuntimeAuthorityIsCanonicalAndRequired(t *testing.T) {
 	runID := "run-command-runtime-authority"
 	payload, err := toolgateway.NormalizeSupervisorToolPayload(

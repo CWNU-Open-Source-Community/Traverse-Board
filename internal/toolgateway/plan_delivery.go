@@ -87,27 +87,6 @@ var planDeliveryDefinition = ToolDefinition{
 	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","directions"],"properties":{"version":{"const":"plan_delivery.v1"},"directions":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"required":["title","summary","tradeoffs","modules"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"summary":{"type":"string","minLength":1,"maxLength":1200},"tradeoffs":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"modules":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["title","objective","acceptance_criteria","dependencies"],"properties":{"title":{"type":"string","minLength":1,"maxLength":240},"objective":{"type":"string","minLength":1,"maxLength":2400},"acceptance_criteria":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"dependencies":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"type":"integer","minimum":1,"maximum":7}}}}}}}}}}`),
 }
 
-func PlanPhaseSupervisorToolDefinitions() []ToolDefinition {
-	all := SupervisorToolDefinitions()
-	definitions := make([]ToolDefinition, 0, len(all))
-	for _, current := range all {
-		if current.Name != SkillCandidateProposeTool {
-			definitions = append(definitions, current)
-		}
-	}
-	definition := planDeliveryDefinition
-	definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
-	return append(definitions, definition)
-}
-
-func AllSupervisorToolDefinitions() []ToolDefinition {
-	definitions := SupervisorToolDefinitions()
-	plan := planDeliveryDefinition
-	plan.InputSchema = append(json.RawMessage(nil), plan.InputSchema...)
-	definitions = append(definitions, plan)
-	return append(definitions, AgentCodeToolDefinitions()...)
-}
-
 func normalizePlanDeliveryPayload(payload json.RawMessage) (domain.PlanDeliverySpec,
 	json.RawMessage, error,
 ) {

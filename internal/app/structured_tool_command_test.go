@@ -29,6 +29,16 @@ func TestStructuredToolCLIListsSchemasAndCreatesRunMemory(t *testing.T) {
 		!strings.Contains(schemas, `"additionalProperties": false`) {
 		t.Fatalf("structured tool schemas are unavailable: code=%d stderr=%s output=%s", code, stderr, schemas)
 	}
+	for _, name := range []string{"code_workspace_symbols", "browser_scroll", "browser_key"} {
+		if !strings.Contains(schemas, `"name": "`+name+`"`) {
+			t.Fatalf("tool schema catalog is missing %s", name)
+		}
+		schema, stderr, code := executeTestCommand(t, "tool", "schema", name)
+		if code != 0 || !strings.Contains(schema, `"name": "`+name+`"`) ||
+			!strings.Contains(schema, `"input_schema": {`) {
+			t.Fatalf("schema lookup for %s failed: code=%d stderr=%s output=%s", name, code, stderr, schema)
+		}
+	}
 
 	workPayload := `{"title":"Inspect parser","description":"Use strict JSON","priority":"high","acceptance_criteria":["tests pass"]}`
 	createdWork, stderr, code := executeTestCommand(t,

@@ -382,20 +382,30 @@ func TestSupervisorCodeIntelRequiresPinnedSnapshotAuthorityAndCodeScope(t *testi
 	}
 }
 
-func TestSupervisorRetiredCommandToolsAreNeitherAdvertisedNorAccepted(t *testing.T) {
+func TestSupervisorUnsupportedToolsAreNeitherAdvertisedNorAccepted(t *testing.T) {
 	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
 		domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionApproval, domain.RunExecutionPermissionWorkspaceAccess, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
 		for _, phase := range []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver} {
-			for _, name := range []toolgateway.ToolName{toolgateway.ControlledCommandProposeTool, toolgateway.OneShotCommandProposeTool, toolgateway.HostCommandProposeTool} {
+			for _, name := range []toolgateway.ToolName{
+				"unknown_tool",
+				toolgateway.ControlledCommandProposeTool,
+				toolgateway.OneShotCommandProposeTool,
+				toolgateway.HostCommandProposeTool,
+				toolgateway.ReadFileTool,
+				toolgateway.ListWorkspaceTool,
+				toolgateway.ShellTool,
+				toolgateway.ReplaceFileTool,
+				toolgateway.ScriptProcessTool,
+			} {
 				for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode, phase, mode, false, false) {
 					if spec.Name == string(name) {
-						t.Fatalf("retired tool %s advertised in %s/%s", name, mode, phase)
+						t.Fatalf("unsupported tool %s advertised in %s/%s", name, mode, phase)
 					}
 				}
-				_, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "retired-call", Name: string(name), Arguments: json.RawMessage(`{}`)}}, "run-retired", 1, 1,
+				_, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "unsupported-call", Name: string(name), Arguments: json.RawMessage(`{}`)}}, "run-unsupported", 1, 1,
 					domain.ExecutionSurfaceCode, phase, mode, false, false)
-				if err == nil {
-					t.Fatalf("retired tool %s accepted in %s/%s", name, mode, phase)
+				if err == nil || !strings.Contains(err.Error(), "provider requested unsupported supervisor tool") {
+					t.Fatalf("unsupported tool %s prepare error = %v in %s/%s", name, err, mode, phase)
 				}
 			}
 		}
