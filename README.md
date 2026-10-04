@@ -1,22 +1,22 @@
 <div align="center">
-  <img src="assets/branding/traverse-board-mark.png" alt="Traverse Board · 针路簿图标" width="180">
-  <h1>Traverse Board · 针路簿</h1>
+  <img src="assets/branding/traverse-board-mark.png" alt="Universal Code 图标" width="180">
+  <h1>Universal Code</h1>
   <p><strong>在本地项目中，让 AI 帮你改代码、运行命令、查资料并审阅结果。</strong></p>
   <p>
     <a href="README.md">简体中文</a> |
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Traverse-Board?style=flat-square"></a>
+    <a href="https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Universal-Code/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Universal-Code?style=flat-square"></a>
   </p>
 </div>
 
-针路簿是一个桌面 AI 编程工作台。连接你选择的模型，在同一段对话中推进项目，查看文件改动、命令结果和资料来源。
+Universal Code 是一个桌面 AI 编程工作台。连接你选择的模型，在同一段对话中推进项目，查看文件改动、命令结果和资料来源。
 
 **v1.0.0「启航」正在准备发布。** [发布说明](docs/releases/v1.0.0.md)记录已验证范围和待完成事项；目前公开下载仍有历史预览，Mac 新包为未公证预览。
 
-## 为什么选择针路簿
+## 为什么选择 Universal Code
 
 - **围绕真实项目工作**：阅读和修改文件、运行构建、查看差异，把任务结果落到工作区。
 - **少打断，保留控制**：选择当前任务的 Full Access 后，普通文件修改与联网命令可自动执行；文件删除仍需确认。
@@ -29,7 +29,7 @@
 
 | 平台 | 从这里开始 |
 | --- | --- |
-| Windows 10/11 | [下载已发布版本](https://github.com/CWNU-Open-Source-Community/Traverse-Board/releases)中的 `TraverseBoard.exe`，双击打开；需要 WebView2。[下载说明](docs/windows-release.md) |
+| Windows 10/11 | [下载已发布版本](https://github.com/CWNU-Open-Source-Community/Universal-Code/releases)中的 `TraverseBoard.exe`，双击打开；需要 WebView2。[下载说明](docs/windows-release.md) |
 | macOS | [获取 Apple Silicon / Intel 预览包](docs/macos-release.md)，解压并打开 `TraverseBoard.app`。当前未公证，模型凭据配置仍有平台限制。 |
 
 下面是当前 v1.0.0 源码中的 Windows 上手流程；历史预览的界面可能不同。需要试用最新源码时，见[本地构建](CONTRIBUTING.md#开发环境--development-environment)。
@@ -61,7 +61,7 @@
 
 ## 反馈与贡献
 
-通过 [Issues](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues)反馈问题或建议，参与开发请阅读[贡献指南](CONTRIBUTING.md)。当前核心方向是通用 AI 编程工作流，详见[产品范围](docs/PRODUCT_SCOPE.md)。
+通过 [Issues](https://github.com/CWNU-Open-Source-Community/Universal-Code/issues)反馈问题或建议，参与开发请阅读[贡献指南](CONTRIBUTING.md)。当前核心方向是通用 AI 编程工作流，详见[产品范围](docs/PRODUCT_SCOPE.md)。
 
 ## 许可证
 

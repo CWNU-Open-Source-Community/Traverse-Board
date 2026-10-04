@@ -1,22 +1,22 @@
 <div align="center">
-  <img src="assets/branding/traverse-board-mark.png" alt="Traverse Board · 针路簿 icon" width="180">
-  <h1>Traverse Board · 针路簿</h1>
+  <img src="assets/branding/traverse-board-mark.png" alt="Universal Code icon" width="180">
+  <h1>Universal Code</h1>
   <p><strong>Work with AI in your local project: edit code, run commands, research, and review results.</strong></p>
   <p>
     <a href="README.md">简体中文</a> |
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/CWNU-Open-Source-Community/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Traverse-Board?style=flat-square"></a>
+    <a href="https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/CWNU-Open-Source-Community/Universal-Code/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/CWNU-Open-Source-Community/Universal-Code?style=flat-square"></a>
   </p>
 </div>
 
-Traverse Board is a desktop AI coding workbench. Connect your chosen model and move a project forward in one conversation, with file changes, command results, and sources available for review.
+Universal Code is a desktop AI coding workbench. Connect your chosen model and move a project forward in one conversation, with file changes, command results, and sources available for review.
 
 **v1.0.0 “First Voyage” is being prepared for release.** The [release notes](docs/releases/v1.0.0.md) record verified scope and remaining work. Public downloads still include older previews; new Mac packages are unnotarized previews.
 
-## Why Traverse Board?
+## Why Universal Code?
 
 - **Work on a real project**: read and edit files, run builds, and inspect the resulting changes.
 - **Fewer interruptions, with control**: select Full Access for a task to allow ordinary file changes and network commands to proceed automatically; file deletion still requires confirmation.
@@ -29,7 +29,7 @@ Traverse Board is a desktop AI coding workbench. Connect your chosen model and m
 
 | Platform | Start here |
 | --- | --- |
-| Windows 10/11 | Download `TraverseBoard.exe` from a [published release](https://github.com/CWNU-Open-Source-Community/Traverse-Board/releases) and double-click it. WebView2 is required. [Download details](docs/windows-release.md) |
+| Windows 10/11 | Download `TraverseBoard.exe` from a [published release](https://github.com/CWNU-Open-Source-Community/Universal-Code/releases) and double-click it. WebView2 is required. [Download details](docs/windows-release.md) |
 | macOS | Get an [Apple Silicon / Intel preview](docs/macos-release.md), extract it, and open `TraverseBoard.app`. Packages are unnotarized; model credential setup still has platform limitations. |
 
 The Windows steps below describe the current v1.0.0 source. Older preview interfaces may differ. To try current source, see the [local build instructions](CONTRIBUTING.md#开发环境--development-environment).
@@ -61,7 +61,7 @@ Choose the appropriate task permission before making changes. Review file diffs,
 
 ## Feedback and contributions
 
-Use [Issues](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues) for bugs and suggestions, and read the [contribution guide](CONTRIBUTING.md) before developing. The active focus is general AI coding workflows; see [Product scope](docs/PRODUCT_SCOPE.md).
+Use [Issues](https://github.com/CWNU-Open-Source-Community/Universal-Code/issues) for bugs and suggestions, and read the [contribution guide](CONTRIBUTING.md) before developing. The active focus is general AI coding workflows; see [Product scope](docs/PRODUCT_SCOPE.md).
 
 ## License
 
