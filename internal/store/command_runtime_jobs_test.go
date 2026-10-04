@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,11 +20,14 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.T) {
 	ctx := context.Background()
-	st, err := Open(filepath.Join(t.TempDir(), "command-runtime-jobs.db"))
+	databasePath := filepath.Join(t.TempDir(), "command-runtime-jobs.db")
+	st, err := Open(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +234,53 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil || !running.OwnerRenewedAt.Equal(renewedAt) {
 		t.Fatalf("running owner heartbeat=%#v err=%v", running, err)
 	}
+	t.Run("cancelled-heartbeat-readback", func(t *testing.T) {
+		// Cancel only after the real SQLite UPDATE succeeds. The manager keeps
+		// its prior version when renewal returns an error; its terminal write
+		// below must still be able to use that version.
+		renewCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		updates := 0
+		interleavedDB := sql.OpenDB(commandRuntimeAfterUpdateConnector{
+			dsn: sqliteDSN(databasePath), afterUpdate: func(result driver.Result) {
+				changed, err := result.RowsAffected()
+				if err != nil || changed != 1 {
+					t.Fatalf("heartbeat SQL changed=%d err=%v", changed, err)
+				}
+				updates++
+				cancel()
+			},
+		})
+		interleavedDB.SetMaxOpenConns(1)
+		originalDB := st.db
+		st.db = interleavedDB
+		defer func() {
+			st.db = originalDB
+			_ = interleavedDB.Close()
+		}()
+		attempt := running
+		attempt.OwnerRenewedAt = running.OwnerRenewedAt.Add(time.Millisecond)
+		attempt.OwnerExpiresAt = attempt.OwnerRenewedAt.Add(time.Minute)
+		attempt.UpdatedAt = attempt.OwnerRenewedAt
+		attempt.Version++
+		_, err := st.UpdateCommandRuntimeJob(renewCtx, attempt, running.Version)
+		if updates != 1 || !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled heartbeat updates=%d err=%v", updates, err)
+		}
+		durable, err := st.GetCommandRuntimeJob(ctx, running.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("heartbeat owner=%s generation=%d expected=%d attempted=%d durable=%d state=%s",
+			durable.OwnerID, durable.OwnerGeneration, running.Version, attempt.Version,
+			durable.Version, durable.State)
+		if durable.Version != running.Version || durable.OwnerID != running.OwnerID ||
+			durable.OwnerGeneration != running.OwnerGeneration ||
+			!durable.OwnerRenewedAt.Equal(running.OwnerRenewedAt) {
+			t.Errorf("cancelled heartbeat consumed the manager's retained version: durable=%d retained=%d",
+				durable.Version, running.Version)
+		}
+	})
 	if active, err := st.CommandRuntimeJobOwnershipActive(ctx, running); err != nil || !active {
 		t.Fatalf("active command runtime ownership=%t err=%v", active, err)
 	}
@@ -251,6 +304,8 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	terminal.Version++
 	terminal.UpdatedAt = completedAt
 	terminal, err = st.UpdateCommandRuntimeJob(ctx, terminal, running.Version)
+	t.Logf("terminal CAS owner=%s generation=%d expected=%d result=%d state=%s err=%v",
+		running.OwnerID, running.OwnerGeneration, running.Version, terminal.Version, terminal.State, err)
 	if err != nil || terminal.State != runner.CommandRuntimeJobCompleted {
 		t.Fatalf("terminal=%#v err=%v", terminal, err)
 	}
@@ -388,6 +443,38 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if _, err := st.UpdateCommandRuntimeJob(ctx, mutated, terminal.Version); err == nil {
 		t.Fatal("immutable command runtime ownership was changed")
 	}
+}
+
+// This connector uses the production SQLite driver, with one scheduling point
+// after an UPDATE and before the store reads the resulting row back.
+type commandRuntimeAfterUpdateConnector struct {
+	dsn         string
+	afterUpdate func(driver.Result)
+}
+
+func (c commandRuntimeAfterUpdateConnector) Connect(context.Context) (driver.Conn, error) {
+	conn, err := c.Driver().Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &commandRuntimeAfterUpdateConn{SQLiteConn: conn.(*sqlite3.SQLiteConn), afterUpdate: c.afterUpdate}, nil
+}
+
+func (commandRuntimeAfterUpdateConnector) Driver() driver.Driver { return &sqlite3.SQLiteDriver{} }
+
+type commandRuntimeAfterUpdateConn struct {
+	*sqlite3.SQLiteConn
+	afterUpdate func(driver.Result)
+}
+
+func (c *commandRuntimeAfterUpdateConn) ExecContext(ctx context.Context, query string,
+	args []driver.NamedValue,
+) (driver.Result, error) {
+	result, err := c.SQLiteConn.ExecContext(ctx, query, args)
+	if err == nil && strings.HasPrefix(query, "UPDATE command_runtime_jobs SET") {
+		c.afterUpdate(result)
+	}
+	return result, err
 }
 
 // Observe the public manager/store boundary without fabricating its private
