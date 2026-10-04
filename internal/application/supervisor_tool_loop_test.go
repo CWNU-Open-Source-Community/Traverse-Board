@@ -252,7 +252,8 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 		WithWebEvidence(webevidence.NewService(st, nil, backend)).
 		WithExecutionPermissionCapabilities(capabilities)
 	cold, err := supervisor.Step(ctx, run.ID)
-	if err != nil || cold.Text != "waiting for permission activation" ||
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		cold.Checkpoint.Phase != domain.SupervisorTurnFailed || cold.ProtocolRepairs != 1 ||
 		cold.ToolCalls != 0 || cold.ModelAttempts != 2 || backend.calls != 0 {
 		t.Fatalf("cold Full web turn=%#v calls=%d err=%v", cold, backend.calls, err)
 	}
@@ -262,6 +263,11 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 	}
 	grant, err := runtimeAuthority.ActivateRunFullAccess(selection.Permission)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// An unsolicited unavailable tool preserves the existing failed-turn repair
+	// behavior. Resume explicitly after the operator's live activation.
+	if _, err := runService.Resume(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	live, err := supervisor.Step(ctx, run.ID)
@@ -286,7 +292,8 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 	}
 	runtimeAuthority.RevokeRun(run.ID)
 	revoked, err := supervisor.Step(ctx, run.ID)
-	if err != nil || revoked.Text != "permission revoked" ||
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		revoked.Checkpoint.Phase != domain.SupervisorTurnFailed || revoked.ProtocolRepairs != 1 ||
 		revoked.ToolCalls != 0 || revoked.ModelAttempts != 2 || backend.calls != 1 {
 		t.Fatalf("revoked Full web turn=%#v calls=%d err=%v", revoked, backend.calls, err)
 	}
