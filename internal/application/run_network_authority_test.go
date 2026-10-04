@@ -200,7 +200,7 @@ func TestThreadSuccessorInheritsOnlyExactNetworkPreference(t *testing.T) {
 		t.Fatalf("successor mode=%#v err=%v", successorMode, err)
 	}
 	permission, err := state.GetRunExecutionPermission(ctx, continued.Run.ID)
-	if err != nil || permission.Mode != domain.RunExecutionPermissionConservative ||
+	if err != nil || permission.Mode != domain.RunExecutionPermissionAsk ||
 		permission.ProcessEnabled || permission.ExecutionAuthorized || permission.CapabilityGrant {
 		t.Fatalf("successor inherited runtime capability: %#v err=%v", permission, err)
 	}

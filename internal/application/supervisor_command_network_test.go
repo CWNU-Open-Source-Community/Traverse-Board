@@ -65,10 +65,10 @@ func TestSupervisorFullAccessHostCommandFetchesWithoutApproval(t *testing.T) {
 	}
 	selected, err := application.NewRunExecutionPermissionService(state, capabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: runRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: runRecord.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "supervisor-host-network-permission-0001",
 			RequestedBy:  "test_operator", Reason: "allow ordinary host network",
-			ConfirmDangerFullAccess: true,
+			ConfirmFull: true,
 		})
 	if err != nil {
 		t.Fatal(err)
