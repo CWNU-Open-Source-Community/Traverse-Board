@@ -230,8 +230,7 @@ func TestThreadActivityV2PersistsTypedDetailsAndRecordedAgent(t *testing.T) {
 			PermissionRevision: permissionResult.Permission.Revision,
 			ModeRevision:       mode.Revision, NetworkMode: "allowlist",
 			AllowedTargets:    []string{"docs.example.com", "search.example.com"},
-			ProviderAvailable: true, ProviderFingerprint: strings.Repeat("a", 64),
-			ProviderSearchIndependent: true})
+			ProviderAvailable: true, ProviderFingerprint: strings.Repeat("a", 64)})
 	if err != nil {
 		t.Fatal(err)
 	}

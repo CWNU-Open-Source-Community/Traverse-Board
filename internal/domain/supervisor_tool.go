@@ -122,8 +122,7 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "debug_terminal" &&
 		c.ToolName != "command_runtime" &&
 		c.ToolName != "mcp_tool_call" &&
-		c.ToolName != "web_search" && c.ToolName != "web_fetch" &&
-		c.ToolName != "web_citation" &&
+		!isWebEvidenceSupervisorTool(c.ToolName) &&
 		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
 		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
 		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&
@@ -211,7 +210,7 @@ func isCodeIntelSupervisorTool(name string) bool {
 }
 
 func isWebEvidenceSupervisorTool(name string) bool {
-	return name == "web_search" || name == "web_fetch" || name == "web_citation"
+	return name == "web_search" || name == "source_search" || name == "web_fetch" || name == "web_citation"
 }
 
 func isBrowserActionSupervisorTool(name string) bool {

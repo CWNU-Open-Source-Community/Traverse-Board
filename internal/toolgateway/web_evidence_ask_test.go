@@ -10,6 +10,7 @@ func TestWebEvidenceAskFetchRequiresInlineApprovalScheduler(t *testing.T) {
 	scope := testWebEvidenceCapabilityContext()
 	scope.PermissionMode = domain.RunExecutionPermissionAsk
 	scope.NetworkMode, scope.AllowedTargets = "disabled", nil
+	scope.ProviderAvailable, scope.ProviderFingerprint = false, ""
 	scope.InlineWebFetchApprovalAvailable = false
 	withoutScheduler := WebEvidenceCapabilitySnapshot(scope)
 	if withoutScheduler.Available || withoutScheduler.FetchAvailable || withoutScheduler.SearchAvailable {

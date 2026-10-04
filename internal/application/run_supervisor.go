@@ -318,8 +318,7 @@ func (s *RunSupervisor) WithWebEvidence(service *webevidence.Service) *RunSuperv
 		return s
 	}
 	executor.WithWebFetchAuthorizationScheduler(
-		s.webFetchAuthorizationSchedulerEnabled).
-		WithExecutionPermissionCapabilities(s.executionCapabilities)
+		s.webFetchAuthorizationSchedulerEnabled)
 	s.webEvidence = service
 	s.tools.WithWebEvidenceExecutor(executor)
 	return s
@@ -484,9 +483,6 @@ func (s *RunSupervisor) WithExecutionPermissionCapabilities(
 		s.executionCapabilities = capabilities
 	}
 	s.installMCPExecutor()
-	if s.webEvidence != nil {
-		s.WithWebEvidence(s.webEvidence)
-	}
 	if store, ok := s.store.(AgentCodeToolStore); ok && s.tools != nil {
 		s.tools.WithAgentCodeExecutor(NewAgentCodeToolExecutor(store, s.checker).
 			WithDrydock(s.drydocks).

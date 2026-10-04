@@ -8,7 +8,6 @@ import (
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
-	"cyberagent-workbench/internal/webevidence"
 )
 
 type webEvidenceExecutorStub struct {
@@ -158,8 +157,8 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	}
 	const legacyDirectGeneration = "332ac8d6de55798e4c03530c48c947bbdfbad6eaeaee3b7de2ca245ba2ecdcbb"
 	legacySnapshot := WebEvidenceCapabilitySnapshot(preauthorizedWithoutInline)
-	if legacySnapshot.Generation != legacyDirectGeneration {
-		t.Fatalf("legacy direct generation=%s want=%s", legacySnapshot.Generation,
+	if legacySnapshot.Generation == legacyDirectGeneration {
+		t.Fatalf("retired authority generation was reused: %s old=%s", legacySnapshot.Generation,
 			legacyDirectGeneration)
 	}
 	legacyAuthority, err := NewWebEvidenceCallAuthority(preauthorizedWithoutInline)
@@ -174,14 +173,18 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	if err := json.Unmarshal(legacyRaw, &legacyFixture); err != nil {
 		t.Fatal(err)
 	}
+	legacyFixture["generation"] = legacyDirectGeneration
+	legacyFixture["permission_snapshot_id"] = "historical-full"
+	legacyFixture["permission_generation"] = 7
+	legacyFixture["permission_runtime_epoch"] = "historical-process"
 	delete(legacyFixture, "provider_search_independent")
 	delete(legacyFixture, "inline_web_fetch_approval_available")
 	legacyRaw, err = json.Marshal(legacyFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded, err := DecodeWebEvidenceCallAuthority(legacyRaw); err != nil ||
-		decoded.Generation != legacyDirectGeneration {
+	if decoded, err := DecodeWebEvidenceCallAuthority(legacyRaw); err == nil ||
+		decoded.Generation != legacyDirectGeneration || decoded.RunID != scope.RunID {
 		t.Fatalf("legacy direct authority=%#v err=%v", decoded, err)
 	}
 
@@ -189,28 +192,25 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	disabledScope.NetworkMode = "disabled"
 	disabledScope.AllowedTargets = nil
 	disabled := WebEvidenceCapabilitySnapshot(disabledScope)
-	if !disabled.Available || !disabled.FetchAvailable || disabled.SearchAvailable {
+	if !disabled.Available || !disabled.FetchAvailable || !disabled.SearchAvailable {
 		t.Fatalf("disabled=%#v", disabled)
 	}
 	withoutInlineApproval := disabledScope
 	withoutInlineApproval.InlineWebFetchApprovalAvailable = false
-	if snapshot := WebEvidenceCapabilitySnapshot(withoutInlineApproval); snapshot.Available ||
-		snapshot.FetchAvailable || snapshot.SearchAvailable ||
+	if snapshot := WebEvidenceCapabilitySnapshot(withoutInlineApproval); !snapshot.Available ||
+		snapshot.FetchAvailable || !snapshot.SearchAvailable ||
 		snapshot.Generation == disabled.Generation {
 		t.Fatalf("disabled scheduler snapshot=%#v", snapshot)
 	}
-	workspaceDisabled := disabledScope
-	workspaceDisabled.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
-	if snapshot := WebEvidenceCapabilitySnapshot(workspaceDisabled); snapshot.Available ||
-		snapshot.FetchAvailable {
-		t.Fatalf("workspace networkless snapshot=%#v", snapshot)
-	}
-	hostedScope := disabledScope
-	hostedScope.ProviderSearchIndependent = true
-	hosted := WebEvidenceCapabilitySnapshot(hostedScope)
-	if !hosted.Available || !hosted.FetchAvailable || !hosted.SearchAvailable ||
-		hosted.Generation == disabled.Generation {
-		t.Fatalf("independent hosted search=%#v", hosted)
+
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		current := disabledScope
+		current.PermissionMode = mode
+		if snapshot := WebEvidenceCapabilitySnapshot(current); !snapshot.Available || !snapshot.FetchAvailable {
+			t.Fatalf("%s hid available web approval: %#v", mode, snapshot)
+		}
 	}
 	invalid := scope
 	invalid.AllowedTargets = []string{"localhost"}
@@ -268,26 +268,7 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	if _, err := DecodeWebEvidenceCallAuthority(append(encoded, []byte(` {}`)...)); err == nil {
 		t.Fatal("authority accepted trailing JSON")
 	}
-	liveFull := scope
-	liveFull.PermissionMode = domain.RunExecutionPermissionFullAccess
-	liveFull.PermissionSnapshotID = "run-permission-full-1"
-	liveFull.PermissionGeneration = 7
-	liveFull.PermissionRuntimeEpoch = "runtime-epoch-instance-1"
-	liveFull.AllowedTargets = []string{webevidence.PublicHTTPSTarget}
-	fullAuthority, err := NewWebEvidenceCallAuthority(liveFull)
-	if err != nil || fullAuthority.PermissionGeneration != 7 ||
-		fullAuthority.Generation == available.Generation {
-		t.Fatalf("live Full authority=%#v err=%v", fullAuthority, err)
-	}
-	fullAuthority.PermissionGeneration++
-	if err := fullAuthority.Validate(); err == nil {
-		t.Fatal("Full authority survived runtime generation drift")
-	}
-	fullAuthority.PermissionGeneration--
-	fullAuthority.PermissionRuntimeEpoch = "runtime-epoch-instance-2"
-	if err := fullAuthority.Validate(); err == nil {
-		t.Fatal("Full authority survived runtime instance drift")
-	}
+
 }
 
 func TestWebEvidenceGatewayRequiresFencedRootAndMarksOutputUntrusted(t *testing.T) {
@@ -357,5 +338,15 @@ func TestWebEvidenceGatewayRequiresFencedRootAndMarksOutputUntrusted(t *testing.
 	}
 	if executor.calls != 2 || tracked.chargeCount() != 2 {
 		t.Fatalf("calls=%d charges=%d", executor.calls, tracked.chargeCount())
+	}
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		call.PermissionMode = mode
+		denied := New(newTrackedStructuredStore(), historyRecallDenyChecker{}).WithWebEvidenceExecutor(executor)
+		outcome, err := denied.Invoke(t.Context(), call)
+		if err != nil || outcome.Decision.Allowed || executor.calls != 2 {
+			t.Fatalf("%s bypassed explicit tool denial: outcome=%#v calls=%d err=%v", mode, outcome, executor.calls, err)
+		}
 	}
 }

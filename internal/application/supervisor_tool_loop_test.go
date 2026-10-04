@@ -197,120 +197,15 @@ func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-full-web-runtime.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
-	runService := application.NewRunService(st)
-	_, run, err := runService.Create(ctx, application.CreateRunRequest{
-		Goal: "fetch after a live Full Access activation", Profile: "review",
-		Surface: "code", Phase: "deliver", ModelRoute: "tool-loop/model",
-		NetworkMode: "disabled",
-		Budget:      domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	selection, err := application.NewRunExecutionPermissionService(st, capabilities).
-		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
-			OperationKey: "supervisor-full-web-permission-0001",
-			RequestedBy:  "test_operator", Reason: "test the live Full Access boundary",
-			ConfirmFull: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A persisted Full snapshot by itself must not restore authority on a cold
-	// process. Revoke before the first turn to model that startup state.
-	runtimeAuthority.RevokeRun(run.ID)
-	if _, err := runService.Start(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		toolResponse("provider-cold-full-web-fetch", string(toolgateway.WebFetchTool),
-			`{"version":"web_fetch.v1","url":"https://docs.example.com/cold"}`),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"waiting for permission activation", "", "")),
-		toolResponse("provider-full-web-fetch", string(toolgateway.WebFetchTool),
-			`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"fetched with live permission", "", "")),
-		toolResponse("provider-revoked-full-web-fetch", string(toolgateway.WebFetchTool),
-			`{"version":"web_fetch.v1","url":"https://docs.example.com/revoked"}`),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"permission revoked", "", "")),
-	}}
-	backend := &applicationWebFetchBackend{}
-	supervisor := newToolLoopSupervisor(st, provider).
-		WithWebEvidence(webevidence.NewService(st, nil, backend)).
-		WithExecutionPermissionCapabilities(capabilities)
-	cold, err := supervisor.Step(ctx, run.ID)
-	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
-		cold.Checkpoint.Phase != domain.SupervisorTurnFailed || cold.ProtocolRepairs != 1 ||
-		cold.ToolCalls != 0 || cold.ModelAttempts != 2 || backend.calls != 0 {
-		t.Fatalf("cold Full web turn=%#v calls=%d err=%v", cold, backend.calls, err)
-	}
-	requests := provider.Requests()
-	if len(requests) != 2 || hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) {
-		t.Fatalf("cold Full snapshot advertised direct fetch: %#v", requests)
-	}
-	grant, err := runtimeAuthority.ActivateRunFullAccess(selection.Permission)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An unsolicited unavailable tool preserves the existing failed-turn repair
-	// behavior. Resume explicitly after the operator's live activation.
-	if _, err := runService.Resume(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	live, err := supervisor.Step(ctx, run.ID)
-	if err != nil || live.ToolCalls != 1 || backend.calls != 1 ||
-		live.Text != "fetched with live permission" {
-		t.Fatalf("live Full web turn=%#v calls=%d err=%v", live, backend.calls, err)
-	}
-	requests = provider.Requests()
-	if len(requests) != 4 || !hasToolSpec(requests[2], string(toolgateway.WebFetchTool)) {
-		t.Fatalf("live Full permission did not advertise fetch: %#v", requests)
-	}
-	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
-	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
-		t.Fatalf("live Full web round=%#v err=%v", rounds, err)
-	}
-	callAuthority, err := toolgateway.DecodeWebEvidenceCallAuthority(
-		json.RawMessage(rounds[0].Calls[0].AuthorityJSON))
-	if err != nil || callAuthority.PermissionSnapshotID != selection.Permission.ID ||
-		callAuthority.PermissionGeneration != grant.Generation ||
-		callAuthority.PermissionRuntimeEpoch != runtimeAuthority.RuntimeEpoch() {
-		t.Fatalf("durable live Full authority=%#v err=%v", callAuthority, err)
-	}
-	runtimeAuthority.RevokeRun(run.ID)
-	revoked, err := supervisor.Step(ctx, run.ID)
-	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
-		revoked.Checkpoint.Phase != domain.SupervisorTurnFailed || revoked.ProtocolRepairs != 1 ||
-		revoked.ToolCalls != 0 || revoked.ModelAttempts != 2 || backend.calls != 1 {
-		t.Fatalf("revoked Full web turn=%#v calls=%d err=%v", revoked, backend.calls, err)
-	}
-	requests = provider.Requests()
-	if len(requests) != 6 || hasToolSpec(requests[4], string(toolgateway.WebFetchTool)) {
-		t.Fatalf("revoked Full advertised direct fetch: requests=%d", len(requests))
-	}
-	after, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
-	if err != nil || len(after) != 1 || len(after[0].Calls) != 1 ||
-		after[0].Calls[0].Status != domain.SupervisorToolCompleted ||
-		after[0].Calls[0].ResultJSON != rounds[0].Calls[0].ResultJSON ||
-		after[0].Calls[0].AuthorityJSON != rounds[0].Calls[0].AuthorityJSON {
-		t.Fatalf("revocation changed the completed historical result: rounds=%#v err=%v", after, err)
+func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
+	} {
+		t.Run(string(mode), func(t *testing.T) { testSupervisorInlineWebFetchApproval(t, mode) })
 	}
 }
 
-func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+func testSupervisorInlineWebFetchApproval(t *testing.T, mode domain.RunExecutionPermissionMode) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch-inline-approval.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -327,6 +222,7 @@ func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setWebTestPermission(t, st, run.ID, mode)
 	if _, err := runService.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}

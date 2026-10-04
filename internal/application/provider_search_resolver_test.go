@@ -51,10 +51,9 @@ func (*providerSearchFakeBackend) Search(context.Context, string, int,
 }
 
 type providerSearchReadinessStoreFake struct {
-	thread     domain.Thread
-	run        domain.Run
-	mode       domain.RunModeSnapshot
-	permission domain.RunExecutionPermissionSnapshot
+	thread domain.Thread
+	run    domain.Run
+	mode   domain.RunModeSnapshot
 }
 
 func (s providerSearchReadinessStoreFake) GetThread(context.Context, string) (domain.Thread, error) {
@@ -69,12 +68,6 @@ func (s providerSearchReadinessStoreFake) GetRunMode(context.Context, string) (
 	domain.RunModeSnapshot, error,
 ) {
 	return s.mode, nil
-}
-
-func (s providerSearchReadinessStoreFake) GetRunExecutionPermission(context.Context,
-	string,
-) (domain.RunExecutionPermissionSnapshot, error) {
-	return s.permission, nil
 }
 
 func TestProviderSearchResolverUsesCurrentCustomRoutePolicy(t *testing.T) {
@@ -353,8 +346,6 @@ func TestProviderSearchReadinessServiceBindsActiveThreadRunAndMode(t *testing.T)
 		mode: domain.RunModeSnapshot{RunID: "run-search-ready", Revision: 7,
 			Scope: domain.Scope{NetworkMode: "allowlist",
 				AllowedTargets: []string{"search.example.com"}}},
-		permission: domain.RunExecutionPermissionSnapshot{
-			Mode: domain.RunExecutionPermissionConservative},
 	}
 	view, err := NewProviderSearchReadinessService(store, resolver).Get(
 		t.Context(), store.thread.ID)
@@ -372,8 +363,8 @@ func TestProviderSearchReadinessServiceBindsActiveThreadRunAndMode(t *testing.T)
 	}
 }
 
-func TestProviderSearchReadinessServiceUsesEffectiveFullAccessWebAuthority(t *testing.T) {
-	definition := testProviderSearchDefinition("resolver-full-access-readiness",
+func TestProviderSearchReadinessIsIndependentOfShellNetworking(t *testing.T) {
+	definition := testProviderSearchDefinition("resolver-independent-readiness",
 		modelregistry.ProviderSearchModeSearXNG)
 	registry, settings, credentials := testProviderSearchRegistry(t, definition)
 	resolver, err := NewProviderSearchResolver(registry, settings, credentials,
@@ -383,19 +374,17 @@ func TestProviderSearchReadinessServiceUsesEffectiveFullAccessWebAuthority(t *te
 		t.Fatal(err)
 	}
 	store := providerSearchReadinessStoreFake{
-		thread: domain.Thread{ID: "thread-search-full", ActiveRunID: "run-search-full"},
-		run: domain.Run{ID: "run-search-full",
+		thread: domain.Thread{ID: "thread-search-independent", ActiveRunID: "run-search-independent"},
+		run: domain.Run{ID: "run-search-independent",
 			Config: domain.RunConfig{ModelRoute: "code"}},
-		mode: domain.RunModeSnapshot{RunID: "run-search-full", Revision: 9,
+		mode: domain.RunModeSnapshot{RunID: "run-search-independent", Revision: 9,
 			Scope: domain.Scope{NetworkMode: "disabled"}},
-		permission: domain.RunExecutionPermissionSnapshot{
-			Mode: domain.RunExecutionPermissionFullAccess},
 	}
 	view, err := NewProviderSearchReadinessService(store, resolver).Get(
 		t.Context(), store.thread.ID)
 	if err != nil || view.State != ProviderSearchStateReady || !view.RuntimeReady ||
 		view.NetworkMode != "allowlist" || view.RequiredTarget != "search.example.com" {
-		t.Fatalf("full access readiness=%+v err=%v", view, err)
+		t.Fatalf("independent search readiness=%+v err=%v", view, err)
 	}
 }
 

@@ -503,8 +503,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 // supervisorWebEvidenceNotOpenReason is the generic reason for a Run whose web
 // evidence tools are all closed. It names the operator path that opens them.
 const supervisorWebEvidenceNotOpenReason = "web evidence tools are not open for the current Run and agent. " +
-	"An operator can enable web access in the conversation permissions and add " +
-	"the search backend host to the Run network allowlist. " +
+	"Configure an eligible search provider or enable approval for an exact public HTTPS fetch. " +
 	"Do not retry this tool until it is opened."
 
 // supervisorWebEvidenceUnavailableReason keeps the stable
@@ -521,24 +520,18 @@ func supervisorWebEvidenceUnavailableReason(name toolgateway.ToolName,
 		return supervisorWebEvidenceNotOpenReason
 	}
 	if name == toolgateway.WebSearchTool && !capabilities.SearchAvailable {
-		// Available with search closed means per-call authorized web fetch is
-		// what the Run actually offers, so point the model at that path.
-		return "web search is not opened for the current Run: the current network " +
-			"permission does not open search, so only web fetch is offered. " +
-			"An operator can enable web access or search in the conversation " +
-			"permissions, or add the search backend host to the Run network " +
-			"allowlist. Do not retry web_search until it is opened. Use web_fetch " +
-			"for one specific approved URL, or continue without web search."
+		return "web search is not opened for the current Run: no eligible search provider is configured. " +
+			"Configure a search backend or a model route with supported native search. " +
+			"Do not retry web_search until it is opened. Continue with the tools currently offered."
 	}
 	if name == toolgateway.SourceSearchTool && !capabilities.SourceSearchAvailable {
-		return "platform source search is not opened for the current Run: public connector endpoints are outside the current network authority. Enable Full Access or add the connector hosts to the Run allowlist. Do not retry source_search until it is opened."
+		return "platform source search is not opened for the current Run: no eligible public source connector is configured. Configure a supported connector with a public HTTPS endpoint. Do not retry source_search until it is opened."
 	}
 	if name != toolgateway.WebSearchTool && name != toolgateway.SourceSearchTool &&
 		!capabilities.FetchAvailable {
-		return "web fetch is not opened for the current Run: the current network " +
-			"permission does not authorize direct web fetch. An operator can enable " +
-			"web access in the conversation permissions or add the target host to " +
-			"the Run network allowlist. Do not retry this tool until it is opened."
+		return "web fetch is not opened for the current Run: the target requires a domain grant or per-call approval. " +
+			"Enable web fetch approval or authorize the exact public HTTPS host. " +
+			"Do not retry this tool until it is opened."
 	}
 	return supervisorWebEvidenceNotOpenReason
 }
@@ -550,39 +543,26 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 	if s == nil || s.webEvidence == nil || turn.Agent.Role != domain.AgentRoleRoot {
 		return toolgateway.WebEvidenceCapabilities{}, nil, nil
 	}
-	permissionSnapshotID, permissionGeneration, permissionRuntimeEpoch, live :=
-		bindWebEvidenceRuntime(s.executionCapabilities, permission)
-	if !live {
-		return toolgateway.WebEvidenceCapabilities{
-			ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
-			Refusal:         "Full Access web evidence requires a live confirmed permission activation",
-		}, nil, nil
-	}
-	networkAuthority := effectiveWebEvidenceAuthority(turn.Mode.Scope, permission.Mode)
+	networkAuthority := webevidence.NetworkAuthority{Mode: turn.Mode.Scope.NetworkMode,
+		AllowedTargets: append([]string(nil), turn.Mode.Scope.AllowedTargets...)}
+	searchAuthority := webevidence.NetworkAuthority{Mode: "allowlist",
+		AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
 	providerFingerprint := s.webEvidence.SearchProviderFingerprintForScope(ctx,
 		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
 			WorkspaceID: turn.Mission.WorkspaceID,
-			ModelRoute:  turn.Run.Config.ModelRoute, Authority: networkAuthority})
-	providerIndependent := s.webEvidence.SearchProviderIndependentForScope(ctx,
-		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
-			WorkspaceID: turn.Mission.WorkspaceID,
-			ModelRoute:  turn.Run.Config.ModelRoute, Authority: networkAuthority})
-	connectorFingerprint := s.webEvidence.SourceConnectorFingerprintFor(networkAuthority)
+			ModelRoute:  turn.Run.Config.ModelRoute, Authority: searchAuthority})
+	connectorFingerprint := s.webEvidence.SourceConnectorFingerprintFor(searchAuthority)
 	context := toolgateway.WebEvidenceCapabilityContext{RunID: turn.Run.ID,
 		MissionID: turn.Mission.ID, SessionID: turn.Run.SessionID,
 		RootAgentID: turn.Agent.ID, WorkspaceID: turn.Mission.WorkspaceID,
 		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
 		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
-		PermissionSnapshotID:            permissionSnapshotID,
-		PermissionGeneration:            permissionGeneration,
-		PermissionRuntimeEpoch:          permissionRuntimeEpoch,
 		ModeRevision:                    turn.Mode.Revision,
 		PermissionRevision:              permission.Revision,
 		NetworkMode:                     networkAuthority.Mode,
 		AllowedTargets:                  append([]string(nil), networkAuthority.AllowedTargets...),
 		ProviderAvailable:               providerFingerprint != "",
 		ProviderFingerprint:             providerFingerprint,
-		ProviderSearchIndependent:       providerIndependent,
 		SourceConnectorAvailable:        connectorFingerprint != "",
 		SourceConnectorFingerprint:      connectorFingerprint,
 		InlineWebFetchApprovalAvailable: s.webFetchAuthorizationSchedulerEnabled}
@@ -1189,11 +1169,8 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
-		snapshotID, generation, epoch, live := bindWebEvidenceRuntime(s.executionCapabilities, permission)
-		live = live && authority.PermissionSnapshotID == snapshotID &&
-			authority.PermissionGeneration == generation && authority.PermissionRuntimeEpoch == epoch
 		if authorityErr != nil || authority.RunID != call.RunID ||
-			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
+			permissionErr != nil || permission.Mode != authority.PermissionMode ||
 			permission.Revision != authority.PermissionRevision ||
 			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
 			authority.MissionID != turn.Mission.ID ||
@@ -1207,8 +1184,6 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.Role = authority.Role
 		toolCall.Profile = authority.Profile
 		toolCall.PermissionMode = authority.PermissionMode
-		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
-		toolCall.PermissionGeneration = authority.PermissionGeneration
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.Generation
