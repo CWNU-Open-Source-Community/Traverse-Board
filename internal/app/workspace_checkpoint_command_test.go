@@ -126,8 +126,15 @@ func TestWorkspaceCheckpointCLIProvidesIdempotentCaptureTimelineAndPreview(t *te
 	if err != nil || mutation.After == nil || mutation.Transaction.Status != workspacecheckpoint.TransactionCompleted {
 		t.Fatalf("file mutation boundary: %+v err=%v", mutation, err)
 	}
-	if _, released, err := state.ReleaseRunExecutionLease(t.Context(), acquired.Lease); err != nil || !released {
-		t.Fatalf("release mutation lease: released=%t err=%v", released, err)
+	released, replayed, err := state.ReleaseRunExecutionLease(t.Context(), acquired.Lease)
+	if err != nil || replayed || released.Status != domain.RunExecutionLeaseReleased || released.ReleasedAt == nil ||
+		released.RunID != acquired.Lease.RunID || released.LeaseID != acquired.Lease.LeaseID ||
+		released.OwnerID != acquired.Lease.OwnerID || released.Generation != acquired.Lease.Generation {
+		t.Fatalf("release mutation lease: lease=%+v replayed=%t err=%v", released, replayed, err)
+	}
+	currentLease, found, err := state.GetRunExecutionLease(t.Context(), runID)
+	if err != nil || !found || !reflect.DeepEqual(currentLease, released) {
+		t.Fatalf("released mutation lease was not persisted: lease=%+v err=%v", currentLease, err)
 	}
 	second, stderr, code := executeTestCommand(t, "workspace", "checkpoint", "capture", "--run", runID, "--operation-key", "cli-capture-0002")
 	if code != 0 || json.Unmarshal([]byte(second), &capture) != nil {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -591,7 +592,8 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 }
 
 func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", newCanonicalCLIHome(t))
+	home := newCanonicalCLIHome(t)
+	t.Setenv("CYBERAGENT_HOME", home)
 	if _, stderr, code := executeTestCommand(t, "workspace", "init", "host-execute-demo"); code != 0 {
 		t.Fatal(stderr)
 	}
@@ -635,9 +637,23 @@ func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
 	if _, stderr, code := executeTestCommand(t, append(base, "--arg", "different")...); code == 0 || !strings.Contains(stderr, "another request") {
 		t.Fatal("conflicting request accepted", code, stderr)
 	}
+	state, err := store.Open(filepath.Join(home, "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	jobs, err := state.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: runID, Limit: 10})
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("expected one completed host Job: %+v err=%v", jobs, err)
+	}
 	for _, flag := range []string{"--confirm-danger-full-access", "--enable-debug-maximum-access"} {
-		if _, stderr, code := executeTestCommand(t, append(base, flag)...); code == 0 || !strings.Contains(stderr, "flag provided but not defined") {
-			t.Fatal("retired flag accepted", flag, code, stderr)
+		if stdout, stderr, code := executeTestCommand(t, append(base, flag)...); code != 2 || stdout != "" ||
+			!strings.Contains(stderr, "usage: cyberagent run host-execute ") {
+			t.Fatal("retired flag was not rejected", flag, code, stdout, stderr)
+		}
+		current, err := state.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: runID, Limit: 10})
+		if err != nil || !reflect.DeepEqual(current, jobs) {
+			t.Fatalf("retired flag %s changed the Job ledger: %+v err=%v", flag, current, err)
 		}
 	}
 }
