@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/outputsafe"
@@ -537,17 +536,16 @@ type commandRuntimeStarter interface {
 }
 
 type CommandRuntimeManager struct {
-	store                CommandRuntimeStore
-	starter              commandRuntimeStarter
-	hostProxy            *commandRuntimeHostProxySet
-	fixed                *fixedCommandRuntime
-	adapter              commandruntimeadapter.Identity
-	ownerID              string
-	ownerGeneration      int64
-	ownerLeaseTTL        time.Duration
-	ownerRenewEvery      time.Duration
-	ownerRenewTimeout    time.Duration
-	ownershipDiagnostics io.Writer
+	store             CommandRuntimeStore
+	starter           commandRuntimeStarter
+	hostProxy         *commandRuntimeHostProxySet
+	fixed             *fixedCommandRuntime
+	adapter           commandruntimeadapter.Identity
+	ownerID           string
+	ownerGeneration   int64
+	ownerLeaseTTL     time.Duration
+	ownerRenewEvery   time.Duration
+	ownerRenewTimeout time.Duration
 
 	startMu sync.Mutex
 	mu      sync.RWMutex
@@ -1315,45 +1313,18 @@ func (m *CommandRuntimeManager) maintainOwnership(entry *commandRuntimeEntry) {
 			if snapshot := entry.snapshot(); snapshot.State == CommandRuntimeJobStopping {
 				_ = entry.process.Kill()
 			}
-			started := time.Now()
-			beforeVersion := int64(0)
-			if m.ownershipDiagnostics != nil {
-				beforeVersion = entry.snapshot().Version
-			}
 			ctx, cancel := context.WithTimeout(entry.authorityContext, m.ownerRenewTimeout)
 			var err error
-			phase := "authority"
 			if entry.authorityCheck != nil {
 				err = entry.authorityCheck(ctx)
 			}
-			authorityElapsed := time.Since(started)
-			renewalStarted := time.Now()
 			if err == nil {
-				phase = "owner_renew"
 				err = m.renewOwnership(ctx, entry)
 			}
-			renewalElapsed := time.Since(renewalStarted)
-			contextErr := ctx.Err()
 			cancel()
 			if err != nil {
 				if entry.setDesired(CommandRuntimeJobInterrupted) {
 					_ = entry.process.Kill()
-				}
-				if m.ownershipDiagnostics != nil {
-					classify := func(cause error) string {
-						if cause == nil {
-							return "none"
-						}
-						if errors.Is(cause, context.DeadlineExceeded) {
-							return "deadline_exceeded"
-						}
-						if errors.Is(cause, context.Canceled) {
-							return "cancelled"
-						}
-						return string(apperror.CodeOf(cause))
-					}
-					fmt.Fprintf(m.ownershipDiagnostics, "fixed_command_ownership_failure phase=%s error=%s context=%s authority_ms=%d renewal_ms=%d shared_budget_ms=%d version_before=%d version_after=%d\n",
-						phase, classify(err), classify(contextErr), authorityElapsed.Milliseconds(), renewalElapsed.Milliseconds(), m.ownerRenewTimeout.Milliseconds(), beforeVersion, entry.snapshot().Version)
 				}
 				return
 			}

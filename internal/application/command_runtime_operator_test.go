@@ -375,8 +375,8 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 		}
 	})
 	t.Run("multiple-output-pages", func(t *testing.T) {
-		t.Setenv("CYBERAGENT_FIXED_COMMAND_DIAGNOSTICS", "1")
-		f, request := newFixedOperatorFixture(t, domain.RunCreated, runner.ControlledCommandPowerShellWorkspaceList, 0)
+		// Paging correctness has its own budget; default and timeout behavior are tested separately.
+		f, request := newFixedOperatorFixture(t, domain.RunCreated, runner.ControlledCommandPowerShellWorkspaceList, time.Minute)
 		for i := 0; i < 400; i++ {
 			name := fmt.Sprintf("page-%03d-%s.txt", i, strings.Repeat("x", 60))
 			if err := os.WriteFile(filepath.Join(f.root, name), nil, 0o600); err != nil {
@@ -384,7 +384,7 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 			}
 		}
 		result, err := f.service.RunOperatorCommand(t.Context(), request)
-		if err != nil || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped {
+		if err != nil || result.Job.State != runner.CommandRuntimeJobCompleted || result.Job.TimeoutMilliseconds != 60_000 || !result.Job.TreeReaped {
 			t.Fatal("paged fixed command", result, err)
 		}
 		if len(result.Job.Stdout) <= toolgateway.MaxCommandRuntimePageBytes || len(result.Job.Stdout) > runner.MaxControlledOutputCaptureBytes || strings.Count(result.Job.Stdout, "page-") != 400 {

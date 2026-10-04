@@ -2,47 +2,29 @@ package runner
 
 import (
 	"context"
-	"cyberagent-workbench/internal/apperror"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"cyberagent-workbench/internal/apperror"
 )
 
-type ownershipDiagnosticBuffer struct {
-	mu   sync.Mutex
-	text strings.Builder
-}
-
-func (b *ownershipDiagnosticBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.text.Write(p)
-}
-func (b *ownershipDiagnosticBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.text.String()
-}
-func TestFixedOwnershipDiagnosticsDistinguishesPhasesWithoutChangingKill(t *testing.T) {
+func TestCommandRuntimeOwnershipFailureInterruptsProcess(t *testing.T) {
 	for _, phase := range []string{"authority", "owner_renew"} {
 		t.Run(phase, func(t *testing.T) {
 			state := newCommandRuntimeMemoryStore()
 			starter := &commandRuntimeFakeStarter{}
-			manager, err := NewCommandRuntimeManager(state, starter, "diagnostic-fixture")
+			manager, err := NewCommandRuntimeManager(state, starter, "ownership-failure-fixture")
 			if err != nil {
 				t.Fatal(err)
 			}
 			manager.ownerRenewEvery = 10 * time.Millisecond
 			manager.ownerRenewTimeout = 100 * time.Millisecond
-			output := &ownershipDiagnosticBuffer{}
-			manager.ownershipDiagnostics = output
 			var revoked atomic.Bool
 			request := commandRuntimeTestRequest(manager, 2000)
 			request.DispatchCheck = func(context.Context, CommandRuntimeResolvedSpec) error {
 				if revoked.Load() {
-					return apperror.New(apperror.CodePolicyDenied, "private-argv-path-and-secret")
+					return apperror.New(apperror.CodePolicyDenied, "authorization revoked")
 				}
 				return nil
 			}
@@ -61,14 +43,6 @@ func TestFixedOwnershipDiagnosticsDistinguishesPhasesWithoutChangingKill(t *test
 			terminal, _ := waitCommandRuntimeTerminal(t, manager, job.ID)
 			if terminal.State != CommandRuntimeJobInterrupted || terminal.ExitCode == nil || *terminal.ExitCode != 125 {
 				t.Fatalf("did not stop revoked process: %+v", terminal)
-			}
-			deadline := time.Now().Add(time.Second)
-			for output.String() == "" && time.Now().Before(deadline) {
-				time.Sleep(time.Millisecond)
-			}
-			text := output.String()
-			if !strings.Contains(text, "phase="+phase) || !strings.Contains(text, "context=none") || !strings.Contains(text, "shared_budget_ms=100") || strings.Contains(text, "private-") || strings.Contains(text, job.ID) {
-				t.Fatalf("incorrect or sensitive diagnostic: %s", text)
 			}
 		})
 	}

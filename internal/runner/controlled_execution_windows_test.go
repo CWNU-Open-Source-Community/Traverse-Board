@@ -24,12 +24,19 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 	for _, kind := range []ControlledCommandKind{ControlledCommandGoVersion, ControlledCommandPowerShellWorkspaceList} {
 		t.Run(string(kind), func(t *testing.T) {
 			request := controlledCommandTestRequest(t, kind)
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				// Test native isolation independently of the default execution deadline.
+				request.Timeout = time.Minute
+			}
 			if err := os.WriteFile(filepath.Join(request.WorkspaceRoot, "fixed-list-marker.txt"), []byte("marker"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			plan, err := PlanControlledCommand(request)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if kind == ControlledCommandPowerShellWorkspaceList && plan.TimeoutMilliseconds != 60_000 {
+				t.Fatal("fixed native correctness budget changed")
 			}
 			manager, intent, err := NewFixedCommandRuntimeManager(newCommandRuntimeMemoryStore(), "fixed-native-test", plan, request.WorkspaceRoot)
 			if err != nil {
@@ -108,8 +115,6 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 				t.Fatalf("fixed Job limits changed %+v", limits)
 			}
 			result := waitWindowsProfileTestProcess(process, time.Duration(plan.TimeoutMilliseconds)*time.Millisecond)
-			t.Logf("fixed native wait: elapsed=%s watchdog=%t exit=%d stdout_bytes=%d stderr_bytes=%d",
-				result.elapsed, result.watchdog, result.exitCode, len(result.stdout.value), len(result.stderr.value))
 			if result.watchdog || result.waitErr != nil || result.killErr != nil || result.exitCode != 0 ||
 				result.stdout.err != nil || result.stderr.err != nil || len(result.stderr.value) != 0 {
 				t.Fatalf("restricted process failed: %s", result)

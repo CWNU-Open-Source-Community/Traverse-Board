@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -53,9 +52,6 @@ func NewFixedCommandRuntimeManager(store CommandRuntimeStore, owner string, plan
 		return nil, CommandRuntimeSpec{}, err
 	}
 	manager.fixed = fixed
-	if os.Getenv("CYBERAGENT_FIXED_COMMAND_DIAGNOSTICS") == "1" {
-		manager.ownershipDiagnostics = os.Stderr
-	}
 	manager.adapter.BackendIdentity = RestrictedFixedCommandBackend
 	intent = fixed.intent
 	intent.Arguments = append(intent.Arguments[:0:0], intent.Arguments...)
