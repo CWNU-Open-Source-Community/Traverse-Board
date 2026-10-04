@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,11 +17,10 @@ import (
 )
 
 func TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority(t *testing.T) {
-	for _, boundary := range []string{"request_completion", "activation_revoked", "lease_lost"} {
+	for _, boundary := range []string{"request_completion", "activation_revoked", "lease_lost", "completed_request_completion", "completed_activation_revoked", "completed_lease_lost"} {
 		t.Run(boundary, func(t *testing.T) {
 			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, t.Context())
 			authority := domain.NewExecutionPermissionRuntimeAuthority()
-			capabilities.FullAccessRequiresRuntimeGrant = true
 			capabilities.RuntimeAuthority = authority
 			permission, err := state.GetRunExecutionPermission(t.Context(), run.ID)
 			if err != nil {
@@ -43,30 +44,10 @@ func TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority(t *test
 				t.Fatal(err)
 			}
 			scope := commandRuntimeTestScope(t, t.Context(), state, service, run, root, lease, "initial-input-"+boundary)
-			mode, err := state.GetRunMode(t.Context(), run.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			scope.Surface, scope.Phase, scope.Profile, scope.Role = mode.Surface, mode.Phase, mode.Profile, root.Role
-			scope.ModeRevision, scope.PermissionRevision, scope.PermissionMode = mode.Revision, permission.Revision, permission.Mode
-			scope.PermissionSnapshotID, scope.PermissionRuntimeEpoch = permission.ID, authority.RuntimeEpoch()
-			generation, live := capabilities.FullAccessGeneration(permission)
-			if !live {
-				t.Fatal("missing test activation")
-			}
-			scope.PermissionGeneration = generation
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			unblock := func() { once.Do(func() { close(release) }) }
 			defer unblock()
-			probe.onPermissionRead = func(read int) {
-				// Manager Authorize + BeforeDispatch and native Recheck have
-				// already passed. The fourth read is the initial stdin Recheck.
-				if read == 4 {
-					close(entered)
-					<-release
-				}
-			}
 			input := commandOperationMarkerInput()
 			input.Commands[0].StdinPolicy = runner.CommandRuntimeStdinPipe
 			input.Commands[0].InitialStdin = "committed native stdin"
@@ -78,17 +59,53 @@ func TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority(t *test
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			result, err := service.ExecuteCommandRuntime(ctx, scope, input)
-			if err != nil || len(result.Jobs) != 1 || result.Jobs[0].State != runner.CommandRuntimeJobRunning {
-				t.Fatalf("start: %+v %v", result.Jobs, err)
+			f := commandFixtureForScope(t, state, service, scope)
+			scope = f.startScope(t, input, 1)
+			bindings, err := service.loadAuthorizedBindings(ctx, scope, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, err := service.normalizeCommandRuntimeSpec(input.Commands[0], bindings.rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := service.authorizedCommandStart(scope, bindings, scope.OperationKey, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := request.DispatchCheck
+			var checks atomic.Int32
+			var enteredOnce sync.Once
+			request.DispatchCheck = func(c context.Context, s runner.CommandRuntimeResolvedSpec) error {
+				// The first two checks are synchronous manager/native dispatch.
+				// Hold initial stdin before its authority check. Ownership has a
+				// separate phase and cannot authorize these pending bytes.
+				if checks.Add(1) >= 3 {
+					enteredOnce.Do(func() { close(entered) })
+					<-release
+				}
+				return original(c, s)
+			}
+			job, _, err := manager.Start(ctx, request)
+			if err != nil || job.State != runner.CommandRuntimeJobRunning {
+				t.Fatalf("start: %+v %v", job, err)
 			}
 			select {
 			case <-entered:
 			case <-time.After(3 * time.Second):
 				t.Fatal("initial input authority was not rechecked")
 			}
+			if strings.HasPrefix(boundary, "completed_") {
+				raw, err := marshalSupervisorToolResultEnvelope(supervisorToolResultEnvelope{Version: supervisorToolResultVersion, Tool: f.call.ToolName, Status: string(domain.SupervisorToolCompleted), Message: "background Job started"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := state.RecordSupervisorToolResult(t.Context(), f.turn.Checkpoint, domain.SupervisorToolResult{CallID: f.call.CallID, Status: domain.SupervisorToolCompleted, ResultJSON: string(raw), CompletedAt: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cancel()
-			switch boundary {
+			switch strings.TrimPrefix(boundary, "completed_") {
 			case "activation_revoked":
 				authority.RevokeRun(run.ID)
 			case "lease_lost":
@@ -97,7 +114,7 @@ func TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority(t *test
 				}
 			}
 			unblock()
-			finished, _, err := manager.Wait(t.Context(), result.Jobs[0].ID, 5*time.Second, 0, 4096)
+			finished, _, err := manager.Wait(t.Context(), job.ID, 5*time.Second, 0, 4096)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,7 +123,7 @@ func TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority(t *test
 				t.Fatal(err)
 			}
 			body, readErr := os.ReadFile(filepath.Join(workspace.RootPath, "command-operation-marker"))
-			if boundary == "request_completion" {
+			if strings.TrimPrefix(boundary, "completed_") == "request_completion" {
 				if finished.State != runner.CommandRuntimeJobCompleted || readErr != nil || string(body) != input.Commands[0].InitialStdin {
 					t.Fatalf("completed request killed initial input: state=%s body=%q err=%v", finished.State, body, readErr)
 				}

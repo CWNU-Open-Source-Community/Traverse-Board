@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,41 +20,15 @@ import (
 
 type commandOperationProbeStore struct {
 	*store.SQLiteStore
-	mu               sync.Mutex
-	prepared         bool
-	permissionReads  int
-	afterPrepare     func()
-	onPermissionRead func(int)
+	afterPrepare func()
 }
 
-func (s *commandOperationProbeStore) PrepareCommandRuntimeJobForAgent(ctx context.Context,
-	job runner.CommandRuntimeJob, actor domain.AgentAttribution,
-) (runner.CommandRuntimeJob, bool, error) {
+func (s *commandOperationProbeStore) PrepareCommandRuntimeJobForAgent(ctx context.Context, job runner.CommandRuntimeJob, actor domain.AgentAttribution) (runner.CommandRuntimeJob, bool, error) {
 	stored, replayed, err := s.SQLiteStore.PrepareCommandRuntimeJobForAgent(ctx, job, actor)
-	if err == nil && !replayed {
-		s.mu.Lock()
-		s.prepared = true
-		s.permissionReads = 0
-		s.mu.Unlock()
-		if s.afterPrepare != nil {
-			s.afterPrepare()
-		}
+	if err == nil && !replayed && s.afterPrepare != nil {
+		s.afterPrepare()
 	}
 	return stored, replayed, err
-}
-
-func (s *commandOperationProbeStore) GetRunExecutionPermission(ctx context.Context, runID string) (domain.RunExecutionPermissionSnapshot, error) {
-	s.mu.Lock()
-	read := 0
-	if s.prepared {
-		s.permissionReads++
-		read = s.permissionReads
-	}
-	s.mu.Unlock()
-	if read != 0 && s.onPermissionRead != nil {
-		s.onPermissionRead(read)
-	}
-	return s.SQLiteStore.GetRunExecutionPermission(ctx, runID)
 }
 
 func commandOperationMarkerInput() toolgateway.CommandRuntimeInput {
@@ -82,7 +56,6 @@ func TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch(t *testing.T) {
 			defer cancel()
 			state, run, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
 			authority := domain.NewExecutionPermissionRuntimeAuthority()
-			capabilities.FullAccessRequiresRuntimeGrant = true
 			capabilities.RuntimeAuthority = authority
 			permission, err := state.GetRunExecutionPermission(ctx, run.ID)
 			if err != nil {
@@ -105,42 +78,47 @@ func TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope := commandRuntimeTestScope(t, ctx, state, service, run, root, lease, "common-authority-"+boundary)
-			scope.PermissionSnapshotID = permission.ID
-			mode, err := state.GetRunMode(ctx, run.ID)
+			scope := commandRuntimeTestScope(t, ctx, state, service, run, root, lease, "native-authority")
+			f := commandFixtureForScope(t, state, service, scope)
+			input := commandOperationMarkerInput()
+			scope = f.startScope(t, input, 1)
+			bindings, err := service.loadAuthorizedBindings(ctx, scope, false)
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope.Surface, scope.Phase, scope.Profile, scope.Role = mode.Surface, mode.Phase, mode.Profile, root.Role
-			scope.ModeRevision, scope.PermissionRevision, scope.PermissionMode = mode.Revision, permission.Revision, permission.Mode
-			scope.PermissionRuntimeEpoch = authority.RuntimeEpoch()
-			generation, live := capabilities.FullAccessGeneration(permission)
-			if !live {
-				t.Fatal("test Full activation is unavailable")
+			spec, err := service.normalizeCommandRuntimeSpec(input.Commands[0], bindings.rootPath)
+			if err != nil {
+				t.Fatal(err)
 			}
-			scope.PermissionGeneration = generation
+			request, err := service.authorizedCommandStart(scope, bindings, scope.OperationKey, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := request.DispatchCheck
+			var checks atomic.Int32
+			request.DispatchCheck = func(c context.Context, s runner.CommandRuntimeResolvedSpec) error {
+				// The manager checks first; the platform starter checks immediately before
+				// native creation. Count this explicit callback, never storage reads.
+				n := checks.Add(1)
+				if n == 2 {
+					if boundary == "revoke_at_native_launch" {
+						authority.RevokeRun(run.ID)
+					}
+					if boundary == "lease_at_native_launch" {
+						if _, _, err := state.ReleaseRunExecutionLease(c, lease); err != nil {
+							return err
+						}
+					}
+				}
+				return original(c, s)
+			}
 			switch boundary {
 			case "cancel_after_prepare":
 				probe.afterPrepare = cancel
 			case "revoke_after_prepare":
 				probe.afterPrepare = func() { authority.RevokeRun(run.ID) }
-			case "revoke_at_native_launch", "lease_at_native_launch":
-				probe.onPermissionRead = func(read int) {
-					// Authorize + its consumed guard are the manager boundary;
-					// the next resolver invocation is inside the platform starter.
-					if read != 3 {
-						return
-					}
-					if boundary == "revoke_at_native_launch" {
-						authority.RevokeRun(run.ID)
-					} else {
-						if _, _, err := state.ReleaseRunExecutionLease(context.Background(), lease); err != nil {
-							t.Error(err)
-						}
-					}
-				}
 			}
-			_, err = service.ExecuteCommandRuntime(ctx, scope, commandOperationMarkerInput())
+			_, _, err = manager.Start(ctx, request)
 			if err == nil {
 				t.Fatal("stale operation reached native dispatch")
 			}
@@ -157,11 +135,8 @@ func TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch(t *testing.T) {
 				t.Fatalf("denied launch created marker: %v", err)
 			}
 			if boundary == "revoke_at_native_launch" || boundary == "lease_at_native_launch" {
-				probe.mu.Lock()
-				reads := probe.permissionReads
-				probe.mu.Unlock()
-				if reads != 3 {
-					t.Fatalf("native boundary not reached: permission reads=%d", reads)
+				if checks.Load() != 2 {
+					t.Fatalf("native dispatch boundary not reached: checks=%d", checks.Load())
 				}
 			}
 		})
@@ -181,6 +156,8 @@ func TestCommandOperationBindsActualInputsAndDoesNotRenewDeniedGuard(t *testing.
 		t.Fatal(err)
 	}
 	scope := commandRuntimeTestScope(t, ctx, state, service, run, root, lease, "input-bound-process")
+	f := commandFixtureForScope(t, state, service, scope)
+	scope = f.startScope(t, commandOperationMarkerInput(), 1)
 	bindings, err := service.loadAuthorizedBindings(ctx, scope, false)
 	if err != nil {
 		t.Fatal(err)

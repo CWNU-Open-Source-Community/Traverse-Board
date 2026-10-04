@@ -756,10 +756,9 @@ type RunExecutionProfileView struct {
 }
 
 type ExecutionPermissionRuntimeView struct {
-	WorkspaceSandboxEnabled   bool `json:"workspace_sandbox_enabled"`
-	OperatorApprovalEnabled   bool `json:"operator_approval_enabled"`
-	DangerFullAccessEnabled   bool `json:"danger_full_access_enabled"`
-	DebugMaximumAccessEnabled bool `json:"debug_maximum_access_enabled"`
+	WorkspaceSandboxEnabled bool `json:"workspace_sandbox_enabled"`
+	OperatorApprovalEnabled bool `json:"operator_approval_enabled"`
+	DangerFullAccessEnabled bool `json:"danger_full_access_enabled"`
 }
 
 type ExecutionPermissionCapabilityMatrixView struct {

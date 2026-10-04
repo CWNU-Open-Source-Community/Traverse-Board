@@ -18,7 +18,7 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	caps := newAPIExecutionPermissionCapabilities(true, true, false)
+	caps := newAPIExecutionPermissionCapabilities(true, true)
 	service := application.NewThreadExecutionPermissionService(st, caps)
 	request := application.ChangeThreadExecutionPermissionRequest{ThreadID: domain.InitialThreadID(run.ID), Mode: "full", OperationKey: "api-explicit-full-activation", RequestedBy: "test_operator", ConfirmFull: true, Reason: "Explicitly enable Full for this task"}
 	if _, err := service.Change(t.Context(), request); err != nil {
@@ -38,7 +38,7 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 	if after, ok := caps.FullAccessGeneration(permission); !ok || after != generation {
 		t.Fatal("hot idempotent POST rotated authority")
 	}
-	fresh := newAPIExecutionPermissionCapabilities(true, true, false)
+	fresh := newAPIExecutionPermissionCapabilities(true, true)
 	cold := application.NewThreadExecutionPermissionService(st, fresh)
 	if _, err := cold.Inspect(t.Context(), request.ThreadID); err != nil {
 		t.Fatal(err)
@@ -66,16 +66,16 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 	if fresh.AllowsSnapshot(permission) {
 		t.Fatal("stale POST revived revoked authority")
 	}
-	cli := cliExecutionPermissionCapabilities(true, true, false)
+	cli := cliExecutionPermissionCapabilities(true, true)
 	if cli.RuntimeAuthority == nil || cli.AllowsSnapshot(permission) {
 		t.Fatal("a new CLI process inherited persisted Full authority")
 	}
-	for _, args := range [][3]bool{{false, false, false}, {true, false, false}, {true, true, true}} {
-		c := newAPIExecutionPermissionCapabilities(args[0], args[1], args[2])
+	for _, args := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+		c := newAPIExecutionPermissionCapabilities(args[0], args[1])
 		if err := c.Validate(); err != nil {
 			t.Fatal(err)
 		}
-		if c.FullAccessRequiresRuntimeGrant != args[1] || c.DebugMaximumAccessEnabled != args[2] {
+		if c.DangerFullAccessEnabled != args[1] {
 			t.Fatal("API startup gate broadened")
 		}
 	}

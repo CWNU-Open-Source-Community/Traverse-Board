@@ -197,7 +197,7 @@ func newManagerStdioFixture(t *testing.T, scenario string) *managerStdioFixture 
 	}
 	f.authority = domain.NewExecutionPermissionRuntimeAuthority()
 	f.capabilities = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: f.authority}
+		RuntimeAuthority: f.authority}
 	initial, err := st.GetRunExecutionPermission(t.Context(), f.run.ID)
 	if err != nil || initial.Mode != domain.RunExecutionPermissionAsk || initial.ProtocolVersion != domain.RunApprovalPermissionProtocolVersion {
 		t.Fatalf("new Run did not persist the v2 ask preference: %+v err=%v", initial, err)

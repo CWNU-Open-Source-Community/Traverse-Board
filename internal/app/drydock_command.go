@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/repository"
 )
@@ -37,6 +36,8 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 		"exact SHA-256 from a prior create review")
 	confirmChanges := fs.Bool("confirm-observed-changes", false,
 		"attribute the currently observed Drydock changes to this checkpoint")
+	confirmFull := fs.Bool("confirm-full", false,
+		"activate the current Full preference only for this invocation")
 	confirm := fs.Bool("confirm", false, "confirm the exact requested lifecycle operation")
 	title := fs.String("title", "", "checkpoint title")
 	targetCheckpoint := fs.String("target-checkpoint", "", "exact Drydock checkpoint identity")
@@ -50,23 +51,22 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 		"enable the existing restore/fork permission checks")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"allow an existing full-access Run permission")
-	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
-		"allow an existing maximum Debug Run permission")
 	limit := fs.Int("limit", 100, "bounded receipt or GC limit")
 	jsonOutput := fs.Bool("json", false, "print the bounded JSON contract")
 	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 		"run": true, "generation": true, "operation-key": true,
 		"requested-by":            true,
 		"confirm-workspace-trust": false, "expected-trust-digest": true,
-		"confirm-observed-changes": false, "confirm": false, "title": true,
+		"confirm-observed-changes": false, "confirm": false, "confirm-full": false, "title": true,
 		"target-checkpoint": true, "expected-current-checkpoint": true,
 		"workspace-name": true, "workspace-root": true, "branch": true, "goal": true,
 		"enable-permission-control": false, "enable-danger-full-access": false,
-		"enable-debug-maximum-access": false, "limit": true, "json": false,
+		"limit": true, "json": false,
 	})); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
+	if fs.NArg() != 0 || *confirmFull && (!*confirm ||
+		(action != "rewind" && action != "undo" && action != "fork")) {
 		return errors.New(drydockCLIUsage)
 	}
 	if err := a.ensureStore(); err != nil {
@@ -82,10 +82,13 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if action == "rewind" || action == "undo" || action == "fork" {
-		checkpoints, checkpointErr := application.NewWorkspaceCheckpointService(a.store,
-			domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: *permissionControl,
-				DangerFullAccessEnabled:   *dangerFullAccess,
-				DebugMaximumAccessEnabled: *debugMaximumAccess})
+		capabilities := cliExecutionPermissionCapabilities(*permissionControl, *dangerFullAccess)
+		release, activationErr := a.activateCLIInvocationFull(ctx, *runID, capabilities, *confirmFull)
+		if activationErr != nil {
+			return activationErr
+		}
+		defer release()
+		checkpoints, checkpointErr := application.NewWorkspaceCheckpointService(a.store, capabilities)
 		if checkpointErr != nil {
 			return checkpointErr
 		}

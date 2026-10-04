@@ -47,7 +47,7 @@ function detail(profile: RunExecutionProfileView["profile"] = "preview"): RunDet
       runtime_gate_available: true,
       runtime: { workspace_sandbox_enabled: false,
         operator_approval_enabled: false, danger_full_access_enabled: false,
-        debug_maximum_access_enabled: false },
+         },
       created_at: "2026-07-17T00:00:00Z", process_enabled: false,
       execution_authorized: false, capability_grant: false,
     },

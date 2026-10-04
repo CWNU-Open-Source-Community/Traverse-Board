@@ -122,7 +122,6 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-workspace-import",
 			"--enable-permission-control", "--enable-danger-full-access",
-			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 			"--enable-batch-validation-execution",
 		}, &stdout, &stderr)
@@ -136,9 +135,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		{"api_control_token_source", apiControlTokenEnvironment},
 		{"execution_permission_control_enabled", "true"},
 		{"operator_approval_enabled", "true"},
-		{"host_command_proposal_control_enabled", "true"},
 		{"danger_full_access_enabled", "true"},
-		{"debug_maximum_access_enabled", "false"},
 		{"browser_cdp_permission_control_enabled", "true"},
 		{"full_cdp_debug_enabled", "true"},
 		{"batch_delivery_host_validation_enabled", "true"},
@@ -201,10 +198,6 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!bytes.Contains(capabilityBody, []byte(`"workspace_import_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"execution_permission_control_enabled":true`)) ||
-		!bytes.Contains(capabilityBody,
-			[]byte(`"host_command_proposal_control_enabled":true`)) ||
-		!bytes.Contains(capabilityBody,
-			[]byte(`"debug_maximum_access_enabled":false`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"browser_cdp_permission_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) ||
@@ -328,8 +321,8 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 		"api", "serve", "--enable-host-command-proposals",
 	}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(),
-		"host command proposals require --enable-permission-control") {
-		t.Fatalf("invalid host command hierarchy stdout=%q stderr=%q code=%d",
+		"flag provided but not defined: -enable-host-command-proposals") {
+		t.Fatalf("retired host command flag stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 	stdout.Reset()

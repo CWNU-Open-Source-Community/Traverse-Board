@@ -140,7 +140,6 @@ func TestGitAdvancedApprovalModesRejectColdRuntimeApprovalWithoutRegrant(t *test
 					cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 					if state == "missing" {
 						cold.RuntimeAuthority = nil
-						cold.FullAccessRequiresRuntimeGrant = false
 					}
 					service, err := NewGitAdvancedService(f.state, f.executor, cold)
 					if err != nil {

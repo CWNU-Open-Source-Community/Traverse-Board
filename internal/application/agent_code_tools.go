@@ -339,12 +339,8 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"agent code tool authority binding changed before execution")
 	}
-	if permission.Mode.IsApprovalMode() || (permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant) {
-		if !agentCodeRuntimeCurrent(e.executionCapabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence) {
-			return apperror.New(apperror.CodePolicyDenied,
-				"agent code tool requires its current permission and runtime fence")
-		}
+	if !agentCodeRuntimeCurrent(e.executionCapabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence) {
+		return apperror.New(apperror.CodePolicyDenied, "agent code tool requires its current permission and runtime fence")
 	}
 	capabilities := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: agent.ID,

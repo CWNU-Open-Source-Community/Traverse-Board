@@ -220,9 +220,8 @@ func threadExecutionPermissionView(value domain.ThreadExecutionPermissionSnapsho
 	currentRun *domain.RunExecutionPermissionSnapshot,
 ) ThreadExecutionPermissionView {
 	matrix, _ := value.CapabilityMatrix()
-	runtimeGateAvailable := capabilities.Allows(value.Mode)
-	if value.Mode.IsFullPreference() &&
-		(value.Mode == domain.RunExecutionPermissionFull || capabilities.FullAccessRequiresRuntimeGrant) {
+	runtimeGateAvailable := value.Mode.IsApprovalMode() && capabilities.Allows(value.Mode)
+	if value.Mode == domain.RunExecutionPermissionFull {
 		runtimeGateAvailable = runtimeGateAvailable && capabilities.RuntimeAuthority != nil &&
 			capabilities.RuntimeAuthority.AllowsThreadFullAccess(value, currentRun)
 	}

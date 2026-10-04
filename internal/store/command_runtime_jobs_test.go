@@ -56,7 +56,7 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	}
 	caps := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	permissionResult, err := application.NewRunExecutionPermissionService(st, caps).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
 			Mode: string(domain.RunExecutionPermissionFull), ConfirmFull: true,

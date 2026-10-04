@@ -39,14 +39,12 @@ func epochMCPPayload() toolgateway.MCPToolCallPayload {
 
 func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 	for _, scenario := range []struct {
-		name    string
-		mode    domain.RunExecutionPermissionMode
-		dynamic bool
+		name string
+		mode domain.RunExecutionPermissionMode
 	}{
-		{"full_requires_runtime_even_without_flag", domain.RunExecutionPermissionFull, false},
-		{"dynamic_full", domain.RunExecutionPermissionFull, true},
-		{"ask", domain.RunExecutionPermissionAsk, true},
-		{"auto", domain.RunExecutionPermissionAuto, true},
+		{"dynamic_full", domain.RunExecutionPermissionFull},
+		{"ask", domain.RunExecutionPermissionAsk},
+		{"auto", domain.RunExecutionPermissionAuto},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -87,8 +85,7 @@ func TestMCPRuntimeEpochRejectsRestartWithCollidingFence(t *testing.T) {
 				t.Fatal("test must reproduce numeric fence collision after restart")
 			}
 			capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-				FullAccessRequiresRuntimeGrant: scenario.dynamic, RuntimeAuthority: newAuthority,
+				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: newAuthority,
 			}
 			client := &epochMCPClient{}
 			executor, err := NewMCPClientToolExecutor(client, state, capabilities)

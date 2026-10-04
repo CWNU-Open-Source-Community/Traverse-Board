@@ -165,12 +165,24 @@ func (transport *fakeDockerContainerIOTransport) AttachOwnedStdin(ctx context.Co
 		return err
 	}
 	defer stdin.Close()
-	data, err := io.ReadAll(stdin)
-	transport.mu.Lock()
-	transport.stdinBytes += len(data)
-	transport.stdin = append(transport.stdin, data...)
-	transport.mu.Unlock()
-	return err
+	// Record delivered chunks before EOF, so lifecycle tests can wait for
+	// actual initial bytes without closing the pipe they still need to exercise.
+	buffer := make([]byte, 1024)
+	for {
+		n, err := stdin.Read(buffer)
+		if n > 0 {
+			transport.mu.Lock()
+			transport.stdinBytes += n
+			transport.stdin = append(transport.stdin, buffer[:n]...)
+			transport.mu.Unlock()
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (transport *fakeDockerContainerIOTransport) Endpoint() sandbox.DockerObservationEndpoint {

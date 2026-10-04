@@ -101,8 +101,7 @@ func newGitAdvancedApplicationFixture(t *testing.T, modes ...domain.RunExecution
 		selected = modes[0]
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if selected != domain.RunExecutionPermissionAsk {
 		if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 			ChangeRunExecutionPermissionRequest{RunID: run.ID,

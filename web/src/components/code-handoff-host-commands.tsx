@@ -27,7 +27,7 @@ function HostCommand({ client, command }: { client: CyberAgentClient; command: C
   const [opened, setOpened] = useState(false);
   const query = useQuery({
     queryKey: ["run", command.run_id, "handoff-host-output", command.proposal_id, command.result_id, command.content_sha256],
-    enabled: opened && Boolean(command.receipt) && client.hasHostCommandProposalControl,
+    enabled: opened && Boolean(command.receipt),
     queryFn: async ({ signal }) => {
       const detail = await client.hostCommandProposal(command.run_id, command.proposal_id, signal);
       if (detail.run_id !== command.run_id || detail.id !== command.proposal_id ||
@@ -52,10 +52,9 @@ function HostCommand({ client, command }: { client: CyberAgentClient; command: C
       {receipt.cancelled && <p>{t("命令已取消。", "The command was cancelled.")}</p>}
       {(receipt.stdout_truncated || receipt.stderr_truncated || receipt.output_limit_exceeded) &&
         <p>{t("输出已截断或达到上限，不能视为完整输出。", "Output was truncated or reached its limit; it is not complete.")}</p>}
-      <button className="compact-command" disabled={!client.hasHostCommandProposalControl}
+      <button className="compact-command"
         onClick={() => setOpened((value) => !value)} type="button">
         {opened ? t("收起已保存输出", "Hide saved output") : t("查看已保存输出", "Read saved output")}</button>
-      {!client.hasHostCommandProposalControl && <p>{t("当前连接未开放命令详情读取，仅显示收据。", "Command detail reading is unavailable on this connection; only the receipt is shown.")}</p>}
       {opened && <div className="command-proposal-evidence host-command-outcome">
         {query.isLoading && <LoadingState />}
         {query.isError && <><ErrorState error={query.error} /><button onClick={() => void query.refetch()} type="button">

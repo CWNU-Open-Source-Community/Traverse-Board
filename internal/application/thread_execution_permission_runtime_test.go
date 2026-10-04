@@ -30,8 +30,7 @@ func TestThreadFullAccessColdStartRequiresExplicitSameModeReconfirmation(t *test
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: authority,
+		DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	service := application.NewThreadExecutionPermissionService(state, capabilities)
 	first, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
@@ -143,8 +142,7 @@ func TestThreadExecutionPermissionExactAutoReplayPreservesAuthorizationFence(t *
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			FullAccessRequiresRuntimeGrant: true,
-			RuntimeAuthority:               authority,
+			RuntimeAuthority: authority,
 		})
 	request := application.ChangeThreadExecutionPermissionRequest{
 		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
@@ -189,8 +187,7 @@ func TestThreadExecutionPermissionFreshSameAutoPreservesAuthorizationFence(t *te
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			FullAccessRequiresRuntimeGrant: true,
-			RuntimeAuthority:               authority,
+			RuntimeAuthority: authority,
 		})
 	first, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
 		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionAuto),
@@ -249,7 +246,7 @@ func TestDeferredThreadEscalationPreservesCurrentRunAuthorizationFence(t *testin
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	service := application.NewThreadExecutionPermissionService(state, capabilities)
 	auto, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{

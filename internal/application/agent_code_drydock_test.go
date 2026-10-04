@@ -12,7 +12,6 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
-	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/tools"
 	"cyberagent-workbench/internal/workspace"
@@ -248,49 +247,4 @@ func mustAgentCodeDrydockJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return raw
-}
-
-func TestAgentCodeOwnedDrydockRejectsApprovalHostProposal(t *testing.T) {
-	fixture := newDrydockApplicationFixture(t, "owned host proposal boundary")
-	mustCreateDrydock(t, fixture)
-	if _, err := NewRunExecutionPermissionService(fixture.state,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(t.Context(),
-		ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID, Mode: "auto",
-			OperationKey: "owned-host-approval-0001", RequestedBy: "operator",
-			Reason: "explicit current approval mode"}); err != nil {
-		t.Fatal(err)
-	}
-	run, err := NewRunService(fixture.state).Start(t.Context(), fixture.run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, found, err := fixture.state.GetRootAgent(t.Context(), run.ID)
-	if err != nil || !found {
-		t.Fatalf("root found=%t err=%v", found, err)
-	}
-	lease, err := fixture.state.AcquireRunExecutionLease(t.Context(), domain.AcquireRunExecutionLeaseRequest{
-		RunID: run.ID, OwnerID: "owned-host-test", TTL: time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = NewHostCommandProposalToolExecutor(fixture.state).ProposeHostCommand(t.Context(),
-		toolgateway.HostCommandProposalContext{InvocationID: "owned-host-invocation", OperationKey: "owned-host-propose-0001",
-			RunID: run.ID, RootAgentID: root.ID, SessionID: run.SessionID, WorkspaceID: fixture.workspace.ID,
-			LeaseID: lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation, RequestedBy: "run_supervisor",
-			PolicyDecision: toolgateway.Decision{Allowed: true, Approval: toolgateway.ApprovalAutomatic,
-				Risk: "low", Reason: "record proposal only"}},
-		toolgateway.HostCommandProposalSpec{Version: runner.HostCommandProposalProtocolVersion,
-			Transport: toolgateway.HostCommandTransportProcess, ExecutablePath: "git", Argv: []string{"status"},
-			WorkingDirectory: ".", TimeoutMilliseconds: 1000, Purpose: "inspect workspace status"})
-	if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeFailedPrecondition ||
-		err.Error() != "host command proposals do not support the Run's owned Drydock; use its configured Command Runtime" {
-		t.Fatalf("owned approval mode could propose a source command: %v", err)
-	}
-	for _, definition := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionAuto, false, false,
-		supervisorToolOptions{OwnedFileWorkspace: true}) {
-		if definition.Name == string(toolgateway.HostCommandProposeTool) {
-			t.Fatal("unsupported source host command was advertised for an owned Run")
-		}
-	}
 }

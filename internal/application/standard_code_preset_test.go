@@ -295,7 +295,7 @@ func TestStandardCodePresetRequiresExplicitDockerWhenLocalIsUnavailable(t *testi
 		blocked.SelectedBackend != "" || blocked.TrustRequired ||
 		len(blocked.NextSteps) != 2 ||
 		blocked.NextSteps[0] != StandardCodeNextSelectDocker ||
-		blocked.NextSteps[1] != StandardCodeNextSelectApproval {
+		blocked.NextSteps[1] != StandardCodeNextSelectAsk {
 		t.Fatalf("auto result=%+v err=%v", blocked, err)
 	}
 	if _, found, err := fixture.state.GetStandardCodePresetOperation(t.Context(),

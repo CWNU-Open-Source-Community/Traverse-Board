@@ -1,5 +1,7 @@
 # ADR 0140: Durable exact risk escalation
 
+> Execution and review paths are superseded by [ADR 0165](0165-retire-legacy-command-execution.md). This document records the historical design; stored evidence remains readable.
+
 - Status: accepted
 - Date: 2026-08-26
 - Scope: GitHub Issue #138; SQLite schema v136

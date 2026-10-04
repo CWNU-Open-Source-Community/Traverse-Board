@@ -1,18 +1,13 @@
 package toolgateway
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runner"
-	"cyberagent-workbench/internal/tools"
 )
 
 type HostCommandProposalSpec struct {
@@ -278,65 +273,6 @@ func (s HostCommandProposalSpec) RiskEscalationScope() (
 	return s.riskEscalationScope()
 }
 
-type HostCommandProposalContext struct {
-	InvocationID         string
-	OperationKey         string
-	RunID                string
-	RootAgentID          string
-	SessionID            string
-	WorkspaceID          string
-	LeaseID              string
-	LeaseGeneration      int64
-	RequestedBy          string
-	PolicyDecision       Decision
-	SupervisorTurn       int
-	SupervisorToolCallID string
-	RootFingerprint      string
-	CapabilityGeneration string
-	ModeRevision         int64
-	PermissionRevision   int64
-}
-
-func (c HostCommandProposalContext) Validate() error {
-	for label, value := range map[string]string{
-		"invocation id": c.InvocationID, "operation key": c.OperationKey,
-		"run id": c.RunID, "root agent id": c.RootAgentID,
-		"session id": c.SessionID, "workspace id": c.WorkspaceID,
-		"lease id": c.LeaseID, "requester": c.RequestedBy,
-	} {
-		if !utf8.ValidString(value) || strings.TrimSpace(value) != value ||
-			len([]rune(value)) > MaxToolIdentityRunes {
-			return fmt.Errorf("host command proposal %s is invalid", label)
-		}
-	}
-	if c.InvocationID == "" || c.OperationKey == "" || c.RunID == "" ||
-		c.RootAgentID == "" || c.SessionID == "" || c.WorkspaceID == "" ||
-		c.LeaseID == "" || c.LeaseGeneration <= 0 ||
-		c.RequestedBy != "run_supervisor" {
-		return errors.New("host command proposal requires a fenced root Supervisor scope")
-	}
-	if err := c.PolicyDecision.Validate(); err != nil {
-		return err
-	}
-	if !c.PolicyDecision.Allowed || c.PolicyDecision.Approval != ApprovalAutomatic {
-		return errors.New("host command proposal creation requires an automatic allowed decision")
-	}
-	return nil
-}
-
-func (c HostCommandProposalContext) ValidateRiskEscalation() error {
-	if err := c.Validate(); err != nil {
-		return err
-	}
-	if c.SupervisorTurn <= 0 || strings.TrimSpace(c.SupervisorToolCallID) == "" ||
-		len(strings.TrimSpace(c.RootFingerprint)) != 64 ||
-		len(strings.TrimSpace(c.CapabilityGeneration)) != 64 ||
-		c.ModeRevision <= 0 || c.PermissionRevision <= 0 {
-		return errors.New("risk escalation requires an exact durable Supervisor call and Workspace generation")
-	}
-	return nil
-}
-
 type HostCommandProposalState string
 
 const (
@@ -399,141 +335,4 @@ func (r HostCommandProposalResult) Validate() error {
 		return errors.New("host command proposal result state is invalid")
 	}
 	return nil
-}
-
-type HostCommandProposalExecutor interface {
-	ProposeHostCommand(context.Context, HostCommandProposalContext,
-		HostCommandProposalSpec) (HostCommandProposalResult, error)
-}
-
-var hostCommandProposalDefinition = ToolDefinition{
-	Name: HostCommandProposeTool, Class: ClassAgentProposal,
-	Approval:    ApprovalAutomatic,
-	Description: "Record one exact, non-persistent host process for independent operator review. Set working_directory to the absolute path of an existing directory inside the current Workspace. For Windows .cmd files (including npm.cmd) and .ps1 scripts, use transport=shell, shell=powershell, and command; omit executable_path and argv. For transport=process, executable_path must identify a supported native executable by absolute path, with literal argv; script files and command interpreters are not accepted as process executable_path values. In Workspace Access use version=risk_escalation.v1 and declare each network target/purpose, credential kind, host path, policy denial, non-whitelisted tool, or other high-risk reason. The model cannot select a reviewer, confirmation, TTL, use count, grant, credential value, or capability bearer, and it cannot execute or persist the process.",
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","transport","working_directory","timeout_milliseconds","purpose"],"properties":{"version":{"enum":["host_command_proposal.v1","risk_escalation.v1"]},"transport":{"enum":["process","shell"]},"executable_path":{"type":"string","minLength":1,"maxLength":4096},"argv":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":16384}},"shell":{"enum":["powershell","bash"]},"command":{"type":"string","minLength":1,"maxLength":16384},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"timeout_milliseconds":{"type":"integer","minimum":1,"maximum":600000},"purpose":{"type":"string","minLength":1,"maxLength":1200},"risk_kinds":{"type":"array","minItems":1,"maxItems":6,"uniqueItems":true,"items":{"enum":["network","credential","host_path","policy_denial","non_whitelisted_tool","other_high_risk"]}},"network_targets":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"network_purpose":{"type":"string","minLength":1,"maxLength":1200},"credential_kinds":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"host_paths":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"policy_code":{"type":"string","minLength":1,"maxLength":512},"policy_reason":{"type":"string","minLength":1,"maxLength":1200},"requested_tool":{"type":"string","minLength":1,"maxLength":512},"other_risk_reason":{"type":"string","minLength":1,"maxLength":1200}},"allOf":[{"oneOf":[{"properties":{"transport":{"const":"process"}},"required":["executable_path","argv"],"allOf":[{"not":{"required":["shell"]}},{"not":{"required":["command"]}}]},{"properties":{"transport":{"const":"shell"}},"required":["shell","command"],"allOf":[{"not":{"required":["executable_path"]}},{"not":{"required":["argv"]}}]}]},{"oneOf":[{"properties":{"version":{"const":"host_command_proposal.v1"}},"allOf":[{"not":{"required":["risk_kinds"]}},{"not":{"required":["network_targets"]}},{"not":{"required":["credential_kinds"]}},{"not":{"required":["host_paths"]}}]},{"properties":{"version":{"const":"risk_escalation.v1"}},"required":["risk_kinds"]}]}]}`),
-}
-
-func (g *Gateway) WithHostCommandProposalExecutor(
-	executor HostCommandProposalExecutor,
-) *Gateway {
-	if g != nil {
-		g.hostCommandProposals = executor
-	}
-	return g
-}
-
-func (g *Gateway) invokeHostCommandProposal(ctx context.Context,
-	call ToolCall,
-) (Outcome, error) {
-	spec, canonical, err := normalizeHostCommandProposalPayload(call.Payload)
-	if err != nil {
-		return Outcome{}, err
-	}
-	call.Payload = canonical
-	policyPayload, err := json.Marshal(map[string]any{
-		"transport": spec.Transport, "executable": spec.ExecutablePath,
-		"arguments": spec.Argv, "shell": spec.Shell, "command": spec.Command,
-	})
-	if err != nil {
-		return Outcome{}, err
-	}
-	policyDecision := g.checker.CheckToolCall(tools.Call{
-		Name: string(call.Name), Args: map[string]string{
-			"proposal": string(policyPayload), "purpose": spec.Purpose,
-		},
-	})
-	if !policyDecision.Allowed {
-		return deniedOutcome(call, policyDecision)
-	}
-	decision, err := gatewayDecision(policyDecision, ApprovalAutomatic, "high")
-	if err != nil {
-		return Outcome{}, err
-	}
-	scope := HostCommandProposalContext{
-		InvocationID: call.InvocationID, OperationKey: call.OperationKey,
-		RunID: call.RunID, RootAgentID: call.AgentID,
-		SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
-		LeaseID: call.LeaseID, LeaseGeneration: call.LeaseGeneration,
-		RequestedBy: call.RequestedBy, PolicyDecision: decision,
-		SupervisorTurn:       call.SupervisorTurn,
-		SupervisorToolCallID: call.SupervisorToolCallID,
-		RootFingerprint:      call.RootFingerprint,
-		CapabilityGeneration: call.CapabilityGeneration,
-		ModeRevision:         call.ModeRevision,
-		PermissionRevision:   call.PermissionRevision,
-	}
-	if spec.Version == runner.RiskEscalationProtocolVersion {
-		err = scope.ValidateRiskEscalation()
-	} else {
-		err = scope.Validate()
-	}
-	if err != nil {
-		return Outcome{}, err
-	}
-	started := time.Now().UTC()
-	result, err := g.hostCommandProposals.ProposeHostCommand(ctx, scope, spec)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if err := result.Validate(); err != nil {
-		return Outcome{}, err
-	}
-	completed := time.Now().UTC()
-	state := result.State
-	if state == "" {
-		state = HostCommandProposalRecorded
-	}
-	result.State = state
-	resultStatus := StatusCompleted
-	if state == HostCommandProposalWaiting {
-		resultStatus = StatusProposed
-	} else if state == HostCommandProposalDenied {
-		resultStatus = StatusDenied
-	} else if state == HostCommandProposalFailed {
-		resultStatus = StatusFailed
-	}
-	allowed := decision.Allowed && state != HostCommandProposalDenied
-	if !allowed {
-		decision.Allowed = false
-		decision.Approval = ApprovalNever
-		decision.Reason = result.Message
-	}
-	metadata := map[string]string{
-		"proposal_id":              result.ProposalID,
-		"spec_fingerprint":         result.SpecFingerprint,
-		"operator_review_required": strconv.FormatBool(state == HostCommandProposalWaiting),
-		"execution_authorized":     "false",
-		"capability_grant":         strconv.FormatBool(result.GrantID != ""),
-		"replayed":                 strconv.FormatBool(result.Replayed),
-		"proposal_state":           string(state),
-	}
-	if result.ApprovalID != "" {
-		metadata["approval_id"] = result.ApprovalID
-	}
-	if result.GrantID != "" {
-		metadata["grant_id"] = result.GrantID
-	}
-	if result.Uncertain {
-		metadata["automatic_retry_allowed"] = "false"
-		metadata["execution_result_uncertain"] = "true"
-	}
-	outcome := Outcome{Call: safeToolCall(call), Decision: decision}
-	if state == HostCommandProposalWaiting {
-		outcome.Proposal = &Proposal{
-			ID: result.ProposalID, Tool: call.Name, Class: ClassAgentProposal,
-			Status: StatusProposed, Preview: "Exact high-risk host action awaiting operator approval",
-			CreatedAt: started, UpdatedAt: completed,
-		}
-	} else if state == HostCommandProposalDenied {
-		outcome.Result = &Result{Status: StatusDenied, ExitCode: 0,
-			MIME: "application/json", CompletedAt: completed,
-			Stderr: result.Message, Metadata: metadata}
-	} else {
-		outcome.Execution = &Execution{Backend: "agent_proposal", Status: resultStatus,
-			StartedAt: started, CompletedAt: &completed}
-		outcome.Result = &Result{Status: resultStatus, ExitCode: 0,
-			MIME: "application/json", CompletedAt: completed,
-			Stdout: result.Evidence, Stderr: result.Message, Metadata: metadata}
-	}
-	return validateOutcome(outcome, nil)
 }

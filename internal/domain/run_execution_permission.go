@@ -226,27 +226,17 @@ func (m RunExecutionPermissionMode) IsApprovalMode() bool {
 // ExecutionPermissionRuntimeCapabilities are process-local startup grants.
 // They are deliberately never persisted in a Run snapshot.
 type ExecutionPermissionRuntimeCapabilities struct {
-	WorkspaceSandboxEnabled   bool
-	OperatorApprovalEnabled   bool
-	DangerFullAccessEnabled   bool
-	DebugMaximumAccessEnabled bool
-	// FullAccessRequiresRuntimeGrant keeps adapter availability separate from
-	// authority. RuntimeAuthority starts empty on every process launch.
-	FullAccessRequiresRuntimeGrant bool
-	RuntimeAuthority               *ExecutionPermissionRuntimeAuthority
+	WorkspaceSandboxEnabled bool
+	OperatorApprovalEnabled bool
+	DangerFullAccessEnabled bool
+	RuntimeAuthority        *ExecutionPermissionRuntimeAuthority
 }
 
 func (c ExecutionPermissionRuntimeCapabilities) Validate() error {
-	if c.DebugMaximumAccessEnabled && !c.DangerFullAccessEnabled {
-		return errors.New("debug maximum access requires danger full access")
-	}
 	if c.DangerFullAccessEnabled && !c.OperatorApprovalEnabled {
 		return errors.New("danger full access requires permission control")
 	}
-	if c.FullAccessRequiresRuntimeGrant &&
-		(!c.DangerFullAccessEnabled || c.RuntimeAuthority == nil) {
-		return errors.New("dynamic full access requires its process-local runtime authority")
-	}
+
 	return nil
 }
 
@@ -261,47 +251,29 @@ func (c ExecutionPermissionRuntimeCapabilities) Allows(
 		return true
 	case RunExecutionPermissionFull:
 		return c.DangerFullAccessEnabled && c.RuntimeAuthority != nil
-	case RunExecutionPermissionConservative:
-		return true
-	case RunExecutionPermissionWorkspaceAccess:
-		return c.WorkspaceSandboxEnabled
-	case RunExecutionPermissionApproval:
-		return c.OperatorApprovalEnabled
-	case RunExecutionPermissionFullAccess:
-		return c.DangerFullAccessEnabled
-	case RunExecutionPermissionDebug:
-		return c.DebugMaximumAccessEnabled
 	default:
 		return false
 	}
 }
 
-// AllowsSnapshot evaluates both the immutable process ceiling and, for a
-// normal dynamically gated process, the exact process-local Full Access grant.
-// Debug remains a startup-gated mode of its own; starting a Debug process must
-// never reactivate historical Full Access snapshots from other Threads.
-func (c ExecutionPermissionRuntimeCapabilities) AllowsSnapshot(
-	snapshot RunExecutionPermissionSnapshot,
-) bool {
-	if !c.Allows(snapshot.Mode) {
+// AllowsSnapshot authorizes only current approval preferences. Legacy snapshots
+// remain readable; process startup flags never reactivate their execution rights.
+func (c ExecutionPermissionRuntimeCapabilities) AllowsSnapshot(snapshot RunExecutionPermissionSnapshot) bool {
+	if !snapshot.Mode.IsApprovalMode() || !c.Allows(snapshot.Mode) {
 		return false
 	}
-	if !snapshot.Mode.IsFullPreference() ||
-		(snapshot.Mode != RunExecutionPermissionFull && !c.FullAccessRequiresRuntimeGrant) {
+	if snapshot.Mode != RunExecutionPermissionFull {
 		return true
 	}
 	_, allowed := c.RuntimeAuthority.AllowsFullAccess(snapshot)
 	return allowed
 }
 
-func (c ExecutionPermissionRuntimeCapabilities) FullAccessGeneration(
-	snapshot RunExecutionPermissionSnapshot,
-) (uint64, bool) {
+func (c ExecutionPermissionRuntimeCapabilities) FullAccessGeneration(snapshot RunExecutionPermissionSnapshot) (uint64, bool) {
 	if !c.AllowsSnapshot(snapshot) {
 		return 0, false
 	}
-	if !snapshot.Mode.IsFullPreference() ||
-		(snapshot.Mode != RunExecutionPermissionFull && !c.FullAccessRequiresRuntimeGrant) {
+	if snapshot.Mode != RunExecutionPermissionFull {
 		return 0, true
 	}
 	return c.RuntimeAuthority.AllowsFullAccess(snapshot)

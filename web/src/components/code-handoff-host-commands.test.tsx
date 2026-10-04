@@ -22,7 +22,7 @@ function detail(command: Command) {
     receipt: command.receipt, untrusted_evidence: "Saved test output: 4 checks completed" };
 }
 function show(items: Command[], hostCommandProposal = vi.fn()) {
-  const client = { hasHostCommandProposalControl: true, hostCommandProposal } as unknown as CyberAgentClient;
+  const client = {  hostCommandProposal } as unknown as CyberAgentClient;
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <CodeHandoffHostCommands client={client} commands={{ items, truncated: false }} />
   </QueryClientProvider>);

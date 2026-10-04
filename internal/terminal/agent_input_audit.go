@@ -65,7 +65,7 @@ func (r AgentInputAuditRecord) Validate() error {
 	if r.ProtocolVersion != AgentInputAuditProtocolVersion ||
 		r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
 		r.PermissionRevision <= 0 ||
-		r.PermissionMode != domain.RunExecutionPermissionDebug ||
+		(r.PermissionMode != domain.RunExecutionPermissionFull && r.PermissionMode != domain.RunExecutionPermissionDebug) ||
 		!validTerminalOperator(r.RequestedBy) || !r.ProcessLocal ||
 		r.TokenPersisted || r.TokenExposed || r.RawInputPersisted ||
 		r.AutomaticRetryAllowed || r.CreatedAt.IsZero() {

@@ -25,7 +25,7 @@ type fullCDPExecutionPermissionStore interface {
 }
 
 // FullCDPService opens the highly-sensitive Full CDP channel. It is independent
-// from Safe Web: it requires an exact live Full Access or Debug execution
+// from Safe Web: it requires an exact live Full execution
 // snapshot, the separately confirmed Full CDP sub-permission, an exact per-call
 // confirmation, and a dedicated contained browser process.
 type FullCDPService struct {
@@ -70,7 +70,7 @@ type FullCDPOpenRequest struct {
 }
 
 // Open authorizes and dials the Full CDP session. It fails closed unless the
-// Run uses live Full Access or Debug permission, the caller supplies an exact
+// Run uses live Full permission, the caller supplies an exact
 // per-call confirmation, and the dedicated browser process is live.
 func (s *FullCDPService) Open(ctx context.Context,
 	request FullCDPOpenRequest,
@@ -124,10 +124,9 @@ func (s *FullCDPService) Open(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		if !executionPermission.Mode.IsFullPreference() &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug {
+		if executionPermission.Mode != domain.RunExecutionPermissionFull {
 			return nil, errors.New(
-				"full CDP requires Full Access or Debug execution permission")
+				"full CDP requires the current Full execution preference")
 		}
 		if !s.executionCapabilities.AllowsSnapshot(executionPermission) ||
 			s.executionCapabilities.RuntimeAuthority == nil {

@@ -73,8 +73,7 @@ func OpenFullCDPSession(ctx context.Context, authorization FullCDPAuthorization,
 		return nil, err
 	}
 	if executionPermission.RunID != session.RunID ||
-		(!executionPermission.Mode.IsFullPreference() &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!executionCapabilities.AllowsSnapshot(executionPermission) ||
 		executionCapabilities.RuntimeAuthority == nil || executionFence == 0 ||
 		!executionCapabilities.RuntimeAuthority.AllowsRunAuthorizationFence(

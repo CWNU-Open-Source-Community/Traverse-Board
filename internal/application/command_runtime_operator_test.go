@@ -60,7 +60,7 @@ func newOperatorCommandFixtureAtStatus(t *testing.T, mode domain.RunExecutionPer
 	if _, err = NewRunExecutionProfileService(f.st).Change(t.Context(), ChangeRunExecutionProfileRequest{RunID: f.run.ID, Profile: "local", OperationKey: "operator-profile", RequestedBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
-	f.caps = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	f.caps = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err = NewRunExecutionPermissionService(f.st, f.caps).Change(t.Context(), ChangeRunExecutionPermissionRequest{RunID: f.run.ID, Mode: string(mode), ConfirmFull: mode == domain.RunExecutionPermissionFull, OperationKey: "operator-mode-selection", RequestedBy: "operator"}); err != nil {
 			t.Fatal(err)
@@ -327,7 +327,6 @@ func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.
 		t.Fatal(err)
 	}
 	f.caps.DangerFullAccessEnabled = false
-	f.caps.FullAccessRequiresRuntimeGrant = false
 	f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
 	if err != nil {
 		t.Fatal(err)

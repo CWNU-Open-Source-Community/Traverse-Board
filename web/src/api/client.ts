@@ -60,9 +60,7 @@ import type {
   CodeHandoffView,
   CodeHandoffExportView,
   CodeIntelInventoryView,
-  ControlledCommandProposalReviewRequestView,
   ControlledCommandProposalView,
-  HostCommandProposalReviewRequestView,
   HostCommandProposalView,
   ErrorEnvelope,
   ExtensionInventoryView,
@@ -255,7 +253,6 @@ export interface ClientCapabilities {
   fullCDPSessionControlEnabled?: boolean;
   operatorApprovalEnabled?: boolean;
   dangerFullAccessEnabled?: boolean;
-  debugMaximumAccessEnabled?: boolean;
   commandRuntimeEnabled?: boolean;
   commandRuntimeProtocolAvailable?: boolean;
   commandRuntimeAdapterInstalled?: boolean;
@@ -270,8 +267,6 @@ export interface ClientCapabilities {
   threadExecutionReadEnabled?: boolean;
   planDeliveryControlEnabled?: boolean;
   approvalControlEnabled?: boolean;
-  controlledCommandProposalControlEnabled?: boolean;
-  hostCommandProposalControlEnabled?: boolean;
   modelControlEnabled?: boolean;
   providerCredentialEnabled?: boolean;
   fileEditReviewEnabled?: boolean;
@@ -1828,7 +1823,7 @@ const hostCommandRiskFields = ["state", "supervisor_turn", "supervisor_tool_call
   "other_risk_reason", "max_output_bytes", "active_process_limit", "process_memory_bytes",
   "approval_id", "approval_status", "grant_id", "grant_generation", "grant_max_uses",
   "grant_uses_remaining", "grant_expires_at", "grant_consumption_id",
-  "invalidation_reason", "uncertain"];
+  "invalidation_reason"];
 
 function boundedRiskText(value: unknown, maximum: number): value is string {
   return boundedText(value, maximum) && !/[\u0000-\u001f\u007f]/u.test(value);
@@ -1858,7 +1853,7 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     "session_id", "spec_fingerprint", "timeout_milliseconds", "working_directory",
     "workspace_id"];
   const optional = ["continuation", "execution_replayed", "receipt", "result", "review", "review_replayed",
-    "untrusted_evidence", "saved_output", ...hostCommandRiskFields];
+    "untrusted_evidence", "saved_output", "uncertain", ...hostCommandRiskFields];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     (value.protocol_version !== "host_command_proposal.v1" &&
@@ -1886,6 +1881,7 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     !validDate(value.created_at) || value.evidence_instruction_authorized !== false ||
     (value.review_replayed !== undefined && typeof value.review_replayed !== "boolean") ||
     (value.execution_replayed !== undefined && typeof value.execution_replayed !== "boolean") ||
+    (value.uncertain !== undefined && typeof value.uncertain !== "boolean") ||
     (value.untrusted_evidence !== undefined &&
       (typeof value.untrusted_evidence !== "string" || value.untrusted_evidence.length > 16 * 1024))) {
     throw new APIRequestError("Host command proposal response is invalid", "INVALID_RESPONSE", 502);
@@ -2903,11 +2899,9 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "code_intel_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "full_cdp_session_control_enabled",
-    "controlled_command_proposal_control_enabled",
-    "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "workspace_sandbox_enabled",
     "operator_approval_enabled",
-    "danger_full_access_enabled", "debug_maximum_access_enabled",
+    "danger_full_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
     "embedded_analyzer_execution_enabled", "workspace_checkpoint_control_enabled",
     "git_advanced_control_enabled", "github_review_control_enabled",
@@ -3013,7 +3007,6 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (value.workspace_sandbox_enabled && !value.execution_permission_control_enabled) ||
     value.thread_control_enabled !==
       (value.run_creation_enabled && value.session_message_enabled) ||
-    (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
     (value.batch_delivery_host_validation_enabled &&
       (!value.batch_delivery_control_enabled || !value.execution_permission_control_enabled ||
         !value.operator_approval_enabled || !value.danger_full_access_enabled)) ||
@@ -3307,7 +3300,7 @@ function parseRunCapabilityReadiness(value: unknown,
 
 const standardCodeNextSteps = [
   "confirm_workspace_trust", "pause_and_configure", "wait_for_quiescence",
-  "select_docker", "select_approval", "retry_readiness", "create_new_run",
+  "select_docker", "select_ask", "retry_readiness", "create_new_run",
 ] as const;
 
 function parseStandardCodeBackendReadiness(value: unknown,
@@ -3463,7 +3456,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     fullCDPSessionControlEnabled: value.full_cdp_session_control_enabled,
     operatorApprovalEnabled: value.operator_approval_enabled,
     dangerFullAccessEnabled: value.danger_full_access_enabled,
-    debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
+
     commandRuntimeEnabled: value.command_runtime_enabled,
     commandRuntimeProtocolAvailable: value.command_runtime_protocol_available,
     commandRuntimeAdapterInstalled: value.command_runtime_adapter_installed,
@@ -3478,10 +3471,8 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     threadExecutionReadEnabled: value.thread_execution_read_enabled === true,
     planDeliveryControlEnabled: value.plan_delivery_control_enabled,
     approvalControlEnabled: value.approval_control_enabled,
-    controlledCommandProposalControlEnabled:
-      value.controlled_command_proposal_control_enabled,
-    hostCommandProposalControlEnabled:
-      value.host_command_proposal_control_enabled,
+
+
     modelControlEnabled: value.model_control_enabled,
     providerCredentialEnabled: value.provider_credential_enabled,
     fileEditReviewEnabled: value.file_edit_review_enabled,
@@ -6259,8 +6250,6 @@ export class CyberAgentClient {
   readonly hasThreadExecutionRead: boolean;
   readonly hasPlanDelivery: boolean;
   readonly hasApprovalControl: boolean;
-  readonly hasControlledCommandProposalControl: boolean;
-  readonly hasHostCommandProposalControl: boolean;
   readonly hasModelControl: boolean;
   readonly hasProviderDefinitions: boolean;
   readonly hasProviderCredentials: boolean;
@@ -6320,11 +6309,6 @@ export class CyberAgentClient {
     this.hasThreadExecutionRead = capabilities.threadExecutionReadEnabled === true;
     this.hasPlanDelivery = controlPresent && (capabilities.planDeliveryControlEnabled ?? true);
     this.hasApprovalControl = controlPresent && (capabilities.approvalControlEnabled ?? true);
-    this.hasControlledCommandProposalControl = controlPresent &&
-      (capabilities.controlledCommandProposalControlEnabled ?? false);
-    this.hasHostCommandProposalControl = controlPresent &&
-      (capabilities.hostCommandProposalControlEnabled ?? false) &&
-      (capabilities.operatorApprovalEnabled ?? false);
     this.hasModelControl = controlPresent && (capabilities.modelControlEnabled ?? true);
     this.hasProviderDefinitions = this.hasModelControl;
     this.hasProviderCredentials = controlPresent &&
@@ -8627,8 +8611,7 @@ export class CyberAgentClient {
 
   async controlledCommandProposals(runID: string,
     signal?: AbortSignal): Promise<PageResult<ControlledCommandProposalView>> {
-    if (!this.hasControlledCommandProposalControl ||
-      !boundedIdentity(runID) || runID.trim() !== runID) {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
       throw new Error("Controlled command proposal capability and normalized Run are required");
     }
     const page = await this.getPage<unknown>(
@@ -8642,8 +8625,7 @@ export class CyberAgentClient {
 
   async controlledCommandProposal(runID: string, proposalID: string,
     signal?: AbortSignal): Promise<ControlledCommandProposalView> {
-    if (!this.hasControlledCommandProposalControl ||
-      !boundedIdentity(runID) || runID.trim() !== runID ||
+    if (!boundedIdentity(runID) || runID.trim() !== runID ||
       !boundedIdentity(proposalID) || proposalID.trim() !== proposalID) {
       throw new Error("Controlled command proposal capability and normalized identities are required");
     }
@@ -8653,30 +8635,9 @@ export class CyberAgentClient {
     ), runID, proposalID);
   }
 
-  async reviewControlledCommandProposal(runID: string, proposalID: string,
-    body: ControlledCommandProposalReviewRequestView, idempotencyKey: string,
-    signal?: AbortSignal): Promise<ControlledCommandProposalView> {
-    if (!this.hasControlledCommandProposalControl ||
-      !boundedIdentity(runID) || runID.trim() !== runID ||
-      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID ||
-      body.version !== "controlled_command_proposal_review.v1" ||
-      (body.decision !== "approve" && body.decision !== "deny") ||
-      body.confirm_execution !== (body.decision === "approve") ||
-      (body.reason !== undefined &&
-        (!boundedText(body.reason, 4_096) || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
-      throw new Error("An exact controlled command review request is required");
-    }
-    const result = await this.sendControl<unknown>(
-      `/runs/${encodeURIComponent(runID)}/command-proposals/${encodeURIComponent(proposalID)}/review`,
-      body, idempotencyKey, signal,
-    );
-    return parseControlledCommandProposal(result, runID, proposalID);
-  }
-
   async hostCommandProposals(runID: string,
     signal?: AbortSignal): Promise<PageResult<HostCommandProposalView>> {
-    if (!this.hasHostCommandProposalControl ||
-      !boundedIdentity(runID) || runID.trim() !== runID) {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
       throw new Error("Host command proposal capability and normalized Run are required");
     }
     const page = await this.getPage<unknown>(
@@ -8690,8 +8651,7 @@ export class CyberAgentClient {
 
   async hostCommandProposal(runID: string, proposalID: string,
     signal?: AbortSignal): Promise<HostCommandProposalView> {
-    if (!this.hasHostCommandProposalControl ||
-      !boundedIdentity(runID) || runID.trim() !== runID ||
+    if (!boundedIdentity(runID) || runID.trim() !== runID ||
       !boundedIdentity(proposalID) || proposalID.trim() !== proposalID) {
       throw new Error("Host command proposal capability and normalized identities are required");
     }
@@ -8701,32 +8661,16 @@ export class CyberAgentClient {
     ), runID, proposalID);
   }
 
-  async reviewHostCommandProposal(runID: string, proposalID: string,
-    body: HostCommandProposalReviewRequestView, idempotencyKey: string,
+  async resumeHostCommandProposal(runID: string, proposalID: string,
     signal?: AbortSignal): Promise<HostCommandProposalView> {
-    const boundedGrant = body.decision === "approve" && body.authorization === "run_scope";
-    const grantFieldsAbsent = body.grant_ttl_seconds === undefined &&
-      body.grant_max_uses === undefined;
-    if (!this.hasHostCommandProposalControl ||
+    if (!this.hasRunExecution ||
       !boundedIdentity(runID) || runID.trim() !== runID ||
-      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID ||
-      body.version !== "host_command_review.v1" ||
-      (body.decision !== "approve" && body.decision !== "deny") ||
-      body.confirm_execution !== (body.decision === "approve") ||
-      (body.authorization !== undefined && body.authorization !== "once" &&
-        body.authorization !== "run_scope") ||
-      (body.decision === "deny" && (body.authorization !== undefined || !grantFieldsAbsent)) ||
-      (!boundedGrant && !grantFieldsAbsent) ||
-      (boundedGrant && (!safePositiveInteger(body.grant_ttl_seconds) ||
-        body.grant_ttl_seconds > 900 || !safePositiveInteger(body.grant_max_uses) ||
-        body.grant_max_uses > 8)) ||
-      (body.reason !== undefined &&
-        (!boundedText(body.reason, 4_096) || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
-      throw new Error("An exact host command review request is required");
+      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID) {
+      throw new Error("Historical command continuation requires current control and exact identities");
     }
-    const result = await this.sendControl<unknown>(
-      `/runs/${encodeURIComponent(runID)}/host-command-proposals/${encodeURIComponent(proposalID)}/review`,
-      body, idempotencyKey, signal,
+    const result = await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/host-command-proposals/${encodeURIComponent(proposalID)}/resume`,
+      undefined, signal,
     );
     return parseHostCommandProposal(result, runID, proposalID);
   }

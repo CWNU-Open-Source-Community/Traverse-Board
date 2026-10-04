@@ -111,13 +111,14 @@ type standardCodeSecurityRecoveryReceipt struct {
 }
 
 type standardCodeSecurityRecoveryPlane struct {
-	local       sandbox.LocalBackend
-	plane       *ControlPlane
-	gateway     *toolgateway.Gateway
-	goPath      string
-	readToken   string
-	backend     string
-	runtimeRoot string
+	local        sandbox.LocalBackend
+	plane        *ControlPlane
+	gateway      *toolgateway.Gateway
+	goPath       string
+	readToken    string
+	backend      string
+	runtimeRoot  string
+	capabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
 // RunStandardCodeSecurityRecoveryWorker executes only the fixed internal
@@ -253,15 +254,16 @@ func openStandardCodeSecurityRecoveryPlane(ctx context.Context, root,
 			return nil, errors.New("packaged recovery Docker digest is unavailable")
 		}
 	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	plane, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(home, "security-recovery.db"), HomePath: home,
 		ReadToken: readToken, ControlToken: controlToken,
 		RunControlEnabled: true, RunCreationEnabled: true,
 		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		},
-		LocalSandboxReadiness: &readiness, LocalSandboxBackend: local,
+		ExecutionPermissionCapabilities:   capabilities,
+		LocalSandboxReadiness:             &readiness, LocalSandboxBackend: local,
 		RunLifecycleEnabled: true, RunExecutionEnabled: true,
 		PlanDeliveryControlEnabled: true, ApprovalControlEnabled: true,
 		DockerExecutionEnabled:        backend == "docker",
@@ -282,7 +284,7 @@ func openStandardCodeSecurityRecoveryPlane(ctx context.Context, root,
 	return &standardCodeSecurityRecoveryPlane{local: local, plane: plane,
 		gateway: toolgateway.New(plane.stateStore, plane.policyChecker).
 			WithCommandRuntimeExecutor(plane.commandRuntime),
-		goPath: goPath, readToken: readToken, backend: backend, runtimeRoot: root}, nil
+		goPath: goPath, readToken: readToken, backend: backend, runtimeRoot: root, capabilities: capabilities}, nil
 }
 
 func (p *standardCodeSecurityRecoveryPlane) close() error {
@@ -333,7 +335,7 @@ func prepareStandardCodeSecurityRecovery(ctx context.Context, root string,
 			RequestedBy: "operator", ConfirmWorkspaceTrust: true,
 			ExpectedTrustDigest: preview.TrustDigest})
 	if err != nil || configured.Run == nil || configured.Permission == nil ||
-		configured.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		configured.Permission.Mode != domain.RunExecutionPermissionAsk ||
 		configured.CapabilityGrant {
 		return fmt.Errorf("configure recovery Standard Code workspace: %w", err)
 	}
@@ -375,6 +377,17 @@ func prepareStandardCodeSecurityRecovery(ctx context.Context, root string,
 	if err != nil || !found {
 		return fmt.Errorf("load recovery root Agent: %w", err)
 	}
+	probeExecutable := opened.goPath
+	probeArguments := []string{"run", ".standard-code-security/probe.go",
+		"recovery_hold", "fixed"}
+	if owner.Backend == "local" {
+		probeExecutable, err = prepareStandardCodeSecurityLocalProbe(ctx, root,
+			opened.goPath)
+		if err != nil {
+			return fmt.Errorf("build fixed recovery Local Sandbox probe: %w", err)
+		}
+		probeArguments = []string{"recovery_hold", "fixed"}
+	}
 	leaseTTL := runner.CommandRuntimeOwnerLeaseTTL
 	if owner.CaseID == "recovery_lease_expiry" {
 		leaseTTL = 5 * time.Second
@@ -386,28 +399,9 @@ func prepareStandardCodeSecurityRecovery(ctx context.Context, root string,
 		return err
 	}
 	adapter, available, err := opened.plane.commandRuntime.AdvertisedCommandRuntimeAdapter(
-		ctx, runRecord.ID, domain.RunExecutionPermissionWorkspaceAccess)
+		ctx, runRecord.ID, configured.Permission.Mode)
 	if err != nil || !available {
 		return fmt.Errorf("advertise recovery command adapter: %w", err)
-	}
-	mode, err := opened.plane.stateStore.GetRunMode(ctx, runRecord.ID)
-	if err != nil {
-		return err
-	}
-	permission, err := opened.plane.stateStore.GetRunExecutionPermission(ctx, runRecord.ID)
-	if err != nil {
-		return err
-	}
-	probeExecutable := opened.goPath
-	probeArguments := []string{"run", ".standard-code-security/probe.go",
-		"recovery_hold", "fixed"}
-	if owner.Backend == "local" {
-		probeExecutable, err = prepareStandardCodeSecurityLocalProbe(ctx, root,
-			opened.goPath)
-		if err != nil {
-			return fmt.Errorf("build fixed recovery Local Sandbox probe: %w", err)
-		}
-		probeArguments = []string{"recovery_hold", "fixed"}
 	}
 	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
 		Action: toolgateway.CommandRuntimeActionStart,
@@ -421,21 +415,13 @@ func prepareStandardCodeSecurityRecovery(ctx context.Context, root string,
 			Network:             runner.CommandRuntimeNetworkDisabled,
 			Credentials:         runner.CommandRuntimeCredentialsNone,
 			Purpose:             "hold one fixed packaged recovery boundary"}}}
-	payload, err := json.Marshal(input)
+	probe := &standardCodeSecurityRun{backend: owner.Backend, workspaceID: workspace.ID,
+		run: runRecord, root: rootAgent, lease: acquired.Lease, adapter: adapter}
+	call, err := probe.prepareCommand(ctx, opened.plane, opened.capabilities, input)
 	if err != nil {
 		return err
 	}
-	outcome, err := opened.gateway.Invoke(ctx, toolgateway.ToolCall{
-		Name: toolgateway.CommandRuntimeTool, Payload: payload,
-		OperationKey: "issue181-recovery-start-" + owner.CaseID,
-		RunID:        runRecord.ID, MissionID: runRecord.MissionID, AgentID: rootAgent.ID,
-		SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
-		Surface: mode.Surface, Phase: mode.Phase, Role: rootAgent.Role,
-		Profile: mode.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
-		CapabilityGeneration: adapter.Generation,
-		LeaseID:              acquired.Lease.LeaseID, LeaseGeneration: acquired.Lease.Generation,
-		RequestedBy: "run_supervisor", CommandRuntimeAdapter: adapter})
+	outcome, err := probe.invokeCommand(ctx, opened.plane, opened.gateway, call)
 	if err != nil || outcome.Result == nil || outcome.Result.Status != toolgateway.StatusCompleted {
 		return fmt.Errorf("start fixed recovery Job: %w", err)
 	}

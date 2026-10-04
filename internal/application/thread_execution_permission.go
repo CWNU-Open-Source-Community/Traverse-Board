@@ -270,8 +270,7 @@ func threadPermissionRequiresImmediateRuntimeRevocation(
 func (s *ThreadExecutionPermissionService) activateFullAccess(ctx context.Context,
 	result ChangeThreadExecutionPermissionResult,
 ) error {
-	if !result.Permission.Mode.IsFullPreference() ||
-		(result.Permission.Mode != domain.RunExecutionPermissionFull && !s.capabilities.FullAccessRequiresRuntimeGrant) {
+	if result.Permission.Mode != domain.RunExecutionPermissionFull {
 		return nil
 	}
 	if s.capabilities.RuntimeAuthority == nil {

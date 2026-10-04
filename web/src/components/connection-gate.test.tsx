@@ -85,7 +85,7 @@ describe("ConnectionGate", () => {
       full_cdp_session_control_enabled: false,
       operator_approval_enabled: false,
       danger_full_access_enabled: false,
-      debug_maximum_access_enabled: false,
+
       workspace_sandbox_enabled: false,
       command_runtime_enabled: false,
       command_runtime_protocol_available: true,
@@ -100,8 +100,8 @@ describe("ConnectionGate", () => {
       run_execution_enabled: false,
       plan_delivery_control_enabled: false,
       approval_control_enabled: false,
-      controlled_command_proposal_control_enabled: false,
-      host_command_proposal_control_enabled: false,
+
+
       model_control_enabled: false,
       provider_credential_enabled: false,
       file_edit_review_enabled: false,
@@ -167,7 +167,7 @@ function runtimeCapabilities() {
     code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     workspace_sandbox_enabled: false,
-    danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+    danger_full_access_enabled: true,
     command_runtime_enabled: true,
     command_runtime_protocol_available: true,
     command_runtime_adapter_installed: true,
@@ -186,8 +186,8 @@ function runtimeCapabilities() {
     session_steering_control_enabled: true, run_lifecycle_enabled: true,
     run_execution_enabled: true, plan_delivery_control_enabled: true,
     approval_control_enabled: true, model_control_enabled: true,
-    controlled_command_proposal_control_enabled: true,
-    host_command_proposal_control_enabled: false,
+
+
     provider_credential_enabled: true, file_edit_review_enabled: true,
     file_edit_proposal_enabled: true, file_edit_apply_enabled: true,
     run_wake_control_enabled: true, run_wake_execution_enabled: true,

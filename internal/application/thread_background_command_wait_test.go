@@ -31,7 +31,7 @@ func TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause(t *testing.T) {
 				t.Fatal(err)
 			}
 			capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-				FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+				RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 			if _, err := application.NewThreadExecutionPermissionService(st, capabilities).Change(ctx,
 				application.ChangeThreadExecutionPermissionRequest{ThreadID: request.ThreadID, Mode: "full", ConfirmFull: true,
 					OperationKey: "background-full-access", RequestedBy: "test_operator", Reason: "isolated owned process"}); err != nil {

@@ -168,7 +168,7 @@ func newCLIApprovalFixtureWithPermission(t *testing.T, home string,
 	}
 	if permission != domain.RunExecutionPermissionAsk {
 		if _, err := application.NewRunExecutionPermissionService(state,
-			cliExecutionPermissionCapabilities(true, true, false)).Change(t.Context(),
+			cliExecutionPermissionCapabilities(true, true)).Change(t.Context(),
 			application.ChangeRunExecutionPermissionRequest{
 				RunID: run.ID, Mode: string(permission), OperationKey: "cli-approval-initial-permission",
 				RequestedBy: "test_operator", ConfirmFull: permission == domain.RunExecutionPermissionFull,
@@ -366,7 +366,7 @@ func TestCLIApprovalContinuationRequiresInvocationFullConfirmation(t *testing.T)
 			}
 			permission, err := fixture.state.GetRunExecutionPermission(t.Context(), fixture.run.ID)
 			if err != nil || permission.Mode != test.permission ||
-				cliExecutionPermissionCapabilities(true, true, false).AllowsSnapshot(permission) {
+				cliExecutionPermissionCapabilities(true, true).AllowsSnapshot(permission) {
 				t.Fatalf("continuation persisted Full authority: %+v err=%v", permission, err)
 			}
 		})

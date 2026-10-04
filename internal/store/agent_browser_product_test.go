@@ -176,8 +176,8 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
-	if _, e = application.NewRunExecutionPermissionService(st, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "full_access", OperationKey: "browser-product-full-access", RequestedBy: "test_operator", Reason: "test-owned real browser integration", ConfirmDangerFullAccess: true}); e != nil {
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if _, e = application.NewRunExecutionPermissionService(st, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: "full_access", OperationKey: "browser-product-full-access", RequestedBy: "test_operator", Reason: "test-owned real browser integration", ConfirmFull: true}); e != nil {
 		t.Fatal(e)
 	}
 	browser := application.NewAgentBrowserService(st, application.AgentBrowserOptions{HomePath: home, Capabilities: capabilities, Headless: true, SessionLifetime: time.Minute})

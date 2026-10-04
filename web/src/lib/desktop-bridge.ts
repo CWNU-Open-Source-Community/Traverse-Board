@@ -77,7 +77,6 @@ export interface DesktopConnectionBootstrap {
   full_cdp_session_control_enabled: boolean;
   operator_approval_enabled: boolean;
   danger_full_access_enabled: boolean;
-  debug_maximum_access_enabled: boolean;
   command_runtime_enabled: boolean;
   command_runtime_protocol_available: true;
   command_runtime_adapter_installed: boolean;
@@ -91,8 +90,6 @@ export interface DesktopConnectionBootstrap {
   run_execution_enabled: boolean;
   plan_delivery_control_enabled: boolean;
   approval_control_enabled: boolean;
-  controlled_command_proposal_control_enabled: boolean;
-  host_command_proposal_control_enabled: boolean;
   model_control_enabled: boolean;
   provider_credential_enabled: boolean;
   file_edit_review_enabled: boolean;
@@ -362,7 +359,7 @@ interface NativeDesktopBridge {
     run_id: string;
     terminal_session_id: string;
     ttl_seconds: number;
-    confirm_debug_maximum_access: true;
+    confirm_full_access: true;
     confirm_agent_terminal_input: true;
   }) => Promise<unknown>;
   GetDebugTerminalAgentInput?: (runID: string) => Promise<unknown>;
@@ -475,7 +472,7 @@ export function desktopDebugRestartEnabled(): boolean {
 
 export function desktopCurrentRiskProfile(): DesktopRuntimeRiskProfile | null {
   if (!activeBootstrap) return null;
-  if (activeBootstrap.debug_maximum_access_enabled) return "debug";
+  if (activeBootstrap.user_terminal_enabled) return "debug";
   return "safe";
 }
 
@@ -620,7 +617,7 @@ export function desktopUserTerminalEnabled(): boolean {
 
 export function desktopDebugTerminalAgentInputEnabled(): boolean {
   return activeBootstrap?.user_terminal_enabled === true &&
-    activeBootstrap.debug_maximum_access_enabled === true &&
+    activeBootstrap.danger_full_access_enabled === true &&
     getDebugTerminalAgentInputBridge() !== null;
 }
 
@@ -743,7 +740,7 @@ export async function grantDesktopDebugTerminalAgentInput(runID: string,
     run_id: runID,
     terminal_session_id: terminalSessionID,
     ttl_seconds: ttlSeconds,
-    confirm_debug_maximum_access: true,
+    confirm_full_access: true,
     confirm_agent_terminal_input: true,
   });
   if (!validDebugTerminalAgentInputBinding(value, runID, terminalSessionID)) {
@@ -853,13 +850,11 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "approval_control_enabled", "command_runtime_enabled",
     "command_runtime_protocol_available", "command_runtime_adapter_installed",
     "command_runtime_adapter_ready",
-    "controlled_command_proposal_control_enabled",
-    "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "workspace_sandbox_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "full_cdp_session_control_enabled",
-    "danger_full_access_enabled", "debug_maximum_access_enabled",
+    "danger_full_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
 	"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
@@ -898,7 +893,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.full_cdp_session_control_enabled === "boolean" &&
     typeof value.operator_approval_enabled === "boolean" &&
     typeof value.danger_full_access_enabled === "boolean" &&
-    typeof value.debug_maximum_access_enabled === "boolean" &&
     typeof value.command_runtime_enabled === "boolean" &&
     value.command_runtime_protocol_available === true &&
     typeof value.command_runtime_adapter_installed === "boolean" &&
@@ -913,8 +907,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.run_execution_enabled === "boolean" &&
     typeof value.plan_delivery_control_enabled === "boolean" &&
     typeof value.approval_control_enabled === "boolean" &&
-    typeof value.controlled_command_proposal_control_enabled === "boolean" &&
-	typeof value.host_command_proposal_control_enabled === "boolean" &&
 	typeof value.model_control_enabled === "boolean" &&
 	typeof value.provider_credential_enabled === "boolean" &&
 	typeof value.file_edit_review_enabled === "boolean" &&
@@ -951,8 +943,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
-	  value.controlled_command_proposal_control_enabled ||
-	  value.host_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
@@ -969,12 +959,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
     ((!value.execution_permission_control_enabled &&
-      !value.workspace_sandbox_enabled && !value.operator_approval_enabled && !value.danger_full_access_enabled &&
-      !value.debug_maximum_access_enabled) ||
+      !value.workspace_sandbox_enabled && !value.operator_approval_enabled && !value.danger_full_access_enabled) ||
       (value.execution_permission_control_enabled &&
-      (!value.danger_full_access_enabled || value.operator_approval_enabled) &&
-      (!value.debug_maximum_access_enabled || value.danger_full_access_enabled))) &&
-    (!value.host_command_proposal_control_enabled || value.operator_approval_enabled) &&
+      (!value.danger_full_access_enabled || value.operator_approval_enabled))) &&
+
     (!value.batch_delivery_host_validation_enabled ||
       (value.batch_delivery_control_enabled &&
         value.execution_permission_control_enabled && value.operator_approval_enabled &&
@@ -1004,8 +992,6 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
-	  value.controlled_command_proposal_control_enabled ||
-	  value.host_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||

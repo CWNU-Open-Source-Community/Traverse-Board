@@ -70,7 +70,9 @@ func (s *CommandRuntimeService) authorizedCommandStart(scope toolgateway.Command
 			if err != nil {
 				return err
 			}
-			return check(ctx, prepared)
+			return check(ctx, prepared, false)
+		}, OwnershipCheck: func(ctx context.Context) error {
+			return check(ctx, operation, true)
 		}}, nil
 }
 
@@ -107,7 +109,7 @@ func (s *CommandRuntimeService) commandStdinDispatchCheck(scope toolgateway.Comm
 		if err != nil {
 			return err
 		}
-		return check(ctx, actual)
+		return check(ctx, actual, false)
 	}, nil
 }
 
@@ -141,7 +143,7 @@ func commandOperation(key []byte, id string, adapter commandruntimeadapter.Ident
 func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandRuntimeContext,
 	bindings commandRuntimeBindings, operation toolcontract.Operation, network runner.CommandRuntimeNetwork, jobID string,
 	input toolgateway.CommandRuntimeInput, operatorSpecFingerprint string, pinned func(commandApprovalSource) bool,
-) (func(context.Context, toolcontract.Operation) error, error) {
+) (func(context.Context, toolcontract.Operation, bool) error, error) {
 	actor := scope.AgentID
 	if actor == "" {
 		actor = bindings.root.ID
@@ -152,20 +154,46 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 	if err != nil {
 		return nil, err
 	}
+	// Set only under the same lock that guards this operation's decision.
+	// Ownership and dispatch keep the original AuthorizationRef; the caller
+	// cannot select this phase through a tool payload or persisted receipt.
+	ownershipContinuation := false
 	authorizer := executionauth.NewPolicyAuthorizer(func(ctx context.Context, actualSubject executionauth.SubjectRef,
 		_ toolcontract.Operation, approvalRef string,
 	) (executionauth.OperationAuthority, error) {
 		if actualSubject != subject || approvalRef != "" || !s.commandRuntimeAdapterCurrent() {
 			return executionauth.OperationAuthority{}, apperror.New(apperror.CodePolicyDenied, "command operation host authority changed")
 		}
-		current, err := s.loadAuthorizedBindings(ctx, scope, network == runner.CommandRuntimeNetworkHost)
-		if err != nil {
-			return executionauth.OperationAuthority{}, err
+		var source commandApprovalSource
+		var st commandApprovalStore
+		var err error
+		if bindings.permission.Mode.IsApprovalMode() && scope.RequestedBy == "run_supervisor" {
+			var ok bool
+			st, ok = s.store.(commandApprovalStore)
+			if !ok || scope.SupervisorToolCallID == "" {
+				return executionauth.OperationAuthority{}, errors.New("command operation source is unavailable")
+			}
+			source, err = readCommandSource(ctx, st, scope.RunID, scope.SupervisorToolCallID, jobID == "" && input.Action == toolgateway.CommandRuntimeActionStart)
+			if err != nil {
+				return executionauth.OperationAuthority{}, err
+			}
 		}
-		if scope.RequestedBy == "run_supervisor" && (scope.AgentID != current.root.ID ||
-			current.root.Status != domain.AgentRunning || current.root.ActiveAttemptID != scope.AgentAttemptID) {
-			return executionauth.OperationAuthority{}, apperror.New(apperror.CodeConflict,
-				"command operation Agent attempt changed before dispatch")
+		// An admitted background Job owns its lifetime independently of the
+		// completed model turn. Keep its original immutable scope, then prove
+		// current Run/permission/workspace and exact live process ownership below.
+		// Every pending dispatch and later write_stdin still requires the active
+		// attempt and current Run lease.
+		current := bindings
+		if !ownershipContinuation || source.call.Status != domain.SupervisorToolCompleted {
+			current, err = s.loadAuthorizedBindings(ctx, scope, network == runner.CommandRuntimeNetworkHost)
+			if err != nil {
+				return executionauth.OperationAuthority{}, err
+			}
+			if scope.RequestedBy == "run_supervisor" && (scope.AgentID != current.root.ID ||
+				current.root.Status != domain.AgentRunning || current.root.ActiveAttemptID != scope.AgentAttemptID) {
+				return executionauth.OperationAuthority{}, apperror.New(apperror.CodeConflict,
+					"command operation Agent attempt changed before dispatch")
+			}
 		}
 		binding, err := commandOperationBindingFingerprint(s.runnerScope(scope, current, scope.OperationKey))
 		if err != nil || binding != expectedBinding {
@@ -184,14 +212,6 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 		var proof *approval.Record
 		policyInput := input
 		if current.permission.Mode.IsApprovalMode() && scope.RequestedBy == "run_supervisor" {
-			st, ok := s.store.(commandApprovalStore)
-			if !ok || scope.SupervisorToolCallID == "" {
-				return executionauth.OperationAuthority{}, errors.New("command operation source is unavailable")
-			}
-			source, err := readCommandSource(ctx, st, scope.RunID, scope.SupervisorToolCallID, jobID == "" && input.Action == toolgateway.CommandRuntimeActionStart)
-			if err != nil {
-				return executionauth.OperationAuthority{}, err
-			}
 			if !commandSourceMatchesScope(source, scope, current, s.adapter) || pinned == nil || !pinned(source) ||
 				(jobID != "" && source.authority.JobFingerprint != commandRuntimeJobFingerprint(activeJob)) {
 				return executionauth.OperationAuthority{}, errors.New("command operation input or native source changed")
@@ -208,6 +228,9 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 					owned.LeaseID != scope.LeaseID || owned.LeaseGeneration != scope.LeaseGeneration ||
 					owned.LeaseOwnerID != expectedScope.LeaseOwnerID {
 					return executionauth.OperationAuthority{}, errors.New("completed command start no longer owns its exact active Job")
+				}
+				if current, err := s.commandRuntimeJobBindingsCurrent(ctx, owned); err != nil || !current {
+					return executionauth.OperationAuthority{}, errors.Join(err, errors.New("completed command start lost its current Run authority"))
 				}
 				// Stop revokes continuation in memory before the terminal record is
 				// persisted. Ownership alone also permits stopping Jobs for cleanup.
@@ -269,9 +292,10 @@ func (s *CommandRuntimeService) commandOperationCheck(scope toolgateway.CommandR
 	var decision executionauth.Decision
 	started := false
 	denied := false
-	return func(ctx context.Context, actual toolcontract.Operation) (err error) {
+	return func(ctx context.Context, actual toolcontract.Operation, ownership bool) (err error) {
 		mu.Lock()
 		defer mu.Unlock()
+		ownershipContinuation = ownership
 		if denied {
 			return errors.New("command operation dispatch was already denied")
 		}

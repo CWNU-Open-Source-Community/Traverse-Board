@@ -101,11 +101,14 @@ func TestSchemaV185PreservesRealV184CommandJobs(t *testing.T) {
 	t.Log("immutable v1-v184 migration digest", migrationPlanDigest(migrationPlan()[:184]))
 }
 
-// Seed through the real legacy writer before upgrading. No current permission
+// Seed the original v177 tables before the real upgrade. No current permission
 // is relabelled and no new execution is inferred for the unknown second intent.
 func seedV177FixedCommandHistory(t *testing.T, st *SQLiteStore, job runner.CommandRuntimeJob) []runner.ControlledExecutionIntent {
 	t.Helper()
 	ctx := t.Context()
+	if v, err := st.SchemaVersion(ctx); err != nil || v != 177 {
+		t.Fatalf("historical fixed seed requires schema177: %d %v", v, err)
+	}
 	lease, found, err := st.GetRunExecutionLease(ctx, job.RunID)
 	if err != nil || !found {
 		t.Fatal("historical lease", err)
@@ -139,7 +142,17 @@ func seedV177FixedCommandHistory(t *testing.T, st *SQLiteStore, job runner.Comma
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.PrepareControlledExecutionIntent(ctx, intent); err != nil {
+		if _, err := st.db.ExecContext(ctx, `INSERT INTO
+		controlled_command_execution_intents
+		(request_id, protocol_version, policy_version, plan_id, plan_fingerprint,
+		run_id, workspace_id, interaction_snapshot_id, interaction_revision,
+		execution_profile_revision, kind, requested_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			intent.RequestID, intent.ProtocolVersion, intent.PolicyVersion,
+			intent.PlanID, intent.PlanFingerprint, intent.RunID, intent.WorkspaceID,
+			intent.InteractionSnapshotID, intent.InteractionRevision,
+			intent.ExecutionProfileRevision, intent.Kind, intent.RequestedBy,
+			ts(intent.CreatedAt)); err != nil {
 			t.Fatal(err)
 		}
 		intents = append(intents, intent)
@@ -152,7 +165,63 @@ func seedV177FixedCommandHistory(t *testing.T, st *SQLiteStore, job runner.Comma
 			Kind: plan.Kind, Backend: "historical-fixture", Stdout: runner.ControlledOutput{CapturedPrefixSHA256: testCommandRuntimeDigest("")}, Stderr: runner.ControlledOutput{CapturedPrefixSHA256: testCommandRuntimeDigest("")},
 			StartedAt: intent.CreatedAt, CompletedAt: intent.CreatedAt.Add(time.Second), TreeReaped: true, RestrictedToken: true, LowIntegrityToken: true, JobAssignedAtCreation: true,
 			KillOnJobClose: true, ActiveProcessLimit: 1, ProcessMemoryLimit: runner.MaxControlledProcessMemoryBytes, StdinClosed: true, ProductExecutionEnabled: true}
-		if _, _, err := st.RecordControlledExecutionResult(ctx, result); err != nil {
+		receipt := runner.ControlledExecutionReceipt{
+			RequestID: result.RequestID, ProtocolVersion: result.ProtocolVersion,
+			PolicyVersion: result.PolicyVersion, Backend: result.Backend,
+			ExitCode:            result.ExitCode,
+			StdoutObservedBytes: result.Stdout.ObservedBytes,
+			StdoutCapturedBytes: result.Stdout.CapturedBytes,
+			StdoutPrefixSHA256:  result.Stdout.CapturedPrefixSHA256,
+			StdoutTruncated:     result.Stdout.Truncated,
+			StderrObservedBytes: result.Stderr.ObservedBytes,
+			StderrCapturedBytes: result.Stderr.CapturedBytes,
+			StderrPrefixSHA256:  result.Stderr.CapturedPrefixSHA256,
+			StderrTruncated:     result.Stderr.Truncated,
+			StartedAt:           result.StartedAt, CompletedAt: result.CompletedAt,
+			TimedOut: result.TimedOut, Cancelled: result.Cancelled,
+			OutputLimitExceeded:     result.OutputLimitExceeded,
+			TreeReaped:              result.TreeReaped,
+			RestrictedToken:         result.RestrictedToken,
+			LowIntegrityToken:       result.LowIntegrityToken,
+			JobAssignedAtCreation:   result.JobAssignedAtCreation,
+			KillOnJobClose:          result.KillOnJobClose,
+			ActiveProcessLimit:      result.ActiveProcessLimit,
+			ProcessMemoryLimit:      result.ProcessMemoryLimit,
+			StdinClosed:             result.StdinClosed,
+			EnvironmentInherited:    result.EnvironmentInherited,
+			NetworkRequested:        result.NetworkRequested,
+			PersistentProcess:       result.PersistentProcess,
+			ProductExecutionEnabled: result.ProductExecutionEnabled,
+		}
+		if err := result.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.ExecContext(ctx, `INSERT INTO
+		controlled_command_execution_receipts
+		(request_id, protocol_version, policy_version, backend, exit_code,
+		stdout_observed_bytes, stdout_captured_bytes, stdout_prefix_sha256,
+		stdout_truncated, stderr_observed_bytes, stderr_captured_bytes,
+		stderr_prefix_sha256, stderr_truncated, started_at, completed_at,
+		timed_out, cancelled, output_limit_exceeded, tree_reaped,
+		restricted_token, low_integrity_token, job_assigned_at_creation,
+		kill_on_job_close, active_process_limit, process_memory_limit,
+		stdin_closed, environment_inherited, network_requested,
+		persistent_process, product_execution_enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			receipt.RequestID, receipt.ProtocolVersion, receipt.PolicyVersion,
+			receipt.Backend, receipt.ExitCode, receipt.StdoutObservedBytes,
+			receipt.StdoutCapturedBytes, receipt.StdoutPrefixSHA256,
+			receipt.StdoutTruncated, receipt.StderrObservedBytes,
+			receipt.StderrCapturedBytes, receipt.StderrPrefixSHA256,
+			receipt.StderrTruncated, ts(receipt.StartedAt), ts(receipt.CompletedAt),
+			receipt.TimedOut, receipt.Cancelled, receipt.OutputLimitExceeded,
+			receipt.TreeReaped, receipt.RestrictedToken,
+			receipt.LowIntegrityToken, receipt.JobAssignedAtCreation,
+			receipt.KillOnJobClose, receipt.ActiveProcessLimit,
+			receipt.ProcessMemoryLimit, receipt.StdinClosed,
+			receipt.EnvironmentInherited, receipt.NetworkRequested,
+			receipt.PersistentProcess, receipt.ProductExecutionEnabled); err != nil {
 			t.Fatal(err)
 		}
 	}

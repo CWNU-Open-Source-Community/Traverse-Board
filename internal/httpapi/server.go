@@ -56,6 +56,8 @@ const (
 )
 
 type Store interface {
+	application.ControlledCommandHistoryStore
+	application.HostCommandHistoryStore
 	SchemaVersion(ctx context.Context) (int, error)
 	GetThread(context.Context, string) (domain.Thread, error)
 	GetThreadRunRecovery(context.Context, string) (domain.ThreadRunRecovery, bool, error)
@@ -305,202 +307,198 @@ type Store interface {
 }
 
 type Config struct {
-	AccessToken                             string
-	ControlToken                            string
-	RunControlEnabled                       bool
-	ExecutionPermissionControlEnabled       bool
-	BrowserCDPPermissionControlEnabled      bool
-	FullCDPSessionControlEnabled            bool
-	RunCreationEnabled                      bool
-	WorkspaceImportEnabled                  bool
-	WorkspaceImporter                       WorkspaceImporter
-	FileWorkspaceDrydocks                   *application.DrydockService
-	StandardCodePresetEnabled               bool
-	SessionMessageEnabled                   bool
-	SessionSteeringControlEnabled           bool
-	RunLifecycleEnabled                     bool
-	RunExecutionEnabled                     bool
-	PlanDeliveryControlEnabled              bool
-	ApprovalControlEnabled                  bool
-	WebFetchAuthorizationSchedulerEnabled   bool
-	ControlledCommandProposalControlEnabled bool
-	HostCommandProposalControlEnabled       bool
-	ModelControlEnabled                     bool
-	ProviderDefinitionEnabled               bool
-	ProviderCredentialEnabled               bool
-	FileEditReviewEnabled                   bool
-	FileEditProposalEnabled                 bool
-	RunWakeControlEnabled                   bool
-	FileEditApplyEnabled                    bool
-	RunWakeExecutionEnabled                 bool
-	RunWakeWorkerEnabled                    bool
-	ScheduledJobControlEnabled              bool
-	ScheduledJobWorkerEnabled               bool
-	SkillInstallationEnabled                bool
-	EvidenceAttachmentEnabled               bool
-	VerificationEvidenceEnabled             bool
-	EmbeddedAnalyzerExecutionEnabled        bool
-	WorkspaceCheckpointControlEnabled       bool
-	GitAdvancedControlEnabled               bool
-	GitHubReviewControlEnabled              bool
-	BatchDeliveryControlEnabled             bool
-	BatchDeliveryHostValidationEnabled      bool
-	ExtensionControlEnabled                 bool
-	LifecycleHooks                          *hooks.Engine
-	UIEvidenceControlEnabled                bool
-	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
-	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
-	FullCDPSessionController                application.FullCDPSessionController
-	AgentBrowserController                  AgentBrowserController
-	CapabilityReadinessRuntime              *application.CapabilityReadinessRuntime
-	CommandRuntimeAdapters                  []commandruntimeadapter.Identity
-	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
-	RunLifecycleController                  RunLifecycleController
-	ThreadTurnController                    ThreadTurnController
-	ThreadReviewReader                      ThreadReviewReader
-	ThreadGitController                     ThreadGitController
-	ThreadPullRequestController             ThreadPullRequestController
-	StandardCodePresetController            StandardCodePresetController
-	StandardCodeDeliveryController          StandardCodeDeliveryController
-	RunExecutionController                  RunExecutionController
-	PublicModelStreamSource                 PublicModelStreamSource
-	PlanDeliveryController                  PlanDeliveryController
-	ApprovalController                      ApprovalController
-	ControlledCommandProposalController     ControlledCommandProposalController
-	HostCommandProposalController           HostCommandProposalController
-	ModelControlController                  ModelControlController
-	ThreadModelRouteController              ThreadModelRouteController
-	ProviderSearchReadinessController       ProviderSearchReadinessController
-	ProviderDefinitionController            ProviderDefinitionController
-	PriceSnapshotController                 PriceSnapshotController
-	FanoutExecutionController               FanoutExecutionController
-	ChildTaskControlController              ChildTaskControlController
-	ProviderCredentialController            ProviderCredentialController
-	FileEditReviewController                FileEditReviewController
-	FileEditProposalController              FileEditProposalController
-	RunWakeController                       RunWakeController
-	FileEditApplyController                 FileEditApplyController
-	RunWakeExecutionController              RunWakeExecutionController
-	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
-	ScheduledJobController                  ScheduledJobController
-	ScheduledJobWorkerHealthSource          ScheduledJobWorkerHealthSource
-	SkillInstallationController             SkillInstallationController
-	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
-	WorkspaceCheckpointController           WorkspaceCheckpointController
-	GitAdvancedController                   GitAdvancedController
-	GitHubReviewController                  GitHubReviewController
-	BatchDeliveryController                 BatchDeliveryController
-	ExtensionController                     ExtensionController
-	CodeIntelSource                         CodeIntelSource
-	UIEvidenceController                    UIEvidenceController
-	DockerSandboxController                 DockerSandboxController
-	ModelRegistry                           *modelregistry.Registry
-	AppVersion                              string
-	EventStream                             EventStreamConfig
-	UIHandler                               http.Handler
+	AccessToken                           string
+	ControlToken                          string
+	RunControlEnabled                     bool
+	ExecutionPermissionControlEnabled     bool
+	BrowserCDPPermissionControlEnabled    bool
+	FullCDPSessionControlEnabled          bool
+	RunCreationEnabled                    bool
+	WorkspaceImportEnabled                bool
+	WorkspaceImporter                     WorkspaceImporter
+	FileWorkspaceDrydocks                 *application.DrydockService
+	StandardCodePresetEnabled             bool
+	SessionMessageEnabled                 bool
+	SessionSteeringControlEnabled         bool
+	RunLifecycleEnabled                   bool
+	RunExecutionEnabled                   bool
+	PlanDeliveryControlEnabled            bool
+	ApprovalControlEnabled                bool
+	WebFetchAuthorizationSchedulerEnabled bool
+	ModelControlEnabled                   bool
+	ProviderDefinitionEnabled             bool
+	ProviderCredentialEnabled             bool
+	FileEditReviewEnabled                 bool
+	FileEditProposalEnabled               bool
+	RunWakeControlEnabled                 bool
+	FileEditApplyEnabled                  bool
+	RunWakeExecutionEnabled               bool
+	RunWakeWorkerEnabled                  bool
+	ScheduledJobControlEnabled            bool
+	ScheduledJobWorkerEnabled             bool
+	SkillInstallationEnabled              bool
+	EvidenceAttachmentEnabled             bool
+	VerificationEvidenceEnabled           bool
+	EmbeddedAnalyzerExecutionEnabled      bool
+	WorkspaceCheckpointControlEnabled     bool
+	GitAdvancedControlEnabled             bool
+	GitHubReviewControlEnabled            bool
+	BatchDeliveryControlEnabled           bool
+	BatchDeliveryHostValidationEnabled    bool
+	ExtensionControlEnabled               bool
+	LifecycleHooks                        *hooks.Engine
+	UIEvidenceControlEnabled              bool
+	ExecutionPermissionCapabilities       domain.ExecutionPermissionRuntimeCapabilities
+	BrowserCDPPermissionCapabilities      domain.BrowserCDPPermissionRuntimeCapabilities
+	FullCDPSessionController              application.FullCDPSessionController
+	AgentBrowserController                AgentBrowserController
+	CapabilityReadinessRuntime            *application.CapabilityReadinessRuntime
+	CommandRuntimeAdapters                []commandruntimeadapter.Identity
+	CommandRuntimeAdvertiser              toolgateway.CommandRuntimeAdvertiser
+	RunLifecycleController                RunLifecycleController
+	ThreadTurnController                  ThreadTurnController
+	ThreadReviewReader                    ThreadReviewReader
+	ThreadGitController                   ThreadGitController
+	ThreadPullRequestController           ThreadPullRequestController
+	StandardCodePresetController          StandardCodePresetController
+	StandardCodeDeliveryController        StandardCodeDeliveryController
+	RunExecutionController                RunExecutionController
+	PublicModelStreamSource               PublicModelStreamSource
+	PlanDeliveryController                PlanDeliveryController
+	ApprovalController                    ApprovalController
+	ControlledCommandProposalController   ControlledCommandProposalController
+	HostCommandProposalController         HostCommandProposalController
+	ModelControlController                ModelControlController
+	ThreadModelRouteController            ThreadModelRouteController
+	ProviderSearchReadinessController     ProviderSearchReadinessController
+	ProviderDefinitionController          ProviderDefinitionController
+	PriceSnapshotController               PriceSnapshotController
+	FanoutExecutionController             FanoutExecutionController
+	ChildTaskControlController            ChildTaskControlController
+	ProviderCredentialController          ProviderCredentialController
+	FileEditReviewController              FileEditReviewController
+	FileEditProposalController            FileEditProposalController
+	RunWakeController                     RunWakeController
+	FileEditApplyController               FileEditApplyController
+	RunWakeExecutionController            RunWakeExecutionController
+	RunWakeWorkerHealthSource             RunWakeWorkerHealthSource
+	ScheduledJobController                ScheduledJobController
+	ScheduledJobWorkerHealthSource        ScheduledJobWorkerHealthSource
+	SkillInstallationController           SkillInstallationController
+	EmbeddedAnalyzerExecutionController   EmbeddedAnalyzerExecutionController
+	WorkspaceCheckpointController         WorkspaceCheckpointController
+	GitAdvancedController                 GitAdvancedController
+	GitHubReviewController                GitHubReviewController
+	BatchDeliveryController               BatchDeliveryController
+	ExtensionController                   ExtensionController
+	CodeIntelSource                       CodeIntelSource
+	UIEvidenceController                  UIEvidenceController
+	DockerSandboxController               DockerSandboxController
+	ModelRegistry                         *modelregistry.Registry
+	AppVersion                            string
+	EventStream                           EventStreamConfig
+	UIHandler                             http.Handler
 }
 
 type API struct {
-	store                                   Store
-	tokenHash                               [sha256.Size]byte
-	controlTokenHash                        [sha256.Size]byte
-	controlEnabled                          bool
-	executionPermissionControlEnabled       bool
-	browserCDPPermissionControlEnabled      bool
-	fullCDPSessionControlEnabled            bool
-	runCreationEnabled                      bool
-	workspaceImportEnabled                  bool
-	workspaceImporter                       WorkspaceImporter
-	standardCodePresetEnabled               bool
-	sessionMessageEnabled                   bool
-	sessionSteeringControlEnabled           bool
-	runLifecycleEnabled                     bool
-	runExecutionEnabled                     bool
-	planDeliveryControlEnabled              bool
-	approvalControlEnabled                  bool
-	webFetchAuthorizationSchedulerEnabled   bool
-	controlledCommandProposalControlEnabled bool
-	hostCommandProposalControlEnabled       bool
-	modelControlEnabled                     bool
-	providerDefinitionEnabled               bool
-	providerCredentialEnabled               bool
-	fileEditReviewEnabled                   bool
-	fileWorkspaceDrydocks                   *application.DrydockService
-	fileEditProposalEnabled                 bool
-	runWakeControlEnabled                   bool
-	fileEditApplyEnabled                    bool
-	runWakeExecutionEnabled                 bool
-	runWakeWorkerEnabled                    bool
-	scheduledJobControlEnabled              bool
-	scheduledJobWorkerEnabled               bool
-	skillInstallationEnabled                bool
-	evidenceAttachmentEnabled               bool
-	verificationEvidenceEnabled             bool
-	embeddedAnalyzerExecutionEnabled        bool
-	workspaceCheckpointControlEnabled       bool
-	gitAdvancedControlEnabled               bool
-	githubReviewControlEnabled              bool
-	batchDeliveryControlEnabled             bool
-	batchDeliveryHostValidationEnabled      bool
-	extensionControlEnabled                 bool
-	lifecycleHooks                          *hooks.Engine
-	uiEvidenceControlEnabled                bool
-	dockerSandboxControlEnabled             bool
-	dockerExecutionEnabled                  bool
-	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
-	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
-	fullCDPSessionController                application.FullCDPSessionController
-	agentBrowserController                  AgentBrowserController
-	capabilityReadiness                     *application.RunCapabilityReadinessService
-	commandRuntimeAdapters                  []commandruntimeadapter.Identity
-	commandActivitySource                   application.ThreadActivityCommandRuntimeSource
-	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
-	runLifecycleController                  RunLifecycleController
-	threadTurnController                    ThreadTurnController
-	threadReview                            ThreadReviewReader
-	threadGitController                     ThreadGitController
-	threadPullRequestController             ThreadPullRequestController
-	standardCodePresetController            StandardCodePresetController
-	standardCodeDeliveryController          StandardCodeDeliveryController
-	runExecutionController                  RunExecutionController
-	publicModelStreamSource                 PublicModelStreamSource
-	planDeliveryController                  PlanDeliveryController
-	approvalController                      ApprovalController
-	controlledCommandProposalController     ControlledCommandProposalController
-	hostCommandProposalController           HostCommandProposalController
-	modelControlController                  ModelControlController
-	threadModelRouteController              ThreadModelRouteController
-	providerSearchReadinessController       ProviderSearchReadinessController
-	providerDefinitionController            ProviderDefinitionController
-	priceSnapshotController                 PriceSnapshotController
-	fanoutExecutionController               FanoutExecutionController
-	childTaskControlController              ChildTaskControlController
-	providerCredentialController            ProviderCredentialController
-	fileEditReviewController                FileEditReviewController
-	fileEditProposalController              FileEditProposalController
-	runWakeController                       RunWakeController
-	fileEditApplyController                 FileEditApplyController
-	runWakeExecutionController              RunWakeExecutionController
-	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
-	scheduledJobController                  ScheduledJobController
-	scheduledJobWorkerHealthSource          ScheduledJobWorkerHealthSource
-	diagnostics                             *application.DiagnosticsService
-	skillInstallationController             SkillInstallationController
-	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
-	workspaceCheckpointController           WorkspaceCheckpointController
-	gitAdvancedController                   GitAdvancedController
-	githubReviewController                  GitHubReviewController
-	batchDeliveryController                 BatchDeliveryController
-	extensionController                     ExtensionController
-	codeIntelSource                         CodeIntelSource
-	uiEvidenceController                    UIEvidenceController
-	dockerSandboxController                 DockerSandboxController
-	modelRegistry                           *modelregistry.Registry
-	appVersion                              string
-	openAPI                                 []byte
-	eventStream                             EventStreamConfig
-	eventStreamSlots                        chan struct{}
-	uiHandler                               http.Handler
+	store                                 Store
+	tokenHash                             [sha256.Size]byte
+	controlTokenHash                      [sha256.Size]byte
+	controlEnabled                        bool
+	executionPermissionControlEnabled     bool
+	browserCDPPermissionControlEnabled    bool
+	fullCDPSessionControlEnabled          bool
+	runCreationEnabled                    bool
+	workspaceImportEnabled                bool
+	workspaceImporter                     WorkspaceImporter
+	standardCodePresetEnabled             bool
+	sessionMessageEnabled                 bool
+	sessionSteeringControlEnabled         bool
+	runLifecycleEnabled                   bool
+	runExecutionEnabled                   bool
+	planDeliveryControlEnabled            bool
+	approvalControlEnabled                bool
+	webFetchAuthorizationSchedulerEnabled bool
+	modelControlEnabled                   bool
+	providerDefinitionEnabled             bool
+	providerCredentialEnabled             bool
+	fileEditReviewEnabled                 bool
+	fileWorkspaceDrydocks                 *application.DrydockService
+	fileEditProposalEnabled               bool
+	runWakeControlEnabled                 bool
+	fileEditApplyEnabled                  bool
+	runWakeExecutionEnabled               bool
+	runWakeWorkerEnabled                  bool
+	scheduledJobControlEnabled            bool
+	scheduledJobWorkerEnabled             bool
+	skillInstallationEnabled              bool
+	evidenceAttachmentEnabled             bool
+	verificationEvidenceEnabled           bool
+	embeddedAnalyzerExecutionEnabled      bool
+	workspaceCheckpointControlEnabled     bool
+	gitAdvancedControlEnabled             bool
+	githubReviewControlEnabled            bool
+	batchDeliveryControlEnabled           bool
+	batchDeliveryHostValidationEnabled    bool
+	extensionControlEnabled               bool
+	lifecycleHooks                        *hooks.Engine
+	uiEvidenceControlEnabled              bool
+	dockerSandboxControlEnabled           bool
+	dockerExecutionEnabled                bool
+	executionPermissionCapabilities       domain.ExecutionPermissionRuntimeCapabilities
+	browserCDPPermissionCapabilities      domain.BrowserCDPPermissionRuntimeCapabilities
+	fullCDPSessionController              application.FullCDPSessionController
+	agentBrowserController                AgentBrowserController
+	capabilityReadiness                   *application.RunCapabilityReadinessService
+	commandRuntimeAdapters                []commandruntimeadapter.Identity
+	commandActivitySource                 application.ThreadActivityCommandRuntimeSource
+	capabilityReadinessRuntime            application.CapabilityReadinessRuntime
+	runLifecycleController                RunLifecycleController
+	threadTurnController                  ThreadTurnController
+	threadReview                          ThreadReviewReader
+	threadGitController                   ThreadGitController
+	threadPullRequestController           ThreadPullRequestController
+	standardCodePresetController          StandardCodePresetController
+	standardCodeDeliveryController        StandardCodeDeliveryController
+	runExecutionController                RunExecutionController
+	publicModelStreamSource               PublicModelStreamSource
+	planDeliveryController                PlanDeliveryController
+	approvalController                    ApprovalController
+	controlledCommandProposalController   ControlledCommandProposalController
+	hostCommandProposalController         HostCommandProposalController
+	modelControlController                ModelControlController
+	threadModelRouteController            ThreadModelRouteController
+	providerSearchReadinessController     ProviderSearchReadinessController
+	providerDefinitionController          ProviderDefinitionController
+	priceSnapshotController               PriceSnapshotController
+	fanoutExecutionController             FanoutExecutionController
+	childTaskControlController            ChildTaskControlController
+	providerCredentialController          ProviderCredentialController
+	fileEditReviewController              FileEditReviewController
+	fileEditProposalController            FileEditProposalController
+	runWakeController                     RunWakeController
+	fileEditApplyController               FileEditApplyController
+	runWakeExecutionController            RunWakeExecutionController
+	runWakeWorkerHealthSource             RunWakeWorkerHealthSource
+	scheduledJobController                ScheduledJobController
+	scheduledJobWorkerHealthSource        ScheduledJobWorkerHealthSource
+	diagnostics                           *application.DiagnosticsService
+	skillInstallationController           SkillInstallationController
+	embeddedAnalyzerExecutionController   EmbeddedAnalyzerExecutionController
+	workspaceCheckpointController         WorkspaceCheckpointController
+	gitAdvancedController                 GitAdvancedController
+	githubReviewController                GitHubReviewController
+	batchDeliveryController               BatchDeliveryController
+	extensionController                   ExtensionController
+	codeIntelSource                       CodeIntelSource
+	uiEvidenceController                  UIEvidenceController
+	dockerSandboxController               DockerSandboxController
+	modelRegistry                         *modelregistry.Registry
+	appVersion                            string
+	openAPI                               []byte
+	eventStream                           EventStreamConfig
+	eventStreamSlots                      chan struct{}
+	uiHandler                             http.Handler
 }
 
 func New(store Store, config Config) (*API, error) {
@@ -534,8 +532,6 @@ func New(store Store, config Config) (*API, error) {
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.WebFetchAuthorizationSchedulerEnabled ||
 		config.ModelControlEnabled ||
-		config.ControlledCommandProposalControlEnabled ||
-		config.HostCommandProposalControlEnabled ||
 		config.ProviderDefinitionEnabled ||
 		config.ProviderCredentialEnabled ||
 		config.FileEditReviewEnabled || config.FileEditProposalEnabled ||
@@ -605,21 +601,13 @@ func New(store Store, config Config) (*API, error) {
 				"HTTP API Web fetch authorization scheduler requires a resume controller")
 		}
 	}
-	if config.ControlledCommandProposalControlEnabled &&
-		config.ControlledCommandProposalController == nil {
-		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"HTTP API controlled command proposal controller is required when enabled")
+	if config.ControlledCommandProposalController == nil {
+		config.ControlledCommandProposalController = application.NewControlledCommandHistory(store)
 	}
-	if config.HostCommandProposalControlEnabled &&
-		config.HostCommandProposalController == nil {
-		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"HTTP API host command proposal controller is required when enabled")
+	if config.HostCommandProposalController == nil {
+		config.HostCommandProposalController = application.NewHostCommandHistory(store)
 	}
-	if config.HostCommandProposalControlEnabled &&
-		!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled {
-		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"HTTP API host command proposals require operator approval capability")
-	}
+
 	if config.ModelControlEnabled && config.ModelControlController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API model controller is required when enabled")
@@ -749,8 +737,7 @@ func New(store Store, config Config) (*API, error) {
 	}
 	if (config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled ||
 		config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
-		config.ExecutionPermissionCapabilities.DangerFullAccessEnabled ||
-		config.ExecutionPermissionCapabilities.DebugMaximumAccessEnabled) &&
+		config.ExecutionPermissionCapabilities.DangerFullAccessEnabled) &&
 		!config.ExecutionPermissionControlEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API execution permission capabilities require execution permission control")
@@ -857,10 +844,6 @@ func New(store Store, config Config) (*API, error) {
 		approvalControlEnabled:        controlTokenPresent && config.ApprovalControlEnabled,
 		webFetchAuthorizationSchedulerEnabled: controlTokenPresent &&
 			config.WebFetchAuthorizationSchedulerEnabled,
-		controlledCommandProposalControlEnabled: controlTokenPresent &&
-			config.ControlledCommandProposalControlEnabled,
-		hostCommandProposalControlEnabled: controlTokenPresent &&
-			config.HostCommandProposalControlEnabled,
 		modelControlEnabled:               controlTokenPresent && config.ModelControlEnabled,
 		providerDefinitionEnabled:         controlTokenPresent && config.ProviderDefinitionEnabled,
 		providerCredentialEnabled:         controlTokenPresent && config.ProviderCredentialEnabled,

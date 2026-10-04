@@ -355,7 +355,7 @@ func newAgentCodeReplaceFixtureForPermission(t *testing.T, mode domain.RunExecut
 		t.Fatal(err)
 	}
 	f.capabilities = domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: f.runtime}
+		RuntimeAuthority: f.runtime}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err := application.NewRunExecutionPermissionService(state, f.capabilities).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
 			RunID: created.ID, Mode: string(mode), OperationKey: "replace-permission-0001", RequestedBy: "operator", Reason: "test replace gates", ConfirmFull: fullAccess}); err != nil {

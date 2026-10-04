@@ -407,7 +407,7 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(st, runtimeCapabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
 			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
@@ -551,68 +551,6 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 			!strings.Contains(round.Calls[0].AuthorityJSON, `"permission_runtime_epoch"`) {
 			t.Fatalf("Full file call lacked live runtime authority: %+v", round)
 		}
-	}
-}
-
-func TestRunSupervisorRecordsOneShotCommandProposal(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-once-command.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	workspaceRoot := t.TempDir()
-	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{
-		ID: "ws-once-command", Name: "once-command", RootPath: workspaceRoot,
-		CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	service := application.NewRunService(st)
-	_, run, err := service.Create(ctx, application.CreateRunRequest{
-		Goal: "record a one-shot command proposal", Profile: "code", Surface: "code",
-		Phase: "deliver", WorkspaceID: "ws-once-command",
-		Budget: domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Start(ctx, run.ID); err != nil {
-		t.Fatal(err)
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := json.Marshal(toolgateway.OneShotCommandProposalSpec{
-		Version: "once_command.v1", ExecutablePath: executable,
-		Argv: []string{"-test.run", "^$"}, WorkingDirectory: workspaceRoot,
-		Environment: []string{}, TimeoutMS: 30000, Purpose: "verify the test binary",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		toolResponse("provider-once-command", string(toolgateway.OneShotCommandProposeTool),
-			string(payload)),
-		textResponse(rootActionResponse(domain.RootActionContinue,
-			"one-shot command proposal awaits operator review", "", "")),
-	}}
-	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
-	if err != nil || result.ToolRounds != 1 || result.ToolCalls != 1 ||
-		result.ModelAttempts != 2 {
-		t.Fatalf("unexpected one-shot command tool lifecycle: %#v err=%v", result, err)
-	}
-	proposals, err := st.ListOnceCommandProposals(ctx, run.ID, 10)
-	if err != nil || len(proposals) != 1 || proposals[0].Status != "proposed" ||
-		proposals[0].ExecutablePath != executable || proposals[0].WorkingDirectory != workspaceRoot {
-		t.Fatalf("one-shot command proposal was not persisted: %#v err=%v", proposals, err)
-	}
-	requests := provider.Requests()
-	if len(requests) != 2 ||
-		!hasToolSpec(requests[0], string(toolgateway.OneShotCommandProposeTool)) ||
-		!hasToolResult(requests[1], proposals[0].ID) {
-		t.Fatalf("model did not receive the one-shot proposal result: %#v", requests)
 	}
 }
 

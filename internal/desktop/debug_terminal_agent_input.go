@@ -15,7 +15,7 @@ type DesktopDebugTerminalAgentInputGrantRequest struct {
 	RunID                     string `json:"run_id"`
 	TerminalSessionID         string `json:"terminal_session_id"`
 	TTLSeconds                int    `json:"ttl_seconds"`
-	ConfirmDebugMaximumAccess bool   `json:"confirm_debug_maximum_access"`
+	ConfirmFullAccess         bool   `json:"confirm_full_access"`
 	ConfirmAgentTerminalInput bool   `json:"confirm_agent_terminal_input"`
 }
 
@@ -41,7 +41,7 @@ func (b *DesktopBridge) GrantDebugTerminalAgentInput(
 	request DesktopDebugTerminalAgentInputGrantRequest,
 ) (DesktopDebugTerminalAgentInputBinding, error) {
 	if b == nil || !b.bootstrap.UserTerminalEnabled ||
-		!b.bootstrap.DebugMaximumAccessEnabled ||
+		!b.bootstrap.DangerFullAccessEnabled ||
 		b.debugTerminalAgentInput == nil {
 		return DesktopDebugTerminalAgentInputBinding{}, apperror.New(
 			apperror.CodeNotFound,
@@ -64,7 +64,7 @@ func (b *DesktopBridge) GrantDebugTerminalAgentInput(
 			RunID:           request.RunID, TerminalSessionID: request.TerminalSessionID,
 			RequestedBy:               "desktop_operator",
 			TTL:                       time.Duration(request.TTLSeconds) * time.Second,
-			ConfirmDebugMaximumAccess: request.ConfirmDebugMaximumAccess,
+			ConfirmFullAccess:         request.ConfirmFullAccess,
 			ConfirmAgentTerminalInput: request.ConfirmAgentTerminalInput,
 		})
 	if err != nil {
@@ -77,7 +77,7 @@ func (b *DesktopBridge) GetDebugTerminalAgentInput(
 	runID string,
 ) (DesktopDebugTerminalAgentInputBinding, error) {
 	if b == nil || !b.bootstrap.UserTerminalEnabled ||
-		!b.bootstrap.DebugMaximumAccessEnabled ||
+		!b.bootstrap.DangerFullAccessEnabled ||
 		b.debugTerminalAgentInput == nil {
 		return DesktopDebugTerminalAgentInputBinding{}, apperror.New(
 			apperror.CodeNotFound,
@@ -103,7 +103,7 @@ func (b *DesktopBridge) RevokeDebugTerminalAgentInput(
 	request DesktopDebugTerminalAgentInputRevokeRequest,
 ) error {
 	if b == nil || !b.bootstrap.UserTerminalEnabled ||
-		!b.bootstrap.DebugMaximumAccessEnabled ||
+		!b.bootstrap.DangerFullAccessEnabled ||
 		b.debugTerminalAgentInput == nil {
 		return apperror.New(apperror.CodeNotFound,
 			"desktop Debug terminal Agent input is disabled")

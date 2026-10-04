@@ -26,7 +26,7 @@ ThreadExecutionPermissionView {
     required_gate: "conservative_control", policy_version: "execution_permission_policy.v1",
     operator_confirmed: false, runtime_gate_available: true,
     runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-      danger_full_access_enabled: true, debug_maximum_access_enabled: true },
+      danger_full_access_enabled: true,  },
     capability_matrix: { workspace_read: true, workspace_write: true,
       sandboxed_command_runtime: false, unsandboxed_host_process: false,
       network_access: false, credential_access: false, user_home_access: false,

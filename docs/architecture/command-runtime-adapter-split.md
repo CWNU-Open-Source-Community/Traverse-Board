@@ -16,10 +16,10 @@ execution result carries one exact identity:
 - backend family, installed backend identity, and process generation;
 - effective isolation grade, network policy, and credential policy.
 
-`sandboxed_workspace` accepts only `workspace_access` and reports
+`sandboxed_workspace` accepts current Ask/Auto under native admission and reports
 `workspace_sandbox`, `network=denied`, and `credentials=none`.
-`host_unsandboxed` accepts `full_access` or its strict superset `debug` behind the
-danger startup gate and
+`host_unsandboxed` requires modern Full, live process activation and the
+danger startup gate, and
 truthfully reports that host network and host credentials remain available. The
 input fields `network=disabled` and `credentials=none` are intent and Policy facts
 for that host adapter, not isolation evidence. A receipt cannot change kind without
@@ -31,17 +31,16 @@ requires the same Run, adapter kind, backend identity, and generation. The
 Application layer then rechecks Run, Mission, Session, root Agent, Code/Deliver
 mode, profile and permission revisions, Drydock/root fingerprint, lease identity
 and generation, and process-owned adapter generation before every operation.
-Full Access authority is activated dynamically for the current task and is fenced
-on permission drift; it does not require an application restart. Debug uses the
-same adapter and checks, then adds its separately startup-gated persistent terminal,
-background, and bounded terminal-input capabilities.
+Full authority is activated dynamically for the current task and fenced on
+permission drift. The Debug interaction retains its explicit terminal lease; it
+does not supply another execution permission or restore an old `debug` snapshot.
 
 ## Sandboxed backends
 
 The Windows Local adapter compiles the normalized command into the existing
 AppContainer/LPAC Local backend. It is installed only after the AppContainer, WFP,
 Job Object, ACL, and runtime-generation readiness proof succeeds. A current Run is
-advertised only for `local + workspace_access + controlled`; execution mounts the
+advertised only for `local + Ask/Auto + controlled`; execution mounts the
 exact Run-owned Drydock at `/workspace` and a read-only executable toolchain root.
 
 The `process` profile accepts native development runtimes such as Node.js and
@@ -53,7 +52,7 @@ excluded as process targets. Removing the former language-runtime name blacklist
 does not replace isolation: already-allowed programs such as `go test` execute
 project code. LPAC/WFP, input mounts, Policy, permissions, and leases remain the
 actual Local boundary. The shared normalizer also applies to the existing Full
-Access/Debug Host adapter, which remains explicitly unsandboxed; this change
+Host adapter, which remains explicitly unsandboxed; this change
 neither grants that authority nor supplies a Host fallback.
 
 The adapter uses the existing Local default disk-write budget of 2 GiB per
@@ -181,7 +180,7 @@ preserves native guards and existing exact-consent decisions; it does not select
 or create an OS sandbox. These names do not claim equivalence with modes in other
 agent products.
 
-Still pending: retirement of the remaining legacy Host/Risk/Controlled/Once
-execution paths and permission/Code/Deliver/Root admission rules. Old permission
-rows remain readable compatibility inputs, not restored runtime authority. The
-migration is not complete and creates no new Run, Session, Job or approval database.
+Legacy Host/Risk/Controlled/Once execution paths are retired; historical rows
+and saved-outcome readers remain. See [ADR 0165](../adr/0165-retire-legacy-command-execution.md).
+Existing Code/Deliver/root and native admission checks remain in force. This
+change creates no new Run, Session, Job or approval database.

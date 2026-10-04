@@ -239,8 +239,7 @@ func runExecutionPermissionTransitionRevokesHighRisk(current,
 func (s *RunExecutionPermissionService) activateFullAccess(ctx context.Context,
 	permission domain.RunExecutionPermissionSnapshot,
 ) error {
-	if !permission.Mode.IsFullPreference() ||
-		(permission.Mode != domain.RunExecutionPermissionFull && !s.capabilities.FullAccessRequiresRuntimeGrant) {
+	if permission.Mode != domain.RunExecutionPermissionFull {
 		return nil
 	}
 	if s.capabilities.RuntimeAuthority == nil {

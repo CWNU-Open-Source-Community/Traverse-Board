@@ -43,7 +43,7 @@ func TestMCPRuntimeCommonAuthorityAtRealTLSSends(t *testing.T) {
 			state, run, root, lease, capabilities := newMCPApprovalModeRuntime(t, t.Context())
 			root = ensureCommandRuntimeTestAgent(t, t.Context(), state, lease, root)
 			authority := domain.NewExecutionPermissionRuntimeAuthority()
-			capabilities.FullAccessRequiresRuntimeGrant, capabilities.RuntimeAuthority = true, authority
+			capabilities.RuntimeAuthority = authority
 			permission, err := state.GetRunExecutionPermission(t.Context(), run.ID)
 			if err != nil {
 				t.Fatal(err)

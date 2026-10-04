@@ -84,7 +84,7 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 	}
 	adapter, installed := manager.AdapterIdentity()
 	if !installed || adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
-		!adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess) {
+		!adapter.AllowsPermission(domain.RunExecutionPermissionFull) {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"command runtime host adapter identity is invalid")
 	}
@@ -113,7 +113,7 @@ func NewSandboxedCommandRuntimeService(store CommandRuntimeStore,
 	adapter, installed := manager.AdapterIdentity()
 	if !installed || adapter.Kind != commandruntimeadapter.KindSandboxedWorkspace ||
 		!adapter.SameBackend(sandboxExecutor.Identity()) ||
-		!adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess) ||
+		!adapter.AllowsPermission(domain.RunExecutionPermissionAsk) ||
 		commandRuntimeExecutionProfile(adapter) == "" {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"sandboxed command runtime adapter identity is invalid")
@@ -847,23 +847,7 @@ func commandRuntimeLivePermissionMatches(
 	permission domain.RunExecutionPermissionSnapshot,
 	scope toolgateway.CommandRuntimeContext,
 ) bool {
-	if permission.Mode.IsApprovalMode() {
-		return agentCodeRuntimeCurrent(capabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence)
-	}
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		capabilities.FullAccessRequiresRuntimeGrant {
-		if capabilities.RuntimeAuthority == nil ||
-			scope.PermissionSnapshotID != permission.ID ||
-			scope.PermissionRuntimeEpoch == "" ||
-			scope.PermissionRuntimeEpoch != capabilities.RuntimeAuthority.RuntimeEpoch() {
-			return false
-		}
-		generation, live := capabilities.FullAccessGeneration(permission)
-		return live && generation != 0 &&
-			scope.PermissionGeneration == generation
-	}
-	return scope.PermissionSnapshotID == "" && scope.PermissionGeneration == 0 &&
-		scope.PermissionRuntimeEpoch == ""
+	return agentCodeRuntimeCurrent(capabilities, permission, scope.PermissionSnapshotID, scope.PermissionGeneration, scope.PermissionRuntimeEpoch, scope.RunAuthorizationFence)
 }
 
 func (s *CommandRuntimeService) runnerScope(scope toolgateway.CommandRuntimeContext,
@@ -1092,20 +1076,7 @@ func commandRuntimeJobGrantMatches(
 	permission domain.RunExecutionPermissionSnapshot,
 	job runner.CommandRuntimeJob,
 ) bool {
-	if permission.Mode.IsApprovalMode() {
-		return agentCodeRuntimeCurrent(capabilities, permission, job.PermissionSnapshotID, job.PermissionGeneration, job.PermissionRuntimeEpoch, job.RunAuthorizationFence)
-	}
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		capabilities.FullAccessRequiresRuntimeGrant {
-		if capabilities.RuntimeAuthority == nil ||
-			job.PermissionRuntimeEpoch == "" ||
-			job.PermissionRuntimeEpoch != capabilities.RuntimeAuthority.RuntimeEpoch() {
-			return false
-		}
-		generation, live := capabilities.FullAccessGeneration(permission)
-		return live && generation != 0 && job.PermissionGeneration == generation
-	}
-	return job.PermissionGeneration == 0 && job.PermissionRuntimeEpoch == ""
+	return agentCodeRuntimeCurrent(capabilities, permission, job.PermissionSnapshotID, job.PermissionGeneration, job.PermissionRuntimeEpoch, job.RunAuthorizationFence)
 }
 
 func (s *CommandRuntimeService) commandRuntimeAdapterCurrent() bool {

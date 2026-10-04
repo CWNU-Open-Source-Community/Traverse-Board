@@ -2,18 +2,15 @@ package application
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/runner"
-	"cyberagent-workbench/internal/session"
 )
 
 type hostHandoffProjectionStore struct {
 	CodeHandoffStore
-	state *hostCommandProposalReviewStoreStub
+	state *hostHistoryFixture
 }
 
 func (s *hostHandoffProjectionStore) ListHostCommandProposals(ctx context.Context, id string, n int) ([]runner.HostCommandProposal, error) {
@@ -27,35 +24,6 @@ func (s *hostHandoffProjectionStore) GetHostCommandProposalResult(ctx context.Co
 }
 func (s *hostHandoffProjectionStore) GetHostCommandProposalReceipt(ctx context.Context, id string) (runner.HostExecutionReceipt, bool, error) {
 	return s.state.GetHostCommandProposalReceipt(ctx, id)
-}
-
-func hostHandoffRecordedFixture(t *testing.T) *hostCommandProposalReviewStoreStub {
-	t.Helper()
-	state := hostCommandProposalReviewFixture(t)
-	review, err := runner.NewHostCommandReview("review-handoff", state.proposal, runner.HostCommandReviewApprove,
-		"test_operator", "exact review", strings.Repeat("a", 64), time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	intent, err := runner.NewApprovedHostExecutionIntent(state.proposal, review, strings.Repeat("b", 64), time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	execution, err := (&hostCommandProposalExecutorStub{output: "bounded output"}).Execute(t.Context(), runner.HostExecutionRequest{Intent: intent})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := runner.ProjectHostExecutionReceipt(execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := runner.NewHostCommandProposalResult("result-handoff", state.proposal, review, intent.RequestID, "completed",
-		session.SourceGoCommandResult, "host-command-proposal:"+state.proposal.ID, strings.Repeat("c", 64), time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	state.review, state.receipt, state.result = &review, &receipt, &result
-	return state
 }
 
 func TestCodeHandoffHostCommandReceiptBoundaries(t *testing.T) {

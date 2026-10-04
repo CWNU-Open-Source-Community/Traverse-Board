@@ -5,8 +5,8 @@
 
 ## Context
 
-The frozen `standard_code_attack_matrix.v1` contains 40 required attack and
-recovery cases and 75 Local/Docker executions. The existing packaged bootstrap
+The frozen `standard_code_attack_matrix.v1` contains 39 required attack and
+recovery cases and 73 Local/Docker executions. The existing packaged bootstrap
 proved ZIP identity, deterministic fixtures, startup, restart, and owned
 cleanup, but deliberately reported zero evidenced attack cases. Unit tests and
 direct sandbox calls cannot close that gap: release evidence must enter through
@@ -28,7 +28,7 @@ The top-level entry accepts exactly a new harness-owned
 `standard-code-attack-*` root and a portable candidate ZIP. It first proves
 that the running executable is byte-identical to the ZIP entry and that strict
 release metadata binds a clean, reproducible source commit. It then
-materializes the embedded fixture/matrix definition and invokes all 75 pairs
+materializes the embedded fixture/matrix definition and invokes all 73 pairs
 through Tool Gateway, Application Command Runtime, and the currently
 advertised Local or Docker Standard Code adapter.
 
@@ -62,9 +62,9 @@ private absolute paths.
 
 ## Failure and cleanup semantics
 
-- Backend unavailability is recorded as failed and unexecuted with an explicit
-  `approval_required` fallback fact. It never selects Full Access and cannot
-  produce a passing #181 report.
+- Backend unavailability is recorded as `backend_unavailable`; each affected
+  execution is failed, unexecuted, and denied with `failed_precondition`.
+  The retired host-proposal fallback is not produced and cannot pass #181.
 - Permission, profile/mode, Run/root, lease, backend, capability, or operation
   identity drift fails before process creation. A stale invocation cannot
   create a second durable Job.

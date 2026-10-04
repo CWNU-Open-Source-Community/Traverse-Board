@@ -13,7 +13,6 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/repository"
@@ -162,14 +161,7 @@ func (s *ThreadGitService) authority(ctx context.Context, value threadGitBinding
 		// and rechecked by the common authorizer at every native write.
 		return s.store.CheckThreadGitIdle(ctx, value.thread.ID, value.run.ID, lease)
 	}
-	decision, err := executionauth.EvaluateExecutionPermission(value.permission, s.capabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, HostFilesystem: true, Network: network, OperatorApproved: true})
-	if err != nil {
-		return err
-	}
-	if !decision.Allowed || !decision.HostFilesystem || (network && !decision.Network) {
-		return apperror.New(apperror.CodePolicyDenied, "current task permission does not authorize this explicitly confirmed Git operation")
-	}
-	return s.store.CheckThreadGitIdle(ctx, value.thread.ID, value.run.ID, lease)
+	return apperror.New(apperror.CodePolicyDenied, "select a current approval preference before a new Git operation")
 }
 
 func (s *ThreadGitService) State(ctx context.Context, threadID string) (ThreadGitState, error) {
@@ -827,10 +819,7 @@ func (s *ThreadGitService) replay(ctx context.Context, threadID, key string, req
 		// Explicit observation is a bounded read of the original target. It
 		// cannot activate a cold grant, claim an intent, or repeat a push.
 		allowed := bound.permission.Mode.IsApprovalMode()
-		if !allowed {
-			decision, err := executionauth.EvaluateExecutionPermission(bound.permission, s.capabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, HostFilesystem: true, Network: true, OperatorApproved: true})
-			allowed = err == nil && decision.Allowed && decision.Network
-		}
+
 		if allowed {
 			oid, err := s.remote.ReadRemoteOID(ctx, intent.RootPath, *intent.Remote)
 			if err == nil && oid == intent.Remote.CommitOID {

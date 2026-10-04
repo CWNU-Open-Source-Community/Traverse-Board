@@ -181,7 +181,6 @@ func TestGitHubReviewApprovalModesRejectColdUnstartedApproval(t *testing.T) {
 				cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
 				if missing {
 					cold.RuntimeAuthority = nil
-					cold.FullAccessRequiresRuntimeGrant = false
 				}
 				service, err := NewGitHubReviewService(f.native.state, f.credentials, f.native.executor, cold)
 				if err != nil {

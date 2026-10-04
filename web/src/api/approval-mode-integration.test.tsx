@@ -19,7 +19,7 @@ function states() {
     risk_tier: "minimal", required_gate: "operation_authority", persistent_terminal: false, background_process: false,
     agent_terminal_input: false, operator_confirmed: false, process_enabled: false, execution_authorized: false, capability_grant: false,
     runtime_gate_available: true, runtime: { workspace_sandbox_enabled: false, operator_approval_enabled: true,
-      danger_full_access_enabled: true, debug_maximum_access_enabled: false },
+      danger_full_access_enabled: true,  },
     capability_matrix: {}, created_at: "2026-10-02T00:00:00Z", applies_to_current_run: true, applies_to_future_successor_runs: true };
   return ["ask", "auto", "full", "cold", "ask"].map((mode, i) => ({
     execution_permission: { ...permission, revision: i+1, mode: mode === "cold" ? "full" : mode,

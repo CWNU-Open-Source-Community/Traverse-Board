@@ -274,7 +274,7 @@ func TestCLIApprovalExecutionHandoffWiresOrdinaryAgentBrowser(t *testing.T) {
 			router.RegisterProvider(provider)
 			app := &App{home: home, store: state, router: router, checker: policy.NewDefaultChecker(),
 				calls: application.NewActiveCallRegistry()}
-			capabilities := cliExecutionPermissionCapabilities(test.permissionGate, test.fullGate, false)
+			capabilities := cliExecutionPermissionCapabilities(test.permissionGate, test.fullGate)
 			runtimeCtx, cancelRuntime := context.WithCancel(t.Context())
 			defer cancelRuntime()
 			handoff, closeRuntime, err := app.newCLIApprovalExecution(runtimeCtx, runID, capabilities, test.confirmFull)
@@ -360,7 +360,7 @@ func createCLIAgentBrowserRun(t *testing.T, home string,
 			ConfirmFull: permission == domain.RunExecutionPermissionFull,
 		}
 		if _, err := application.NewRunExecutionPermissionService(state,
-			cliExecutionPermissionCapabilities(true, true, true)).Change(t.Context(), request); err != nil {
+			cliExecutionPermissionCapabilities(true, true)).Change(t.Context(), request); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -477,7 +477,7 @@ func TestCLIExecutionRuntimeClosesAgentBrowserWithoutGrantingPersistedFullAccess
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := cliExecutionPermissionCapabilities(true, true, false)
+	capabilities := cliExecutionPermissionCapabilities(true, true)
 	if _, granted := capabilities.RuntimeAuthority.AllowsFullAccess(permission); granted {
 		t.Fatal("CLI capability construction silently activated persisted Full Access")
 	}

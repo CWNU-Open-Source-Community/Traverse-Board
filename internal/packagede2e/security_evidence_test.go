@@ -13,7 +13,7 @@ func TestStandardCodeSecurityEvidenceRequiresRealExactMatrixCoverage(t *testing.
 	if err := ValidateStandardCodeSecurityEvidence(report); err != nil {
 		t.Fatal(err)
 	}
-	if report.Status != SecurityEvidencePassed || report.Summary.RequiredCaseCount != 40 ||
+	if report.Status != SecurityEvidencePassed || report.Summary.RequiredCaseCount != 39 ||
 		report.Summary.RequiredBackendRuns <= report.Summary.RequiredCaseCount ||
 		report.Summary.PassedBackendRuns != report.Summary.RequiredBackendRuns ||
 		report.Summary.FailedBackendRuns != 0 || report.Summary.UnexecutedBackendRuns != 0 {
@@ -21,7 +21,7 @@ func TestStandardCodeSecurityEvidenceRequiresRealExactMatrixCoverage(t *testing.
 	}
 
 	missing := report
-	missing.Cases = append([]SecurityAttackCaseEvidence(nil), report.Cases[:39]...)
+	missing.Cases = append([]SecurityAttackCaseEvidence(nil), report.Cases[:len(report.Cases)-1]...)
 	if err := FinalizeStandardCodeSecurityEvidence(&missing); err == nil {
 		t.Fatal("incomplete frozen matrix was accepted")
 	}
@@ -42,16 +42,15 @@ func TestStandardCodeSecurityEvidenceRequiresRealExactMatrixCoverage(t *testing.
 func TestStandardCodeSecurityEvidenceFailsClosedWhenDockerIsUnavailable(t *testing.T) {
 	report := validSecurityEvidenceReportBeforeFinalize(t)
 	report.Backends[1].Availability = SecurityBackendUnavailable
-	report.Backends[1].UnavailableSignal = "approval_required"
-	report.Backends[1].ApprovalFallback = true
+	report.Backends[1].UnavailableSignal = "backend_unavailable"
 	for caseIndex := range report.Cases {
 		for backendIndex := range report.Cases[caseIndex].Backends {
 			result := &report.Cases[caseIndex].Backends[backendIndex]
 			if result.Backend == "docker" {
 				result.Status = SecurityEvidenceFailed
 				result.ActualExecution = false
-				result.ActualOutcome = "propose"
-				result.ActualSignal = "approval_required"
+				result.ActualOutcome = "deny"
+				result.ActualSignal = "failed_precondition"
 				result.DiagnosticCode = "backend.unavailable"
 			}
 		}

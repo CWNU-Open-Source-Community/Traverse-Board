@@ -163,7 +163,7 @@ func execute(caseID, ownedSentinel string) (bool, string) {
 		}
 		return true, "workspace-growth-submitted"
 	default:
-		for _, prefix := range []string{"prompt_", "authority_", "approval_", "recovery_"} {
+		for _, prefix := range []string{"prompt_", "authority_", "recovery_"} {
 			if strings.HasPrefix(caseID, prefix) {
 				return true, "application-boundary"
 			}

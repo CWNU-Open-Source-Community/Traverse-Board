@@ -74,10 +74,9 @@ func TestControlPlaneWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	t.Setenv("CYBERAGENT_ANTHROPIC_BASE_URL", provider.URL)
 	t.Setenv("CYBERAGENT_ANTHROPIC_MODEL", model)
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:        true,
-		DangerFullAccessEnabled:        true,
-		FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
+		OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true,
+		RuntimeAuthority:        domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	plane, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(t.TempDir(), "agent-browser-wiring.db"),

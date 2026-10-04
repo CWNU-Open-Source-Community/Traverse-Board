@@ -80,7 +80,7 @@ describe("V2Inspector", () => {
   it("loads exact selected tool details on demand, preserves failures, and returns keyboard focus", async () => {
     const user = userEvent.setup();
     const read = vi.fn().mockResolvedValue(result());
-    const client = { threadActivityDetail: read, reviewHostCommandProposal: vi.fn(), submitThreadTurn: vi.fn() } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail: read, resumeHostCommandProposal: vi.fn(), submitThreadTurn: vi.fn() } as unknown as CyberAgentClient;
     const { draw } = setup([item("actual-tool", { kind: "tool_call", activity_type: "execute", tool_name: "command_runtime",
       detail_available: true, activity_detail_ref: "detail-tool", status: "failed" })], client);
     draw();
@@ -102,7 +102,7 @@ describe("V2Inspector", () => {
     expect(screen.queryByLabelText("选中记录详情")).not.toBeInTheDocument();
     expect(row).toHaveFocus();
     expect(hiddenAtFocus).toEqual([false]);
-    expect(client.reviewHostCommandProposal).not.toHaveBeenCalled();
+    expect(client.resumeHostCommandProposal).not.toHaveBeenCalled();
     expect(client.submitThreadTurn).not.toHaveBeenCalled();
   });
 

@@ -131,9 +131,8 @@ func executionPermissionRuntimeView(
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) ExecutionPermissionRuntimeView {
 	return ExecutionPermissionRuntimeView{
-		WorkspaceSandboxEnabled:   capabilities.WorkspaceSandboxEnabled,
-		OperatorApprovalEnabled:   capabilities.OperatorApprovalEnabled,
-		DangerFullAccessEnabled:   capabilities.DangerFullAccessEnabled,
-		DebugMaximumAccessEnabled: capabilities.DebugMaximumAccessEnabled,
+		WorkspaceSandboxEnabled: capabilities.WorkspaceSandboxEnabled,
+		OperatorApprovalEnabled: capabilities.OperatorApprovalEnabled,
+		DangerFullAccessEnabled: capabilities.DangerFullAccessEnabled,
 	}
 }

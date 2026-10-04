@@ -9,12 +9,8 @@ export type ApprovalDecisionControlView = components["schemas"]["ApprovalDecisio
 export type ApprovalQueueItemView = components["schemas"]["ApprovalQueueItemView"];
 export type ApprovalQueueView = components["schemas"]["ApprovalQueueView"];
 export type ApprovalPreviewView = components["schemas"]["ApprovalPreviewView"];
-export type ControlledCommandProposalReviewRequestView =
-  components["schemas"]["ControlledCommandProposalReviewRequestView"];
 export type ControlledCommandProposalView =
   components["schemas"]["ControlledCommandProposalView"];
-export type HostCommandProposalReviewRequestView =
-  components["schemas"]["HostCommandProposalReviewRequestView"];
 export type HostCommandProposalView =
   components["schemas"]["HostCommandProposalView"];
 export type ApprovalContinuationView = components["schemas"]["ApprovalContinuationResult"];

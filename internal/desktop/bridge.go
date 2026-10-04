@@ -33,69 +33,66 @@ const (
 // binding. Tokens stay in renderer memory and are never written to browser
 // storage, SQLite, logs, command output, or the Windows registry.
 type ConnectionBootstrap struct {
-	ProtocolVersion                         string `json:"protocol_version"`
-	APIBaseURL                              string `json:"api_base_url"`
-	APIVersion                              string `json:"api_version"`
-	AppVersion                              string `json:"app_version"`
-	UIDigest                                string `json:"ui_digest"`
-	ReadToken                               string `json:"read_token"`
-	ControlToken                            string `json:"control_token"`
-	ControlEnabled                          bool   `json:"control_enabled"`
-	ExecutionPermissionControlEnabled       bool   `json:"execution_permission_control_enabled"`
-	WorkspaceSandboxEnabled                 bool   `json:"workspace_sandbox_enabled"`
-	BrowserCDPPermissionControlEnabled      bool   `json:"browser_cdp_permission_control_enabled"`
-	FullCDPDebugEnabled                     bool   `json:"full_cdp_debug_enabled"`
-	FullCDPSessionControlEnabled            bool   `json:"full_cdp_session_control_enabled"`
-	OperatorApprovalEnabled                 bool   `json:"operator_approval_enabled"`
-	DangerFullAccessEnabled                 bool   `json:"danger_full_access_enabled"`
-	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
-	CommandRuntimeEnabled                   bool   `json:"command_runtime_enabled"`
-	ThreadControlEnabled                    bool   `json:"thread_control_enabled"`
-	CommandRuntimeProtocolAvailable         bool   `json:"command_runtime_protocol_available"`
-	CommandRuntimeAdapterInstalled          bool   `json:"command_runtime_adapter_installed"`
-	CommandRuntimeAdapterReady              bool   `json:"command_runtime_adapter_ready"`
-	RunCreationEnabled                      bool   `json:"run_creation_enabled"`
-	StandardCodePresetEnabled               bool   `json:"standard_code_preset_enabled"`
-	SessionMessageEnabled                   bool   `json:"session_message_enabled"`
-	SessionSteeringControlEnabled           bool   `json:"session_steering_control_enabled"`
-	RunLifecycleEnabled                     bool   `json:"run_lifecycle_enabled"`
-	RunExecutionEnabled                     bool   `json:"run_execution_enabled"`
-	PlanDeliveryControlEnabled              bool   `json:"plan_delivery_control_enabled"`
-	ApprovalControlEnabled                  bool   `json:"approval_control_enabled"`
-	ControlledCommandProposalControlEnabled bool   `json:"controlled_command_proposal_control_enabled"`
-	HostCommandProposalControlEnabled       bool   `json:"host_command_proposal_control_enabled"`
-	ModelControlEnabled                     bool   `json:"model_control_enabled"`
-	ProviderCredentialEnabled               bool   `json:"provider_credential_enabled"`
-	FileEditReviewEnabled                   bool   `json:"file_edit_review_enabled"`
-	FileEditProposalEnabled                 bool   `json:"file_edit_proposal_enabled"`
-	RunWakeControlEnabled                   bool   `json:"run_wake_control_enabled"`
-	FileEditApplyEnabled                    bool   `json:"file_edit_apply_enabled"`
-	RunWakeExecutionEnabled                 bool   `json:"run_wake_execution_enabled"`
-	RunWakeWorkerEnabled                    bool   `json:"run_wake_worker_enabled"`
-	ScheduledJobControlEnabled              bool   `json:"scheduled_job_control_enabled"`
-	ScheduledJobWorkerEnabled               bool   `json:"scheduled_job_worker_enabled"`
-	ReadOnlyDefault                         bool   `json:"read_only_default"`
-	ProcessExecutionEnabled                 bool   `json:"process_execution_enabled"`
-	ShellExecutionEnabled                   bool   `json:"shell_execution_enabled"`
-	DockerExecutionEnabled                  bool   `json:"docker_execution_enabled"`
-	AgentCodeToolsEnabled                   bool   `json:"agent_code_tools_enabled"`
-	CodeIntelEnabled                        bool   `json:"code_intel_enabled"`
-	SkillInstallationEnabled                bool   `json:"skill_installation_enabled"`
-	EvidenceAttachmentEnabled               bool   `json:"evidence_attachment_enabled"`
-	VerificationEvidenceEnabled             bool   `json:"verification_evidence_enabled"`
-	EmbeddedAnalyzerExecutionEnabled        bool   `json:"embedded_analyzer_execution_enabled"`
-	WorkspaceCheckpointControlEnabled       bool   `json:"workspace_checkpoint_control_enabled"`
-	GitAdvancedControlEnabled               bool   `json:"git_advanced_control_enabled"`
-	GitHubReviewControlEnabled              bool   `json:"github_review_control_enabled"`
-	BatchDeliveryControlEnabled             bool   `json:"batch_delivery_control_enabled"`
-	BatchDeliveryHostValidationEnabled      bool   `json:"batch_delivery_host_validation_enabled"`
-	UIEvidenceControlEnabled                bool   `json:"ui_evidence_control_enabled"`
-	UserTerminalEnabled                     bool   `json:"user_terminal_enabled"`
-	AgentTerminalInputDefault               bool   `json:"agent_terminal_input_default"`
-	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
-	WorkspaceImportEnabled                  bool   `json:"workspace_import_enabled"`
-	RendererPathInputSupported              bool   `json:"renderer_path_input_supported"`
-	RiskProfileRestartEnabled               bool   `json:"risk_profile_restart_enabled"`
+	ProtocolVersion                    string `json:"protocol_version"`
+	APIBaseURL                         string `json:"api_base_url"`
+	APIVersion                         string `json:"api_version"`
+	AppVersion                         string `json:"app_version"`
+	UIDigest                           string `json:"ui_digest"`
+	ReadToken                          string `json:"read_token"`
+	ControlToken                       string `json:"control_token"`
+	ControlEnabled                     bool   `json:"control_enabled"`
+	ExecutionPermissionControlEnabled  bool   `json:"execution_permission_control_enabled"`
+	WorkspaceSandboxEnabled            bool   `json:"workspace_sandbox_enabled"`
+	BrowserCDPPermissionControlEnabled bool   `json:"browser_cdp_permission_control_enabled"`
+	FullCDPDebugEnabled                bool   `json:"full_cdp_debug_enabled"`
+	FullCDPSessionControlEnabled       bool   `json:"full_cdp_session_control_enabled"`
+	OperatorApprovalEnabled            bool   `json:"operator_approval_enabled"`
+	DangerFullAccessEnabled            bool   `json:"danger_full_access_enabled"`
+	CommandRuntimeEnabled              bool   `json:"command_runtime_enabled"`
+	ThreadControlEnabled               bool   `json:"thread_control_enabled"`
+	CommandRuntimeProtocolAvailable    bool   `json:"command_runtime_protocol_available"`
+	CommandRuntimeAdapterInstalled     bool   `json:"command_runtime_adapter_installed"`
+	CommandRuntimeAdapterReady         bool   `json:"command_runtime_adapter_ready"`
+	RunCreationEnabled                 bool   `json:"run_creation_enabled"`
+	StandardCodePresetEnabled          bool   `json:"standard_code_preset_enabled"`
+	SessionMessageEnabled              bool   `json:"session_message_enabled"`
+	SessionSteeringControlEnabled      bool   `json:"session_steering_control_enabled"`
+	RunLifecycleEnabled                bool   `json:"run_lifecycle_enabled"`
+	RunExecutionEnabled                bool   `json:"run_execution_enabled"`
+	PlanDeliveryControlEnabled         bool   `json:"plan_delivery_control_enabled"`
+	ApprovalControlEnabled             bool   `json:"approval_control_enabled"`
+	ModelControlEnabled                bool   `json:"model_control_enabled"`
+	ProviderCredentialEnabled          bool   `json:"provider_credential_enabled"`
+	FileEditReviewEnabled              bool   `json:"file_edit_review_enabled"`
+	FileEditProposalEnabled            bool   `json:"file_edit_proposal_enabled"`
+	RunWakeControlEnabled              bool   `json:"run_wake_control_enabled"`
+	FileEditApplyEnabled               bool   `json:"file_edit_apply_enabled"`
+	RunWakeExecutionEnabled            bool   `json:"run_wake_execution_enabled"`
+	RunWakeWorkerEnabled               bool   `json:"run_wake_worker_enabled"`
+	ScheduledJobControlEnabled         bool   `json:"scheduled_job_control_enabled"`
+	ScheduledJobWorkerEnabled          bool   `json:"scheduled_job_worker_enabled"`
+	ReadOnlyDefault                    bool   `json:"read_only_default"`
+	ProcessExecutionEnabled            bool   `json:"process_execution_enabled"`
+	ShellExecutionEnabled              bool   `json:"shell_execution_enabled"`
+	DockerExecutionEnabled             bool   `json:"docker_execution_enabled"`
+	AgentCodeToolsEnabled              bool   `json:"agent_code_tools_enabled"`
+	CodeIntelEnabled                   bool   `json:"code_intel_enabled"`
+	SkillInstallationEnabled           bool   `json:"skill_installation_enabled"`
+	EvidenceAttachmentEnabled          bool   `json:"evidence_attachment_enabled"`
+	VerificationEvidenceEnabled        bool   `json:"verification_evidence_enabled"`
+	EmbeddedAnalyzerExecutionEnabled   bool   `json:"embedded_analyzer_execution_enabled"`
+	WorkspaceCheckpointControlEnabled  bool   `json:"workspace_checkpoint_control_enabled"`
+	GitAdvancedControlEnabled          bool   `json:"git_advanced_control_enabled"`
+	GitHubReviewControlEnabled         bool   `json:"github_review_control_enabled"`
+	BatchDeliveryControlEnabled        bool   `json:"batch_delivery_control_enabled"`
+	BatchDeliveryHostValidationEnabled bool   `json:"batch_delivery_host_validation_enabled"`
+	UIEvidenceControlEnabled           bool   `json:"ui_evidence_control_enabled"`
+	UserTerminalEnabled                bool   `json:"user_terminal_enabled"`
+	AgentTerminalInputDefault          bool   `json:"agent_terminal_input_default"`
+	WorkspaceOpenEnabled               bool   `json:"workspace_open_enabled"`
+	WorkspaceImportEnabled             bool   `json:"workspace_import_enabled"`
+	RendererPathInputSupported         bool   `json:"renderer_path_input_supported"`
+	RiskProfileRestartEnabled          bool   `json:"risk_profile_restart_enabled"`
 }
 
 type SkillPackageDialogStatus string
@@ -169,70 +166,67 @@ func (value SkillPackageInstallResult) MarshalJSON() ([]byte, error) {
 }
 
 type DesktopBridgeConfig struct {
-	ContextProvider                         func() context.Context
-	FilePicker                              SkillPackageFilePicker
-	ReadToken                               string
-	ControlToken                            string
-	RunControlEnabled                       bool
-	ExecutionPermissionControlEnabled       bool
-	WorkspaceSandboxEnabled                 bool
-	BrowserCDPPermissionControlEnabled      bool
-	FullCDPDebugEnabled                     bool
-	FullCDPSessionControlEnabled            bool
-	OperatorApprovalEnabled                 bool
-	DangerFullAccessEnabled                 bool
-	DebugMaximumAccessEnabled               bool
-	CommandRuntimeAdapterInstalled          bool
-	CommandRuntimeAdapterReady              bool
-	RunCreationEnabled                      bool
-	StandardCodePresetEnabled               bool
-	SessionMessageEnabled                   bool
-	SessionSteeringControlEnabled           bool
-	RunLifecycleEnabled                     bool
-	RunExecutionEnabled                     bool
-	PlanDeliveryControlEnabled              bool
-	ApprovalControlEnabled                  bool
-	ControlledCommandProposalControlEnabled bool
-	HostCommandProposalControlEnabled       bool
-	ModelControlEnabled                     bool
-	ProviderCredentialEnabled               bool
-	FileEditReviewEnabled                   bool
-	FileEditProposalEnabled                 bool
-	RunWakeControlEnabled                   bool
-	FileEditApplyEnabled                    bool
-	RunWakeExecutionEnabled                 bool
-	RunWakeWorkerEnabled                    bool
-	ScheduledJobControlEnabled              bool
-	ScheduledJobWorkerEnabled               bool
-	SkillInstallationEnabled                bool
-	EvidenceAttachmentEnabled               bool
-	VerificationEvidenceEnabled             bool
-	EmbeddedAnalyzerExecutionEnabled        bool
-	BatchDeliveryControlEnabled             bool
-	BatchDeliveryHostValidationEnabled      bool
-	UIEvidenceControlEnabled                bool
-	UserTerminalEnabled                     bool
-	DockerExecutionEnabled                  bool
-	CodeIntelEnabled                        bool
-	GitAdvancedControlEnabled               bool
-	GitHubReviewControlEnabled              bool
-	APIVersion                              string
-	AppVersion                              string
-	UIDigest                                string
-	Selector                                NativeSkillPackageSelector
-	PreviewBridge                           *SkillPackagePreviewBridge
-	SkillInstaller                          SkillPackageInstaller
-	WorkspaceResolver                       WorkspaceResolver
-	WorkspaceLauncher                       NativeWorkspaceLauncher
-	WorkspaceDirectoryPicker                WorkspaceDirectoryPicker
-	WorkspaceRegistrar                      WorkspaceDirectoryRegistrar
-	ClipboardReader                         ClipboardFileReader
-	ClipboardFiles                          ClipboardFileImporter
-	ClipboardImages                         ClipboardImageImporter
-	UserTerminalController                  UserTerminalController
-	DebugTerminalAgentInputController       application.DebugTerminalAgentInputController
-	RiskProfileRestartEnabled               bool
-	RiskProfileRestarter                    DesktopRiskProfileRestarter
+	ContextProvider                    func() context.Context
+	FilePicker                         SkillPackageFilePicker
+	ReadToken                          string
+	ControlToken                       string
+	RunControlEnabled                  bool
+	ExecutionPermissionControlEnabled  bool
+	WorkspaceSandboxEnabled            bool
+	BrowserCDPPermissionControlEnabled bool
+	FullCDPDebugEnabled                bool
+	FullCDPSessionControlEnabled       bool
+	OperatorApprovalEnabled            bool
+	DangerFullAccessEnabled            bool
+	CommandRuntimeAdapterInstalled     bool
+	CommandRuntimeAdapterReady         bool
+	RunCreationEnabled                 bool
+	StandardCodePresetEnabled          bool
+	SessionMessageEnabled              bool
+	SessionSteeringControlEnabled      bool
+	RunLifecycleEnabled                bool
+	RunExecutionEnabled                bool
+	PlanDeliveryControlEnabled         bool
+	ApprovalControlEnabled             bool
+	ModelControlEnabled                bool
+	ProviderCredentialEnabled          bool
+	FileEditReviewEnabled              bool
+	FileEditProposalEnabled            bool
+	RunWakeControlEnabled              bool
+	FileEditApplyEnabled               bool
+	RunWakeExecutionEnabled            bool
+	RunWakeWorkerEnabled               bool
+	ScheduledJobControlEnabled         bool
+	ScheduledJobWorkerEnabled          bool
+	SkillInstallationEnabled           bool
+	EvidenceAttachmentEnabled          bool
+	VerificationEvidenceEnabled        bool
+	EmbeddedAnalyzerExecutionEnabled   bool
+	BatchDeliveryControlEnabled        bool
+	BatchDeliveryHostValidationEnabled bool
+	UIEvidenceControlEnabled           bool
+	UserTerminalEnabled                bool
+	DockerExecutionEnabled             bool
+	CodeIntelEnabled                   bool
+	GitAdvancedControlEnabled          bool
+	GitHubReviewControlEnabled         bool
+	APIVersion                         string
+	AppVersion                         string
+	UIDigest                           string
+	Selector                           NativeSkillPackageSelector
+	PreviewBridge                      *SkillPackagePreviewBridge
+	SkillInstaller                     SkillPackageInstaller
+	WorkspaceResolver                  WorkspaceResolver
+	WorkspaceLauncher                  NativeWorkspaceLauncher
+	WorkspaceDirectoryPicker           WorkspaceDirectoryPicker
+	WorkspaceRegistrar                 WorkspaceDirectoryRegistrar
+	ClipboardReader                    ClipboardFileReader
+	ClipboardFiles                     ClipboardFileImporter
+	ClipboardImages                    ClipboardImageImporter
+	UserTerminalController             UserTerminalController
+	DebugTerminalAgentInputController  application.DebugTerminalAgentInputController
+	RiskProfileRestartEnabled          bool
+	RiskProfileRestarter               DesktopRiskProfileRestarter
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
@@ -280,8 +274,6 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.ModelControlEnabled ||
-		config.ControlledCommandProposalControlEnabled ||
-		config.HostCommandProposalControlEnabled ||
 		config.ProviderCredentialEnabled || config.FileEditReviewEnabled ||
 		config.FileEditProposalEnabled || config.RunWakeControlEnabled ||
 		config.ScheduledJobControlEnabled
@@ -319,7 +311,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop user terminal requires the Go terminal controller")
 	}
-	if config.UserTerminalEnabled && config.DebugMaximumAccessEnabled &&
+	if config.UserTerminalEnabled && config.DangerFullAccessEnabled &&
 		config.DebugTerminalAgentInputController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Debug terminal Agent input requires the Go lease controller")
@@ -335,24 +327,19 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			"desktop risk-profile restarter requires its explicit capability")
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		WorkspaceSandboxEnabled:   config.WorkspaceSandboxEnabled,
-		OperatorApprovalEnabled:   config.OperatorApprovalEnabled,
-		DangerFullAccessEnabled:   config.DangerFullAccessEnabled,
-		DebugMaximumAccessEnabled: config.DebugMaximumAccessEnabled,
+		WorkspaceSandboxEnabled: config.WorkspaceSandboxEnabled,
+		OperatorApprovalEnabled: config.OperatorApprovalEnabled,
+		DangerFullAccessEnabled: config.DangerFullAccessEnabled,
 	}
 	if err := permissionCapabilities.Validate(); err != nil {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities are invalid", err)
 	}
-	if (config.WorkspaceSandboxEnabled || config.OperatorApprovalEnabled || config.DangerFullAccessEnabled ||
-		config.DebugMaximumAccessEnabled) && !config.ExecutionPermissionControlEnabled {
+	if (config.WorkspaceSandboxEnabled || config.OperatorApprovalEnabled || config.DangerFullAccessEnabled) && !config.ExecutionPermissionControlEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities require permission control")
 	}
-	if config.HostCommandProposalControlEnabled && !config.OperatorApprovalEnabled {
-		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"desktop host command proposals require operator approval capability")
-	}
+
 	if config.DockerExecutionEnabled &&
 		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -437,62 +424,59 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,
 			UIDigest: config.UIDigest, ReadToken: config.ReadToken, ControlToken: config.ControlToken,
-			ControlEnabled:                          config.RunControlEnabled,
-			ExecutionPermissionControlEnabled:       config.ExecutionPermissionControlEnabled,
-			WorkspaceSandboxEnabled:                 config.WorkspaceSandboxEnabled,
-			BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
-			FullCDPDebugEnabled:                     config.FullCDPDebugEnabled,
-			FullCDPSessionControlEnabled:            config.FullCDPSessionControlEnabled,
-			OperatorApprovalEnabled:                 config.OperatorApprovalEnabled,
-			DangerFullAccessEnabled:                 config.DangerFullAccessEnabled,
-			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,
-			CommandRuntimeEnabled:                   commandRuntimeEnabled,
-			ThreadControlEnabled:                    config.RunCreationEnabled && config.SessionMessageEnabled,
-			CommandRuntimeProtocolAvailable:         true,
-			CommandRuntimeAdapterInstalled:          config.CommandRuntimeAdapterInstalled,
-			CommandRuntimeAdapterReady:              config.CommandRuntimeAdapterReady,
-			RunCreationEnabled:                      config.RunCreationEnabled,
-			StandardCodePresetEnabled:               config.StandardCodePresetEnabled,
-			SessionMessageEnabled:                   config.SessionMessageEnabled,
-			SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
-			RunLifecycleEnabled:                     config.RunLifecycleEnabled,
-			RunExecutionEnabled:                     config.RunExecutionEnabled,
-			PlanDeliveryControlEnabled:              config.PlanDeliveryControlEnabled,
-			ApprovalControlEnabled:                  config.ApprovalControlEnabled,
-			ControlledCommandProposalControlEnabled: config.ControlledCommandProposalControlEnabled,
-			HostCommandProposalControlEnabled:       config.HostCommandProposalControlEnabled,
-			ModelControlEnabled:                     config.ModelControlEnabled,
-			ProviderCredentialEnabled:               config.ProviderCredentialEnabled,
-			FileEditReviewEnabled:                   config.FileEditReviewEnabled,
-			FileEditProposalEnabled:                 config.FileEditProposalEnabled,
-			RunWakeControlEnabled:                   config.RunWakeControlEnabled,
-			FileEditApplyEnabled:                    config.FileEditApplyEnabled,
-			RunWakeExecutionEnabled:                 config.RunWakeExecutionEnabled,
-			RunWakeWorkerEnabled:                    config.RunWakeWorkerEnabled,
-			ScheduledJobControlEnabled:              config.ScheduledJobControlEnabled,
-			ScheduledJobWorkerEnabled:               config.ScheduledJobWorkerEnabled,
-			ReadOnlyDefault:                         !controlEnabled,
-			ProcessExecutionEnabled:                 config.UserTerminalEnabled || commandRuntimeEnabled,
-			ShellExecutionEnabled:                   config.UserTerminalEnabled || commandRuntimeEnabled,
-			DockerExecutionEnabled:                  config.DockerExecutionEnabled,
-			AgentCodeToolsEnabled:                   true,
-			CodeIntelEnabled:                        config.CodeIntelEnabled,
-			SkillInstallationEnabled:                config.SkillInstallationEnabled,
-			EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
-			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
-			EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
-			WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
-			GitAdvancedControlEnabled:               config.GitAdvancedControlEnabled,
-			GitHubReviewControlEnabled:              config.GitHubReviewControlEnabled,
-			BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
-			BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
-			UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
-			UserTerminalEnabled:                     config.UserTerminalEnabled,
-			AgentTerminalInputDefault:               false,
-			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,
-			WorkspaceImportEnabled:                  config.RunCreationEnabled && config.WorkspaceRegistrar != nil,
-			RendererPathInputSupported:              false,
-			RiskProfileRestartEnabled:               config.RiskProfileRestartEnabled,
+			ControlEnabled:                     config.RunControlEnabled,
+			ExecutionPermissionControlEnabled:  config.ExecutionPermissionControlEnabled,
+			WorkspaceSandboxEnabled:            config.WorkspaceSandboxEnabled,
+			BrowserCDPPermissionControlEnabled: config.BrowserCDPPermissionControlEnabled,
+			FullCDPDebugEnabled:                config.FullCDPDebugEnabled,
+			FullCDPSessionControlEnabled:       config.FullCDPSessionControlEnabled,
+			OperatorApprovalEnabled:            config.OperatorApprovalEnabled,
+			DangerFullAccessEnabled:            config.DangerFullAccessEnabled,
+			CommandRuntimeEnabled:              commandRuntimeEnabled,
+			ThreadControlEnabled:               config.RunCreationEnabled && config.SessionMessageEnabled,
+			CommandRuntimeProtocolAvailable:    true,
+			CommandRuntimeAdapterInstalled:     config.CommandRuntimeAdapterInstalled,
+			CommandRuntimeAdapterReady:         config.CommandRuntimeAdapterReady,
+			RunCreationEnabled:                 config.RunCreationEnabled,
+			StandardCodePresetEnabled:          config.StandardCodePresetEnabled,
+			SessionMessageEnabled:              config.SessionMessageEnabled,
+			SessionSteeringControlEnabled:      config.SessionSteeringControlEnabled,
+			RunLifecycleEnabled:                config.RunLifecycleEnabled,
+			RunExecutionEnabled:                config.RunExecutionEnabled,
+			PlanDeliveryControlEnabled:         config.PlanDeliveryControlEnabled,
+			ApprovalControlEnabled:             config.ApprovalControlEnabled,
+			ModelControlEnabled:                config.ModelControlEnabled,
+			ProviderCredentialEnabled:          config.ProviderCredentialEnabled,
+			FileEditReviewEnabled:              config.FileEditReviewEnabled,
+			FileEditProposalEnabled:            config.FileEditProposalEnabled,
+			RunWakeControlEnabled:              config.RunWakeControlEnabled,
+			FileEditApplyEnabled:               config.FileEditApplyEnabled,
+			RunWakeExecutionEnabled:            config.RunWakeExecutionEnabled,
+			RunWakeWorkerEnabled:               config.RunWakeWorkerEnabled,
+			ScheduledJobControlEnabled:         config.ScheduledJobControlEnabled,
+			ScheduledJobWorkerEnabled:          config.ScheduledJobWorkerEnabled,
+			ReadOnlyDefault:                    !controlEnabled,
+			ProcessExecutionEnabled:            config.UserTerminalEnabled || commandRuntimeEnabled,
+			ShellExecutionEnabled:              config.UserTerminalEnabled || commandRuntimeEnabled,
+			DockerExecutionEnabled:             config.DockerExecutionEnabled,
+			AgentCodeToolsEnabled:              true,
+			CodeIntelEnabled:                   config.CodeIntelEnabled,
+			SkillInstallationEnabled:           config.SkillInstallationEnabled,
+			EvidenceAttachmentEnabled:          config.EvidenceAttachmentEnabled,
+			VerificationEvidenceEnabled:        config.VerificationEvidenceEnabled,
+			EmbeddedAnalyzerExecutionEnabled:   config.EmbeddedAnalyzerExecutionEnabled,
+			WorkspaceCheckpointControlEnabled:  config.ControlToken != "",
+			GitAdvancedControlEnabled:          config.GitAdvancedControlEnabled,
+			GitHubReviewControlEnabled:         config.GitHubReviewControlEnabled,
+			BatchDeliveryControlEnabled:        config.BatchDeliveryControlEnabled,
+			BatchDeliveryHostValidationEnabled: config.BatchDeliveryHostValidationEnabled,
+			UIEvidenceControlEnabled:           config.UIEvidenceControlEnabled,
+			UserTerminalEnabled:                config.UserTerminalEnabled,
+			AgentTerminalInputDefault:          false,
+			WorkspaceOpenEnabled:               config.WorkspaceResolver != nil,
+			WorkspaceImportEnabled:             config.RunCreationEnabled && config.WorkspaceRegistrar != nil,
+			RendererPathInputSupported:         false,
+			RiskProfileRestartEnabled:          config.RiskProfileRestartEnabled,
 		},
 	}, nil
 }

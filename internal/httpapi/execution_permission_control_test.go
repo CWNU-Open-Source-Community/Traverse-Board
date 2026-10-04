@@ -34,8 +34,7 @@ func TestRunExecutionPermissionControlRequiresRuntimeGateAndExactConfirmation(t 
 
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
-		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	open, err := New(fixture.store, Config{
 		AccessToken: testAccessToken, ControlToken: testControlToken,

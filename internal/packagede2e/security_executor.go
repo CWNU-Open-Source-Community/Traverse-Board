@@ -140,9 +140,9 @@ func RunStandardCodeSecurityMatrix(ctx context.Context, options SecurityMatrixOp
 			if !available || backendEvidence.Availability != SecurityBackendReady {
 				caseEvidence.Backends = append(caseEvidence.Backends,
 					SecurityCaseBackendEvidence{Backend: backend, FixtureID: fixtureID,
-						Status: SecurityEvidenceFailed, ActualOutcome: "propose",
-						ActualSignal: "approval_required", ActualExecution: false,
-						OperatorCode:   "standard_code.attack.approval_required",
+						Status: SecurityEvidenceFailed, ActualOutcome: "deny",
+						ActualSignal: "failed_precondition", ActualExecution: false,
+						OperatorCode:   "standard_code.attack.backend_unavailable",
 						DiagnosticCode: "backend.unavailable", StartedAt: started,
 						CompletedAt: time.Now().UTC()})
 				continue

@@ -46,7 +46,7 @@ export function ConnectionGate() {
         fullCDPSessionControlEnabled: bootstrap.full_cdp_session_control_enabled,
         operatorApprovalEnabled: bootstrap.operator_approval_enabled,
         dangerFullAccessEnabled: bootstrap.danger_full_access_enabled,
-        debugMaximumAccessEnabled: bootstrap.debug_maximum_access_enabled,
+
         commandRuntimeEnabled: bootstrap.command_runtime_enabled,
         commandRuntimeProtocolAvailable: bootstrap.command_runtime_protocol_available,
         commandRuntimeAdapterInstalled: bootstrap.command_runtime_adapter_installed,
@@ -61,10 +61,8 @@ export function ConnectionGate() {
         threadExecutionReadEnabled: runtime.thread_execution_read_enabled === true,
         planDeliveryControlEnabled: bootstrap.plan_delivery_control_enabled,
         approvalControlEnabled: bootstrap.approval_control_enabled,
-        controlledCommandProposalControlEnabled:
-          bootstrap.controlled_command_proposal_control_enabled,
-		hostCommandProposalControlEnabled:
-		  bootstrap.host_command_proposal_control_enabled,
+
+
 		modelControlEnabled: bootstrap.model_control_enabled,
 		providerCredentialEnabled: bootstrap.provider_credential_enabled,
 		fileEditReviewEnabled: bootstrap.file_edit_review_enabled,

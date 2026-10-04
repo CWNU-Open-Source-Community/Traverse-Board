@@ -90,7 +90,7 @@ func readCommandSource(ctx context.Context, st commandApprovalStore, runID, call
 		return s, err
 	}
 	if s.run.Terminal() || actor.RunID != runID || actor.Role != domain.AgentRoleRoot ||
-		actor.ActiveAttemptID != c.AgentAttemptID || (actor.Status != domain.AgentRunning && actor.Status != domain.AgentWaiting) ||
+		(!completedStart && (actor.ActiveAttemptID != c.AgentAttemptID || (actor.Status != domain.AgentRunning && actor.Status != domain.AgentWaiting))) ||
 		s.permission.Validate() != nil || s.permission.ID != a.PermissionSnapshotID || s.permission.Revision != a.PermissionRevision || s.permission.Mode != a.PermissionMode {
 		return s, pendingToolApprovalUnavailable("command approval actor, attempt or permission changed")
 	}

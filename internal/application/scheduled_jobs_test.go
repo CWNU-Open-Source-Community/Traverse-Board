@@ -766,7 +766,7 @@ func TestScheduledApprovedRepairStopsBeforeExecutorAfterPermissionDrift(t *testi
 	if _, err := application.NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
-			Mode:         string(domain.RunExecutionPermissionConservative),
+			Mode:         string(domain.RunExecutionPermissionAsk),
 			OperationKey: "scheduled-repair-permission-revoke-0001",
 			RequestedBy:  "operator", Reason: "revoke scheduled repair authority"}); err != nil {
 		t.Fatal(err)
@@ -920,12 +920,12 @@ func newScheduledRepairApplicationFixture(t *testing.T) (*store.SQLiteStore, dom
 		t.Fatal(err)
 	}
 	if _, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(ctx,
+		domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
-			Mode:         string(domain.RunExecutionPermissionApproval),
+			Mode:         string(domain.RunExecutionPermissionFull),
 			OperationKey: "scheduled-repair-permission-operation-0001",
 			RequestedBy:  "operator", Reason: "authorize one exact bounded repair schedule",
-			ConfirmUserApproval: true}); err != nil {
+			ConfirmFull: true}); err != nil {
 		state.Close()
 		t.Fatal(err)
 	}
@@ -953,5 +953,39 @@ func scheduledReadOnlyRequest(runID string, anchor time.Time,
 		Notification:  domain.ScheduledJobNotifyAll,
 		ExecutionMode: domain.ScheduledJobReadOnly,
 		OperationKey:  operationKey, RequestedBy: "operator",
+	}
+}
+
+func TestScheduledRepairRequiresFullAndExactConfirmation(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			state, run := newScheduledRepairApplicationFixture(t)
+			defer state.Close()
+			if mode != domain.RunExecutionPermissionFull {
+				runs := application.NewRunService(state)
+				if _, err := runs.Pause(t.Context(), run.ID); err != nil {
+					t.Fatal(err)
+				}
+				_, err := application.NewRunExecutionPermissionService(state, domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).Change(t.Context(),
+					application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: string(mode), OperationKey: "repair-denied-mode", RequestedBy: "operator"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := runs.Resume(t.Context(), run.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service := application.NewScheduledJobService(state)
+			request := scheduledReadOnlyRequest(run.ID, time.Now().UTC().Add(time.Minute), "repair-missing-consent")
+			request.ExecutionMode = domain.ScheduledJobApprovedRepair
+			request.ConfirmRepair = mode != domain.RunExecutionPermissionFull
+			if _, err := service.Create(t.Context(), request); err == nil {
+				t.Fatal("repair was created without both Full and exact confirmation")
+			}
+			jobs, err := state.ListScheduledJobs(t.Context(), run.ID, 10)
+			if err != nil || len(jobs) != 0 {
+				t.Fatalf("denied request persisted jobs=%+v err=%v", jobs, err)
+			}
+		})
 	}
 }

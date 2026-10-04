@@ -1,5 +1,8 @@
 # ADR 0079: Review-Gated Fixed Command Proposals
 
+> Superseded for execution by [ADR 0165](0165-retire-legacy-command-execution.md).
+> Retained proposal and receipt formats remain readable; producer, review, and runner paths are retired.
+
 - Status: Accepted
 - Date: 2026-07-29
 - Scope: P12-D1, P12-D2, and P12-D3 on schema v89

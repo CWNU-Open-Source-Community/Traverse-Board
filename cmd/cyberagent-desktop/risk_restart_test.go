@@ -189,7 +189,7 @@ func TestDesktopRiskProfilesPreserveSafeProductAndAddOnlyTheirCeiling(t *testing
 		t.Fatal(err)
 	}
 	if !debug.riskProfileRestart || !debug.permissionControl || !debug.dangerFullAccess ||
-		!debug.debugMaximumAccess || !debug.userTerminal || !debug.runExecution ||
+		!debug.userTerminal || !debug.runExecution ||
 		!debug.scheduledJobWorker || !debug.scheduledJobObservationOnly {
 		t.Fatalf("debug product bundle is incomplete: %+v", debug)
 	}
@@ -212,9 +212,9 @@ func TestDesktopRiskRestartNativeDialogOwnsPersistedTaskScopeAndSafeDefaults(t *
 			name:    "debug",
 			profile: desktop.DesktopRiskProfileDebug,
 			contains: []string{
-				"已保存的完全访问任务不会因此自动获得动态授权",
-				"完整 CDP 是完全访问和调试中的可选子能力",
-				"Agent 终端输入仍默认关闭并需要独立的限时授权",
+				"重启以启用用户终端",
+				"当前任务的 Full 激活、Debug 交互和单独的限时终端授权",
+				"重启不会恢复已保存任务的执行权",
 			},
 		},
 	}

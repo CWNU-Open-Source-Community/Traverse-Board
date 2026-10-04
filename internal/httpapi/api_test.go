@@ -190,7 +190,6 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		ExecutionPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
 		},
 		BrowserCDPPermissionControlEnabled: true,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{

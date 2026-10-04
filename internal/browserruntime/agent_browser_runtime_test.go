@@ -54,11 +54,11 @@ func TestAgentBrowserStartSpecAndAuthorityAreClosed(t *testing.T) {
 			t.Fatal("widened independent process contract accepted")
 		}
 	}
-	req := AgentBrowserStartRequest{HomePath: base, RuntimeDeadline: now.Add(time.Minute), Authority: AgentBrowserAuthority{RunID: "r", ManagerBootID: "boot", SessionID: "s", Generation: 1, PermissionSnapshotID: "p", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full_access"}, CheckAuthority: func(context.Context, AgentBrowserAuthority) error { return nil }}
+	req := AgentBrowserStartRequest{HomePath: base, RuntimeDeadline: now.Add(time.Minute), Authority: AgentBrowserAuthority{RunID: "r", ManagerBootID: "boot", SessionID: "s", Generation: 1, PermissionSnapshotID: "p", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full"}, CheckAuthority: func(context.Context, AgentBrowserAuthority) error { return nil }}
 	if err := validateAgentBrowserRequest(req); err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(*AgentBrowserStartRequest){func(r *AgentBrowserStartRequest) { r.Authority.PermissionMode = "read_only" }, func(r *AgentBrowserStartRequest) { r.Authority.ManagerBootID = "" }, func(r *AgentBrowserStartRequest) { r.Authority.Generation = 0 }, func(r *AgentBrowserStartRequest) { r.Authority.PermissionActivation = 0 }, func(r *AgentBrowserStartRequest) { r.Authority.RunAuthorizationFence = 0 }, func(r *AgentBrowserStartRequest) { r.CheckAuthority = nil }} {
+	for _, mutate := range []func(*AgentBrowserStartRequest){func(r *AgentBrowserStartRequest) { r.Authority.PermissionMode = "read_only" }, func(r *AgentBrowserStartRequest) { r.Authority.PermissionMode = "full_access" }, func(r *AgentBrowserStartRequest) { r.Authority.PermissionMode = "debug" }, func(r *AgentBrowserStartRequest) { r.Authority.ManagerBootID = "" }, func(r *AgentBrowserStartRequest) { r.Authority.Generation = 0 }, func(r *AgentBrowserStartRequest) { r.Authority.PermissionActivation = 0 }, func(r *AgentBrowserStartRequest) { r.Authority.RunAuthorizationFence = 0 }, func(r *AgentBrowserStartRequest) { r.CheckAuthority = nil }} {
 		candidate := req
 		mutate(&candidate)
 		if err := validateAgentBrowserRequest(candidate); err == nil {
@@ -226,7 +226,7 @@ func agentBrowserTestRuntimeWithCheck(t *testing.T, extra func(context.Context) 
 	home := t.TempDir()
 	active := &atomic.Bool{}
 	active.Store(true)
-	request := AgentBrowserStartRequest{HomePath: home, Headless: true, Product: BrowserProductEdge, RuntimeDeadline: time.Now().Add(2 * time.Minute), Authority: AgentBrowserAuthority{RunID: "runtime-test", ManagerBootID: agentBrowserToken(), SessionID: agentBrowserToken(), Generation: 1, PermissionSnapshotID: "snapshot-test", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full_access"}, CheckAuthority: func(ctx context.Context, _ AgentBrowserAuthority) error {
+	request := AgentBrowserStartRequest{HomePath: home, Headless: true, Product: BrowserProductEdge, RuntimeDeadline: time.Now().Add(2 * time.Minute), Authority: AgentBrowserAuthority{RunID: "runtime-test", ManagerBootID: agentBrowserToken(), SessionID: agentBrowserToken(), Generation: 1, PermissionSnapshotID: "snapshot-test", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full"}, CheckAuthority: func(ctx context.Context, _ AgentBrowserAuthority) error {
 		if !active.Load() {
 			return errors.New("authority revoked")
 		}
@@ -507,7 +507,7 @@ func TestAgentBrowserLaunchFailurePreservesCleanupEvidence(t *testing.T) {
 		t.Run(fmt.Sprint(corrupt), func(t *testing.T) {
 			home := t.TempDir()
 			checks := 0
-			req := AgentBrowserStartRequest{HomePath: home, Headless: true, RuntimeDeadline: time.Now().Add(time.Minute), Authority: AgentBrowserAuthority{RunID: "launch-failure", ManagerBootID: "boot", SessionID: "profile-failure", Generation: 1, PermissionSnapshotID: "p", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full_access"}}
+			req := AgentBrowserStartRequest{HomePath: home, Headless: true, RuntimeDeadline: time.Now().Add(time.Minute), Authority: AgentBrowserAuthority{RunID: "launch-failure", ManagerBootID: "boot", SessionID: "profile-failure", Generation: 1, PermissionSnapshotID: "p", PermissionRevision: 1, PermissionActivation: 1, RunAuthorizationFence: 1, PermissionMode: "full"}}
 			req.CheckAuthority = func(context.Context, AgentBrowserAuthority) error {
 				checks++
 				if checks == 2 {

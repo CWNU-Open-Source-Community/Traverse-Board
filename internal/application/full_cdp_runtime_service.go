@@ -478,11 +478,10 @@ func (s *FullCDPProductionService) openReservedEntry(ctx context.Context,
 	}
 	if browserPermission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!browserPermission.OperatorConfirmed ||
-		(!executionPermission.Mode.IsFullPreference() &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!s.executionCapabilities.AllowsSnapshot(executionPermission) {
 		return apperror.New(apperror.CodePolicyDenied,
-			"full CDP requires live Full Access or Debug and its enabled sub-permission")
+			"full CDP requires live Full and its enabled sub-permission")
 	}
 	identity, acceptance, err := s.selectBrowser(request.Browser)
 	if err != nil {

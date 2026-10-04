@@ -327,6 +327,9 @@ func (s *SQLiteStore) authorizeApprovalWithSessionGrant(ctx context.Context, pro
 	if err != nil {
 		return approval.DecisionResult{}, err
 	}
+	if record.ToolName == "host_command_propose" {
+		return approval.DecisionResult{}, errors.New("historical host grant consumption is retired")
+	}
 	if (record.ToolName == "command_runtime") != (commandReview != nil) {
 		return approval.DecisionResult{}, errors.New("command grant consumption requires an explicit exact operator review")
 	}
@@ -659,8 +662,6 @@ func grantToolClassMatches(toolName string, actionClass string) bool {
 		return actionClass == "shell"
 	case "replace_file":
 		return actionClass == "workspace_write"
-	case "host_command_propose":
-		return actionClass == "risk_escalation"
 	case "command_runtime":
 		return actionClass == "command_process"
 	default:

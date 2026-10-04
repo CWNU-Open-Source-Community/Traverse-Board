@@ -19,7 +19,7 @@ func TestEmbeddedDefinitionFreezesFourRepositoriesAndRequiredAttackCoverage(t *t
 		[]string{"go", "node", "python", "rust"}; !slices.Equal(got, want) {
 		t.Fatalf("repository IDs=%v want=%v", got, want)
 	}
-	if len(definition.AttackMatrix.Cases) != 40 ||
+	if len(definition.AttackMatrix.Cases) != 39 ||
 		definition.AttackMatrix.FailurePolicy != "fail_closed_no_waiver" ||
 		definition.ManifestSHA256 == definition.MatrixSHA256 {
 		t.Fatalf("unexpected definition: %#v", definition)

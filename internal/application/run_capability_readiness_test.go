@@ -154,8 +154,7 @@ func TestRunCapabilityReadinessAllowsFullCDPInsideLiveFullAccessOnly(t *testing.
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	permissionService := application.NewRunExecutionPermissionService(
 		state, executionCapabilities)
@@ -232,7 +231,8 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		WorkspaceSandboxEnabled: true,
+		RuntimeAuthority:        domain.NewExecutionPermissionRuntimeAuthority()}
 	permissions := application.NewRunExecutionPermissionService(state, capabilities)
 	if _, err := permissions.Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
@@ -253,6 +253,7 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 	}
 	runtime := readyCapabilityReadinessRuntime()
 	runtime.RunExecutionEnabled = true
+	runtime.ExecutionPermissionCapabilities = capabilities
 	identity := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
 	runtime.CommandRuntimeAdapters = []commandruntimeadapter.Identity{identity}
 	advertiser := &readinessCommandRuntimeAdvertiser{identity: identity, ready: true}
@@ -266,6 +267,18 @@ func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *t
 		!status.CurrentRunGranted || status.AdapterKind != "host_unsandboxed" ||
 		status.Backend != "run_owned_command_runtime" {
 		t.Fatalf("granted Command Runtime status=%#v", status)
+	}
+	coldRuntime := runtime
+	coldRuntime.ExecutionPermissionCapabilities.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	for _, authoritative := range []bool{false, true} {
+		coldService := application.NewRunCapabilityReadinessService(state, coldRuntime)
+		if authoritative {
+			coldService = application.NewRunCapabilityReadinessService(state, coldRuntime, advertiser)
+		}
+		cold, err := coldService.Project(ctx, run.ID)
+		if err != nil || cold.CommandRuntime.CurrentRunGranted || !cold.CommandRuntime.AdapterInstalled || !cold.CommandRuntime.AdapterReady {
+			t.Fatalf("cold Full readiness authoritative=%t: %#v err=%v", authoritative, cold, err)
+		}
 	}
 	advertiser.ready = false
 	notReady, err := service.Project(ctx, run.ID)
@@ -377,8 +390,7 @@ func readyCapabilityReadinessRuntime() application.CapabilityReadinessRuntime {
 		BrowserCDPPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
 			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-		},
+			DangerFullAccessEnabled: true},
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled: true, FullDebugEnabled: true,
 		},

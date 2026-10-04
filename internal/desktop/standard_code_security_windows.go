@@ -27,8 +27,11 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/packagede2e"
+	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
@@ -43,6 +46,7 @@ const standardCodeSecurityProbeProtocol = "standard_code_security_probe.v1"
 type standardCodeSecurityDriver struct {
 	dockerDigest         string
 	config               packagede2e.SecurityDriverConfig
+	capabilities         domain.ExecutionPermissionRuntimeCapabilities
 	local                sandbox.LocalBackend
 	plane                *ControlPlane
 	gateway              *toolgateway.Gateway
@@ -66,6 +70,7 @@ type standardCodeSecurityRun struct {
 	root        domain.AgentNode
 	lease       domain.RunExecutionLease
 	adapter     commandruntimeadapter.Identity
+	turn        domain.SupervisorTurn
 }
 
 type standardCodeSecurityProbeReceipt struct {
@@ -160,15 +165,16 @@ func (d *standardCodeSecurityDriver) Open(ctx context.Context,
 		_ = d.local.Close()
 		return nil, err
 	}
+	d.capabilities = domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	d.plane, err = OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(home, "security-matrix.db"), HomePath: home,
 		ReadToken: d.readToken, ControlToken: controlToken,
 		RunControlEnabled: true, RunCreationEnabled: true,
 		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		},
-		LocalSandboxReadiness: &readiness, LocalSandboxBackend: d.local,
+		ExecutionPermissionCapabilities:   d.capabilities,
+		LocalSandboxReadiness:             &readiness, LocalSandboxBackend: d.local,
 		RunLifecycleEnabled: true, RunExecutionEnabled: true,
 		PlanDeliveryControlEnabled: true, ApprovalControlEnabled: true,
 		DockerExecutionEnabled:        d.dockerDigest != "",
@@ -223,8 +229,7 @@ func (d *standardCodeSecurityDriver) Open(ctx context.Context,
 			Network: "disabled", Credentials: "none", FullAccessEnabled: false}
 		if !ready {
 			evidence.Availability = packagede2e.SecurityBackendUnavailable
-			evidence.UnavailableSignal = "approval_required"
-			evidence.ApprovalFallback = true
+			evidence.UnavailableSignal = "backend_unavailable"
 		}
 		backends = append(backends, evidence)
 	}
@@ -247,14 +252,9 @@ func (d *standardCodeSecurityDriver) Execute(ctx context.Context,
 		base.CompletedAt = time.Now().UTC()
 		return base, errors.New("packaged security backend is unavailable")
 	}
-	runInstance := ""
-	if request.Attack.ID == "output_artifact_limit" {
-		// This case deliberately leaves an over-limit tree behind so the product
-		// checkpoint can retain the denial evidence. Keep it out of Runs reused by
-		// later recovery cases; the packaged harness owns and removes the root.
-		runInstance = request.Attack.ID
-	}
-	run, err := d.securityRun(ctx, request.Backend, request.FixtureID, runInstance)
+	// Each independent attack owns its Run and ledger. Reusing a Run for a
+	// fixed matrix would correctly trip the product's no-progress guard.
+	run, err := d.securityRun(ctx, request.Backend, request.FixtureID, request.Attack.ID)
 	if err != nil {
 		base.CompletedAt = time.Now().UTC()
 		return base, err
@@ -262,6 +262,9 @@ func (d *standardCodeSecurityDriver) Execute(ctx context.Context,
 	observation, err := d.runProbe(ctx, run, request)
 	if err == nil {
 		err = d.verifyCaseSpecificBoundary(ctx, run, request, &observation)
+	}
+	if err == nil {
+		err = run.completeTurn(ctx, d.plane)
 	}
 	refs, evidenceErr := d.securityEvidence(ctx, run, request, observation)
 	base.Evidence = refs
@@ -317,7 +320,7 @@ func (d *standardCodeSecurityDriver) securityRun(ctx context.Context, backend,
 		})
 	if err != nil || configured.Status != application.StandardCodeResultConfigured ||
 		configured.Run == nil || configured.Permission == nil ||
-		configured.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		configured.Permission.Mode != domain.RunExecutionPermissionAsk ||
 		configured.CapabilityGrant {
 		return nil, fmt.Errorf("configure fixed Standard Code workspace: %w", err)
 	}
@@ -368,7 +371,7 @@ func (d *standardCodeSecurityDriver) securityRun(ctx context.Context, backend,
 		return nil, err
 	}
 	adapter, available, err := d.plane.commandRuntime.AdvertisedCommandRuntimeAdapter(
-		ctx, runRecord.ID, domain.RunExecutionPermissionWorkspaceAccess)
+		ctx, runRecord.ID, configured.Permission.Mode)
 	if err != nil || !available {
 		return nil, fmt.Errorf("advertise exact Standard Code adapter: %w", err)
 	}
@@ -439,7 +442,7 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 		input.MaxBytes = &maxBytes
 	}
 	outcome, jobID, err := d.invokeStandardCodeSecurityCommand(ctx, run,
-		request.Ordinal, input)
+		input)
 	if err != nil {
 		return standardCodeSecurityObservation{}, err
 	}
@@ -494,13 +497,13 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 }
 
 func (d *standardCodeSecurityDriver) invokeStandardCodeSecurityCommand(ctx context.Context,
-	run *standardCodeSecurityRun, ordinal int, input toolgateway.CommandRuntimeInput,
+	run *standardCodeSecurityRun, input toolgateway.CommandRuntimeInput,
 ) (toolgateway.Outcome, string, error) {
-	call, err := d.commandRuntimeCall(ctx, run, ordinal, input)
+	call, err := run.prepareCommand(ctx, d.plane, d.capabilities, input)
 	if err != nil {
 		return toolgateway.Outcome{}, "", err
 	}
-	outcome, err := d.gateway.Invoke(ctx, call)
+	outcome, err := run.invokeCommand(ctx, d.plane, d.gateway, call)
 	if err != nil {
 		return toolgateway.Outcome{}, "", err
 	}
@@ -553,11 +556,11 @@ func (d *standardCodeSecurityDriver) invokeStandardCodeSecurityCommand(ctx conte
 		MaxBytes:         &maxBytes,
 		WaitMilliseconds: &waitMilliseconds,
 	}
-	waitCall, err := d.commandRuntimeCall(waitCtx, run, ordinal, waitInput)
+	waitCall, err := run.prepareCommand(waitCtx, d.plane, d.capabilities, waitInput)
 	if err != nil {
 		return outcome, jobID, err
 	}
-	outcome, err = d.gateway.Invoke(waitCtx, waitCall)
+	outcome, err = run.invokeCommand(waitCtx, d.plane, d.gateway, waitCall)
 	if err != nil {
 		return outcome, jobID, err
 	}
@@ -732,7 +735,10 @@ func validateStandardCodeSecurityDockerRecord(record domain.DockerSandboxRecord,
 		record.Admission.WorkspaceID != run.workspaceID ||
 		record.Admission.NetworkMode != "disabled" ||
 		record.Admission.NetworkTargetCount != 0 ||
-		record.Admission.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+		record.Admission.PermissionMode != domain.RunExecutionPermissionAsk ||
+		record.Admission.PermissionMode != job.PermissionMode ||
+		record.Admission.PermissionSnapshotID != job.PermissionSnapshotID ||
+		record.Admission.PermissionRevision != job.PermissionRevision ||
 		!record.Admission.ProductEntryEnabled || !record.Admission.ExecutionAuthorized ||
 		record.Receipt.LifecycleIntentID != record.Launch.LifecycleIntentID ||
 		record.Receipt.AttemptID != record.Launch.AttemptID ||
@@ -915,34 +921,212 @@ func standardCodeSecurityExpectedProbeDetails(caseID string) []string {
 	return nil
 }
 
-func (d *standardCodeSecurityDriver) commandRuntimeCall(ctx context.Context,
-	run *standardCodeSecurityRun, ordinal int, input toolgateway.CommandRuntimeInput,
+// prepareCommand uses the same durable call identity and native input binder as
+// RunSupervisor. The fixed packaged driver owns its lease so recovery cases can
+// expire or terminate that exact lease instead of Step releasing it early.
+func (run *standardCodeSecurityRun) prepareCommand(ctx context.Context,
+	plane *ControlPlane, capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	input toolgateway.CommandRuntimeInput,
 ) (toolgateway.ToolCall, error) {
-	mode, err := d.plane.stateStore.GetRunMode(ctx, run.run.ID)
+	if run.turn.Checkpoint.Phase != domain.SupervisorTurnStarted {
+		turn, err := plane.stateStore.BeginSupervisorTurn(ctx, run.lease, "")
+		if err != nil {
+			return toolgateway.ToolCall{}, err
+		}
+		run.turn = turn
+		run.root = turn.Agent
+	}
+	turn := &run.turn
+	permission, err := plane.stateStore.GetRunExecutionPermission(ctx, run.run.ID)
 	if err != nil {
 		return toolgateway.ToolCall{}, err
 	}
-	permission, err := d.plane.stateStore.GetRunExecutionPermission(ctx, run.run.ID)
+	// A packaged Standard Code probe is a verified sandbox operation under Ask.
+	// It must never gain Full, use a different adapter, or create a host fallback.
+	if permission.Mode != domain.RunExecutionPermissionAsk || !capabilities.AllowsSnapshot(permission) || capabilities.RuntimeAuthority == nil {
+		return toolgateway.ToolCall{}, errors.New("fixed probe requires current Ask runtime authority")
+	}
+	adapter, available, err := plane.commandRuntime.AdvertisedCommandRuntimeAdapter(ctx, run.run.ID, permission.Mode)
+	if err != nil || !available || !adapter.SameBackend(run.adapter) {
+		return toolgateway.ToolCall{}, errors.Join(err, errors.New("fixed probe adapter changed"))
+	}
+	raw, err := json.Marshal(input)
 	if err != nil {
 		return toolgateway.ToolCall{}, err
 	}
-	payload, err := json.Marshal(input)
+	_, payload, err := toolgateway.NormalizeCommandRuntimePayload(raw)
 	if err != nil {
 		return toolgateway.ToolCall{}, err
 	}
+	fence, err := capabilities.RuntimeAuthority.IssueRunAuthorizationFence(run.run.ID)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	authority := commandruntimeadapter.Authority{ProtocolVersion: commandruntimeadapter.OperationAuthorityVersion,
+		RunID: run.run.ID, Adapter: adapter, PermissionSnapshotID: permission.ID,
+		PermissionMode: permission.Mode, PermissionRevision: permission.Revision,
+		PermissionRuntimeEpoch: capabilities.RuntimeAuthority.RuntimeEpoch(), RunAuthorizationFence: fence}
+	encoded, err := commandruntimeadapter.EncodeAuthority(authority)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	binder, ok := plane.commandRuntime.(interface {
+		BindCommandRuntimeAuthority(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error)
+	})
+	if !ok {
+		return toolgateway.ToolCall{}, errors.New("fixed probe native input binder is unavailable")
+	}
+	encoded, err = binder.BindCommandRuntimeAuthority(ctx, encoded, payload)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	rounds, err := plane.stateStore.ListSupervisorToolRounds(ctx, turn.Checkpoint)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	round := len(rounds) + 1
+	key := runmutation.SupervisorToolOperationKey(run.run.ID, turn.Checkpoint.NextTurn, string(toolgateway.CommandRuntimeTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(key, round)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	attempt := llm.ModelAttempt{Number: round, ToolRound: round - 1, TransportAttempt: 1,
+		MaxAttempts: 1, Provider: "packaged-fixed-probe", Model: "frozen-security-matrix"}
+	if _, err = plane.stateStore.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	checkpoint, err := plane.stateStore.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt,
+		llm.ChatResponse{Provider: attempt.Provider, Model: attempt.Model,
+			ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolgateway.CommandRuntimeTool), Arguments: payload, Authority: encoded}}})
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	turn.Checkpoint = checkpoint
+	rounds, err = plane.stateStore.ListSupervisorToolRounds(ctx, turn.Checkpoint)
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	if len(rounds) != round || len(rounds[round-1].Calls) != 1 {
+		return toolgateway.ToolCall{}, errors.New("fixed probe durable call is missing")
+	}
+	source := rounds[round-1].Calls[0]
+	authority, err = commandruntimeadapter.DecodeAuthority(json.RawMessage(source.AuthorityJSON))
+	if err != nil {
+		return toolgateway.ToolCall{}, err
+	}
+	key = runmutation.SupervisorToolOperationKey(source.RunID, source.Turn, source.ToolName, source.PayloadJSON)
 	return toolgateway.ToolCall{Name: toolgateway.CommandRuntimeTool,
-		Arguments: map[string]string{}, Payload: payload,
-		OperationKey: fmt.Sprintf("issue181-command-%03d", ordinal),
-		RunID:        run.run.ID, MissionID: run.run.MissionID, AgentID: run.root.ID,
-		SessionID: run.run.SessionID, WorkspaceID: run.workspaceID,
-		Surface: mode.Surface, Phase: mode.Phase, Role: run.root.Role,
-		Profile: mode.Profile, PermissionMode: permission.Mode,
-		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
-		CapabilityGeneration: run.adapter.Generation,
-		LeaseID:              run.lease.LeaseID, LeaseGeneration: run.lease.Generation,
-		RequestedBy: "run_supervisor", CommandRuntimeAdapter: run.adapter}, nil
+		Arguments: map[string]string{}, Payload: json.RawMessage(source.PayloadJSON), OperationKey: key,
+		RunID: source.RunID, MissionID: turn.Mission.ID, AgentID: source.AgentID,
+		AgentAttemptID: source.AgentAttemptID, SessionID: turn.Run.SessionID, WorkspaceID: turn.Mission.WorkspaceID,
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role, Profile: turn.Mode.Profile,
+		PermissionMode: authority.PermissionMode, ModeRevision: turn.Mode.Revision, PermissionRevision: authority.PermissionRevision,
+		PermissionSnapshotID: authority.PermissionSnapshotID, PermissionGeneration: authority.PermissionGeneration,
+		PermissionRuntimeEpoch: authority.PermissionRuntimeEpoch,
+		RunAuthorizationFence:  authority.RunAuthorizationFence, CapabilityGeneration: authority.Adapter.Generation,
+		LeaseID: turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
+		RequestedBy: "run_supervisor", CommandRuntimeAdapter: authority.Adapter,
+		SupervisorTurn: source.Turn, SupervisorToolCallID: source.CallID}, nil
 }
 
+func (run *standardCodeSecurityRun) invokeCommand(ctx context.Context,
+	plane *ControlPlane, gateway *toolgateway.Gateway, call toolgateway.ToolCall,
+) (toolgateway.Outcome, error) {
+	fresh, superseded, err := plane.stateStore.RecordSupervisorToolExecutionStartedWithSteering(ctx, run.turn.Checkpoint, call.SupervisorToolCallID)
+	if err != nil {
+		return toolgateway.Outcome{}, err
+	}
+	if superseded {
+		return toolgateway.Outcome{}, errors.New("fixed probe was superseded before dispatch")
+	}
+	if !fresh {
+		return toolgateway.Outcome{}, errors.New("fixed probe dispatch was already started")
+	}
+	outcome, invokeErr := gateway.Invoke(ctx, call)
+	status, code := domain.SupervisorToolCompleted, ""
+	if invokeErr != nil {
+		category := apperror.CodeOf(apperror.Normalize(invokeErr))
+		switch category {
+		case apperror.CodeConflict, apperror.CodeInvalidArgument, apperror.CodeFailedPrecondition, apperror.CodePolicyDenied, apperror.CodeNotFound, apperror.CodeResourceExhausted:
+			status, code = domain.SupervisorToolFailed, string(category)
+		default:
+			// Cancellation or an uncertain dispatch keeps started/no-result. The
+			// packaged harness must fail without manufacturing a settled receipt.
+			return outcome, invokeErr
+		}
+	} else if outcome.Result == nil {
+		return outcome, errors.New("fixed probe omitted its dispatch result")
+	} else if !outcome.Decision.Allowed || outcome.Result.Status == toolgateway.StatusDenied {
+		status, code = domain.SupervisorToolDenied, string(apperror.CodePolicyDenied)
+		invokeErr = errors.New("fixed probe was denied by current execution policy")
+	} else if outcome.Result.Status != toolgateway.StatusCompleted {
+		return outcome, errors.New("fixed probe did not settle its dispatch result")
+	}
+	result := map[string]any{"version": "supervisor_tool_result.v1", "tool": string(toolgateway.CommandRuntimeTool), "status": string(status)}
+	if code != "" {
+		result["code"] = code
+	}
+	if outcome.Result != nil {
+		result["stdout"], result["stderr"] = redact.String(outcome.Result.Stdout), redact.String(outcome.Result.Stderr)
+		metadata := make(map[string]string, len(outcome.Result.Metadata))
+		for key, value := range outcome.Result.Metadata {
+			if key != "replayed" {
+				metadata[key] = redact.String(value)
+			}
+		}
+		result["truncated"], result["metadata"] = outcome.Result.Truncated, metadata
+	}
+	raw, encodeErr := json.Marshal(result)
+	if encodeErr != nil {
+		return outcome, errors.Join(invokeErr, encodeErr)
+	}
+	_, _, recordErr := plane.stateStore.RecordSupervisorToolResult(ctx, run.turn.Checkpoint,
+		domain.SupervisorToolResult{CallID: call.SupervisorToolCallID, Status: status,
+			ErrorCode: code, ResultJSON: string(raw), CompletedAt: time.Now().UTC()})
+	return outcome, errors.Join(invokeErr, recordErr)
+}
+
+func (run *standardCodeSecurityRun) completeTurn(ctx context.Context, plane *ControlPlane) error {
+	if run.turn.Checkpoint.Phase != domain.SupervisorTurnStarted {
+		return nil
+	}
+	rounds, err := plane.stateStore.ListSupervisorToolRounds(ctx, run.turn.Checkpoint)
+	if err != nil {
+		return err
+	}
+	for _, round := range rounds {
+		for _, call := range round.Calls {
+			if !call.Status.Terminal() {
+				return errors.New("fixed probe has an unfinished durable call")
+			}
+		}
+	}
+	action := domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionContinue,
+		Message: "Fixed packaged security observation recorded."}
+	raw, err := json.Marshal(action)
+	if err != nil {
+		return err
+	}
+	attempt := llm.ModelAttempt{Number: len(rounds) + 1, ToolRound: len(rounds), TransportAttempt: 1,
+		MaxAttempts: 1, Provider: "packaged-fixed-probe", Model: "frozen-security-matrix"}
+	if _, err = plane.stateStore.RecordSupervisorModelStarted(ctx, run.turn.Checkpoint, attempt); err != nil {
+		return err
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	response := llm.ChatResponse{Provider: attempt.Provider, Model: attempt.Model, Text: string(raw)}
+	checkpoint, err := plane.stateStore.RecordSupervisorModelCompleted(ctx, run.turn.Checkpoint, attempt, response)
+	if err != nil {
+		return err
+	}
+	run.turn.Checkpoint = checkpoint
+	updated, completed, _, err := plane.stateStore.CompleteSupervisorTurn(ctx, run.turn.Checkpoint,
+		response, action, policy.Decision{Allowed: true, Reason: "fixed packaged observation is complete"}, 0)
+	if err == nil {
+		run.run, run.turn.Checkpoint = updated, completed
+	}
+	return err
+}
 func (d *standardCodeSecurityDriver) verifyCaseSpecificBoundary(ctx context.Context,
 	run *standardCodeSecurityRun, request packagede2e.SecurityDriverCase,
 	observation *standardCodeSecurityObservation,
@@ -1026,12 +1210,6 @@ func (d *standardCodeSecurityDriver) verifyCaseSpecificBoundary(ctx context.Cont
 		}
 		observation.observed = observation.observed &&
 			!observation.outcome.Call.CommandRuntimeAdapter.IsZero()
-	case "approval_fallback":
-		if err := d.verifyApprovalFallback(ctx, run, request); err != nil {
-			return err
-		}
-		observation.observed = observation.observed &&
-			!run.adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess)
 	case "recovery":
 		receipt, err := d.verifyPackagedRecovery(ctx, request)
 		if err != nil {
@@ -1076,59 +1254,6 @@ func (d *standardCodeSecurityDriver) verifyPromptInjectionDenial(ctx context.Con
 	return nil
 }
 
-func (d *standardCodeSecurityDriver) verifyApprovalFallback(ctx context.Context,
-	run *standardCodeSecurityRun, request packagede2e.SecurityDriverCase,
-) error {
-	maxBytes := 4096
-	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
-		Action:        toolgateway.CommandRuntimeActionRun,
-		FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &maxBytes,
-		Commands: []runner.CommandRuntimeSpec{{Version: runner.CommandRuntimeProtocolVersion,
-			Profile: runner.CommandRuntimeProcess, Executable: d.goExecutable,
-			Arguments: []string{"version"}, WorkingDirectory: ".",
-			Environment: []runner.CommandRuntimeEnvironment{},
-			StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
-			TimeoutMilliseconds: 5000,
-			Output:              runner.CommandRuntimeOutputPolicy{InlineBytes: 4096, ArtifactBytes: 4096},
-			Network:             runner.CommandRuntimeNetworkDisabled,
-			Credentials:         runner.CommandRuntimeCredentialsNone,
-			Purpose:             "prove unavailable packaged adapter fails closed"}}}
-	stale, err := d.commandRuntimeCall(ctx, run, 2000+request.Ordinal, input)
-	if err != nil {
-		return err
-	}
-	stale.CapabilityGeneration = strings.Repeat("0", 64)
-	before, err := d.plane.stateStore.ListCommandRuntimeJobs(ctx,
-		runner.CommandRuntimeListFilter{Limit: 500})
-	if err != nil {
-		return err
-	}
-	if _, err := d.gateway.Invoke(ctx, stale); err == nil ||
-		apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeConflict {
-		return errors.New("unavailable packaged adapter did not fail with a stable conflict")
-	}
-	proposal, proposalErr := d.gateway.Invoke(ctx, toolgateway.ToolCall{
-		Name:      toolgateway.ShellTool,
-		Arguments: map[string]string{"command": "go version"},
-		RunID:     run.run.ID, MissionID: run.run.MissionID, AgentID: run.root.ID,
-		SessionID: run.run.SessionID, WorkspaceID: run.workspaceID,
-		LeaseID: run.lease.LeaseID, LeaseGeneration: run.lease.Generation,
-		RequestedBy: "run_supervisor",
-	})
-	after, listErr := d.plane.stateStore.ListCommandRuntimeJobs(ctx,
-		runner.CommandRuntimeListFilter{Limit: 500})
-	if proposalErr != nil || listErr != nil || len(after) != len(before) ||
-		proposal.Proposal == nil || proposal.Proposal.Status != toolgateway.StatusProposed ||
-		proposal.Execution != nil || proposal.Result != nil ||
-		(proposal.Decision.Approval != toolgateway.ApprovalPerCall &&
-			proposal.Decision.Approval != toolgateway.ApprovalSession) ||
-		run.adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess) {
-		return errors.Join(proposalErr, listErr,
-			errors.New("backend failure did not remain an explicit unapproved host proposal"))
-	}
-	return nil
-}
-
 func (d *standardCodeSecurityDriver) verifyStaleAuthority(ctx context.Context,
 	run *standardCodeSecurityRun, request packagede2e.SecurityDriverCase,
 ) error {
@@ -1146,7 +1271,7 @@ func (d *standardCodeSecurityDriver) verifyStaleAuthority(ctx context.Context,
 			Network:             runner.CommandRuntimeNetworkDisabled,
 			Credentials:         runner.CommandRuntimeCredentialsNone,
 			Purpose:             "prove stale packaged authority fails closed"}}}
-	call, err := d.commandRuntimeCall(ctx, run, 1000+request.Ordinal, input)
+	call, err := run.prepareCommand(ctx, d.plane, d.capabilities, input)
 	if err != nil {
 		return err
 	}
@@ -1173,7 +1298,7 @@ func (d *standardCodeSecurityDriver) verifyStaleAuthority(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	_, invokeErr := d.gateway.Invoke(ctx, call)
+	_, invokeErr := run.invokeCommand(ctx, d.plane, d.gateway, call)
 	after, listErr := d.plane.stateStore.ListCommandRuntimeJobs(ctx,
 		runner.CommandRuntimeListFilter{Limit: 500})
 	if listErr != nil {

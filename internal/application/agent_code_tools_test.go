@@ -52,7 +52,7 @@ func TestAgentCodeFullAccessCreatesAndAppliesWithoutPerFileReview(t *testing.T) 
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(state, runtimeCapabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
 			RunID: created.ID, Mode: string(domain.RunExecutionPermissionFull),

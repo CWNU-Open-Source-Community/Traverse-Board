@@ -18,7 +18,6 @@ import (
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
-	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolcontract"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
@@ -39,25 +38,7 @@ func commandRuntimeAuthorityCurrent(
 	authority commandruntimeadapter.Authority,
 	permission domain.RunExecutionPermissionSnapshot,
 ) bool {
-	if permission.Mode.IsApprovalMode() {
-		return authority.ProtocolVersion == commandruntimeadapter.OperationAuthorityVersion && authority.PermissionMode == permission.Mode && authority.PermissionRevision == permission.Revision && agentCodeRuntimeCurrent(capabilities, permission, authority.PermissionSnapshotID, authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
-	}
-	if permission.Mode != domain.RunExecutionPermissionFullAccess ||
-		!capabilities.FullAccessRequiresRuntimeGrant {
-		return authority.PermissionSnapshotID == "" &&
-			authority.PermissionGeneration == 0 &&
-			authority.PermissionRuntimeEpoch == ""
-	}
-	if capabilities.RuntimeAuthority == nil {
-		return false
-	}
-	generation, live := capabilities.FullAccessGeneration(permission)
-	return live && generation != 0 &&
-		authority.PermissionSnapshotID == permission.ID &&
-		authority.PermissionGeneration == generation &&
-		authority.PermissionRuntimeEpoch ==
-			capabilities.RuntimeAuthority.RuntimeEpoch() &&
-		authority.PermissionRuntimeEpoch != ""
+	return authority.ProtocolVersion == commandruntimeadapter.OperationAuthorityVersion && authority.PermissionMode == permission.Mode && authority.PermissionRevision == permission.Revision && agentCodeRuntimeCurrent(capabilities, permission, authority.PermissionSnapshotID, authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
 }
 
 type supervisorAgentCodeTools struct {
@@ -175,22 +156,16 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			!skillCandidateEnabled {
 			continue
 		}
-		if definition.Name == toolgateway.HostCommandProposeTool &&
-			(configured.OwnedFileWorkspace || permissionMode != domain.RunExecutionPermissionApproval &&
-				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-				surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver) {
-			continue
-		}
 		if definition.Name == toolgateway.DebugTerminalTool &&
 			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionDebug) {
+				permissionMode != domain.RunExecutionPermissionFull) {
 			continue
 		}
 		if definition.Name == toolgateway.CommandRuntimeTool &&
 			(!runtimeEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				!configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
+				!permissionMode.IsApprovalMode() || !configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
 			continue
 		}
 		if definition.Name == toolgateway.CommandRuntimeTool {
@@ -293,9 +268,6 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.SpecialistDelegationProposeTool &&
 			name != toolgateway.ChildTaskProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
-			name != toolgateway.ControlledCommandProposeTool &&
-			name != toolgateway.OneShotCommandProposeTool &&
-			name != toolgateway.HostCommandProposeTool &&
 			name != toolgateway.DockerSandboxRunProposeTool &&
 			name != toolgateway.SkillCandidateProposeTool &&
 			name != toolgateway.DebugTerminalTool &&
@@ -365,40 +337,23 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			return nil, errors.New(
 				"provider requested Skill candidate proposal without the explicit generator Skill")
 		}
-		if name == toolgateway.HostCommandProposeTool &&
-			(configured.OwnedFileWorkspace || permissionMode != domain.RunExecutionPermissionApproval &&
-				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-				surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver) {
-			return nil, errors.New(
-				"provider requested host command proposal outside the supported Code/Deliver source Workspace scope")
-		}
 		if name == toolgateway.DebugTerminalTool &&
 			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionDebug) {
+				permissionMode != domain.RunExecutionPermissionFull) {
 			return nil, errors.New(
-				"provider requested Debug terminal outside Code/Deliver/Debug runtime")
+				"provider requested Debug terminal outside Code/Deliver with an active terminal input grant")
 		}
 		if name == toolgateway.CommandRuntimeTool &&
 			(!runtimeEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				!configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
+				!permissionMode.IsApprovalMode() || !configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
 			return nil, errors.New(
 				"provider requested command runtime outside its advertised Code/Deliver adapter authority")
 		}
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {
 			return nil, err
-		}
-		if name == toolgateway.HostCommandProposeTool {
-			hostSpec, _, hostErr := toolgateway.NormalizeHostCommandProposalPayload(payload)
-			if hostErr != nil {
-				return nil, hostErr
-			}
-			if (permissionMode == domain.RunExecutionPermissionWorkspaceAccess) !=
-				(hostSpec.Version == runner.RiskEscalationProtocolVersion) {
-				return nil, errors.New("host command proposal protocol does not match the current permission mode")
-			}
 		}
 		if toolgateway.IsCodeIntelTool(name) {
 			input, _, _ := toolgateway.NormalizeCodeIntelPayload(name, payload)
@@ -428,13 +383,6 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			StreamResponseID: call.StreamResponseID, StreamItemID: call.StreamItemID,
 			StreamCallID: call.StreamCallID}
 		if toolgateway.IsAgentCodeTool(name) {
-			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
-		}
-		if name == toolgateway.HostCommandProposeTool &&
-			permissionMode == domain.RunExecutionPermissionWorkspaceAccess {
-			if len(agentCodeAuthority) == 0 {
-				return nil, errors.New("risk escalation requires current Agent Code authority")
-			}
 			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
 		}
 		if toolgateway.IsCodeIntelTool(name) {
@@ -592,8 +540,7 @@ func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 		return s.agentBrowserCapabilities(ctx, turn)
 	}
 	if s == nil || s.browserActions == nil || turn.Agent.Role != domain.AgentRoleRoot ||
-		(!permission.Mode.IsFullPreference() &&
-			permission.Mode != domain.RunExecutionPermissionDebug) {
+		permission.Mode != domain.RunExecutionPermissionFull {
 		return toolgateway.BrowserActionCapabilities{}, nil, nil
 	}
 	binding, available, err := s.browserActions.browserActionBinding(ctx, turn.Run.ID)
@@ -1050,38 +997,15 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		RequestedBy:    "run_supervisor",
 		SupervisorTurn: call.Turn, SupervisorToolCallID: call.CallID,
 	}
-	if name == toolgateway.HostCommandProposeTool && len(call.AuthorityJSON) > 0 {
-		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
-			json.RawMessage(call.AuthorityJSON))
-		if authorityErr != nil || authority.RunID != call.RunID ||
-			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
-			authority.MissionID != turn.Mission.ID ||
-			authority.WorkspaceID != turn.Mission.WorkspaceID ||
-			authority.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess {
-			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
-				"durable risk escalation authority does not match the active Supervisor turn")
-		}
-		toolCall.MissionID = authority.MissionID
-		toolCall.RootFingerprint = authority.RootFingerprint
-		toolCall.Surface = authority.Surface
-		toolCall.Phase = authority.Phase
-		toolCall.Role = authority.Role
-		toolCall.Profile = authority.Profile
-		toolCall.PermissionMode = authority.PermissionMode
-		toolCall.ModeRevision = authority.ModeRevision
-		toolCall.PermissionRevision = authority.PermissionRevision
-		toolCall.CapabilityGeneration = authority.CapabilityGeneration
+	if name == toolgateway.HostCommandProposeTool {
+		return s.recoverHistoricalHostTool(ctx, turn, call)
 	}
 	if toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
-		live := true
-		if permissionErr == nil && (permission.Mode.IsApprovalMode() ||
-			(permission.Mode == domain.RunExecutionPermissionFullAccess && s.executionCapabilities.FullAccessRequiresRuntimeGrant)) {
-			live = agentCodeRuntimeCurrent(s.executionCapabilities, permission, authority.PermissionSnapshotID,
-				authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
-		}
+		live := permissionErr == nil && agentCodeRuntimeCurrent(s.executionCapabilities, permission, authority.PermissionSnapshotID,
+			authority.PermissionGeneration, authority.PermissionRuntimeEpoch, authority.RunAuthorizationFence)
 		if authorityErr != nil || authority.RunID != call.RunID ||
 			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
 			permission.Revision != authority.PermissionRevision ||
@@ -1310,10 +1234,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 			ErrorCode: string(code), CompletedAt: completedAt,
 		}, nil
 	}
-	if outcome.Proposal != nil && outcome.Proposal.Status == toolgateway.StatusProposed &&
-		name == toolgateway.HostCommandProposeTool {
-		return domain.SupervisorToolResult{}, errSupervisorWaitingApproval
-	}
+
 	if outcome.Result == nil {
 		return domain.SupervisorToolResult{}, apperror.New(apperror.CodeInternal,
 			"structured supervisor tool returned no result")
@@ -1383,7 +1304,7 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 		apperror.CodeResourceExhausted, apperror.CodeDeadlineExceeded:
 		return true
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
-		return name == toolgateway.HostCommandProposeTool || name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
+		return name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 			toolgateway.IsHistoryRecallTool(name) || name == toolgateway.SkillReadTool ||
 			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
 			toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) ||

@@ -129,7 +129,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			}
 			if spec.Control {
 				if operation.ReadOnly || len(operation.Security) != 1 ||
-					operation.Security[0]["ControlBearerAuth"] == nil || operation.RequestBody == nil {
+					operation.Security[0]["ControlBearerAuth"] == nil || (operation.RequestBody == nil && !spec.EmptyBody) {
 					t.Fatalf("path %s has an incomplete control operation: %#v", path, operation)
 				}
 			} else if !operation.ReadOnly || len(operation.Security) != 0 {
@@ -566,8 +566,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if _, err := application.NewRunExecutionPermissionService(fixture.store,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			DebugMaximumAccessEnabled: true,
-			RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		}).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
 		RunID: profileRun.ID, Mode: string(domain.RunExecutionPermissionFull),
 		OperationKey: "openapi-browser-cdp-debug-permission-0001",
@@ -741,8 +740,6 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.runExecutionEnabled = true
 	fixture.api.planDeliveryControlEnabled = true
 	fixture.api.approvalControlEnabled = true
-	fixture.api.controlledCommandProposalControlEnabled = true
-	fixture.api.hostCommandProposalControlEnabled = true
 	fixture.api.modelControlEnabled = true
 	fixture.api.providerCredentialEnabled = true
 	fixture.api.fileEditReviewEnabled = true
@@ -804,6 +801,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	hostView := testHostCommandProposalView(t, fixture.run.ID, fixture.run.MissionID,
 		fixture.run.SessionID, fixture.workspace.ID)
 	hostView.Proposal.ID = "controlled-command-proposal-openapi"
+	hostView.Review = &runner.HostCommandReview{Decision: runner.HostCommandReviewDeny}
 	fixture.api.hostCommandProposalController = &hostCommandProposalControllerStub{view: hostView}
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
@@ -1515,11 +1513,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = fmt.Sprintf(`{"version":"plan_delivery_control.v1","expected_work_item_version":%d,"focused_verification":"operator observation","diff_audit":"operator diff review","security_audit":"operator boundary review","handoff_summary":"manual assertion only","functional_verification":"operator functional review","robustness_audit":"operator failure review"}`, item.Version)
 				} else if spec.Path == ApprovalDecisionControlPathTemplate {
 					body = `{"version":"approval_control.v1","action":"approve_once"}`
-				} else if spec.Path == ControlledCommandProposalReviewPathTemplate {
-					body = `{"version":"controlled_command_proposal_review.v1",` +
-						`"decision":"deny"}`
-				} else if spec.Path == HostCommandProposalReviewPathTemplate {
-					body = `{"version":"host_command_review.v1","decision":"deny"}`
+				} else if spec.Path == HostCommandProposalResumePathTemplate {
+					body = ""
 				} else if spec.Path == RunExecutionControlPathTemplate {
 					body = `{"version":"run_execution_handoff.v1","max_steps":1}`
 				} else if spec.Path == ModelRouteControlPathTemplate {
@@ -2056,4 +2051,11 @@ func assertOpenAPIEnum(t *testing.T, schemas map[string]map[string]any,
 		t.Fatalf("OpenAPI component %s property %s enum=%v want=%v",
 			name, property, actual, expected)
 	}
+}
+
+func (c *openAPIThreadPlanController) ResumeApproval(_ context.Context, request application.ApprovalContinuationRequest) application.ApprovalContinuationResult {
+	if request.Kind != "host_command" || request.ProposalID != "controlled-command-proposal-openapi" {
+		return application.ApprovalContinuationResult{State: "failed", ErrorCode: "INVALID_ARGUMENT"}
+	}
+	return application.ApprovalContinuationResult{State: "completed", HandoffID: "openapi-historical-continuation"}
 }

@@ -379,8 +379,7 @@ func newThreadActivityCommandRuntimeFixture(t *testing.T, fixture *apiFixture) (
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
-		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	if _, err := application.NewRunExecutionPermissionService(fixture.store,
 		capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{

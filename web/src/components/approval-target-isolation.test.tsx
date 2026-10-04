@@ -23,7 +23,7 @@ function permission(full = false): RunExecutionPermissionView {
     risk_tier: full ? "high" : "minimal", required_gate: "operation_authority", operator_confirmed: full,
     process_enabled: false, execution_authorized: false, capability_grant: false,
     runtime_gate_available: true, runtime: { workspace_sandbox_enabled: false,
-      operator_approval_enabled: true, danger_full_access_enabled: true, debug_maximum_access_enabled: false },
+      operator_approval_enabled: true, danger_full_access_enabled: true,  },
     capability_matrix: { workspace_read: true, workspace_write: true, sandboxed_command_runtime: true,
       unsandboxed_host_process: true, network_access: true, credential_access: true, user_home_access: true,
       persistent_user_terminal: true, persistent_agent_terminal: true, full_cdp: full,

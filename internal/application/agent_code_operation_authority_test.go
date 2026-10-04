@@ -24,14 +24,11 @@ func TestAgentCodeLegacyReadBindingsDoNotAcquireNewRuntimeAuthority(t *testing.T
 				t.Fatalf("historical tuple: %+v %v", legacy, err)
 			}
 			id, generation, epoch, fence, live := bindAgentCodeRuntime(domain.ExecutionPermissionRuntimeCapabilities{}, legacy)
-			if !live || id != "" || generation != 0 || epoch != "" || fence != 0 {
-				t.Fatalf("old file reading acquired a grant or an unrelated startup gate: %q %d %q %d %t", id, generation, epoch, fence, live)
+			if live || id != "" || generation != 0 || epoch != "" || fence != 0 {
+				t.Fatalf("historical tuple produced a live binding: %q %d %q %d %t", id, generation, epoch, fence, live)
 			}
-			if mode == domain.RunExecutionPermissionFullAccess {
-				_, _, _, _, live = bindAgentCodeRuntime(domain.ExecutionPermissionRuntimeCapabilities{FullAccessRequiresRuntimeGrant: true}, legacy)
-				if live {
-					t.Fatal("legacy execution with an explicit runtime-grant requirement bypassed that requirement")
-				}
+			if agentCodeRuntimeCurrent(domain.ExecutionPermissionRuntimeCapabilities{}, legacy, "", 0, "", 0) {
+				t.Fatal("historical empty binding became current authority")
 			}
 		})
 	}

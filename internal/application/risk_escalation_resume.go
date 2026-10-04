@@ -26,6 +26,7 @@ type ResumeRiskEscalationResult struct {
 type riskEscalationResumeStore interface {
 	GetRiskEscalationProposal(context.Context, string) (runner.RiskEscalationProposal, error)
 	GetApprovalByProposal(context.Context, string) (approval.Record, error)
+	GetRiskEscalationExecutionIntentByProposal(context.Context, string) (runner.HostExecutionIntent, bool, error)
 	GetRiskEscalationResult(context.Context, string) (runner.RiskEscalationResult, bool, error)
 	GetRiskEscalationInvalidation(context.Context, string) (
 		runner.RiskEscalationInvalidation, bool, error)
@@ -74,10 +75,14 @@ func (s *RunExecutionHandoffService) ResumeRiskEscalation(ctx context.Context,
 	if err != nil {
 		return ResumeRiskEscalationResult{}, apperror.Normalize(err)
 	}
-	if record.Status != approval.StatusDenied && !hasResult && !invalidated {
+	_, hasIntent, err := store.GetRiskEscalationExecutionIntentByProposal(ctx, proposal.ID)
+	if err != nil {
+		return ResumeRiskEscalationResult{}, apperror.Normalize(err)
+	}
+	if record.Status != approval.StatusDenied && !hasResult && !invalidated && !hasIntent {
 		return ResumeRiskEscalationResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
-			"risk escalation has no durable denial, result, or invalidation to resume")
+			"risk escalation has no durable denial, result, invalidation, or unknown intent to resume")
 	}
 	runRecord, err := s.store.GetRun(ctx, proposal.RunID)
 	if err != nil {

@@ -2180,7 +2180,6 @@ func (s *WorkspaceCheckpointService) requireRestoreAuthority(ctx context.Context
 	if mode.RunID != binding.run.ID || mode.MissionID != binding.mission.ID ||
 		mode.Surface != domain.ExecutionSurfaceCode || mode.Phase != domain.ExecutionPhaseDeliver ||
 		permission.RunID != binding.run.ID || permission.MissionID != binding.mission.ID ||
-		permission.Mode == domain.RunExecutionPermissionConservative ||
 		(permission.Mode.IsApprovalMode() && !s.capabilities.OperatorApprovalEnabled) ||
 		!s.capabilities.AllowsSnapshot(permission) {
 		return apperror.New(apperror.CodePolicyDenied,

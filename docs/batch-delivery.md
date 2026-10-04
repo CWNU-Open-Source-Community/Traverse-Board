@@ -157,7 +157,7 @@ Review 会再次读取 exact receipt head，重新计算完整 diff/call-chain�
 
 `git_diff_check` 只执行固定 `git diff --check <base>...HEAD --`，默认可用。`go_test` 和 `npm_test` 会执行 child 提交的仓库代码，因而默认拒绝，甚至在 Prepare 之前就失败关闭。
 
-只有 API 进程持有 control token，并同时满足以下启动条件，且每次执行时关联 Run 仍是 `running`、当前权限仍是 `full_access`（或显式更高的 `debug`），才会接纳这两种验证：
+只有 API 进程持有 control token，并同时满足以下启动条件，且每次执行时关联 Run 仍是 `running`、当前为现代 Full 且进程内激活仍有效，才会接纳这两种验证：
 
 ```powershell
 cyberagent api serve `

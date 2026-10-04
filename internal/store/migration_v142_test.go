@@ -53,7 +53,7 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 		JobMemoryLimit:     runner.MaxHostProcessMemoryBytes,
 		StdinClosed:        true, NetworkRequested: true, ProductExecutionEnabled: true,
 	}
-	if _, replayed, err := state.RecordHostExecutionResult(ctx, result); err != nil || replayed {
+	if _, replayed, err := seedHistoricalHostExecutionReceipt(ctx, state, result); err != nil || replayed {
 		t.Fatalf("record v141 host receipt replayed=%t err=%v", replayed, err)
 	}
 

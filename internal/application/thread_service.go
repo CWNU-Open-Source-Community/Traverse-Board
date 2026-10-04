@@ -389,7 +389,7 @@ func (s *ThreadService) bindSuccessorFullAccess(ctx context.Context, threadID st
 	run domain.Run,
 ) error {
 	authority := s.capabilities.RuntimeAuthority
-	if authority == nil || !s.capabilities.FullAccessRequiresRuntimeGrant {
+	if authority == nil {
 		return nil
 	}
 	reader, ok := s.store.(threadRunExecutionPermissionReader)
@@ -401,7 +401,7 @@ func (s *ThreadService) bindSuccessorFullAccess(ctx context.Context, threadID st
 	if err != nil {
 		return apperror.Normalize(err)
 	}
-	if permission.Mode != domain.RunExecutionPermissionFullAccess {
+	if permission.Mode != domain.RunExecutionPermissionFull {
 		return nil
 	}
 	if _, _, err := authority.BindThreadRun(threadID, permission); err != nil {

@@ -1821,7 +1821,7 @@ func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	runs := application.NewRunService(st).
 		WithExecutionPermissionRuntimeAuthority(authority)

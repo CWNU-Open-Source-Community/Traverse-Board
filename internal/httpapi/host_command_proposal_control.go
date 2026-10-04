@@ -14,29 +14,17 @@ import (
 const (
 	HostCommandProposalCollectionPathTemplate = "/api/v1/runs/{run_id}/host-command-proposals"
 	HostCommandProposalDetailPathTemplate     = "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}"
-	HostCommandProposalReviewPathTemplate     = "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review"
+	HostCommandProposalResumePathTemplate     = "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume"
 )
 
 type HostCommandProposalController interface {
 	List(context.Context, string, int) ([]application.HostCommandProposalView, error)
 	Get(context.Context, string) (application.HostCommandProposalView, error)
-	Review(context.Context, application.ReviewHostCommandProposalRequest) (
-		application.ReviewHostCommandProposalResult, error)
 }
 
 type RiskEscalationResumeController interface {
 	ResumeRiskEscalation(context.Context, application.ResumeRiskEscalationRequest) (
 		application.ResumeRiskEscalationResult, error)
-}
-
-type HostCommandProposalReviewRequestView struct {
-	Version          string `json:"version"`
-	Decision         string `json:"decision"`
-	Reason           string `json:"reason,omitempty"`
-	ConfirmExecution bool   `json:"confirm_execution,omitempty"`
-	Authorization    string `json:"authorization,omitempty"`
-	GrantTTLSeconds  int    `json:"grant_ttl_seconds,omitempty"`
-	GrantMaxUses     int    `json:"grant_max_uses,omitempty"`
 }
 
 type HostCommandProposalReviewView struct {
@@ -174,7 +162,7 @@ type hostCommandProposalRoute int
 const (
 	hostCommandProposalCollection hostCommandProposalRoute = iota + 1
 	hostCommandProposalDetail
-	hostCommandProposalReview
+	hostCommandProposalResume
 )
 
 func matchHostCommandProposalPath(requestPath string) (
@@ -195,8 +183,8 @@ func matchHostCommandProposalPath(requestPath string) (
 	}
 	if len(segments) == 4 && segments[0] != "" &&
 		segments[1] == "host-command-proposals" && segments[2] != "" &&
-		segments[3] == "review" {
-		return segments[0], segments[2], hostCommandProposalReview, true
+		segments[3] == "resume" {
+		return segments[0], segments[2], hostCommandProposalResume, true
 	}
 	return "", "", 0, false
 }
@@ -205,11 +193,7 @@ func (a *API) serveHostCommandProposal(writer http.ResponseWriter,
 	request *http.Request, requestID string, runID string, proposalID string,
 	route hostCommandProposalRoute,
 ) {
-	if !a.hostCommandProposalControlEnabled {
-		a.writeError(writer, requestID, apperror.New(apperror.CodeNotFound,
-			"HTTP API endpoint was not found"), http.StatusNotFound)
-		return
-	}
+
 	if err := validatePathIdentity(runID); err != nil {
 		a.writeError(writer, requestID, err, 0)
 		return
@@ -220,8 +204,8 @@ func (a *API) serveHostCommandProposal(writer http.ResponseWriter,
 			return
 		}
 	}
-	if route == hostCommandProposalReview {
-		a.serveHostCommandProposalReview(writer, request, requestID, runID, proposalID)
+	if route == hostCommandProposalResume {
+		a.serveHostCommandProposalResume(writer, request, requestID, runID, proposalID)
 		return
 	}
 	if !a.authorized(request, a.tokenHash) {
@@ -296,7 +280,7 @@ func (a *API) serveHostCommandProposalList(writer http.ResponseWriter,
 	a.writeSuccess(writer, requestID, response, &Page{Limit: pageRequest.Limit})
 }
 
-func (a *API) serveHostCommandProposalReview(writer http.ResponseWriter,
+func (a *API) serveHostCommandProposalResume(writer http.ResponseWriter,
 	request *http.Request, requestID string, runID string, proposalID string,
 ) {
 	if !a.authorized(request, a.controlTokenHash) {
@@ -308,29 +292,15 @@ func (a *API) serveHostCommandProposalReview(writer http.ResponseWriter,
 	if request.Method != http.MethodPost {
 		writer.Header().Set("Allow", http.MethodPost)
 		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
-			"host command proposal review only supports POST"),
-			http.StatusMethodNotAllowed)
+			"historical command resume only supports POST"), http.StatusMethodNotAllowed)
 		return
 	}
-	if err := validateJSONContentType(request.Header); err != nil {
-		a.writeError(writer, requestID, err, http.StatusUnsupportedMediaType)
+	if request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument, "historical command resume cannot contain execution or approval parameters"), 0)
 		return
 	}
-	operationKey, body, err := a.readRunOperationRequest(
-		request, "Host command proposal review")
-	if err != nil {
-		a.writeError(writer, requestID, err, runOperationErrorStatus(err))
-		return
-	}
-	var view HostCommandProposalReviewRequestView
-	if err := decodeStrictRunOperation(body, &view,
-		"Host command proposal review"); err != nil {
+	if err := rejectQuery(request.URL.Query()); err != nil {
 		a.writeError(writer, requestID, err, 0)
-		return
-	}
-	if view.Version != runner.HostCommandReviewProtocolVersion {
-		a.writeError(writer, requestID, apperror.New(apperror.CodeInvalidArgument,
-			"host command proposal review protocol version is invalid"), 0)
 		return
 	}
 	current, err := a.hostCommandProposalController.Get(request.Context(), proposalID)
@@ -338,49 +308,40 @@ func (a *API) serveHostCommandProposalReview(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	if current.RunID() != runID {
-		a.writeError(writer, requestID, apperror.New(apperror.CodeNotFound,
-			"host command proposal was not found for this Run"), 0)
+	if current.RunID() != runID || current.ID() != proposalID {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeNotFound, "historical command was not found for this Run"), 0)
 		return
 	}
-	result, err := a.hostCommandProposalController.Review(request.Context(),
-		application.ReviewHostCommandProposalRequest{
-			ProposalID: proposalID, Decision: view.Decision,
-			OperationKey: operationKey, ReviewedBy: "http_control_operator",
-			Reason: view.Reason, ConfirmExecution: view.ConfirmExecution,
-			Authorization:   view.Authorization,
-			GrantTTLSeconds: view.GrantTTLSeconds, GrantMaxUses: view.GrantMaxUses,
-		})
-	if err != nil {
-		a.writeError(writer, requestID, err, 0)
+	if !a.runExecutionEnabled {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition, "Run continuation is unavailable"), 0)
 		return
 	}
-	if result.View.RunID() != runID || result.View.ID() != proposalID {
-		a.writeError(writer, requestID, apperror.New(apperror.CodeInternal,
-			"host command review crossed its durable binding"), 0)
-		return
-	}
-	if result.View.RiskEscalation != nil {
-		if controller, ok := any(a.runExecutionController).(RiskEscalationResumeController); ok {
-			if _, resumeErr := controller.ResumeRiskEscalation(request.Context(),
-				application.ResumeRiskEscalationRequest{
-					Version: application.RiskEscalationResumeProtocolVersion,
-					RunID:   runID, ProposalID: proposalID,
-				}); resumeErr != nil {
-				a.writeError(writer, requestID, resumeErr, 0)
-				return
-			}
+	response := hostCommandProposalView(current, true, true, current.SavedEvidence)
+	if current.RiskEscalation != nil {
+		controller, ok := any(a.runExecutionController).(RiskEscalationResumeController)
+		if !ok {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition, "historical risk continuation is unavailable"), 0)
+			return
 		}
-	}
-	response := hostCommandProposalView(
-		result.View, result.ReviewReplayed, result.ExecutionReplayed,
-		result.EvidenceContent)
-	if result.View.RiskEscalation == nil {
+		if _, err := controller.ResumeRiskEscalation(request.Context(), application.ResumeRiskEscalationRequest{
+			Version: application.RiskEscalationResumeProtocolVersion, RunID: runID, ProposalID: proposalID,
+		}); err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+	} else {
+		if current.Result == nil && (current.Review == nil || current.Review.Decision != runner.HostCommandReviewDeny) {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition, "historical command has no saved result or denial"), 0)
+			return
+		}
 		response.Continuation = a.resumeReviewedProposal(request.Context(), runID, "host_command", proposalID)
+		if response.Continuation == nil {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition, "historical command continuation is unavailable"), 0)
+			return
+		}
 	}
 	a.writeSuccessStatus(writer, requestID, response, nil, http.StatusAccepted)
 }
-
 func hostCommandProposalView(view application.HostCommandProposalView,
 	reviewReplayed bool, executionReplayed bool, evidence string,
 ) HostCommandProposalView {
@@ -410,7 +371,7 @@ func hostCommandProposalView(view application.HostCommandProposalView,
 		ExecutionAuthorized:   proposal.ExecutionAuthorized,
 		CapabilityGrant:       proposal.CapabilityGrant, Fingerprint: proposal.Fingerprint,
 		CreatedAt:      proposal.CreatedAt.Format(time.RFC3339Nano),
-		ReviewReplayed: reviewReplayed, ExecutionReplayed: executionReplayed,
+		ReviewReplayed: reviewReplayed, ExecutionReplayed: executionReplayed, Uncertain: view.Uncertain,
 		UntrustedEvidence: evidence, EvidenceInstructionTrust: false,
 	}
 	if view.Review != nil {

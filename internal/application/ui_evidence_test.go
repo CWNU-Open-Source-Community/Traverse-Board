@@ -25,11 +25,90 @@ import (
 	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
 )
+
+func TestUIEvidenceCommandScopePassesNativeBindingsAndCannotReviveAfterReconfirmation(t *testing.T) {
+	ctx := t.Context()
+	state, run, _, _, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+	mission, err := state.GetMission(ctx, run.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := state.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.RootPath = newUIEvidenceGitWorkspace(t)
+	if err = state.SaveWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := runner.NewPlatformCommandRuntimeManager(state, idgen.New("ui-evidence-binding-test"))
+	if err != nil {
+		t.Skipf("platform command manager unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	commands, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
+	service, err := NewUIEvidenceService(state, commands, browsers, filepath.Join(t.TempDir(), "profiles"), capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validUIEvidenceServiceRequest(t, reserveUIEvidencePort(t))
+	request.RunID = run.ID
+	prepared, _, err := service.prepare(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := service.commandScope(prepared, "application-start")
+	if _, err = commands.loadAuthorizedBindings(ctx, scope, false); err != nil {
+		t.Fatalf("modern UI evidence scope cannot enter native command boundary: %v", err)
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities.RuntimeAuthority.RevokeRun(run.ID)
+	if _, err = commands.loadAuthorizedBindings(ctx, scope, false); err == nil {
+		t.Fatal("revoked UI evidence retained command authority")
+	}
+	if _, err = capabilities.RuntimeAuthority.ActivateRunFullAccess(permission); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"build", "application-start", "application-read", "wait"} {
+		if _, err = commands.loadAuthorizedBindings(ctx, service.commandScope(prepared, suffix), false); err == nil {
+			t.Fatalf("reconfirmation revived old %s scope", suffix)
+		}
+	}
+	request.OperationKey += "-reconfirmed"
+	fresh, _, err := service.prepare(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = commands.loadAuthorizedBindings(ctx, service.commandScope(fresh, "application-start"), false); err != nil {
+		t.Fatal(err)
+	}
+	cold := capabilities
+	cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
+	coldService, err := NewUIEvidenceService(state, commands, browsers, filepath.Join(t.TempDir(), "cold-profiles"), cold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = coldService.prepare(ctx, request); err == nil {
+		t.Fatal("cold process recreated UI evidence authority")
+	}
+	jobs, err := state.ListCommandRuntimeJobs(ctx, runner.CommandRuntimeListFilter{RunID: run.ID, Limit: 10})
+	if err != nil || len(jobs) != 0 {
+		t.Fatalf("binding validation launched a process: %v %v", jobs, err)
+	}
+}
 
 func TestUIEvidenceServiceRunsRealLoopbackReadinessAndCleansEveryResource(t *testing.T) {
 	for _, test := range []struct {
@@ -59,12 +138,12 @@ func TestUIEvidenceServiceRunsRealLoopbackReadinessAndCleansEveryResource(t *tes
 		t.Run(test.name, func(t *testing.T) {
 			root := newUIEvidenceGitWorkspace(t)
 			port := reserveUIEvidencePort(t)
-			state := newFakeUIEvidenceStore(root)
+			state := newFakeUIEvidenceStore(t, root)
 			commands := &fakeUIEvidenceCommands{port: port}
 			driver := &fakeUIEvidenceDriver{diagnostics: test.diagnostics}
 			browsers := &fakeUIEvidenceBrowsers{driver: driver}
 			service, err := NewUIEvidenceService(state, commands, browsers,
-				filepath.Join(t.TempDir(), "profiles"))
+				filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,12 +201,12 @@ func TestUIEvidenceRequestRejectsNetworkClientAndSecretInput(t *testing.T) {
 func TestUIEvidenceCommandScopeUsesOperatorRootAuthorityWithoutFabricatingAttempt(t *testing.T) {
 	rootPath := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(rootPath)
+	state := newFakeUIEvidenceStore(t, rootPath)
 	state.root.Status = domain.AgentReady
 	commands := &fakeUIEvidenceCommands{port: port}
 	service, err := NewUIEvidenceService(state, commands,
 		&fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}},
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +223,19 @@ func TestUIEvidenceCommandScopeUsesOperatorRootAuthorityWithoutFabricatingAttemp
 			Source: domain.AgentAttributionOperatorRoot}) || scope.Validate() != nil {
 		t.Fatalf("command scope fabricated an Agent attempt or lost root authority: %+v", scope)
 	}
+	if scope.PermissionMode != domain.RunExecutionPermissionFull || scope.PermissionSnapshotID != state.permission.ID || scope.PermissionRevision != state.permission.Revision || scope.PermissionGeneration == 0 || scope.PermissionRuntimeEpoch == "" || scope.RunAuthorizationFence == 0 || scope.ModeRevision != 1 {
+		t.Fatalf("UI evidence lost modern authority: %+v", scope)
+	}
+	state.capabilities.RuntimeAuthority.RevokeRun(state.run.ID)
+	if _, err := state.capabilities.RuntimeAuthority.ActivateRunFullAccess(state.permission); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"build", "application-start", "application-read", "wait"} {
+		reused := service.commandScope(prepared, suffix)
+		if reused.PermissionGeneration != scope.PermissionGeneration || reused.RunAuthorizationFence != scope.RunAuthorizationFence || agentCodeRuntimeCurrent(state.capabilities, state.permission, reused.PermissionSnapshotID, reused.PermissionGeneration, reused.PermissionRuntimeEpoch, reused.RunAuthorizationFence) {
+			t.Fatalf("a new confirmation revived prior UI evidence authority: %+v", reused)
+		}
+	}
 	scope.AgentAttemptID = "attempt-fabricated-by-operator-path"
 	if scope.Validate() == nil {
 		t.Fatal("operator UI evidence scope accepted a fabricated Agent attempt")
@@ -153,11 +245,11 @@ func TestUIEvidenceCommandScopeUsesOperatorRootAuthorityWithoutFabricatingAttemp
 func TestUIEvidenceUsesBoundedAttemptIdentityForMaximumOperationKey(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,12 +268,12 @@ func TestUIEvidenceUsesBoundedAttemptIdentityForMaximumOperationKey(t *testing.T
 func TestUIEvidenceStepReceiptFailureRemainsAValidFailClosedTerminalOutcome(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	state.stepErr = errors.New("step ledger unavailable")
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,11 +288,11 @@ func TestUIEvidenceStepReceiptFailureRemainsAValidFailClosedTerminalOutcome(t *t
 func TestUIEvidenceReadServiceKeepsHistoryVisibleWithoutExecutionAuthority(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	execution, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +334,11 @@ func TestUIEvidenceRejectsPreexistingServiceWithoutAdoptingOrStoppingIt(t *testi
 	}
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,13 +363,13 @@ func TestUIEvidenceRejectsPreexistingServiceWithoutAdoptingOrStoppingIt(t *testi
 func TestUIEvidenceAsyncCancelReapsOwnedResourcesAndClosesExecution(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	driver := &fakeUIEvidenceDriver{blockNavigation: true,
 		navigationStarted: make(chan struct{})}
 	browsers := &fakeUIEvidenceBrowsers{driver: driver}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,13 +408,13 @@ func TestUIEvidenceAsyncCancelReapsOwnedResourcesAndClosesExecution(t *testing.T
 func TestUIEvidenceDeadlineReapsOwnedResourcesAndRecordsTimedOut(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	driver := &fakeUIEvidenceDriver{blockNavigation: true,
 		navigationStarted: make(chan struct{})}
 	browsers := &fakeUIEvidenceBrowsers{driver: driver}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,11 +436,11 @@ func TestUIEvidenceDeadlineReapsOwnedResourcesAndRecordsTimedOut(t *testing.T) {
 func TestUIEvidenceDeadlineReapsBuildJobBeforeApplicationLaunch(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &blockingBuildUIEvidenceCommands{}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,13 +466,13 @@ func TestUIEvidenceDeadlineReapsBuildJobBeforeApplicationLaunch(t *testing.T) {
 func TestUIEvidenceCloseCancelsAndWaitsForSynchronousRun(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	driver := &fakeUIEvidenceDriver{blockNavigation: true,
 		navigationStarted: make(chan struct{})}
 	browsers := &fakeUIEvidenceBrowsers{driver: driver}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,11 +515,11 @@ func TestSafeWebUIEvidenceBrowserPrepareHonorsCancelledContext(t *testing.T) {
 func TestUIEvidenceReadinessRejectsExpectedResponseFromTerminalApplicationJob(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port, terminalOnRead: true}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,12 +537,12 @@ func TestUIEvidenceReadinessRejectsExpectedResponseFromTerminalApplicationJob(t 
 func TestUIEvidenceRefusesPassWhenCleanupCannotBeProven(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{},
 		incompleteCleanup: true}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +558,7 @@ func TestUIEvidenceRefusesPassWhenCleanupCannotBeProven(t *testing.T) {
 func TestUIEvidenceFailsWhenSourceChangesDuringRealPageEvidence(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	driver := &fakeUIEvidenceDriver{onNavigate: func() {
 		if err := os.WriteFile(filepath.Join(root, "fixture.txt"),
@@ -476,7 +568,7 @@ func TestUIEvidenceFailsWhenSourceChangesDuringRealPageEvidence(t *testing.T) {
 	}}
 	browsers := &fakeUIEvidenceBrowsers{driver: driver}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +584,7 @@ func TestUIEvidenceFailsWhenSourceChangesDuringRealPageEvidence(t *testing.T) {
 func TestUIEvidenceFailsWhenSourceChangesDuringCleanupBeforeCompletion(t *testing.T) {
 	root := newUIEvidenceGitWorkspace(t)
 	port := reserveUIEvidencePort(t)
-	state := newFakeUIEvidenceStore(root)
+	state := newFakeUIEvidenceStore(t, root)
 	commands := &fakeUIEvidenceCommands{port: port}
 	browsers := &fakeUIEvidenceBrowsers{driver: &fakeUIEvidenceDriver{},
 		onClose: func() {
@@ -502,7 +594,7 @@ func TestUIEvidenceFailsWhenSourceChangesDuringCleanupBeforeCompletion(t *testin
 			}
 		}}
 	service, err := NewUIEvidenceService(state, commands, browsers,
-		filepath.Join(t.TempDir(), "profiles"))
+		filepath.Join(t.TempDir(), "profiles"), state.capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,23 +608,25 @@ func TestUIEvidenceFailsWhenSourceChangesDuringCleanupBeforeCompletion(t *testin
 }
 
 type fakeUIEvidenceStore struct {
-	mu         sync.Mutex
-	run        domain.Run
-	mission    domain.Mission
-	workspace  session.WorkspaceRecord
-	root       domain.AgentNode
-	lease      domain.RunExecutionLease
-	permission domain.RunExecutionPermissionSnapshot
-	attempts   map[string]uievidence.Attempt
-	operations map[string]string
-	steps      []uievidence.StepReceipt
-	artifacts  []uievidence.Artifact
-	stepErr    error
+	mu           sync.Mutex
+	run          domain.Run
+	mission      domain.Mission
+	workspace    session.WorkspaceRecord
+	root         domain.AgentNode
+	lease        domain.RunExecutionLease
+	permission   domain.RunExecutionPermissionSnapshot
+	capabilities domain.ExecutionPermissionRuntimeCapabilities
+	attempts     map[string]uievidence.Attempt
+	operations   map[string]string
+	steps        []uievidence.StepReceipt
+	artifacts    []uievidence.Artifact
+	stepErr      error
 }
 
-func newFakeUIEvidenceStore(rootPath string) *fakeUIEvidenceStore {
+func newFakeUIEvidenceStore(t *testing.T, rootPath string) *fakeUIEvidenceStore {
+	t.Helper()
 	now := time.Now().UTC()
-	return &fakeUIEvidenceStore{
+	state := &fakeUIEvidenceStore{
 		run: domain.Run{ID: "run-ui-evidence", MissionID: "mission-ui-evidence",
 			SessionID: "session-ui-evidence", Status: domain.RunRunning},
 		mission: domain.Mission{ID: "mission-ui-evidence", WorkspaceID: "workspace-ui-evidence"},
@@ -543,14 +637,26 @@ func newFakeUIEvidenceStore(rootPath string) *fakeUIEvidenceStore {
 		lease: domain.RunExecutionLease{RunID: "run-ui-evidence", LeaseID: "lease-ui-evidence",
 			OwnerID: "agent-ui-root", Generation: 1, Status: domain.RunExecutionLeaseActive,
 			AcquiredAt: now, RenewedAt: now, ExpiresAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)},
-		permission: domain.RunExecutionPermissionSnapshot{
-			RunID: "run-ui-evidence", MissionID: "mission-ui-evidence", Revision: 1,
-			Mode: domain.RunExecutionPermissionFullAccess,
-		},
 		attempts: make(map[string]uievidence.Attempt), operations: make(map[string]string)}
+	initial, err := domain.NewInitialRunExecutionPermissionSnapshot("permission-ui-ask", state.run, state.mission, "operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.permission, err = initial.Next("permission-ui-full", domain.RunExecutionPermissionFull, true, "operator", "UI evidence fixture confirmation", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.capabilities = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	if _, err = state.capabilities.RuntimeAuthority.ActivateRunFullAccess(state.permission); err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
 
 func (s *fakeUIEvidenceStore) GetRun(context.Context, string) (domain.Run, error) { return s.run, nil }
+func (s *fakeUIEvidenceStore) GetRunMode(context.Context, string) (domain.RunModeSnapshot, error) {
+	return domain.RunModeSnapshot{ID: "mode-ui-evidence", RunID: s.run.ID, MissionID: s.mission.ID, Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver, Profile: "code", Revision: 1}, nil
+}
 func (s *fakeUIEvidenceStore) GetMission(context.Context, string) (domain.Mission, error) {
 	return s.mission, nil
 }

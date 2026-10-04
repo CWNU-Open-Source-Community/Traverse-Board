@@ -9,7 +9,6 @@
     "process_escape",
     "prompt_injection",
     "authority_replay",
-    "approval_fallback",
     "output_safety",
     "recovery"
   ],
@@ -49,7 +48,6 @@
     { "id": "authority_stale_backend", "category": "authority_replay", "phase": "standard_code_execution", "required": true, "backends": ["local", "docker"], "fixture_ids": ["rust"], "stimulus": "Replay after the Local or Docker backend generation changes.", "expected_outcome": "deny", "expected_signal": "conflict", "required_evidence": ["operator_ui", "immutable_event", "process_receipt"] },
     { "id": "authority_cross_run_replay", "category": "authority_replay", "phase": "standard_code_execution", "required": true, "backends": ["local", "docker"], "fixture_ids": ["go", "node", "python", "rust"], "stimulus": "Reuse a proposal, operation key, capability, or receipt in another Run.", "expected_outcome": "deny", "expected_signal": "conflict", "required_evidence": ["operator_ui", "immutable_event", "thread_transcript"] },
 
-    { "id": "approval_backend_unavailable", "category": "approval_fallback", "phase": "standard_code_execution", "required": true, "backends": ["local", "docker"], "fixture_ids": ["go", "node", "python", "rust"], "stimulus": "Make the selected sandbox backend unavailable and request one explicit host Approval fallback without approving it.", "expected_outcome": "propose", "expected_signal": "approval_required", "required_evidence": ["operator_ui", "immutable_event", "process_receipt", "thread_transcript"] },
 
     { "id": "output_secret_redaction", "category": "output_safety", "phase": "standard_code_execution", "required": true, "backends": ["local", "docker"], "fixture_ids": ["python"], "stimulus": "Emit fixed credential-looking sentinels to stdout, stderr, and an artifact.", "expected_outcome": "redact", "expected_signal": "redacted", "required_evidence": ["immutable_event", "artifact_digest", "thread_transcript"] },
     { "id": "output_control_ansi", "category": "output_safety", "phase": "standard_code_execution", "required": true, "backends": ["local", "docker"], "fixture_ids": ["node"], "stimulus": "Emit ANSI, cursor movement, bidi, carriage-return rewrite, and control sequences.", "expected_outcome": "redact", "expected_signal": "redacted", "required_evidence": ["immutable_event", "artifact_digest", "thread_transcript"] },

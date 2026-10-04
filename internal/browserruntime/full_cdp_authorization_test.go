@@ -71,16 +71,17 @@ func fullCDPExecutionFacts(t *testing.T, session SessionPlan, retained ...domain
 		t.Fatal(err)
 	}
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
-	if _, err := authority.ActivateRunFullAccess(full); err != nil {
-		t.Fatal(err)
+	if mode == domain.RunExecutionPermissionFull {
+		if _, err := authority.ActivateRunFullAccess(full); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fence, err := authority.IssueRunAuthorizationFence(session.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: authority,
 	}
 	return full, capabilities, fence
 }
@@ -232,16 +233,21 @@ func TestValidateFullCDPAuthorizationRejectsTampering(t *testing.T) {
 	}
 }
 
-// New Full and retained v1 full-access authority use the same native checks.
-// A preference alone never issues browser, process or per-call authority.
-func TestFullCDPCurrentAndRetainedFullKeepLiveFence(t *testing.T) {
-	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionFull, domain.RunExecutionPermissionFullAccess} {
+// Retained v1 snapshots stay readable but cannot issue new native authority.
+func TestFullCDPCurrentFullKeepsFenceAndLegacyModesCannotStart(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionFull, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
 		t.Run(string(mode), func(t *testing.T) {
 			session, identity, acceptance, permission := fullCDPAuthorizationFacts(t)
 			execution, caps, fence := fullCDPExecutionFacts(t, session, mode)
 			runtimeCaps := FullCDPRuntimeCapabilities{StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true}
 			permissionCaps := domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true, FullDebugEnabled: true}
 			auth, err := AuthorizeFullCDP(session, identity, acceptance, permission, execution, runtimeCaps, permissionCaps, caps, fence, true, time.Now().UTC())
+			if mode != domain.RunExecutionPermissionFull {
+				if err == nil {
+					t.Fatal("historical mode authorized new native browser")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

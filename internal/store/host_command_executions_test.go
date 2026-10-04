@@ -64,30 +64,6 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 		}
 	}
 
-	// Retained records cross the real upgrade. The old new-intent writer has
-	// been deleted from production; completion only settles an existing intent.
-	if err := st.Close(); err != nil {
-		t.Fatal(err)
-	}
-	st, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	retained, found, err := st.GetHostExecutionIntentByOperation(ctx, intent.RunID, intent.OperationKeyDigest)
-	if err != nil || !found || !hostExecutionIntentsEqual(retained, intent) {
-		t.Fatalf("legacy operation changed across upgrade: %+v %v %v", retained, found, err)
-	}
-	if _, found, err := st.GetHostExecutionReceipt(ctx, intent.RequestID); err != nil || found {
-		t.Fatalf("receipt was fabricated for uncertain intent: %v %v", found, err)
-	}
-	if _, _, err := st.GetHostExecutionIntentByOperation(ctx, "unrelated-run", intent.OperationKeyDigest); apperror.CodeOf(err) != apperror.CodeConflict {
-		t.Fatalf("operation crossed Runs: %v", err)
-	}
-	if _, err := application.NewRunExecutionPermissionService(st, domain.ExecutionPermissionRuntimeCapabilities{}).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: intent.RunID, Mode: "ask", OperationKey: "legacy-host-now-ask", RequestedBy: "test_operator"}); err != nil {
-		t.Fatal(err)
-	}
-
 	rawOutput := []byte("host-output-must-remain-transient")
 	rawDigest := sha256.Sum256(rawOutput)
 	emptyDigest := sha256.Sum256(nil)
@@ -123,7 +99,7 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 		StdinClosed:        true, NetworkRequested: true,
 		ProductExecutionEnabled: true,
 	}
-	receipt, replayed, err := st.RecordHostExecutionResult(ctx, result)
+	receipt, replayed, err := seedHistoricalHostExecutionReceipt(ctx, st, result)
 	if err != nil || replayed {
 		t.Fatalf("record replayed=%v receipt=%+v err=%v",
 			replayed, receipt, err)
@@ -132,10 +108,34 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 	if err != nil || !found || loaded != receipt {
 		t.Fatalf("loaded found=%v receipt=%+v err=%v", found, loaded, err)
 	}
-	_, replayed, err = st.RecordHostExecutionResult(ctx, result)
+	_, replayed, err = seedHistoricalHostExecutionReceipt(ctx, st, result)
 	if err != nil || !replayed {
 		t.Fatalf("result replay replayed=%v err=%v", replayed, err)
 	}
+	// Retained records cross the real upgrade. The old new-intent writer has
+	// been deleted from production; both intent and receipt remain immutable history.
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	retained, found, err := st.GetHostExecutionIntentByOperation(ctx, intent.RunID, intent.OperationKeyDigest)
+	if err != nil || !found || !hostExecutionIntentsEqual(retained, intent) {
+		t.Fatalf("legacy operation changed across upgrade: %+v %v %v", retained, found, err)
+	}
+	if _, found, err := st.GetHostExecutionReceipt(ctx, intent.RequestID); err != nil || !found {
+		t.Fatalf("historical receipt was lost across upgrade: %v %v", found, err)
+	}
+	if _, _, err := st.GetHostExecutionIntentByOperation(ctx, "unrelated-run", intent.OperationKeyDigest); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("operation crossed Runs: %v", err)
+	}
+	if _, err := application.NewRunExecutionPermissionService(st, domain.ExecutionPermissionRuntimeCapabilities{}).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: intent.RunID, Mode: "ask", OperationKey: "legacy-host-now-ask", RequestedBy: "test_operator"}); err != nil {
+		t.Fatal(err)
+	}
+
 	var storedReceiptText string
 	err = st.db.QueryRowContext(ctx, `SELECT request_id || backend ||
 		stdout_prefix_sha256 || stderr_prefix_sha256

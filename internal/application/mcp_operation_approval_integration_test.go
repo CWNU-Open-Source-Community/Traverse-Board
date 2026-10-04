@@ -195,7 +195,7 @@ func newMCPOperationApprovalFixture(t *testing.T, mode domain.RunExecutionPermis
 		t.Fatal(err)
 	}
 	f.capabilities = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err = NewRunExecutionPermissionService(f.st, f.capabilities).Change(ctx, ChangeRunExecutionPermissionRequest{
 			RunID: run.ID, Mode: string(mode), ConfirmFull: mode == domain.RunExecutionPermissionFull,

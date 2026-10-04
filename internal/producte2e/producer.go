@@ -17,7 +17,6 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/drydock"
@@ -75,6 +74,11 @@ func Produce(ctx context.Context, options ProduceOptions) (Report, error) {
 	if err := options.Runbook.Validate(); err != nil {
 		return Report{}, err
 	}
+	for _, backend := range options.Runbook.Backends {
+		if backend.State != "ready" {
+			return Report{}, fmt.Errorf("backend %q is unavailable; retired approval fallback cannot produce current product evidence", backend.Backend)
+		}
+	}
 	if options.Runbook.CandidateSHA256 != options.Candidate.BinarySHA256 ||
 		options.Runbook.FixtureManifestSHA256 != options.Fixture.ManifestSHA256 ||
 		!validDigest(options.RunbookSHA256) {
@@ -115,18 +119,6 @@ func Produce(ctx context.Context, options ProduceOptions) (Report, error) {
 	factsByRun := map[string]runFacts{}
 	for _, backend := range options.Runbook.Backends {
 		summary := BackendSummary{Backend: backend.Backend, State: backend.State}
-		if backend.State == "approval_required" {
-			fallback, validateErr := product.validateFallback(ctx, backend.Backend,
-				*backend.Fallback)
-			if validateErr != nil {
-				return Report{}, validateErr
-			}
-			summary.ApprovalID = fallback.ApprovalID
-			summary.FallbackReason = fallback.ReasonCode
-			summary.EvidenceSHA256 = fallback.ReadinessEvidenceSHA
-			report.Backends = append(report.Backends, summary)
-			continue
-		}
 		for _, scenario := range backend.Runs {
 			facts, collectErr := product.collectRun(ctx, scenario.RunID)
 			if collectErr != nil {
@@ -307,7 +299,7 @@ func validateRunFacts(facts runFacts, evidence RunEvidence, backend string,
 		string(facts.preset.SelectedBackend) != backend ||
 		facts.preset.Status != domain.StandardCodePresetConfigured ||
 		facts.permission.RunID != facts.run.ID || facts.permission.MissionID != facts.mission.ID ||
-		facts.permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		!facts.permission.Mode.IsApprovalMode() ||
 		facts.permission.ProcessEnabled || facts.permission.ExecutionAuthorized ||
 		facts.permission.CapabilityGrant {
 		return ScenarioSummary{}, errors.New("Run, preset, or workspace-access binding is invalid")
@@ -523,7 +515,9 @@ func validateCommandJobs(facts runFacts, fixture packagede2e.FixtureRepository,
 			job.Adapter.Backend != backend ||
 			job.Network != runner.CommandRuntimeNetworkDisabled ||
 			job.Credentials != runner.CommandRuntimeCredentialsNone ||
-			job.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+			job.PermissionMode != facts.permission.Mode ||
+			job.PermissionSnapshotID != facts.permission.ID ||
+			job.PermissionRevision != facts.permission.Revision ||
 			!job.State.Terminal() || !job.TreeReaped || job.ExitCode == nil ||
 			job.TruncationReason != "" || job.StartedAt == nil || job.CompletedAt == nil {
 			return 0, 0, 0, errors.New("verification Job is not a complete sandboxed real-process receipt")
@@ -639,64 +633,6 @@ func sameDelivery(left, right standardcodedelivery.Report) bool {
 		left.Diff.SHA256 == right.Diff.SHA256 &&
 		left.FinalCheckpoint.ID == right.FinalCheckpoint.ID &&
 		left.FinalCheckpoint.RevisionSHA256 == right.FinalCheckpoint.RevisionSHA256
-}
-
-func (p *productStore) validateFallback(ctx context.Context, backend string,
-	evidence FallbackEvidence,
-) (FallbackEvidence, error) {
-	run, err := p.state.GetRun(ctx, evidence.RunID)
-	if err != nil {
-		return FallbackEvidence{}, err
-	}
-	permission, err := p.state.GetRunExecutionPermission(ctx, evidence.RunID)
-	if err != nil {
-		return FallbackEvidence{}, err
-	}
-	decision, err := p.state.GetApproval(ctx, evidence.ApprovalID)
-	if err != nil {
-		return FallbackEvidence{}, err
-	}
-	proposal, err := p.state.GetRiskEscalationProposal(ctx, decision.ProposalID)
-	if err != nil {
-		return FallbackEvidence{}, err
-	}
-	if run.Status != domain.RunWaitingApproval || permission.Validate() != nil ||
-		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
-		permission.ProcessEnabled || permission.ExecutionAuthorized || permission.CapabilityGrant ||
-		decision.Validate() != nil || decision.RunID != run.ID ||
-		decision.SessionID != run.SessionID || decision.Status != approval.StatusPending ||
-		proposal.Validate() != nil || proposal.ID != decision.ProposalID ||
-		proposal.RunID != run.ID || proposal.MissionID != run.MissionID ||
-		proposal.SessionID != run.SessionID || proposal.WorkspaceID != decision.WorkspaceID ||
-		proposal.PermissionSnapshotID != permission.ID ||
-		proposal.PermissionRevision != permission.Revision ||
-		proposal.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-		decision.RequestFingerprint != proposal.Fingerprint ||
-		decision.RequestedBy != proposal.RequestedBy {
-		return FallbackEvidence{}, fmt.Errorf("backend %q did not enter explicit Approval", backend)
-	}
-	if decision.ToolName != "host_command_propose" ||
-		decision.ActionClass != "risk_escalation" || decision.Mode != "per_call" {
-		return FallbackEvidence{}, fmt.Errorf("backend %q Approval is not a bounded host fallback", backend)
-	}
-	jobs, err := p.state.ListCommandRuntimeJobs(ctx,
-		runner.CommandRuntimeListFilter{RunID: run.ID, Limit: runner.MaxCommandRuntimeJobsPerRun})
-	if err != nil {
-		return FallbackEvidence{}, err
-	}
-	for _, job := range jobs {
-		if job.Adapter.Kind == commandruntimeadapter.KindHostUnsandboxed ||
-			job.PermissionMode == domain.RunExecutionPermissionFullAccess ||
-			job.PermissionMode == domain.RunExecutionPermissionDebug {
-			return FallbackEvidence{}, errors.New("backend fallback silently used host or maximum access")
-		}
-	}
-	if report, found, getErr := p.state.GetLatestStandardCodeDelivery(ctx, run.ID); getErr != nil {
-		return FallbackEvidence{}, getErr
-	} else if found && report.Status == standardcodedelivery.StatusPassed {
-		return FallbackEvidence{}, errors.New("Approval fallback was incorrectly projected as passed")
-	}
-	return evidence, nil
 }
 
 func (p *productStore) validateContinuity(ctx context.Context,

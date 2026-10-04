@@ -392,7 +392,7 @@ func newProgressToolFixture(t *testing.T) *progressToolFixture {
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(f.st, capabilities).Change(t.Context(),
 		application.ChangeRunExecutionPermissionRequest{RunID: created.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "progress-full-access-0001", RequestedBy: "operator", Reason: "test actual file effects", ConfirmFull: true})

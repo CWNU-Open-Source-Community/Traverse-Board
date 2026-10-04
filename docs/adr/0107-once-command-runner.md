@@ -1,5 +1,7 @@
 # ADR 0107: 工作区沙箱内的一次性通用命令 Runner
 
+> Execution and review paths are superseded by [ADR 0165](0165-retire-legacy-command-execution.md). This document records the historical design; stored evidence remains readable.
+
 Date: 2026-08-16
 
 ## Status

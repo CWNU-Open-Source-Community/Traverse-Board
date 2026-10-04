@@ -21,8 +21,7 @@ func TestRunBrowserCDPPermissionControlRequiresLiveFullAndExactConfirmation(t *t
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
-		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	closed, err := New(fixture.store, Config{
 		AccessToken: testAccessToken, ControlToken: testControlToken,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,7 +85,7 @@ func newCommandApprovalFixture(t *testing.T, mode domain.RunExecutionPermissionM
 	if _, err = NewRunExecutionProfileService(f.st).Change(t.Context(), ChangeRunExecutionProfileRequest{RunID: run.ID, Profile: "local", OperationKey: "command-approval-profile", RequestedBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
-	f.caps = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	f.caps = domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err = NewRunExecutionPermissionService(f.st, f.caps).Change(t.Context(), ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: string(mode), ConfirmFull: mode == domain.RunExecutionPermissionFull, OperationKey: "command-approval-mode", RequestedBy: "operator"}); err != nil {
 			t.Fatal(err)
@@ -97,7 +98,7 @@ func newCommandApprovalFixture(t *testing.T, mode domain.RunExecutionPermissionM
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.turn, err = f.st.BeginSupervisorTurn(t.Context(), lease.Lease, "")
+	f.turn, err = f.st.BeginSupervisorTurn(t.Context(), lease.Lease, "execute the fixed command approval fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +279,7 @@ func TestCommandOperationApprovalRealNativeThreeModes(t *testing.T) {
 }
 
 func TestCommandOperationApprovalNativeSinkRejectsBypass(t *testing.T) {
-	for _, scenario := range []string{"pending_full", "denied_full", "payload_changed", "cancelled", "revoked", "new_epoch", "no_execution_start", "revoke_after_job_prepare", "lease_after_job_prepare", "policy_deny_after_review"} {
+	for _, scenario := range []string{"pending_full", "denied_full", "payload_changed", "cancelled", "revoked", "new_epoch", "no_execution_start", "stale_revision", "stale_backend", "revoke_after_job_prepare", "lease_after_job_prepare", "policy_deny_after_review"} {
 		t.Run(scenario, func(t *testing.T) {
 			mode := domain.RunExecutionPermissionAsk
 			if strings.HasSuffix(scenario, "_full") {
@@ -303,6 +304,10 @@ func TestCommandOperationApprovalNativeSinkRejectsBypass(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			switch scenario {
+			case "stale_revision":
+				scope.PermissionRevision++
+			case "stale_backend":
+				scope.CapabilityGeneration = strings.Repeat("0", 64)
 			case "payload_changed":
 				input.Commands[0].Arguments[1] = `require('fs').appendFileSync('count.txt','2')`
 			case "cancelled":
@@ -504,7 +509,6 @@ func TestCommandOperationApprovalWithoutRuntimeAuthorityStillRequiresReview(t *t
 		t.Run(string(mode), func(t *testing.T) {
 			f := newCommandApprovalFixture(t, mode, false)
 			f.caps.RuntimeAuthority = nil
-			f.caps.FullAccessRequiresRuntimeGrant = false
 			f.service.capabilities = f.caps
 			f.supervisor.WithExecutionPermissionCapabilities(f.caps)
 			f.record(t, commandApprovalNativeInput(t, false), 1)
@@ -665,4 +669,230 @@ func TestCommandOperationApprovalCompletedStartOnlyContinuesItsOwnedJob(t *testi
 			}
 		})
 	}
+}
+
+// observeCommandRuntime keeps the native result while the real Supervisor still
+// performs preparation, consent, execution-start, gateway dispatch and receipts.
+type observeCommandRuntime struct {
+	*CommandRuntimeService
+	result toolgateway.CommandRuntimeExecutionResult
+}
+
+func (o *observeCommandRuntime) ExecuteCommandRuntime(ctx context.Context, scope toolgateway.CommandRuntimeContext, input toolgateway.CommandRuntimeInput) (toolgateway.CommandRuntimeExecutionResult, error) {
+	result, err := o.CommandRuntimeService.ExecuteCommandRuntime(ctx, scope, input)
+	o.result = result
+	return result, err
+}
+
+func commandFixtureForScope(t *testing.T, st *store.SQLiteStore, service *CommandRuntimeService, scope toolgateway.CommandRuntimeContext) *commandApprovalFixture {
+	t.Helper()
+	ctx := t.Context()
+	f := &commandApprovalFixture{st: st, service: service, caps: service.capabilities, checker: &commandApprovalChecker{Checker: policy.NewDefaultChecker()}}
+	var err error
+	f.turn.Run, err = st.GetRun(ctx, scope.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.turn.Mission, err = st.GetMission(ctx, scope.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.turn.Mode, err = st.GetRunMode(ctx, scope.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	f.turn.Agent, found, err = st.GetRootAgent(ctx, scope.RunID)
+	if err != nil || !found {
+		t.Fatalf("root: %t %v", found, err)
+	}
+	f.turn.Checkpoint, found, err = st.GetSupervisorCheckpoint(ctx, scope.RunID)
+	if err != nil || !found {
+		t.Fatalf("checkpoint: %t %v", found, err)
+	}
+	f.supervisor = NewRunSupervisor(st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(service)
+	return f
+}
+
+func (f *commandApprovalFixture) execute(t *testing.T, ctx context.Context, input toolgateway.CommandRuntimeInput, round int) (toolgateway.CommandRuntimeExecutionResult, error) {
+	t.Helper()
+	f.record(t, input, round)
+	observer := &observeCommandRuntime{CommandRuntimeService: f.service}
+	f.supervisor.WithCommandRuntime(observer)
+	rounds, err := f.st.ListSupervisorToolRounds(ctx, f.turn.Checkpoint)
+	if err != nil {
+		return observer.result, err
+	}
+	_, waiting, err := f.supervisor.resumeSupervisorTools(ctx, f.turn, rounds)
+	if err == nil && waiting {
+		err = errors.New("fixture unexpectedly requires consent")
+	}
+	if err == nil {
+		call, found, readErr := f.st.GetSupervisorApprovalCall(ctx, f.call.RunID, f.call.CallID)
+		if readErr != nil {
+			err = readErr
+		} else if !found || call.Status != domain.SupervisorToolCompleted {
+			err = fmt.Errorf("command receipt: found=%t status=%s code=%s", found, call.Status, call.ErrorCode)
+		}
+	}
+	return observer.result, err
+}
+
+func (f *commandApprovalFixture) startScope(t *testing.T, input toolgateway.CommandRuntimeInput, round int) toolgateway.CommandRuntimeContext {
+	t.Helper()
+	f.record(t, input, round)
+	fresh, err := f.st.RecordSupervisorToolExecutionStarted(t.Context(), f.turn.Checkpoint, f.call.CallID)
+	if err != nil || !fresh {
+		t.Fatalf("execution start: fresh=%t err=%v", fresh, err)
+	}
+	scope, _ := f.scope(t)
+	return scope
+}
+
+func (f *commandApprovalFixture) completeTurn(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
+	checkpoint, found, err := f.st.GetSupervisorCheckpoint(ctx, f.turn.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("checkpoint: %t %v", found, err)
+	}
+	rounds, err := f.st.ListSupervisorToolRounds(ctx, checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: len(rounds) + 1, ToolRound: len(rounds), TransportAttempt: 1, MaxAttempts: 1, Provider: "offline-command-fixture", Model: "fixture"}
+	if _, err = f.st.RecordSupervisorModelStarted(ctx, checkpoint, attempt); err != nil {
+		t.Fatal(err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	action := domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionContinue, Message: "command fixture turn complete"}
+	raw, _ := json.Marshal(action)
+	response := llm.ChatResponse{Provider: attempt.Provider, Model: attempt.Model, Text: string(raw)}
+	checkpoint, err = f.st.RecordSupervisorModelCompleted(ctx, checkpoint, attempt, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err = f.st.CompleteSupervisorTurn(ctx, checkpoint, response, action, policy.Decision{Allowed: true}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.turn.Checkpoint = checkpoint
+}
+
+func (f *commandApprovalFixture) nextTurn(t *testing.T, lease domain.RunExecutionLease) {
+	t.Helper()
+	f.completeTurn(t)
+	var err error
+	f.turn, err = f.st.BeginSupervisorTurn(t.Context(), lease, "continue the fixed command fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Exercise the actual owner heartbeat after releasing the model turn lease.
+// The existing Job timeout bounds this wait; no secondary timing assumption
+// substitutes for observing a successful durable owner renewal.
+func (f *commandApprovalFixture) nextTurnWithBackgroundJob(t *testing.T, manager *runner.CommandRuntimeManager, jobID string) {
+	t.Helper()
+	ctx := t.Context()
+	oldAttempt := f.turn.Checkpoint.AttemptID
+	oldScope, oldInput := f.scope(t)
+	job, err := f.st.GetCommandRuntimeJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldScope.InvocationID = job.InvocationID
+	lease, found, err := f.st.GetRunExecutionLease(ctx, f.turn.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("original lease: %t %v", found, err)
+	}
+	f.completeTurn(t)
+	if _, _, err := f.st.ReleaseRunExecutionLease(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	releasedAt := time.Now().UTC()
+	if stopped, err := f.service.Reconcile(ctx); err != nil || stopped != 0 {
+		t.Fatalf("turn completion reaped its background Job: %d %v", stopped, err)
+	}
+	for {
+		current, err := f.st.GetCommandRuntimeJob(ctx, jobID)
+		if err != nil || current.State != runner.CommandRuntimeJobRunning {
+			t.Fatalf("background Job lost ownership between turns: %+v %v", current, err)
+		}
+		if current.OwnerRenewedAt.After(releasedAt) {
+			if current.OwnerID != job.OwnerID || current.OwnerGeneration != job.OwnerGeneration || current.LeaseID != job.LeaseID || current.LeaseGeneration != job.LeaseGeneration {
+				t.Fatal("background continuation changed its original owner or admission lease")
+			}
+			break
+		}
+		if _, _, err := manager.Wait(ctx, jobID, 100*time.Millisecond, ^uint64(0), runner.MinCommandRuntimeOutputRead); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acquired, err := f.st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{RunID: job.RunID, OwnerID: "command-background-next-turn", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.turn, err = f.st.BeginSupervisorTurn(ctx, acquired.Lease, "continue the same background Job")
+	if err != nil || f.turn.Checkpoint.AttemptID == oldAttempt || f.turn.Checkpoint.LeaseGeneration == lease.Generation {
+		t.Fatalf("background continuation did not use a new attempt/lease: %+v %v", f.turn.Checkpoint, err)
+	}
+	if _, err := f.service.ExecuteCommandRuntime(ctx, oldScope, oldInput); err == nil {
+		t.Fatal("old turn authority admitted a new command dispatch")
+	}
+}
+
+func TestCommandOperationApprovalBackgroundJobSurvivesTurnAndLeaseHandoff(t *testing.T) {
+	f := newCommandApprovalFixture(t, domain.RunExecutionPermissionFull, false)
+	input := commandApprovalNativeInput(t, true)
+	input.Commands[0].TimeoutMilliseconds = 30000
+	result, err := f.execute(t, t.Context(), input, 1)
+	if err != nil || len(result.Jobs) != 1 || result.Jobs[0].State != runner.CommandRuntimeJobRunning {
+		t.Fatalf("background start: %+v %v", result, err)
+	}
+	jobID := result.Jobs[0].ID
+	f.nextTurnWithBackgroundJob(t, f.manager, jobID)
+	text, closeInput := "cross-turn\n", true
+	if _, err := f.execute(t, t.Context(), toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionWriteStdin, JobID: jobID, Stdin: &text, CloseStdin: &closeInput}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.waitForTerminal(t.Context(), jobID); err != nil {
+		t.Fatal(err)
+	}
+	cursor, size, wait := uint64(0), 4096, 1000
+	result, err = f.execute(t, t.Context(), toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionWait, JobID: jobID, Cursor: &cursor, MaxBytes: &size, WaitMilliseconds: &wait}, 2)
+	if err != nil || len(result.Jobs) != 1 || result.Jobs[0].ID != jobID || result.Jobs[0].State != runner.CommandRuntimeJobCompleted || !result.Jobs[0].TreeReaped {
+		t.Fatalf("cross-turn completion: %+v %v", result, err)
+	}
+	if bytes, err := os.ReadFile(filepath.Join(f.root, "stdin.txt")); err != nil || string(bytes) != text {
+		t.Fatalf("cross-turn stdin: %q %v", bytes, err)
+	}
+	jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.turn.Run.ID, Limit: 20})
+	if err != nil || len(jobs) != 1 || jobs[0].ID != jobID {
+		t.Fatalf("cross-turn continuation duplicated the Job: %+v %v", jobs, err)
+	}
+}
+
+func TestCommandOperationApprovalWorkspaceRootDriftReapsOriginalJob(t *testing.T) {
+	f := newCommandApprovalFixture(t, domain.RunExecutionPermissionFull, false)
+	result, err := f.execute(t, t.Context(), commandApprovalNativeInput(t, true), 1)
+	if err != nil || len(result.Jobs) != 1 || result.Jobs[0].State != runner.CommandRuntimeJobRunning {
+		t.Fatalf("start: %+v %v", result, err)
+	}
+	source, err := f.st.GetWorkspaceByID(t.Context(), f.turn.Mission.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.RootPath = t.TempDir()
+	if err := f.st.SaveWorkspace(t.Context(), source); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := f.service.Reconcile(t.Context()); err != nil || count != 1 {
+		t.Fatalf("root drift reconciliation: %d %v", count, err)
+	}
+	job, err := f.service.waitForTerminal(t.Context(), result.Jobs[0].ID)
+	if err != nil || job.State != runner.CommandRuntimeJobKilled || !job.TreeReaped {
+		t.Fatalf("root drift did not reap exact Job: %+v %v", job, err)
+	}
+	f.assertNoMarker(t, "stdin.txt")
 }

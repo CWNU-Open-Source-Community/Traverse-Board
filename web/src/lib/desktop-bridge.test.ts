@@ -19,7 +19,7 @@ const bootstrap = {
   full_cdp_session_control_enabled: false,
   operator_approval_enabled: false,
   danger_full_access_enabled: false,
-  debug_maximum_access_enabled: false,
+
   workspace_sandbox_enabled: false,
   command_runtime_enabled: false,
   command_runtime_protocol_available: true,
@@ -34,8 +34,8 @@ const bootstrap = {
   run_execution_enabled: false,
   plan_delivery_control_enabled: false,
   approval_control_enabled: false,
-  controlled_command_proposal_control_enabled: false,
-  host_command_proposal_control_enabled: false,
+
+
   model_control_enabled: false,
   provider_credential_enabled: false,
   file_edit_review_enabled: false,
@@ -229,7 +229,7 @@ describe("desktop native bridge", () => {
       [bootstrap, "safe"],
       [{ ...restartBootstrap, danger_full_access_enabled: true }, "safe"],
       [{ ...restartBootstrap, danger_full_access_enabled: true,
-        debug_maximum_access_enabled: true }, "debug"],
+        user_terminal_enabled: true, process_execution_enabled: true, shell_execution_enabled: true }, "debug"],
     ] as const;
     for (const [fixture, expected] of fixtures) {
       vi.resetModules();
@@ -346,17 +346,6 @@ describe("desktop native bridge", () => {
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(approvalOnly);
   });
 
-  it("accepts fixed command proposal review as an independent capability", async () => {
-    const commandProposalOnly = {
-      ...bootstrap,
-      control_token: "control-token-0123456789abcdefghijkl",
-      controlled_command_proposal_control_enabled: true,
-      read_only_default: false,
-    };
-    installBridge({ Bootstrap: vi.fn().mockResolvedValue(commandProposalOnly) });
-    const module = await import("./desktop-bridge");
-    await expect(module.loadDesktopBootstrap()).resolves.toEqual(commandProposalOnly);
-  });
 
   it("accepts Docker execution with permission control and operator approval", async () => {
     const dockerEnabled = {
@@ -830,12 +819,12 @@ describe("desktop native bridge", () => {
       .rejects.toThrow("output was rejected");
   });
 
-  it("grants only a bounded process-local Debug terminal Agent-input lease", async () => {
+  it("grants only a bounded process-local Full terminal Agent-input lease", async () => {
     const enabled = {
       ...bootstrap,
       control_token: "control-token-0123456789abcdefghijkl",
       read_only_default: false,
-      debug_maximum_access_enabled: true,
+
       workspace_sandbox_enabled: false,
       execution_permission_control_enabled: true,
       operator_approval_enabled: true,
@@ -877,7 +866,7 @@ describe("desktop native bridge", () => {
       run_id: "run-1",
       terminal_session_id: "user-terminal-1",
       ttl_seconds: 300,
-      confirm_debug_maximum_access: true,
+      confirm_full_access: true,
       confirm_agent_terminal_input: true,
     });
     expect(revoke).toHaveBeenCalledWith({

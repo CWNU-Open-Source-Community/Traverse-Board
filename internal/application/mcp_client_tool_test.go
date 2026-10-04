@@ -40,7 +40,6 @@ func TestSupervisorMCPAdvertisementFenceRejectsRevokedThreeModes(t *testing.T) {
 			authority := domain.NewExecutionPermissionRuntimeAuthority()
 			capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 				OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-				DebugMaximumAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
 				RuntimeAuthority: authority,
 			}
 			if permissionMode == domain.RunExecutionPermissionFull {
@@ -110,7 +109,7 @@ func TestMCPExecutorRequiresExactLiveFullAccessAndRunFence(t *testing.T) {
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	client := &exactPermissionMCPClient{}
 	executor, err := NewMCPClientToolExecutor(client, state, capabilities)

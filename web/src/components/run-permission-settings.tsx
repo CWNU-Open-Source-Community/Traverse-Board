@@ -681,7 +681,7 @@ function localizedStandardCodeNextStep(value: string, t: ReadinessTranslator): s
     pause_and_configure: ["显式暂停并配置", "Pause and configure explicitly"],
     wait_for_quiescence: ["等待执行静止", "Wait for quiescence"],
     select_docker: ["显式选择 Docker", "Select Docker explicitly"],
-    select_approval: ["改用逐命令审批", "Use per-command Approval"],
+    select_ask: ["改用 Ask 审批", "Use Ask approval"],
     retry_readiness: ["修复后重试 readiness", "Repair and retry readiness"],
     create_new_run: ["创建新的 Code Run", "Create a new Code Run"],
   };

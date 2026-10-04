@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/outputsafe"
@@ -444,6 +445,9 @@ type CommandRuntimeStartRequest struct {
 	// recovered as a grant, and is not consumed by a read-only Job replay.
 	// The manager and native starter pass their actual final launch inputs.
 	DispatchCheck func(context.Context, CommandRuntimeResolvedSpec) error `json:"-"`
+	// OwnershipCheck renews only this admitted Job's lifetime. It cannot
+	// authorize native launch or initial/later stdin, which use DispatchCheck.
+	OwnershipCheck func(context.Context) error `json:"-"`
 }
 
 // CommandRuntimeOperationIdentity is the deterministic durable identity used
@@ -533,16 +537,17 @@ type commandRuntimeStarter interface {
 }
 
 type CommandRuntimeManager struct {
-	store             CommandRuntimeStore
-	starter           commandRuntimeStarter
-	hostProxy         *commandRuntimeHostProxySet
-	fixed             *fixedCommandRuntime
-	adapter           commandruntimeadapter.Identity
-	ownerID           string
-	ownerGeneration   int64
-	ownerLeaseTTL     time.Duration
-	ownerRenewEvery   time.Duration
-	ownerRenewTimeout time.Duration
+	store                CommandRuntimeStore
+	starter              commandRuntimeStarter
+	hostProxy            *commandRuntimeHostProxySet
+	fixed                *fixedCommandRuntime
+	adapter              commandruntimeadapter.Identity
+	ownerID              string
+	ownerGeneration      int64
+	ownerLeaseTTL        time.Duration
+	ownerRenewEvery      time.Duration
+	ownerRenewTimeout    time.Duration
+	ownershipDiagnostics io.Writer
 
 	startMu sync.Mutex
 	mu      sync.RWMutex
@@ -641,7 +646,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	request CommandRuntimeStartRequest,
 ) (CommandRuntimeJobSnapshot, bool, error) {
 	if ctx == nil || ctx.Err() != nil || m == nil || !m.Available() ||
-		request.Scope.Validate() != nil || !request.Scope.Adapter.SameBackend(m.adapter) {
+		request.Scope.Validate() != nil || !request.Scope.Adapter.SameBackend(m.adapter) ||
+		(request.DispatchCheck != nil && request.OwnershipCheck == nil) {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
 	m.startMu.Lock()
@@ -859,11 +865,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		stdoutHash: sha256.New(), stderrHash: sha256.New(),
 		inputs: make(map[string]commandRuntimeStdinResult), inputGate: make(chan struct{}, 1),
 	}
-	if request.DispatchCheck != nil {
-		entry.authorityCheck = func(checkCtx context.Context) error {
-			return request.DispatchCheck(checkCtx, request.Spec)
-		}
-	}
+	entry.authorityCheck = request.OwnershipCheck
 	entry.inputGate <- struct{}{}
 	m.mu.Lock()
 	m.entries[jobID] = entry
@@ -1313,19 +1315,45 @@ func (m *CommandRuntimeManager) maintainOwnership(entry *commandRuntimeEntry) {
 			if snapshot := entry.snapshot(); snapshot.State == CommandRuntimeJobStopping {
 				_ = entry.process.Kill()
 			}
-			ctx, cancel := context.WithTimeout(entry.authorityContext,
-				m.ownerRenewTimeout)
+			started := time.Now()
+			beforeVersion := int64(0)
+			if m.ownershipDiagnostics != nil {
+				beforeVersion = entry.snapshot().Version
+			}
+			ctx, cancel := context.WithTimeout(entry.authorityContext, m.ownerRenewTimeout)
 			var err error
+			phase := "authority"
 			if entry.authorityCheck != nil {
 				err = entry.authorityCheck(ctx)
 			}
+			authorityElapsed := time.Since(started)
+			renewalStarted := time.Now()
 			if err == nil {
+				phase = "owner_renew"
 				err = m.renewOwnership(ctx, entry)
 			}
+			renewalElapsed := time.Since(renewalStarted)
+			contextErr := ctx.Err()
 			cancel()
 			if err != nil {
 				if entry.setDesired(CommandRuntimeJobInterrupted) {
 					_ = entry.process.Kill()
+				}
+				if m.ownershipDiagnostics != nil {
+					classify := func(cause error) string {
+						if cause == nil {
+							return "none"
+						}
+						if errors.Is(cause, context.DeadlineExceeded) {
+							return "deadline_exceeded"
+						}
+						if errors.Is(cause, context.Canceled) {
+							return "cancelled"
+						}
+						return string(apperror.CodeOf(cause))
+					}
+					fmt.Fprintf(m.ownershipDiagnostics, "fixed_command_ownership_failure phase=%s error=%s context=%s authority_ms=%d renewal_ms=%d shared_budget_ms=%d version_before=%d version_after=%d\n",
+						phase, classify(err), classify(contextErr), authorityElapsed.Milliseconds(), renewalElapsed.Milliseconds(), m.ownerRenewTimeout.Milliseconds(), beforeVersion, entry.snapshot().Version)
 				}
 				return
 			}

@@ -48,12 +48,6 @@ func (transport *standardCodeDockerLifecycleTransport) Cleanup(ctx context.Conte
 	return result, err
 }
 
-func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
-	// Retain every original Docker Command Runtime v1/replay/stdin assertion.
-	// This explicit retained fixture is compatibility evidence, not v2 authority.
-	standardCodeDockerCheckpointForApprovalMode(t, domain.RunExecutionPermissionWorkspaceAccess)
-}
-
 func TestStandardCodeDockerApprovalPreferencesCheckpointAndRecovery(t *testing.T) {
 	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull} {
 		t.Run(string(mode), func(t *testing.T) { standardCodeDockerCheckpointForApprovalMode(t, mode) })
@@ -77,9 +71,7 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
 		DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
-	if !mode.IsApprovalMode() {
-		seedRetainedNativePermission(t, fixture.databasePath, fixture.state, fixture.run.ID, mode)
-	} else if mode != domain.RunExecutionPermissionAsk {
+	if mode != domain.RunExecutionPermissionAsk {
 		if _, err := NewRunExecutionPermissionService(fixture.state,
 			permissionCapabilities).Change(ctx, ChangeRunExecutionPermissionRequest{
 			RunID: fixture.run.ID, Mode: string(mode),
@@ -296,13 +288,6 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 		t.Fatalf("restart recovery was not idempotent: replay=%+v err=%v lifecycle=%+v",
 			replay, err, baseLifecycle)
 	}
-	if mode.IsApprovalMode() {
-		// All new-mode native Docker approval/checkpoint/recovery assertions
-		// above have run. The remaining historical direct-command calls carry
-		// no v2 Supervisor authority and belong only to the retained-v1 test.
-		return
-	}
-
 	goExecutable, err := exec.LookPath("go")
 	if err != nil {
 		t.Skipf("Go executable is unavailable for Command Runtime adapter integration: %v", err)
@@ -315,22 +300,17 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, found, err := fixture.state.GetRootAgent(ctx, runRecord.ID)
-	if err != nil || !found {
-		t.Fatalf("Command Runtime root found=%t err=%v", found, err)
-	}
 	acquired, err := fixture.state.AcquireRunExecutionLease(ctx,
 		domain.AcquireRunExecutionLeaseRequest{RunID: runRecord.ID,
 			OwnerID: "command-runtime-docker-test-owner", TTL: 3 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, err := fixture.state.BeginSupervisorTurn(ctx, acquired.Lease,
+	_, err = fixture.state.BeginSupervisorTurn(ctx, acquired.Lease,
 		"exercise attributed Docker Command Runtime")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root = turn.Agent
 	executor, err := NewDockerSandboxCommandRuntimeExecutor(restartedService)
 	if err != nil {
 		t.Fatal(err)
@@ -351,57 +331,14 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 		t.Fatal(err)
 	}
 	advertised, available, err := commandRuntime.AdvertisedCommandRuntimeAdapter(ctx,
-		runRecord.ID, domain.RunExecutionPermissionWorkspaceAccess)
+		runRecord.ID, mode)
 	if err != nil || !available || !advertised.SameBackend(executor.Identity()) {
 		t.Fatalf("Docker adapter advertisement=%#v available=%t err=%v",
 			advertised, available, err)
 	}
 	maxBytes := 32 * 1024
-	runtimeScope := toolgateway.CommandRuntimeContext{
-		InvocationID: "command-runtime-docker-invocation",
-		OperationKey: "command-runtime-docker-operation", RunID: runRecord.ID,
-		MissionID:   runRecord.MissionID,
-		RootAgentID: root.ID, AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
-		SessionID:            runRecord.SessionID,
-		WorkspaceID:          fixture.workspace.ID,
-		CapabilityGeneration: advertised.Generation,
-		LeaseID:              acquired.Lease.LeaseID, LeaseGeneration: acquired.Lease.Generation,
-		RequestedBy: "run_supervisor", Adapter: advertised,
-		PolicyDecision: toolgateway.Decision{Allowed: true,
-			Approval: toolgateway.ApprovalAutomatic, Risk: "medium",
-			Reason: "test exact Docker sandbox adapter"},
-	}
-	if err := runtimeScope.Validate(); err != nil {
-		t.Fatalf("Docker Command Runtime context is invalid before execution: %v", err)
-	}
-	bindings, err := commandRuntime.loadAuthorizedBindings(ctx, runtimeScope, false)
-	if err != nil {
-		t.Fatalf("Docker Command Runtime bindings are invalid before execution: %v", err)
-	}
-	resolved, err := runner.NormalizeCommandRuntimeSpec(runner.CommandRuntimeSpec{
-		Version: runner.CommandRuntimeProtocolVersion,
-		Profile: runner.CommandRuntimeProcess, Executable: goExecutable,
-		Arguments: []string{"version"}, WorkingDirectory: ".",
-		Environment: []runner.CommandRuntimeEnvironment{},
-		StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
-		TimeoutMilliseconds: 60_000,
-		Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
-			ArtifactBytes: 64 * 1024},
-		Network:     runner.CommandRuntimeNetworkDisabled,
-		Credentials: runner.CommandRuntimeCredentialsNone,
-		Purpose:     "exercise Command Runtime through fixed Docker Standard Code",
-	}, bindings.rootPath)
-	if err != nil {
-		t.Fatalf("Docker Command Runtime spec is invalid before execution: %v", err)
-	}
-	runnerScope := commandRuntime.runnerScope(runtimeScope, bindings,
-		runtimeScope.OperationKey)
-	if err := runnerScope.Validate(); err != nil ||
-		resolved.WorkspaceRootSHA256 != runnerScope.WorkspaceRootSHA256 {
-		t.Fatalf("Docker Command Runtime runner boundary is invalid before execution: scope=%+v resolved_root=%s err=%v",
-			runnerScope, resolved.WorkspaceRootSHA256, err)
-	}
-	runtimeResult, err := commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
+	f := commandFixtureForScope(t, fixture.state, commandRuntime, toolgateway.CommandRuntimeContext{RunID: runRecord.ID, MissionID: runRecord.MissionID})
+	runtimeResult, err := f.execute(t, ctx,
 		toolgateway.CommandRuntimeInput{
 			Version: toolgateway.CommandRuntimeToolProtocolVersion,
 			Action:  toolgateway.CommandRuntimeActionStart,
@@ -418,7 +355,7 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 				Credentials: runner.CommandRuntimeCredentialsNone,
 				Purpose:     "exercise Command Runtime through fixed Docker Standard Code",
 			}},
-		})
+		}, 1)
 	if err != nil || runtimeResult.ValidateBoundAdapter() != nil ||
 		!runtimeResult.Adapter.SameBackend(advertised) || len(runtimeResult.Jobs) != 1 ||
 		runtimeResult.Jobs[0].State.Terminal() {
@@ -427,23 +364,14 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 	jobID := runtimeResult.Jobs[0].ID
 	cursor := uint64(0)
 	waitMilliseconds := int((5 * time.Second).Milliseconds())
-	deadline := time.Now().Add(2 * time.Minute)
-	for !runtimeResult.Jobs[0].State.Terminal() {
-		if time.Now().After(deadline) {
-			t.Fatalf("Docker Command Runtime Job did not become terminal: %+v", runtimeResult)
-		}
-		runtimeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
-			toolgateway.CommandRuntimeInput{
-				Version: toolgateway.CommandRuntimeToolProtocolVersion,
-				Action:  toolgateway.CommandRuntimeActionWait, JobID: jobID,
-				Cursor: &cursor, MaxBytes: &maxBytes,
-				WaitMilliseconds: &waitMilliseconds,
-			})
-		if err != nil || runtimeResult.ValidateBoundAdapter() != nil ||
-			len(runtimeResult.Jobs) != 1 || len(runtimeResult.Pages) != 1 {
-			t.Fatalf("Docker Command Runtime wait=%+v err=%v", runtimeResult, err)
-		}
-		cursor = runtimeResult.Pages[0].NextCursor
+	// Wait for Docker admission/checkpoint finalization before recording a new
+	// model tool round, which legitimately changes the frozen budget snapshot.
+	if _, err := commandRuntime.waitForTerminal(ctx, jobID); err != nil {
+		t.Fatal(err)
+	}
+	runtimeResult, err = f.execute(t, ctx, toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionWait, JobID: jobID, Cursor: &cursor, MaxBytes: &maxBytes, WaitMilliseconds: &waitMilliseconds}, 2)
+	if err != nil || runtimeResult.ValidateBoundAdapter() != nil || len(runtimeResult.Jobs) != 1 || len(runtimeResult.Pages) != 1 {
+		t.Fatalf("Docker wait: %+v %v", runtimeResult, err)
 	}
 	if runtimeResult.Jobs[0].State != runner.CommandRuntimeJobCompleted ||
 		len(runtimeResult.Artifacts) != 1 ||
@@ -462,18 +390,23 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 		t.Fatalf("Command Runtime did not persist actual output and hashes: %+v err=%v", storedJob, err)
 	}
 	attachesBeforeReplay := ioTransport.ownedAttaches
-	replayedJob, err := commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
-		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
-			Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{resolved.Spec}})
-	if err != nil || len(replayedJob.Jobs) != 1 || replayedJob.Jobs[0].ID != jobID ||
-		baseLifecycle.starts != 3 || ioTransport.ownedAttaches != attachesBeforeReplay {
-		t.Fatalf("completed Job replay re-executed or reattached: %+v err=%v", replayedJob, err)
+	before, err := fixture.state.ListSupervisorToolRounds(ctx, f.turn.Checkpoint)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	pipeScope := runtimeScope
-	pipeScope.InvocationID = "command-runtime-docker-stdin-invocation"
-	pipeScope.OperationKey = "command-runtime-docker-stdin-start"
-	pipeResult, err := commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
+	if waiting, err := f.resume(t); err != nil || waiting {
+		t.Fatalf("Docker replay: %t %v", waiting, err)
+	}
+	after, err := fixture.state.ListSupervisorToolRounds(ctx, f.turn.Checkpoint)
+	if err != nil || len(before) != 2 || len(after) != 2 || before[0].Calls[0].ResultJSON != after[0].Calls[0].ResultJSON || before[1].Calls[0].ResultJSON != after[1].Calls[0].ResultJSON || baseLifecycle.starts != 3 || ioTransport.ownedAttaches != attachesBeforeReplay {
+		t.Fatalf("completed call replay re-executed or reattached: %v", err)
+	}
+	f.nextTurn(t, acquired.Lease)
+	beforePipe, found, err := readRunFileDrydock(ctx, fixture.state, runRecord.ID)
+	if err != nil || !found {
+		t.Fatalf("Drydock before background command: found=%t err=%v", found, err)
+	}
+	pipeResult, err := f.execute(t, ctx,
 		toolgateway.CommandRuntimeInput{
 			Version: toolgateway.CommandRuntimeToolProtocolVersion,
 			Action:  toolgateway.CommandRuntimeActionStart,
@@ -491,7 +424,7 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 				Credentials: runner.CommandRuntimeCredentialsNone,
 				Purpose:     "stream stdin through fixed Docker Standard Code",
 			}},
-		})
+		}, 1)
 	if err != nil || len(pipeResult.Jobs) != 1 ||
 		pipeResult.Jobs[0].State != runner.CommandRuntimeJobRunning ||
 		len(pipeResult.IncompleteReasons) != 0 {
@@ -499,37 +432,41 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 	}
 	pipeJobID := pipeResult.Jobs[0].ID
 	interactive, closePipe := "interactive\n", true
-	pipeScope.InvocationID = "command-runtime-docker-stdin-write-invocation"
-	pipeScope.OperationKey = "command-runtime-docker-stdin-write"
-	pipeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
+	for {
+		ioTransport.mu.Lock()
+		initial := string(ioTransport.stdin)
+		ioTransport.mu.Unlock()
+		if initial == "initial\n" {
+			break
+		}
+		// Admission performs asynchronous Git checks before attaching stdin.
+		// Observe the owned Job's existing lifecycle, not a second test timer.
+		live, _, waitErr := manager.Wait(ctx, pipeJobID, 100*time.Millisecond, ^uint64(0), runner.MinCommandRuntimeOutputRead)
+		if waitErr != nil || live.State.Terminal() {
+			job, jobErr := fixture.state.GetCommandRuntimeJob(ctx, pipeJobID)
+			ioTransport.mu.Lock()
+			attached := ioTransport.ownedAttaches
+			ioTransport.mu.Unlock()
+			t.Fatalf("Docker initial stdin absent: bytes=%q state=%s stderr=%q reaped=%t job_err=%v attaches=%d lifecycle=%s starts=%d", initial, job.State, job.Stderr, job.TreeReaped, jobErr, attached, baseLifecycle.state, baseLifecycle.starts)
+		}
+	}
+	f.nextTurnWithBackgroundJob(t, manager, pipeJobID)
+	pipeResult, err = f.execute(t, ctx,
 		toolgateway.CommandRuntimeInput{
 			Version: toolgateway.CommandRuntimeToolProtocolVersion,
 			Action:  toolgateway.CommandRuntimeActionWriteStdin, JobID: pipeJobID,
 			Stdin: &interactive, CloseStdin: &closePipe,
-		})
+		}, 1)
 	if err != nil || len(pipeResult.Jobs) != 1 || !pipeResult.Jobs[0].StdinClosed {
 		t.Fatalf("Docker Command Runtime stdin write=%+v err=%v", pipeResult, err)
 	}
 	pipeCursor := uint64(0)
-	pipeScope.InvocationID = "command-runtime-docker-stdin-wait-invocation"
-	for !pipeResult.Jobs[0].State.Terminal() {
-		if time.Now().After(deadline.Add(2 * time.Minute)) {
-			t.Fatalf("Docker Command Runtime stdin Job did not become terminal: %+v",
-				pipeResult)
-		}
-		pipeScope.OperationKey = "command-runtime-docker-stdin-wait-" +
-			string(rune('a'+len(pipeResult.Pages)))
-		pipeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
-			toolgateway.CommandRuntimeInput{
-				Version: toolgateway.CommandRuntimeToolProtocolVersion,
-				Action:  toolgateway.CommandRuntimeActionWait, JobID: pipeJobID,
-				Cursor: &pipeCursor, MaxBytes: &maxBytes,
-				WaitMilliseconds: &waitMilliseconds,
-			})
-		if err != nil || len(pipeResult.Jobs) != 1 || len(pipeResult.Pages) != 1 {
-			t.Fatalf("Docker Command Runtime stdin wait=%+v err=%v", pipeResult, err)
-		}
-		pipeCursor = pipeResult.Pages[0].NextCursor
+	if _, err := commandRuntime.waitForTerminal(ctx, pipeJobID); err != nil {
+		t.Fatal(err)
+	}
+	pipeResult, err = f.execute(t, ctx, toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionWait, JobID: pipeJobID, Cursor: &pipeCursor, MaxBytes: &maxBytes, WaitMilliseconds: &waitMilliseconds}, 2)
+	if err != nil || len(pipeResult.Jobs) != 1 || len(pipeResult.Pages) != 1 {
+		t.Fatalf("Docker stdin wait: %+v %v", pipeResult, err)
 	}
 	ioTransport.mu.Lock()
 	stdinBytes := append([]byte(nil), ioTransport.stdin...)
@@ -537,7 +474,18 @@ func standardCodeDockerCheckpointForApprovalMode(t *testing.T, mode domain.RunEx
 	if pipeResult.Jobs[0].State != runner.CommandRuntimeJobCompleted ||
 		!pipeResult.Jobs[0].StdinClosed || string(stdinBytes) !=
 		"initial\ninteractive\n" || baseLifecycle.starts != 4 {
-		t.Fatalf("Docker Command Runtime stdin result=%+v input=%q lifecycle=%+v",
-			pipeResult, stdinBytes, baseLifecycle)
+		candidates, _ := fixture.state.ListSandboxExecutionCandidates(ctx, runRecord.ID, 20)
+		t.Fatalf("Docker Command Runtime stdin result=%+v input=%q lifecycle=%+v candidates=%+v",
+			pipeResult, stdinBytes, baseLifecycle, candidates)
+	}
+	if len(pipeResult.Artifacts) != 1 || pipeResult.Artifacts[0].Stdout != storedJob.Stdout ||
+		pipeResult.Artifacts[0].Stderr != storedJob.Stderr || baseLifecycle.terms != 0 ||
+		baseLifecycle.deletes != 4 {
+		t.Fatalf("background handoff lost output or interrupted the container: %+v lifecycle=%+v", pipeResult, baseLifecycle)
+	}
+	afterPipe, found, err := readRunFileDrydock(ctx, fixture.state, runRecord.ID)
+	if err != nil || !found || afterPipe.Generation != beforePipe.Generation+1 ||
+		afterPipe.LastCheckpointID == beforePipe.LastCheckpointID {
+		t.Fatalf("background result lost its Drydock checkpoint: before=%+v after=%+v err=%v", beforePipe, afterPipe, err)
 	}
 }

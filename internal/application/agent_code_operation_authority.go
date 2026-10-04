@@ -90,10 +90,6 @@ func agentCodeRuntimeCurrent(capabilities domain.ExecutionPermissionRuntimeCapab
 	if !live || snapshotID != permission.ID || generation != expected {
 		return false
 	}
-	if !permission.Mode.IsApprovalMode() {
-		return capabilities.FullAccessRequiresRuntimeGrant && expected != 0 &&
-			capabilities.RuntimeAuthority != nil && epoch == capabilities.RuntimeAuthority.RuntimeEpoch()
-	}
 	if capabilities.RuntimeAuthority == nil {
 		return !permission.Mode.IsFullPreference() && epoch == "" && fence == 0
 	}
@@ -104,26 +100,16 @@ func agentCodeRuntimeCurrent(capabilities domain.ExecutionPermissionRuntimeCapab
 func bindAgentCodeRuntime(capabilities domain.ExecutionPermissionRuntimeCapabilities,
 	permission domain.RunExecutionPermissionSnapshot,
 ) (snapshotID string, generation uint64, epoch string, fence uint64, live bool) {
-	// Old file capabilities without a runtime binding remain readable. Their
-	// manual proposals and actual writes still pass the current sink checks.
-	if !permission.Mode.IsApprovalMode() && !(permission.Mode == domain.RunExecutionPermissionFullAccess && capabilities.FullAccessRequiresRuntimeGrant) {
-		return "", 0, "", 0, true
-	}
 	generation, live = capabilities.FullAccessGeneration(permission)
 	if !live {
 		return
 	}
-	if permission.Mode.IsApprovalMode() {
-		snapshotID = permission.ID
-		if runtime := capabilities.RuntimeAuthority; runtime != nil {
-			var err error
-			epoch = runtime.RuntimeEpoch()
-			fence, err = runtime.IssueRunAuthorizationFence(permission.RunID)
-			live = err == nil && epoch != ""
-		}
-	} else if permission.Mode == domain.RunExecutionPermissionFullAccess && capabilities.FullAccessRequiresRuntimeGrant {
-		snapshotID = permission.ID
-		epoch = capabilities.RuntimeAuthority.RuntimeEpoch()
+	snapshotID = permission.ID
+	if runtime := capabilities.RuntimeAuthority; runtime != nil {
+		var err error
+		epoch = runtime.RuntimeEpoch()
+		fence, err = runtime.IssueRunAuthorizationFence(permission.RunID)
+		live = err == nil && epoch != ""
 	}
 	return
 }
@@ -141,12 +127,6 @@ func (e *AgentCodeToolExecutor) automaticallyAuthorizePreparedFileEdit(ctx conte
 	permission, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
 	if err != nil {
 		return false, err
-	}
-	// Historical conservative/workspace/approval rows retain operator review.
-	// Reading history does not issue a new three-mode automatic decision.
-	if !permission.Mode.IsApprovalMode() && !(permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant && edit.Operation != fileedit.OperationDelete) {
-		return false, nil
 	}
 	run, err := e.store.GetRun(ctx, scope.RunID)
 	if err != nil {

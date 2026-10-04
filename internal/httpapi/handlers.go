@@ -124,10 +124,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.approvalControlEnabled {
 			resources = append(resources, "approval-control")
 		}
-		if a.controlledCommandProposalControlEnabled {
-			resources = append(resources,
-				"controlled-command-proposal-control")
-		}
+
 		if a.modelControlEnabled {
 			resources = append(resources, "model-control")
 		}
@@ -1225,6 +1222,9 @@ func (a *API) runAgentCodeCapabilities(ctx context.Context, run domain.Run,
 		}
 		root.Role = domain.AgentRoleRoot
 		root.Profile = mode.Profile
+	}
+	if !permission.Mode.IsApprovalMode() {
+		unavailableReason = "historical execution permission requires selecting Ask, Auto, or Full"
 	}
 	snapshot := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
 		RunID: run.ID, MissionID: mission.ID, RootAgentID: root.ID,

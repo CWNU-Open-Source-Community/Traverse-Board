@@ -3,6 +3,7 @@ package application
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"path/filepath"
@@ -16,8 +17,10 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
+	"cyberagent-workbench/internal/toolcontract"
 )
 
 type debugTerminalBackendStub struct {
@@ -128,7 +131,7 @@ func TestDebugTerminalAgentInputIsShortLivedPolicyCheckedAndExactlyOnce(
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "model", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "model", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		}); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
 		t.Fatalf("model grant error=%v code=%s", err, apperror.CodeOf(err))
@@ -137,7 +140,7 @@ func TestDebugTerminalAgentInputIsShortLivedPolicyCheckedAndExactlyOnce(
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -146,7 +149,7 @@ func TestDebugTerminalAgentInputIsShortLivedPolicyCheckedAndExactlyOnce(
 	if binding.ID == "" || binding.TokenExposed || binding.TokenPersisted ||
 		binding.RawInputPersisted || binding.AgentInputDefault ||
 		binding.AutomaticRetryAllowed ||
-		binding.PermissionMode != domain.RunExecutionPermissionDebug {
+		binding.PermissionMode != domain.RunExecutionPermissionFull {
 		t.Fatalf("unsafe public binding: %#v", binding)
 	}
 	request := WriteDebugTerminalAgentInputRequest{
@@ -195,7 +198,7 @@ func TestDebugTerminalAgentInputIsShortLivedPolicyCheckedAndExactlyOnce(
 	}
 	if _, err := fixture.permission.Change(ctx,
 		ChangeRunExecutionPermissionRequest{
-			RunID: fixture.run.ID, Mode: "conservative",
+			RunID: fixture.run.ID, Mode: "ask",
 			OperationKey: "debug-terminal-permission-reset-0001",
 			RequestedBy:  "test_operator", Reason: "leave debug access",
 		}); err != nil {
@@ -251,7 +254,7 @@ func TestDebugTerminalAgentInputDisablesRetryAfterAmbiguousWrite(t *testing.T) {
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -298,7 +301,7 @@ func TestDebugTerminalAgentInputReadsBoundedOutputAndHasOneRunBinding(t *testing
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -308,7 +311,7 @@ func TestDebugTerminalAgentInputReadsBoundedOutputAndHasOneRunBinding(t *testing
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		}); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("duplicate Run binding error=%v code=%s", err, apperror.CodeOf(err))
@@ -344,7 +347,7 @@ func TestDebugTerminalAgentInputReadsBoundedOutputAndHasOneRunBinding(t *testing
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: 2 * time.Minute,
 		})
 	if err != nil || replacement.ID == binding.ID {
@@ -374,7 +377,7 @@ func TestDebugTerminalAgentInputCannotReadOutputFromBeforeGrant(t *testing.T) {
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -413,7 +416,7 @@ func TestDebugTerminalAgentInputDropsBindingAfterTerminalClose(t *testing.T) {
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -440,7 +443,7 @@ func TestDebugTerminalAgentInputRevokesOnPlanPhaseAndRejectsGrant(t *testing.T) 
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -470,7 +473,7 @@ func TestDebugTerminalAgentInputRevokesOnPlanPhaseAndRejectsGrant(t *testing.T) 
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		}); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("Plan phase grant error=%v code=%s", err, apperror.CodeOf(err))
@@ -484,7 +487,7 @@ func TestDebugTerminalAgentInputDoesNotReviveAfterPlanRoundTrip(t *testing.T) {
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -526,7 +529,7 @@ func TestDebugTerminalAgentInputRevokesOnWorkspaceRootDrift(t *testing.T) {
 		GrantDebugTerminalAgentInputRequest{
 			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
 			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
-			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			RequestedBy: "test_operator", ConfirmFullAccess: true,
 			ConfirmAgentTerminalInput: true, TTL: time.Minute,
 		})
 	if err != nil {
@@ -601,15 +604,15 @@ func newDebugTerminalAgentFixture(t *testing.T,
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	permissionService := NewRunExecutionPermissionService(state, capabilities)
 	if _, err := permissionService.Change(ctx,
 		ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: "debug",
+			RunID: run.ID, Mode: "full",
 			OperationKey: "debug-terminal-permission-0001",
 			RequestedBy:  "test_operator", Reason: "debug maximum access",
-			ConfirmDebugAccess: true,
+			ConfirmFull: true,
 		}); err != nil {
 		t.Fatal(err)
 	}
@@ -633,6 +636,30 @@ func newDebugTerminalAgentFixture(t *testing.T,
 	}
 	t.Cleanup(func() { _ = manager.Shutdown() })
 	sessionID := "terminal-debug-agent-input"
+	authorizer := executionauth.NewPolicyAuthorizer(func(checkCtx context.Context, subject executionauth.SubjectRef,
+		operation toolcontract.Operation, approvalRef string,
+	) (executionauth.OperationAuthority, error) {
+		current, err := state.GetRunExecutionPermission(checkCtx, run.ID)
+		if err != nil {
+			return executionauth.OperationAuthority{}, err
+		}
+		if subject.RunID != run.ID || subject.ActorID != "test_operator" || operation.ToolID != "user_terminal" || approvalRef != "" {
+			return executionauth.OperationAuthority{}, terminalruntime.ErrTerminalDenied
+		}
+		generation, active := capabilities.FullAccessGeneration(current)
+		raw, err := json.Marshal(struct {
+			Permission domain.RunExecutionPermissionSnapshot
+			Generation uint64
+			Epoch      string
+		}{
+			current, generation, capabilities.RuntimeAuthority.RuntimeEpoch()})
+		if err != nil {
+			return executionauth.OperationAuthority{}, err
+		}
+		return executionauth.OperationAuthority{Mode: domain.ExecutionApprovalFull, BindingFingerprint: session.ContentSHA256(string(raw)),
+			RuntimeAvailable: true, FullActivated: active, EffectsVerified: false}, nil
+	})
+
 	if _, err := manager.Start(ctx, terminalruntime.StartRequest{
 		ID: sessionID,
 		Scope: terminalruntime.SessionScope{
@@ -645,7 +672,7 @@ func newDebugTerminalAgentFixture(t *testing.T,
 			PermissionMode:           permission.Mode, Mode: interaction.Mode,
 		},
 		WorkspaceRoot: workspace.RootPath, Interaction: interaction,
-		CurrentProfile: profile, CurrentPermission: permission,
+		CurrentProfile: profile, CurrentPermission: permission, Authorizer: authorizer,
 		Columns: 100, Rows: 30, RequestedBy: "test_operator",
 		OperatorConfirmed: true,
 	}); err != nil {
@@ -681,4 +708,175 @@ func waitForDebugTerminalRingData(t *testing.T, manager *terminalruntime.Manager
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("terminal output was not observed")
+}
+
+func TestDebugTerminalFullRevocationCannotReviveExistingBridge(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "old_terminal_new_grant", true: "old_grant"}[existing], func(t *testing.T) {
+			f := newDebugTerminalAgentFixture(t, false)
+			request := GrantDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion, RunID: f.run.ID,
+				TerminalSessionID: f.sessionID, RequestedBy: "test_operator", ConfirmFullAccess: true, ConfirmAgentTerminalInput: true, TTL: time.Minute}
+			var binding DebugTerminalAgentInputBinding
+			var err error
+			if existing {
+				binding, err = f.service.Grant(t.Context(), request)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			authority := f.service.capabilities.RuntimeAuthority
+			authority.RevokeRun(f.run.ID)
+			if _, err = f.service.Grant(t.Context(), request); err == nil {
+				t.Fatal("cold Full issued a lease")
+			}
+			snapshot, err := f.state.GetRunExecutionPermission(t.Context(), f.run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = authority.ActivateRunFullAccess(snapshot); err != nil {
+				t.Fatal(err)
+			}
+			// Do not run terminal reconciliation: the original native ref must fence it.
+			if _, err = f.service.Grant(t.Context(), request); err == nil {
+				t.Fatal("new activation revived the old terminal")
+			}
+			if existing {
+				if _, err = f.service.Read(t.Context(), ReadDebugTerminalAgentOutputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion, BindingID: binding.ID, MaxBytes: 64}); err == nil {
+					t.Fatal("old lease read after reactivation")
+				}
+				if _, err = f.service.Write(t.Context(), WriteDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion, BindingID: binding.ID, OperationKey: "after-full-reactivation", Data: []byte("go version\r")}); err == nil {
+					t.Fatal("old lease wrote after reactivation")
+				}
+			}
+			if _, writes := f.process.snapshot(); writes != 0 {
+				t.Fatalf("unexpected native writes=%d", writes)
+			}
+		})
+	}
+}
+
+type debugAuditRevocationStore struct {
+	DebugTerminalAgentInputStore
+	kind   terminalruntime.AgentInputAuditKind
+	revoke func()
+}
+
+func (s *debugAuditRevocationStore) RecordDebugTerminalAgentInputAudit(ctx context.Context, record terminalruntime.AgentInputAuditRecord) error {
+	if err := s.DebugTerminalAgentInputStore.RecordDebugTerminalAgentInputAudit(ctx, record); err != nil {
+		return err
+	}
+	if record.Kind == s.kind {
+		s.revoke()
+	}
+	return nil
+}
+func TestDebugTerminalAuditRevocationPreventsPublicationAndNativeWrite(t *testing.T) {
+	for _, kind := range []terminalruntime.AgentInputAuditKind{terminalruntime.AgentInputAuditGranted, terminalruntime.AgentInputAuditPrepared} {
+		t.Run(string(kind), func(t *testing.T) {
+			f := newDebugTerminalAgentFixture(t, false)
+			f.service.store = &debugAuditRevocationStore{DebugTerminalAgentInputStore: f.state, kind: kind, revoke: func() { f.service.capabilities.RuntimeAuthority.RevokeRun(f.run.ID) }}
+			binding, err := f.service.Grant(t.Context(), GrantDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+				RunID: f.run.ID, TerminalSessionID: f.sessionID, RequestedBy: "test_operator", ConfirmFullAccess: true, ConfirmAgentTerminalInput: true, TTL: time.Minute})
+			if kind == terminalruntime.AgentInputAuditGranted {
+				if err == nil || len(f.service.bindings) != 0 {
+					t.Fatalf("revoked grant published: %+v %v", binding, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = f.service.Write(t.Context(), WriteDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+					BindingID: binding.ID, OperationKey: "audit-revoke-write", Data: []byte("go version\r")}); err == nil {
+					t.Fatal("revocation during prepare dispatched bytes")
+				}
+			}
+			if _, writes := f.process.snapshot(); writes != 0 {
+				t.Fatalf("unexpected native writes=%d", writes)
+			}
+		})
+	}
+}
+
+type debugCancelledReadStore struct {
+	DebugTerminalAgentInputStore
+	cancel context.CancelFunc
+}
+
+func (s *debugCancelledReadStore) GetRun(ctx context.Context, id string) (domain.Run, error) {
+	s.cancel()
+	return domain.Run{}, ctx.Err()
+}
+func TestDebugTerminalRequestCancellationPreservesLeaseAndPreparedFence(t *testing.T) {
+	for _, stage := range []string{"read", "reconcile", "prepared"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newDebugTerminalAgentFixture(t, false)
+			binding, err := f.service.Grant(t.Context(), GrantDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+				RunID: f.run.ID, TerminalSessionID: f.sessionID, RequestedBy: "test_operator", ConfirmFullAccess: true, ConfirmAgentTerminalInput: true, TTL: time.Minute})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			request := WriteDebugTerminalAgentInputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion, BindingID: binding.ID, OperationKey: "cancelled-prepared-input", Data: []byte("go version\r")}
+			if stage == "prepared" {
+				f.service.store = &debugAuditRevocationStore{DebugTerminalAgentInputStore: f.state, kind: terminalruntime.AgentInputAuditPrepared, revoke: cancel}
+				_, err = f.service.Write(ctx, request)
+			} else {
+				f.service.store = &debugCancelledReadStore{DebugTerminalAgentInputStore: f.state, cancel: cancel}
+				if stage == "read" {
+					_, err = f.service.Read(ctx, ReadDebugTerminalAgentOutputRequest{ProtocolVersion: DebugTerminalAgentInputProtocolVersion, BindingID: binding.ID, MaxBytes: 64})
+				} else {
+					if revoked := f.service.Reconcile(ctx); revoked != 0 {
+						t.Fatalf("cancelled reconcile revoked %d leases", revoked)
+					}
+					err = ctx.Err()
+				}
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("request cancellation lost: %v", err)
+			}
+			f.service.store = f.state
+			active, found, err := f.service.Active(t.Context(), f.run.ID)
+			if err != nil || !found || active.ID != binding.ID {
+				t.Fatalf("cancelled request revoked live grant: %+v %v %v", active, found, err)
+			}
+			if stage == "prepared" {
+				if _, err := f.service.Write(t.Context(), request); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+					t.Fatalf("prepared operation was retried: %v", err)
+				}
+			}
+			if _, writes := f.process.snapshot(); writes != 0 {
+				t.Fatalf("cancelled input wrote %d times", writes)
+			}
+		})
+	}
+}
+
+func TestDebugTerminalReadinessUsesLiveFullWithoutLegacyDebugGate(t *testing.T) {
+	f := newDebugTerminalAgentFixture(t, false)
+	caps := f.service.capabilities
+	caps.WorkspaceSandboxEnabled = true
+	service := NewRunCapabilityReadinessService(f.state, CapabilityReadinessRuntime{RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: caps, LocalSandboxInstalled: true, LocalSandboxProven: true, LocalBackendReady: true})
+	for _, live := range []bool{true, false} {
+		if !live {
+			caps.RuntimeAuthority.RevokeRun(f.run.ID)
+		}
+		projection, err := service.Project(t.Context(), f.run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, option := range projection.Interactions {
+			if option.Value == "debug" {
+				found = true
+				if option.RuntimeAvailable != live {
+					t.Fatalf("Full live=%v debug interaction=%+v", live, option)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("terminal interaction readiness missing")
+		}
+	}
 }

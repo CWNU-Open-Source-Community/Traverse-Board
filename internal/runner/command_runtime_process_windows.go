@@ -235,7 +235,7 @@ func (starter windowsCommandRuntimeStarter) Start(ctx context.Context, scope Com
 }
 
 func newFixedCommandRuntimeStarter(fixed *fixedCommandRuntime) (commandRuntimeStarter, CommandRuntimeSpec, error) {
-	if fixed.startSpec().Validate() != nil || !newPlatformControlledStarter().Available() {
+	if fixed.startSpec().Validate() != nil || createRestrictedTokenProc.Find() != nil {
 		return nil, CommandRuntimeSpec{}, ErrControlledExecutionPlatform
 	}
 	path, file, err := pinControlledExecutable(fixed.plan.ExecutableID)

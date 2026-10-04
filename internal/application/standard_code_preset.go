@@ -86,7 +86,7 @@ const (
 	StandardCodeNextPauseAndConfigure     StandardCodeNextStep = "pause_and_configure"
 	StandardCodeNextWaitForQuiescence     StandardCodeNextStep = "wait_for_quiescence"
 	StandardCodeNextSelectDocker          StandardCodeNextStep = "select_docker"
-	StandardCodeNextSelectApproval        StandardCodeNextStep = "select_approval"
+	StandardCodeNextSelectAsk             StandardCodeNextStep = "select_ask"
 	StandardCodeNextRetryReadiness        StandardCodeNextStep = "retry_readiness"
 	StandardCodeNextCreateNewRun          StandardCodeNextStep = "create_new_run"
 )
@@ -671,8 +671,7 @@ func (s *StandardCodePresetService) backendReadiness(
 	}
 	if !s.runtime.RunControlEnabled ||
 		!s.runtime.ExecutionPermissionControlEnabled ||
-		!s.runtime.ExecutionPermissionCapabilities.Allows(
-			domain.RunExecutionPermissionWorkspaceAccess) {
+		!s.runtime.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
 		add(CapabilityBlockerStartupGateClosed)
 	}
 	adapterBackend := CommandRuntimeLocalSandboxBackend
@@ -683,7 +682,7 @@ func (s *StandardCodePresetService) backendReadiness(
 	for _, adapter := range s.runtime.CommandRuntimeAdapters {
 		if adapter.Backend == adapterBackend && adapter.Executable() &&
 			commandRuntimeExecutionProfile(adapter) == backend.ExecutionProfile() &&
-			adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess) {
+			adapter.AllowsPermission(domain.RunExecutionPermissionAsk) {
 			installed = true
 			break
 		}
@@ -762,9 +761,8 @@ func (s *StandardCodePresetService) backendAlternatives(
 	if intent != domain.StandardCodeBackendDocker && docker.Available {
 		steps = append(steps, StandardCodeNextSelectDocker)
 	}
-	if s.runtime.ExecutionPermissionCapabilities.Allows(
-		domain.RunExecutionPermissionApproval) {
-		steps = append(steps, StandardCodeNextSelectApproval)
+	if s.runtime.ExecutionPermissionCapabilities.OperatorApprovalEnabled {
+		steps = append(steps, StandardCodeNextSelectAsk)
 	}
 	if len(steps) == 0 {
 		steps = append(steps, StandardCodeNextRetryReadiness)

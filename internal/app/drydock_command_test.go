@@ -14,6 +14,12 @@ import (
 )
 
 func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
+	for _, mode := range []string{"ask", "auto", "full"} {
+		t.Run(mode, func(t *testing.T) { testDrydockCLIPermission(t, mode) })
+	}
+}
+
+func testDrydockCLIPermission(t *testing.T, mode string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is unavailable")
 	}
@@ -78,6 +84,16 @@ func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
 	if shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID); code != 0 || stderr != "" || !strings.Contains(shown, "mode: ask") {
 		t.Fatalf("initial restore permission=%s stderr=%s code=%d", shown, stderr, code)
 	}
+	if mode != "ask" {
+		change := []string{"run", "execution-permission", "set", runID, mode,
+			"--operation-key", "cli-permission-" + mode, "--enable-permission-control"}
+		if mode == "full" {
+			change = append(change, "--enable-danger-full-access", "--confirm-full")
+		}
+		if _, stderr, code := executeTestCommand(t, change...); code != 0 {
+			t.Fatalf("set current %s preference: code=%d stderr=%s", mode, code, stderr)
+		}
+	}
 	for _, action := range []string{"start", "pause"} {
 		if _, stderr, code = executeTestCommand(t, "run", action, runID); code != 0 {
 			t.Fatalf("run %s failed: %s", action, stderr)
@@ -96,6 +112,13 @@ func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
 			t.Fatalf("%s without runtime permission gate: code=%d stderr=%q", action, code, stderr)
 		}
 		args = append(args, "--enable-permission-control")
+		if mode == "full" {
+			args = append(args, "--enable-danger-full-access")
+			if _, stderr, code := executeTestCommand(t, args...); code != 5 || !strings.Contains(stderr, "not authorized") {
+				t.Fatalf("%s inherited Full without invocation confirmation: code=%d stderr=%s", action, code, stderr)
+			}
+			args = append(args, "--confirm-full")
+		}
 		resultJSON, stderr, code := executeTestCommand(t, args...)
 		var restored application.DrydockRewindResult
 		if code != 0 || json.Unmarshal([]byte(resultJSON), &restored) != nil || !restored.Confirmed ||
@@ -103,7 +126,13 @@ func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
 			t.Fatalf("%s result=%s stderr=%q code=%d", action, resultJSON, stderr, code)
 		}
 		currentGeneration = restored.Workspace.Generation
-		replayJSON, stderr, code := executeTestCommand(t, args...)
+		replayArgs := make([]string, 0, len(args))
+		for _, arg := range args {
+			if arg != "--confirm-full" {
+				replayArgs = append(replayArgs, arg)
+			}
+		}
+		replayJSON, stderr, code := executeTestCommand(t, replayArgs...)
 		var replay application.DrydockRewindResult
 		if code != 0 || json.Unmarshal([]byte(replayJSON), &replay) != nil || !replay.Replayed ||
 			replay.Receipt == nil || replay.Receipt.ID != restored.Receipt.ID || replay.Workspace.Generation != currentGeneration {

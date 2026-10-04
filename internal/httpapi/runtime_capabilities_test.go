@@ -43,8 +43,6 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.WorkspaceImportEnabled ||
 		view.SessionMessageEnabled != fixture.api.sessionMessageEnabled ||
 		view.ThreadControlEnabled != (fixture.api.runCreationEnabled && fixture.api.sessionMessageEnabled) ||
-		view.ControlledCommandProposalEnabled ||
-		view.HostCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
 		view.RunWakeWorkerEnabled || view.ScheduledJobControlEnabled ||
 		view.ScheduledJobWorkerEnabled ||
@@ -173,8 +171,7 @@ func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *te
 		!view.CommandRuntimeProtocolAvailable || !view.CommandRuntimeAdapterInstalled ||
 		!view.CommandRuntimeAdapterReady || len(view.CommandRuntimeAdapters) != 1 ||
 		!view.CommandRuntimeEnabled || !view.ProcessExecutionEnabled ||
-		!view.ShellExecutionEnabled || !view.AgentCodeToolsEnabled ||
-		view.DebugMaximumAccessEnabled {
+		!view.ShellExecutionEnabled || !view.AgentCodeToolsEnabled {
 		t.Fatalf("command runtime capability projection is invalid: %#v", view)
 	}
 }

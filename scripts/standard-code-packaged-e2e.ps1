@@ -543,14 +543,14 @@ try {
     Assert-E2ECondition ($fixtureReport.protocol_version -ceq "standard_code_fixture_set.v1" -and
         [bool]$fixtureReport.oracle_verified -and [bool]$fixtureReport.all_attack_cases_bound -and
         [int]$fixtureReport.repository_count -eq 4 -and
-        [int]$fixtureReport.attack_case_count -eq 40 -and
+        [int]$fixtureReport.attack_case_count -eq 39 -and
         @($repositoryReports | Where-Object {
             -not [bool]$_.clean -or -not [bool]$_.baseline_failure_observed -or
             -not [bool]$_.repair_pass_verified
         }).Count -eq 0) "fixture_oracle_report"
     Add-E2EResult "fixed_repository_oracle" "pass" ([pscustomobject][ordered]@{
         repository_count = 4
-        attack_case_count = 40
+        attack_case_count = 39
         baseline_failures_observed = 4
         repair_passes_verified = 4
     })
@@ -775,12 +775,12 @@ $report = [pscustomobject][ordered]@{
     fixture_set = $fixtureEvidence
     results = @($results)
     attack_matrix = [pscustomobject][ordered]@{
-        required_case_count = 40
+        required_case_count = 39
         prepared_case_count = $(if ($null -ne $fixtureReport) {
             [int]$fixtureReport.attack_case_count
         } else { 0 })
         evidenced_case_count = 0
-        remaining_required_case_count = 40
+        remaining_required_case_count = 39
         status = "needs_full_matrix"
         failure_policy = "fail_closed_no_waiver"
         unexecuted_cases_are_not_pass_or_skip = $true

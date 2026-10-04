@@ -23,7 +23,7 @@ function control(threadID: string): ThreadExecutionPermissionControlView {
       required_gate: "operation_authority", policy_version: "execution_permission_policy.v2",
       operator_confirmed: false, runtime_gate_available: true,
       runtime: { workspace_sandbox_enabled: true, operator_approval_enabled: true,
-        danger_full_access_enabled: true, debug_maximum_access_enabled: false },
+        danger_full_access_enabled: true,  },
       capability_matrix: { workspace_read: true, workspace_write: true, sandboxed_command_runtime: true,
         unsandboxed_host_process: false, network_access: false, credential_access: false,
         user_home_access: false, persistent_user_terminal: false, persistent_agent_terminal: false,

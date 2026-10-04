@@ -13,7 +13,6 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/runmutation"
@@ -103,11 +102,7 @@ func (s *ThreadPullRequestService) authority(ctx context.Context, bound ThreadGi
 		// exact native consent through the common policy and transport guard.
 		return s.store.CheckThreadGitIdle(ctx, bound.ThreadID, bound.RunID, lease)
 	}
-	decision, err := executionauth.EvaluateExecutionPermission(permission, s.review.permissionCapabilities, executionauth.PermissionRequest{Kind: executionauth.PermissionOperationStatelessCommand, Network: true, OperatorApproved: true})
-	if err != nil || !decision.Allowed || !decision.Network {
-		return apperror.New(apperror.CodePolicyDenied, "draft creation requires current network permission and exact operator approval")
-	}
-	return s.store.CheckThreadGitIdle(ctx, bound.ThreadID, bound.RunID, lease)
+	return apperror.New(apperror.CodePolicyDenied, "select a current approval preference before creating a draft")
 }
 
 func (s *ThreadPullRequestService) Discover(ctx context.Context, threadID, connectionID, base string) (ThreadPullRequestDiscovery, error) {

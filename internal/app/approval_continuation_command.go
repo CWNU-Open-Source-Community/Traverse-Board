@@ -199,7 +199,7 @@ func (a *App) approvalDecideAndContinue(ctx context.Context, actionName string, 
 		}
 		return nil
 	}
-	capabilities := cliExecutionPermissionCapabilities(*enablePermission, *enableFull, false)
+	capabilities := cliExecutionPermissionCapabilities(*enablePermission, *enableFull)
 	handoff, closeRuntime, err := a.newCLIApprovalExecution(ctx, record.RunID, capabilities, *confirmFull)
 	if err != nil {
 		return fmt.Errorf("approval saved; continuation setup failed: %w", err)

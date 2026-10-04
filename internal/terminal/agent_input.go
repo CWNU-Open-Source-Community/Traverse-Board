@@ -78,6 +78,7 @@ func (b *AgentInputBridge) Issue(ctx context.Context,
 	session, err := b.manager.Get(request.SessionID)
 	if err != nil || session.State != SessionRunning ||
 		session.AgentInputDefault || !session.JobAssignedAtCreation ||
+		b.manager.recheckAgentInputSession(ctx, session.ID) != nil ||
 		!session.KillOnJobClose {
 		return IssuedAgentInput{}, ErrAgentInputBridgeDenied
 	}
@@ -153,6 +154,9 @@ func (b *AgentInputBridge) Read(ctx context.Context,
 		session.ID != lease.Scope.TerminalSessionID {
 		return AgentReadResult{}, ErrAgentInputBridgeDenied
 	}
+	if err := b.manager.recheckAgentInputSession(ctx, session.ID); err != nil {
+		return AgentReadResult{}, ErrAgentInputBridgeDenied
+	}
 	page, err := b.manager.Read(session.ID, request.Cursor, request.MaxBytes)
 	if err != nil {
 		return AgentReadResult{}, err
@@ -186,4 +190,14 @@ func (b *AgentInputBridge) Revoke(leaseID string, requestedBy string,
 		return executionauth.TerminalInputLease{}, ErrAgentInputBridgeDenied
 	}
 	return b.broker.Revoke(leaseID, requestedBy, operatorConfirmed)
+}
+
+// The bridge cannot attach a new activation to a terminal from an old one.
+// Issue and Read use the same original authorization ref as native writes.
+func (m *Manager) recheckAgentInputSession(ctx context.Context, sessionID string) error {
+	entry := m.entry(sessionID)
+	if ctx == nil || entry == nil || entry.authorizer == nil {
+		return ErrAgentInputBridgeDenied
+	}
+	return entry.authorizer.Recheck(ctx, entry.subject, entry.startOperation, "", entry.authorizationRef)
 }

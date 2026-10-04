@@ -35,6 +35,12 @@ func TestGitAdvancedCLIRequiresExplicitCapabilityFlagsAndRejectsRawArgv(t *testi
 }
 
 func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed(t *testing.T) {
+	for _, mode := range []string{"ask", "auto", "full"} {
+		t.Run(mode, func(t *testing.T) { testGitAdvancedCLIPermission(t, mode) })
+	}
+}
+
+func testGitAdvancedCLIPermission(t *testing.T, mode string) {
 	home := t.TempDir()
 	t.Setenv("CYBERAGENT_HOME", home)
 	if _, stderr, code := executeTestCommand(t, "workspace", "init", "git-advanced-cli"); code != 0 {
@@ -67,6 +73,16 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 	if shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID); code != 0 || stderr != "" || !strings.Contains(shown, "mode: ask") {
 		t.Fatalf("initial Ask permission=%s stderr=%s code=%d", shown, stderr, code)
 	}
+	if mode != "ask" {
+		change := []string{"run", "execution-permission", "set", runID, mode,
+			"--operation-key", "cli-permission-" + mode, "--enable-permission-control"}
+		if mode == "full" {
+			change = append(change, "--enable-danger-full-access", "--confirm-full")
+		}
+		if _, stderr, code := executeTestCommand(t, change...); code != 0 {
+			t.Fatalf("set current %s preference: code=%d stderr=%s", mode, code, stderr)
+		}
+	}
 	if _, stderr, code = executeTestCommand(t, "run", "start", runID); code != 0 {
 		t.Fatalf("run start failed: %s", stderr)
 	}
@@ -90,6 +106,9 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 	base := []string{"git-advanced", "run", "stash_create", "--run", runID,
 		"--enable-git-advanced", "--enable-permission-control",
 		"--operation-key", "git-advanced-cli-stash-0001", "--message", "CLI exact stash"}
+	if mode == "full" {
+		base = append(base, "--enable-danger-full-access")
+	}
 	preview, stderr, code := executeTestCommand(t, base...)
 	if code != 0 || stderr != "" || !strings.Contains(preview, "review_only: true") ||
 		!strings.Contains(preview, "checkpoint_required: true") ||
@@ -104,6 +123,15 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 	}
 
 	confirmed := append(append([]string{}, base...), "--confirm")
+	if mode == "full" {
+		if output, stderr, code := executeTestCommand(t, confirmed...); code == 0 {
+			t.Fatalf("exact operation confirmation activated cold Full: %s %s", output, stderr)
+		}
+		if got := strings.TrimSpace(runGitAdvancedCLITestGit(t, root, "stash", "list")); got != "" {
+			t.Fatalf("cold Full created stash: %q", got)
+		}
+		confirmed = append(confirmed, "--confirm-full")
+	}
 	receipt, stderr, code := executeTestCommand(t, confirmed...)
 	if code != 0 || stderr != "" || !strings.Contains(receipt, "status: succeeded") ||
 		!strings.Contains(receipt, "checkpoint_id: wcp-") ||
@@ -117,6 +145,24 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 		"tracked.txt")); got != "" {
 		t.Fatalf("stash receipt left unexpected tracked-file state: %q", got)
 	}
+	if mode == "full" {
+		if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("next change\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cold := append(append([]string{}, base...), "--confirm")
+		for i := range cold {
+			if cold[i] == "git-advanced-cli-stash-0001" {
+				cold[i] = "git-advanced-cli-stash-0002"
+			}
+		}
+		if _, stderr, code := executeTestCommand(t, cold...); code == 0 {
+			t.Fatalf("next invocation inherited Full: %s", stderr)
+		}
+		if count := strings.Count(strings.TrimSpace(runGitAdvancedCLITestGit(t, root, "stash", "list")), "CLI exact stash"); count != 1 {
+			t.Fatalf("cold follow-up created another stash: %d", count)
+		}
+	}
+
 }
 
 func runGitAdvancedCLITestGit(t *testing.T, root string, args ...string) string {

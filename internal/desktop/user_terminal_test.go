@@ -114,8 +114,7 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	defer manager.Shutdown()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	service, err := newDesktopUserTerminalService(state, manager, capabilities)
 	if err != nil {
@@ -303,8 +302,7 @@ func TestDesktopTerminalFullActivationIsProcessLocalAndCannotReviveSession(t *te
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx, application.ChangeRunExecutionPermissionRequest{
 		RunID: run.ID, Mode: "full", OperationKey: "terminal-live-full", RequestedBy: "test_operator", Reason: "activate terminal", ConfirmFull: true}); err != nil {
 		t.Fatal(err)

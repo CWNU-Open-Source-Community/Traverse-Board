@@ -14,13 +14,18 @@ The common operation authorizer checks the grant before dispatch and at the nati
 
 Declarations do not provide filesystem or network isolation. A host working directory and a claimed risk scope cannot constrain a native program's actual effects. The installed native adapter and current host policy determine the available boundary; the common authorizer still applies.
 
-## Compatibility and retirement stages
+## Legacy execution retirement
 
-This increment adds the replacement bounded command path. It retains the legacy `host_command_propose` and `risk_escalation` creation/review/execution paths until their old-record bridge has passed positive and negative tests. The pending retirement list is:
+Controlled, Once, Host proposal and Risk escalation producers, review/execution
+services, obsolete Store writers and native executor wrappers are removed.
+New commands use the existing Command Runtime and bounded approval ledger.
+There is no executable bridge for old approved commands.
 
-- `HostCommandProposalToolExecutor.ProposeHostCommand` and old tool advertisement/wiring in the app and supervisor.
-- `CreateHostCommandProposal`, `CreateRiskEscalationProposal` and obsolete public intent writers.
-- ReviewService's duplicated bounded-grant creation/consumption and direct `HostExecutor.Execute` calls.
-- The old native executor's duplicated five-mode decision logic, after an exact historical adapter uses the common authorizer.
-
-Historical proposals, approvals, grants, consumptions, results and receipts remain readable. Completed decisions can be replayed without refreshing authority. A recorded execution start with no durable result remains unknown and is never automatically resent. An old approved command without an execution intent requires explicit confirmation and a bridge that retains the recorded constraints; it must not silently convert old permission data. These bridge and retirement steps are separate from this increment and are not claimed complete here.
+Historical proposals, approvals, grants, consumptions, results and receipts remain
+readable. Saved ordinary Host denial/results can continue their existing Thread;
+unknown ordinary Host outcomes remain blocked. Exact Risk Supervisor calls may
+consume a saved denial/result/invalidation or an `execution_uncertain` outcome,
+without sending a command or renewing authority. Pending records cannot execute.
+The bodyless resume endpoint remains control-authenticated and Run-bound.
+See [ADR 0165](../adr/0165-retire-legacy-command-execution.md) for the deletion and
+data-retention boundary.

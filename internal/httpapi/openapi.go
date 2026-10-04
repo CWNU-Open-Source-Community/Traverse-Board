@@ -158,6 +158,7 @@ type openAPIOperationSpec struct {
 	Streaming     bool
 	Parameters    []openAPIParameter
 	RequestType   reflect.Type
+	EmptyBody     bool
 	Control       bool
 	SuccessStatus int
 }
@@ -630,7 +631,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(RuntimeCapabilitiesView{})},
 		{Path: StandardCodePresetCreatePath, Method: http.MethodPost,
 			OperationID: "createStandardCodeRun", Summary: "Create and configure a Standard Code Run",
-			Tag: "Control", Description: "Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
+			Tag: "Control", Description: "Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
 			DataType:    reflect.TypeOf(StandardCodePresetControlView{}),
 			RequestType: reflect.TypeOf(StandardCodePresetControlRequestView{}),
 			Control:     true, SuccessStatus: http.StatusAccepted,
@@ -1506,7 +1507,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: RunExecutionPermissionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectRunExecutionPermission",
 			Summary:     "Select a Run execution permission mode", Tag: "Control",
-			Description: "Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.",
+			Description: "Selects Ask, Auto or Full operation approval. Full requires explicit confirmation and live activation in the current process. Persisted snapshots and historical approvals never restore execution authority; each operation rechecks its exact inputs, policy, runtime epoch and Run fence.",
 			DataType:    reflect.TypeOf(RunExecutionPermissionControlView{}),
 			RequestType: reflect.TypeOf(RunExecutionPermissionControlRequestView{}),
 			Control:     true, NotFound: true, Parameters: []openAPIParameter{
@@ -1519,7 +1520,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: RunBrowserCDPPermissionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "selectRunBrowserCDPPermission",
 			Summary:     "Select a Run browser CDP permission mode", Tag: "Control",
-			Description: "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.",
+			Description: "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under modern Full with live process activation; it defaults on when entering Full, can be disabled independently, and is forced off outside Full.",
 			DataType:    reflect.TypeOf(RunBrowserCDPPermissionControlView{}),
 			RequestType: reflect.TypeOf(RunBrowserCDPPermissionControlRequestView{}),
 			Control:     true, NotFound: true, Parameters: []openAPIParameter{
@@ -1554,7 +1555,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: FullCDPSessionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "openRunFullCDPSession", Summary: "Open a confirmed Full CDP session",
 			Tag:         "Control",
-			Description: "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
+			Description: "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires modern Full with live process activation, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
 			DataType:    reflect.TypeOf(FullCDPSessionControlView{}),
 			RequestType: reflect.TypeOf(FullCDPSessionOpenRequestView{}),
 			Control:     true, NotFound: true, SuccessStatus: http.StatusCreated,
@@ -1738,27 +1739,10 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Returns the exact Run-bound proposal, operator review, result, and metadata-only receipt. Raw stdout and stderr are never persisted or returned by this read endpoint.",
 			DataType:    reflect.TypeOf(ControlledCommandProposalView{}),
 			NotFound:    true, Parameters: []openAPIParameter{runID, proposalID}},
-		{Path: ControlledCommandProposalReviewPathTemplate,
-			Method:      http.MethodPost,
-			OperationID: "reviewControlledCommandProposal",
-			Summary:     "Approve or deny one fixed command proposal",
-			Tag:         "Control",
-			Description: "Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.",
-			DataType:    reflect.TypeOf(ControlledCommandProposalView{}),
-			RequestType: reflect.TypeOf(
-				ControlledCommandProposalReviewRequestView{}),
-			Control: true, NotFound: true,
-			Parameters: []openAPIParameter{runID, proposalID,
-				{Name: "Idempotency-Key", In: "header",
-					Description: "Opaque review key; only a domain-separated digest is persisted",
-					Required:    true, Schema: map[string]any{"type": "string",
-						"minLength": domain.MinAgentOperationKeyBytes,
-						"maxLength": domain.MaxAgentOperationKeyBytes,
-						"pattern":   `^\S+$`}}}},
 		{Path: HostCommandProposalCollectionPathTemplate,
 			OperationID: "listHostCommandProposals",
-			Summary:     "List exact host command proposals", Tag: "Control",
-			Description: "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
+			Summary:     "List historical host command proposals", Tag: "Control",
+			Description: "Reads saved Host and Risk proposal evidence. Creation, review and execution are retired; these records cannot authorize a new command. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			Collection:  true, NotFound: true,
 			Parameters: []openAPIParameter{runID,
@@ -1768,26 +1752,15 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"maximum": MaxPageLimit, "default": DefaultPageLimit}}}},
 		{Path: HostCommandProposalDetailPathTemplate,
 			OperationID: "getHostCommandProposal",
-			Summary:     "Inspect one exact host command proposal", Tag: "Control",
-			Description: "Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.",
+			Summary:     "Inspect one historical host command proposal", Tag: "Control",
+			Description: "Reads the saved immutable command envelope, review, historical grant and consumption metadata, invalidation state, result and receipt. Only a saved outcome may continue its exact original call; pending or approved records do not regain execution authority. An execution intent without a durable result remains unknown and is never resent.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			NotFound:    true, Parameters: []openAPIParameter{runID, proposalID}},
-		{Path: HostCommandProposalReviewPathTemplate,
-			Method:      http.MethodPost,
-			OperationID: "reviewHostCommandProposal",
-			Summary:     "Approve or deny one exact host command proposal",
-			Tag:         "Control",
-			Description: "Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
-			DataType:    reflect.TypeOf(HostCommandProposalView{}),
-			RequestType: reflect.TypeOf(HostCommandProposalReviewRequestView{}),
-			Control:     true, NotFound: true,
-			Parameters: []openAPIParameter{runID, proposalID,
-				{Name: "Idempotency-Key", In: "header",
-					Description: "Opaque review key; only a domain-separated digest is persisted",
-					Required:    true, Schema: map[string]any{"type": "string",
-						"minLength": domain.MinAgentOperationKeyBytes,
-						"maxLength": domain.MaxAgentOperationKeyBytes,
-						"pattern":   `^\S+$`}}}},
+		{Path: HostCommandProposalResumePathTemplate, Method: http.MethodPost,
+			OperationID: "resumeHostCommandProposal", Summary: "Resume a saved historical command outcome", Tag: "Control",
+			Description: "Resumes only the exact durable Supervisor call or approval continuation from saved history. Requires control authorization and an available Run controller. Does not accept command, review or grant parameters. A historical intent without a result remains unknown and is never re-executed.",
+			DataType:    reflect.TypeOf(HostCommandProposalView{}), Control: true, EmptyBody: true, NotFound: true,
+			Parameters: []openAPIParameter{runID, proposalID}},
 		{Path: FileEditQueuePathTemplate, OperationID: "listRunFileEdits",
 			Summary: "List Run file edit previews", Tag: "Runs",
 			Description: "Returns at most one hundred Run-bound metadata-only file edit previews. Original and proposed file bodies are omitted and apply authority is always false.",
@@ -2136,13 +2109,13 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 	operation := openAPIOperation{OperationID: spec.OperationID, Summary: spec.Summary,
 		Description: spec.Description, Tags: []string{spec.Tag}, Parameters: spec.Parameters,
 		Responses: responses, ReadOnly: !spec.Control, Streaming: spec.Streaming}
-	if spec.Control && spec.RequestType == nil {
+	if spec.Control && spec.RequestType == nil && !spec.EmptyBody {
 		return openAPIOperation{}, fmt.Errorf("OpenAPI control path %q has no request DTO", spec.Path)
 	}
+	if spec.Control {
+		operation.Security = []map[string][]string{{"ControlBearerAuth": {}}}
+	}
 	if spec.RequestType != nil {
-		if spec.Control {
-			operation.Security = []map[string][]string{{"ControlBearerAuth": {}}}
-		}
 		operation.RequestBody = &openAPIRequestBody{Required: true, Content: map[string]openAPIMediaType{
 			"application/json": {Schema: registry.ref(spec.RequestType)},
 		}}
@@ -3115,7 +3088,7 @@ var openAPIFieldEnums = map[string][]string{
 	"StandardCodePresetControlView.selected_backend":           {string(domain.StandardCodeSelectedLocal), string(domain.StandardCodeSelectedDocker)},
 	"StandardCodePresetControlView.selection_reason":           {string(domain.StandardCodeReasonAutoLocalReady), string(domain.StandardCodeReasonExplicitLocal), string(domain.StandardCodeReasonExplicitDocker)},
 	"StandardCodePresetControlView.blocked_by":                 {string(application.CapabilityBlockerRunNotQuiescent), string(application.CapabilityBlockerExecutionLeaseActive), string(application.CapabilityBlockerStartupGateClosed), string(application.CapabilityBlockerCapabilityUnimplemented), string(application.CapabilityBlockerSurfaceMismatch), string(application.CapabilityBlockerProfileMismatch), string(application.CapabilityBlockerPermissionMismatch), string(application.CapabilityBlockerWorkspaceUntrusted), string(application.CapabilityBlockerSandboxUnproven), string(application.CapabilityBlockerDockerUnavailable), string(application.CapabilityBlockerBackendNotReady)},
-	"StandardCodePresetControlView.next_steps":                 {string(application.StandardCodeNextConfirmWorkspaceTrust), string(application.StandardCodeNextPauseAndConfigure), string(application.StandardCodeNextWaitForQuiescence), string(application.StandardCodeNextSelectDocker), string(application.StandardCodeNextSelectApproval), string(application.StandardCodeNextRetryReadiness), string(application.StandardCodeNextCreateNewRun)},
+	"StandardCodePresetControlView.next_steps":                 {string(application.StandardCodeNextConfirmWorkspaceTrust), string(application.StandardCodeNextPauseAndConfigure), string(application.StandardCodeNextWaitForQuiescence), string(application.StandardCodeNextSelectDocker), string(application.StandardCodeNextSelectAsk), string(application.StandardCodeNextRetryReadiness), string(application.StandardCodeNextCreateNewRun)},
 	"StandardCodePresetControlView.network":                    {"disabled"},
 	"StandardCodePresetControlView.credentials":                {"none"},
 	"StandardCodeBackendReadinessView.backend":                 {string(domain.StandardCodeSelectedLocal), string(domain.StandardCodeSelectedDocker)},
@@ -3245,7 +3218,7 @@ var openAPIFieldEnums = map[string][]string{
 	"AgentCodeCapabilitiesView.phase":                          {string(domain.ExecutionPhasePlan), string(domain.ExecutionPhaseDeliver)},
 	"AgentCodeCapabilitiesView.role":                           {string(domain.AgentRoleRoot)},
 	"AgentCodeCapabilitiesView.profile":                        {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
-	"AgentCodeCapabilitiesView.permission_mode":                {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"AgentCodeCapabilitiesView.permission_mode":                {string(domain.RunExecutionPermissionAsk), string(domain.RunExecutionPermissionAuto), string(domain.RunExecutionPermissionFull), string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
 	"AgentCodeToolCapabilityView.name":                         {string(toolgateway.WorkspaceListTool), string(toolgateway.WorkspaceReadTool), string(toolgateway.WorkspaceGlobTool), string(toolgateway.WorkspaceGrepTool), string(toolgateway.WorkspaceChangeTool), string(toolgateway.WorkspaceApplyTool), string(toolgateway.WorkspaceDeleteTool)},
 	"AgentCodeToolCapabilityView.class":                        {string(toolgateway.ClassWorkspaceRead), string(toolgateway.ClassWorkspaceWrite)},
 	"AgentCodeToolCapabilityView.source":                       {toolgateway.AgentCodeRegistryVersion},
@@ -3518,9 +3491,6 @@ var openAPIFieldEnums = map[string][]string{
 	"ApprovalDecisionControlView.version":                      {application.ApprovalControlProtocolVersion},
 	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlApproveForThread), string(application.ApprovalControlApproveForRun), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.status":                       {string(approval.StatusApproved), string(approval.StatusDenied)},
-	"HostCommandProposalReviewRequestView.version":             {runner.HostCommandReviewProtocolVersion},
-	"HostCommandProposalReviewRequestView.decision":            {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
-	"HostCommandProposalReviewRequestView.authorization":       {"once", "run_scope"},
 	"HostCommandProposalReviewView.decision":                   {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
 	"HostCommandProposalView.protocol_version":                 {runner.HostCommandProposalProtocolVersion, runner.RiskEscalationProtocolVersion},
 	"HostCommandProposalView.policy_version":                   {runner.HostCommandPolicyVersion, runner.RiskEscalationPolicyVersion},
@@ -3713,8 +3683,6 @@ var openAPIFieldMinimums = map[string]float64{
 	"PlanDirectionControlView.direction":                                        1,
 	"PlanDirectionControlView.work_item_count":                                  1,
 	"ApprovalQueueItemView.version":                                             1,
-	"HostCommandProposalReviewRequestView.grant_ttl_seconds":                    1,
-	"HostCommandProposalReviewRequestView.grant_max_uses":                       1,
 	"HostCommandProposalView.timeout_milliseconds":                              1,
 	"HostCommandProposalView.permission_revision":                               1,
 	"HostCommandProposalView.supervisor_turn":                                   1,
@@ -3835,8 +3803,6 @@ var openAPIFieldMaximums = map[string]float64{
 	"BoundedCommandGrantView.max_uses":                                  8,
 	"BoundedCommandGrantView.uses_remaining":                            8,
 	"BoundedCommandGrantView.use_ordinal":                               8,
-	"HostCommandProposalReviewRequestView.grant_ttl_seconds":            runner.MaxRiskEscalationGrantTTL.Seconds(),
-	"HostCommandProposalReviewRequestView.grant_max_uses":               runner.MaxRiskEscalationGrantUses,
 	"HostCommandProposalView.grant_max_uses":                            runner.MaxRiskEscalationGrantUses,
 	"HostCommandProposalView.grant_uses_remaining":                      runner.MaxRiskEscalationGrantUses,
 	"ScheduledJobScheduleRequestView.interval_seconds":                  domain.MaxScheduledJobIntervalSeconds,
@@ -3940,7 +3906,6 @@ var openAPIFieldMaximums = map[string]float64{
 }
 
 var openAPIFieldMaxLengths = map[string]int{
-	"HostCommandProposalReviewRequestView.reason":                approval.MaxReasonRunes,
 	"HostCommandProposalView.network_purpose":                    runner.MaxRiskEscalationReasonRunes,
 	"HostCommandProposalView.policy_reason":                      runner.MaxRiskEscalationReasonRunes,
 	"HostCommandProposalView.other_risk_reason":                  runner.MaxRiskEscalationReasonRunes,

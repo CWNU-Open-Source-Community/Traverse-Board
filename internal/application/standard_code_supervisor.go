@@ -116,9 +116,9 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 		agentCodeAuthority.PermissionMode != permission.Mode ||
 		agentCodeAuthority.ModeRevision != turn.Mode.Revision ||
 		agentCodeAuthority.PermissionRevision != permission.Revision ||
-		(permission.Mode.IsApprovalMode() && !agentCodeRuntimeCurrent(s.executionCapabilities, permission,
+		!agentCodeRuntimeCurrent(s.executionCapabilities, permission,
 			agentCodeAuthority.PermissionSnapshotID, agentCodeAuthority.PermissionGeneration,
-			agentCodeAuthority.PermissionRuntimeEpoch, agentCodeAuthority.RunAuthorizationFence)) {
+			agentCodeAuthority.PermissionRuntimeEpoch, agentCodeAuthority.RunAuthorizationFence) {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"configured Standard Code Run has no exact Agent Code authority")
 	}

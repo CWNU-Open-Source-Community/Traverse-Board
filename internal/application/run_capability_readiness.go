@@ -444,6 +444,7 @@ func (p capabilityReadinessProjection) commandRuntimeReadiness() CommandRuntimeR
 	}
 	result.CurrentRunGranted = p.runtime.RunExecutionEnabled &&
 		grantReady && p.activeLease &&
+		p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission) &&
 		p.run.Status == domain.RunRunning &&
 		p.mode.Surface == domain.ExecutionSurfaceCode &&
 		p.mode.Phase == domain.ExecutionPhaseDeliver
@@ -577,12 +578,12 @@ func (p capabilityReadinessProjection) interactionOptions() []CapabilityReadines
 			}
 		}
 		if target == domain.RunExecutionInteractionDebug {
-			if p.permission.Mode != domain.RunExecutionPermissionDebug {
+			if _, live := p.runtime.ExecutionPermissionCapabilities.FullAccessGeneration(p.permission); p.permission.Mode != domain.RunExecutionPermissionFull || !live {
 				runtimeAvailable = false
 				builder.add(CapabilityBlockerPermissionMismatch,
 					CapabilityRemediationSelectRequiredPermission)
 			}
-			if !p.runtime.ExecutionPermissionCapabilities.DebugMaximumAccessEnabled {
+			if !p.runtime.ExecutionPermissionCapabilities.DangerFullAccessEnabled {
 				runtimeAvailable = false
 				builder.add(CapabilityBlockerStartupGateClosed,
 					CapabilityRemediationRestartWithStartupGate)
@@ -626,8 +627,7 @@ func (p capabilityReadinessProjection) browserCDPOptions() []CapabilityReadiness
 		}
 		if target == domain.RunBrowserCDPPermissionFullDebug {
 			executionCeilingSelected :=
-				p.permission.Mode.IsFullPreference() ||
-					p.permission.Mode == domain.RunExecutionPermissionDebug
+				p.permission.Mode == domain.RunExecutionPermissionFull
 			executionLive := executionCeilingSelected &&
 				p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission)
 			if !executionLive {
@@ -649,7 +649,7 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 		p.interaction.Mode == domain.RunExecutionInteractionControlled &&
 		p.interaction.ExecutionProfile == p.profile.Profile &&
 		p.interaction.ExecutionProfileRevision == p.profile.Revision &&
-		(p.permission.Mode == domain.RunExecutionPermissionWorkspaceAccess || p.permission.Mode.IsApprovalMode()) &&
+		p.permission.Mode.IsApprovalMode() &&
 		p.cdp.Mode == domain.RunBrowserCDPPermissionRestricted && p.drydockReady
 	builder := newReadinessOption(StandardCodePresetValue, selected)
 	selectable := p.runtime.StandardCodePresetEnabled && p.runQuiescent() && !p.activeLease

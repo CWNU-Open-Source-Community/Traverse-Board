@@ -28,7 +28,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
 | [operation-receipt-projection](#operation-receipt-projection) | `projection` | Operation receipt maintainers | 2 | true |
-| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 60 | true |
+| [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 54 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 6 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 4 | false |
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
@@ -1090,7 +1090,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `process-runtime-lifecycle-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>60 active identifiers</summary>
+<details><summary>54 active identifiers</summary>
 
 - `application_docker_container_lifecycle_post_exit.v1`
 - `application_docker_container_lifecycle_running.v1`
@@ -1118,7 +1118,6 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `controlled_command_proposal_policy.v1`
 - `controlled_command_proposal_result.v1`
 - `controlled_command_proposal_review.v1`
-- `controlled_command_proposal_review_operation.v1`
 - `debug_terminal.v1`
 - `debug_terminal_agent_input.v1`
 - `debug_terminal_agent_input_audit_record.v1`
@@ -1134,24 +1133,30 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `host_command_execution_receipt.v1`
 - `host_command_policy.v1`
 - `host_command_proposal.v1`
-- `host_command_proposal_execution_operation.v1`
 - `host_command_proposal_result.v1`
-- `host_command_proposal_review_operation.v1`
 - `host_command_review.v1`
 - `once_execution.v1`
 - `operator_command_key.v1`
 - `operator_command_request.v1`
 - `permission_runtime_epoch.v1`
 - `risk_escalation.v1`
-- `risk_escalation_execution.v1`
-- `risk_escalation_invalidation.v1`
 - `risk_escalation_policy.v1`
-- `risk_escalation_result.v1`
 - `risk_escalation_resume.v1`
 - `terminal_agent_input_audit.v1`
 - `terminal_agent_input_bridge.v1`
 - `terminal_input_lease.v1`
 - `windows-fixed-restricted.v1`
+
+</details>
+
+<details><summary>6 retained retirement records</summary>
+
+- `controlled_command_proposal_review_operation.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
+- `host_command_proposal_execution_operation.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
+- `host_command_proposal_review_operation.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
+- `risk_escalation_execution.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
+- `risk_escalation_invalidation.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
+- `risk_escalation_result.v1`: ADR 0165 removes the legacy proposal execution and review writers; new commands use Command Runtime and the common operation authorizer.
 
 </details>
 
@@ -1823,7 +1828,6 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `browser_type.v3` | `negative-version-fixture` | `internal/llm/tool_request_rejection_test.go` | Unsupported future type version in an exact redacted diagnostic negative test; never a production protocol. |
 | `call.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `compatibility.v1` | `conformance-test` | `cmd/cyberagent-desktop/windows_resources_test.go` | Microsoft XML namespace suffix used only in Windows manifest conformance assertions; not a Traverse Board wire or persisted protocol. |
-| `controlled_command_proposal.v2` | `test-fixture` | `internal/toolgateway/controlled_command_proposal_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `desktop_test_matrix.v2` | `test-fixture` | `scripts/desktop-test-matrix.ps1` | CI/Desktop test-matrix report identifier, not a product runtime protocol. |
 | `detached_signature.v1` | `test-fixture` | `internal/analyzer/release_manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `diff.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
@@ -1891,7 +1895,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `unknown.v1` | `negative-version-fixture` | `internal/analyzer/descriptor_test.go`, `web/src/api/queued-messages.test.ts` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `web-mode-test.v1` | `test-fixture` | `internal/application/web_permissions_integration_test.go` | Test connector identity for the real Supervisor search path across Ask, Auto, and cold Full; not a production protocol. |
 | `web_search.v0` | `test-fixture` | `internal/toolgateway/web_evidence_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
-| `windows-local-sandbox.v1` | `test-fixture` | `internal/application/command_runtime_test.go`, `internal/application/supervisor_tool_permission_test.go`, `internal/store/supervisor_tool_registry_migration_test.go`, `internal/store/supervisor_tools_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `windows-local-sandbox.v1` | `test-fixture` | `internal/application/command_runtime_test.go`, `internal/application/supervisor_tool_permission_test.go`, `internal/desktop/standard_code_security_ledger_windows_test.go`, `internal/store/supervisor_tool_registry_migration_test.go`, `internal/store/supervisor_tools_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `windows_appcontainer.v1` | `test-fixture` | `internal/runner/command_runtime_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `windows_appcontainer.windows_appcontainer_policy.v1` | `test-fixture` | `internal/store/migration_v131_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `windows_inherited_read_handle.v1` | `test-fixture` | `internal/analyzer/isolation_boundary_conformance_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

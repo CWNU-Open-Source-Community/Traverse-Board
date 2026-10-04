@@ -162,16 +162,25 @@ func TestCommandRuntimeReadsActualSentZipAndExcludesQueuedUploads(t *testing.T) 
 	maxBytes := 4096
 	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionRun, FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &maxBytes, Commands: []runner.CommandRuntimeSpec{{Version: runner.CommandRuntimeProtocolVersion, Profile: runner.CommandRuntimePowerShell, Script: script, WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{}, StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true, TimeoutMilliseconds: 10000, Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096, ArtifactBytes: 4096}, Network: runner.CommandRuntimeNetworkDisabled, Credentials: runner.CommandRuntimeCredentialsNone, Purpose: "read and extract the exact sent ZIP in an isolated test directory"}}}
 	scope := commandRuntimeTestScope(t, ctx, st, service, run, root, lease, "original-zip-command")
-	result, err := service.ExecuteCommandRuntime(ctx, scope, input)
+	f := commandFixtureForScope(t, st, service, scope)
+	result, err := f.execute(t, ctx, input, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Jobs) != 1 || result.Jobs[0].State != runner.CommandRuntimeJobCompleted || len(result.Artifacts) != 1 || !strings.Contains(result.Artifacts[0].Stdout, "ORIGINAL_ZIP_TOOL_READ 中文原件") || !strings.Contains(strings.ToLower(result.Artifacts[0].Stdout), file.SHA256) {
 		t.Fatalf("actual ZIP read failed %#v", result)
 	}
-	replay, err := service.ExecuteCommandRuntime(ctx, scope, input)
-	if err != nil || !replay.Replayed || replay.Jobs[0].ID != result.Jobs[0].ID {
-		t.Fatalf("original command repeated %#v %v", replay, err)
+	before, _, err := st.GetSupervisorApprovalCall(ctx, run.ID, f.call.CallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting, err := f.resume(t); err != nil || waiting {
+		t.Fatalf("replay: %t %v", waiting, err)
+	}
+	after, _, err := st.GetSupervisorApprovalCall(ctx, run.ID, f.call.CallID)
+	jobs, listErr := st.ListCommandRuntimeJobs(ctx, runner.CommandRuntimeListFilter{RunID: run.ID, Limit: 10})
+	if err != nil || listErr != nil || before.ResultJSON != after.ResultJSON || len(jobs) != 1 || jobs[0].ID != result.Jobs[0].ID {
+		t.Fatalf("replay repeated or changed command: %v %v", err, listErr)
 	}
 	job, err := st.GetCommandRuntimeJob(ctx, result.Jobs[0].ID)
 	_, manifestSHA := set.Manifest()

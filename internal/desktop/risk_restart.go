@@ -61,7 +61,7 @@ func (b *DesktopBridge) RestartWithRiskProfile(
 		return DesktopRiskRestartResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"desktop risk-profile restart request is invalid")
 	}
-	if request.Profile == DesktopRiskProfileDebug && b.bootstrap.DebugMaximumAccessEnabled {
+	if request.Profile == DesktopRiskProfileDebug && b.bootstrap.UserTerminalEnabled {
 		return DesktopRiskRestartResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"desktop risk profile is already active")
 	}

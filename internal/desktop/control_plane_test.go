@@ -471,9 +471,8 @@ func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
 		UserTerminalEnabled:               true,
 		ExecutionPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled:   true,
-			DangerFullAccessEnabled:   true,
-			DebugMaximumAccessEnabled: true,
+			OperatorApprovalEnabled: true,
+			DangerFullAccessEnabled: true,
 		},
 		AppVersion: "desktop-test",
 	})

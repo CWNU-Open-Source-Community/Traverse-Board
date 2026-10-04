@@ -19,9 +19,9 @@ const workspaceCheckpointUsage = "usage: cyberagent workspace checkpoint " +
 type workspaceCheckpointAuthorityFlags struct {
 	operator          *string
 	confirm           *bool
+	confirmFull       *bool
 	permissionControl *bool
 	dangerFullAccess  *bool
-	debugMaximum      *bool
 }
 
 func addWorkspaceCheckpointAuthorityFlags(fs *flag.FlagSet) workspaceCheckpointAuthorityFlags {
@@ -29,23 +29,19 @@ func addWorkspaceCheckpointAuthorityFlags(fs *flag.FlagSet) workspaceCheckpointA
 		operator: fs.String("operator", "cli_operator", "operator identity"),
 		confirm: fs.Bool("confirm", false,
 			"confirm the exact Workspace restore or Fork intent"),
+		confirmFull: fs.Bool("confirm-full", false,
+			"activate the current Full preference only for this invocation"),
 		permissionControl: fs.Bool("enable-permission-control", false,
 			"enable operator-selected Run permission for this process"),
 		dangerFullAccess: fs.Bool("enable-danger-full-access", false,
 			"enable danger-full-access for this process"),
-		debugMaximum: fs.Bool("enable-debug-maximum-access", false,
-			"enable maximum Debug permission for this process"),
 	}
 }
 
 func (f workspaceCheckpointAuthorityFlags) capabilities() (
 	domain.ExecutionPermissionRuntimeCapabilities, error,
 ) {
-	value := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *f.permissionControl,
-		DangerFullAccessEnabled:   *f.dangerFullAccess,
-		DebugMaximumAccessEnabled: *f.debugMaximum,
-	}
+	value := cliExecutionPermissionCapabilities(*f.permissionControl, *f.dangerFullAccess)
 	if err := value.Validate(); err != nil {
 		return domain.ExecutionPermissionRuntimeCapabilities{},
 			apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
@@ -190,6 +186,11 @@ func (a *App) workspaceCheckpointRewind(ctx context.Context, args []string) erro
 	if err != nil {
 		return err
 	}
+	release, err := a.activateCLIInvocationFull(ctx, *runID, capabilities, *authority.confirmFull)
+	if err != nil {
+		return err
+	}
+	defer release()
 	value, err := service.Restore(ctx, application.WorkspaceRestoreRequest{
 		RunID: *runID, TargetCheckpointID: *target,
 		ExpectedCurrentCheckpointID: *expected, OperationKey: *operationKey,
@@ -227,6 +228,11 @@ func (a *App) workspaceCheckpointCursorAction(ctx context.Context, action string
 	if err != nil {
 		return err
 	}
+	release, err := a.activateCLIInvocationFull(ctx, *runID, capabilities, *authority.confirmFull)
+	if err != nil {
+		return err
+	}
+	defer release()
 	var value application.WorkspaceRestoreResult
 	if action == "undo" {
 		value, err = service.Undo(ctx, *runID, *expected, *operationKey,
@@ -270,6 +276,11 @@ func (a *App) workspaceCheckpointFork(ctx context.Context, args []string) error 
 	if err != nil {
 		return err
 	}
+	release, err := a.activateCLIInvocationFull(ctx, *runID, capabilities, *authority.confirmFull)
+	if err != nil {
+		return err
+	}
+	defer release()
 	value, err := service.Fork(ctx, application.WorkspaceForkRequest{
 		RunID: *runID, TargetCheckpointID: *target,
 		ExpectedCurrentCheckpointID: *expected, OperationKey: *operationKey,

@@ -1,5 +1,11 @@
 # 高级 Git 工作流 / Advanced Git Workflows
 
+Current execution uses Ask / Auto / Full. A confirmed mutation for a Full Run
+also needs `--enable-permission-control --enable-danger-full-access --confirm-full`
+in the same CLI invocation. The existing `--confirm` and exact approval checks
+remain required. Full activation ends when the command returns; read-only and
+receipt recovery operations do not activate it.
+
 [中文 README](../README.md) | [English README](../README.en.md) | [HTTP API](http-api.md) | [ADR 0122](adr/0122-go-owned-advanced-git-lifecycle.md)
 
 Schema v123 introduces the default-off `git-advanced.v1` control plane for exact hunk

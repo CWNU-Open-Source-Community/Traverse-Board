@@ -114,60 +114,58 @@ func webFetchAuthorizationReconcilerEnabled(config ControlPlaneConfig) bool {
 }
 
 type ControlPlaneConfig struct {
-	DatabasePath                            string
-	HomePath                                string
-	ReadToken                               string
-	ControlToken                            string
-	RunControlEnabled                       bool
-	ExecutionPermissionControlEnabled       bool
-	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
-	LocalSandboxReadiness                   *sandbox.LocalReadiness
-	LocalSandboxBackend                     sandbox.LocalBackend
-	StandardCodeDockerImageDigest           string
-	WebSearchEndpoint                       string
-	BrowserCDPPermissionControlEnabled      bool
-	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
-	RunCreationEnabled                      bool
-	SessionMessageEnabled                   bool
-	SessionSteeringControlEnabled           bool
-	RunLifecycleEnabled                     bool
-	RunExecutionEnabled                     bool
-	PlanDeliveryControlEnabled              bool
-	ApprovalControlEnabled                  bool
-	ControlledCommandProposalControlEnabled bool
-	HostCommandProposalControlEnabled       bool
-	ModelControlEnabled                     bool
-	ProviderCredentialEnabled               bool
-	FileEditReviewEnabled                   bool
-	FileEditProposalEnabled                 bool
-	RunWakeControlEnabled                   bool
-	FileEditApplyEnabled                    bool
-	RunWakeExecutionEnabled                 bool
-	RunWakeWorkerEnabled                    bool
-	ScheduledJobControlEnabled              bool
-	ScheduledJobWorkerEnabled               bool
-	ScheduledJobObservationOnly             bool
-	SkillInstallationEnabled                bool
-	EvidenceAttachmentEnabled               bool
-	VerificationEvidenceEnabled             bool
-	EmbeddedAnalyzerExecutionEnabled        bool
-	BatchDeliveryControlEnabled             bool
-	BatchDeliveryHostValidationEnabled      bool
-	UIEvidenceControlEnabled                bool
-	BrowserRuntimeCapabilities              browserruntime.ProductionRuntimeCapabilities
-	FullCDPSessionControlEnabled            bool
-	FullCDPRuntimeCapabilities              browserruntime.FullCDPRuntimeCapabilities
-	UserTerminalEnabled                     bool
-	DockerExecutionEnabled                  bool
-	CodeIntelConfigPath                     string
-	GitAdvancedControlEnabled               bool
-	GitHubReviewControlEnabled              bool
-	GitManagedWorktreeRoot                  string
-	AppVersion                              string
-	UIHandler                               http.Handler
-	CredentialStore                         credential.Store
-	OnWakeWorkerError                       func(error)
-	OnScheduledJobWorkerError               func(error)
+	DatabasePath                       string
+	HomePath                           string
+	ReadToken                          string
+	ControlToken                       string
+	RunControlEnabled                  bool
+	ExecutionPermissionControlEnabled  bool
+	ExecutionPermissionCapabilities    domain.ExecutionPermissionRuntimeCapabilities
+	LocalSandboxReadiness              *sandbox.LocalReadiness
+	LocalSandboxBackend                sandbox.LocalBackend
+	StandardCodeDockerImageDigest      string
+	WebSearchEndpoint                  string
+	BrowserCDPPermissionControlEnabled bool
+	BrowserCDPPermissionCapabilities   domain.BrowserCDPPermissionRuntimeCapabilities
+	RunCreationEnabled                 bool
+	SessionMessageEnabled              bool
+	SessionSteeringControlEnabled      bool
+	RunLifecycleEnabled                bool
+	RunExecutionEnabled                bool
+	PlanDeliveryControlEnabled         bool
+	ApprovalControlEnabled             bool
+	ModelControlEnabled                bool
+	ProviderCredentialEnabled          bool
+	FileEditReviewEnabled              bool
+	FileEditProposalEnabled            bool
+	RunWakeControlEnabled              bool
+	FileEditApplyEnabled               bool
+	RunWakeExecutionEnabled            bool
+	RunWakeWorkerEnabled               bool
+	ScheduledJobControlEnabled         bool
+	ScheduledJobWorkerEnabled          bool
+	ScheduledJobObservationOnly        bool
+	SkillInstallationEnabled           bool
+	EvidenceAttachmentEnabled          bool
+	VerificationEvidenceEnabled        bool
+	EmbeddedAnalyzerExecutionEnabled   bool
+	BatchDeliveryControlEnabled        bool
+	BatchDeliveryHostValidationEnabled bool
+	UIEvidenceControlEnabled           bool
+	BrowserRuntimeCapabilities         browserruntime.ProductionRuntimeCapabilities
+	FullCDPSessionControlEnabled       bool
+	FullCDPRuntimeCapabilities         browserruntime.FullCDPRuntimeCapabilities
+	UserTerminalEnabled                bool
+	DockerExecutionEnabled             bool
+	CodeIntelConfigPath                string
+	GitAdvancedControlEnabled          bool
+	GitHubReviewControlEnabled         bool
+	GitManagedWorktreeRoot             string
+	AppVersion                         string
+	UIHandler                          http.Handler
+	CredentialStore                    credential.Store
+	OnWakeWorkerError                  func(error)
+	OnScheduledJobWorkerError          func(error)
 }
 
 func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
@@ -229,8 +227,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if config.UIEvidenceControlEnabled {
 		capabilities := config.BrowserRuntimeCapabilities
 		if !config.RunExecutionEnabled ||
-			!config.ExecutionPermissionCapabilities.Allows(
-				domain.RunExecutionPermissionFullAccess) ||
+			!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled ||
 			!config.BrowserCDPPermissionControlEnabled ||
 			!config.BrowserCDPPermissionCapabilities.ControlEnabled ||
 			capabilities.Validate() != nil || !capabilities.SafeWebStartEnabled ||
@@ -524,8 +521,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 	}()
 	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
-	if config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.Allows(
-		domain.RunExecutionPermissionFullAccess) {
+	if config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.DangerFullAccessEnabled {
 		hostRuntime, serviceErr := application.NewCommandRuntimeService(stateStore,
 			commandManager, config.ExecutionPermissionCapabilities)
 		if serviceErr != nil {
@@ -657,7 +653,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, providerErr
 		}
 		uiEvidence, err = application.NewUIEvidenceService(stateStore, commandRuntime,
-			browserProvider, filepath.Join(home, "runtime", "ui-evidence-profiles"))
+			browserProvider, filepath.Join(home, "runtime", "ui-evidence-profiles"), config.ExecutionPermissionCapabilities)
 		if err != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = commandManager.Shutdown(shutdownCtx)
@@ -832,31 +828,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	if debugAgentInput != nil &&
 		config.ExecutionPermissionCapabilities.Allows(
-			domain.RunExecutionPermissionDebug) {
+			domain.RunExecutionPermissionFull) {
 		executionControl.WithDebugTerminalAgentInput(debugAgentInput)
 	}
-	controlledCommandExecutor, err := runner.NewPlatformControlledExecutor()
-	if err != nil {
-		if terminalManager != nil {
-			_ = terminalManager.Shutdown()
-		}
-		_ = stateStore.Close()
-		return nil, err
-	}
-	controlledCommandProposals :=
-		application.NewControlledCommandProposalReviewService(
-			stateStore, controlledCommandExecutor,
-			config.ExecutionPermissionCapabilities)
-	hostCommandExecutor, err := runner.NewPlatformHostExecutor()
-	if err != nil {
-		if terminalManager != nil {
-			_ = terminalManager.Shutdown()
-		}
-		_ = stateStore.Close()
-		return nil, err
-	}
-	hostCommandProposals := application.NewHostCommandProposalReviewService(
-		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
+	controlledCommandProposals := application.NewControlledCommandHistory(stateStore)
+	hostCommandProposals := application.NewHostCommandHistory(stateStore)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
 	if standardCodeDockerReadiness != nil {
 		capabilityReadinessRuntime.DockerReadiness = standardCodeDockerReadiness
@@ -917,64 +893,62 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
-		RunControlEnabled:                       config.RunControlEnabled,
-		ExecutionPermissionControlEnabled:       config.ExecutionPermissionControlEnabled,
-		ExecutionPermissionCapabilities:         config.ExecutionPermissionCapabilities,
-		BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
-		BrowserCDPPermissionCapabilities:        config.BrowserCDPPermissionCapabilities,
-		CapabilityReadinessRuntime:              &capabilityReadinessRuntime,
-		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
-		CommandRuntimeAdvertiser:                commandRuntime,
-		RunCreationEnabled:                      config.RunCreationEnabled,
-		StandardCodePresetEnabled:               standardCodePreset != nil,
-		SessionMessageEnabled:                   config.SessionMessageEnabled,
-		SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
-		RunLifecycleEnabled:                     config.RunLifecycleEnabled,
-		RunExecutionEnabled:                     config.RunExecutionEnabled,
-		PlanDeliveryControlEnabled:              config.PlanDeliveryControlEnabled,
-		ApprovalControlEnabled:                  config.ApprovalControlEnabled,
-		WebFetchAuthorizationSchedulerEnabled:   webFetchAuthorizationSchedulerEnabled,
-		ControlledCommandProposalControlEnabled: config.ControlledCommandProposalControlEnabled,
-		HostCommandProposalControlEnabled:       config.HostCommandProposalControlEnabled,
-		ModelControlEnabled:                     config.ModelControlEnabled,
-		ProviderDefinitionEnabled:               config.ModelControlEnabled,
-		ProviderCredentialEnabled:               config.ProviderCredentialEnabled,
-		FileEditReviewEnabled:                   config.FileEditReviewEnabled,
-		FileEditProposalEnabled:                 config.FileEditProposalEnabled,
-		RunWakeControlEnabled:                   config.RunWakeControlEnabled,
-		FileEditApplyEnabled:                    config.FileEditApplyEnabled,
-		RunWakeExecutionEnabled:                 config.RunWakeExecutionEnabled,
-		RunWakeWorkerEnabled:                    config.RunWakeWorkerEnabled,
-		ScheduledJobControlEnabled:              config.ScheduledJobControlEnabled,
-		ScheduledJobWorkerEnabled:               config.ScheduledJobWorkerEnabled,
-		SkillInstallationEnabled:                config.SkillInstallationEnabled,
-		EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
-		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
-		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
-		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
-		GitAdvancedControlEnabled:               config.GitAdvancedControlEnabled,
-		GitHubReviewControlEnabled:              config.GitHubReviewControlEnabled,
-		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
-		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
-		ExtensionControlEnabled:                 config.ControlToken != "",
-		LifecycleHooks:                          hookEngine,
-		UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
-		FullCDPSessionControlEnabled:            fullCDPSessionControlEnabled,
-		RunLifecycleController:                  lifecycleControl,
-		ThreadTurnController:                    threadTurnControl,
-		StandardCodePresetController:            standardCodePreset,
-		StandardCodeDeliveryController:          standardCodeDeliveryController,
-		RunExecutionController:                  executionControl,
-		PublicModelStreamSource:                 executionControl,
-		PlanDeliveryController:                  planDeliveryControl,
-		ApprovalController:                      approvalControl,
-		ControlledCommandProposalController:     controlledCommandProposals,
-		HostCommandProposalController:           hostCommandProposals,
-		ModelControlController:                  modelControl,
-		ThreadModelRouteController:              threadModelRoutes,
-		ProviderSearchReadinessController:       providerSearchReadiness,
-		ProviderDefinitionController:            providerDefinitionControl,
-		PriceSnapshotController:                 stateStore,
+		RunControlEnabled:                     config.RunControlEnabled,
+		ExecutionPermissionControlEnabled:     config.ExecutionPermissionControlEnabled,
+		ExecutionPermissionCapabilities:       config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionControlEnabled:    config.BrowserCDPPermissionControlEnabled,
+		BrowserCDPPermissionCapabilities:      config.BrowserCDPPermissionCapabilities,
+		CapabilityReadinessRuntime:            &capabilityReadinessRuntime,
+		CommandRuntimeAdapters:                installedCommandRuntimeAdapters,
+		CommandRuntimeAdvertiser:              commandRuntime,
+		RunCreationEnabled:                    config.RunCreationEnabled,
+		StandardCodePresetEnabled:             standardCodePreset != nil,
+		SessionMessageEnabled:                 config.SessionMessageEnabled,
+		SessionSteeringControlEnabled:         config.SessionSteeringControlEnabled,
+		RunLifecycleEnabled:                   config.RunLifecycleEnabled,
+		RunExecutionEnabled:                   config.RunExecutionEnabled,
+		PlanDeliveryControlEnabled:            config.PlanDeliveryControlEnabled,
+		ApprovalControlEnabled:                config.ApprovalControlEnabled,
+		WebFetchAuthorizationSchedulerEnabled: webFetchAuthorizationSchedulerEnabled,
+		ModelControlEnabled:                   config.ModelControlEnabled,
+		ProviderDefinitionEnabled:             config.ModelControlEnabled,
+		ProviderCredentialEnabled:             config.ProviderCredentialEnabled,
+		FileEditReviewEnabled:                 config.FileEditReviewEnabled,
+		FileEditProposalEnabled:               config.FileEditProposalEnabled,
+		RunWakeControlEnabled:                 config.RunWakeControlEnabled,
+		FileEditApplyEnabled:                  config.FileEditApplyEnabled,
+		RunWakeExecutionEnabled:               config.RunWakeExecutionEnabled,
+		RunWakeWorkerEnabled:                  config.RunWakeWorkerEnabled,
+		ScheduledJobControlEnabled:            config.ScheduledJobControlEnabled,
+		ScheduledJobWorkerEnabled:             config.ScheduledJobWorkerEnabled,
+		SkillInstallationEnabled:              config.SkillInstallationEnabled,
+		EvidenceAttachmentEnabled:             config.EvidenceAttachmentEnabled,
+		VerificationEvidenceEnabled:           config.VerificationEvidenceEnabled,
+		EmbeddedAnalyzerExecutionEnabled:      config.EmbeddedAnalyzerExecutionEnabled,
+		WorkspaceCheckpointControlEnabled:     config.ControlToken != "",
+		GitAdvancedControlEnabled:             config.GitAdvancedControlEnabled,
+		GitHubReviewControlEnabled:            config.GitHubReviewControlEnabled,
+		BatchDeliveryControlEnabled:           config.BatchDeliveryControlEnabled,
+		BatchDeliveryHostValidationEnabled:    config.BatchDeliveryHostValidationEnabled,
+		ExtensionControlEnabled:               config.ControlToken != "",
+		LifecycleHooks:                        hookEngine,
+		UIEvidenceControlEnabled:              config.UIEvidenceControlEnabled,
+		FullCDPSessionControlEnabled:          fullCDPSessionControlEnabled,
+		RunLifecycleController:                lifecycleControl,
+		ThreadTurnController:                  threadTurnControl,
+		StandardCodePresetController:          standardCodePreset,
+		StandardCodeDeliveryController:        standardCodeDeliveryController,
+		RunExecutionController:                executionControl,
+		PublicModelStreamSource:               executionControl,
+		PlanDeliveryController:                planDeliveryControl,
+		ApprovalController:                    approvalControl,
+		ControlledCommandProposalController:   controlledCommandProposals,
+		HostCommandProposalController:         hostCommandProposals,
+		ModelControlController:                modelControl,
+		ThreadModelRouteController:            threadModelRoutes,
+		ProviderSearchReadinessController:     providerSearchReadiness,
+		ProviderDefinitionController:          providerDefinitionControl,
+		PriceSnapshotController:               stateStore,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			stateStore, models.Router(), checker),
 		ChildTaskControlController:   application.NewChildTaskControlService(stateStore),

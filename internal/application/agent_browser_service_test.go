@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/domain"
@@ -292,19 +293,17 @@ func TestAgentBrowserSensitivePreflightBeforeStartedApproveOnceAndDeny(t *testin
 		})
 	}
 }
-func TestAgentBrowserStaticZeroActivationAndRevocationPostcheck(t *testing.T) {
+func TestAgentBrowserLiveActivationAndRevocationPostcheck(t *testing.T) {
 	service, st, r, s, turn := newAgentBrowserFixture(t)
-	service.options.Capabilities.FullAccessRequiresRuntimeGrant = false
-	service.options.Capabilities.DebugMaximumAccessEnabled = true
-	st.base.executionPermission.Mode = domain.RunExecutionPermissionDebug
 	original := service.launch
 	service.launch = func(ctx context.Context, request browserruntime.AgentBrowserStartRequest) (agentBrowserRuntime, error) {
 		if request.Authority.PermissionActivation == 0 {
 			t.Fatal("runtime private activation missing")
 		}
 		a, e := service.authority(ctx, turn.Run.ID)
-		if e != nil || a.PermissionActivation != 0 {
-			t.Fatalf("fabricated durable activation %+v %v", a, e)
+		generation, live := service.options.Capabilities.FullAccessGeneration(st.base.executionPermission)
+		if e != nil || !live || generation == 0 || a.PermissionActivation != generation {
+			t.Fatalf("lost current Full activation %+v %v", a, e)
 		}
 		wrong := request.Authority
 		wrong.PermissionActivation++
@@ -676,5 +675,44 @@ func TestAgentBrowserCancelledStartedCallNeverDispatchesAgain(t *testing.T) {
 	}
 	if len(r.actions) != 1 || st.calls[c.CallID].Status == domain.SupervisorToolCompleted {
 		t.Fatal("cancelled started action was replayed")
+	}
+}
+
+func TestAgentBrowserRetainedPermissionsNeverLaunch(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
+		t.Run(string(mode), func(t *testing.T) {
+			service, st, runtime, supervisor, turn := newAgentBrowserFixture(t)
+			call := agentBrowserFixtureCall(t, service, st, toolgateway.BrowserNavigateTool, `{"version":"browser_navigate.v2","url":"https://example.org"}`)
+			retained, err := st.base.executionPermission.Next("retained-browser-permission", mode, true, "operator", "read historical permission", st.base.executionPermission.CreatedAt.Add(time.Millisecond))
+			if err != nil || retained.Validate() != nil {
+				t.Fatalf("invalid historical fixture: %+v %v", retained, err)
+			}
+			st.base.executionPermission = retained
+			launches := 0
+			original := service.launch
+			service.launch = func(ctx context.Context, request browserruntime.AgentBrowserStartRequest) (agentBrowserRuntime, error) {
+				launches++
+				return original(ctx, request)
+			}
+			if _, err := service.authority(t.Context(), turn.Run.ID); err == nil {
+				t.Fatal("historical permission acquired browser authority")
+			}
+			caps, _, _ := supervisor.supervisorBrowserActionCapabilities(t.Context(), turn, retained)
+			if caps.Available {
+				t.Fatal("historical browser authority was advertised")
+			}
+			// Supervisor writes its dispatch intent before invoking the tool.
+			// The native binder then rejects stale authority. Recovery must settle
+			// that uncompleted intent as unknown without launching or replaying.
+			if waiting, err := runAgentBrowserFixtureCall(t, supervisor, turn, call); apperror.CodeOf(err) != apperror.CodeFailedPrecondition || waiting ||
+				launches != 0 || len(runtime.actions) != 0 || !st.started[call.CallID] || st.calls[call.CallID] != call {
+				t.Fatalf("historical permission changed or dispatched saved call: launches=%d actions=%v call=%+v err=%v", launches, runtime.actions, st.calls[call.CallID], err)
+			}
+			if waiting, err := runAgentBrowserFixtureCall(t, supervisor, turn, call); err != nil || waiting ||
+				launches != 0 || len(runtime.actions) != 0 || st.calls[call.CallID].Status != domain.SupervisorToolFailed ||
+				!strings.Contains(st.calls[call.CallID].ResultJSON, "outcome_unknown") {
+				t.Fatalf("historical intent was resent or lost unknown outcome: %+v err=%v", st.calls[call.CallID], err)
+			}
+		})
 	}
 }

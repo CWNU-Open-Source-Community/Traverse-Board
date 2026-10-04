@@ -319,7 +319,7 @@ func newFullCDPProductionServiceFixture(t *testing.T) (*FullCDPProductionService
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	store := &fakeFullCDPProductionStore{run: run, mission: mission,
 		browserPermission: browserFull, executionPermission: executionFull}

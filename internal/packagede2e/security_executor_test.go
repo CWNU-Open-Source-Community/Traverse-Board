@@ -88,7 +88,7 @@ func TestSecurityExecutorRunsExactFrozenMatrixAndWritesImmutableEvidence(t *test
 		expectedRuns += len(attack.Backends)
 	}
 	if report.Status != SecurityEvidencePassed || len(driver.cases) != expectedRuns ||
-		report.Summary.RequiredCaseCount != 40 ||
+		report.Summary.RequiredCaseCount != 39 ||
 		report.Summary.RequiredBackendRuns != expectedRuns ||
 		report.Summary.PassedBackendRuns != expectedRuns || driver.closed != 1 {
 		t.Fatalf("matrix report=%+v calls=%d close=%d", report.Summary,

@@ -1303,7 +1303,7 @@ export interface paths {
         put?: never;
         /**
          * Select a Run browser CDP permission mode
-         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.
+         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under modern Full with live process activation; it defaults on when entering Full, can be disabled independently, and is forced off outside Full.
          */
         post: operations["selectRunBrowserCDPPermission"];
         delete?: never;
@@ -1466,26 +1466,6 @@ export interface paths {
         get: operations["getControlledCommandProposal"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve or deny one fixed command proposal
-         * @description Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.
-         */
-        post: operations["reviewControlledCommandProposal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1687,7 +1667,7 @@ export interface paths {
         put?: never;
         /**
          * Select a Run execution permission mode
-         * @description Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.
+         * @description Selects Ask, Auto or Full operation approval. Full requires explicit confirmation and live activation in the current process. Persisted snapshots and historical approvals never restore execution authority; each operation rechecks its exact inputs, policy, runtime epoch and Run fence.
          */
         post: operations["selectRunExecutionPermission"];
         delete?: never;
@@ -1991,7 +1971,7 @@ export interface paths {
         put?: never;
         /**
          * Open a confirmed Full CDP session
-         * @description Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.
+         * @description Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires modern Full with live process activation, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.
          */
         post: operations["openRunFullCDPSession"];
         delete?: never;
@@ -2248,8 +2228,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List exact host command proposals
-         * @description Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.
+         * List historical host command proposals
+         * @description Reads saved Host and Risk proposal evidence. Creation, review and execution are retired; these records cannot authorize a new command. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.
          */
         get: operations["listHostCommandProposals"];
         put?: never;
@@ -2268,8 +2248,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Inspect one exact host command proposal
-         * @description Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.
+         * Inspect one historical host command proposal
+         * @description Reads the saved immutable command envelope, review, historical grant and consumption metadata, invalidation state, result and receipt. Only a saved outcome may continue its exact original call; pending or approved records do not regain execution authority. An execution intent without a durable result remains unknown and is never resent.
          */
         get: operations["getHostCommandProposal"];
         put?: never;
@@ -2280,7 +2260,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -2290,10 +2270,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve or deny one exact host command proposal
-         * @description Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.
+         * Resume a saved historical command outcome
+         * @description Resumes only the exact durable Supervisor call or approval continuation from saved history. Requires control authorization and an available Run controller. Does not accept command, review or grant parameters. A historical intent without a result remains unknown and is never re-executed.
          */
-        post: operations["reviewHostCommandProposal"];
+        post: operations["resumeHostCommandProposal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3571,7 +3551,7 @@ export interface paths {
         put?: never;
         /**
          * Create and configure a Standard Code Run
-         * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
+         * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
          */
         post: operations["createStandardCodeRun"];
         delete?: never;
@@ -4776,7 +4756,7 @@ export interface components {
         AgentCodeCapabilitiesView: {
             generation: string;
             /** @enum {string} */
-            permission_mode: "conservative" | "approval" | "full_access" | "debug";
+            permission_mode: "ask" | "auto" | "full" | "conservative" | "approval" | "full_access" | "debug";
             /** @enum {string} */
             phase: "plan" | "deliver";
             /** @enum {string} */
@@ -6030,12 +6010,6 @@ export interface components {
             source_ref: string;
             status: string;
         };
-        ControlledCommandProposalReviewRequestView: {
-            confirm_execution?: boolean;
-            decision: string;
-            reason?: string;
-            version: string;
-        };
         ControlledCommandProposalReviewView: {
             capability_grant: boolean;
             created_at: string;
@@ -6487,7 +6461,6 @@ export interface components {
         };
         ExecutionPermissionRuntimeView: {
             danger_full_access_enabled: boolean;
-            debug_maximum_access_enabled: boolean;
             operator_approval_enabled: boolean;
             workspace_sandbox_enabled: boolean;
         };
@@ -8079,20 +8052,6 @@ export interface components {
             source_ref: string;
             /** @enum {string} */
             status: "completed" | "failed";
-        };
-        HostCommandProposalReviewRequestView: {
-            /** @enum {string} */
-            authorization?: "once" | "run_scope";
-            confirm_execution?: boolean;
-            /** @enum {string} */
-            decision: "approve" | "deny";
-            /** Format: int32 */
-            grant_max_uses?: number;
-            /** Format: int32 */
-            grant_ttl_seconds?: number;
-            reason?: string;
-            /** @enum {string} */
-            version: "host_command_review.v1";
         };
         HostCommandProposalReviewView: {
             capability_grant: boolean;
@@ -10169,9 +10128,7 @@ export interface components {
             command_runtime_adapters: components["schemas"]["CommandRuntimeAdapterView"][];
             command_runtime_enabled: boolean;
             command_runtime_protocol_available: boolean;
-            controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
-            debug_maximum_access_enabled: boolean;
             docker_execution_enabled: boolean;
             embedded_analyzer_execution_enabled: boolean;
             evidence_attachment_enabled: boolean;
@@ -10183,7 +10140,6 @@ export interface components {
             full_cdp_session_control_enabled: boolean;
             git_advanced_control_enabled: boolean;
             github_review_control_enabled: boolean;
-            host_command_proposal_control_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
             plan_delivery_control_enabled: boolean;
@@ -11098,7 +11054,7 @@ export interface components {
             mode?: components["schemas"]["RunModeView"];
             /** @enum {string} */
             network: "disabled";
-            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_approval" | "retry_readiness" | "create_new_run")[];
+            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_ask" | "retry_readiness" | "create_new_run")[];
             /** @enum {string} */
             protocol_version: "standard_code_preset.v1";
             replayed: boolean;
@@ -16810,56 +16766,6 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
-    reviewControlledCommandProposal: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Opaque review key; only a domain-separated digest is persisted */
-                "Idempotency-Key": string;
-            };
-            path: {
-                /** @description Run identity */
-                run_id: string;
-                /** @description Controlled command proposal identity */
-                proposal_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ControlledCommandProposalReviewRequestView"];
-            };
-        };
-        responses: {
-            /** @description Control request accepted or idempotently replayed */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["ControlledCommandProposalView"];
-                        request_id: string;
-                        /** @constant */
-                        version: "api.v1";
-                    };
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            412: components["responses"]["FailedPrecondition"];
-            413: components["responses"]["RequestEntityTooLarge"];
-            414: components["responses"]["RequestTooLarge"];
-            415: components["responses"]["UnsupportedMediaType"];
-            429: components["responses"]["ResourceExhausted"];
-            500: components["responses"]["InternalError"];
-            503: components["responses"]["Unavailable"];
-            504: components["responses"]["GatewayTimeout"];
-        };
-    };
     getRunContextSummary: {
         parameters: {
             query?: never;
@@ -18624,13 +18530,10 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
-    reviewHostCommandProposal: {
+    resumeHostCommandProposal: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Opaque review key; only a domain-separated digest is persisted */
-                "Idempotency-Key": string;
-            };
+            header?: never;
             path: {
                 /** @description Run identity */
                 run_id: string;
@@ -18639,11 +18542,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HostCommandProposalReviewRequestView"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Control request accepted or idempotently replayed */
             202: {

@@ -38,8 +38,7 @@ func threadFullCDPTestFixture(t *testing.T) (context.Context, *SQLiteStore,
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-			DangerFullAccessEnabled: true, DebugMaximumAccessEnabled: true,
-			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+			DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		})
 	return ctx, state, run, threadRecord, service
 }
@@ -587,8 +586,7 @@ func TestDirectRunFullReconfirmationPreservesIndependentFullCDPChoice(t *testing
 	permissions := application.NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
-			DebugMaximumAccessEnabled: true,
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 		})
 	full, err := permissions.Change(ctx, application.ChangeRunExecutionPermissionRequest{
 		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
@@ -909,8 +907,7 @@ func TestRetainedRunDebugDowngradePersistsOnRunningRunAndReleasesLease(t *testin
 	defer state.Close()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		RuntimeAuthority:          domain.NewExecutionPermissionRuntimeAuthority(),
-		DebugMaximumAccessEnabled: true,
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	permissions := application.NewRunExecutionPermissionService(state, capabilities)
 	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {

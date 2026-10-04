@@ -66,7 +66,7 @@ type FullCDPAuthorization struct {
 }
 
 // AuthorizeFullCDP issues a highly-sensitive CDP authorization only when the
-// Run uses live Full Access or Debug permission (with operator confirmation),
+// Run uses live Full permission (with operator confirmation),
 // the process installed the Full CDP adapter, and the caller supplies an exact
 // per-call confirmation. The capability is TTL-bounded and bound to the Run,
 // Workspace, executable identity, permission revision, and scope; it never
@@ -110,8 +110,7 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		!permissionCapabilities.FullDebugEnabled || !runtimeCapabilities.TransportEnabled ||
 		executionPermission.RunID != session.RunID ||
-		(!executionPermission.Mode.IsFullPreference() &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!executionAllowed || executionCapabilities.RuntimeAuthority == nil ||
 		executionFence == 0 || !executionCapabilities.RuntimeAuthority.
 		AllowsRunAuthorizationFence(session.RunID, executionFence) ||
@@ -155,7 +154,7 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 }
 
 // ValidateFullCDPAuthorization re-checks that a Full CDP authorization still
-// binds the exact live Full Access or Debug permission, session scope, executable
+// binds the exact live Full permission, session scope, executable
 // identity, Run, and Workspace, and that its capability was confirmed,
 // TTL-bounded, and never grants webpage-instruction elevation.
 func ValidateFullCDPAuthorization(authorization FullCDPAuthorization,
@@ -203,8 +202,7 @@ func ValidateFullCDPAuthorization(authorization FullCDPAuthorization,
 		permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
 		executionPermission.RunID != session.RunID ||
-		(!executionPermission.Mode.IsFullPreference() &&
-			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		executionPermission.Mode != domain.RunExecutionPermissionFull ||
 		!authorization.NavigateAuthorized || !authorization.DOMMetadataAuthorized ||
 		!authorization.ScreenshotAuthorized || !authorization.RequestCaptureAuthorized ||
 		!authorization.RequestMutationAuthorized || !authorization.RequestReplayAuthorized ||

@@ -7142,7 +7142,7 @@
       "post": {
         "operationId": "selectRunBrowserCDPPermission",
         "summary": "Select a Run browser CDP permission mode",
-        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.",
+        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under modern Full with live process activation; it defaults on when entering Full, can be disabled independently, and is forced off outside Full.",
         "tags": [
           "Control"
         ],
@@ -8048,141 +8048,6 @@
           }
         },
         "x-cyberagent-read-only": true
-      }
-    },
-    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
-      "post": {
-        "operationId": "reviewControlledCommandProposal",
-        "summary": "Approve or deny one fixed command proposal",
-        "description": "Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.",
-        "tags": [
-          "Control"
-        ],
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "description": "Run identity",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "proposal_id",
-            "in": "path",
-            "description": "Controlled command proposal identity",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "description": "Opaque review key; only a domain-separated digest is persisted",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 16,
-              "pattern": "^\\S+$",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Control request accepted or idempotently replayed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/ControlledCommandProposalView"
-                    },
-                    "request_id": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "version": {
-                      "const": "api.v1",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "version",
-                    "request_id",
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "412": {
-            "$ref": "#/components/responses/FailedPrecondition"
-          },
-          "413": {
-            "$ref": "#/components/responses/RequestEntityTooLarge"
-          },
-          "414": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "429": {
-            "$ref": "#/components/responses/ResourceExhausted"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "503": {
-            "$ref": "#/components/responses/Unavailable"
-          },
-          "504": {
-            "$ref": "#/components/responses/GatewayTimeout"
-          }
-        },
-        "security": [
-          {
-            "ControlBearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ControlledCommandProposalReviewRequestView"
-              }
-            }
-          }
-        },
-        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/runs/{run_id}/context-summary": {
@@ -9249,7 +9114,7 @@
       "post": {
         "operationId": "selectRunExecutionPermission",
         "summary": "Select a Run execution permission mode",
-        "description": "Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.",
+        "description": "Selects Ask, Auto or Full operation approval. Full requires explicit confirmation and live activation in the current process. Persisted snapshots and historical approvals never restore execution authority; each operation rechecks its exact inputs, policy, runtime epoch and Run fence.",
         "tags": [
           "Control"
         ],
@@ -10956,7 +10821,7 @@
       "post": {
         "operationId": "openRunFullCDPSession",
         "summary": "Open a confirmed Full CDP session",
-        "description": "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
+        "description": "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires modern Full with live process activation, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
         "tags": [
           "Control"
         ],
@@ -12371,8 +12236,8 @@
     "/api/v1/runs/{run_id}/host-command-proposals": {
       "get": {
         "operationId": "listHostCommandProposals",
-        "summary": "List exact host command proposals",
-        "description": "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
+        "summary": "List historical host command proposals",
+        "description": "Reads saved Host and Risk proposal evidence. Creation, review and execution are retired; these records cannot authorize a new command. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
         "tags": [
           "Control"
         ],
@@ -12469,8 +12334,8 @@
     "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}": {
       "get": {
         "operationId": "getHostCommandProposal",
-        "summary": "Inspect one exact host command proposal",
-        "description": "Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.",
+        "summary": "Inspect one historical host command proposal",
+        "description": "Reads the saved immutable command envelope, review, historical grant and consumption metadata, invalidation state, result and receipt. Only a saved outcome may continue its exact original call; pending or approved records do not regain execution authority. An execution intent without a durable result remains unknown and is never resent.",
         "tags": [
           "Control"
         ],
@@ -12562,11 +12427,11 @@
         "x-cyberagent-read-only": true
       }
     },
-    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/resume": {
       "post": {
-        "operationId": "reviewHostCommandProposal",
-        "summary": "Approve or deny one exact host command proposal",
-        "description": "Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
+        "operationId": "resumeHostCommandProposal",
+        "summary": "Resume a saved historical command outcome",
+        "description": "Resumes only the exact durable Supervisor call or approval continuation from saved history. Requires control authorization and an available Run controller. Does not accept command, review or grant parameters. A historical intent without a result remains unknown and is never re-executed.",
         "tags": [
           "Control"
         ],
@@ -12592,18 +12457,6 @@
               "maxLength": 256,
               "minLength": 1,
               "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
-              "type": "string"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "description": "Opaque review key; only a domain-separated digest is persisted",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 16,
-              "pattern": "^\\S+$",
               "type": "string"
             }
           }
@@ -12684,16 +12537,6 @@
             "ControlBearerAuth": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HostCommandProposalReviewRequestView"
-              }
-            }
-          }
-        },
         "x-cyberagent-read-only": false
       }
     },
@@ -20697,7 +20540,7 @@
       "post": {
         "operationId": "createStandardCodeRun",
         "summary": "Create and configure a Standard Code Run",
-        "description": "Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
+        "description": "Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
         "tags": [
           "Control"
         ],
@@ -27274,6 +27117,9 @@
           },
           "permission_mode": {
             "enum": [
+              "ask",
+              "auto",
+              "full",
               "conservative",
               "approval",
               "full_access",
@@ -32317,28 +32163,6 @@
         ],
         "type": "object"
       },
-      "ControlledCommandProposalReviewRequestView": {
-        "additionalProperties": false,
-        "properties": {
-          "confirm_execution": {
-            "type": "boolean"
-          },
-          "decision": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "version",
-          "decision"
-        ],
-        "type": "object"
-      },
       "ControlledCommandProposalReviewView": {
         "additionalProperties": false,
         "properties": {
@@ -34078,9 +33902,6 @@
           "danger_full_access_enabled": {
             "type": "boolean"
           },
-          "debug_maximum_access_enabled": {
-            "type": "boolean"
-          },
           "operator_approval_enabled": {
             "type": "boolean"
           },
@@ -34091,8 +33912,7 @@
         "required": [
           "workspace_sandbox_enabled",
           "operator_approval_enabled",
-          "danger_full_access_enabled",
-          "debug_maximum_access_enabled"
+          "danger_full_access_enabled"
         ],
         "type": "object"
       },
@@ -40198,55 +40018,6 @@
           "raw_output_persisted",
           "automatic_retry_allowed",
           "created_at"
-        ],
-        "type": "object"
-      },
-      "HostCommandProposalReviewRequestView": {
-        "additionalProperties": false,
-        "properties": {
-          "authorization": {
-            "enum": [
-              "once",
-              "run_scope"
-            ],
-            "type": "string"
-          },
-          "confirm_execution": {
-            "type": "boolean"
-          },
-          "decision": {
-            "enum": [
-              "approve",
-              "deny"
-            ],
-            "type": "string"
-          },
-          "grant_max_uses": {
-            "format": "int32",
-            "maximum": 8,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "grant_ttl_seconds": {
-            "format": "int32",
-            "maximum": 900,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "reason": {
-            "maxLength": 2048,
-            "type": "string"
-          },
-          "version": {
-            "enum": [
-              "host_command_review.v1"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "version",
-          "decision"
         ],
         "type": "object"
       },
@@ -48633,13 +48404,7 @@
           "command_runtime_protocol_available": {
             "type": "boolean"
           },
-          "controlled_command_proposal_control_enabled": {
-            "type": "boolean"
-          },
           "danger_full_access_enabled": {
-            "type": "boolean"
-          },
-          "debug_maximum_access_enabled": {
             "type": "boolean"
           },
           "docker_execution_enabled": {
@@ -48673,9 +48438,6 @@
             "type": "boolean"
           },
           "github_review_control_enabled": {
-            "type": "boolean"
-          },
-          "host_command_proposal_control_enabled": {
             "type": "boolean"
           },
           "model_control_enabled": {
@@ -48776,7 +48538,6 @@
           "workspace_sandbox_enabled",
           "operator_approval_enabled",
           "danger_full_access_enabled",
-          "debug_maximum_access_enabled",
           "command_runtime_enabled",
           "command_runtime_protocol_available",
           "command_runtime_adapter_installed",
@@ -48795,8 +48556,6 @@
           "run_execution_enabled",
           "plan_delivery_control_enabled",
           "approval_control_enabled",
-          "controlled_command_proposal_control_enabled",
-          "host_command_proposal_control_enabled",
           "model_control_enabled",
           "provider_credential_enabled",
           "file_edit_review_enabled",
@@ -52503,7 +52262,7 @@
                 "pause_and_configure",
                 "wait_for_quiescence",
                 "select_docker",
-                "select_approval",
+                "select_ask",
                 "retry_readiness",
                 "create_new_run"
               ],

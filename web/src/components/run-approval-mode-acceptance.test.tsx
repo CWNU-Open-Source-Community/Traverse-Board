@@ -20,7 +20,7 @@ function permission(mode: "ask" | "auto" | "full" = "ask", active = false): RunE
     policy_version: "execution_permission_policy.v2", operator_confirmed: mode === "full",
     runtime_gate_available: mode !== "full" || active,
     runtime: { workspace_sandbox_enabled: false, operator_approval_enabled: true,
-      danger_full_access_enabled: true, debug_maximum_access_enabled: false },
+      danger_full_access_enabled: true,  },
     capability_matrix: { workspace_read: true, workspace_write: true, sandboxed_command_runtime: true,
       unsandboxed_host_process: true, network_access: true, credential_access: true, user_home_access: true,
       persistent_user_terminal: true, persistent_agent_terminal: true, full_cdp: false,

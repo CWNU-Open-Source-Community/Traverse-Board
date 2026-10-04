@@ -146,7 +146,7 @@ func TestFullCDPServiceRefusesWithoutConfirmation(t *testing.T) {
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	store := &fakeFullCDPStore{
 		run: domain.Run{ID: "run-full-service", MissionID: "mission-full-service",

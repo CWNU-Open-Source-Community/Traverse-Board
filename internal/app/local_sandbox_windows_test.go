@@ -74,8 +74,8 @@ func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := projection.Permissions[1]
-	fullAccess := projection.Permissions[3]
-	if workspace.Value != "workspace_access" || !workspace.Selectable ||
+	fullAccess := projection.Permissions[2]
+	if workspace.Value != "auto" || !workspace.Selectable ||
 		!workspace.RuntimeAvailable || fullAccess.RuntimeAvailable ||
 		fullAccess.Selectable || projection.CapabilityGrant {
 		t.Fatalf("Local readiness widened the wrong gate: workspace=%#v full=%#v",
@@ -83,10 +83,10 @@ func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
 	}
 
 	selected, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
-		runID, "workspace_access", "--operation-key", "local-sandbox-select-0001",
-		"--confirm-workspace-access", "--enable-permission-control",
+		runID, "auto", "--operation-key", "local-sandbox-select-0001",
+		"--enable-permission-control",
 		"--enable-workspace-sandbox")
-	if code != 0 || stderr != "" || !strings.Contains(selected, "mode: workspace_access") ||
+	if code != 0 || stderr != "" || !strings.Contains(selected, "mode: auto") ||
 		!strings.Contains(selected, "runtime_gate_available: true") ||
 		!strings.Contains(selected, "capability_grant: false") {
 		t.Fatalf("Workspace Access selection stdout=%s stderr=%s code=%d",
@@ -126,8 +126,7 @@ func TestWindowsAPIServePublishesWorkspaceGateOnlyAfterLocalProbe(t *testing.T) 
 		return outputField(value, "api_url") != "" &&
 			strings.Contains(value, "workspace_sandbox_enabled: true")
 	})
-	if strings.Contains(output, "danger_full_access_enabled: true") ||
-		strings.Contains(output, "debug_maximum_access_enabled: true") {
+	if strings.Contains(output, "danger_full_access_enabled: true") {
 		t.Fatalf("Workspace Sandbox probe widened host execution: %s", output)
 	}
 	if !strings.Contains(output, "command_runtime_enabled: true") {

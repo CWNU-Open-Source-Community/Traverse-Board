@@ -373,7 +373,7 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 	}
 	executionContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go s.monitorCurrentAuthority(executionContext, done, scope, runLease, cancel)
+	go s.monitorCurrentAuthority(executionContext, done, scope, cancel)
 	started, startErr := s.docker.Start(executionContext, DockerSandboxStartRequest{
 		AdmissionID:  admission.Admission.ID,
 		OperationKey: standardCodeStageKey(request.OperationKey, "start"),
@@ -620,7 +620,7 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 		workspace.Generation != expectedGeneration ||
 		workspace.LastCheckpointID != expectedCheckpoint ||
 		profile.Profile != domain.RunExecutionProfileDocker ||
-		(permission.Mode != domain.RunExecutionPermissionWorkspaceAccess && !permission.Mode.IsApprovalMode()) ||
+		!permission.Mode.IsApprovalMode() ||
 		!s.docker.permissionCapabilities.WorkspaceSandboxEnabled ||
 		!s.docker.permissionCapabilities.AllowsSnapshot(permission) ||
 		capabilities.Validate() != nil {
@@ -653,7 +653,7 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 
 func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
 	done <-chan struct{}, scope standardcode.ExecutionContext,
-	runLease *domain.RunExecutionLease, cancel context.CancelFunc,
+	cancel context.CancelFunc,
 ) {
 	ticker := time.NewTicker(s.authorityPoll)
 	defer ticker.Stop()
@@ -664,7 +664,7 @@ func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
 		case <-done:
 			return
 		case <-ticker.C:
-			if !s.currentAuthorityMetadata(ctx, scope, runLease) {
+			if !s.currentAuthorityMetadata(ctx, scope) {
 				cancel()
 				return
 			}
@@ -673,7 +673,7 @@ func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
 }
 
 func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context,
-	scope standardcode.ExecutionContext, runLease *domain.RunExecutionLease,
+	scope standardcode.ExecutionContext,
 ) bool {
 	run, err := s.store.GetRun(ctx, scope.RunID)
 	if err != nil || run.Terminal() || run.MissionID != scope.MissionID ||
@@ -689,19 +689,13 @@ func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context
 	permission, err := s.store.GetRunExecutionPermission(ctx, scope.RunID)
 	if err != nil || permission.ID != scope.PermissionSnapshotID ||
 		permission.Revision != scope.PermissionRevision ||
-		(permission.Mode != domain.RunExecutionPermissionWorkspaceAccess && !permission.Mode.IsApprovalMode()) ||
+		!permission.Mode.IsApprovalMode() ||
 		!s.docker.permissionCapabilities.AllowsSnapshot(permission) {
 		return false
 	}
-	if runLease != nil {
-		current, found, leaseErr := s.store.GetRunExecutionLease(ctx, scope.RunID)
-		if leaseErr != nil || !found || !current.ActiveAt(time.Now().UTC()) ||
-			current.LeaseID != runLease.LeaseID ||
-			current.Generation != runLease.Generation ||
-			current.OwnerID != runLease.OwnerID {
-			return false
-		}
-	}
+	// The Run lease fences admission and every native create/start, not the
+	// lifetime of an already running container. Command Runtime retains its
+	// exact process owner across turns; its cancellation still reaches Start.
 	workspace, found, err := readRunFileDrydock(ctx, s.store, scope.RunID)
 	return err == nil && found && requireCurrentRunFileDrydock(ctx, s.store, scope.RunID, workspace) == nil && workspace.ID == scope.DrydockID &&
 		workspace.Generation == scope.DrydockGeneration &&

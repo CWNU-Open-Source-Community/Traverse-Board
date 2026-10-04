@@ -1,7 +1,7 @@
 # Standard Code packaged E2E 基线
 
 本文定义 GitHub Issue #140 的固定仓库、攻击矩阵与 Windows portable ZIP
-bootstrap。它是完整 Beta 发布门的可复现地基，不代表 40 项攻击已经全部通过。
+bootstrap。它是完整 Beta 发布门的可复现地基，不代表 39 项攻击已经全部通过。
 
 ## 固定仓库合同
 
@@ -42,7 +42,7 @@ go run ./cmd/packagede2e `
 
 ## 攻击矩阵
 
-`attack-matrix.json` 使用 `standard_code_attack_matrix.v1`，绑定 40 个 required
+`attack-matrix.json` 使用 `standard_code_attack_matrix.v1`，绑定 39 个 required
 case。矩阵是闭集；未知字段、重复 ID、缺少 backend、缺少 expected denial code、
 缺少 operator UI/immutable event 证据，或把 recovery 写成普通 allow/deny，都会在
 Go 测试和 materializer 中失败。
@@ -55,7 +55,6 @@ Go 测试和 materializer 中失败。
 | `process_escape` | 4 | detached/background、继承 handle、Job/process-group escape |
 | `prompt_injection` | 4 | 提权、adapter 选择、自批准、伪造回执 |
 | `authority_replay` | 5 | permission/profile/root/backend generation、cross-Run replay |
-| `approval_fallback` | 1 | backend 不可用时只产生显式、未批准的宿主 proposal，不静默 Full Access |
 | `output_safety` | 4 | secret、ANSI/control、stream/artifact 上限 |
 | `recovery` | 6 | renderer/Desktop/强杀/reboot-equivalent/lease/并发 Drydock 修改 |
 
@@ -108,9 +107,9 @@ CI 产物 `standard-code-packaged-e2e.json` 使用
   "bootstrap_status": "pass",
   "release_gate_status": "needs_full_matrix",
   "attack_matrix": {
-    "required_case_count": 40,
+    "required_case_count": 39,
     "evidenced_case_count": 0,
-    "remaining_required_case_count": 40,
+    "remaining_required_case_count": 39,
     "unexecuted_cases_are_not_pass_or_skip": true
   }
 }
@@ -139,9 +138,9 @@ $env:CYBERAGENT_STANDARD_CODE_DOCKER_IMAGE_DIGEST = `
 `TraverseBoard.exe` 必须与正在运行的 EXE 逐字节一致，release metadata 必须绑定干净的
 40 位 source commit 并证明 EXE/ZIP reproducible。executor 随后在同一候选程序内：
 
-1. 重新 materialize 固定四仓库与 40 项矩阵，固定 manifest/matrix SHA-256；
+1. 重新 materialize 固定四仓库与 39 项矩阵，固定 manifest/matrix SHA-256；
 2. 经公开 `command_runtime` Tool Gateway、Go Application 和当前 Standard Code
-   adapter 执行 75 个 case/backend 组合，而不是直接调用底层 sandbox；
+   adapter 执行 73 个 case/backend 组合，而不是直接调用底层 sandbox；
 3. 对 Local Sandbox 与固定 digest Docker 分别记录 backend identity、generation、
    `network=disabled`、`credentials=none` 与 `full_access_enabled=false`；
 4. 用真实 Job、Artifact、Run event、operator projection、Drydock observation 与
@@ -160,13 +159,13 @@ Windows 上由 packaged harness 启动的 Git、固定工具链和 recovery work
 stderr，不弹出 Desktop 原生启动错误框，也不抢占操作者桌面。
 
 最终文件 `standard-code-security-evidence.json` 使用
-`standard_code_packaged_security_evidence.v1`，create-exclusive 写入。它固定包含 40 个
-case、75 个 backend run 与 append-only SHA-256 chain。最终 `status=passed` 必须同时满足：
+`standard_code_packaged_security_evidence.v1`，create-exclusive 写入。它固定包含 39 个
+case、73 个 backend run 与 append-only SHA-256 chain。最终 `status=passed` 必须同时满足：
 
 - 每个 required case/backend 都真实执行且 evidence 完整；`unexecuted`、`skip`、
   backend unavailable、synthetic result 或 expected outcome/code 不一致均失败；
-- Docker 不可用只记录 `approval_required` / `approval_fallback=true`，不会切换到
-  Full Access，也不能使整份 #181 报告通过；
+- Docker 不可用记录 `backend_unavailable`，对应执行为 `deny/failed_precondition`
+  且 `actual_execution=false`；整份报告失败，不创建宿主提案；
 - 所有启动的 harness-owned Job 都终态且完整回收，orphan/foreign kill 为零；
 - JSON 不含 secret-shaped 内容、控制序列、原始凭据或私有绝对路径；
 - report self-hash、逐记录 chain、EXE/ZIP/source/matrix/fixture/backend identity 均可重算。

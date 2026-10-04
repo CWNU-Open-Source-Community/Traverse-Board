@@ -8,13 +8,11 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/runner"
 )
 
 const (
 	ControlledCommandProposalCollectionPathTemplate = "/api/v1/runs/{run_id}/command-proposals"
 	ControlledCommandProposalDetailPathTemplate     = "/api/v1/runs/{run_id}/command-proposals/{proposal_id}"
-	ControlledCommandProposalReviewPathTemplate     = "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review"
 )
 
 type ControlledCommandProposalController interface {
@@ -22,15 +20,6 @@ type ControlledCommandProposalController interface {
 		[]application.ControlledCommandProposalView, error)
 	Get(context.Context, string) (
 		application.ControlledCommandProposalView, error)
-	Review(context.Context, application.ReviewControlledCommandProposalRequest) (
-		application.ReviewControlledCommandProposalResult, error)
-}
-
-type ControlledCommandProposalReviewRequestView struct {
-	Version          string `json:"version"`
-	Decision         string `json:"decision"`
-	Reason           string `json:"reason,omitempty"`
-	ConfirmExecution bool   `json:"confirm_execution,omitempty"`
 }
 
 type ControlledCommandProposalReviewView struct {
@@ -120,7 +109,6 @@ type controlledCommandProposalRoute int
 const (
 	controlledCommandProposalCollection controlledCommandProposalRoute = iota + 1
 	controlledCommandProposalDetail
-	controlledCommandProposalReview
 )
 
 func matchControlledCommandProposalPath(requestPath string) (
@@ -143,12 +131,6 @@ func matchControlledCommandProposalPath(requestPath string) (
 		return segments[0], segments[2],
 			controlledCommandProposalDetail, true
 	}
-	if len(segments) == 4 && segments[0] != "" &&
-		segments[1] == "command-proposals" && segments[2] != "" &&
-		segments[3] == "review" {
-		return segments[0], segments[2],
-			controlledCommandProposalReview, true
-	}
 	return "", "", 0, false
 }
 
@@ -160,12 +142,7 @@ func (a *API) serveControlledCommandProposal(
 	proposalID string,
 	route controlledCommandProposalRoute,
 ) {
-	if !a.controlledCommandProposalControlEnabled {
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeNotFound,
-				"HTTP API endpoint was not found"), http.StatusNotFound)
-		return
-	}
+
 	if err := validatePathIdentity(runID); err != nil {
 		a.writeError(writer, requestID, err, 0)
 		return
@@ -175,11 +152,6 @@ func (a *API) serveControlledCommandProposal(
 			a.writeError(writer, requestID, err, 0)
 			return
 		}
-	}
-	if route == controlledCommandProposalReview {
-		a.serveControlledCommandProposalReview(
-			writer, request, requestID, runID, proposalID)
-		return
 	}
 	if !a.authorized(request, a.tokenHash) {
 		writer.Header().Set("WWW-Authenticate",
@@ -264,89 +236,6 @@ func (a *API) serveControlledCommandProposalList(
 	}
 	a.writeSuccess(writer, requestID, response,
 		&Page{Limit: pageRequest.Limit})
-}
-
-func (a *API) serveControlledCommandProposalReview(
-	writer http.ResponseWriter,
-	request *http.Request,
-	requestID string,
-	runID string,
-	proposalID string,
-) {
-	if !a.authorized(request, a.controlTokenHash) {
-		writer.Header().Set("WWW-Authenticate",
-			`Bearer realm="CyberAgent Control API"`)
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodePolicyDenied,
-				"valid control bearer authorization is required"),
-			http.StatusUnauthorized)
-		return
-	}
-	if request.Method != http.MethodPost {
-		writer.Header().Set("Allow", http.MethodPost)
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeInvalidArgument,
-				"controlled command proposal review only supports POST"),
-			http.StatusMethodNotAllowed)
-		return
-	}
-	if err := validateJSONContentType(request.Header); err != nil {
-		a.writeError(writer, requestID, err, http.StatusUnsupportedMediaType)
-		return
-	}
-	operationKey, body, err := a.readRunOperationRequest(
-		request, "Controlled command proposal review")
-	if err != nil {
-		a.writeError(writer, requestID, err, runOperationErrorStatus(err))
-		return
-	}
-	var view ControlledCommandProposalReviewRequestView
-	if err := decodeStrictRunOperation(body, &view,
-		"Controlled command proposal review"); err != nil {
-		a.writeError(writer, requestID, err, 0)
-		return
-	}
-	if view.Version != runner.ControlledCommandReviewProtocolVersion {
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeInvalidArgument,
-				"controlled command proposal review protocol version is invalid"), 0)
-		return
-	}
-	current, err := a.controlledCommandProposalController.Get(
-		request.Context(), proposalID)
-	if err != nil {
-		a.writeError(writer, requestID, err, 0)
-		return
-	}
-	if current.Proposal.RunID != runID {
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeNotFound,
-				"controlled command proposal was not found for this Run"), 0)
-		return
-	}
-	result, err := a.controlledCommandProposalController.Review(
-		request.Context(),
-		application.ReviewControlledCommandProposalRequest{
-			ProposalID: proposalID, Decision: view.Decision,
-			OperationKey: operationKey, ReviewedBy: "http_control_operator",
-			Reason: view.Reason, ConfirmExecution: view.ConfirmExecution,
-		})
-	if err != nil {
-		a.writeError(writer, requestID, err, 0)
-		return
-	}
-	if result.View.Proposal.RunID != runID ||
-		result.View.Proposal.ID != proposalID {
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeInternal,
-				"controlled command review crossed its durable binding"), 0)
-		return
-	}
-	a.writeSuccessStatus(writer, requestID,
-		controlledCommandProposalView(
-			result.View, result.ReviewReplayed,
-			result.ExecutionReplayed, result.EvidenceContent),
-		nil, http.StatusAccepted)
 }
 
 func controlledCommandProposalView(

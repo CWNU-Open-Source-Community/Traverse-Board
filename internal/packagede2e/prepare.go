@@ -157,7 +157,7 @@ func validateFixtureSetReport(report FixtureSetReport) error {
 		!lowercaseDigestPattern.MatchString(report.ManifestSHA256) ||
 		!lowercaseDigestPattern.MatchString(report.AttackMatrixSHA256) ||
 		report.RepositoryCount != len(repositoryCommands) ||
-		report.AttackCaseCount != 40 ||
+		report.AttackCaseCount != 39 ||
 		!reflectStringSliceEqual(report.RequiredCategories, requiredAttackCategories) ||
 		!report.AllAttackCasesBound || len(report.Repositories) != report.RepositoryCount {
 		return errors.New("fixture set report is invalid")

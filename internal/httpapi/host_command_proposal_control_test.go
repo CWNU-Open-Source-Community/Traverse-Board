@@ -14,9 +14,7 @@ import (
 )
 
 type hostCommandProposalControllerStub struct {
-	view        application.HostCommandProposalView
-	reviewCalls int
-	review      application.ReviewHostCommandProposalRequest
+	view application.HostCommandProposalView
 }
 
 func (s *hostCommandProposalControllerStub) List(
@@ -29,48 +27,6 @@ func (s *hostCommandProposalControllerStub) Get(
 	_ context.Context, _ string,
 ) (application.HostCommandProposalView, error) {
 	return s.view, nil
-}
-
-func (s *hostCommandProposalControllerStub) Review(
-	_ context.Context, request application.ReviewHostCommandProposalRequest,
-) (application.ReviewHostCommandProposalResult, error) {
-	s.reviewCalls++
-	s.review = request
-	view := s.view
-	now := time.Now().UTC()
-	if view.RiskEscalation != nil {
-		view.Approval = &approval.Record{ID: "approval-risk-http-test",
-			ProposalID: view.RiskEscalation.ID, RunID: view.RiskEscalation.RunID,
-			Status: approval.StatusApproved, ReviewedBy: request.ReviewedBy,
-			DecisionReason: request.Reason, UpdatedAt: now, DecidedAt: &now}
-		view.Grant = &approval.SessionGrant{ID: "grant-risk-http-test",
-			Generation: 1, MaxUses: request.GrantMaxUses,
-			UsesRemaining: request.GrantMaxUses - 1, Status: approval.GrantActive}
-		view.GrantConsumption = &approval.GrantConsumption{
-			ID: "grant-consumption-risk-http-test"}
-		view.RiskResult = &runner.RiskEscalationResult{
-			ID: "risk-result-http-test", Status: "completed",
-			SourceKind: "go_command_result", SourceRef: "risk-message-http-test",
-			ContentSHA256: strings.Repeat("e", 64), CreatedAt: now}
-		view.Receipt = testHostCommandReceipt(now)
-		return application.ReviewHostCommandProposalResult{
-			View: view, EvidenceContent: "UNTRUSTED APPROVED RISK ESCALATION RESULT\nok",
-		}, nil
-	}
-	view.Review = &runner.HostCommandReview{
-		ID: "host-command-review-http-test", Decision: runner.HostCommandReviewDecision(request.Decision),
-		ReviewedBy: request.ReviewedBy, Reason: request.Reason,
-		SingleUseExecutionAuthorized: request.Decision == "approve", CreatedAt: now,
-	}
-	view.Result = &runner.HostCommandProposalResult{
-		ID: "host-command-result-http-test", Status: "completed",
-		SourceKind: "go_command_result", SourceRef: "message-http-test",
-		ContentSHA256: strings.Repeat("e", 64), CreatedAt: now,
-	}
-	view.Receipt = testHostCommandReceipt(now)
-	return application.ReviewHostCommandProposalResult{
-		View: view, EvidenceContent: "UNTRUSTED HOST COMMAND RESULT\nok",
-	}, nil
 }
 
 func testHostCommandReceipt(now time.Time) *runner.HostExecutionReceipt {
@@ -167,170 +123,75 @@ func testRiskEscalationHTTPView(t *testing.T, runID, missionID, sessionID,
 			Status: approval.StatusPending}}
 }
 
-func TestHostCommandProposalHTTPUsesSplitAuthorizationAndExactEnvelope(t *testing.T) {
-	fixture := newAPIFixture(t)
-	controller := &hostCommandProposalControllerStub{view: testHostCommandProposalView(
-		t, fixture.run.ID, fixture.run.MissionID, fixture.run.SessionID, fixture.workspace.ID)}
-	api, err := New(fixture.store, Config{
-		AccessToken: testAccessToken, ControlToken: testControlToken,
-		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true,
-		},
-		HostCommandProposalControlEnabled: true,
-		HostCommandProposalController:     controller, AppVersion: "host-command-proposal-test",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	collection := strings.ReplaceAll(HostCommandProposalCollectionPathTemplate,
-		"{run_id}", fixture.run.ID)
-	list := performSessionMessageRequest(t, api, http.MethodGet, collection+"?limit=10",
-		testAccessToken, "", "", nil)
-	if list.Code != http.StatusOK ||
-		!strings.Contains(list.Body.String(), `"executable_path":"C:\\Program Files\\Go\\bin\\go.exe"`) ||
-		!strings.Contains(list.Body.String(), `"argv":["test","./internal/application"]`) ||
-		!strings.Contains(list.Body.String(), `"network_intent":"host"`) ||
-		!strings.Contains(list.Body.String(), `"non_sandboxed":true`) ||
-		!strings.Contains(list.Body.String(), `"automatic_retry_allowed":false`) ||
-		strings.Contains(list.Body.String(), "SECRET_VALUE") {
-		t.Fatalf("host command proposal list lost its exact boundary: status=%d body=%s",
-			list.Code, list.Body.String())
-	}
-
-	detail := strings.ReplaceAll(HostCommandProposalDetailPathTemplate, "{run_id}", fixture.run.ID)
-	detail = strings.ReplaceAll(detail, "{proposal_id}", controller.view.Proposal.ID)
-	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodGet, detail,
-		testControlToken, "", "", nil), http.StatusUnauthorized, "POLICY_DENIED")
-
-	reviewPath := strings.ReplaceAll(HostCommandProposalReviewPathTemplate, "{run_id}", fixture.run.ID)
-	reviewPath = strings.ReplaceAll(reviewPath, "{proposal_id}", controller.view.Proposal.ID)
-	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, reviewPath,
-		testAccessToken, "host-command-http-review-0001", "application/json",
-		strings.NewReader(`{"version":"host_command_review.v1","decision":"deny"}`)),
-		http.StatusUnauthorized, "POLICY_DENIED")
-	approved := performSessionMessageRequest(t, api, http.MethodPost, reviewPath,
-		testControlToken, "host-command-http-review-0002", "application/json",
-		strings.NewReader(`{"version":"host_command_review.v1","decision":"approve",`+
-			`"reason":"reviewed exact envelope","confirm_execution":true}`))
-	if approved.Code != http.StatusAccepted ||
-		!strings.Contains(approved.Body.String(), `"untrusted_evidence":"UNTRUSTED HOST COMMAND RESULT\nok"`) ||
-		!strings.Contains(approved.Body.String(), `"job_memory_limit":2147483648`) ||
-		!strings.Contains(approved.Body.String(), `"evidence_instruction_authorized":false`) {
-		t.Fatalf("host command proposal review is invalid: status=%d body=%s",
-			approved.Code, approved.Body.String())
-	}
-	if controller.reviewCalls != 1 || controller.review.ReviewedBy != "http_control_operator" ||
-		!controller.review.ConfirmExecution {
-		t.Fatalf("review did not preserve independent operator binding: %+v", controller.review)
-	}
-}
-
-func TestHostCommandProposalHTTPRejectsDisabledInvalidAndMismatchedRequests(t *testing.T) {
-	fixture := newAPIFixture(t)
-	controller := &hostCommandProposalControllerStub{view: testHostCommandProposalView(
-		t, fixture.run.ID, fixture.run.MissionID, fixture.run.SessionID, fixture.workspace.ID)}
-	collection := strings.ReplaceAll(HostCommandProposalCollectionPathTemplate,
-		"{run_id}", fixture.run.ID)
-	assertAPIError(t, performSessionMessageRequest(t, fixture.api, http.MethodGet, collection,
-		testAccessToken, "", "", nil), http.StatusNotFound, "NOT_FOUND")
-
-	config := Config{AccessToken: testAccessToken, ControlToken: testControlToken,
-		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			OperatorApprovalEnabled: true,
-		}, HostCommandProposalControlEnabled: true,
-		HostCommandProposalController: controller, AppVersion: "host-command-proposal-test"}
-	api, err := New(fixture.store, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mismatchPath := "/api/v1/runs/another-run/host-command-proposals/" +
-		controller.view.Proposal.ID + "/review"
-	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, mismatchPath,
-		testControlToken, "host-command-http-review-0003", "application/json",
-		strings.NewReader(`{"version":"host_command_review.v1","decision":"deny"}`)),
-		http.StatusNotFound, "NOT_FOUND")
-	validPath := strings.ReplaceAll(mismatchPath, "another-run", fixture.run.ID)
-	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, validPath,
-		testControlToken, "host-command-http-review-0004", "application/json",
-		strings.NewReader(`{"version":"host_command_review.v1","decision":"deny",`+
-			`"shell":"whoami"}`)), http.StatusBadRequest, "INVALID_ARGUMENT")
-	if controller.reviewCalls != 0 {
-		t.Fatal("invalid host command review reached the controller")
-	}
-	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, collection,
-		testAccessToken, "", "application/json", strings.NewReader(`{}`)),
-		http.StatusMethodNotAllowed, "INVALID_ARGUMENT")
-
-	missingController := config
-	missingController.HostCommandProposalController = nil
-	if _, err := New(fixture.store, missingController); err == nil {
-		t.Fatal("host command capability accepted a missing controller")
-	}
-	missingOperator := config
-	missingOperator.ExecutionPermissionCapabilities = domain.ExecutionPermissionRuntimeCapabilities{}
-	if _, err := New(fixture.store, missingOperator); err == nil {
-		t.Fatal("host command capability accepted a missing operator approval gate")
-	}
-}
-
-func TestRiskEscalationHTTPProjectsExactScopeAndResumesAfterBoundedReview(t *testing.T) {
-	fixture := newAPIFixture(t)
-	controller := &hostCommandProposalControllerStub{view: testRiskEscalationHTTPView(
-		t, fixture.run.ID, fixture.run.MissionID, fixture.run.SessionID, fixture.workspace.ID)}
+func TestHistoricalHostHTTPReadAndResumeBoundaries(t *testing.T) {
+	f := newAPIFixture(t)
+	c := &hostCommandProposalControllerStub{view: testHostCommandProposalView(t, f.run.ID, f.run.MissionID, f.run.SessionID, f.workspace.ID)}
 	resume := &riskEscalationResumeControllerStub{}
-	api, err := New(fixture.store, Config{
-		AccessToken: testAccessToken, ControlToken: testControlToken,
-		ExecutionPermissionControlEnabled: true,
-		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
-		},
-		HostCommandProposalControlEnabled: true,
-		HostCommandProposalController:     controller, RunExecutionController: resume,
-		AppVersion: "risk-escalation-http-test",
-	})
+	api, err := New(f.store, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
+		ExecutionPermissionControlEnabled: true, ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true},
+		HostCommandProposalController: c, RunExecutionEnabled: true, RunExecutionController: resume})
 	if err != nil {
 		t.Fatal(err)
 	}
-	collection := strings.ReplaceAll(HostCommandProposalCollectionPathTemplate,
-		"{run_id}", fixture.run.ID)
-	listed := performSessionMessageRequest(t, api, http.MethodGet, collection+"?limit=10",
-		testAccessToken, "", "", nil)
-	for _, expected := range []string{`"protocol_version":"risk_escalation.v1"`,
-		`"state":"waiting_approval"`, `"supervisor_tool_call_id":"tool-risk-http"`,
-		`"risk_kinds":["credential","network"]`,
-		`"network_targets":["api.example.test:443"]`,
-		`"credential_kinds":["github_app"]`} {
-		if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), expected) {
-			t.Fatalf("risk escalation list lost %s: status=%d body=%s",
-				expected, listed.Code, listed.Body.String())
+	path := "/api/v1/runs/" + f.run.ID + "/host-command-proposals/" + c.view.ID()
+	got := performSessionMessageRequest(t, api, http.MethodGet, path, testAccessToken, "", "", nil)
+	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"argv":["test","./internal/application"]`) || !strings.Contains(got.Body.String(), `"automatic_retry_allowed":false`) {
+		t.Fatal(got.Code, got.Body.String())
+	}
+	for _, token := range []string{testAccessToken, testControlToken} {
+		status, code := http.StatusMethodNotAllowed, "INVALID_ARGUMENT"
+		if token == testControlToken {
+			status, code = http.StatusUnauthorized, "POLICY_DENIED"
 		}
+		assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, path+"/review", token, "old-review-operation", "application/json", strings.NewReader(`{"decision":"approve","confirm_execution":true}`)), status, code)
 	}
-	reviewPath := strings.ReplaceAll(HostCommandProposalReviewPathTemplate,
-		"{run_id}", fixture.run.ID)
-	reviewPath = strings.ReplaceAll(reviewPath, "{proposal_id}",
-		controller.view.RiskEscalation.ID)
-	approved := performSessionMessageRequest(t, api, http.MethodPost, reviewPath,
-		testControlToken, "risk-http-review-0001", "application/json",
-		strings.NewReader(`{"version":"host_command_review.v1","decision":"approve",`+
-			`"reason":"bounded exact scope","confirm_execution":true,`+
-			`"authorization":"run_scope","grant_ttl_seconds":120,"grant_max_uses":1}`))
-	if approved.Code != http.StatusAccepted ||
-		!strings.Contains(approved.Body.String(), `"state":"completed"`) ||
-		!strings.Contains(approved.Body.String(), `"grant_max_uses":1`) ||
-		!strings.Contains(approved.Body.String(), `"grant_uses_remaining":0`) ||
-		!strings.Contains(approved.Body.String(),
-			`"untrusted_evidence":"UNTRUSTED APPROVED RISK ESCALATION RESULT\nok"`) {
-		t.Fatalf("risk review response is invalid: status=%d body=%s",
-			approved.Code, approved.Body.String())
+	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, path+"/resume", testAccessToken, "", "", nil), http.StatusUnauthorized, "POLICY_DENIED")
+	for _, body := range []string{`{}`, `{"decision":"approve"}`, `{"argv":["whoami"]}`} {
+		assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, path+"/resume", testControlToken, "", "application/json", strings.NewReader(body)), http.StatusBadRequest, "INVALID_ARGUMENT")
 	}
-	if controller.review.Authorization != "run_scope" ||
-		controller.review.GrantTTLSeconds != 120 || controller.review.GrantMaxUses != 1 ||
-		resume.calls != 1 || resume.request.RunID != fixture.run.ID ||
-		resume.request.ProposalID != controller.view.RiskEscalation.ID ||
-		resume.request.Version != application.RiskEscalationResumeProtocolVersion {
-		t.Fatalf("risk review/resume binding changed: review=%+v resume=%+v calls=%d",
-			controller.review, resume.request, resume.calls)
+	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, path+"/resume?approve=true", testControlToken, "", "", nil), http.StatusBadRequest, "INVALID_ARGUMENT")
+	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, strings.Replace(path, f.run.ID, "other-run", 1)+"/resume", testControlToken, "", "", nil), http.StatusNotFound, "NOT_FOUND")
+	assertAPIError(t, performSessionMessageRequest(t, api, http.MethodPost, path+"/resume", testControlToken, "", "", nil), http.StatusPreconditionFailed, "FAILED_PRECONDITION")
+	if resume.calls != 0 {
+		t.Fatal("unsettled historical command reached continuation")
 	}
+}
+
+func TestHistoricalRiskHTTPResumesExactSavedOutcomeWithoutApproval(t *testing.T) {
+	f := newAPIFixture(t)
+	c := &hostCommandProposalControllerStub{view: testRiskEscalationHTTPView(t, f.run.ID, f.run.MissionID, f.run.SessionID, f.workspace.ID)}
+	c.view.Approval.Status = approval.StatusDenied
+	resume := &riskEscalationResumeControllerStub{}
+	api, err := New(f.store, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
+		ExecutionPermissionControlEnabled: true, ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true},
+		HostCommandProposalController: c, RunExecutionEnabled: true, RunExecutionController: resume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/runs/" + f.run.ID + "/host-command-proposals/" + c.view.ID() + "/resume"
+	got := performSessionMessageRequest(t, api, http.MethodPost, path, testControlToken, "", "", nil)
+	if got.Code != http.StatusAccepted || resume.calls != 1 || resume.request.RunID != f.run.ID || resume.request.ProposalID != c.view.ID() || resume.request.Version != application.RiskEscalationResumeProtocolVersion {
+		t.Fatal(got.Code, got.Body.String(), resume)
+	}
+	if c.view.Approval.Status != approval.StatusDenied || c.view.Grant != nil || c.view.RiskResult != nil {
+		t.Fatal("resume fabricated authority or result")
+	}
+}
+
+func TestHistoricalCommandsDefaultToAuthenticatedReadOnlyHistory(t *testing.T) {
+	f := newAPIFixture(t)
+	api, err := New(f.store, Config{AccessToken: testAccessToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, collection := range []string{"command-proposals", "host-command-proposals"} {
+		path := "/api/v1/runs/" + f.run.ID + "/" + collection
+		got := performSessionMessageRequest(t, api, http.MethodGet, path, testAccessToken, "", "", nil)
+		if got.Code != http.StatusOK {
+			t.Fatal(got.Code, got.Body.String())
+		}
+		assertAPIError(t, performSessionMessageRequest(t, api, http.MethodGet, path, "", "", "", nil), http.StatusUnauthorized, "POLICY_DENIED")
+	}
+	got := performSessionMessageRequest(t, api, http.MethodPost, "/api/v1/runs/"+f.run.ID+"/host-command-proposals/historical/resume", testAccessToken, "", "", nil)
+	assertAPIError(t, got, http.StatusUnauthorized, "POLICY_DENIED")
 }

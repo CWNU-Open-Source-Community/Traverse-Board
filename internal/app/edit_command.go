@@ -114,7 +114,7 @@ func (a *App) editReview(ctx context.Context, action application.FileEditReviewA
 	fmt.Fprintf(a.out, "file edit %s %s\nrun: %s\naction: %s\nreplayed: %t\nfile_written: false\n",
 		result.Edit.ID, result.Edit.Status, fs.Arg(0), result.Action, result.Replayed)
 	return a.continueReviewedFileEdit(ctx, fs.Arg(0), result.Edit.ID,
-		cliExecutionPermissionCapabilities(*enablePermission, *enableFull, false), *confirmFull)
+		cliExecutionPermissionCapabilities(*enablePermission, *enableFull), *confirmFull)
 }
 
 func (a *App) editPropose(ctx context.Context, manager fileEditManager, args []string) error {

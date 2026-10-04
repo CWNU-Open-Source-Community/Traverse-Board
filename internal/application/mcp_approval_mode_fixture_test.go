@@ -33,7 +33,7 @@ func newMCPApprovalModeRuntime(t *testing.T, ctx context.Context, modes ...domai
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err = NewRunExecutionPermissionService(state, capabilities).Change(ctx, ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: string(mode), ConfirmFull: mode == domain.RunExecutionPermissionFull, OperationKey: "mcp-runtime-mode-0001", RequestedBy: "operator"}); err != nil {
 			t.Fatal(err)

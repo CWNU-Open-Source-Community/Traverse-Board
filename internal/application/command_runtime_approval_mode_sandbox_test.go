@@ -72,7 +72,7 @@ func newCommandApprovalSandboxFixture(t *testing.T, mode domain.RunExecutionPerm
 	}
 	caps := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	if mode != domain.RunExecutionPermissionAsk {
 		if _, err := NewRunExecutionPermissionService(base.state, caps).Change(t.Context(), ChangeRunExecutionPermissionRequest{

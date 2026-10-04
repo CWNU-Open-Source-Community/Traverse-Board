@@ -196,7 +196,7 @@ func newLegacyEmptyCreateFixture(t *testing.T, payload string, fullAccess bool) 
 	t.Helper()
 	f := &legacyEmptyCreateFixture{path: filepath.Join(t.TempDir(), "legacy.db"), root: t.TempDir(), payload: payload,
 		capabilities: domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}}
+			RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}}
 	var err error
 	f.state, err = store.Open(f.path)
 	if err != nil {

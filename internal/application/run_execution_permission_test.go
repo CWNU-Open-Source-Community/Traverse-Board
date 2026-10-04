@@ -137,8 +137,7 @@ func TestRunExecutionPermissionAutoToFullRotatesChildAuthorityFence(t *testing.T
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority:               authority,
+		RuntimeAuthority: authority,
 	}
 	service := NewRunExecutionPermissionService(state, capabilities)
 	result, err := service.Change(t.Context(), ChangeRunExecutionPermissionRequest{
@@ -173,8 +172,7 @@ func TestRunExecutionPermissionExactAutoReplayPreservesAuthorizationFence(t *tes
 	service := NewRunExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-			FullAccessRequiresRuntimeGrant: true,
-			RuntimeAuthority:               authority,
+			RuntimeAuthority: authority,
 		})
 	request := ChangeRunExecutionPermissionRequest{RunID: run.ID,
 		Mode:         string(domain.RunExecutionPermissionAuto),
@@ -223,7 +221,7 @@ func TestRunExecutionPermissionSameModeFullReconfirmsWithoutReplayRevocation(t *
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	service := NewRunExecutionPermissionService(state, capabilities)
 	request := ChangeRunExecutionPermissionRequest{

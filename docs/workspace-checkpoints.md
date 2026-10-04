@@ -39,9 +39,9 @@ Manual capture returns `CONFLICT` while a mutation boundary for the same Run is
 open. Finish or reconcile that writer first; capture never advances the cursor
 underneath an in-flight file, command, Git, or merge operation.
 
-Restore also requires Code/Deliver mode and a current `approval`, `full_access`, or
-`debug` permission allowed by the process startup gates. A historical permission is
-never enough.
+Restore also requires Code/Deliver mode and current `ask`, `auto`, or `full`
+permission. Full requires a fresh activation in the executing process; a persisted
+preference grants no runtime authority.
 
 ## CLI
 
@@ -56,7 +56,7 @@ cyberagent workspace checkpoint preview --run <run-id> `
 ```
 
 Confirmed restore uses the process flags matching the Run's current permission.
-For an `approval` Run:
+For an `ask` or `auto` Run:
 
 ```powershell
 cyberagent workspace checkpoint rewind --run <run-id> `
@@ -72,8 +72,9 @@ cyberagent workspace checkpoint redo --run <run-id> `
   --confirm --enable-permission-control
 ```
 
-Add `--enable-danger-full-access` for `full_access`, and both that flag and
-`--enable-debug-maximum-access` for `debug`.
+For `full`, also pass `--enable-danger-full-access --confirm-full` on each
+mutation. `--confirm` still confirms the exact restore or fork and does not
+activate Full by itself. Timeline, capture, and preview require no activation.
 
 Fork requires an absent destination under an existing real parent directory and a
 new valid Git branch:

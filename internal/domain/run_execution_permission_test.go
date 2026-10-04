@@ -74,11 +74,6 @@ func TestLegacyRunExecutionPermissionModesHaveClosedDefinitions(t *testing.T) {
 
 func TestExecutionPermissionRuntimeCapabilitiesRequireMonotonicGates(t *testing.T) {
 	if err := (ExecutionPermissionRuntimeCapabilities{
-		DebugMaximumAccessEnabled: true,
-	}).Validate(); err == nil {
-		t.Fatal("debug gate without danger-full-access was accepted")
-	}
-	if err := (ExecutionPermissionRuntimeCapabilities{
 		DangerFullAccessEnabled: true,
 	}).Validate(); err == nil {
 		t.Fatal("danger-full-access without permission control was accepted")
@@ -86,7 +81,6 @@ func TestExecutionPermissionRuntimeCapabilitiesRequireMonotonicGates(t *testing.
 	capabilities := ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled: true,
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		DebugMaximumAccessEnabled: true,
 	}
 	if err := capabilities.Validate(); err != nil {
 		t.Fatal(err)
@@ -96,8 +90,8 @@ func TestExecutionPermissionRuntimeCapabilitiesRequireMonotonicGates(t *testing.
 		RunExecutionPermissionApproval,
 		RunExecutionPermissionFullAccess, RunExecutionPermissionDebug,
 	} {
-		if !capabilities.Allows(mode) {
-			t.Fatalf("expected runtime to allow %s", mode)
+		if capabilities.Allows(mode) {
+			t.Fatalf("legacy mode became runtime-authorized: %s", mode)
 		}
 	}
 }
@@ -109,7 +103,7 @@ func TestWorkspaceAccessRuntimeGateIsIndependentAndFailsClosed(t *testing.T) {
 	}
 	workspaceOnly := ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}
 	if err := workspaceOnly.Validate(); err != nil ||
-		!workspaceOnly.Allows(RunExecutionPermissionWorkspaceAccess) ||
+		workspaceOnly.Allows(RunExecutionPermissionWorkspaceAccess) ||
 		workspaceOnly.Allows(RunExecutionPermissionApproval) ||
 		workspaceOnly.Allows(RunExecutionPermissionFullAccess) ||
 		workspaceOnly.Allows(RunExecutionPermissionDebug) {

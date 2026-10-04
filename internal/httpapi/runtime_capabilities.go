@@ -64,7 +64,6 @@ type RuntimeCapabilitiesView struct {
 	WorkspaceSandboxEnabled            bool                         `json:"workspace_sandbox_enabled"`
 	OperatorApprovalEnabled            bool                         `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled            bool                         `json:"danger_full_access_enabled"`
-	DebugMaximumAccessEnabled          bool                         `json:"debug_maximum_access_enabled"`
 	CommandRuntimeEnabled              bool                         `json:"command_runtime_enabled"`
 	CommandRuntimeProtocolAvailable    bool                         `json:"command_runtime_protocol_available"`
 	CommandRuntimeAdapterInstalled     bool                         `json:"command_runtime_adapter_installed"`
@@ -84,8 +83,6 @@ type RuntimeCapabilitiesView struct {
 	ThreadExecutionReadEnabled         *bool                        `json:"thread_execution_read_enabled,omitempty"`
 	PlanDeliveryControlEnabled         bool                         `json:"plan_delivery_control_enabled"`
 	ApprovalControlEnabled             bool                         `json:"approval_control_enabled"`
-	ControlledCommandProposalEnabled   bool                         `json:"controlled_command_proposal_control_enabled"`
-	HostCommandProposalEnabled         bool                         `json:"host_command_proposal_control_enabled"`
 	ModelControlEnabled                bool                         `json:"model_control_enabled"`
 	ProviderCredentialEnabled          bool                         `json:"provider_credential_enabled"`
 	FileEditReviewEnabled              bool                         `json:"file_edit_review_enabled"`
@@ -210,7 +207,6 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		WorkspaceSandboxEnabled:            a.executionPermissionCapabilities.WorkspaceSandboxEnabled,
 		OperatorApprovalEnabled:            a.executionPermissionCapabilities.OperatorApprovalEnabled,
 		DangerFullAccessEnabled:            a.executionPermissionCapabilities.DangerFullAccessEnabled,
-		DebugMaximumAccessEnabled:          a.executionPermissionCapabilities.DebugMaximumAccessEnabled,
 		CommandRuntimeEnabled:              commandRuntimeEnabled,
 		CommandRuntimeProtocolAvailable:    true,
 		CommandRuntimeAdapterInstalled:     len(commandRuntimeAdapters) > 0,
@@ -226,8 +222,6 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		ThreadExecutionReadEnabled:         &threadExecutionReadable,
 		PlanDeliveryControlEnabled:         a.planDeliveryControlEnabled,
 		ApprovalControlEnabled:             a.approvalControlEnabled,
-		ControlledCommandProposalEnabled:   a.controlledCommandProposalControlEnabled,
-		HostCommandProposalEnabled:         a.hostCommandProposalControlEnabled,
 		ModelControlEnabled:                a.modelControlEnabled,
 		ProviderCredentialEnabled:          a.providerCredentialEnabled,
 		FileEditReviewEnabled:              a.fileEditReviewEnabled,

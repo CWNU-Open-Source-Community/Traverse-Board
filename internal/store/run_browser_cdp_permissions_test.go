@@ -31,8 +31,7 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndFullGated(t *testing.T) 
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(st, capabilities, executionCapabilities)
 	initial, err := service.Current(ctx, run.ID)

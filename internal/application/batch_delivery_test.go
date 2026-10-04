@@ -1130,8 +1130,7 @@ func newBatchDeliveryApplicationFixture(t *testing.T,
 	}
 	hostCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true,
-		RuntimeAuthority:               domain.NewExecutionPermissionRuntimeAuthority(),
+		RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority(),
 	}
 	// Git-only batches retain the real initial Ask preference. Host Go/npm
 	// validation opts into Full through the current writer and its live fence.

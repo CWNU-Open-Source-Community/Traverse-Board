@@ -406,7 +406,7 @@ func setWebTestPermission(t *testing.T, state *store.SQLiteStore, runID string, 
 	runtime := domain.NewExecutionPermissionRuntimeAuthority()
 	caps := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtime,
+		RuntimeAuthority: runtime,
 	}
 	_, err = application.NewRunExecutionPermissionService(state, caps).Change(t.Context(),
 		application.ChangeRunExecutionPermissionRequest{RunID: runID, Mode: string(mode),

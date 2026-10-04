@@ -61,7 +61,7 @@ func TestSupervisorFullAccessHostCommandFetchesWithoutApproval(t *testing.T) {
 	authority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+		RuntimeAuthority: authority,
 	}
 	selected, err := application.NewRunExecutionPermissionService(state, capabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{

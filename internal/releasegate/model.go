@@ -269,6 +269,11 @@ type aggregateInputs struct {
 }
 
 func aggregate(input aggregateInputs) (Report, error) {
+	for _, backend := range input.product.Backends {
+		if backend.State != "ready" {
+			return Report{}, errors.New("release gate requires executed product evidence from every backend; approval fallback is retired")
+		}
+	}
 	candidate := input.product.Candidate
 	security := input.security
 	bootstrap := input.bootstrap
@@ -289,8 +294,8 @@ func aggregate(input aggregateInputs) (Report, error) {
 		return Report{}, errors.New("release gate fixture or attack matrix bindings do not match")
 	}
 	if security.Status != packagede2e.SecurityEvidencePassed ||
-		security.Summary.RequiredCaseCount != 40 || security.Summary.RequiredBackendRuns != 75 ||
-		security.Summary.PassedBackendRuns != 75 || security.Summary.FailedBackendRuns != 0 ||
+		security.Summary.RequiredCaseCount != 39 || security.Summary.RequiredBackendRuns != 73 ||
+		security.Summary.PassedBackendRuns != 73 || security.Summary.FailedBackendRuns != 0 ||
 		security.Summary.UnexecutedBackendRuns != 0 ||
 		security.Cleanup.OwnedProcessesStarted != security.Cleanup.OwnedProcessesReaped ||
 		security.Cleanup.OrphanProcesses != 0 || security.Cleanup.ForeignProcessesKilled != 0 ||
@@ -371,7 +376,7 @@ func validateBootstrap(report bootstrapReport) error {
 		report.FixtureSet.ProtocolVersion != packagede2e.FixtureSetProtocol ||
 		!validDigest(report.FixtureSet.ManifestSHA256) ||
 		!validDigest(report.FixtureSet.AttackMatrixSHA256) ||
-		report.FixtureSet.RepositoryCount != 4 || report.FixtureSet.AttackCaseCount != 40 ||
+		report.FixtureSet.RepositoryCount != 4 || report.FixtureSet.AttackCaseCount != 39 ||
 		!report.FixtureSet.OracleVerified || !report.FixtureSet.AllAttackCasesBound {
 		return errors.New("release gate bootstrap evidence is incomplete")
 	}
@@ -395,8 +400,8 @@ func validateBootstrap(report bootstrapReport) error {
 		seen[result.ID] = true
 	}
 	matrix := report.AttackMatrix
-	if matrix.RequiredCaseCount != 40 || matrix.PreparedCaseCount != 40 ||
-		matrix.EvidencedCaseCount != 0 || matrix.RemainingRequiredCaseCount != 40 ||
+	if matrix.RequiredCaseCount != 39 || matrix.PreparedCaseCount != 39 ||
+		matrix.EvidencedCaseCount != 0 || matrix.RemainingRequiredCaseCount != 39 ||
 		matrix.Status != "needs_full_matrix" || matrix.FailurePolicy != "fail_closed_no_waiver" ||
 		!matrix.UnexecutedCasesAreNotPassOrSkip {
 		return errors.New("release gate bootstrap attack matrix state is invalid")
@@ -477,11 +482,11 @@ func (report Report) Validate() error {
 		!sameStrings(report.Coverage.OperatingSystems, []string{"windows_10", "windows_11"}) ||
 		len(report.Coverage.DPIPercents) != 2 || report.Coverage.DPIPercents[0] != 100 ||
 		report.Coverage.DPIPercents[1] != 200 ||
-		report.Coverage.FixtureRepositories != 4 || report.Coverage.ProductScenarios < 4 ||
-		report.Coverage.ProductScenarios > 8 || report.Coverage.ProductRealFailureRetries < 4 ||
-		report.Coverage.ProductRealProcessJobs < 8 || report.Coverage.ProductContinuityCases != 4 ||
-		report.Coverage.ProductPlatformRows != 4 || report.Coverage.SecurityRequiredCases != 40 ||
-		report.Coverage.SecurityRequiredRuns != 75 || report.Coverage.SecurityPassedRuns != 75 {
+		report.Coverage.FixtureRepositories != 4 || report.Coverage.ProductScenarios != 8 ||
+		report.Coverage.ProductRealFailureRetries < 8 ||
+		report.Coverage.ProductRealProcessJobs < 16 || report.Coverage.ProductContinuityCases != 4 ||
+		report.Coverage.ProductPlatformRows != 4 || report.Coverage.SecurityRequiredCases != 39 ||
+		report.Coverage.SecurityRequiredRuns != 73 || report.Coverage.SecurityPassedRuns != 73 {
 		return errors.New("release gate coverage is incomplete")
 	}
 	if !report.Safeguards.NetworkDisabled || !report.Safeguards.CredentialsAbsent ||

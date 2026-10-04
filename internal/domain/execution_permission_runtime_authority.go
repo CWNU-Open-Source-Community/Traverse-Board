@@ -89,7 +89,7 @@ func (a *ExecutionPermissionRuntimeAuthority) ActivateThreadFullAccess(
 	if err := thread.Validate(); err != nil {
 		return ExecutionPermissionRuntimeGrant{}, err
 	}
-	if !thread.Mode.IsFullPreference() || !thread.OperatorConfirmed {
+	if thread.Mode != RunExecutionPermissionFull || !thread.OperatorConfirmed {
 		return ExecutionPermissionRuntimeGrant{}, errors.New(
 			"runtime activation requires a confirmed Full Access Thread snapshot")
 	}
@@ -296,7 +296,7 @@ func (a *ExecutionPermissionRuntimeAuthority) AllowsRunAuthorizationFence(
 func (a *ExecutionPermissionRuntimeAuthority) AllowsFullAccess(
 	run RunExecutionPermissionSnapshot,
 ) (uint64, bool) {
-	if a == nil || !run.Mode.IsFullPreference() ||
+	if a == nil || run.Mode != RunExecutionPermissionFull ||
 		!run.OperatorConfirmed {
 		return 0, false
 	}
@@ -321,7 +321,7 @@ func (a *ExecutionPermissionRuntimeAuthority) AllowsThreadFullAccess(
 	thread ThreadExecutionPermissionSnapshot,
 	run *RunExecutionPermissionSnapshot,
 ) bool {
-	if a == nil || !thread.Mode.IsFullPreference() ||
+	if a == nil || thread.Mode != RunExecutionPermissionFull ||
 		!thread.OperatorConfirmed {
 		return false
 	}
@@ -348,7 +348,7 @@ func validateRuntimeFullAccessRun(run RunExecutionPermissionSnapshot) error {
 	if err := run.Validate(); err != nil {
 		return err
 	}
-	if !run.Mode.IsFullPreference() || !run.OperatorConfirmed {
+	if run.Mode != RunExecutionPermissionFull || !run.OperatorConfirmed {
 		return errors.New(
 			"runtime activation requires a confirmed Full Access Run snapshot")
 	}

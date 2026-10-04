@@ -169,15 +169,5 @@ func boundedApprovalGrantScopeTx(ctx context.Context, tx *sql.Tx, record approva
 		}
 		return commandApprovalGrantScopeTx(ctx, tx, record)
 	}
-	proposal, err := getRiskEscalationProposal(ctx, tx, record.ProposalID)
-	if err != nil {
-		return approval.GrantQuery{}, err
-	}
-	return approval.GrantQuery{RunID: proposal.RunID, SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
-		ToolName: record.ToolName, ActionClass: record.ActionClass, ScopeFingerprint: proposal.Scope.Fingerprint,
-		ModeSnapshotID: proposal.ModeSnapshotID, ModeRevision: proposal.ModeRevision,
-		InteractionSnapshotID: proposal.InteractionSnapshotID, InteractionRevision: proposal.InteractionRevision,
-		ExecutionProfileSnapshotID: proposal.ExecutionProfileSnapshotID, ExecutionProfileRevision: proposal.ExecutionProfileRevision,
-		PermissionSnapshotID: proposal.PermissionSnapshotID, PermissionRevision: proposal.PermissionRevision, PermissionMode: string(proposal.PermissionMode),
-		WorkspaceRootFingerprint: proposal.WorkspaceRootFingerprint, CapabilityGeneration: proposal.CapabilityGeneration}, nil
+	return approval.GrantQuery{}, errors.New("bounded command grants require Command Runtime")
 }
