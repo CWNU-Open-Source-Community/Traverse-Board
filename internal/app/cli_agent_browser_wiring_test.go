@@ -21,6 +21,17 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
+// Workspace authority compares the supplied root with its resolved identity.
+// Use one canonical path for the CLI home, database and workspace fixture.
+func newCanonicalCLIHome(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 type cliAgentBrowserProvider struct {
 	mu            sync.Mutex
 	expectBrowser bool
@@ -129,7 +140,7 @@ func TestCLIExecutionEntrypointsWireOrdinaryAgentBrowser(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			t.Setenv("CYBERAGENT_HOME", home)
 			runID := createCLIAgentBrowserRun(t, home, test.permission)
 			wantBrowser := test.browserWanted && runtime.GOOS == "windows"
@@ -169,7 +180,7 @@ func TestCLIWakeConsumeWiresOrdinaryAgentBrowser(t *testing.T) {
 	}
 	for _, confirmFull := range []bool{false, true} {
 		t.Run(fmt.Sprintf("confirm-full=%t", confirmFull), func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			t.Setenv("CYBERAGENT_HOME", home)
 			runID := createCLIAgentBrowserRun(t, home, domain.RunExecutionPermissionFull)
 			state, err := store.Open(filepath.Join(home, "cyberagent.db"))
@@ -250,7 +261,7 @@ func TestCLIApprovalExecutionHandoffWiresOrdinaryAgentBrowser(t *testing.T) {
 			permissionGate: true, fullGate: true, confirmFull: true, wantError: "current Full preference"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			runID := createCLIAgentBrowserRun(t, home, test.permission)
 			state, err := store.Open(filepath.Join(home, "cyberagent.db"))
 			if err != nil {
@@ -466,7 +477,7 @@ func TestCLIExecutionRuntimeClosesAgentBrowserWithoutGrantingPersistedFullAccess
 	if runtime.GOOS != "windows" {
 		t.Skip("ordinary Agent browser adapter is Windows-only")
 	}
-	home := t.TempDir()
+	home := newCanonicalCLIHome(t)
 	runID := createCLIAgentBrowserRun(t, home, domain.RunExecutionPermissionFull)
 	state, err := store.Open(filepath.Join(home, "cyberagent.db"))
 	if err != nil {

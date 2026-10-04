@@ -167,10 +167,10 @@ func newCLIApprovalFixtureWithPermission(t *testing.T, home string,
 		t.Fatal(err)
 	}
 	if permission != domain.RunExecutionPermissionAsk {
-		if _, err := application.NewRunExecutionPermissionService(state,
+		if _, err := application.NewThreadExecutionPermissionService(state,
 			cliExecutionPermissionCapabilities(true, true)).Change(t.Context(),
-			application.ChangeRunExecutionPermissionRequest{
-				RunID: run.ID, Mode: string(permission), OperationKey: "cli-approval-initial-permission",
+			application.ChangeThreadExecutionPermissionRequest{
+				ThreadID: domain.InitialThreadID(run.ID), Mode: string(permission), OperationKey: "cli-approval-initial-permission",
 				RequestedBy: "test_operator", ConfirmFull: permission == domain.RunExecutionPermissionFull,
 			}); err != nil {
 			_ = state.Close()
@@ -206,6 +206,12 @@ func newCLIApprovalFixtureWithPermission(t *testing.T, home string,
 		_ = state.Close()
 		t.Fatalf("initial approval boundary=%#v err=%v", first, err)
 	}
+	run = first.Submission.Run
+	actualPermission, err := state.GetRunExecutionPermission(t.Context(), run.ID)
+	if err != nil || actualPermission.Mode != permission {
+		_ = state.Close()
+		t.Fatalf("approval Run permission=%+v want=%s err=%v", actualPermission, permission, err)
+	}
 	records, err := state.ListApprovals(t.Context(), approval.ListFilter{
 		RunID: run.ID, Status: approval.StatusPending, Limit: 10,
 	})
@@ -217,6 +223,11 @@ func newCLIApprovalFixtureWithPermission(t *testing.T, home string,
 	if err != nil {
 		_ = state.Close()
 		t.Fatal(err)
+	}
+	if records[0].RunID != run.ID || records[0].SessionID != run.SessionID ||
+		auth.RunID != run.ID || auth.SessionID != run.SessionID || auth.ApprovalID != records[0].ID {
+		_ = state.Close()
+		t.Fatalf("approval fixture crossed Run or Session: run=%+v approval=%+v authorization=%+v", run, records[0], auth)
 	}
 	return cliApprovalFixture{state: state, run: run, approvalID: records[0].ID,
 		auth: auth, provider: provider, backend: backend, router: router, handoff: handoff}
@@ -267,7 +278,7 @@ func decideCLIApprovalFixture(t *testing.T, fixture cliApprovalFixture,
 }
 
 func TestCLIApprovalCompletedContinuationReplaysWithoutModelOrTool(t *testing.T) {
-	home := t.TempDir()
+	home := newCanonicalCLIHome(t)
 	t.Setenv("CYBERAGENT_HOME", home)
 	fixture := newCLIApprovalFixture(t, home,
 		cliApprovalTextResponse(t, "reviewed source observed"))
@@ -299,7 +310,7 @@ func TestCLIApprovalCompletedContinuationReplaysWithoutModelOrTool(t *testing.T)
 }
 
 func TestCLIApprovalDenyContinuesOnceAndReplaysAcrossApps(t *testing.T) {
-	home := t.TempDir()
+	home := newCanonicalCLIHome(t)
 	t.Setenv("CYBERAGENT_HOME", home)
 	fixture := newCLIApprovalFixture(t, home,
 		cliApprovalTextResponse(t, "denial observed"))
@@ -339,7 +350,7 @@ func TestCLIApprovalContinuationRequiresInvocationFullConfirmation(t *testing.T)
 			flags: []string{"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"}, wantError: "current Full preference"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			t.Setenv("CYBERAGENT_HOME", home)
 			fixture := newCLIApprovalFixtureWithPermission(t, home,
 				cliApprovalTextResponse(t, "exact denial observed"), test.permission)
@@ -347,7 +358,7 @@ func TestCLIApprovalContinuationRequiresInvocationFullConfirmation(t *testing.T)
 			stdout, stderr, code := executeCLIApproval(t, fixture.router, "deny", fixture.approvalID, test.flags...)
 			decision, err := fixture.state.GetApproval(t.Context(), fixture.approvalID)
 			if err != nil || decision.Status != approval.StatusDenied || !strings.Contains(stdout, "decision_saved: true") {
-				t.Fatalf("exact decision was not saved: %+v err=%v stdout=%s", decision, err, stdout)
+				t.Fatalf("exact decision was not saved: %+v err=%v code=%d stdout=%q stderr=%q", decision, err, code, stdout, stderr)
 			}
 			if fixture.backend.callCount() != 0 {
 				t.Fatal("denied fetch executed")
@@ -376,7 +387,7 @@ func TestCLIApprovalContinuationRequiresInvocationFullConfirmation(t *testing.T)
 func TestCLIApprovalDoesNotWakePausedOrCancelledRun(t *testing.T) {
 	for _, status := range []domain.RunStatus{domain.RunPaused, domain.RunCancelled} {
 		t.Run(string(status), func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			t.Setenv("CYBERAGENT_HOME", home)
 			continuation := cliApprovalTextResponse(t, "must not be used")
 			if status == domain.RunPaused {
@@ -429,7 +440,7 @@ func TestCLIFileReviewKeepsExactDecisionSeparateFromContinuationFull(t *testing.
 		{name: "missing gates", action: "review-approve", flags: []string{"--confirm-full"}, denied: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
+			home := newCanonicalCLIHome(t)
 			t.Setenv("CYBERAGENT_HOME", home)
 			runID := createCLIAgentBrowserRun(t, home, domain.RunExecutionPermissionFull)
 			state, err := store.Open(filepath.Join(home, "cyberagent.db"))

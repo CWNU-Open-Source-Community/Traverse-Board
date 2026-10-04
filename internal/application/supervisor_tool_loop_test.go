@@ -63,7 +63,7 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	requests := provider.Requests()
 	if len(requests) != 2 ||
 		!hasToolSpec(requests[0], "work_item_create") ||
-		!hasToolSpec(requests[0], "controlled_command_propose") ||
+		hasToolSpec(requests[0], "controlled_command_propose") ||
 		hasToolResults(requests[0]) ||
 		!hasToolResult(requests[1], "work_item") {
 		t.Fatalf("model did not receive the structured tool transcript: %#v", requests)

@@ -159,7 +159,10 @@ func (a *App) approvalDecideAndContinue(ctx context.Context, actionName string, 
 	enablePermission := fs.Bool("enable-permission-control", false, "enable the permission-control runtime gate")
 	enableFull := fs.Bool("enable-danger-full-access", false, "enable the Full runtime gate")
 	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this continuation only")
-	if err := fs.Parse(reorderFlags(args, map[string]bool{"operation-key": true, "reason": true})); err != nil {
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"operation-key": true, "reason": true,
+		"enable-permission-control": false, "enable-danger-full-access": false, "confirm-full": false,
+	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {

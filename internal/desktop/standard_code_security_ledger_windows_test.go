@@ -47,9 +47,10 @@ func (r *securityLedgerRuntime) ExecuteCommandRuntime(_ context.Context, scope t
 }
 
 func TestStandardCodeSecurityLedgerPreservesSettledAndUnknownDispatch(t *testing.T) {
-	for _, scenario := range []string{"completed", "denied", "cancelled_unknown"} {
+	for _, scenario := range []string{"completed", "completed_existing_input", "denied", "cancelled_unknown"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
+			completed := scenario == "completed" || scenario == "completed_existing_input"
 			state, err := store.Open(filepath.Join(t.TempDir(), "security-ledger.db"))
 			if err != nil {
 				t.Fatal(err)
@@ -85,9 +86,21 @@ func TestStandardCodeSecurityLedgerPreservesSettledAndUnknownDispatch(t *testing
 			}
 			plane := &ControlPlane{stateStore: state, commandRuntime: runtime}
 			run := &standardCodeSecurityRun{run: record, lease: acquired.Lease, adapter: runtime.adapter}
+			wantInput := "fixed packaged ledger observation"
+			if scenario == "completed_existing_input" {
+				wantInput = "preserve the current operator probe input"
+				if _, err := state.BeginSupervisorTurn(ctx, run.lease, wantInput); err != nil {
+					t.Fatal(err)
+				}
+			}
 			call, err := run.prepareCommand(ctx, plane, caps, toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion, Action: toolgateway.CommandRuntimeActionList})
 			if err != nil {
 				t.Fatal(err)
+			}
+			bound := run.turn.Checkpoint
+			persisted, found, err := state.GetSupervisorCheckpoint(ctx, record.ID)
+			if err != nil || !found || bound.PendingInput != wantInput || persisted.PendingInput != wantInput || persisted.AttemptID != bound.AttemptID {
+				t.Fatalf("current probe input was not bound: memory=%+v stored=%+v found=%t err=%v", bound, persisted, found, err)
 			}
 			source, started, err := state.GetSupervisorApprovalCall(ctx, record.ID, call.SupervisorToolCallID)
 			if err != nil || started || source.Status != domain.SupervisorToolPending {
@@ -102,7 +115,7 @@ func TestStandardCodeSecurityLedgerPreservesSettledAndUnknownDispatch(t *testing
 			}
 			gateway := toolgateway.New(state, policy.NewDefaultChecker()).WithCommandRuntimeExecutor(runtime)
 			_, invokeErr := run.invokeCommand(ctx, plane, gateway, call)
-			if (invokeErr == nil) != (scenario == "completed") {
+			if (invokeErr == nil) != completed {
 				t.Fatalf("dispatch result: %v", invokeErr)
 			}
 			source, started, err = state.GetSupervisorApprovalCall(ctx, record.ID, call.SupervisorToolCallID)
@@ -115,6 +128,10 @@ func TestStandardCodeSecurityLedgerPreservesSettledAndUnknownDispatch(t *testing
 				}
 				if err := run.completeTurn(ctx, plane); err == nil {
 					t.Fatal("unknown dispatch completed its turn")
+				}
+				persisted, found, err := state.GetSupervisorCheckpoint(ctx, record.ID)
+				if err != nil || !found || persisted.Phase != domain.SupervisorTurnStarted || persisted.AttemptID != bound.AttemptID || persisted.PendingInput != wantInput {
+					t.Fatalf("unknown dispatch lost its original turn input: %+v found=%t err=%v", persisted, found, err)
 				}
 			} else {
 				want := domain.SupervisorToolCompleted
@@ -137,12 +154,36 @@ func TestStandardCodeSecurityLedgerPreservesSettledAndUnknownDispatch(t *testing
 			if _, err := run.invokeCommand(ctx, plane, gateway, call); err == nil || runtime.calls != 1 {
 				t.Fatal("repeated dispatch reached adapter")
 			}
-			if scenario == "completed" {
+			if completed {
 				if err := run.completeTurn(ctx, plane); err != nil {
 					t.Fatal(err)
 				}
-				if run.turn.Checkpoint.Phase != domain.SupervisorIdle {
-					t.Fatalf("successful turn remains active: %+v", run.turn.Checkpoint)
+				checkpoint := run.turn.Checkpoint
+				if checkpoint.Phase != domain.SupervisorIdle || checkpoint.NextTurn != bound.NextTurn+1 || checkpoint.AttemptID != "" || checkpoint.HasPendingInput() {
+					t.Fatalf("successful turn remains active: %+v", checkpoint)
+				}
+				history, err := state.ListSessionMessages(ctx, record.SessionID, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				userMessages := 0
+				for _, message := range history {
+					if message.Role == "user" {
+						userMessages++
+						if message.Content != wantInput {
+							t.Fatalf("completed turn saved another input: %q", message.Content)
+						}
+					}
+				}
+				if userMessages != 1 {
+					t.Fatalf("saved user input count=%d want=1", userMessages)
+				}
+				if err := run.completeTurn(ctx, plane); err != nil || run.turn.Checkpoint != checkpoint || runtime.calls != 1 {
+					t.Fatalf("repeated completion changed the settled turn: %+v err=%v calls=%d", run.turn.Checkpoint, err, runtime.calls)
+				}
+				replayedHistory, err := state.ListSessionMessages(ctx, record.SessionID, true)
+				if err != nil || len(replayedHistory) != len(history) {
+					t.Fatalf("repeated completion appended messages: before=%d after=%d err=%v", len(history), len(replayedHistory), err)
 				}
 			}
 		})

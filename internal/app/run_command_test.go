@@ -591,7 +591,7 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 }
 
 func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	t.Setenv("CYBERAGENT_HOME", newCanonicalCLIHome(t))
 	if _, stderr, code := executeTestCommand(t, "workspace", "init", "host-execute-demo"); code != 0 {
 		t.Fatal(stderr)
 	}
@@ -614,8 +614,12 @@ func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := []string{"run", "host-execute", runID, "--executable", executable, "--arg", "version", "--operation-key", "host-execute-0001", "--confirm-non-sandboxed-host-execution", "--enable-permission-control", "--enable-danger-full-access"}
-	if _, stderr, code := executeTestCommand(t, base...); code == 0 {
-		t.Fatal("cold Full executed", stderr)
+	if _, stderr, code := executeTestCommand(t, append(base, "--confirm-full")...); code == 0 || !strings.Contains(stderr, "stopped Run require exact operator confirmation") {
+		t.Fatal("Full bypassed exact execution confirmation", code, stderr)
+	}
+	base = append(base, "--confirm-execution")
+	if _, stderr, code := executeTestCommand(t, base...); code == 0 || !strings.Contains(stderr, "runtime authority is unavailable") {
+		t.Fatal("cold Full was not rejected by runtime authority", code, stderr)
 	}
 	first, stderr, code := executeTestCommand(t, append(base, "--confirm-full")...)
 	if code != 0 || !strings.Contains(first, "state: completed") || !strings.Contains(first, "replayed: false") || !strings.Contains(first, "go version ") {

@@ -102,7 +102,7 @@ func TestWorkspaceCheckpointCLIProvidesIdempotentCaptureTimelineAndPreview(t *te
 			t.Fatalf("%s: %s", action, stderr)
 		}
 	}
-	if _, stderr, code := executeTestCommand(t, "run", "execution-permission", "set", runID, "full", "--operation-key", "checkpoint-full", "--enable-permission-control", "--enable-danger-full-access", "--confirm-full"); code != 0 {
+	if _, stderr, code := executeTestCommand(t, "run", "execution-permission", "set", runID, "full", "--operation-key", "checkpoint-full-0001", "--enable-permission-control", "--enable-danger-full-access", "--confirm-full"); code != 0 {
 		t.Fatalf("set Full: %s", stderr)
 	}
 	for _, action := range []string{"rewind", "undo", "redo"} {

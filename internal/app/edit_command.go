@@ -93,7 +93,9 @@ func (a *App) editReview(ctx context.Context, action application.FileEditReviewA
 	enablePermission := fs.Bool("enable-permission-control", false, "enable the permission-control runtime gate")
 	enableFull := fs.Bool("enable-danger-full-access", false, "enable the Full runtime gate")
 	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this continuation only")
-	if err := fs.Parse(reorderFlags(args, nil)); err != nil {
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"enable-permission-control": false, "enable-danger-full-access": false, "confirm-full": false,
+	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 {

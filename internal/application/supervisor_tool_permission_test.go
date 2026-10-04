@@ -385,16 +385,18 @@ func TestSupervisorCodeIntelRequiresPinnedSnapshotAuthorityAndCodeScope(t *testi
 func TestSupervisorRetiredCommandToolsAreNeitherAdvertisedNorAccepted(t *testing.T) {
 	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
 		domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionApproval, domain.RunExecutionPermissionWorkspaceAccess, domain.RunExecutionPermissionFullAccess, domain.RunExecutionPermissionDebug} {
-		for _, name := range []toolgateway.ToolName{toolgateway.ControlledCommandProposeTool, toolgateway.OneShotCommandProposeTool, toolgateway.HostCommandProposeTool} {
-			for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver, mode, false, false) {
-				if spec.Name == string(name) {
-					t.Fatalf("retired tool %s advertised in %s", name, mode)
+		for _, phase := range []domain.ExecutionPhase{domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver} {
+			for _, name := range []toolgateway.ToolName{toolgateway.ControlledCommandProposeTool, toolgateway.OneShotCommandProposeTool, toolgateway.HostCommandProposeTool} {
+				for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionSurfaceCode, phase, mode, false, false) {
+					if spec.Name == string(name) {
+						t.Fatalf("retired tool %s advertised in %s/%s", name, mode, phase)
+					}
 				}
-			}
-			_, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "retired-call", Name: string(name), Arguments: json.RawMessage(`{}`)}}, "run-retired", 1, 1,
-				domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver, mode, false, false)
-			if err == nil {
-				t.Fatalf("retired tool %s accepted in %s", name, mode)
+				_, err := prepareSupervisorToolCalls([]llm.ToolCall{{ID: "retired-call", Name: string(name), Arguments: json.RawMessage(`{}`)}}, "run-retired", 1, 1,
+					domain.ExecutionSurfaceCode, phase, mode, false, false)
+				if err == nil {
+					t.Fatalf("retired tool %s accepted in %s/%s", name, mode, phase)
+				}
 			}
 		}
 	}

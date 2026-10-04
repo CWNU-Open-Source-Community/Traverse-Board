@@ -55,7 +55,7 @@ func TestPlanDeliveryProposalChoiceAndProjectionAreReviewGated(t *testing.T) {
 	requests := provider.Requests()
 	if len(requests) != 2 ||
 		!hasToolSpec(requests[0], "plan_delivery_propose") ||
-		!hasToolSpec(requests[0], "controlled_command_propose") ||
+		hasToolSpec(requests[0], "controlled_command_propose") ||
 		!hasToolResult(requests[1], `"selection_authorized":"false"`) {
 		t.Fatalf("Plan-only tool boundary was not delivered: %#v", requests)
 	}
@@ -143,7 +143,8 @@ func TestDeliverPhaseRejectsUnadvertisedPlanDeliveryToolBeforeBudget(t *testing.
 	requests := provider.Requests()
 	if len(requests) != 2 ||
 		hasToolSpec(requests[0], "plan_delivery_propose") ||
-		!hasToolSpec(requests[0], "controlled_command_propose") {
+		hasToolSpec(requests[0], "controlled_command_propose") ||
+		!hasToolSpec(requests[0], "work_item_create") {
 		t.Fatalf("Deliver advertised an invalid tool or tried a tool-less replacement answer: %#v", requests)
 	}
 	proposals, err := st.ListPlanDeliveryProposals(ctx, run.ID, 10)

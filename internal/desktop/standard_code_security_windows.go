@@ -937,6 +937,13 @@ func (run *standardCodeSecurityRun) prepareCommand(ctx context.Context,
 		run.root = turn.Agent
 	}
 	turn := &run.turn
+	if !turn.Checkpoint.HasPendingInput() {
+		checkpoint, err := plane.stateStore.BindSupervisorTurnInput(ctx, turn.Checkpoint, turn.Mission.Goal)
+		if err != nil {
+			return toolgateway.ToolCall{}, err
+		}
+		turn.Checkpoint = checkpoint
+	}
 	permission, err := plane.stateStore.GetRunExecutionPermission(ctx, run.run.ID)
 	if err != nil {
 		return toolgateway.ToolCall{}, err
