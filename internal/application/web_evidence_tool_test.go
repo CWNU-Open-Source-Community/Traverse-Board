@@ -657,6 +657,63 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 			})
 		}
 	}
+	for _, tool := range []toolgateway.ToolName{toolgateway.WebSearchTool, toolgateway.SourceSearchTool, toolgateway.WebFetchTool} {
+		t.Run("dispatch-"+string(tool), func(t *testing.T) {
+			provider := &applicationWebSearchProvider{}
+			connector := &applicationWebSourceConnector{}
+			serviceProbe := &webRuntimeBoundaryStore{SQLiteStore: state}
+			service := webevidence.NewService(serviceProbe, provider, backend).WithSourceConnectors(connector)
+			checked, err := application.NewWebEvidenceToolExecutor(state, service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checked.WithExecutionPermissionCapabilities(liveCapabilities)
+			currentContext := liveContext
+			network := webevidence.NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
+			currentContext.ProviderFingerprint = service.SearchProviderFingerprintForScope(ctx,
+				webevidence.ExecutionScope{RunID: run.ID, MissionID: mission.ID, WorkspaceID: mission.WorkspaceID,
+					ModelRoute: run.Config.ModelRoute, Authority: network})
+			currentContext.ProviderAvailable = true
+			currentContext.SourceConnectorFingerprint = service.SourceConnectorFingerprintFor(network)
+			currentContext.SourceConnectorAvailable = true
+			currentScope := liveScope
+			currentScope.ProviderFingerprint = currentContext.ProviderFingerprint
+			currentScope.ConnectorFingerprint = currentContext.SourceConnectorFingerprint
+			currentScope.OperationKey = "web-dispatch-preflight-" + string(tool)
+			activate := func() {
+				grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+				if err != nil {
+					t.Fatal(err)
+				}
+				currentScope.PermissionGeneration = grant.Generation
+				currentContext.PermissionGeneration = grant.Generation
+				currentScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(currentContext).Generation
+			}
+			var payload json.RawMessage
+			switch tool {
+			case toolgateway.WebSearchTool:
+				payload = json.RawMessage(`{"version":"web_search.v1","query":"evidence","limit":1}`)
+			case toolgateway.SourceSearchTool:
+				payload = json.RawMessage(`{"version":"source_search.v1","connectors":["github"],"query":"evidence","limit":1}`)
+			case toolgateway.WebFetchTool:
+				payload = json.RawMessage(`{"version":"web_fetch.v1","url":"https://github.com/example/project/issues/1"}`)
+			}
+			activate()
+			serviceProbe.afterOperationRead = func() { runtimeAuthority.RevokeRun(run.ID) }
+			if _, err := checked.ExecuteWebEvidence(ctx, currentScope, tool, payload); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied ||
+				serviceProbe.operationReads != 1 || provider.calls != 0 || connector.searchCalls != 0 || connector.readCalls != 0 || backend.calls != 3 {
+				t.Fatalf("revoked %s dispatch: operations=%d search=%d connector=%d/%d fetch=%d err=%v",
+					tool, serviceProbe.operationReads, provider.calls, connector.searchCalls, connector.readCalls, backend.calls, err)
+			}
+			serviceProbe.afterOperationRead = nil
+			activate()
+			if _, err := checked.ExecuteWebEvidence(ctx, currentScope, tool, payload); err != nil ||
+				provider.calls+connector.searchCalls+connector.readCalls != 1 || backend.calls != 3 {
+				t.Fatalf("live %s dispatch: search=%d connector=%d/%d fetch=%d err=%v",
+					tool, provider.calls, connector.searchCalls, connector.readCalls, backend.calls, err)
+			}
+		})
+	}
 }
 
 // Separate wrappers place authority changes in application source resolution
@@ -697,4 +754,27 @@ func (s *webRuntimeBoundaryStore) GetRunExecutionPermission(ctx context.Context,
 		return *s.permission, nil
 	}
 	return s.SQLiteStore.GetRunExecutionPermission(ctx, runID)
+}
+
+type applicationWebSourceConnector struct{ searchCalls, readCalls int }
+
+func (*applicationWebSourceConnector) Name() string    { return "github" }
+func (*applicationWebSourceConnector) Version() string { return "github-test.v1" }
+func (*applicationWebSourceConnector) SearchEndpoint() string {
+	return "https://api.github.com/search/issues"
+}
+func (*applicationWebSourceConnector) MatchURL(url string) bool {
+	return url == "https://github.com/example/project/issues/1"
+}
+func (c *applicationWebSourceConnector) Search(context.Context, string, int, webevidence.NetworkAuthority) ([]webevidence.ConnectorSearchItem, error) {
+	c.searchCalls++
+	return nil, nil
+}
+func (c *applicationWebSourceConnector) Read(_ context.Context, url string, _ int, _ webevidence.NetworkAuthority) (webevidence.ConnectorDocument, error) {
+	c.readCalls++
+	return webevidence.ConnectorDocument{CanonicalURL: url,
+		RequestEndpoints: []string{"https://api.github.com/repos/example/project/issues/1"},
+		RawDigest:        webevidence.DigestBytes([]byte("raw connector response")), HTTPStatus: http.StatusOK,
+		MIME: "text/markdown", Charset: "utf-8", Body: "connector evidence", ContentKind: "github_issue_thread",
+		Coverage: "body_and_comments", ItemsIncluded: 1, ItemsAvailable: 1}, nil
 }
