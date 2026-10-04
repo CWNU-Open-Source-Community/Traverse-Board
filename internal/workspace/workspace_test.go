@@ -165,6 +165,41 @@ func TestWorkspaceImportRegistersExistingDirectoryWithoutWritingIntoIt(t *testin
 	}
 }
 
+func TestWorkspaceImportRegistersCanonicalRootThroughDirectoryAlias(t *testing.T) {
+	home := t.TempDir()
+	state, err := store.Open(filepath.Join(home, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	realHome, aliasHome := createWorkspaceHomeAlias(t, home)
+	wantRoot, err := filepath.EvalSymlinks(realHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(home, state)
+	first, err := manager.Import(t.Context(), aliasHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RootPath != wantRoot {
+		t.Fatalf("imported root = %q, want canonical %q", first.RootPath, wantRoot)
+	}
+	repeated, err := manager.Import(t.Context(), realHome)
+	if err != nil || repeated.ID != first.ID || repeated.RootPath != first.RootPath ||
+		!repeated.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("alias import changed registration: first=%#v repeated=%#v err=%v", first, repeated, err)
+	}
+	records, err := state.ListWorkspaces(t.Context())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("alias import created another registration: records=%#v err=%v", records, err)
+	}
+	entries, err := os.ReadDir(realHome)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("alias import wrote into selected directory: entries=%#v err=%v", entries, err)
+	}
+}
+
 func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T) {
 	home := t.TempDir()
 	state, err := store.Open(filepath.Join(home, "test.db"))
@@ -196,7 +231,7 @@ func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T)
 	if err != nil || repeated.RootPath != original.RootPath {
 		t.Fatalf("Init rewrote historical root: repeated=%#v err=%v", repeated, err)
 	}
-	for _, selected := range []string{resolved, resolved + string(filepath.Separator)} {
+	for _, selected := range []string{original.RootPath, resolved, resolved + string(filepath.Separator)} {
 		imported, err := manager.Import(t.Context(), selected)
 		if err != nil {
 			t.Fatalf("Import(%q): %v", selected, err)

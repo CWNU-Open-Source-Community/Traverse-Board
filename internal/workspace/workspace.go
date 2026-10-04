@@ -173,7 +173,7 @@ func canonicalImportRoot(selectedPath string) (string, error) {
 		return "", fmt.Errorf("%w: selected path is not an existing directory",
 			ErrInvalidImportDirectory)
 	}
-	resolved, err := filepath.EvalSymlinks(root)
+	resolved, err := resolveWorkspaceDirectory(root)
 	if err != nil {
 		return "", fmt.Errorf("%w: selected directory cannot be resolved",
 			ErrInvalidImportDirectory)
