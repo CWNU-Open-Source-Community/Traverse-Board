@@ -117,7 +117,7 @@ type ThreadReviewHandoffReader interface {
 
 type ThreadReviewService struct {
 	store    ThreadReviewStore
-	drydocks *DrydockService
+	drydocks *RunWorktreeService
 	handoffs ThreadReviewHandoffReader
 }
 
@@ -125,7 +125,7 @@ func NewThreadReviewService(store ThreadReviewStore) *ThreadReviewService {
 	return &ThreadReviewService{store: store}
 }
 
-func (s *ThreadReviewService) WithDrydock(value *DrydockService) *ThreadReviewService {
+func (s *ThreadReviewService) WithRunWorktree(value *RunWorktreeService) *ThreadReviewService {
 	s.drydocks = value
 	return s
 }

@@ -1,13 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { InspectorRecordBrowser } from "./inspector-record-browser";
 
 function mount(getPage: ReturnType<typeof vi.fn>) {
   const onOpen = vi.fn();
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <InspectorRecordBrowser client={{ getPage } as unknown as CyberAgentClient} onOpen={onOpen} />
+    <InspectorRecordBrowser client={{ getPage } as unknown as APIClient} onOpen={onOpen} />
   </QueryClientProvider>);
   return onOpen;
 }

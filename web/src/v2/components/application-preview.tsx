@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, LoaderCircle, RefreshCw, X } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { RunDetailView } from "../../api/types";
 import { localPreviewURL, parseApplicationPreview, type ApplicationPreview, type ApplicationPreviewElement } from "../../api/application-preview";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
@@ -11,7 +11,7 @@ import { V2PermissionControl } from "./permission-control";
 import "./application-preview.css";
 
 export function V2ApplicationPreview({ client, runID, threadID, onClose, returnFocusRef, onRequestStart }: {
-  client: CyberAgentClient; runID: string; threadID: string; onClose: () => void;
+  client: APIClient; runID: string; threadID: string; onClose: () => void;
   returnFocusRef: RefObject<HTMLElement | null>; onRequestStart: () => void;
 }) {
   const queries = useQueryClient();

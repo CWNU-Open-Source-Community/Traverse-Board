@@ -11,7 +11,7 @@ import {
   ShieldOff,
   Trash2,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   ContextMemoryExportView,
   ContextMemoryView,
@@ -48,7 +48,7 @@ const emptyMemoryDraft: MemoryDraft = {
 };
 
 export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   sessionID: string;
   workspaceID: string;
@@ -443,7 +443,7 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
 }
 
 function ProjectInstructionsSection({ client, query, refreshing, refreshError, onRefresh }: {
-  client: CyberAgentClient;
+  client: APIClient;
   query: ReturnType<typeof useQuery<ProjectInstructionStateView>>;
   refreshing: boolean;
   refreshError: Error | null;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { PublicModelStreamSnapshot } from "../api/types";
 
 export type PublicModelStreamStatus = "waiting" | "live" | "finalizing" |
@@ -35,7 +35,7 @@ function callIdentity(snapshot: PublicModelStreamSnapshot): string {
   return `${snapshot.call.attempt_id}:${snapshot.call.model_attempt}`;
 }
 
-export function usePublicModelStream(client: CyberAgentClient, runID: string,
+export function usePublicModelStream(client: APIClient, runID: string,
   enabled: boolean): PublicModelStreamState {
   const [snapshot, setSnapshot] = useState<PublicModelStreamSnapshot | null>(null);
   const [status, setStatus] = useState<PublicModelStreamStatus>("stopped");

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { AgentGraphView, BatchDeliverySnapshotView, ExternalSkillProjectionView, FindingReportView } from "../api/types";
 import { AgentGraphPanel, BatchDeliveriesPanel, DelegationsPanel, ExternalSkillsPanel, FanoutPanel, FindingsPanel } from "./run-projections";
 
@@ -59,7 +59,7 @@ describe("Run projection panels", () => {
           summary: "Reviewed the parser boundary", work_item_ids: [], note_ids: [],
           created_at: "2026-07-13T00:01:20Z" } }],
     };
-    const client = { get: vi.fn().mockResolvedValue(graph) } as unknown as CyberAgentClient;
+    const client = { get: vi.fn().mockResolvedValue(graph) } as unknown as APIClient;
     render(provider(<AgentGraphPanel client={client} runID="run-1" />));
     expect(await screen.findByText("Reviewed the parser boundary")).toBeInTheDocument();
     expect(screen.getByText("agent-root")).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("Run projection panels", () => {
         protocol_version: "batch-deliveries-list.v1", items: [plan],
       }),
       getRunBatchDelivery: vi.fn().mockResolvedValue(snapshot),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     const { container } = render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
 
@@ -153,7 +153,7 @@ describe("Run projection panels", () => {
         created_at: "2026-07-13T00:01:00Z" }], page: { limit: 50 }, requestID: "req-fanout" });
       return Promise.resolve({ items: [detail.report], page: { limit: 50 }, requestID: "req-reports" });
     });
-    const client = { getPage, get: vi.fn().mockResolvedValue(detail) } as unknown as CyberAgentClient;
+    const client = { getPage, get: vi.fn().mockResolvedValue(detail) } as unknown as APIClient;
     render(provider(<><DelegationsPanel client={client} runID="run-1" /><FanoutPanel client={client} runID="run-1" /><FindingsPanel client={client} runID="run-1" /></>));
     expect(await screen.findByText("Inspect parser boundaries")).toBeInTheDocument();
     expect(await screen.findByText("Audit source modules")).toBeInTheDocument();

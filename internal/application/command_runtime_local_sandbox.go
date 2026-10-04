@@ -10,9 +10,9 @@ import (
 
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 )
 
@@ -30,7 +30,7 @@ type LocalSandboxCommandRuntimeStore interface {
 		domain.RunExecutionInteractionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (
 		domain.RunExecutionLease, bool, error)
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
 }
 
 // LocalSandboxCommandRuntimeExecutor compiles the backend-neutral
@@ -152,7 +152,7 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 		return runner.CommandRuntimeSandboxResult{}, bindErr
 	}
 	if !leaseFound || !bound ||
-		(workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered) ||
+		(workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered) ||
 		rootSHA256 != scope.WorkspaceRootSHA256 || rootSHA256 != spec.WorkspaceRootSHA256 ||
 		profile.ID != scope.ProfileSnapshotID || profile.Revision != scope.ProfileRevision ||
 		profile.Profile != domain.RunExecutionProfileLocal ||
@@ -190,7 +190,7 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 }
 
 func (e *LocalSandboxCommandRuntimeExecutor) compile(scope runner.CommandRuntimeScope,
-	spec runner.CommandRuntimeResolvedSpec, workspace drydock.Workspace,
+	spec runner.CommandRuntimeResolvedSpec, workspace runworktree.Workspace,
 	profile domain.RunExecutionProfileSnapshot,
 	permission domain.RunExecutionPermissionSnapshot,
 	interaction domain.RunExecutionInteractionSnapshot, lease domain.RunExecutionLease,

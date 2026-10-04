@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Circle, Hexagon } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { V2ModelSettings, type V2ModelProviderPreset } from "./model-settings";
 
 const modelStyles = readFileSync("src/v2/styles.css", "utf8");
@@ -36,7 +36,7 @@ const presets: V2ModelProviderPreset[] = [
   },
 ];
 
-function client(): CyberAgentClient {
+function client(): APIClient {
   return {
     hasProviderDefinitions: true,
     hasProviderCredentials: true,
@@ -46,7 +46,7 @@ function client(): CyberAgentClient {
     providerCredentialStatuses: vi.fn().mockResolvedValue({
       protocol_version: "provider_credential.v1", items: [],
     }),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
 }
 
 function renderSettings(onSelectPreset = vi.fn()) {

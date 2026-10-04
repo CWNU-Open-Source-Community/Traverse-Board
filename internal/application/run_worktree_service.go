@@ -11,10 +11,10 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -22,52 +22,52 @@ import (
 
 const DrydockAPIProtocolVersion = "drydock-api.v1"
 
-type DrydockStore interface {
+type RunWorktreeStore interface {
 	GetRun(context.Context, string) (domain.Run, error)
 	GetMission(context.Context, string) (domain.Mission, error)
 	GetSession(context.Context, string) (session.Session, error)
 	GetWorkspaceByID(context.Context, string) (session.WorkspaceRecord, error)
 
-	CreateDrydockTrust(context.Context, drydock.Trust) (drydock.Trust, bool, error)
-	GetDrydockTrustByRun(context.Context, string) (drydock.Trust, bool, error)
-	PrepareDrydock(context.Context, drydock.Workspace) (drydock.Workspace, bool, error)
-	AdvanceDrydock(context.Context, drydock.Workspace, int64, drydock.Receipt) (
-		drydock.Workspace, bool, error)
-	CreateDrydockDelivery(context.Context, drydock.DeliveryProposal, drydock.Workspace,
-		int64, drydock.Receipt) (drydock.DeliveryProposal, drydock.Workspace, bool, error)
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
-	GetDrydock(context.Context, string) (drydock.Workspace, bool, error)
-	ListDrydocks(context.Context, drydock.ListFilter) ([]drydock.Workspace, error)
-	GetDrydockReceiptByOperation(context.Context, string) (drydock.Receipt, bool, error)
-	ListDrydockReceipts(context.Context, string, int) ([]drydock.Receipt, error)
-	GetDrydockDelivery(context.Context, string) (drydock.DeliveryProposal, bool, error)
+	CreateDrydockTrust(context.Context, runworktree.Trust) (runworktree.Trust, bool, error)
+	GetDrydockTrustByRun(context.Context, string) (runworktree.Trust, bool, error)
+	PrepareDrydock(context.Context, runworktree.Workspace) (runworktree.Workspace, bool, error)
+	AdvanceDrydock(context.Context, runworktree.Workspace, int64, runworktree.Receipt) (
+		runworktree.Workspace, bool, error)
+	CreateDrydockDelivery(context.Context, runworktree.DeliveryProposal, runworktree.Workspace,
+		int64, runworktree.Receipt) (runworktree.DeliveryProposal, runworktree.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
+	GetDrydock(context.Context, string) (runworktree.Workspace, bool, error)
+	ListDrydocks(context.Context, runworktree.ListFilter) ([]runworktree.Workspace, error)
+	GetDrydockReceiptByOperation(context.Context, string) (runworktree.Receipt, bool, error)
+	ListDrydockReceipts(context.Context, string, int) ([]runworktree.Receipt, error)
+	GetDrydockDelivery(context.Context, string) (runworktree.DeliveryProposal, bool, error)
 
 	CreateWorkspaceCheckpoint(context.Context, workspacecheckpoint.Snapshot) (
 		workspacecheckpoint.Checkpoint, bool, error)
 	GetWorkspaceCheckpointSnapshot(context.Context, string) (workspacecheckpoint.Snapshot, error)
 }
 
-type DrydockService struct {
-	store       DrydockStore
-	executor    *repository.DrydockExecutor
+type RunWorktreeService struct {
+	store       RunWorktreeStore
+	executor    *repository.RunWorktreeExecutor
 	checkpoints *WorkspaceCheckpointService
 	now         func() time.Time
 }
 
-func NewDrydockService(store DrydockStore,
-	executor *repository.DrydockExecutor,
-) (*DrydockService, error) {
+func NewRunWorktreeService(store RunWorktreeStore,
+	executor *repository.RunWorktreeExecutor,
+) (*RunWorktreeService, error) {
 	if store == nil || executor == nil || !executor.Available() {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock requires durable storage and an available product-managed Git root")
 	}
-	return &DrydockService{store: store, executor: executor,
+	return &RunWorktreeService{store: store, executor: executor,
 		now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
-func (s *DrydockService) WithCheckpointService(
+func (s *RunWorktreeService) WithCheckpointService(
 	checkpoints *WorkspaceCheckpointService,
-) *DrydockService {
+) *RunWorktreeService {
 	if s == nil {
 		return s
 	}
@@ -84,8 +84,8 @@ func (s *DrydockService) WithCheckpointService(
 			if err != nil || !found {
 				return session.WorkspaceInfo{}, false, err
 			}
-			if workspace.State != drydock.StateReady &&
-				workspace.State != drydock.StateDelivered {
+			if workspace.State != runworktree.StateReady &&
+				workspace.State != runworktree.StateDelivered {
 				return session.WorkspaceInfo{}, false, nil
 			}
 			return session.WorkspaceInfo{ID: workspace.WorkspaceID,
@@ -97,7 +97,7 @@ func (s *DrydockService) WithCheckpointService(
 
 // ReconcileWorkspaceCheckpoints restores each transaction in its recorded
 // workspace. Source history keeps its own cursor even after a Run owns a Drydock.
-func (s *DrydockService) ReconcileWorkspaceCheckpoints(ctx context.Context) (int, error) {
+func (s *RunWorktreeService) ReconcileWorkspaceCheckpoints(ctx context.Context) (int, error) {
 	if s == nil || s.checkpoints == nil {
 		return 0, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock Workspace checkpoint recovery is unavailable")
@@ -179,14 +179,14 @@ type DrydockCreateRequest struct {
 
 type DrydockCreateResult struct {
 	ProtocolVersion string                          `json:"protocol_version"`
-	Source          drydock.SourceIdentity          `json:"source"`
+	Source          runworktree.SourceIdentity      `json:"source"`
 	SourceRoot      string                          `json:"-"`
-	SourceState     drydock.SourceState             `json:"source_state"`
+	SourceState     runworktree.SourceState         `json:"source_state"`
 	TrustDigest     string                          `json:"trust_digest"`
 	TrustRequired   bool                            `json:"trust_required"`
-	Trust           *drydock.Trust                  `json:"trust,omitempty"`
-	Workspace       *drydock.Workspace              `json:"workspace,omitempty"`
-	Receipt         *drydock.Receipt                `json:"receipt,omitempty"`
+	Trust           *runworktree.Trust              `json:"trust,omitempty"`
+	Workspace       *runworktree.Workspace          `json:"workspace,omitempty"`
+	Receipt         *runworktree.Receipt            `json:"receipt,omitempty"`
 	Checkpoint      *workspacecheckpoint.Checkpoint `json:"checkpoint,omitempty"`
 	Replayed        bool                            `json:"replayed"`
 }
@@ -197,12 +197,12 @@ type DrydockCreateResult struct {
 // view because SourceIdentity contains host paths.
 type DrydockWorkspaceInspection struct {
 	WorkspaceID string
-	Source      drydock.SourceIdentity
-	SourceState drydock.SourceState
+	Source      runworktree.SourceIdentity
+	SourceState runworktree.SourceState
 	TrustDigest string
 }
 
-func (s *DrydockService) InspectWorkspace(ctx context.Context,
+func (s *RunWorktreeService) InspectWorkspace(ctx context.Context,
 	workspaceID string,
 ) (DrydockWorkspaceInspection, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
@@ -220,7 +220,7 @@ func (s *DrydockService) InspectWorkspace(ctx context.Context,
 	}
 	result := DrydockWorkspaceInspection{WorkspaceID: workspace.ID,
 		Source: source.Identity, SourceState: source.State,
-		TrustDigest: drydock.TrustConfirmationDigest(source.Identity, source.State)}
+		TrustDigest: runworktree.TrustConfirmationDigest(source.Identity, source.State)}
 	if source.State.SymlinkEntries != 0 || source.State.SubmoduleEntries != 0 {
 		return result, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock rejects source symlink/reparse and submodule entries")
@@ -236,13 +236,13 @@ type DrydockUseRequest struct {
 }
 
 type DrydockUseResult struct {
-	ProtocolVersion        string            `json:"protocol_version"`
-	Workspace              drydock.Workspace `json:"workspace"`
-	Receipt                drydock.Receipt   `json:"receipt"`
-	RootPath               string            `json:"-"`
-	BindingFingerprint     string            `json:"binding_fingerprint"`
-	GrantsProcessAuthority bool              `json:"grants_process_authority"`
-	Replayed               bool              `json:"replayed"`
+	ProtocolVersion        string                `json:"protocol_version"`
+	Workspace              runworktree.Workspace `json:"workspace"`
+	Receipt                runworktree.Receipt   `json:"receipt"`
+	RootPath               string                `json:"-"`
+	BindingFingerprint     string                `json:"binding_fingerprint"`
+	GrantsProcessAuthority bool                  `json:"grants_process_authority"`
+	Replayed               bool                  `json:"replayed"`
 }
 
 // ResolveDrydockExecutionBinding performs a read-only ownership check for the
@@ -250,7 +250,7 @@ type DrydockUseResult struct {
 // not advance the Drydock generation. When requireUnchanged is false, it still
 // proves the owned root/branch/base identity but permits changes made by an
 // already-owned container so cancellation and recovery can converge cleanup.
-func (s *DrydockService) ResolveDrydockExecutionBinding(ctx context.Context,
+func (s *RunWorktreeService) ResolveDrydockExecutionBinding(ctx context.Context,
 	binding sandbox.DockerStandardCodeRunnerBinding, requireUnchanged bool,
 ) (sandbox.WorkspaceBinding, error) {
 	if s == nil || binding.Validate() != nil {
@@ -262,7 +262,7 @@ func (s *DrydockService) ResolveDrydockExecutionBinding(ctx context.Context,
 	if err != nil {
 		return sandbox.WorkspaceBinding{}, err
 	}
-	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+	if workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered {
 		return sandbox.WorkspaceBinding{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Standard Code Drydock is not ready")
 	}
@@ -295,9 +295,9 @@ type DrydockCheckpointRequest struct {
 
 type DrydockCheckpointResult struct {
 	ProtocolVersion string                         `json:"protocol_version"`
-	Workspace       drydock.Workspace              `json:"workspace"`
+	Workspace       runworktree.Workspace          `json:"workspace"`
 	Checkpoint      workspacecheckpoint.Checkpoint `json:"checkpoint"`
-	Receipt         drydock.Receipt                `json:"receipt"`
+	Receipt         runworktree.Receipt            `json:"receipt"`
 	Replayed        bool                           `json:"replayed"`
 }
 
@@ -322,12 +322,12 @@ type DrydockUndoRequest struct {
 
 type DrydockRewindResult struct {
 	ProtocolVersion string                          `json:"protocol_version"`
-	Workspace       drydock.Workspace               `json:"workspace"`
+	Workspace       runworktree.Workspace           `json:"workspace"`
 	Target          workspacecheckpoint.Checkpoint  `json:"target"`
 	Before          workspacecheckpoint.Checkpoint  `json:"before"`
 	Preview         workspacecheckpoint.Preview     `json:"preview"`
 	After           *workspacecheckpoint.Checkpoint `json:"after,omitempty"`
-	Receipt         *drydock.Receipt                `json:"receipt,omitempty"`
+	Receipt         *runworktree.Receipt            `json:"receipt,omitempty"`
 	Confirmed       bool                            `json:"confirmed"`
 	Replayed        bool                            `json:"replayed"`
 }
@@ -347,11 +347,11 @@ type DrydockForkRequest struct {
 }
 
 type DrydockForkResult struct {
-	ProtocolVersion string              `json:"protocol_version"`
-	Workspace       drydock.Workspace   `json:"workspace"`
-	Fork            WorkspaceForkResult `json:"fork"`
-	Receipt         drydock.Receipt     `json:"receipt"`
-	Replayed        bool                `json:"replayed"`
+	ProtocolVersion string                `json:"protocol_version"`
+	Workspace       runworktree.Workspace `json:"workspace"`
+	Fork            WorkspaceForkResult   `json:"fork"`
+	Receipt         runworktree.Receipt   `json:"receipt"`
+	Replayed        bool                  `json:"replayed"`
 }
 
 type DrydockDeliveryRequest struct {
@@ -363,11 +363,11 @@ type DrydockDeliveryRequest struct {
 }
 
 type DrydockDeliveryResult struct {
-	ProtocolVersion string            `json:"protocol_version"`
-	Workspace       drydock.Workspace `json:"workspace"`
-	Review          drydock.Review    `json:"review"`
-	Receipt         drydock.Receipt   `json:"receipt"`
-	Replayed        bool              `json:"replayed"`
+	ProtocolVersion string                `json:"protocol_version"`
+	Workspace       runworktree.Workspace `json:"workspace"`
+	Review          runworktree.Review    `json:"review"`
+	Receipt         runworktree.Receipt   `json:"receipt"`
+	Replayed        bool                  `json:"replayed"`
 }
 
 type DrydockCleanupRequest struct {
@@ -379,20 +379,20 @@ type DrydockCleanupRequest struct {
 }
 
 type DrydockCleanupResult struct {
-	ProtocolVersion string            `json:"protocol_version"`
-	Workspace       drydock.Workspace `json:"workspace"`
-	Receipt         drydock.Receipt   `json:"receipt"`
-	Preserved       bool              `json:"preserved"`
-	Replayed        bool              `json:"replayed"`
+	ProtocolVersion string                `json:"protocol_version"`
+	Workspace       runworktree.Workspace `json:"workspace"`
+	Receipt         runworktree.Receipt   `json:"receipt"`
+	Preserved       bool                  `json:"preserved"`
+	Replayed        bool                  `json:"replayed"`
 }
 
 type DrydockProjection struct {
-	ProtocolVersion string                    `json:"protocol_version"`
-	RunID           string                    `json:"run_id"`
-	Trust           *drydock.Trust            `json:"trust,omitempty"`
-	Workspace       *drydock.Workspace        `json:"workspace,omitempty"`
-	Delivery        *drydock.DeliveryProposal `json:"delivery,omitempty"`
-	Receipts        []drydock.Receipt         `json:"receipts"`
+	ProtocolVersion string                        `json:"protocol_version"`
+	RunID           string                        `json:"run_id"`
+	Trust           *runworktree.Trust            `json:"trust,omitempty"`
+	Workspace       *runworktree.Workspace        `json:"workspace,omitempty"`
+	Delivery        *runworktree.DeliveryProposal `json:"delivery,omitempty"`
+	Receipts        []runworktree.Receipt         `json:"receipts"`
 }
 
 type DrydockReconcileResult struct {
@@ -419,7 +419,7 @@ type drydockRunBinding struct {
 	workspace session.WorkspaceRecord
 }
 
-func (s *DrydockService) Create(ctx context.Context,
+func (s *RunWorktreeService) Create(ctx context.Context,
 	request DrydockCreateRequest,
 ) (DrydockCreateResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -443,7 +443,7 @@ func (s *DrydockService) Create(ctx context.Context,
 	result := DrydockCreateResult{ProtocolVersion: DrydockAPIProtocolVersion,
 		Source: source.Identity, SourceRoot: source.Identity.RootPath,
 		SourceState: source.State,
-		TrustDigest: drydock.TrustConfirmationDigest(source.Identity, source.State)}
+		TrustDigest: runworktree.TrustConfirmationDigest(source.Identity, source.State)}
 	if source.State.SymlinkEntries != 0 || source.State.SubmoduleEntries != 0 {
 		return result, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock v1 rejects source symlink/reparse and submodule entries instead of following them implicitly")
@@ -458,7 +458,7 @@ func (s *DrydockService) Create(ctx context.Context,
 			return result, apperror.New(apperror.CodeConflict,
 				"Drydock source root, branch, or base commit drifted")
 		}
-		if existing.State == drydock.StatePreparing {
+		if existing.State == runworktree.StatePreparing {
 			reconciled, _, reconcileErr := s.reconcileOne(ctx, existing)
 			if reconcileErr != nil {
 				return result, apperror.Normalize(reconcileErr)
@@ -472,7 +472,7 @@ func (s *DrydockService) Create(ctx context.Context,
 		if trustFound {
 			result.Trust = &trust
 		}
-		createDigest := drydockOperationDigest(drydock.OperationCreate,
+		createDigest := drydockOperationDigest(runworktree.OperationCreate,
 			binding.run.ID, request.OperationKey)
 		if receipt, receiptFound, receiptErr := s.store.GetDrydockReceiptByOperation(ctx,
 			createDigest); receiptErr != nil {
@@ -480,7 +480,7 @@ func (s *DrydockService) Create(ctx context.Context,
 		} else if receiptFound {
 			expectedFingerprint := runmutation.Fingerprint("drydock-create-request.v1",
 				binding.run.ID, source.Identity.Fingerprint(), request.RequestedBy)
-			if receipt.Operation != drydock.OperationCreate ||
+			if receipt.Operation != runworktree.OperationCreate ||
 				receipt.RequestFingerprint != expectedFingerprint {
 				return result, apperror.New(apperror.CodeConflict,
 					"Drydock create operation key was reused for different intent")
@@ -519,8 +519,8 @@ func (s *DrydockService) Create(ctx context.Context,
 				"Workspace Trust confirmation does not match the exact reviewed source state")
 		}
 		now := s.now().UTC()
-		trust = drydock.Trust{ID: drydockTrustID(binding.run.ID, source.Identity),
-			ProtocolVersion: drydock.TrustProtocolVersion, RunID: binding.run.ID,
+		trust = runworktree.Trust{ID: drydockTrustID(binding.run.ID, source.Identity),
+			ProtocolVersion: runworktree.TrustProtocolVersion, RunID: binding.run.ID,
 			WorkspaceID: binding.workspace.ID, Source: source.Identity,
 			SourceState: source.State, ConfirmedBy: request.RequestedBy,
 			GrantsProcessAuthority: false, ConfirmedAt: now}
@@ -531,7 +531,7 @@ func (s *DrydockService) Create(ctx context.Context,
 	}
 	result.Trust = &trust
 
-	identityDigest := drydock.Fingerprint("drydock", binding.run.ID,
+	identityDigest := runworktree.Fingerprint("drydock", binding.run.ID,
 		source.Identity.Fingerprint())
 	name := "drydock-" + identityDigest[:24]
 	branch := "codex/drydock/" + identityDigest[:24]
@@ -552,16 +552,16 @@ func (s *DrydockService) Create(ctx context.Context,
 			"source identity or dirty/index state changed after Workspace Trust confirmation", err)
 	}
 	now := s.now().UTC()
-	workspace := drydock.Workspace{ID: "drydock-" + identityDigest[:32],
-		ProtocolVersion: drydock.WorkspaceProtocolVersion, RunID: binding.run.ID,
+	workspace := runworktree.Workspace{ID: "drydock-" + identityDigest[:32],
+		ProtocolVersion: runworktree.WorkspaceProtocolVersion, RunID: binding.run.ID,
 		MissionID: binding.mission.ID, SessionID: binding.session.ID,
 		SourceWorkspaceID: binding.workspace.ID,
 		WorkspaceID:       "drydock-ws-" + identityDigest[:32], TrustID: trust.ID,
 		Source: source.Identity, Name: name, Path: filepath.Clean(plan.Path),
-		PathSHA256: drydock.FingerprintBytes([]byte(filepath.ToSlash(filepath.Clean(plan.Path)))),
+		PathSHA256: runworktree.FingerprintBytes([]byte(filepath.ToSlash(filepath.Clean(plan.Path)))),
 		Branch:     branch, BaseCommit: source.Identity.BaseCommit,
-		CreatePreviewID: plan.Preview.ID, State: drydock.StatePreparing,
-		Generation: 1, ExpiresAt: now.Add(drydock.DefaultLifetime),
+		CreatePreviewID: plan.Preview.ID, State: runworktree.StatePreparing,
+		Generation: 1, ExpiresAt: now.Add(runworktree.DefaultLifetime),
 		CreatedAt: now, UpdatedAt: now}
 	workspace, replayed, err := s.store.PrepareDrydock(ctx, workspace)
 	if err != nil {
@@ -614,7 +614,7 @@ func (s *DrydockService) Create(ctx context.Context,
 		result.Workspace, result.Receipt = &failed, &receipt
 		return result, errors.Join(err, transitionErr)
 	}
-	createDigest := drydockOperationDigest(drydock.OperationCreate, binding.run.ID,
+	createDigest := drydockOperationDigest(runworktree.OperationCreate, binding.run.ID,
 		request.OperationKey)
 	receiptID := drydockReceiptID(createDigest)
 	checkpoint, err := s.captureCheckpoint(ctx, workspace, receiptID,
@@ -631,13 +631,13 @@ func (s *DrydockService) Create(ctx context.Context,
 	workspace.ExpectedBindingFingerprint = observed.Binding.Fingerprint()
 	workspace.CreateGitReceiptID = gitReceipt.ID
 	workspace.ManagedWorktreeID = gitReceipt.WorktreeID
-	workspace.State = drydock.StateReady
+	workspace.State = runworktree.StateReady
 	workspace.Generation++
 	workspace.LastCheckpointID = checkpoint.ID
 	workspace.UpdatedAt = s.now().UTC()
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationCreate,
+	receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationCreate,
 		createDigest, runmutation.Fingerprint("drydock-create-request.v1", binding.run.ID,
-			source.Identity.Fingerprint(), request.RequestedBy), drydock.OutcomeSucceeded,
+			source.Identity.Fingerprint(), request.RequestedBy), runworktree.OutcomeSucceeded,
 		"", "created an exact Run-owned Drydock without granting process authority",
 		"", observed.Binding.Fingerprint(), gitReceipt.ID, checkpoint.ID, "")
 	workspace, replayed, err = s.store.AdvanceDrydock(ctx, workspace, beforeGeneration, receipt)
@@ -649,7 +649,7 @@ func (s *DrydockService) Create(ctx context.Context,
 	return result, nil
 }
 
-func (s *DrydockService) Use(ctx context.Context,
+func (s *RunWorktreeService) Use(ctx context.Context,
 	request DrydockUseRequest,
 ) (DrydockUseResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -660,7 +660,7 @@ func (s *DrydockService) Use(ctx context.Context,
 		return DrydockUseResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock use request is invalid")
 	}
-	digest := drydockOperationDigest(drydock.OperationUse, request.RunID,
+	digest := drydockOperationDigest(runworktree.OperationUse, request.RunID,
 		request.OperationKey)
 	if replay, found, err := s.replayUse(ctx, request, digest); found || err != nil {
 		return replay, err
@@ -670,13 +670,13 @@ func (s *DrydockService) Use(ctx context.Context,
 	if err != nil {
 		return DrydockUseResult{}, err
 	}
-	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+	if workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered {
 		return DrydockUseResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock is not ready for use")
 	}
 	if observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
 		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
-			drydock.OperationUse, digest, request.RequestedBy,
+			runworktree.OperationUse, digest, request.RequestedBy,
 			drydockUseRequestFingerprint(workspace.ID, request), "unattributed_workspace_change",
 			"Drydock content changed outside its last attributed generation", &observed)
 		return DrydockUseResult{ProtocolVersion: DrydockAPIProtocolVersion,
@@ -686,9 +686,9 @@ func (s *DrydockService) Use(ctx context.Context,
 	beforeGeneration := workspace.Generation
 	workspace.Generation++
 	workspace.UpdatedAt = s.now().UTC()
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationUse,
+	receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationUse,
 		digest, drydockUseRequestFingerprint(workspace.ID, request),
-		drydock.OutcomeSucceeded, "",
+		runworktree.OutcomeSucceeded, "",
 		"attested the exact Drydock binding; no process authority was granted",
 		observed.Binding.Fingerprint(), observed.Binding.Fingerprint(), "", "", "")
 	receipt.RunID = request.RunID
@@ -709,7 +709,7 @@ func drydockUseRequestFingerprint(workspaceID string, request DrydockUseRequest)
 		strconv.FormatInt(request.ExpectedGeneration, 10), request.RequestedBy)
 }
 
-func (s *DrydockService) Checkpoint(ctx context.Context,
+func (s *RunWorktreeService) Checkpoint(ctx context.Context,
 	request DrydockCheckpointRequest,
 ) (DrydockCheckpointResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -721,9 +721,9 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 		return DrydockCheckpointResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock checkpoint request is invalid")
 	}
-	checkpointDigest := drydockOperationDigest(drydock.OperationCheckpoint, request.RunID,
+	checkpointDigest := drydockOperationDigest(runworktree.OperationCheckpoint, request.RunID,
 		request.OperationKey)
-	recoverDigest := drydockOperationDigest(drydock.OperationRecover, request.RunID,
+	recoverDigest := drydockOperationDigest(runworktree.OperationRecover, request.RunID,
 		request.OperationKey)
 	for _, replayDigest := range []string{checkpointDigest, recoverDigest} {
 		receipt, found, replayErr := s.store.GetDrydockReceiptByOperation(ctx, replayDigest)
@@ -745,7 +745,7 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 		}
 		result := DrydockCheckpointResult{ProtocolVersion: DrydockAPIProtocolVersion,
 			Workspace: workspace, Receipt: receipt, Replayed: true}
-		if receipt.Outcome != drydock.OutcomeSucceeded || receipt.CheckpointID == "" {
+		if receipt.Outcome != runworktree.OutcomeSucceeded || receipt.CheckpointID == "" {
 			return result, apperror.New(apperror.CodeConflict,
 				"the previous checkpoint request preserved the Drydock for recovery")
 		}
@@ -758,18 +758,18 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 	if err != nil {
 		return DrydockCheckpointResult{}, err
 	}
-	if workspace.State == drydock.StateCleaned || workspace.State == drydock.StatePreparing {
+	if workspace.State == runworktree.StateCleaned || workspace.State == runworktree.StatePreparing {
 		return DrydockCheckpointResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock cannot be checkpointed in its current state")
 	}
-	operation := drydock.OperationCheckpoint
+	operation := runworktree.OperationCheckpoint
 	digest := checkpointDigest
-	if workspace.State == drydock.StateRecoveryRequired {
-		operation = drydock.OperationRecover
+	if workspace.State == runworktree.StateRecoveryRequired {
+		operation = runworktree.OperationRecover
 		digest = recoverDigest
 	}
 	changed := observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint
-	if (changed || workspace.State == drydock.StateRecoveryRequired) &&
+	if (changed || workspace.State == runworktree.StateRecoveryRequired) &&
 		!request.ConfirmObservedChanges {
 		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
 			operation, digest, request.RequestedBy,
@@ -795,14 +795,14 @@ func (s *DrydockService) Checkpoint(ctx context.Context,
 	workspace.RootFingerprint = observed.RootFingerprint
 	workspace.ExpectedHead = observed.Binding.Head
 	workspace.ExpectedBindingFingerprint = observed.Binding.Fingerprint()
-	workspace.State = drydock.StateReady
+	workspace.State = runworktree.StateReady
 	workspace.RecoveryReason = ""
 	workspace.Generation++
 	workspace.LastCheckpointID = checkpoint.ID
 	workspace.UpdatedAt = s.now().UTC()
 	receipt := s.transitionReceipt(workspace, beforeGeneration, operation, digest,
 		drydockCheckpointRequestFingerprint(workspace.ID, request),
-		drydock.OutcomeSucceeded, "", "captured tracked, untracked, and raw Git index state",
+		runworktree.OutcomeSucceeded, "", "captured tracked, untracked, and raw Git index state",
 		previousBinding, observed.Binding.Fingerprint(), "", checkpoint.ID, "")
 	receipt.RunID = request.RunID
 	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
@@ -827,7 +827,7 @@ func drydockCheckpointRequestFingerprint(workspaceID string,
 		fmt.Sprintf("%t", request.ConfirmObservedChanges), title)
 }
 
-func drydockReceiptMatchesRequest(receipt drydock.Receipt, workspaceID string,
+func drydockReceiptMatchesRequest(receipt runworktree.Receipt, workspaceID string,
 	expectedGeneration int64, expectedFingerprint string,
 ) bool {
 	if receipt.DrydockID != workspaceID || receipt.GenerationBefore != expectedGeneration {
@@ -836,13 +836,13 @@ func drydockReceiptMatchesRequest(receipt drydock.Receipt, workspaceID string,
 	return receipt.RequestFingerprint == expectedFingerprint
 }
 
-func (s *DrydockService) Rewind(ctx context.Context,
+func (s *RunWorktreeService) Rewind(ctx context.Context,
 	request DrydockRewindRequest,
 ) (DrydockRewindResult, error) {
-	return s.rewind(ctx, request, drydock.OperationRewind)
+	return s.rewind(ctx, request, runworktree.OperationRewind)
 }
 
-func (s *DrydockService) Undo(ctx context.Context,
+func (s *RunWorktreeService) Undo(ctx context.Context,
 	request DrydockUndoRequest,
 ) (DrydockRewindResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -853,7 +853,7 @@ func (s *DrydockService) Undo(ctx context.Context,
 		return DrydockRewindResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock undo request is invalid")
 	}
-	digest := drydockOperationDigest(drydock.OperationUndo, request.RunID,
+	digest := drydockOperationDigest(runworktree.OperationUndo, request.RunID,
 		request.OperationKey)
 	if journal, err := s.drydockRestoreJournal(ctx, digest); err != nil {
 		return DrydockRewindResult{}, err
@@ -861,13 +861,13 @@ func (s *DrydockService) Undo(ctx context.Context,
 		return s.rewind(ctx, DrydockRewindRequest{RunID: request.RunID,
 			TargetCheckpointID: journal.TargetCheckpointID, ExpectedGeneration: request.ExpectedGeneration,
 			OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
-			Confirm: request.Confirm, ConfirmObservedChanges: request.ConfirmObservedChanges}, drydock.OperationUndo)
+			Confirm: request.Confirm, ConfirmObservedChanges: request.ConfirmObservedChanges}, runworktree.OperationUndo)
 	}
 	if receipt, receiptFound, receiptErr := s.store.GetDrydockReceiptByOperation(ctx,
 		digest); receiptErr != nil {
 		return DrydockRewindResult{}, apperror.Normalize(receiptErr)
-	} else if receiptFound && receipt.Outcome == drydock.OutcomeSucceeded {
-		if receipt.Operation != drydock.OperationUndo || receipt.CheckpointID == "" {
+	} else if receiptFound && receipt.Outcome == runworktree.OutcomeSucceeded {
+		if receipt.Operation != runworktree.OperationUndo || receipt.CheckpointID == "" {
 			return DrydockRewindResult{}, apperror.New(apperror.CodeConflict,
 				"stored Drydock undo receipt is invalid")
 		}
@@ -887,7 +887,7 @@ func (s *DrydockService) Undo(ctx context.Context,
 			ExpectedGeneration: request.ExpectedGeneration,
 			OperationKey:       request.OperationKey, RequestedBy: request.RequestedBy,
 			Confirm:                request.Confirm,
-			ConfirmObservedChanges: request.ConfirmObservedChanges}, drydock.OperationUndo)
+			ConfirmObservedChanges: request.ConfirmObservedChanges}, runworktree.OperationUndo)
 	}
 	workspace, found, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil || !found {
@@ -912,17 +912,17 @@ func (s *DrydockService) Undo(ctx context.Context,
 		TargetCheckpointID: current.Checkpoint.ParentCheckpointID,
 		ExpectedGeneration: request.ExpectedGeneration, OperationKey: request.OperationKey,
 		RequestedBy: request.RequestedBy, Confirm: request.Confirm,
-		ConfirmObservedChanges: request.ConfirmObservedChanges}, drydock.OperationUndo)
+		ConfirmObservedChanges: request.ConfirmObservedChanges}, runworktree.OperationUndo)
 }
 
-func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindRequest,
-	operation drydock.Operation,
+func (s *RunWorktreeService) rewind(ctx context.Context, request DrydockRewindRequest,
+	operation runworktree.Operation,
 ) (DrydockRewindResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
 	request.TargetCheckpointID = strings.TrimSpace(request.TargetCheckpointID)
 	request.OperationKey = strings.TrimSpace(request.OperationKey)
 	request.RequestedBy = normalizeDrydockActor(request.RequestedBy)
-	if (operation != drydock.OperationRewind && operation != drydock.OperationUndo) ||
+	if (operation != runworktree.OperationRewind && operation != runworktree.OperationUndo) ||
 		request.RunID == "" || request.TargetCheckpointID == "" ||
 		request.OperationKey == "" || request.RequestedBy == "" ||
 		request.ExpectedGeneration < 1 {
@@ -947,7 +947,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 			if err := s.finishDrydockRestoreJournal(ctx, digest, stored); err != nil {
 				return DrydockRewindResult{}, err
 			}
-			if stored.Outcome != drydock.OutcomeSucceeded || stored.CheckpointID == "" {
+			if stored.Outcome != runworktree.OutcomeSucceeded || stored.CheckpointID == "" {
 				return DrydockRewindResult{ProtocolVersion: DrydockAPIProtocolVersion,
 						Workspace: workspace, Receipt: &stored, Confirmed: true, Replayed: true},
 					apperror.New(apperror.CodeConflict,
@@ -991,7 +991,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 		journal.TargetCheckpointID != request.TargetCheckpointID || journal.ExpectedCurrentCheckpointID != workspace.LastCheckpointID || journal.Status.Terminal()) {
 		return DrydockRewindResult{}, apperror.New(apperror.CodeConflict, "Drydock restore request or its physical cursor changed")
 	}
-	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+	if workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered {
 		return DrydockRewindResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock is not ready for rewind")
 	}
@@ -1168,7 +1168,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	}
 	beforeGeneration := workspace.Generation
 	previousBinding := workspace.ExpectedBindingFingerprint
-	workspace.State = drydock.StateReady
+	workspace.State = runworktree.StateReady
 	workspace.Generation++
 	workspace.LastCheckpointID = afterCheckpoint.ID
 	workspace.RootFingerprint = post.RootFingerprint
@@ -1177,7 +1177,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	workspace.UpdatedAt = s.now().UTC()
 	receipt := s.transitionReceipt(workspace, beforeGeneration, operation, digest,
 		drydockRewindRequestFingerprint(workspace.ID, operation, request),
-		drydock.OutcomeSucceeded, "", "restored a reviewed Drydock checkpoint with exact tracked, untracked, and index verification",
+		runworktree.OutcomeSucceeded, "", "restored a reviewed Drydock checkpoint with exact tracked, untracked, and index verification",
 		previousBinding, post.Binding.Fingerprint(), "", afterCheckpoint.ID, "")
 	receipt.RunID = request.RunID
 	workspace, replayed, err := s.store.AdvanceDrydock(ctx, workspace,
@@ -1190,7 +1190,7 @@ func (s *DrydockService) rewind(ctx context.Context, request DrydockRewindReques
 	return result, s.finishDrydockRestoreJournal(ctx, digest, receipt)
 }
 
-func drydockRewindRequestFingerprint(workspaceID string, operation drydock.Operation,
+func drydockRewindRequestFingerprint(workspaceID string, operation runworktree.Operation,
 	request DrydockRewindRequest,
 ) string {
 	return runmutation.Fingerprint("drydock-rewind-request.v1", workspaceID,
@@ -1228,7 +1228,7 @@ func drydockIndexProjectionEqual(left, right workspacecheckpoint.Snapshot) bool 
 	return true
 }
 
-func (s *DrydockService) Fork(ctx context.Context,
+func (s *RunWorktreeService) Fork(ctx context.Context,
 	request DrydockForkRequest,
 ) (DrydockForkResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -1249,7 +1249,7 @@ func (s *DrydockService) Fork(ctx context.Context,
 		return DrydockForkResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock fork request is invalid or its checkpoint integration is unavailable")
 	}
-	digest := drydockOperationDigest(drydock.OperationFork, request.RunID,
+	digest := drydockOperationDigest(runworktree.OperationFork, request.RunID,
 		request.OperationKey)
 	checkpointRequest := WorkspaceForkRequest{RunID: request.RunID,
 		TargetCheckpointID:          request.TargetCheckpointID,
@@ -1319,9 +1319,9 @@ func (s *DrydockService) Fork(ctx context.Context,
 	beforeGeneration := verified.Generation
 	verified.Generation++
 	verified.UpdatedAt = s.now().UTC()
-	receipt := s.transitionReceipt(verified, beforeGeneration, drydock.OperationFork,
+	receipt := s.transitionReceipt(verified, beforeGeneration, runworktree.OperationFork,
 		digest, drydockForkRequestFingerprint(verified.ID, request),
-		drydock.OutcomeSucceeded, "",
+		runworktree.OutcomeSucceeded, "",
 		"materialized a checkpoint into a distinct authority-reset Run and branch without changing the source Drydock",
 		observed.Binding.Fingerprint(), after.Binding.Fingerprint(), "",
 		request.TargetCheckpointID, "")
@@ -1337,8 +1337,8 @@ func (s *DrydockService) Fork(ctx context.Context,
 		Replayed: replayed || forked.Replayed}, nil
 }
 
-func (s *DrydockService) forkOwnedCheckpoint(ctx context.Context,
-	workspace drydock.Workspace, request WorkspaceForkRequest,
+func (s *RunWorktreeService) forkOwnedCheckpoint(ctx context.Context,
+	workspace runworktree.Workspace, request WorkspaceForkRequest,
 ) (WorkspaceForkResult, error) {
 	target, err := s.store.GetWorkspaceCheckpointSnapshot(ctx, request.TargetCheckpointID)
 	if err != nil {
@@ -1361,7 +1361,7 @@ func drydockForkRequestFingerprint(workspaceID string, request DrydockForkReques
 		request.Goal)
 }
 
-func (s *DrydockService) Deliver(ctx context.Context,
+func (s *RunWorktreeService) Deliver(ctx context.Context,
 	request DrydockDeliveryRequest,
 ) (DrydockDeliveryResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -1372,7 +1372,7 @@ func (s *DrydockService) Deliver(ctx context.Context,
 		return DrydockDeliveryResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock delivery requires an exact generation and explicit review confirmation")
 	}
-	digest := drydockOperationDigest(drydock.OperationDeliver, request.RunID,
+	digest := drydockOperationDigest(runworktree.OperationDeliver, request.RunID,
 		request.OperationKey)
 	if receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest); err != nil {
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
@@ -1384,13 +1384,13 @@ func (s *DrydockService) Deliver(ctx context.Context,
 	if err != nil {
 		return DrydockDeliveryResult{}, err
 	}
-	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+	if workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered {
 		return DrydockDeliveryResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock is not ready for delivery")
 	}
 	if observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
 		preserved, receipt, preserveErr := s.markRecovery(ctx, request.RunID, workspace,
-			drydock.OperationDeliver, digest, request.RequestedBy,
+			runworktree.OperationDeliver, digest, request.RequestedBy,
 			drydockDeliveryRequestFingerprint(workspace.ID, request),
 			"unattributed_workspace_change",
 			"delivery refused content not covered by the last Drydock checkpoint", &observed)
@@ -1413,8 +1413,8 @@ func (s *DrydockService) Deliver(ctx context.Context,
 			"Drydock changed after its delivery checkpoint")
 	}
 	proposalID := "drydock-delivery-" + digest[:32]
-	proposal := drydock.DeliveryProposal{ID: proposalID,
-		ProtocolVersion:    drydock.DeliveryProtocolVersion,
+	proposal := runworktree.DeliveryProposal{ID: proposalID,
+		ProtocolVersion:    runworktree.DeliveryProtocolVersion,
 		OperationKeySHA256: digest,
 		RequestFingerprint: drydockDeliveryRequestFingerprint(workspace.ID, request),
 		DrydockID:          workspace.ID, RunID: request.RunID,
@@ -1423,26 +1423,26 @@ func (s *DrydockService) Deliver(ctx context.Context,
 		RootFingerprint:      workspace.RootFingerprint, BaseCommit: workspace.BaseCommit,
 		HeadCommit: evidence.HeadCommit, MergeBaseCommit: evidence.MergeBaseCommit,
 		BindingFingerprint: evidence.Binding.Fingerprint(),
-		DiffSHA256:         drydock.FingerprintBytes([]byte(evidence.Patch)),
+		DiffSHA256:         runworktree.FingerprintBytes([]byte(evidence.Patch)),
 		DiffBytes:          len([]byte(evidence.Patch)), DiffStat: evidence.DiffStat,
 		ChangedPaths: evidence.ChangedPaths, CheckpointID: checkpoint.ID,
 		CreatedBy: request.RequestedBy, AutomaticMerge: false,
 		PushAuthorized: false, ForceAuthorized: false,
 		SourceOverwriteAllowed: false, CreatedAt: s.now().UTC()}
-	review := drydock.Review{Proposal: proposal, Patch: evidence.Patch}
+	review := runworktree.Review{Proposal: proposal, Patch: evidence.Patch}
 	if err := review.Validate(); err != nil {
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
 	}
 	beforeGeneration := workspace.Generation
-	workspace.State = drydock.StateDelivered
+	workspace.State = runworktree.StateDelivered
 	workspace.Generation++
 	workspace.LastCheckpointID = checkpoint.ID
 	workspace.LastDeliveryID = proposal.ID
 	workspace.ExpectedHead = evidence.Binding.Head
 	workspace.ExpectedBindingFingerprint = evidence.Binding.Fingerprint()
 	workspace.UpdatedAt = s.now().UTC()
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationDeliver,
-		digest, proposal.RequestFingerprint, drydock.OutcomeSucceeded, "",
+	receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationDeliver,
+		digest, proposal.RequestFingerprint, runworktree.OutcomeSucceeded, "",
 		"recorded a review-only Diff proposal without push, force, merge, or source overwrite authority",
 		observed.Binding.Fingerprint(), evidence.Binding.Fingerprint(), "",
 		checkpoint.ID, proposal.ID)
@@ -1464,13 +1464,13 @@ func drydockDeliveryRequestFingerprint(workspaceID string,
 		strconv.FormatInt(request.ExpectedGeneration, 10), request.RequestedBy)
 }
 
-func (s *DrydockService) Cleanup(ctx context.Context,
+func (s *RunWorktreeService) Cleanup(ctx context.Context,
 	request DrydockCleanupRequest,
 ) (DrydockCleanupResult, error) {
 	return s.cleanup(ctx, request, s.executor)
 }
 
-func (s *DrydockService) cleanup(ctx context.Context,
+func (s *RunWorktreeService) cleanup(ctx context.Context,
 	request DrydockCleanupRequest, executor drydockCleanupExecutor,
 ) (result DrydockCleanupResult, err error) {
 	request.RunID = strings.TrimSpace(request.RunID)
@@ -1481,7 +1481,7 @@ func (s *DrydockService) cleanup(ctx context.Context,
 		return DrydockCleanupResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock cleanup requires an exact generation and explicit confirmation")
 	}
-	digest := drydockOperationDigest(drydock.OperationCleanup, request.RunID,
+	digest := drydockOperationDigest(runworktree.OperationCleanup, request.RunID,
 		request.OperationKey)
 	// Another process confirming this exact request can finish while this
 	// caller is inspecting or committing. Return its sealed result, never our
@@ -1506,7 +1506,7 @@ func (s *DrydockService) cleanup(ctx context.Context,
 	if err != nil {
 		return DrydockCleanupResult{}, err
 	}
-	if workspace.State == drydock.StateCleaned {
+	if workspace.State == runworktree.StateCleaned {
 		return DrydockCleanupResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Drydock is already cleaned")
 	}
@@ -1518,7 +1518,7 @@ func (s *DrydockService) cleanup(ctx context.Context,
 	if !observed.Present {
 		return s.confirmDrydockCleanupFailure(ctx, request, digest, "", nil)
 	}
-	if workspace.State == drydock.StatePreparing || workspace.State == drydock.StateRecoveryRequired ||
+	if workspace.State == runworktree.StatePreparing || workspace.State == runworktree.StateRecoveryRequired ||
 		!observed.Clean || observed.Binding.Fingerprint() != workspace.ExpectedBindingFingerprint {
 		// Same-key callers share a reservation; another one may already be
 		// removing this directory. A dirty observation cannot establish a
@@ -1552,11 +1552,11 @@ func drydockCleanupRequestFingerprint(workspaceID string,
 		strconv.FormatInt(request.ExpectedGeneration, 10), request.RequestedBy)
 }
 
-func (s *DrydockService) Projection(ctx context.Context, runID string,
+func (s *RunWorktreeService) Projection(ctx context.Context, runID string,
 	limit int,
 ) (DrydockProjection, error) {
 	runID = strings.TrimSpace(runID)
-	if runID == "" || limit < 1 || limit > drydock.MaxList {
+	if runID == "" || limit < 1 || limit > runworktree.MaxList {
 		return DrydockProjection{}, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock projection request is invalid")
 	}
@@ -1564,7 +1564,7 @@ func (s *DrydockService) Projection(ctx context.Context, runID string,
 		return DrydockProjection{}, err
 	}
 	value := DrydockProjection{ProtocolVersion: DrydockAPIProtocolVersion,
-		RunID: runID, Receipts: []drydock.Receipt{}}
+		RunID: runID, Receipts: []runworktree.Receipt{}}
 	if trust, found, err := s.store.GetDrydockTrustByRun(ctx, runID); err != nil {
 		return value, apperror.Normalize(err)
 	} else if found {
@@ -1590,11 +1590,11 @@ func (s *DrydockService) Projection(ctx context.Context, runID string,
 	return value, nil
 }
 
-func (s *DrydockService) Reconcile(ctx context.Context) (DrydockReconcileResult, error) {
+func (s *RunWorktreeService) Reconcile(ctx context.Context) (DrydockReconcileResult, error) {
 	value := DrydockReconcileResult{ProtocolVersion: DrydockAPIProtocolVersion,
 		DrydockIDs: []string{}}
-	workspaces, err := s.store.ListDrydocks(ctx, drydock.ListFilter{
-		IncludeCleaned: false, Limit: drydock.MaxList})
+	workspaces, err := s.store.ListDrydocks(ctx, runworktree.ListFilter{
+		IncludeCleaned: false, Limit: runworktree.MaxList})
 	if err != nil {
 		return value, apperror.Normalize(err)
 	}
@@ -1612,16 +1612,16 @@ func (s *DrydockService) Reconcile(ctx context.Context) (DrydockReconcileResult,
 			continue
 		}
 		value.DrydockIDs = append(value.DrydockIDs, updated.ID)
-		if updated.State == drydock.StateReady {
+		if updated.State == runworktree.StateReady {
 			value.Recovered++
-		} else if updated.State == drydock.StateRecoveryRequired {
+		} else if updated.State == runworktree.StateRecoveryRequired {
 			value.RecoveryRequired++
 		}
 	}
 	return value, nil
 }
 
-func (s *DrydockService) GarbageCollect(ctx context.Context, limit int) (DrydockGCResult, error) {
+func (s *RunWorktreeService) GarbageCollect(ctx context.Context, limit int) (DrydockGCResult, error) {
 	value := DrydockGCResult{ProtocolVersion: DrydockAPIProtocolVersion,
 		DrydockIDs: []string{}}
 	if limit < 1 || limit > 100 {
@@ -1629,14 +1629,14 @@ func (s *DrydockService) GarbageCollect(ctx context.Context, limit int) (Drydock
 			"Drydock GC limit must be between 1 and 100")
 	}
 	now := s.now().UTC()
-	workspaces, err := s.store.ListDrydocks(ctx, drydock.ListFilter{
+	workspaces, err := s.store.ListDrydocks(ctx, runworktree.ListFilter{
 		ExpiredBefore: &now, IncludeCleaned: false, Limit: limit})
 	if err != nil {
 		return value, apperror.Normalize(err)
 	}
 	for _, workspace := range workspaces {
 		value.Examined++
-		if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+		if workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered {
 			value.Preserved++
 			continue
 		}
@@ -1656,7 +1656,7 @@ func (s *DrydockService) GarbageCollect(ctx context.Context, limit int) (Drydock
 			return value, cleanupErr
 		}
 		value.DrydockIDs = append(value.DrydockIDs, workspace.ID)
-		if result.Workspace.State == drydock.StateCleaned {
+		if result.Workspace.State == runworktree.StateCleaned {
 			value.Cleaned++
 		} else {
 			value.Preserved++
@@ -1665,7 +1665,7 @@ func (s *DrydockService) GarbageCollect(ctx context.Context, limit int) (Drydock
 	return value, nil
 }
 
-func (s *DrydockService) replayUse(ctx context.Context, request DrydockUseRequest,
+func (s *RunWorktreeService) replayUse(ctx context.Context, request DrydockUseRequest,
 	digest string,
 ) (DrydockUseResult, bool, error) {
 	receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest)
@@ -1676,7 +1676,7 @@ func (s *DrydockService) replayUse(ctx context.Context, request DrydockUseReques
 	if err != nil || !workspaceFound {
 		return DrydockUseResult{}, true, apperror.Normalize(err)
 	}
-	if receipt.Operation != drydock.OperationUse ||
+	if receipt.Operation != runworktree.OperationUse ||
 		!drydockReceiptMatchesRequest(receipt, workspace.ID,
 			request.ExpectedGeneration,
 			drydockUseRequestFingerprint(workspace.ID, request)) {
@@ -1687,29 +1687,29 @@ func (s *DrydockService) replayUse(ctx context.Context, request DrydockUseReques
 		Workspace: workspace, Receipt: receipt, RootPath: workspace.Path,
 		BindingFingerprint:     receipt.BindingAfterSHA256,
 		GrantsProcessAuthority: false, Replayed: true}
-	if receipt.Outcome != drydock.OutcomeSucceeded {
+	if receipt.Outcome != runworktree.OutcomeSucceeded {
 		return result, true, apperror.New(apperror.CodeConflict,
 			"the previous use request preserved the Drydock for recovery")
 	}
 	return result, true, nil
 }
 
-func (s *DrydockService) replayDelivery(ctx context.Context,
+func (s *RunWorktreeService) replayDelivery(ctx context.Context,
 	request DrydockDeliveryRequest,
-	receipt drydock.Receipt,
+	receipt runworktree.Receipt,
 ) (DrydockDeliveryResult, error) {
 	workspace, found, err := readRunFileDrydock(ctx, s.store, request.RunID)
 	if err != nil || !found {
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
 	}
-	if receipt.Operation != drydock.OperationDeliver ||
+	if receipt.Operation != runworktree.OperationDeliver ||
 		!drydockReceiptMatchesRequest(receipt, workspace.ID,
 			request.ExpectedGeneration,
 			drydockDeliveryRequestFingerprint(workspace.ID, request)) {
 		return DrydockDeliveryResult{}, apperror.New(apperror.CodeConflict,
 			"Drydock delivery operation key was reused for different intent")
 	}
-	if receipt.Outcome != drydock.OutcomeSucceeded || receipt.DeliveryID == "" {
+	if receipt.Outcome != runworktree.OutcomeSucceeded || receipt.DeliveryID == "" {
 		return DrydockDeliveryResult{ProtocolVersion: DrydockAPIProtocolVersion,
 				Workspace: workspace, Receipt: receipt, Replayed: true},
 			apperror.New(apperror.CodeConflict,
@@ -1723,24 +1723,24 @@ func (s *DrydockService) replayDelivery(ctx context.Context,
 		return DrydockDeliveryResult{}, apperror.Normalize(err)
 	}
 	evidence, err := s.executor.CaptureDelivery(ctx, workspace.Path, workspace.BaseCommit)
-	if err != nil || drydock.FingerprintBytes([]byte(evidence.Patch)) != proposal.DiffSHA256 ||
+	if err != nil || runworktree.FingerprintBytes([]byte(evidence.Patch)) != proposal.DiffSHA256 ||
 		evidence.Binding.Fingerprint() != proposal.BindingFingerprint {
 		return DrydockDeliveryResult{}, apperror.New(apperror.CodeConflict,
 			"stored delivery proposal no longer matches the live Drydock")
 	}
 	return DrydockDeliveryResult{ProtocolVersion: DrydockAPIProtocolVersion,
-		Workspace: workspace, Review: drydock.Review{Proposal: proposal, Patch: evidence.Patch},
+		Workspace: workspace, Review: runworktree.Review{Proposal: proposal, Patch: evidence.Patch},
 		Receipt: receipt, Replayed: true}, nil
 }
 
-func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
+func (s *RunWorktreeService) loadExactDrydock(ctx context.Context, runID string,
 	expectedGeneration int64, allowRecovery bool,
-) (drydock.Workspace, repository.DrydockSourceObservation,
+) (runworktree.Workspace, repository.DrydockSourceObservation,
 	repository.DrydockObservation, error,
 ) {
 	binding, err := s.loadRunBinding(ctx, runID, true)
 	if err != nil {
-		return drydock.Workspace{}, repository.DrydockSourceObservation{},
+		return runworktree.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, err
 	}
 	workspace, found, err := readRunFileDrydock(ctx, s.store, runID)
@@ -1748,7 +1748,7 @@ func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found for this Run")
 		}
-		return drydock.Workspace{}, repository.DrydockSourceObservation{},
+		return runworktree.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, apperror.Normalize(err)
 	}
 	if workspace.Generation != expectedGeneration {
@@ -1756,7 +1756,7 @@ func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
 			repository.DrydockObservation{}, apperror.New(apperror.CodeConflict,
 				"Drydock ownership generation changed")
 	}
-	if workspace.State == drydock.StateRecoveryRequired && !allowRecovery {
+	if workspace.State == runworktree.StateRecoveryRequired && !allowRecovery {
 		return workspace, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, apperror.New(apperror.CodeFailedPrecondition,
 				"Drydock requires operator recovery")
@@ -1798,14 +1798,14 @@ func (s *DrydockService) loadExactDrydock(ctx context.Context, runID string,
 	return workspace, source, observed, nil
 }
 
-func (s *DrydockService) loadDrydockForCleanup(ctx context.Context, runID string,
+func (s *RunWorktreeService) loadDrydockForCleanup(ctx context.Context, runID string,
 	expectedGeneration int64,
-) (drydock.Workspace, repository.DrydockSourceObservation,
+) (runworktree.Workspace, repository.DrydockSourceObservation,
 	repository.DrydockObservation, error,
 ) {
 	binding, err := s.loadRunBinding(ctx, runID, true)
 	if err != nil {
-		return drydock.Workspace{}, repository.DrydockSourceObservation{},
+		return runworktree.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, err
 	}
 	workspace, found, err := s.cleanupWorkspace(ctx, runID)
@@ -1813,7 +1813,7 @@ func (s *DrydockService) loadDrydockForCleanup(ctx context.Context, runID string
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found for this Run")
 		}
-		return drydock.Workspace{}, repository.DrydockSourceObservation{},
+		return runworktree.Workspace{}, repository.DrydockSourceObservation{},
 			repository.DrydockObservation{}, apperror.Normalize(err)
 	}
 	if workspace.Generation != expectedGeneration {
@@ -1844,8 +1844,8 @@ func (s *DrydockService) loadDrydockForCleanup(ctx context.Context, runID string
 	return workspace, source, observed, nil
 }
 
-func (s *DrydockService) validateObservation(ctx context.Context,
-	workspace drydock.Workspace, observed repository.DrydockObservation,
+func (s *RunWorktreeService) validateObservation(ctx context.Context,
+	workspace runworktree.Workspace, observed repository.DrydockObservation,
 ) error {
 	if !observed.Found || !observed.Present || observed.Prunable || observed.Locked ||
 		observed.Path != workspace.Path || observed.Branch != workspace.Branch ||
@@ -1863,7 +1863,7 @@ func (s *DrydockService) validateObservation(ctx context.Context,
 	return nil
 }
 
-func (s *DrydockService) loadRunBinding(ctx context.Context, runID string,
+func (s *RunWorktreeService) loadRunBinding(ctx context.Context, runID string,
 	allowTerminal bool,
 ) (drydockRunBinding, error) {
 	var value drydockRunBinding
@@ -1898,15 +1898,15 @@ func (s *DrydockService) loadRunBinding(ctx context.Context, runID string,
 	return value, nil
 }
 
-func (s *DrydockService) captureCheckpoint(ctx context.Context,
-	workspace drydock.Workspace, triggerReceiptID, title, requestedBy, phase,
+func (s *RunWorktreeService) captureCheckpoint(ctx context.Context,
+	workspace runworktree.Workspace, triggerReceiptID, title, requestedBy, phase,
 	parentID string,
 ) (workspacecheckpoint.Checkpoint, error) {
 	return s.captureCheckpointForRun(ctx, workspace.RunID, workspace, triggerReceiptID, title, requestedBy, phase, parentID)
 }
 
-func (s *DrydockService) captureCheckpointForRun(ctx context.Context, runID string,
-	workspace drydock.Workspace, triggerReceiptID, title, requestedBy, phase, parentID string,
+func (s *RunWorktreeService) captureCheckpointForRun(ctx context.Context, runID string,
+	workspace runworktree.Workspace, triggerReceiptID, title, requestedBy, phase, parentID string,
 ) (workspacecheckpoint.Checkpoint, error) {
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
@@ -1921,7 +1921,7 @@ func (s *DrydockService) captureCheckpointForRun(ctx context.Context, runID stri
 		ID: "drydock-checkpoint-" + digest[:32], RunID: run.ID,
 		MissionID: workspace.MissionID, SessionID: run.SessionID,
 		WorkspaceID: workspace.WorkspaceID, WorkspaceRoot: workspace.Path,
-		CapabilityGeneration: drydock.Fingerprint("drydock-generation", workspace.ID,
+		CapabilityGeneration: runworktree.Fingerprint("drydock-generation", workspace.ID,
 			strconv.FormatInt(workspace.Generation, 10)),
 		Trigger: workspacecheckpoint.TriggerManual, Phase: workspacecheckpoint.PhaseStandalone,
 		TriggerReceiptID: triggerReceiptID, RequestedBy: requestedBy, Title: title,
@@ -1934,13 +1934,13 @@ func (s *DrydockService) captureCheckpointForRun(ctx context.Context, runID stri
 	return checkpoint, err
 }
 
-func (s *DrydockService) transitionReceipt(workspace drydock.Workspace,
-	beforeGeneration int64, operation drydock.Operation, operationDigest,
-	requestFingerprint string, outcome drydock.Outcome, reason, summary,
+func (s *RunWorktreeService) transitionReceipt(workspace runworktree.Workspace,
+	beforeGeneration int64, operation runworktree.Operation, operationDigest,
+	requestFingerprint string, outcome runworktree.Outcome, reason, summary,
 	bindingBefore, bindingAfter, gitReceiptID, checkpointID, deliveryID string,
-) drydock.Receipt {
-	return drydock.Receipt{ID: drydockReceiptID(operationDigest),
-		ProtocolVersion:    drydock.ReceiptProtocolVersion,
+) runworktree.Receipt {
+	return runworktree.Receipt{ID: drydockReceiptID(operationDigest),
+		ProtocolVersion:    runworktree.ReceiptProtocolVersion,
 		OperationKeySHA256: operationDigest, RequestFingerprint: requestFingerprint,
 		DrydockID: workspace.ID, RunID: workspace.RunID, Operation: operation,
 		Outcome: outcome, GenerationBefore: beforeGeneration,
@@ -1953,10 +1953,10 @@ func (s *DrydockService) transitionReceipt(workspace drydock.Workspace,
 		CreatedAt: s.now().UTC()}
 }
 
-func (s *DrydockService) failCreate(ctx context.Context, workspace drydock.Workspace,
+func (s *RunWorktreeService) failCreate(ctx context.Context, workspace runworktree.Workspace,
 	source repository.DrydockSourceObservation, request DrydockCreateRequest,
 	gitReceipt gitadvanced.Receipt, cause error,
-) (drydock.Workspace, drydock.Receipt, error) {
+) (runworktree.Workspace, runworktree.Receipt, error) {
 	observed, inspectErr := s.executor.Inspect(ctx, source.Identity.RootPath,
 		source.Binding, workspace.Name)
 	beforeGeneration := workspace.Generation
@@ -1972,23 +1972,23 @@ func (s *DrydockService) failCreate(ctx context.Context, workspace drydock.Works
 			workspace.ManagedWorktreeID = "gwt-" + gitadvanced.Fingerprint("worktree",
 				workspace.CreatePreviewID)[:32]
 		}
-		workspace.State = drydock.StateRecoveryRequired
+		workspace.State = runworktree.StateRecoveryRequired
 		workspace.RecoveryReason = reason
 	} else if !observed.Found && inspectErr == nil {
-		workspace.State = drydock.StateCleaned
+		workspace.State = runworktree.StateCleaned
 		workspace.CleanedAt = &now
 	} else {
-		workspace.State = drydock.StateRecoveryRequired
+		workspace.State = runworktree.StateRecoveryRequired
 		workspace.RecoveryReason = reason
 	}
 	workspace.Generation++
 	workspace.UpdatedAt = now
-	digest := drydockOperationDigest(drydock.OperationCreate, workspace.RunID,
+	digest := drydockOperationDigest(runworktree.OperationCreate, workspace.RunID,
 		request.OperationKey)
 	summary := "Drydock creation failed; uncertain or changed content was preserved"
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationCreate,
+	receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationCreate,
 		digest, runmutation.Fingerprint("drydock-create-request.v1", workspace.RunID,
-			workspace.Source.Fingerprint(), request.RequestedBy), drydock.OutcomeFailed,
+			workspace.Source.Fingerprint(), request.RequestedBy), runworktree.OutcomeFailed,
 		reason, summary, "", workspace.ExpectedBindingFingerprint, gitReceipt.ID, "", "")
 	advanced, _, transitionErr := s.store.AdvanceDrydock(ctx, workspace,
 		beforeGeneration, receipt)
@@ -1996,21 +1996,21 @@ func (s *DrydockService) failCreate(ctx context.Context, workspace drydock.Works
 		apperror.Normalize(inspectErr), apperror.Normalize(transitionErr))
 }
 
-func (s *DrydockService) markRecovery(ctx context.Context, runID string, workspace drydock.Workspace,
-	operation drydock.Operation, digest, requestedBy, requestFingerprint, reason, summary string,
+func (s *RunWorktreeService) markRecovery(ctx context.Context, runID string, workspace runworktree.Workspace,
+	operation runworktree.Operation, digest, requestedBy, requestFingerprint, reason, summary string,
 	observed *repository.DrydockObservation,
-) (drydock.Workspace, drydock.Receipt, error) {
+) (runworktree.Workspace, runworktree.Receipt, error) {
 	return s.markRecoveryWithGit(ctx, runID, workspace, operation, digest, requestedBy,
 		requestFingerprint, reason, summary, observed, "")
 }
 
-func (s *DrydockService) markRecoveryWithGit(ctx context.Context, runID string,
-	workspace drydock.Workspace, operation drydock.Operation, digest, requestedBy,
+func (s *RunWorktreeService) markRecoveryWithGit(ctx context.Context, runID string,
+	workspace runworktree.Workspace, operation runworktree.Operation, digest, requestedBy,
 	requestFingerprint, reason, summary string, observed *repository.DrydockObservation,
 	gitReceiptID string,
-) (drydock.Workspace, drydock.Receipt, error) {
-	if strings.TrimSpace(requestedBy) == "" || !drydock.ValidDigest(requestFingerprint) {
-		return drydock.Workspace{}, drydock.Receipt{}, apperror.New(
+) (runworktree.Workspace, runworktree.Receipt, error) {
+	if strings.TrimSpace(requestedBy) == "" || !runworktree.ValidDigest(requestFingerprint) {
+		return runworktree.Workspace{}, runworktree.Receipt{}, apperror.New(
 			apperror.CodeInvalidArgument, "Drydock recovery attribution is invalid")
 	}
 	beforeGeneration := workspace.Generation
@@ -2032,23 +2032,23 @@ func (s *DrydockService) markRecoveryWithGit(ctx context.Context, runID string,
 		}
 		bindingAfter = observed.Binding.Fingerprint()
 	}
-	workspace.State = drydock.StateRecoveryRequired
+	workspace.State = runworktree.StateRecoveryRequired
 	workspace.RecoveryReason = reason
 	workspace.Generation++
 	workspace.UpdatedAt = s.now().UTC()
 	receipt := s.transitionReceipt(workspace, beforeGeneration, operation, digest,
 		requestFingerprint,
-		drydock.OutcomePreserved, reason, summary, bindingBefore, bindingAfter,
+		runworktree.OutcomePreserved, reason, summary, bindingBefore, bindingAfter,
 		gitReceiptID, "", "")
 	receipt.RunID = runID
 	advanced, _, err := s.advanceDrydockTransition(ctx, workspace, beforeGeneration, receipt)
 	return advanced, receipt, apperror.Normalize(err)
 }
 
-func (s *DrydockService) reconcileOne(ctx context.Context,
-	workspace drydock.Workspace,
-) (drydock.Workspace, bool, error) {
-	if workspace.State == drydock.StateCleaned || workspace.State == drydock.StateRecoveryRequired {
+func (s *RunWorktreeService) reconcileOne(ctx context.Context,
+	workspace runworktree.Workspace,
+) (runworktree.Workspace, bool, error) {
+	if workspace.State == runworktree.StateCleaned || workspace.State == runworktree.StateRecoveryRequired {
 		return workspace, false, nil
 	}
 	if skip, err := s.skipTransferredDrydockReconciliation(ctx, workspace); err != nil || skip {
@@ -2071,12 +2071,12 @@ func (s *DrydockService) reconcileOne(ctx context.Context,
 	if err := s.validateObservation(ctx, workspace, observed); err != nil {
 		return s.reconcilePreserveObserved(ctx, workspace, "worktree_identity_drift", observed)
 	}
-	if workspace.State == drydock.StatePreparing {
+	if workspace.State == runworktree.StatePreparing {
 		if !observed.Clean || observed.Binding.Head != workspace.BaseCommit {
 			return s.reconcilePreserveObserved(ctx, workspace,
 				"interrupted_create_has_user_changes", observed)
 		}
-		digest := drydockOperationDigest(drydock.OperationRecover, workspace.RunID,
+		digest := drydockOperationDigest(runworktree.OperationRecover, workspace.RunID,
 			"startup-create-"+strconv.FormatInt(workspace.Generation, 10))
 		receiptID := drydockReceiptID(digest)
 		checkpoint, captureErr := s.captureCheckpoint(ctx, workspace, receiptID,
@@ -2093,13 +2093,13 @@ func (s *DrydockService) reconcileOne(ctx context.Context,
 			workspace.CreatePreviewID)[:32]
 		workspace.CreateGitReceiptID = "gar-" + gitadvanced.Fingerprint("receipt",
 			workspace.CreatePreviewID)[:32]
-		workspace.State = drydock.StateReady
+		workspace.State = runworktree.StateReady
 		workspace.Generation++
 		workspace.LastCheckpointID = checkpoint.ID
 		workspace.UpdatedAt = s.now().UTC()
-		receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationRecover,
+		receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationRecover,
 			digest, runmutation.Fingerprint("drydock-reconcile.v1", workspace.ID,
-				strconv.FormatInt(beforeGeneration, 10)), drydock.OutcomeSucceeded, "",
+				strconv.FormatInt(beforeGeneration, 10)), runworktree.OutcomeSucceeded, "",
 			"recovered an interrupted create only after exact clean identity verification",
 			"", observed.Binding.Fingerprint(), workspace.CreateGitReceiptID,
 			checkpoint.ID, "")
@@ -2114,36 +2114,36 @@ func (s *DrydockService) reconcileOne(ctx context.Context,
 	return workspace, false, nil
 }
 
-func (s *DrydockService) reconcilePreserve(ctx context.Context,
-	workspace drydock.Workspace, reason string,
-) (drydock.Workspace, bool, error) {
-	digest := drydockOperationDigest(drydock.OperationRecover, workspace.RunID,
+func (s *RunWorktreeService) reconcilePreserve(ctx context.Context,
+	workspace runworktree.Workspace, reason string,
+) (runworktree.Workspace, bool, error) {
+	digest := drydockOperationDigest(runworktree.OperationRecover, workspace.RunID,
 		"startup-preserve-"+strconv.FormatInt(workspace.Generation, 10))
-	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, drydock.OperationRecover,
+	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, runworktree.OperationRecover,
 		digest, "drydock_reconciler", runmutation.Fingerprint("drydock-reconcile.v1",
 			workspace.ID, strconv.FormatInt(workspace.Generation, 10), reason), reason,
 		"startup recovery preserved a Drydock whose exact ownership could not be proved", nil)
 	return updated, true, err
 }
 
-func (s *DrydockService) reconcilePreserveObserved(ctx context.Context,
-	workspace drydock.Workspace, reason string, observed repository.DrydockObservation,
-) (drydock.Workspace, bool, error) {
-	digest := drydockOperationDigest(drydock.OperationRecover, workspace.RunID,
+func (s *RunWorktreeService) reconcilePreserveObserved(ctx context.Context,
+	workspace runworktree.Workspace, reason string, observed repository.DrydockObservation,
+) (runworktree.Workspace, bool, error) {
+	digest := drydockOperationDigest(runworktree.OperationRecover, workspace.RunID,
 		"startup-preserve-"+strconv.FormatInt(workspace.Generation, 10))
-	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, drydock.OperationRecover,
+	updated, _, err := s.markRecovery(ctx, workspace.RunID, workspace, runworktree.OperationRecover,
 		digest, "drydock_reconciler", runmutation.Fingerprint("drydock-reconcile.v1",
 			workspace.ID, strconv.FormatInt(workspace.Generation, 10), reason), reason,
 		"startup recovery preserved observed content instead of deleting it", &observed)
 	return updated, true, err
 }
 
-func drydockTrustID(runID string, identity drydock.SourceIdentity) string {
-	return "drydock-trust-" + drydock.Fingerprint("trust", runID,
+func drydockTrustID(runID string, identity runworktree.SourceIdentity) string {
+	return "drydock-trust-" + runworktree.Fingerprint("trust", runID,
 		identity.Fingerprint())[:32]
 }
 
-func drydockOperationDigest(operation drydock.Operation, runID, operationKey string) string {
+func drydockOperationDigest(operation runworktree.Operation, runID, operationKey string) string {
 	return runmutation.OperationKeyDigest("drydock_lifecycle.v1."+string(operation),
 		runID, operationKey)
 }

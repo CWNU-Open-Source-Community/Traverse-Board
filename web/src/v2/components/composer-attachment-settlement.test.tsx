@@ -3,7 +3,7 @@ import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { fileAttachmentIdentities, type WorkspaceFileAttachment } from "../../api/file-attachments";
 import { V2RecoveryProvider } from "../recovery-storage";
 import { useV2ThreadTurn, type V2TurnInput } from "../use-thread-turn";
@@ -29,8 +29,8 @@ function fixture() {
   };
   const recorded: V2TurnInput[] = [];
   function Harness() {
-    const turn = useV2ThreadTurn(client as unknown as CyberAgentClient);
-    return <V2Composer client={client as unknown as CyberAgentClient} threadID={threadID}
+    const turn = useV2ThreadTurn(client as unknown as APIClient);
+    return <V2Composer client={client as unknown as APIClient} threadID={threadID}
       workspaceID={workspaceID} workspaces={[]} onWorkspaceChange={() => {}}
       onSubmit={async (content, files, images, draftVersion, attachments) => {
         const input: V2TurnInput = { threadID, workspaceID, content, files, images, attachments, draftVersion,

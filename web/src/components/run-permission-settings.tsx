@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   Terminal,
 } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type {
   CapabilityReadinessOptionView,
   RunDetailView,
@@ -43,7 +43,7 @@ const executionProfiles: Array<{
 ];
 
 export function ExecutionProfilePanel({ client, detail, readiness }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
 }) {
@@ -121,7 +121,7 @@ const interactionModes: Array<{
 ];
 
 export function ExecutionInteractionPanel({ client, detail, readiness }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
 }) {
@@ -248,7 +248,7 @@ interface PresetInteraction {
 const presetIntentKey = (runID: string) => ["run", runID, "standard-code-preset-intent"] as const;
 
 export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
   threadID?: string;

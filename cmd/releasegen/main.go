@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"cyberagent-workbench/internal/buildinfo"
 )
 
 type module struct {
@@ -333,7 +335,7 @@ func normalizeNoticeText(text string) string {
 func buildNotice(modules []module, bundledNotices []bundledAssetNotice) []byte {
 	modules = sortedModules(modules)
 	var builder strings.Builder
-	builder.WriteString("Traverse Board Desktop — Third-Party Notices\n\n")
+	builder.WriteString(buildinfo.ProductName + " Desktop — Third-Party Notices\n\n")
 	builder.WriteString("The Desktop build includes the following third-party Go modules.\n")
 	builder.WriteString("Licenses were detected from each module's LICENSE file; full texts follow.\n\n")
 	for _, module := range modules {

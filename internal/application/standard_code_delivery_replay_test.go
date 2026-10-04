@@ -14,8 +14,8 @@ import (
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -118,7 +118,7 @@ func TestStandardCodeDeliveryLostSuccessReplaysSealedIntentReadOnly(t *testing.T
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	restartedDrydocks, err := NewDrydockService(reopened, f.base.executor)
+	restartedDrydocks, err := NewRunWorktreeService(reopened, f.base.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestStandardCodeDeliveryAutomaticSelectionPreservesFailedVerification(t *te
 type standardCodeDeliveryReplayFixture struct {
 	base         drydockApplicationFixture
 	service      *StandardCodeDeliveryService
-	workspace    drydock.Workspace
+	workspace    runworktree.Workspace
 	machine      *standardCodeSupervisorTurn
 	job          runner.CommandRuntimeJob
 	lease        domain.RunExecutionLease
@@ -176,7 +176,7 @@ func newStandardCodeDeliveryReplayFixture(t *testing.T, exitCode int, output ...
 		t.Fatal(err)
 	}
 	base.state, base.run = state, run
-	base.service, err = NewDrydockService(state, base.executor)
+	base.service, err = NewRunWorktreeService(state, base.executor)
 	if err != nil {
 		t.Fatal(err)
 	}

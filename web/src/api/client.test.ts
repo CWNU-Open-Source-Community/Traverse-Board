@@ -1,4 +1,4 @@
-import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
+import { APIClient, clientCapabilitiesFromRuntime } from "./client";
 import type { ProviderDefinitionView, RunEventStreamView, RunLifecycleControlView,
   ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
@@ -329,7 +329,7 @@ function uiEvidencePassedBundleData() {
   };
 }
 
-describe("CyberAgentClient", () => {
+describe("APIClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -342,7 +342,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-import", data,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, workspaceImportEnabled: true,
     });
     const signal = new AbortController().signal;
@@ -365,7 +365,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     for (const [token, capability] of [["", true], ["control-secret", false],
       ["control-secret", undefined]] as const) {
-      const client = new CyberAgentClient("read-secret", "/api/v1", token,
+      const client = new APIClient("read-secret", "/api/v1", token,
         { workspaceImportEnabled: capability });
       expect(client.hasWorkspaceImport).toBe(false);
       await expect(client.importWorkspace("D:\\private-project"))
@@ -378,7 +378,7 @@ describe("CyberAgentClient", () => {
     const valid = { protocol_version: "workspace_import.v1",
       workspace: { id: "ws-import-1", name: "project", created_at: "2026-09-08T00:00:00Z" },
       directory_content_modified: false, agent_authority_granted: false };
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { workspaceImportEnabled: true });
     const bad = [{ ...valid, agent_authority_granted: true },
       { ...valid, directory_content_modified: true }, { ...valid, protocol_version: "invalid-version" },
@@ -398,7 +398,7 @@ describe("CyberAgentClient", () => {
 
   it("removes host paths from import server and transport failures", async () => {
     const directory = "D:\\private-project";
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { workspaceImportEnabled: true });
     for (const fetchMock of [vi.fn().mockRejectedValue(new Error(directory)),
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: "api.v1", request_id: directory,
@@ -415,7 +415,7 @@ describe("CyberAgentClient", () => {
   it("rejects empty, control-bearing and oversized directory input before sending", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { workspaceImportEnabled: true });
     for (const directory of ["", "  ", "D:\\project\nother", "D:\\project\0", "项".repeat(1_400)]) {
       await expect(client.importWorkspace(directory)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
@@ -431,7 +431,7 @@ describe("CyberAgentClient", () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-capabilities", data,
       }), { status: 200 })));
-      const request = new CyberAgentClient("read-secret").runtimeCapabilities();
+      const request = new APIClient("read-secret").runtimeCapabilities();
       if (typeof advertised === "string") {
         await expect(request).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
       } else {
@@ -448,7 +448,7 @@ describe("CyberAgentClient", () => {
       new Response(JSON.stringify({ version: "api.v1", request_id: "req-execution", data }), {
         status: 200, headers: { "Content-Type": "application/json" },
       })));
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     respond(valid);
     expect(await client.threadExecution("thread-1")).toEqual(valid);
     for (const drift of [{ thread_id: "thread-2" }, { capability_grant: true },
@@ -465,13 +465,13 @@ describe("CyberAgentClient", () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-capabilities", data,
       }), { status: 200 })));
-      const readClient = new CyberAgentClient("read-secret");
+      const readClient = new APIClient("read-secret");
       const request = readClient.runtimeCapabilities();
       if (typeof advertised === "string") {
         await expect(request).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
       } else {
         const runtime = await request;
-        const connected = new CyberAgentClient("read-secret", "/api/v1", "", clientCapabilitiesFromRuntime(runtime));
+        const connected = new APIClient("read-secret", "/api/v1", "", clientCapabilitiesFromRuntime(runtime));
         expect(connected.hasThreadExecutionRead).toBe(advertised === true);
         expect(connected.hasRunExecution).toBe(false);
         expect(connected.hasThreadControl).toBe(false);
@@ -486,7 +486,7 @@ describe("CyberAgentClient", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new CyberAgentClient("read-secret").health();
+    const result = await new APIClient("read-secret").health();
 
     expect(result.schema_version).toBe(37);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -526,7 +526,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-ui-evidence", data: [attempt],
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").uiEvidence("run-1"))
+    await expect(new APIClient("read-secret").uiEvidence("run-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -537,7 +537,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-ui-evidence-bundle", data: bundle,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+    await expect(new APIClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -549,7 +549,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-ui-evidence-dimensions", data: bundle,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+    await expect(new APIClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -567,7 +567,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-ui-evidence-chronology", data: bundle,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+    await expect(new APIClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -577,7 +577,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-ui-evidence-complete", data: bundle,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+    await expect(new APIClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
       .resolves.toEqual(bundle);
   });
 
@@ -592,7 +592,7 @@ describe("CyberAgentClient", () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(content, { headers }))
       .mockResolvedValueOnce(new Response(new Uint8Array([...content, 1]), { headers }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.downloadUIEvidenceArtifact("ui-attempt-1", metadata))
       .resolves.toMatchObject({ size: content.byteLength, type: metadata.mime });
@@ -601,9 +601,9 @@ describe("CyberAgentClient", () => {
   });
 
   it("rejects a cross-origin API base before issuing a request", () => {
-    expect(() => new CyberAgentClient("read-secret", "https://example.com/api/v1"))
+    expect(() => new APIClient("read-secret", "https://example.com/api/v1"))
       .toThrow("current browser origin");
-    expect(() => new CyberAgentClient("read-secret", "/api/v10"))
+    expect(() => new APIClient("read-secret", "/api/v10"))
       .toThrow("must be /api/v1");
   });
 
@@ -657,7 +657,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-capabilities", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const view = await new CyberAgentClient("read-secret").runtimeCapabilities();
+    const view = await new APIClient("read-secret").runtimeCapabilities();
     expect(view).toEqual(data);
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
@@ -696,7 +696,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-invalid-worker-health", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .rejects.toThrow("Run wake worker capability response is invalid");
   });
 
@@ -705,7 +705,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-docker-capabilities", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const view = await new CyberAgentClient("read-secret").runtimeCapabilities();
+    const view = await new APIClient("read-secret").runtimeCapabilities();
     expect(view).toEqual(data);
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       dockerExecutionEnabled: true,
@@ -718,7 +718,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-full-cdp-with-full-access", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .resolves.toEqual(data);
   });
 
@@ -732,7 +732,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-full-cdp-without-full-access", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -745,7 +745,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-full-cdp-session-without-runtime", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -757,7 +757,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-command-runtime-capabilities", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -768,7 +768,7 @@ describe("CyberAgentClient", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new CyberAgentClient("read-secret").runCapabilityReadiness("run-1"))
+    await expect(new APIClient("read-secret").runCapabilityReadiness("run-1"))
       .resolves.toEqual(data);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/runs/run-1/capability-readiness");
@@ -781,7 +781,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(pausedPlanReadiness), {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.runCapabilityReadiness(pausedPlanReadiness.data.run_id)).resolves.toEqual(pausedPlanReadiness.data);
   });
 
@@ -794,7 +794,7 @@ describe("CyberAgentClient", () => {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...pausedPlanReadiness, data }), {
         status: 200, headers: { "Content-Type": "application/json" },
       }));
-      await expect(new CyberAgentClient("read-secret").runCapabilityReadiness(data.run_id))
+      await expect(new APIClient("read-secret").runCapabilityReadiness(data.run_id))
         .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     }
   });
@@ -805,7 +805,7 @@ describe("CyberAgentClient", () => {
       data: standardCodeTrustData(),
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, standardCodePresetEnabled: true,
     });
 
@@ -831,7 +831,7 @@ describe("CyberAgentClient", () => {
       data: standardCodeTrustData({ workspace_id: "workspace-other" }),
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       standardCodePresetEnabled: true,
     });
 
@@ -890,7 +890,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-run-readiness-invalid", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").runCapabilityReadiness("run-1"))
+    await expect(new APIClient("read-secret").runCapabilityReadiness("run-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -903,7 +903,7 @@ describe("CyberAgentClient", () => {
       },
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       scheduledJobControlEnabled: true,
     });
     const body = { ...job.spec, confirm_repair: false } as unknown as
@@ -927,7 +927,7 @@ describe("CyberAgentClient", () => {
       },
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       scheduledJobControlEnabled: true,
     });
     const result = client.enableScheduledJobObservation("run-1", "scheduled-job-1", {
@@ -948,7 +948,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-scope", data: scoped,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const result = new CyberAgentClient("read-secret").runtimeCapabilities();
+    const result = new APIClient("read-secret").runtimeCapabilities();
     if (scope === undefined || scope === "confirmed_read_only" || scope === "all_jobs") {
       await expect(result).resolves.toMatchObject({ scheduled_job_worker: scoped.scheduled_job_worker });
     } else await expect(result).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
@@ -986,7 +986,7 @@ describe("CyberAgentClient", () => {
         request_id: "req-diagnostic-bundle", data: bundle }), { status: 200,
         headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.getScheduledJob("scheduled-job-1")).rejects.toThrow("exposed payload");
     await expect(client.diagnosticBundle("run-1")).rejects.toThrow("redaction contract");
   });
@@ -1046,7 +1046,7 @@ describe("CyberAgentClient", () => {
             worktree_root: "C:/private/worktree" },
         }] } }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.getRunBatchDelivery("run-1", "batch-1"))
       .resolves.toMatchObject({ plan: { base_commit: gitObject }, children: [{
@@ -1062,7 +1062,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-docker-capabilities", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+    await expect(new APIClient("read-secret").runtimeCapabilities())
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -1070,7 +1070,7 @@ describe("CyberAgentClient", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new CyberAgentClient("read-secret").get("/../health"))
+    await expect(new APIClient("read-secret").get("/../health"))
       .rejects.toThrow("escaped the configured base path");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -1096,7 +1096,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-readiness", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const view = await new CyberAgentClient("read-secret").safeWebReadiness("chrome");
+    const view = await new APIClient("read-secret").safeWebReadiness("chrome");
     expect(view).toEqual(data);
   });
 
@@ -1122,7 +1122,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-readiness", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").safeWebReadiness("chrome"))
+    await expect(new APIClient("read-secret").safeWebReadiness("chrome"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -1147,7 +1147,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-readiness", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").safeWebReadiness("chrome"))
+    await expect(new APIClient("read-secret").safeWebReadiness("chrome"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -1158,7 +1158,7 @@ describe("CyberAgentClient", () => {
       error: { code: "POLICY_DENIED", message: "valid bearer authorization is required" },
     }), { status: 401, headers: { "Content-Type": "application/json" } })));
 
-    const request = new CyberAgentClient("wrong-secret").health();
+    const request = new APIClient("wrong-secret").health();
     await expect(request).rejects.toMatchObject({
       code: "POLICY_DENIED",
       status: 401,
@@ -1181,7 +1181,7 @@ describe("CyberAgentClient", () => {
         page: { limit: 1 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     const first = await client.getPage<{ id: string; status: string }>("/runs", { limit: 1 });
     const second = await client.getPage<{ id: string; status: string }>(
@@ -1210,7 +1210,7 @@ describe("CyberAgentClient", () => {
       headers: { "Content-Type": "application/json" },
     }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     const result = await client.postControl<{ execution_profile: { profile: string } }>(
       "/runs/run-1/execution-profile",
@@ -1233,7 +1233,7 @@ describe("CyberAgentClient", () => {
 
   it("does not expose control operations without a distinct control token", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.postControl("/runs/run-1/execution-profile", { profile: "docker" },
       "web-execution-profile-test-0002")).rejects.toThrow("control bearer token");
     expect(fetch).not.toHaveBeenCalled();
@@ -1250,7 +1250,7 @@ describe("CyberAgentClient", () => {
         data: { id: "memory-1", deleted: true, recoverable: false },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     const updated = await client.patchControl<{ version: number; status: string }>(
       "/memories/memory-1", { expected_version: 1, status: "disabled" });
@@ -1276,7 +1276,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-create", data: runCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
     });
@@ -1304,7 +1304,7 @@ describe("CyberAgentClient", () => {
       request_id: "req-create-forged",
       data: { ...runCreationData, mode: { ...runCreationData.mode, capability_grant: true } },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
     });
@@ -1319,7 +1319,7 @@ describe("CyberAgentClient", () => {
       request_id: "req-create-forged-workspace",
       data: runCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
     });
@@ -1338,7 +1338,7 @@ describe("CyberAgentClient", () => {
           scope: { ...runCreationData.mission.scope, workspace_id: "workspace-other" } },
       },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
     });
@@ -1353,7 +1353,7 @@ describe("CyberAgentClient", () => {
       request_id: "req-create-forged-goal",
       data: runCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
     });
@@ -1367,7 +1367,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-thread-create", data: threadCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     const result = await client.createThread({
       version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
@@ -1387,7 +1387,7 @@ describe("CyberAgentClient", () => {
         config: { ...threadCreationData.run.config, model_route: "openai/default-model" } },
       session: { ...threadCreationData.session, route: "openai/default-model" },
     };
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     const request = { version: "thread_creation.v1", goal: "Create parser",
       workspace_id: "workspace-1" } as const;
     const respond = (data: unknown) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
@@ -1422,7 +1422,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-thread-create-routed", data: routed,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.createThread({
       version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
@@ -1454,7 +1454,7 @@ describe("CyberAgentClient", () => {
           capability_grant: false },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.submitThreadMessage("thread-created", {
       version: "thread_message_submission.v1", content: "Continue safely",
@@ -1491,7 +1491,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-thread-message-completed", data: response,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.submitThreadTurn("thread-created", {
       version: "thread_message_submission.v1", content: "Finish synchronously",
@@ -1509,7 +1509,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-thread-prepared-input", data: response,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     await expect(client.submitThreadTurn("thread-created", {
       version: "thread_message_submission.v1", content: "Read the official documentation",
     }, "web-thread-prepared-input-0001")).resolves.toEqual(response);
@@ -1521,7 +1521,7 @@ describe("CyberAgentClient", () => {
       thread: { ...threadData, composer_state: "waiting_approval" },
       steering: { ...threadMessageData.steering, prepared: true },
       execution_started: true, model_called: true, tool_called: true };
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     for (const response of [
       { ...valid, steering: { ...valid.steering, prepared: "true" } },
       { ...valid, steering: { ...valid.steering, prepared: undefined } },
@@ -1548,7 +1548,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-turn-files", data: threadMessageData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     const body = { version: "thread_message_submission.v1", content: "Use these project files",
       files: [{ source_kind: "workspace_file", path: "docs/说明.md", expected_sha256: "a".repeat(64) }] } as const;
     await expect(client.submitThreadTurn("thread-created", { ...body, files: [...body.files] },
@@ -1568,24 +1568,24 @@ describe("CyberAgentClient", () => {
     const invalidLists = [[{ ...file, path: "../outside.md" }], [{ ...file, path: "." }],
       [{ ...file, expected_sha256: "A".repeat(64) }], [{ ...file, instruction_authorized: true }],
       [file, file], Array.from({ length: 5 }, (_, index) => ({ ...file, path: `file-${index}.md` }))];
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     for (const files of invalidLists) {
       await expect(client.submitThreadTurn("thread-created", {
         version: "thread_message_submission.v1", content: "Use files", files,
-      } as Parameters<CyberAgentClient["submitThreadTurn"]>[1], "web-invalid-files-0001")).rejects.toThrow("重新选择");
+      } as Parameters<APIClient["submitThreadTurn"]>[1], "web-invalid-files-0001")).rejects.toThrow("重新选择");
     }
-    const disabled = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const disabled = new APIClient("read-secret", "/api/v1", "control-secret",
       { evidenceAttachmentEnabled: false });
     await expect(disabled.submitThreadTurn("thread-created", {
       version: "thread_message_submission.v1", content: "Use files", files: [file],
-    } as Parameters<CyberAgentClient["submitThreadTurn"]>[1], "web-disabled-files-0001")).rejects.toThrow("重新选择");
+    } as Parameters<APIClient["submitThreadTurn"]>[1], "web-disabled-files-0001")).rejects.toThrow("重新选择");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("distinguishes a terminal unqueued turn rejection from an unknown error and rejects widened markers", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     for (const marker of [false, undefined, true]) {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "turn-rejected",
         error: { code: "CONFLICT", message: "Cannot complete submission",
@@ -1602,7 +1602,7 @@ describe("CyberAgentClient", () => {
   it("only accepts an explicit true operation-key invalidation marker", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: true, standardCodePresetEnabled: true,
     });
     for (const marker of [true, undefined, false, "true", null]) {
@@ -1622,7 +1622,7 @@ describe("CyberAgentClient", () => {
   it("only trusts an explicit terminal failed-turn marker and rejects contradictory queue facts", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     for (const marker of [true, undefined, false, "true", null]) {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1", request_id: "turn-failed",
         error: { code: "UNAVAILABLE", message: "This turn failed",
@@ -1656,7 +1656,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-thread-recovery", data: response,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.recoverThreadRun("thread-created", {
       version: "thread_run_recovery.v1", run_id: "run-created",
@@ -1681,7 +1681,7 @@ describe("CyberAgentClient", () => {
         successor_required: true, replayed: false,
       },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     await expect(client.recoverThreadRun("thread-created", {
       version: "thread_run_recovery.v1", run_id: "run-created",
       handoff_operation_id: "run-handoff-failed-1",
@@ -1753,7 +1753,7 @@ describe("CyberAgentClient", () => {
         page: { limit: 100 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .resolves.toMatchObject({ items: [transcriptItem] });
@@ -1793,7 +1793,7 @@ describe("CyberAgentClient", () => {
         data: { ...detail, tools: [{ ...detail.tools[0], environment: { API_KEY: "secret" } }] },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.threadActivityDetail("thread-created", "call-command-1"))
       .resolves.toEqual(detail);
@@ -1833,7 +1833,7 @@ describe("CyberAgentClient", () => {
         }] } }),
       { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.threadActivityDetail("thread-created", "call-web-1"))
       .resolves.toEqual(detail);
@@ -1868,7 +1868,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(response({ ...detail, tools: [{ ...detail.tools[0],
         detail: { kind: "file_edit", file_edit: { ...fileEdit, payload_json: "{secret}" } } }] }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.threadActivityDetail("thread-created", "call-edit-1"))
       .resolves.toEqual(detail);
@@ -1908,7 +1908,7 @@ describe("CyberAgentClient", () => {
           }] } }),
         { status: 200, headers: { "Content-Type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
-      const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+      const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
       await expect(client.threadActivityDetail("thread-created", "call-search-1"))
         .resolves.toEqual(detail);
@@ -1939,7 +1939,7 @@ describe("CyberAgentClient", () => {
           sha256: "b".repeat(64) } }),
       { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.threadActivityArtifact(
       "thread-created", "call-command-1", "artifact-stdout-1")).resolves.toEqual(artifact);
@@ -1992,7 +1992,7 @@ describe("CyberAgentClient", () => {
             ...detail.tools[0].detail.command.commands[0], command: "😀".repeat(4_097) }] } } }] } }),
       { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .resolves.toMatchObject({ items: [transcriptItem] });
@@ -2022,7 +2022,7 @@ describe("CyberAgentClient", () => {
             updated_at: "2026-08-24T00:02:00Z" }, capability_grant: true },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     const request = { version: "thread_message_submission.v1" as const, content: "Continue" };
 
     await expect(client.submitThreadMessage("thread-created", request,
@@ -2039,7 +2039,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-session-message", data: sessionMessageData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: false,
       sessionMessageEnabled: true,
@@ -2064,7 +2064,7 @@ describe("CyberAgentClient", () => {
   });
 
   it("rejects forged Session message authority and cross-Session responses", async () => {
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: false,
       sessionMessageEnabled: true,
@@ -2087,7 +2087,7 @@ describe("CyberAgentClient", () => {
 
   it("does not expose Session messages without their distinct capability", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
       runCreationEnabled: true,
       sessionMessageEnabled: false,
@@ -2104,7 +2104,7 @@ describe("CyberAgentClient", () => {
       data: sessionSteeringCancellationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
       sessionSteeringControlEnabled: true,
     });
@@ -2123,7 +2123,7 @@ describe("CyberAgentClient", () => {
   });
 
   it("rejects forged or cross-message Session steering cancellation responses", async () => {
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
       sessionSteeringControlEnabled: true,
     });
@@ -2146,7 +2146,7 @@ describe("CyberAgentClient", () => {
 
   it("does not expose Session steering cancellation without its capability", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       sessionMessageEnabled: true, sessionSteeringControlEnabled: false,
     });
     await expect(client.cancelSessionSteering("sess-1", "steer-1", {
@@ -2164,7 +2164,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-execute", data: runExecutionData,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
       sessionSteeringControlEnabled: false, runLifecycleEnabled: true,
       runExecutionEnabled: true,
@@ -2189,7 +2189,7 @@ describe("CyberAgentClient", () => {
   });
 
   it("rejects forged Run lifecycle and execution metadata", async () => {
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runLifecycleEnabled: true, runExecutionEnabled: true,
     });
     vi.stubGlobal("fetch", vi.fn()
@@ -2214,7 +2214,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-execute-status-forged",
       data: { ...runExecutionData, run_status: "arbitrary" },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runExecutionEnabled: true,
     });
 
@@ -2231,7 +2231,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-lifecycle-delayed", data: delayedReplay,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runLifecycleEnabled: true,
     });
     await expect(client.controlRunLifecycle("run-1", {
@@ -2241,7 +2241,7 @@ describe("CyberAgentClient", () => {
 
   it("does not expose Run operations without their distinct capabilities", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runLifecycleEnabled: false, runExecutionEnabled: false,
     });
     await expect(client.controlRunLifecycle("run-1", {
@@ -2258,7 +2258,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-cancel-model", data: modelCancellationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: true,
     });
     expect(client.hasControl).toBe(true);
@@ -2281,7 +2281,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-public-stream", data: publicModelStreamData,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.getPublicModelStream("run-1")).resolves.toEqual(publicModelStreamData);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -2295,7 +2295,7 @@ describe("CyberAgentClient", () => {
       data: { version: "model_public_stream_poll.v1", active: false },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.pollPublicModelStream("run-1")).resolves.toBeNull();
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -2308,7 +2308,7 @@ describe("CyberAgentClient", () => {
       data: { version: "model_public_stream_poll.v1", active: true,
         snapshot: publicModelStreamData },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.pollPublicModelStream("run-1")).resolves.toEqual(publicModelStreamData);
   });
@@ -2324,7 +2324,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-public-stream-active-missing",
         data: { version: "model_public_stream_poll.v1", active: true },
       }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.pollPublicModelStream("run-1")).rejects.toThrow("Inactive");
     await expect(client.pollPublicModelStream("run-1")).rejects.toThrow("omitted");
@@ -2336,7 +2336,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-public-stream-many-chunks", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.getPublicModelStream("run-1")).resolves.toEqual(data);
   });
@@ -2363,7 +2363,7 @@ describe("CyberAgentClient", () => {
         data: { ...publicModelStreamData,
           items: [publicModelStreamData.items[0], publicModelStreamData.items[0]] },
       }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1");
+    const client = new APIClient("read-secret", "/api/v1");
 
     await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
     await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
@@ -2376,7 +2376,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-cancel-specialist", data: specialistModelCancellationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: true,
     });
     await expect(client.cancelSpecialistModelCall("run-1", "agent-1", {
@@ -2391,7 +2391,7 @@ describe("CyberAgentClient", () => {
 
   it("requires a control token before cancelling any model call", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.cancelModelCall("run-1", { attempt_id: "attempt-1", model_attempt: 1 },
       "web-run-cancel-call-0002")).rejects.toThrow("control bearer token");
     await expect(client.cancelSpecialistModelCall("run-1", "agent-1",
@@ -2405,7 +2405,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-cancel-forged",
       data: { ...modelCancellationData, model_attempt: 2 },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: true,
     });
     await expect(client.cancelModelCall("run-1", { attempt_id: "attempt-1", model_attempt: 1 },
@@ -2417,7 +2417,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-cancel-specialist-forged",
       data: { ...specialistModelCancellationData, agent_id: "agent-other" },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: true,
     });
     await expect(client.cancelSpecialistModelCall("run-1", "agent-1",
@@ -2436,7 +2436,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-artifact", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.getArtifact("artifact-1")).resolves.toEqual(data);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/artifacts/artifact-1");
@@ -2448,7 +2448,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-artifact-forged",
       data: { id: "artifact-other", run_id: "run-1" },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").getArtifact("artifact-1"))
+    await expect(new APIClient("read-secret").getArtifact("artifact-1"))
       .rejects.toThrow("invalid");
   });
 
@@ -2464,7 +2464,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-note", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(new CyberAgentClient("read-secret").getNote("note-1")).resolves.toEqual(data);
+    await expect(new APIClient("read-secret").getNote("note-1")).resolves.toEqual(data);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/notes/note-1");
   });
@@ -2479,7 +2479,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-work", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(new CyberAgentClient("read-secret").getWorkItem("work-1")).resolves.toEqual(data);
+    await expect(new APIClient("read-secret").getWorkItem("work-1")).resolves.toEqual(data);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/work-items/work-1");
   });
@@ -2492,7 +2492,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-external-skills", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(new CyberAgentClient("read-secret").getRunExternalSkills("run-1"))
+    await expect(new APIClient("read-secret").getRunExternalSkills("run-1"))
       .resolves.toEqual(data);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/runs/run-1/external-skills");
@@ -2503,7 +2503,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-external-skills-forged",
       data: { protocol_version: "external_skill_projection.v1", run_id: "run-other", skills: [] },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").getRunExternalSkills("run-1"))
+    await expect(new APIClient("read-secret").getRunExternalSkills("run-1"))
       .rejects.toThrow("invalid");
   });
 
@@ -2531,7 +2531,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-models", data,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(new CyberAgentClient("read-secret").modelAvailability()).resolves.toEqual(data);
+    await expect(new APIClient("read-secret").modelAvailability()).resolves.toEqual(data);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/models");
     expect(init.method).toBe("GET");
@@ -2554,7 +2554,7 @@ describe("CyberAgentClient", () => {
           qualified_at: "", expires_at: "" }],
         credential_source: "none", network_required: true, configuration_error: false }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").modelAvailability()).resolves.toEqual(
+    await expect(new APIClient("read-secret").modelAvailability()).resolves.toEqual(
       expect.objectContaining({
         providers: expect.arrayContaining([
           expect.objectContaining({ name: "ollama", kind: "ollama",
@@ -2566,20 +2566,20 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-models-bad-kind",
       data: { ...data, providers: [{ ...data.providers[0], kind: "lan_scan" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").modelAvailability())
+    await expect(new APIClient("read-secret").modelAvailability())
       .rejects.toThrow("invalid");
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-models-forged",
       data: { ...data, providers: [{ ...data.providers[0], base_url: "https://private.invalid" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").modelAvailability()).rejects.toThrow("invalid");
+    await expect(new APIClient("read-secret").modelAvailability()).rejects.toThrow("invalid");
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-models-unbound",
       data: { ...data, routes: [{ ...data.routes[0], provider: "missing" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").modelAvailability()).rejects.toThrow("invalid");
+    await expect(new APIClient("read-secret").modelAvailability()).rejects.toThrow("invalid");
   });
 
   it("keeps Plan entry, direction, and Deliver as independently validated controls", async () => {
@@ -2612,7 +2612,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-plan-deliver", data: delivery,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
       sessionSteeringControlEnabled: false, runLifecycleEnabled: false, runExecutionEnabled: false,
       planDeliveryControlEnabled: true, approvalControlEnabled: false,
@@ -2645,7 +2645,7 @@ describe("CyberAgentClient", () => {
       status: 200, headers: { "Content-Type": "application/json" } });
     const fetchMock = vi.fn().mockResolvedValueOnce(respond(preview));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     await expect(client.approvalPreview("run-1", "approval-1")).resolves.toEqual(preview);
     for (const drift of [{ run_id: "run-other" }, { approval_id: "another" },
       { effect: "fetch_public_https" }, { truncated: true }, { capability_grant: true }]) {
@@ -2661,7 +2661,7 @@ describe("CyberAgentClient", () => {
         state: "received", message_id: "steer-1", message_status: "pending" },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       sessionMessageEnabled: true,
     });
     const observed = await client.inspectSessionMessageOperation("sess-1", "web-session-observe-0001");
@@ -2683,7 +2683,7 @@ describe("CyberAgentClient", () => {
       source_current: true, redacted: false, truncated: false };
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     const respond = (data: unknown) => new Response(JSON.stringify({ version: "api.v1", request_id: "request-preview", data }),
       { status: 200, headers: { "Content-Type": "application/json" } });
     for (const operation of ["create", "replace", "move", "delete"]) {
@@ -2728,7 +2728,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-approval-decision", data: decision,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, approvalControlEnabled: true,
     });
     await expect(client.approvalQueue("run-1")).resolves.toEqual(queue);
@@ -2774,7 +2774,7 @@ describe("CyberAgentClient", () => {
         request_id: "req-web-approval-decision", data: decision }),
       { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, approvalControlEnabled: true,
     });
 
@@ -2857,7 +2857,7 @@ describe("CyberAgentClient", () => {
         data: { ...reviewed, evidence_instruction_authorized: true },
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false,
     });
 
@@ -2939,7 +2939,7 @@ describe("CyberAgentClient", () => {
         data: { ...reviewed, receipt: { ...reviewed.receipt, persistent_process: true } },
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, operatorApprovalEnabled: true,
 
     });
@@ -2959,7 +2959,7 @@ describe("CyberAgentClient", () => {
     await expect(client.hostCommandProposal(
       "run-1", "host-command-proposal-1",
     )).rejects.toThrow("boundary");
-    const readOnly = new CyberAgentClient("read-secret", "/api/v1", "", {
+    const readOnly = new APIClient("read-secret", "/api/v1", "", {
        operatorApprovalEnabled: false,
     });
     const unknown = { ...pending, uncertain: true, review: reviewed.review };
@@ -3079,7 +3079,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "request-risk-review", data: reviewed,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, operatorApprovalEnabled: true,
 
     });
@@ -3136,7 +3136,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-qualification", data: qualification,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, modelControlEnabled: true,
     });
     await expect(client.selectModelRoute("code", {
@@ -3194,7 +3194,7 @@ describe("CyberAgentClient", () => {
         request_id: "req-thread-route-select", data: selected }), { status: 200,
         headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       modelControlEnabled: true,
     });
 
@@ -3237,7 +3237,7 @@ describe("CyberAgentClient", () => {
         request_id: "req-thread-route-rebound", data: rebound }), { status: 200,
         headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       modelControlEnabled: true,
     });
 
@@ -3264,7 +3264,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-search-readiness", data: readiness,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.providerSearchReadiness("thread-1")).resolves.toEqual(readiness);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -3285,7 +3285,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-search-readiness-invalid", data: invalid,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.providerSearchReadiness("thread-1"))
       .rejects.toThrow("Provider search readiness response is invalid");
@@ -3305,7 +3305,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(response(edit))
       .mockResolvedValueOnce(response({ ...edit, id: "edit-other" }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.fileEdit("run-1", "edit-1")).resolves.toEqual(edit);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -3334,7 +3334,7 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-edit-review", data: decided,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, fileEditReviewEnabled: true,
     });
     await expect(client.fileEditQueue("run-1")).resolves.toEqual(queue);
@@ -3403,7 +3403,7 @@ describe("CyberAgentClient", () => {
         { ...item, allowed_actions: [] },
       ] }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.fileEditChangeSet("run-1")).resolves.toEqual(changeSet);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -3431,7 +3431,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-wake", data: result,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, runWakeControlEnabled: true,
     });
     await expect(client.scheduleRunWake("run-1", {
@@ -3497,7 +3497,7 @@ describe("CyberAgentClient", () => {
         ...applyResult, status: "failed", edit: { ...appliedEdit, status: "failed" },
       }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, fileEditApplyEnabled: true,
       runWakeExecutionEnabled: true, skillInstallationEnabled: true,
     });
@@ -3539,7 +3539,7 @@ describe("CyberAgentClient", () => {
         { ...snapshot.entries[0], path: "other/main.go" },
       ] }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.workspaceExplore("workspace-1", "src")).resolves.toEqual(snapshot);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("path=src");
     await expect(client.workspaceExplore("workspace-1", "src"))
@@ -3571,7 +3571,7 @@ describe("CyberAgentClient", () => {
         { ...state.changes[0], path: "../outside" },
       ] }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.repositoryState("workspace-1")).resolves.toEqual(state);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -3672,7 +3672,7 @@ describe("CyberAgentClient", () => {
         },
       }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, verificationEvidenceEnabled: true,
     });
     await expect(client.repositoryDiff("workspace-1")).resolves.toEqual(diff);
@@ -3805,7 +3805,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope(exported))
       .mockResolvedValueOnce(envelope(exactLimitPlans));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       verificationEvidenceEnabled: true,
     });
     await expect(client.repositoryHistory("workspace-1")).resolves.toEqual(history);
@@ -3875,7 +3875,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope({ ...exported, result_inferred: true }))
       .mockResolvedValueOnce(envelope({ ...exported, content: `${content} ` }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.verificationPlanItemSnapshotExport("run-1", "plan-1", 1, "json"))
       .resolves.toEqual(exported);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -3997,7 +3997,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope({ ...coverageDetail, operator_identity_included: true },
         200, { limit: 50 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       verificationEvidenceEnabled: true,
     });
     await expect(client.repositoryCommit("workspace-1", objectID)).resolves.toEqual(commit);
@@ -4079,7 +4079,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope({ ...review, replayed: false }, 202))
       .mockResolvedValueOnce(envelope({ ...review, replayed: false, result_accepted: true }, 202));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       verificationEvidenceEnabled: true,
     });
     await expect(client.verificationSnapshotReceiptReviews("run-1"))
@@ -4130,7 +4130,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope(comparison))
       .mockResolvedValueOnce(envelope({ ...comparison, file_content_included: true }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
     await expect(client.repositoryCommitComparison("workspace-1", baseObjectID, headObjectID))
       .resolves.toEqual(comparison);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -4176,7 +4176,7 @@ describe("CyberAgentClient", () => {
         } }],
       }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runControlEnabled: false, evidenceAttachmentEnabled: true,
     });
 
@@ -4221,7 +4221,7 @@ describe("CyberAgentClient", () => {
         ...actions, items: [{ ...actions.items[0], due_at: "2026-07-20T11:00:00Z" }],
       }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret");
+    const client = new APIClient("read-secret");
 
     await expect(client.evidenceInventory("run-1")).resolves.toEqual(inventory);
     await expect(client.operatorActionCenter("run-1")).resolves.toEqual(actions);
@@ -4265,7 +4265,7 @@ describe("CyberAgentClient", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new CyberAgentClient("read-secret").pollRunEvents("run-1", "opaque-1", 25);
+    const result = await new APIClient("read-secret").pollRunEvents("run-1", "opaque-1", 25);
 
     expect(result.frames).toEqual([frame]);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -4300,7 +4300,7 @@ describe("CyberAgentClient", () => {
       },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
 
-    await expect(new CyberAgentClient("read-secret").pollRunEvents("run-1"))
+    await expect(new APIClient("read-secret").pollRunEvents("run-1"))
       .rejects.toThrow("final frame");
   });
 
@@ -4332,7 +4332,7 @@ describe("CyberAgentClient", () => {
     const received: RunEventStreamView[] = [];
     const controller = new AbortController();
 
-    await new CyberAgentClient("read-secret").streamRunEvents("run-1", {
+    await new APIClient("read-secret").streamRunEvents("run-1", {
       cursor: "cursor-1",
       signal: controller.signal,
       onFrame: (value) => received.push(value),
@@ -4372,7 +4372,7 @@ describe("CyberAgentClient", () => {
       { status: 200, headers: { "Content-Type": "text/event-stream" } },
     )));
 
-    await expect(new CyberAgentClient("read-secret").streamRunEvents("run-1", {
+    await expect(new APIClient("read-secret").streamRunEvents("run-1", {
       signal: new AbortController().signal,
       onFrame: () => undefined,
     })).rejects.toThrow("id does not match");
@@ -4395,7 +4395,7 @@ describe("CyberAgentClient", () => {
           registry_reloaded: true, registry_generation: 2 } }), { status: 202,
         headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { providerCredentialEnabled: true });
     await expect(client.providerCredentialStatuses()).resolves.toMatchObject({ items });
     const secret = "temporary-provider-key";
@@ -4457,7 +4457,7 @@ describe("CyberAgentClient", () => {
           deleted_id: "team-gateway", registry_reloaded: true, registry_generation: 4,
         } }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { modelControlEnabled: true, providerCredentialEnabled: true });
 
     await expect(client.providerDefinitions()).resolves.toEqual(empty);
@@ -4531,7 +4531,7 @@ describe("CyberAgentClient", () => {
         request_id: "req-openai-forged", data: { ...diagnostic, failure_reason: "raw_error" } }),
       { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       modelControlEnabled: true,
     });
     await expect(client.modelAvailability()).resolves.toEqual(availability);
@@ -4552,7 +4552,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "typed-terminal", data: diagnostic,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", { modelControlEnabled: true });
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", { modelControlEnabled: true });
     await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
       model: "model", confirm_diagnostic: true })).resolves.toEqual(diagnostic);
   });
@@ -4569,7 +4569,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-openai-forged-semantics", data: forged,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       modelControlEnabled: true,
     });
     await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
@@ -4619,7 +4619,7 @@ describe("CyberAgentClient", () => {
         data: { ...qualification, outcome: "permanent", failure_reason: ["authentication"] } }),
       { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       modelControlEnabled: true,
     });
     await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
@@ -4669,7 +4669,7 @@ describe("CyberAgentClient", () => {
           file_written: false } }), { status: 202,
         headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { fileEditProposalEnabled: true });
     await expect(client.issueFileEditProposalSource("run-1", "README.md"))
       .resolves.toEqual(source);
@@ -4699,7 +4699,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-new-file-recovery", data: recovery,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { fileEditProposalEnabled: true });
     await expect(client.recoverFileEditProposal("run-1", "edit-new"))
       .resolves.toEqual(recovery);
@@ -4718,13 +4718,13 @@ describe("CyberAgentClient", () => {
       { status: 200, headers: { "Content-Type": "application/json" } });
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(response(data)));
     vi.stubGlobal("fetch", fetchMock);
-    for (const disabled of [new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: false }),
-      new CyberAgentClient("read-secret", "/api/v1", "", { fileEditReviewEnabled: true }),
-      new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditProposalEnabled: true, fileEditReviewEnabled: false })]) {
+    for (const disabled of [new APIClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: false }),
+      new APIClient("read-secret", "/api/v1", "", { fileEditReviewEnabled: true }),
+      new APIClient("read-secret", "/api/v1", "control-secret", { fileEditProposalEnabled: true, fileEditReviewEnabled: false })]) {
       await expect(disabled.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).rejects.toThrow(/review authority/);
     }
     expect(fetchMock).not.toHaveBeenCalled();
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: true });
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", { fileEditReviewEnabled: true });
     await expect(client.createFileEditRevertProposal("run-1", "edit-source", "web-revert-contract-key-1")).resolves.toEqual(data);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/v1/runs/run-1/file-edits/edit-source/revert-proposal");
@@ -4772,7 +4772,7 @@ describe("CyberAgentClient", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+    await expect(new APIClient("read-secret").codeIntelInventory("workspace-1"))
       .resolves.toEqual(data);
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/code-intel?workspace_id=workspace-1");
     expect(JSON.stringify(data)).not.toMatch(
@@ -4784,7 +4784,7 @@ describe("CyberAgentClient", () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-code-intel-unsorted", data: unsortedLanguages,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+    await expect(new APIClient("read-secret").codeIntelInventory("workspace-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
 
     const contradictoryQualification = { ...structuredClone(data),
@@ -4793,7 +4793,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-code-intel-qualification",
       data: contradictoryQualification,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+    await expect(new APIClient("read-secret").codeIntelInventory("workspace-1"))
       .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -4804,7 +4804,7 @@ describe("CyberAgentClient", () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-code-intel-invalid", data,
       }), { status: 200, headers: { "Content-Type": "application/json" } })));
-      await expect(new CyberAgentClient("read-secret").codeIntelInventory())
+      await expect(new APIClient("read-secret").codeIntelInventory())
         .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     });
 
@@ -4839,7 +4839,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope("req-disable-plugin", { ...plugin, state: "disabled",
         enabled_capabilities: [], generation: 5 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { extensionControlEnabled: true });
 
     await expect(client.extensionInventory("run-1")).resolves.toMatchObject({
@@ -4867,7 +4867,7 @@ describe("CyberAgentClient", () => {
         plugins: [], secret: "must-not-cross-the-boundary",
       },
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    await expect(new CyberAgentClient("read-secret").extensionInventory())
+    await expect(new APIClient("read-secret").extensionInventory())
       .rejects.toThrow("invalid");
   });
 
@@ -4883,7 +4883,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-network-authority", data,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     const result = await client.expandRunNetworkAuthority("run-created", {
       version: "run_network_authority_control.v1", expected_mode_revision: 1,
       add_allowed_targets: ["https://SEARCH.Example.org/"],
@@ -4912,7 +4912,7 @@ describe("CyberAgentClient", () => {
         added_targets: ["other.example.org"], replayed: false, capability_grant: true,
       },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     await expect(client.expandRunNetworkAuthority("run-created", {
       version: "run_network_authority_control.v1", expected_mode_revision: 1,
       add_allowed_targets: ["search.example.org"],
@@ -4929,7 +4929,7 @@ describe("CyberAgentClient", () => {
         added_targets: ["SEARCH.Example.org"], replayed: false, capability_grant: true,
       },
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
     await expect(client.expandRunNetworkAuthority("run-created", {
       version: "run_network_authority_control.v1", expected_mode_revision: 1,
       add_allowed_targets: ["search.example.org"],
@@ -4952,7 +4952,7 @@ describe("CyberAgentClient", () => {
           added_targets: ["search.example.org"], replayed: false, capability_grant: true,
         },
       }), { status: 202, headers: { "Content-Type": "application/json" } })));
-      const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+      const client = new APIClient("read-secret", "/api/v1", "control-secret");
       await expect(client.expandRunNetworkAuthority("run-created", {
         version: "run_network_authority_control.v1", expected_mode_revision: 1,
         add_allowed_targets: ["search.example.org"],
@@ -4966,7 +4966,7 @@ describe("CyberAgentClient", () => {
       data: networkThreadCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
 
     const result = await client.createThread({
       version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
@@ -4984,7 +4984,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-create-network", data: networkRunCreationData,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runCreationEnabled: true,
     });
     const result = await client.createRun({
@@ -5001,7 +5001,7 @@ describe("CyberAgentClient", () => {
   it("rejects broad or malformed creation network authority before transport", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       runCreationEnabled: true,
     });
     for (const [index, authority] of [
@@ -5038,7 +5038,7 @@ describe("CyberAgentClient", () => {
       .mockResolvedValueOnce(envelope("req-full-cdp-open", ready))
       .mockResolvedValueOnce(envelope("req-full-cdp-close", closed));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       browserCDPPermissionControlEnabled: true,
       fullCDPDebugEnabled: true,
       fullCDPSessionControlEnabled: true,
@@ -5082,7 +5082,7 @@ describe("CyberAgentClient", () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(envelope("req-full-cdp-pre-ready", preReady))
       .mockResolvedValueOnce(envelope("req-full-cdp-staged", staged)));
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret", {
       browserCDPPermissionControlEnabled: true,
       fullCDPDebugEnabled: true,
       fullCDPSessionControlEnabled: true,
@@ -5110,7 +5110,7 @@ describe("CyberAgentClient", () => {
       version: "api.v1", request_id: "req-analyzer", data,
     }), { status: 201, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+    const client = new APIClient("read-secret", "/api/v1", "control-secret",
       { embeddedAnalyzerExecutionEnabled: true });
 
     await expect(client.executeEmbeddedAnalyzer("run-1", {

@@ -1,6 +1,6 @@
 # Architecture
 
-Traverse Board · 针路簿 is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
+Universal Code is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
 
 > **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. User/control entries, backends, integrations, and extensions have separate support tiers; see [Product Scope](PRODUCT_SCOPE.md) and [ADR 0135](adr/0135-pre-1-0-product-convergence.md).
 
@@ -17,6 +17,22 @@ Traverse Board · 针路簿 is evolving from a CLI-first agent scaffold into a r
 
 ## Control Plane
 
+Current source names describe their responsibilities directly:
+
+| Name | Responsibility | Former source name |
+| --- | --- | --- |
+| `application.AgentRunner` | Main Agent model/tool loop and Run lifecycle | `RunSupervisor` |
+| `application.SubagentRunner` | Delegated child Agent execution | `SpecialistRunner` |
+| `runworktree` / `application.RunWorktreeService` | Run-owned Git worktrees, checkpoints and recovery | `drydock` / `DrydockService` |
+| `APIClient` | Frontend HTTP client | `CyberAgentClient` |
+
+`Thread` is the continuing conversation, `Run` is its execution lifecycle, and
+`Session` stores model messages. `runworktree` owns a Run's workspace lifecycle;
+the lower-level `gitadvanced.ManagedWorktree` describes the actual Git worktree.
+Existing protocol IDs, serialized fields, database names and user-data locations
+retain their established identifiers. Historical ADRs use the names recorded at
+the time. Product display strings use Universal Code.
+
 ```text
 CLI / React Web + Desktop / loopback API / maintenance TUI + headless
                               |
@@ -26,7 +42,7 @@ CLI / React Web + Desktop / loopback API / maintenance TUI + headless
         |                     |                     |
   Mission Service       Approval Service       Report Service
         |                     |                     |
-        +-------------- Run Supervisor -------------+
+        +--------------- Agent Runner --------------+
                               |
                      Agent Coordinator
                               |
@@ -88,7 +104,7 @@ The production React bundle is built by Vite but hosted only when Go receives an
 
 `Run` is a domain aggregate, not a programming language, operating-system process, or replacement for Go/TypeScript/Rust. Go creates and owns Run lifecycle state; TypeScript may display and control it through Go APIs. Rust never owns a Run. The current analyzer fixture has no Run field or product bridge; a future Go adapter may bind a validated analyzer operation to a Run outside the Rust wire contract.
 
-Budget, events, sandbox sessions, and reports are Run-scoped rather than embedded into one large object. Their modules remain independent and persist references by `run_id`; `RunSupervisor` coordinates their lifecycle.
+Budget, events, sandbox sessions, and reports are Run-scoped rather than embedded into one large object. Their modules remain independent and persist references by `run_id`; `AgentRunner` coordinates their lifecycle.
 
 | Aggregate | Purpose | Durable owner |
 |---|---|---|
@@ -149,9 +165,9 @@ draft -> validating -> validated -> accepted -> fixed
 
 Transitions are checked in Go domain services and written with an event. UI code and model output cannot directly mutate status fields.
 
-## Run Supervisor
+## Agent Runner
 
-`RunSupervisor` is the application-level owner of a run. It is responsible for:
+`AgentRunner` is the application-level owner of a run. It is responsible for:
 
 1. loading the mission and immutable run configuration snapshot;
 2. validating authorization scope and budget;
@@ -166,11 +182,11 @@ The supervisor owns process handles and channels only in memory. Durable IDs, st
 
 Schema v17 adds one durable execution lease row per Run. A Supervisor must acquire the lease before entering a turn or operator finalization; `Step` holds it for one turn and `Execute` holds it across the complete bounded loop. The default 30-second lease is renewed every 10 seconds while a Provider call or Store operation is in flight. An expired or released lease may be replaced only by a higher generation. Same-owner acquisition is not implicitly reentrant: only a retry that presents the current `lease_id` can replay the acquisition, preventing concurrent calls from one worker identity from sharing a lease.
 
-The pair `(lease_id, generation)` is a fencing token. It is copied into the durable Supervisor checkpoint and verified inside every model/tool/checkpoint mutation transaction. RunSupervisor structured-memory calls also carry it through Tool Gateway; the budget charge checks it before incrementing, and the entity transaction checks it again before replay or creation. A takeover can rebind an unfinished checkpoint to the new generation while preserving its attempt and pending input, but the old worker can no longer append events, consume budget, or write entities. Heartbeat loss cancels the Go operation context, and release uses a short context independent of caller cancellation. Lease lifecycle events expose owner/generation/timestamps only; the token is absent from events, CLI output, HTTP DTOs, and Gateway outcomes.
+The pair `(lease_id, generation)` is a fencing token. It is copied into the durable Supervisor checkpoint and verified inside every model/tool/checkpoint mutation transaction. AgentRunner structured-memory calls also carry it through Tool Gateway; the budget charge checks it before incrementing, and the entity transaction checks it again before replay or creation. A takeover can rebind an unfinished checkpoint to the new generation while preserving its attempt and pending input, but the old worker can no longer append events, consume budget, or write entities. Heartbeat loss cancels the Go operation context, and release uses a short context independent of caller cancellation. Lease lifecycle events expose owner/generation/timestamps only; the token is absent from events, CLI output, HTTP DTOs, and Gateway outcomes.
 
 The current single-Agent slice persists cumulative input/output/total tokens, model-call execution milliseconds, and the redacted pending user input in the Supervisor checkpoint. A bounded executor performs only an operator-selected number of durable steps. Root model output uses strict `root_lifecycle.v1` JSON: `continue` returns to idle, `finish` completes the Run, and `wait` pauses it for explicit resume. Turn data, status, checkpoint, Session messages, and events commit in one transaction; arbitrary assistant text cannot mutate lifecycle state.
 
-Provider calls use typed outcomes: `retryable`, `rate_limited`, `invalid_response`, `cancelled`, or `permanent`. RunSupervisor retries only the first two, at most three transport attempts per protocol phase by default, with cancellation-aware exponential backoff. Server `Retry-After` is honored only when it is within the local maximum wait; a longer delay returns a stable rate-limit result instead of retrying early. Each call receives a durable global sequence number plus a phase-local transport number and emits `model.started` plus exactly one terminal model event. Terminal event persistence, token usage, and model execution time share one transaction, so restart recovery neither loses nor double-charges completed calls.
+Provider calls use typed outcomes: `retryable`, `rate_limited`, `invalid_response`, `cancelled`, or `permanent`. AgentRunner retries only the first two, at most three transport attempts per protocol phase by default, with cancellation-aware exponential backoff. Server `Retry-After` is honored only when it is within the local maximum wait; a longer delay returns a stable rate-limit result instead of retrying early. Each call receives a durable global sequence number plus a phase-local transport number and emits `model.started` plus exactly one terminal model event. Terminal event persistence, token usage, and model execution time share one transaction, so restart recovery neither loses nor double-charges completed calls.
 
 Every Supervisor model attempt uses `StreamChat`. The stream aggregator reconstructs UTF-8 across transport chunk boundaries, caps model output at 64 KiB, requires one final completion chunk with valid usage, rejects ToolCalls on non-final chunks, and forwards normalized final ToolCalls to the bounded structured-memory loop before lifecycle parsing. Mid-stream transport failures use the same typed retry policy, lifecycle-protocol repair, budget accounting, and terminal transactions as a non-stream response.
 
@@ -259,7 +275,7 @@ Schema v24 establishes the internal child scheduling boundary without exposing s
 
 Schema v25 establishes the root inbox-to-context boundary. A writer transaction prepares up to four sequence-ordered messages from direct Specialist children and records immutable attempt/turn/ordinal identity in `root_inbox_deliveries`. Dependency messages must pass their strict protocol; result and failure messages must match an immutable CompletionReport or crashed AgentAttempt. A successful root lifecycle transaction first commits each delivery and then consumes its message before Session/checkpoint commit. Failure or a Run transition away from running supersedes prepared rows without consuming the messages. Cancellation and lease takeover keep the started Supervisor attempt recoverable, so the same batch is replayed rather than rebound. Context construction exposes bounded typed task state and durable sender provenance but excludes message IDs, sequence values, cursors, and consumption controls. Prepared metadata participates in graph snapshots and restore validation.
 
-Schema v26 establishes the first child Provider boundary. `SpecialistRunner` is constructed only by internal Go code and executes one no-tool turn under the same Run execution-lease heartbeat and generation fence as the root. `specialist_lifecycle.v1` accepts only `continue` or `finish` with `agent_completion.v1`; usage, retry, identity, Policy, lease, and lifecycle commits are never model fields. `specialist_model_calls` records each started/completed/failed transport attempt. A successful or invalid usage-bearing response atomically updates the model row, child Attempt usage and token counter, Policy audit, graph snapshot, and, only when allowed, a redacted child Session message pair. Transport failures may retry without charging tokens. Context cancellation records failure and crashes the Attempt before releasing the lease; a hard-lost worker is recovered by the next generation. Child history is queried as the latest 12 messages and capped again at 64 KiB before Provider dispatch. It still provides no tool specifications, public admission/spawn, or autonomous scheduling; schema v29 later adds only exact-call cancellation control.
+Schema v26 establishes the first child Provider boundary. `SubagentRunner` is constructed only by internal Go code and executes one no-tool turn under the same Run execution-lease heartbeat and generation fence as the root. `specialist_lifecycle.v1` accepts only `continue` or `finish` with `agent_completion.v1`; usage, retry, identity, Policy, lease, and lifecycle commits are never model fields. `specialist_model_calls` records each started/completed/failed transport attempt. A successful or invalid usage-bearing response atomically updates the model row, child Attempt usage and token counter, Policy audit, graph snapshot, and, only when allowed, a redacted child Session message pair. Transport failures may retry without charging tokens. Context cancellation records failure and crashes the Attempt before releasing the lease; a hard-lost worker is recovered by the next generation. Child history is queried as the latest 12 messages and capped again at 64 KiB before Provider dispatch. It still provides no tool specifications, public admission/spawn, or autonomous scheduling; schema v29 later adds only exact-call cancellation control.
 
 Schema v27 establishes the parent-to-child context boundary. Only a strict `specialist_instruction.v1` message routed from the direct root parent to the child can enter `specialist_context_deliveries`; SQLite also verifies the active AgentAttempt, Run lease generation, payload shape, and pending status. Up to four sequence-ordered messages are prepared. `continue` and `finish` commit deliveries and consume messages in their existing lifecycle transaction, while crash, interruption, and lease takeover supersede deliveries after terminalizing the Attempt so the messages remain pending for a fresh attempt. Prepared metadata participates in graph snapshots and restore validation. The child context builder adds active WorkItems owned by the child and active `run`/`owner` Notes owned by and visible to that child under a 4,096-token estimate and 32 KiB input cap. Mandatory mission and parent instructions must fit; lower-priority memory is deterministically omitted. Message IDs stay out of the model input, while content-free source IDs and token estimates enter `model.started` provenance.
 
@@ -311,7 +327,7 @@ Work items and notes are stored independently from LLM messages. Context constru
 
 The current P3/P4 implementation persists both surfaces. Schema v9 WorkItems use optimistic versions, composite same-Run dependency keys, cycle checks, legal transitions, and transactional `work_item.created/changed` events. Schema v10 Notes add category, visibility, Owner, tags, source references, Evidence IDs, pinning, archive/restore, and transactional `note.created/changed` events. Schema v22 adds authoritative same-Run Agent ownership and Agent-aware Note visibility while preserving label-only rows. Root context includes `run`, `root`, and Notes owned by the root Agent, but excludes owner-only Specialist memory.
 
-Before each root model call, a generic Context Section selector ranks a prepared root inbox batch, the latest compacted summary, bounded active Work Board, pinned Notes, and category-weighted Notes under an 8,192-token estimate. Every prepared inbox message must fit or the turn fails without consuming it. Specialist calls use the same selector under a separate 4,096-token/32 KiB bound for mandatory parent instructions and child-owned active memory. `model.started` records included and omitted `kind/source_id/tokens` metadata so provenance survives restart, while Note and inbox bodies remain outside the event. Model-driven root `finish` is rejected through protocol repair while active work remains and checked again under the final SQLite write transaction. Schema v16 lets RunSupervisor dispatch only the schema v15 create-only WorkItem/Note tools through the same Gateway; all other Provider tools remain denied.
+Before each root model call, a generic Context Section selector ranks a prepared root inbox batch, the latest compacted summary, bounded active Work Board, pinned Notes, and category-weighted Notes under an 8,192-token estimate. Every prepared inbox message must fit or the turn fails without consuming it. Specialist calls use the same selector under a separate 4,096-token/32 KiB bound for mandatory parent instructions and child-owned active memory. `model.started` records included and omitted `kind/source_id/tokens` metadata so provenance survives restart, while Note and inbox bodies remain outside the event. Model-driven root `finish` is rejected through protocol repair while active work remains and checked again under the final SQLite write transaction. Schema v16 lets AgentRunner dispatch only the schema v15 create-only WorkItem/Note tools through the same Gateway; all other Provider tools remain denied.
 
 ## Lifecycle Protocol
 
@@ -537,7 +553,7 @@ recovery boundary; Local OS or fixed Docker supplies isolation. See
 [ADR 0136](adr/0136-atomic-standard-code-preset.md).
 
 Schema v135 adds `standard_code_supervisor.v1` inside the existing root
-`RunSupervisor`. It persists a bounded Inspect/Plan/Checkpoint/Edit/Execute/
+`AgentRunner`. It persists a bounded Inspect/Plan/Checkpoint/Edit/Execute/
 Observe/Diagnose/Deliver projection and gates every Standard Code call before the
 ordinary tool gateway. Two consecutive read-only rounds and an explicit selected
 Plan precede mutation. A mutation is counted only through its exact completed
@@ -631,7 +647,7 @@ The initial product remains conservative: real public-network attack automation 
 
 ## LLM, Context, and Skills
 
-The LLM router remains independent from orchestration. Run snapshots record the selected provider/model route without persisting API keys. Providers normalize HTTP, network, protocol, and cancellation errors into typed outcomes; only RunSupervisor decides whether a side-effect-free model request may be retried. Legacy unbound Session chat receives typed errors through Router but does not gain an implicit retry loop.
+The LLM router remains independent from orchestration. Run snapshots record the selected provider/model route without persisting API keys. Providers normalize HTTP, network, protocol, and cancellation errors into typed outcomes; only AgentRunner decides whether a side-effect-free model request may be retried. Legacy unbound Session chat receives typed errors through Router but does not gain an implicit retry loop.
 
 Environment adapters expose `mimo`, `deepseek`, and `anthropic` over the shared
 Anthropic-compatible transport, plus the canonical `openai` adapter over OpenAI Chat
@@ -669,7 +685,7 @@ Context is assembled from:
 
 Schema v43 puts a provenance boundary in front of every persisted Session message. `context_provenance.v1` distinguishes operator intent, model output, Go control text, workspace files/listings/diffs, tool results, and Go command results. Current rows carry a SHA-256 of the redacted content plus an explicit `instruction_authorized` bit; SQLite enforces the role/source/authority matrix and immutable content/provenance, while Go recomputes the digest on read. Legacy rows are conservatively backfilled as `context_provenance.v0`; recognizable `/read`, `/ls`, `/write`, and `/run` replies are downgraded from assistant history to tool evidence.
 
-Model projection is separate from persistence. Trusted operator, model, and Go-control records retain their conversational roles. Every file, tool, diff, listing, command, or unclassified legacy record is rendered as a user-role `untrusted_context.v1` JSON envelope containing source kind, bounded reference, digest, `instruction_authorized=false`, and redacted content. Compaction writes provenance-preserving JSON transcript records and replays the transcript as user data, never as a fresh system instruction. Root WorkBoard/Note/inbox memory is likewise user-role untrusted context; embedded Skills and Go mode/policy contracts remain the only additional system guidance. This boundary applies to direct Session chat, RunSupervisor history, and Specialist history. Read-only Fan-out already uses a separate no-tool prompt that labels file bytes as untrusted data.
+Model projection is separate from persistence. Trusted operator, model, and Go-control records retain their conversational roles. Every file, tool, diff, listing, command, or unclassified legacy record is rendered as a user-role `untrusted_context.v1` JSON envelope containing source kind, bounded reference, digest, `instruction_authorized=false`, and redacted content. Compaction writes provenance-preserving JSON transcript records and replays the transcript as user data, never as a fresh system instruction. Root WorkBoard/Note/inbox memory is likewise user-role untrusted context; embedded Skills and Go mode/policy contracts remain the only additional system guidance. This boundary applies to direct Session chat, AgentRunner history, and Specialist history. Read-only Fan-out already uses a separate no-tool prompt that labels file bytes as untrusted data.
 
 This design contains authority rather than attempting to classify every malicious sentence. A README can still contain false or contradictory facts, and a model can still reason badly about them, but document text cannot acquire Go capabilities or silently become system/assistant history. Policy, scope, approvals, budgets, leases, and Tool Gateway remain authoritative even if a model follows an indirect injection semantically.
 
@@ -1390,7 +1406,7 @@ Workspace-root fingerprint, and capability generation.
 Only an operator may deny, approve once, or create an exact current-Run grant bounded
 to 1-900 seconds and 1-8 uses. A grant is metadata rather than a bearer; every use is an
 immutable consumption record, and model, Skill, MCP, repository content, or another Run
-cannot consume it. While review is pending, `RunSupervisor` persists the original call,
+cannot consume it. While review is pending, `AgentRunner` persists the original call,
 sets `waiting_approval`, and releases its lease. Decision handling resumes only that
 same call. A write-ahead intent precedes host start; if no terminal result follows, the
 operation becomes permanently uncertain and is never retried. Restart restores records,

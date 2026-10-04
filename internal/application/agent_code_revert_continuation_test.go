@@ -25,7 +25,7 @@ func TestAgentCodeRevertContinuesAppliedSourceWithFreshApproval(t *testing.T) {
 	// This scenario explicitly tests a fresh human review of the inverse.
 	// The current Ask preference otherwise permits verified reversible writes.
 	supervisor.tools.WithAgentCodeExecutor(NewAgentCodeToolExecutor(f.state,
-		reviewedDrydockFilePolicy{}).WithDrydock(f.service))
+		reviewedDrydockFilePolicy{}).WithRunWorktree(f.service))
 	ctx := t.Context()
 	edits, err := f.state.ListFileEdits(ctx, fileedit.ListFilter{SessionID: f.run.SessionID})
 	if err != nil || len(edits) != 1 || edits[0].Status != fileedit.StatusApplied {
@@ -40,7 +40,7 @@ func TestAgentCodeRevertContinuesAppliedSourceWithFreshApproval(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("physical=%+v found=%t err=%v", physical, found, err)
 	}
-	proposals := NewFileEditProposalService(f.state, policy.NewDefaultChecker()).WithDrydock(f.service)
+	proposals := NewFileEditProposalService(f.state, policy.NewDefaultChecker()).WithRunWorktree(f.service)
 	request := CreateFileEditRevertProposalRequest{Version: FileEditProposalProtocolVersion,
 		RunID: f.run.ID, SourceRunID: f.run.ID, SourceEditID: source.ID, Path: source.Path,
 		ExpectedSHA256: source.ProposedHash, OperationKey: "paused-revert-stays-read-only"}
@@ -60,7 +60,7 @@ func TestAgentCodeRevertContinuesAppliedSourceWithFreshApproval(t *testing.T) {
 	messageRequest := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID,
 		Content: "Propose reversing the exact earlier edit; wait for a new approval before applying it", OperationKey: "revert-in-conversation", RequestedBy: "operator"}
 	queued, err := NewThreadServiceWithExecutionCapabilities(f.state, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).
-		WithDrydock(f.service).Submit(ctx, messageRequest)
+		WithRunWorktree(f.service).Submit(ctx, messageRequest)
 	if err != nil || !queued.SuccessorCreated || queued.Run.ID == f.run.ID {
 		t.Fatalf("continuation=%+v err=%v", queued, err)
 	}
@@ -166,13 +166,13 @@ func TestAgentCodeRevertContinuesAppliedSourceWithFreshApproval(t *testing.T) {
 	}
 	applyRequest := ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: queued.Run.ID, EditID: inverse.ID,
 		OperationKey: "unapproved-inverse-must-not-write", AppliedBy: "operator", LeaseID: claim.Lease.LeaseID, LeaseGeneration: claim.Lease.Generation}
-	if _, err := NewFileEditApplyService(f.state, policy.NewDefaultChecker()).WithDrydock(f.service).Apply(ctx, applyRequest); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+	if _, err := NewFileEditApplyService(f.state, policy.NewDefaultChecker()).WithRunWorktree(f.service).Apply(ctx, applyRequest); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("unapproved inverse could apply: %v", err)
 	}
 	if got := readDrydockTestFile(t, filepath.Join(physical.Path, source.Path)); fileedit.HashText(got) != source.ProposedHash {
 		t.Fatalf("proposal or rejected apply changed current content: %q", got)
 	}
-	if _, err := NewFileEditReviewService(f.state).WithDrydock(f.service).Review(ctx, ReviewFileEditRequest{
+	if _, err := NewFileEditReviewService(f.state).WithRunWorktree(f.service).Review(ctx, ReviewFileEditRequest{
 		Version: FileEditReviewProtocolVersion, RunID: queued.Run.ID, EditID: inverse.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { FileEditPreviewView, ThreadDetailView, WorkspaceView } from "../../api/types";
 import { V2Conversation } from "./conversation";
 
@@ -38,7 +38,7 @@ function renderRevertConversation(history: boolean, unavailable?: "archived" | "
     fileEditChangeSet: vi.fn().mockResolvedValue({ workspace_id: edit.workspace_id, applied_count: 1,
       returned_count: 1, proposed_count: 0, approved_count: 0, denied_count: 0, failed_count: 0, total_diff_bytes: 70 }),
     repositoryDiff: vi.fn().mockResolvedValue({ available: false }),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   function Harness() {
     const [draft, setDraft] = useState("Preserve my existing request.");

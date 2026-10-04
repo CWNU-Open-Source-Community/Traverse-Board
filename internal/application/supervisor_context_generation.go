@@ -21,7 +21,7 @@ type supervisorGeneratedCompactionStore interface {
 	RecordSupervisorCompactionCompleted(context.Context, domain.SupervisorCheckpoint, llm.ModelAttempt, llm.ChatResponse) (domain.SupervisorCheckpoint, int64, error)
 }
 
-func (s *RunSupervisor) WithGeneratedContextCompaction(enabled bool) *RunSupervisor {
+func (s *AgentRunner) WithGeneratedContextCompaction(enabled bool) *AgentRunner {
 	if s != nil {
 		s.generatedContextCompactionEnabled = enabled
 	}
@@ -29,7 +29,7 @@ func (s *RunSupervisor) WithGeneratedContextCompaction(enabled bool) *RunSupervi
 }
 
 type supervisorSummaryGenerator struct {
-	supervisor *RunSupervisor
+	supervisor *AgentRunner
 	store      supervisorGeneratedCompactionStore
 	turn       *domain.SupervisorTurn
 }

@@ -14,10 +14,10 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
@@ -30,7 +30,7 @@ import (
 type commandApprovalSandboxFixture struct {
 	*commandApprovalFixture
 	drydockFixture drydockApplicationFixture
-	owned          drydock.Workspace
+	owned          runworktree.Workspace
 	mux            *CommandRuntimeMultiplexer
 	host           *CommandRuntimeService
 	hostTripwire   *commandApprovalSandboxHostTripwire
@@ -157,7 +157,7 @@ func newCommandApprovalSandboxFixture(t *testing.T, mode domain.RunExecutionPerm
 	}
 	f.commandApprovalFixture = &commandApprovalFixture{
 		st: base.state, service: service, turn: turn, caps: caps, root: base.sourceRoot, path: base.databasePath, manager: manager,
-		supervisor: NewRunSupervisor(base.state, nil, checker).WithExecutionPermissionCapabilities(caps).WithCommandRuntime(f.mux),
+		supervisor: NewAgentRunner(base.state, nil, checker).WithExecutionPermissionCapabilities(caps).WithCommandRuntime(f.mux),
 	}
 	return f
 }
@@ -209,19 +209,19 @@ func (f *commandApprovalSandboxFixture) requireRecovery(t *testing.T) {
 	t.Helper()
 	before := f.owned
 	after := before
-	after.State, after.RecoveryReason = drydock.StateRecoveryRequired, "approval_sandbox_test_recovery"
+	after.State, after.RecoveryReason = runworktree.StateRecoveryRequired, "approval_sandbox_test_recovery"
 	after.Generation++
 	after.UpdatedAt = time.Now().UTC()
-	receipt := drydock.Receipt{ID: idgen.New("approval-sandbox-recovery"), ProtocolVersion: drydock.ReceiptProtocolVersion,
-		OperationKeySHA256: drydock.Fingerprint("approval-sandbox-recovery-operation", before.ID),
-		RequestFingerprint: drydock.Fingerprint("approval-sandbox-recovery-request", before.ID),
-		DrydockID:          before.ID, RunID: f.turn.Run.ID, Operation: drydock.OperationUse, Outcome: drydock.OutcomeFailed,
+	receipt := runworktree.Receipt{ID: idgen.New("approval-sandbox-recovery"), ProtocolVersion: runworktree.ReceiptProtocolVersion,
+		OperationKeySHA256: runworktree.Fingerprint("approval-sandbox-recovery-operation", before.ID),
+		RequestFingerprint: runworktree.Fingerprint("approval-sandbox-recovery-request", before.ID),
+		DrydockID:          before.ID, RunID: f.turn.Run.ID, Operation: runworktree.OperationUse, Outcome: runworktree.OutcomeFailed,
 		GenerationBefore: before.Generation, GenerationAfter: after.Generation, SourceIdentitySHA256: before.Source.Fingerprint(),
 		RootFingerprint: before.RootFingerprint, BindingBeforeSHA256: before.ExpectedBindingFingerprint,
 		BindingAfterSHA256: before.ExpectedBindingFingerprint, ReasonCode: after.RecoveryReason,
 		Summary: "Controlled durable recovery state; no filesystem or process authority is granted", CreatedAt: after.UpdatedAt}
 	stored, replayed, err := f.st.AdvanceDrydock(t.Context(), after, before.Generation, receipt)
-	if err != nil || replayed || stored.State != drydock.StateRecoveryRequired || stored.Generation != after.Generation {
+	if err != nil || replayed || stored.State != runworktree.StateRecoveryRequired || stored.Generation != after.Generation {
 		t.Fatalf("failed to establish real invalid Drydock state: %+v replayed=%t err=%v", stored, replayed, err)
 	}
 	f.owned = stored

@@ -18,7 +18,7 @@ type projectInstructionToolContextStore interface {
 		domain.SupervisorToolRound, string) error
 }
 
-func (s *RunSupervisor) requireCurrentPinnedProjectInstructions(ctx context.Context, run domain.Run) error {
+func (s *AgentRunner) requireCurrentPinnedProjectInstructions(ctx context.Context, run domain.Run) error {
 	current, err := s.store.GetRun(ctx, run.ID)
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func (s *RunSupervisor) requireCurrentPinnedProjectInstructions(ctx context.Cont
 	return nil
 }
 
-func (s *RunSupervisor) requirePinnedProjectInstructionToolOrigins(ctx context.Context,
+func (s *AgentRunner) requirePinnedProjectInstructionToolOrigins(ctx context.Context,
 	turn domain.SupervisorTurn, rounds []domain.SupervisorToolRound,
 ) error {
 	if err := s.requireCurrentPinnedProjectInstructions(ctx, turn.Run); err != nil {

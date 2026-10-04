@@ -23,7 +23,7 @@ func standardCodeSupervisorToolCallCreate(tableName string, includeCodeIntel boo
 }
 
 // standardCodeSupervisorStatements adds one append-only state and budget ledger
-// around the existing RunSupervisor. Tool arguments and results stay in the
+// around the existing AgentRunner. Tool arguments and results stay in the
 // existing Supervisor ledger; this table stores only bounded structural facts,
 // digests, decisions, and the complete deterministic state projection.
 var standardCodeSupervisorStatements = func() []string {

@@ -22,7 +22,7 @@ import (
 	"cyberagent-workbench/internal/store"
 )
 
-func newHTTPMoneySpecialist(t *testing.T, provider llm.Provider, capUSD float64) (string, *store.SQLiteStore, domain.Run, domain.AgentNode, *application.SpecialistRunner, *llm.Router) {
+func newHTTPMoneySpecialist(t *testing.T, provider llm.Provider, capUSD float64) (string, *store.SQLiteStore, domain.Run, domain.AgentNode, *application.SubagentRunner, *llm.Router) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "specialist-money.db")
 	st, err := store.Open(path)
@@ -54,7 +54,7 @@ func newHTTPMoneySpecialist(t *testing.T, provider llm.Provider, capUSD float64)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := application.NewSpecialistRunner(st, router, policy.NewDefaultChecker()).
+	runner := application.NewSubagentRunner(st, router, policy.NewDefaultChecker()).
 		WithMonetaryBudget(application.NewMonetaryBudgetService(st)).
 		WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 2})
 	return path, st, run, admitted.Agent, runner, router
@@ -96,7 +96,7 @@ func TestSpecialistHTTPTimeoutRetainsUnknownCostBeforeRetry(t *testing.T) {
 			provider := boundaryHTTPAnthropic(t, server.URL, 400*time.Millisecond)
 			var path string
 			var child domain.AgentNode
-			var runner *application.SpecialistRunner
+			var runner *application.SubagentRunner
 			path, st, run, child, runner, _ = newHTTPMoneySpecialist(t, provider, capUSD)
 			result, err := runner.Step(t.Context(), run.ID, child.ID)
 			if calls.Load() == 0 {

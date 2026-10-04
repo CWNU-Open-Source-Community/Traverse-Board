@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, FileDiff, GitCommitHorizontal, GitPullRequest, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunDetailView, StandardCodeDeliveryRecordRequestView, StandardCodeDeliveryView, SupervisorToolRoundView, ThreadDetailView } from "../../api/types";
 import { FileEditPanel, type FileEditReviewTarget } from "../../components/file-edit-panel";
 import { RepositoryDiffPanel } from "../../components/repository-diff-panel";
@@ -43,7 +43,7 @@ interface ReportAttempt {
 const reportIntentKey = (runID: string) => ["run", runID, "standard-code-delivery-intent"] as const;
 
 export function V2TaskReview({ client, detail, working, onClose, onRequestChange, returnFocusRef, onOpenWorktree, initialFileTarget }: {
-  client: CyberAgentClient; detail: ThreadDetailView; working: boolean;
+  client: APIClient; detail: ThreadDetailView; working: boolean;
   onClose: () => void; onRequestChange: (context: string) => void;
   returnFocusRef: RefObject<HTMLElement | null>;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
@@ -266,7 +266,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   </div>, document.body);
 }
 
-function ExecutionRecords({ client, runID }: { client: CyberAgentClient; runID: string }) {
+function ExecutionRecords({ client, runID }: { client: APIClient; runID: string }) {
   const query = useInfiniteQuery({
     queryKey: ["run", runID, "review-tool-rounds"],
     queryFn: ({ signal, pageParam }) => client.getPage<SupervisorToolRoundView>(

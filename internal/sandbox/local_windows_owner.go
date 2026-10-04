@@ -275,7 +275,7 @@ func materializeLocalProfile(profile localAppContainerProfile) error {
 	}
 	name := profile.name
 	namePointer, _ := windows.UTF16PtrFromString(name)
-	displayPointer, _ := windows.UTF16PtrFromString("Traverse Board Local Sandbox")
+	displayPointer, _ := windows.UTF16PtrFromString("Universal Code Local Sandbox")
 	descriptionPointer, _ := windows.UTF16PtrFromString(
 		"Ephemeral LPAC profile with a run-scoped filesystem capability")
 	capabilities := localProfileCapabilities(profile)

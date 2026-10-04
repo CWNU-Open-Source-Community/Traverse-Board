@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { V2Workbench } from "./app";
@@ -80,10 +80,10 @@ function navigationClient() {
       page: { limit: 100 }, requestID: path })),
     get: vi.fn(() => new Promise(() => undefined)),
     createThread: vi.fn(), submitThreadTurn: vi.fn(), executeRun: vi.fn(), transitionThread: vi.fn(),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
 }
 
-function expectNoNavigationWrites(client: CyberAgentClient) {
+function expectNoNavigationWrites(client: APIClient) {
   for (const call of [client.createThread, client.submitThreadTurn, client.executeRun, client.transitionThread]) {
     expect(call).not.toHaveBeenCalled();
   }
@@ -100,7 +100,7 @@ describe("V2Workbench inspector navigation", () => {
     const client = { hasThreadControl: true, getPage: vi.fn(async (path: string) => ({
       items: path === "/workspaces" ? [workspace] : [createdThread],
       page: { limit: 100 }, requestID: path,
-    })) } as unknown as CyberAgentClient;
+    })) } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
@@ -150,7 +150,7 @@ describe("V2Workbench inspector navigation", () => {
       return { items: cursor ? [oldest] : first, page: { limit: 100, next_cursor: cursor ? "" : "older-cursor" }, requestID: path };
     });
     window.history.replaceState({}, "", "#/threads/history-oldest");
-    const client = { getPage, get: vi.fn() } as unknown as CyberAgentClient;
+    const client = { getPage, get: vi.fn() } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     expect(await screen.findByTestId("v2-conversation")).toHaveTextContent(oldest.id);
@@ -253,7 +253,7 @@ describe("V2Workbench model navigation", () => {
       getPage,
       providerDefinitions: vi.fn().mockResolvedValue({ providers: [] }),
       providerCredentialStatuses: vi.fn().mockResolvedValue({ items: [] }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -327,7 +327,7 @@ describe("V2Workbench model navigation", () => {
         store_available: true, store_kind: "windows_credential_manager", plaintext_returned: false,
         restart_required: false, registry_reloaded: true, registry_generation: 2 }),
       qualifyModelHarness, createThread, submitThreadTurn,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } })}><V2Workbench client={client} /></QueryClientProvider>);
@@ -401,7 +401,7 @@ describe("V2Workbench model navigation", () => {
         store_available: true, store_kind: "windows_credential_manager", plaintext_returned: false,
         restart_required: false, registry_reloaded: true, registry_generation: 2 }),
       qualifyModelHarness, createThread,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } })}><V2Workbench client={client} /></QueryClientProvider>);
@@ -461,7 +461,7 @@ describe("V2Workbench first turn", () => {
       importWorkspace: vi.fn().mockResolvedValue({ protocol_version: "workspace_import.v1",
         workspace: otherWorkspace, directory_content_modified: false, agent_authority_granted: false }),
       availableModelRoutes: vi.fn(() => catalog.promise), createThread,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } })}><V2Workbench client={client} /></QueryClientProvider>);
@@ -491,7 +491,7 @@ describe("V2Workbench first turn", () => {
         workspace: otherWorkspace, directory_content_modified: false, agent_authority_granted: false }),
       availableModelRoutes: vi.fn(() => catalog.promise), createThread,
       submitThreadTurn: vi.fn().mockResolvedValue({ accepted: true }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } })}><V2Workbench client={client} /></QueryClientProvider>);
@@ -527,7 +527,7 @@ describe("V2Workbench first turn", () => {
 		availableModelRoutes, createThread,
 		providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
 		providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
-	  } as unknown as CyberAgentClient;
+	  } as unknown as APIClient;
 	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
 		<V2Workbench client={client} />
 	  </QueryClientProvider>);
@@ -560,7 +560,7 @@ describe("V2Workbench first turn", () => {
       inspectThreadCreationRequest, createThread, submitThreadTurn,
       providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
       providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } })}><V2Workbench client={client} /></QueryClientProvider>);
@@ -583,7 +583,7 @@ describe("V2Workbench first turn", () => {
 		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
 		  page: { limit: 100 }, requestID: path })),
 		availableModelRoutes, createThread,
-	  } as unknown as CyberAgentClient;
+	  } as unknown as APIClient;
 	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
 		<V2Workbench client={client} />
 	  </QueryClientProvider>);
@@ -605,7 +605,7 @@ describe("V2Workbench first turn", () => {
 		getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
 		  page: { limit: 100 }, requestID: path })),
 		availableModelRoutes: vi.fn(() => catalog.promise), createThread,
-	  } as unknown as CyberAgentClient;
+	  } as unknown as APIClient;
 	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
 		<V2Workbench client={client} />
 	  </QueryClientProvider>);
@@ -638,7 +638,7 @@ describe("V2Workbench first turn", () => {
 		  page: { limit: 100 }, requestID: path })), availableModelRoutes, createThread,
 		providerDefinitions: vi.fn().mockResolvedValue({ version: "provider_definition_collection.v1", revision: 0, providers: [] }),
 		providerCredentialStatuses: vi.fn().mockResolvedValue({ protocol_version: "provider_credential.v1", items: [] }),
-	  } as unknown as CyberAgentClient;
+	  } as unknown as APIClient;
 	  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
 		<V2Workbench client={client} />
 	  </QueryClientProvider>);
@@ -662,7 +662,7 @@ describe("V2Workbench first turn", () => {
       importWorkspace: vi.fn().mockResolvedValue({ protocol_version: "workspace_import.v1",
         workspace: imported, directory_content_modified: false, agent_authority_granted: false }),
       getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
-        page: { limit: 100 }, requestID: path })) } as unknown as CyberAgentClient;
+        page: { limit: 100 }, requestID: path })) } as unknown as APIClient;
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
     await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "在新项目中继续这份需求");
@@ -681,7 +681,7 @@ describe("V2Workbench first turn", () => {
   it("preserves a new-task draft across the model settings round trip", async () => {
     const client = { hasThreadControl: true, getPage: vi.fn(async (path: string) => ({
       items: path === "/workspaces" ? [workspace] : [], page: { limit: 100 }, requestID: path,
-    })) } as unknown as CyberAgentClient;
+    })) } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <V2Workbench client={client} />
     </QueryClientProvider>);
@@ -700,7 +700,7 @@ describe("V2Workbench first turn", () => {
     const client = { hasThreadControl: true, getPage: vi.fn(async (path: string) => ({
       items: path === "/workspaces" && imported ? [workspace] : [],
       page: { limit: 100 }, requestID: path,
-    })) } as unknown as CyberAgentClient;
+    })) } as unknown as APIClient;
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <V2Workbench client={client} />
     </QueryClientProvider>);
@@ -721,7 +721,7 @@ describe("V2Workbench first turn", () => {
     const operationID = "00000000-0000-4000-8000-000000000042";
     const content = "请从这句首条消息直接开始执行。";
     let threads: ThreadView[] = [];
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
 
     vi.stubGlobal("crypto", {
       randomUUID: vi.fn(() => operationID),
@@ -745,15 +745,15 @@ describe("V2Workbench first turn", () => {
       throw new Error(`Unexpected page request: ${path}`);
     });
     const createThread = vi.fn(async (
-      _body: Parameters<CyberAgentClient["createThread"]>[0],
+      _body: Parameters<APIClient["createThread"]>[0],
       _idempotencyKey: string,
-    ): Promise<Awaited<ReturnType<CyberAgentClient["createThread"]>>> => {
+    ): Promise<Awaited<ReturnType<APIClient["createThread"]>>> => {
       threads = [createdThread];
-      return { thread: createdThread } as Awaited<ReturnType<CyberAgentClient["createThread"]>>;
+      return { thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>;
     });
     const submitThreadTurn = vi.fn((
       _threadID: string,
-      _body: Parameters<CyberAgentClient["submitThreadTurn"]>[1],
+      _body: Parameters<APIClient["submitThreadTurn"]>[1],
       _idempotencyKey: string,
     ) => submission.promise);
     const availableModelRoutes = vi.fn().mockResolvedValue({
@@ -772,7 +772,7 @@ describe("V2Workbench first turn", () => {
       createThread,
       submitThreadTurn,
       availableModelRoutes,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -835,7 +835,7 @@ describe("V2Workbench first turn", () => {
 
     await act(async () => {
       submission.resolve({ accepted: true } as unknown as Awaited<
-        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+        ReturnType<APIClient["submitThreadTurn"]>>);
       await submission.promise;
     });
 
@@ -846,7 +846,7 @@ describe("V2Workbench first turn", () => {
   it("opens the already-created thread when its first turn fails", async () => {
     const operationID = "00000000-0000-4000-8000-000000000043";
     const content = "即使首轮执行失败，也继续留在这个对话。";
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     let threads: ThreadView[] = [];
 
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => operationID) });
@@ -857,7 +857,7 @@ describe("V2Workbench first turn", () => {
     }));
     const createThread = vi.fn(async () => {
       threads = [createdThread];
-      return { thread: createdThread } as Awaited<ReturnType<CyberAgentClient["createThread"]>>;
+      return { thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>;
     });
     const submitThreadTurn = vi.fn(() => submission.promise);
     const client = {
@@ -867,7 +867,7 @@ describe("V2Workbench first turn", () => {
       createThread,
       submitThreadTurn,
 	  availableModelRoutes: readyModelCatalog(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -909,8 +909,8 @@ describe("V2Workbench first turn", () => {
 
   it("hands off only the submitted draft and files when creation finishes after project navigation", async () => {
     const otherWorkspace = { ...workspace, id: "workspace-other", name: "Other project" };
-    const creation = deferred<Awaited<ReturnType<CyberAgentClient["createThread"]>>>();
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const creation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const files = [{ id: "submitted-file", path: "README.md", digest: "a".repeat(64), partial: false, redacted: false }];
     const lateFile = { ...files[0]!, id: "late-file", path: "notes.md" };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -920,7 +920,7 @@ describe("V2Workbench first turn", () => {
         page: { limit: 100 }, requestID: path })),
       createThread: vi.fn(() => creation.promise), submitThreadTurn: vi.fn(() => submission.promise),
 	  availableModelRoutes: readyModelCatalog(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
     const input = await screen.findByRole("textbox", { name: "开始新对话" });
@@ -932,7 +932,7 @@ describe("V2Workbench first turn", () => {
     await user.click(screen.getByRole("button", { name: "返回应用" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);
     await user.type(screen.getByRole("textbox", { name: "开始新对话" }), "另一项目的独立草稿");
-    await act(async () => { creation.resolve({ thread: createdThread } as Awaited<ReturnType<CyberAgentClient["createThread"]>>); });
+    await act(async () => { creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>); });
     expect(await screen.findByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("首条提交");
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, createdThread.id))).toEqual(files);
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, ""))).toEqual([lateFile]);
@@ -942,7 +942,7 @@ describe("V2Workbench first turn", () => {
     expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("创建期间的新草稿");
     await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);
     expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("另一项目的独立草稿");
-    await act(async () => { submission.resolve({ accepted: true } as unknown as Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>); });
+    await act(async () => { submission.resolve({ accepted: true } as unknown as Awaited<ReturnType<APIClient["submitThreadTurn"]>>); });
     expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("另一项目的独立草稿");
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, createdThread.id))).toEqual([]);
     act(() => { window.history.pushState({}, "", `#/threads/${createdThread.id}`); window.dispatchEvent(new PopStateEvent("popstate")); });
@@ -966,10 +966,10 @@ describe("V2Workbench first turn", () => {
       .mockRejectedValueOnce(new Error("creation response was lost"))
       .mockImplementationOnce(async () => {
         threads = [createdThread];
-        return { thread: createdThread } as Awaited<ReturnType<CyberAgentClient["createThread"]>>;
+        return { thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>;
       });
     const submitThreadTurn = vi.fn().mockResolvedValue(
-      { accepted: true } as unknown as Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>,
+      { accepted: true } as unknown as Awaited<ReturnType<APIClient["submitThreadTurn"]>>,
     );
     const client = {
       hasThreadControl: true,
@@ -977,7 +977,7 @@ describe("V2Workbench first turn", () => {
       createThread,
       submitThreadTurn,
 	  availableModelRoutes: readyModelCatalog(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -1006,8 +1006,8 @@ describe("V2Workbench first turn", () => {
   it("keeps each project's unknown creation key when another project's response arrives late", async () => {
     const otherWorkspace = { ...workspace, id: "workspace-second-create", name: "Second project" };
     const otherThread = { ...createdThread, id: "thread-second-create", workspace_id: otherWorkspace.id };
-    const firstCreation = deferred<Awaited<ReturnType<CyberAgentClient["createThread"]>>>();
-    const secondCreation = deferred<Awaited<ReturnType<CyberAgentClient["createThread"]>>>();
+    const firstCreation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+    const secondCreation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
     const createThread = vi.fn().mockImplementationOnce(() => firstCreation.promise)
       .mockImplementationOnce(() => secondCreation.promise).mockResolvedValueOnce({ thread: otherThread });
     const client = { hasThreadControl: true, createThread,
@@ -1015,7 +1015,7 @@ describe("V2Workbench first turn", () => {
         page: { limit: 100 }, requestID: path })),
       submitThreadTurn: vi.fn().mockResolvedValue({ accepted: true }),
 	  availableModelRoutes: readyModelCatalog(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
@@ -1029,7 +1029,7 @@ describe("V2Workbench first turn", () => {
     await waitFor(() => expect(createThread).toHaveBeenCalledTimes(2));
     await act(async () => { secondCreation.reject(new Error("B creation response lost")); });
     expect(await screen.findByRole("alert")).toHaveTextContent("B creation response lost");
-    await act(async () => { firstCreation.resolve({ thread: createdThread } as Awaited<ReturnType<CyberAgentClient["createThread"]>>); });
+    await act(async () => { firstCreation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>); });
     expect(await screen.findByTestId("v2-conversation")).toHaveTextContent(createdThread.id);
     await user.click(screen.getByRole("button", { name: "新对话" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);

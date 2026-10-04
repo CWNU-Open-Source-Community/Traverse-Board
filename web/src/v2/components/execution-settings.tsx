@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunDetailView, ThreadDetailView, WorkspaceView } from "../../api/types";
 import { ExecutionInteractionPanel, ExecutionProfilePanel } from "../../components/run-permission-settings";
 import { v2QueryKeys } from "../query-keys";
 
 export function V2ExecutionSettings({ client, threadID, workspaces }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
 }) {

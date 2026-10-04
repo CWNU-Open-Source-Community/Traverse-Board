@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import { LoaderCircle, Square } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { ThreadExecutionView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
 
-export function useV2ThreadExecution(client: CyberAgentClient, threadID: string) {
+export function useV2ThreadExecution(client: APIClient, threadID: string) {
   return useQuery({
     queryKey: v2QueryKeys.execution(threadID),
     queryFn: ({ signal }) => client.threadExecution(threadID, signal),
@@ -17,7 +17,7 @@ export function useV2ThreadExecution(client: CyberAgentClient, threadID: string)
 }
 
 export function V2ThreadExecutionControl({ client, threadID, execution }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   execution: ThreadExecutionView | undefined;
 }) {
@@ -46,7 +46,7 @@ export function V2ThreadExecutionControl({ client, threadID, execution }: {
 }
 
 export function V2PausedThreadControl({ client, threadID, runID }: {
-  client: CyberAgentClient; threadID: string; runID: string;
+  client: APIClient; threadID: string; runID: string;
 }) {
   const queryClient = useQueryClient();
   const operationKey = useRef<string | null>(null);

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadActivityDetailView } from "../../api/types";
 import { projectThreadNarrative, type NarrativeEntry,
   type ThreadTranscriptActivityItem } from "../projection/narrative";
@@ -37,7 +37,7 @@ function activity(overrides: Partial<ActivityEntry> = {}): ActivityEntry {
   };
 }
 
-function renderActivity(client: CyberAgentClient, entry = activity()) {
+function renderActivity(client: APIClient, entry = activity()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>
     <V2ActivityGroup client={client} entry={entry} threadID="thread-1" />
@@ -109,7 +109,7 @@ describe("V2ActivityGroup", () => {
     const expected = `${environment} · ${networkLabel}`;
     expect(projectThreadActivityDetail(response).commands[0].environment_label).toBe(expected);
     render(<ThreadActivityToolDetailPanel activityRef="command-network" runID="run-1" threadID="thread-1"
-      client={{} as CyberAgentClient} tool={response.tools[0]} />);
+      client={{} as APIClient} tool={response.tools[0]} />);
     expect(screen.getByText(expected)).toBeInTheDocument();
     expect(screen.getByText("原件SHA已保存")).toBeInTheDocument();
     if (environment !== "Workspace Sandbox") expect(screen.queryByText(/无网络/u)).not.toBeInTheDocument();
@@ -125,7 +125,7 @@ describe("V2ActivityGroup", () => {
         detail: commandDetail([{ command, working_directory: ".", status: "completed", exit_code: 0,
           duration_milliseconds: 25, stdout_preview: stdout, stderr_preview: "", truncated: false,
           artifacts: [], execution_environment: "Host", network: "disabled" }]) }],
-    }) } as unknown as CyberAgentClient;
+    }) } as unknown as APIClient;
     const view = renderActivity(client, activity({ items: [{ ...activity().items[0], title: "长命令",
       detailRef: "command-long", summary: { version: "thread_activity_summary.v1", activity_ref: "command-long",
         command, status: "completed", exit_code: 0, duration_milliseconds: 25, command_count: 1 } }] }));
@@ -170,7 +170,7 @@ describe("V2ActivityGroup", () => {
           ...(exitCode === undefined ? {} : { exit_code: exitCode }), duration_milliseconds: duration,
           stdout_preview: "", stderr_preview: status === "failed" ? "真实工具失败原因" : "",
           truncated: false, artifacts: [], execution_environment: "Host", network: "disabled" }]) }],
-    }) } as unknown as CyberAgentClient;
+    }) } as unknown as APIClient;
     const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<LocaleProvider><QueryClientProvider client={queries}>
       <V2ActivityGroup client={client} entry={entry as ActivityEntry} threadID="thread-1" />
@@ -204,7 +204,7 @@ describe("V2ActivityGroup", () => {
           duration_milliseconds: 99, stdout_preview: "original completed text", stderr_preview: "", artifacts: [],
           execution_environment: "Host", network: "disabled" }]),
       }],
-    }) } as unknown as CyberAgentClient;
+    }) } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<LocaleProvider><QueryClientProvider client={queryClient}>
       <V2ActivityGroup client={client} threadID="thread-1" entry={activity({ status: "failed",
@@ -223,7 +223,7 @@ describe("V2ActivityGroup", () => {
       activity_type: "edit", source: "harness", verifiable: true,
       instruction_authorized: false, provisional: false, durable: true,
       created_at: "2026-09-08T16:03:17Z" } as const;
-    const client = {} as CyberAgentClient;
+    const client = {} as APIClient;
     for (const [status, expected] of [
       ["pending", "已提出修改，等待审阅"],
       ["approved", "修改已批准，尚未应用"],
@@ -268,7 +268,7 @@ describe("V2ActivityGroup", () => {
         }]),
       }],
     }));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client);
 
@@ -304,7 +304,7 @@ describe("V2ActivityGroup", () => {
             stdout_preview: "", stderr_preview: "", [stream]: output, truncated: false, artifacts: [] }]),
         }],
       });
-      const view = renderActivity({ threadActivityDetail } as unknown as CyberAgentClient,
+      const view = renderActivity({ threadActivityDetail } as unknown as APIClient,
         activity({ status: "failed", items: [{ ...activity().items[0], status: "failed" }] }));
 
       expect(await screen.findByText(output)).toBeInTheDocument();
@@ -336,7 +336,7 @@ describe("V2ActivityGroup", () => {
           stderr_preview: output, truncated: false, artifacts: [] }]),
       }],
     });
-    const view = renderActivity({ threadActivityDetail } as unknown as CyberAgentClient,
+    const view = renderActivity({ threadActivityDetail } as unknown as APIClient,
       activity({ status: "failed", items: [{ ...activity().items[0], status: "failed" }] }));
     await waitFor(() => expect(view.container.querySelector("[aria-label='标准错误'] code")?.textContent).toBe(output));
     const explanation = screen.queryByText("输出提示 PowerShell 初始化失败，当前检查未完成。若使用 Windows 隔离工作区，请安装 PowerShell 7，并在宿主环境中将 CYBERAGENT_POWERSHELL_PATH 设置为 pwsh.exe 的绝对路径，重启应用后重试。完整错误仍保留在下方。");
@@ -374,7 +374,7 @@ describe("V2ActivityGroup", () => {
           truncated: false, artifacts: [] }]),
       }],
     }));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client);
     await user.click(screen.getByText("运行"));
@@ -399,7 +399,7 @@ describe("V2ActivityGroup", () => {
              stdout_preview: "", stderr_preview: "two tests failed", truncated: true, artifacts: [] }]),
         }],
       });
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     const view = renderActivity(client, activity({
       status: "failed",
@@ -431,7 +431,7 @@ describe("V2ActivityGroup", () => {
            stdout_preview: "", stderr_preview: "deadline exceeded", truncated: false, artifacts: [] }]),
       }],
     }));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const failedEntry = activity({ status: "completed", items: [{ ...activity().items[0],
       status: "completed", detail: "工具批次完成", summary: {
         version: "thread_activity_summary.v1", activity_ref: "command-1",
@@ -461,7 +461,7 @@ describe("V2ActivityGroup", () => {
            stderr_preview: "process killed", truncated: false, artifacts: [] }]),
       }],
     }));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const initial = activity({ items: [{ ...activity().items[0], summary: {
       version: "thread_activity_summary.v1", activity_ref: "command-1",
@@ -506,7 +506,7 @@ describe("V2ActivityGroup", () => {
     const threadActivityDetail = vi.fn()
       .mockResolvedValueOnce(response("running", "12 tests completed"))
       .mockResolvedValue(response("completed", "42 tests passed"));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ items: [{ ...activity().items[0], status: "pending",
       summary: { version: "thread_activity_summary.v1", activity_ref: "command-1",
@@ -544,7 +544,7 @@ describe("V2ActivityGroup", () => {
       sha256: "a".repeat(64), size_bytes: 32, redacted: true, truncated: false,
       untrusted: true as const, instruction_authorized: false as const,
     }));
-    const client = { threadActivityArtifact, threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityArtifact, threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client);
 
@@ -580,7 +580,7 @@ describe("V2ActivityGroup", () => {
       secrets_redacted: true, allowed_actions: [], apply_enabled: false,
       created_at: "2026-09-02T00:00:00Z", updated_at: "2026-09-02T00:00:00Z",
     }));
-    const client = { fileEdit, threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { fileEdit, threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ activity: "edit", items: [{ title: "文件修改",
       detail: "safe summary", status: "completed", provisional: false,
@@ -609,7 +609,7 @@ describe("V2ActivityGroup", () => {
       }],
     }));
     const fileEdit = vi.fn();
-    const client = { fileEdit, threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { fileEdit, threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ activity: "edit", items: [{ title: "文件修改",
       detail: "safe summary", status: "completed", provisional: false,
@@ -632,7 +632,7 @@ describe("V2ActivityGroup", () => {
       }],
     }));
     const fileEdit = vi.fn().mockRejectedValue(new Error("private storage failure"));
-    const client = { fileEdit, threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { fileEdit, threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ activity: "edit", items: [{ title: "文件修改",
       detail: "safe summary", status: "completed", provisional: false,
@@ -665,7 +665,7 @@ describe("V2ActivityGroup", () => {
         detail: typedDetail(kind),
       }],
     }));
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ items: [{ title: label, detail: "safe summary",
       status: "completed", provisional: false, detailRef: `detail-${kind}`,
@@ -692,7 +692,7 @@ describe("V2ActivityGroup", () => {
       tools: [{ name: "web_search", label: "联网搜索", agent_id: "agent-root", agent_role: "root",
         agent_label: "Root Agent", status, duration_milliseconds: 20, detail }],
     });
-    renderActivity({ threadActivityDetail } as unknown as CyberAgentClient, activity({
+    renderActivity({ threadActivityDetail } as unknown as APIClient, activity({
       activity: "read", status, items: [{ title: "联网搜索", detail: "safe summary", status,
         provisional: false, detailRef: "search-no-sources", detailAvailable: true }],
     }));
@@ -716,7 +716,7 @@ describe("V2ActivityGroup", () => {
 
   it("expands existing typed web evidence without making a detail request", async () => {
     const threadActivityDetail = vi.fn();
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({ activity: "read", items: [{ title: "网页已抓取",
       detail: "已创建快照", status: "completed", provisional: false,
@@ -739,7 +739,7 @@ describe("V2ActivityGroup", () => {
 
   it("keeps old transcript activities readable without requesting unavailable details", async () => {
     const threadActivityDetail = vi.fn();
-    const client = { threadActivityDetail } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail } as unknown as APIClient;
     const user = userEvent.setup();
     renderActivity(client, activity({
       items: [{

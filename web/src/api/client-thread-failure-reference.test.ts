@@ -1,7 +1,7 @@
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 
 const reference = { thread_id: "thread-1", run_id: "run-1", message_id: "message-1", event_sequence: 42 };
-const client = () => new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+const client = () => new APIClient("read-secret", "/api/v1", "control-secret");
 const submit = () => client().submitThreadTurn("thread-1", { version: "thread_message_submission.v1", content: "Keep this request" }, "failure-reference-key");
 const respond = (error: object, status = 412) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
   version: "api.v1", request_id: "reference-response", error: { code: "FAILED_PRECONDITION", message: "This turn failed", ...error },

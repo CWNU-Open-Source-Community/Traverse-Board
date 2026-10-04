@@ -1,4 +1,4 @@
-import { APIRequestError, type CyberAgentClient } from "./client";
+import { APIRequestError, type APIClient } from "./client";
 import type { components } from "./schema";
 
 export type ThreadPlanRequest = components["schemas"]["ThreadPlanControlRequestView"];
@@ -41,9 +41,9 @@ export function parseThreadPlanObservation(value: unknown, attempt: ThreadPlanAt
     (!record(value.turn_request) || !identity(value.turn_request.message_id) || value.turn_request.thread_id !== attempt.threadID || value.turn_request.run_id !== attempt.body.run_id)) throw invalid();
   return value as unknown as ThreadPlanObservation;
 }
-export async function executeThreadPlan(client: CyberAgentClient, attempt: ThreadPlanAttempt): Promise<ThreadPlanObservation> {
+export async function executeThreadPlan(client: APIClient, attempt: ThreadPlanAttempt): Promise<ThreadPlanObservation> {
   return parseThreadPlanObservation(await client.postControl<unknown>(`/threads/${encodeURIComponent(attempt.threadID)}/plan`, attempt.body, attempt.key), attempt);
 }
-export async function observeThreadPlan(client: CyberAgentClient, attempt: ThreadPlanAttempt, signal?: AbortSignal): Promise<ThreadPlanObservation> {
+export async function observeThreadPlan(client: APIClient, attempt: ThreadPlanAttempt, signal?: AbortSignal): Promise<ThreadPlanObservation> {
   return parseThreadPlanObservation(await client.inspectThreadPlanRequest(attempt.threadID, attempt.body.run_id, attempt.body.action, attempt.key, signal), attempt);
 }

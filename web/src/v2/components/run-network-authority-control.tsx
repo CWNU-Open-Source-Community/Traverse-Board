@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Globe2, LoaderCircle, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderSearchReadinessView, RunDetailView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
 import { browserCDPQueryKey } from "./browser-cdp-control";
@@ -83,7 +83,7 @@ function remediationLabel(value: ProviderSearchReadinessView | undefined): strin
 
 export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
   variant = "settings", onOpenModelSettings, onConfirmationOpenChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID?: string;
   runID: string;
   variant?: "menu" | "settings";

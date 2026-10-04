@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { FileEditPreviewView } from "../api/types";
 import { FileEditPanel, type FileEditReviewTarget } from "./file-edit-panel";
 
@@ -23,7 +23,7 @@ function clientFor(fileEdit: ReturnType<typeof vi.fn>, items: FileEditPreviewVie
 function setup(client: ReturnType<typeof clientFor>, target: FileEditReviewTarget) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const component = (runID: string, initialTarget: FileEditReviewTarget) => <QueryClientProvider client={queryClient}>
-    <FileEditPanel client={client as unknown as CyberAgentClient} runID={runID} initialTarget={initialTarget} />
+    <FileEditPanel client={client as unknown as APIClient} runID={runID} initialTarget={initialTarget} />
   </QueryClientProvider>;
   return { ...render(component(target.runID, target)), component, queryClient };
 }

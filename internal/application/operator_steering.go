@@ -62,7 +62,7 @@ type DrainOperatorSteeringResult struct {
 type OperatorSteeringDrainService struct {
 	store      SessionRunStore
 	runs       *RunService
-	supervisor *RunSupervisor
+	supervisor *AgentRunner
 }
 
 func NewOperatorSteeringDrainService(store SessionRunStore, router *llm.Router,
@@ -70,7 +70,7 @@ func NewOperatorSteeringDrainService(store SessionRunStore, router *llm.Router,
 ) *OperatorSteeringDrainService {
 	return &OperatorSteeringDrainService{
 		store: store, runs: NewRunService(store),
-		supervisor: NewRunSupervisor(store, router, checker),
+		supervisor: NewAgentRunner(store, router, checker),
 	}
 }
 

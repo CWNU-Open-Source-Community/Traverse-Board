@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Settings2 } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { V2ProviderSettings } from "./provider-settings";
 
 export type V2ModelProviderPreset = {
@@ -19,7 +19,7 @@ export type V2ModelProviderPreset = {
 };
 
 export type V2ModelSettingsProps = {
-  client: CyberAgentClient;
+  client: APIClient;
   presets: readonly V2ModelProviderPreset[];
   onSelectPreset: (preset: V2ModelProviderPreset, trigger: HTMLButtonElement) => void;
 };

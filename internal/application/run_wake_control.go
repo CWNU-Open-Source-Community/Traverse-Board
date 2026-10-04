@@ -282,7 +282,7 @@ type RunWakeCoordinatorStore interface {
 }
 
 // RunWakeCoordinator exposes ownership primitives only. It deliberately has no
-// RunSupervisor, Router, Tool Gateway, or background goroutine dependency.
+// AgentRunner, Router, Tool Gateway, or background goroutine dependency.
 type RunWakeCoordinator struct {
 	store RunWakeCoordinatorStore
 	now   func() time.Time

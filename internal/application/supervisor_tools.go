@@ -484,7 +484,7 @@ func supervisorWebEvidenceUnavailableReason(name toolgateway.ToolName,
 	return supervisorWebEvidenceNotOpenReason
 }
 
-func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
+func (s *AgentRunner) supervisorWebEvidenceCapabilities(
 	ctx context.Context, turn domain.SupervisorTurn,
 	permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.WebEvidenceCapabilities, json.RawMessage, error) {
@@ -529,7 +529,7 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 	return snapshot, encoded, nil
 }
 
-func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
+func (s *AgentRunner) supervisorBrowserActionCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
 	// An operator-opened session owns this Run's browser target even after it
@@ -581,7 +581,7 @@ func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
 	return snapshot, encoded, nil
 }
 
-func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
+func (s *AgentRunner) supervisorMCPCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (supervisorMCPTools, error) {
 	if s.mcpClient == nil ||
@@ -732,7 +732,7 @@ func supervisorMCPToolSchema(capabilities mcp.ScopedCapabilities) json.RawMessag
 	return raw
 }
 
-func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
+func (s *AgentRunner) supervisorAgentCodeCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.AgentCodeCapabilitySnapshot, json.RawMessage, error) {
 	store, ok := s.store.(AgentCodeToolStore)
@@ -774,7 +774,7 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 	return snapshot, encoded, nil
 }
 
-func (s *RunSupervisor) supervisorCodeIntelCapabilities(ctx context.Context,
+func (s *AgentRunner) supervisorCodeIntelCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn,
 ) (toolgateway.CodeIntelCapabilitySnapshot, error) {
 	result := toolgateway.CodeIntelCapabilitySnapshot{ProtocolVersion: codeintel.ProtocolVersion,
@@ -823,7 +823,7 @@ func supervisorToolOperationKey(runID string, turn int, name toolgateway.ToolNam
 	return runmutation.SupervisorToolOperationKey(runID, turn, string(name), string(payload))
 }
 
-func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.SupervisorTurn,
+func (s *AgentRunner) resumeSupervisorTools(ctx context.Context, turn domain.SupervisorTurn,
 	rounds []domain.SupervisorToolRound, standardCode ...*standardCodeSupervisorTurn,
 ) ([]domain.SupervisorToolRound, bool, error) {
 	var completion *standardCodeSupervisorTurn
@@ -972,7 +972,7 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 	return stored, false, nil
 }
 
-func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.SupervisorTurn,
+func (s *AgentRunner) invokeSupervisorTool(ctx context.Context, turn domain.SupervisorTurn,
 	call domain.SupervisorToolCall,
 ) (domain.SupervisorToolResult, error) {
 	if call.AgentAttribution == domain.AgentAttributionLegacyUnknown ||

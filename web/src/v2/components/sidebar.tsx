@@ -50,7 +50,7 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
   }, [workspaces]);
 
   return <aside className="v2-sidebar">
-    <div className="v2-sidebar-brand"><strong>Traverse</strong>
+    <div className="v2-sidebar-brand"><strong>Universal Code</strong>
       {onRefresh && <button aria-label="刷新对话列表" onClick={onRefresh} type="button"><RefreshCw aria-hidden="true" size={15} /></button>}
       <button aria-label="搜索" onClick={() => onSearchOpen(!searchOpen)} type="button">
         {searchOpen ? <X aria-hidden="true" size={16} /> : <Search aria-hidden="true" size={16} />}

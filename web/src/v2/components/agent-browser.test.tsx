@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import { V2AgentBrowser } from "./agent-browser";
 import { agentBrowserQueryKey } from "../../api/agent-browser";
 
@@ -14,7 +14,7 @@ const status = (runID = "run-browser", sessionID = "agent-browser-one") => ({
   cleanup_pending: false, tree_reaped: false, profile_removed: false,
 });
 
-function draw(client: CyberAgentClient, runID = "run-browser") {
+function draw(client: APIClient, runID = "run-browser") {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
   const view = render(<QueryClientProvider client={queries}><V2AgentBrowser client={client} runID={runID} running={false} /></QueryClientProvider>);
   return { ...view, queries };
@@ -29,7 +29,7 @@ it("uses a read-only GET and renders only a verified screenshot", async () => {
   const get = vi.fn(async () => status());
   const postControl = vi.fn();
   const downloadVerifiedImage = vi.fn(async () => new Blob(["png"], { type: "image/png" }));
-  const client = { baseURL: "/api/v1", get, postControl, downloadVerifiedImage } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", get, postControl, downloadVerifiedImage } as unknown as APIClient;
   draw(client);
   expect(await screen.findByText("Report run-browser")).toBeInTheDocument();
   await screen.findByRole("img", { name: "Agent 浏览器页面：Report run-browser" });
@@ -46,7 +46,7 @@ it("closes the exact observed session once and distinguishes the Run", async () 
   const closed = { ...status(), state: "closed", screenshot: undefined, tree_reaped: true, profile_removed: true };
   const postControl = vi.fn(async () => closed);
   const client = { baseURL: "/api/v1", get, postControl,
-    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as CyberAgentClient;
+    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as APIClient;
   draw(client);
   fireEvent.click(await screen.findByRole("button", { name: "停止浏览器" }));
   await screen.findByText("浏览器已停止");
@@ -62,7 +62,7 @@ it("does not show a late status or image after switching Runs", async () => {
   const old = new Promise((resolve) => { resolveOld = resolve; });
   const get = vi.fn((path: string) => path.includes("run-old") ? old : Promise.resolve(status("run-new", "agent-browser-new")));
   const downloadVerifiedImage = vi.fn(async (_path: string, _metadata: unknown, _signal?: AbortSignal) => new Blob(["png"]));
-  const client = { baseURL: "/api/v1", get, postControl: vi.fn(), downloadVerifiedImage } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", get, postControl: vi.fn(), downloadVerifiedImage } as unknown as APIClient;
   const page = draw(client, "run-old");
   page.rerender(<QueryClientProvider client={page.queries}><V2AgentBrowser client={client} runID="run-new" running={false} /></QueryClientProvider>);
   expect(await screen.findByText("Report run-new")).toBeInTheDocument();
@@ -76,7 +76,7 @@ it("never retries a failed close and refreshes status with GET", async () => {
   const get = vi.fn(async () => status());
   const postControl = vi.fn(async () => { throw new Error("connection interrupted"); });
   const client = { baseURL: "/api/v1", get, postControl,
-    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as CyberAgentClient;
+    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as APIClient;
   draw(client);
   fireEvent.click(await screen.findByRole("button", { name: "停止浏览器" }));
   await screen.findByRole("alert");
@@ -89,7 +89,7 @@ it("keeps a newer same-Run session when an old close finishes", async () => {
   let finish!: (value: unknown) => void;
   const postControl = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
   const client = { baseURL: "/api/v1", get: vi.fn(async () => status()), postControl,
-    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as CyberAgentClient;
+    downloadVerifiedImage: vi.fn(async () => new Blob(["png"])) } as unknown as APIClient;
   const page = draw(client);
   fireEvent.click(await screen.findByRole("button", { name: "停止浏览器" }));
   await waitFor(() => expect(postControl).toHaveBeenCalledTimes(1));
@@ -105,7 +105,7 @@ it("keeps a newer same-Run session when an old close finishes", async () => {
 
 it("renders a failed browser with a stop control", async () => {
   const client = { baseURL: "/api/v1", get: vi.fn(async () => ({ ...status(), state: "failed", screenshot: undefined })),
-    postControl: vi.fn(), downloadVerifiedImage: vi.fn() } as unknown as CyberAgentClient;
+    postControl: vi.fn(), downloadVerifiedImage: vi.fn() } as unknown as APIClient;
   draw(client);
   expect(await screen.findByText("浏览器操作未完成")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "停止浏览器" })).toBeEnabled();
@@ -113,7 +113,7 @@ it("renders a failed browser with a stop control", async () => {
 
 it("hides an older server without the status route and has a narrow wrapping layout", async () => {
   const client = { baseURL: "/api/v1", get: vi.fn(async () => { throw new APIRequestError("missing", "NOT_FOUND", 404); }),
-    postControl: vi.fn(), downloadVerifiedImage: vi.fn() } as unknown as CyberAgentClient;
+    postControl: vi.fn(), downloadVerifiedImage: vi.fn() } as unknown as APIClient;
   const page = draw(client);
   await waitFor(() => expect(client.get).toHaveBeenCalled());
   expect(page.container).toBeEmptyDOMElement();

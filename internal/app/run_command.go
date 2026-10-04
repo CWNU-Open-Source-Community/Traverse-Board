@@ -466,7 +466,7 @@ func (a *App) newStandardCodeDeliveryService(ctx context.Context,
 }
 
 func (a *App) attachStandardCodeDelivery(ctx context.Context,
-	supervisor *application.RunSupervisor, runID string,
+	supervisor *application.AgentRunner, runID string,
 ) error {
 	_, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx,
 		strings.TrimSpace(runID))
@@ -478,7 +478,7 @@ func (a *App) attachStandardCodeDelivery(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		supervisor.WithDrydock(drydocks)
+		supervisor.WithRunWorktree(drydocks)
 		return nil
 	}
 	delivery, err := a.newStandardCodeDeliveryService(ctx, runID)
@@ -1292,7 +1292,7 @@ func (a *App) runUsage(ctx context.Context, service *application.RunService, arg
 		agentUsage.ReadOnlyFanoutTokens, agentUsage.TotalTokens,
 		agentUsage.RootExecutionMillis, agentUsage.SpecialistExecutionMillis,
 		agentUsage.ReadOnlyFanoutMillis, agentUsage.TotalExecutionMillis)
-	if checkpoint, ok, err := a.newRunSupervisor().Checkpoint(ctx, run.ID); err != nil {
+	if checkpoint, ok, err := a.newAgentRunner().Checkpoint(ctx, run.ID); err != nil {
 		return err
 	} else if ok {
 		fmt.Fprintf(a.out, "turns_completed: %d\ninput_tokens: %d\noutput_tokens: %d\ntotal_tokens: %d\nexecution_millis: %d\n",
@@ -1350,7 +1350,7 @@ func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr e
 	defer func() {
 		resultErr = errors.Join(resultErr, runtime.close())
 	}()
-	supervisor := application.NewRunSupervisorWithRuntime(a.store, a.router, a.checker,
+	supervisor := application.NewAgentRunnerWithRuntime(a.store, a.router, a.checker,
 		runtime.dependencies(a))
 	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
 		return err
@@ -1429,7 +1429,7 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultEr
 	defer func() {
 		resultErr = errors.Join(resultErr, runtime.close())
 	}()
-	supervisor := application.NewRunSupervisorWithRuntime(a.store, a.router, a.checker,
+	supervisor := application.NewAgentRunnerWithRuntime(a.store, a.router, a.checker,
 		runtime.dependencies(a))
 	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
 		return err
@@ -1564,7 +1564,7 @@ func (a *App) runSupervisorFinalize(ctx context.Context, outcome application.Lif
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: cyberagent run %s <run-id> [--%s <text>]", name, flagName)
 	}
-	supervisor := a.newRunSupervisor()
+	supervisor := a.newAgentRunner()
 	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
 		return err
 	}
@@ -1586,7 +1586,7 @@ func (a *App) runSupervisorCheckpoint(ctx context.Context, args []string) error 
 	if fs.NArg() != 1 {
 		return errors.New("usage: cyberagent run checkpoint <run-id>")
 	}
-	checkpoint, ok, err := a.newRunSupervisor().Checkpoint(ctx, fs.Arg(0))
+	checkpoint, ok, err := a.newAgentRunner().Checkpoint(ctx, fs.Arg(0))
 	if err != nil {
 		return err
 	}

@@ -23,7 +23,7 @@ type supervisorModelNotDispatchedStore interface {
 	RecordSupervisorModelNotDispatched(context.Context, domain.SupervisorCheckpoint, llm.ModelAttempt) (domain.SupervisorCheckpoint, error)
 }
 
-func (s *RunSupervisor) recordUnsentModelAccounting(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+func (s *AgentRunner) recordUnsentModelAccounting(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	attempt llm.ModelAttempt,
 ) (domain.SupervisorCheckpoint, error) {
 	eventCtx, cancel := supervisorModelEventContext(ctx)
@@ -46,7 +46,7 @@ func sameModelAccountingEpoch(current, expected domain.SupervisorCheckpoint) boo
 		current.LeaseGeneration == expected.LeaseGeneration
 }
 
-func (s *RunSupervisor) failReceivedModelOutput(ctx context.Context, result *LifecycleResult,
+func (s *AgentRunner) failReceivedModelOutput(ctx context.Context, result *LifecycleResult,
 	turn *domain.SupervisorTurn, attempt llm.ModelAttempt, response llm.ChatResponse, cause error,
 ) error {
 	attempt.Outcome = llm.OutcomeInvalidResponse
@@ -70,7 +70,7 @@ func (s *RunSupervisor) failReceivedModelOutput(ctx context.Context, result *Lif
 	return s.recordFailure(ctx, result, errors.Join(cause, accountingErr), elapsed)
 }
 
-func (s *RunSupervisor) settleModelAccounting(ctx context.Context, runID string,
+func (s *AgentRunner) settleModelAccounting(ctx context.Context, runID string,
 	attempt llm.ModelAttempt, usage llm.Usage, toolCount int,
 ) error {
 	eventCtx, cancel := supervisorModelEventContext(ctx)
@@ -81,7 +81,7 @@ func (s *RunSupervisor) settleModelAccounting(ctx context.Context, runID string,
 
 // Only the receipt and usage survive a rejected/cancelled response. This path
 // cannot dispatch the response's tools or commit it as an assistant message.
-func (s *RunSupervisor) recordFailedModelAccounting(ctx context.Context,
+func (s *AgentRunner) recordFailedModelAccounting(ctx context.Context,
 	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt,
 	usage *llm.Usage, toolCount int,
 ) (domain.SupervisorCheckpoint, error) {

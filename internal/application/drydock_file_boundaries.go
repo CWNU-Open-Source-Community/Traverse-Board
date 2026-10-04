@@ -6,8 +6,8 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -15,7 +15,7 @@ import (
 // FileEditCheckpointService reuses the ordinary mutation journal and captures,
 // but its cursor belongs to the Drydock lifecycle. The source Run cursor is
 // never changed by an edit in the isolated workspace.
-func (s *DrydockService) FileEditCheckpointService() *WorkspaceCheckpointService {
+func (s *RunWorktreeService) FileEditCheckpointService() *WorkspaceCheckpointService {
 	if s == nil || s.checkpoints == nil {
 		return nil
 	}
@@ -42,11 +42,11 @@ func (s *DrydockService) FileEditCheckpointService() *WorkspaceCheckpointService
 
 type drydockFileBoundaryStore struct {
 	WorkspaceCheckpointStore
-	owner       *DrydockService
+	owner       *RunWorktreeService
 	gitMutation bool
 }
 
-func (s *DrydockService) gitMutationCheckpointService() *WorkspaceCheckpointService {
+func (s *RunWorktreeService) gitMutationCheckpointService() *WorkspaceCheckpointService {
 	value := s.FileEditCheckpointService()
 	if value != nil {
 		value.store.(*drydockFileBoundaryStore).gitMutation = true
@@ -107,19 +107,19 @@ func (s *drydockFileBoundaryStore) AdvanceWorkspaceCheckpointRunState(ctx contex
 	}
 	fingerprint := runmutation.Fingerprint("drydock-file-boundary-cursor.v1", value.RunID,
 		value.WorkspaceID, value.CurrentCheckpointID, value.LastTransactionID, expected)
-	digest := drydockOperationDigest(drydock.OperationCheckpoint, value.RunID, fingerprint)
+	digest := drydockOperationDigest(runworktree.OperationCheckpoint, value.RunID, fingerprint)
 	if receipt, replayed, err := s.owner.store.GetDrydockReceiptByOperation(ctx, digest); err != nil {
 		return workspacecheckpoint.RunState{}, false, err
 	} else if replayed {
 		if receipt.DrydockID != d.ID || receipt.RequestFingerprint != fingerprint ||
-			receipt.CheckpointID != value.CurrentCheckpointID || receipt.Outcome != drydock.OutcomeSucceeded {
+			receipt.CheckpointID != value.CurrentCheckpointID || receipt.Outcome != runworktree.OutcomeSucceeded {
 			return workspacecheckpoint.RunState{}, false, apperror.New(apperror.CodeConflict,
 				"Drydock file boundary replay binding differs")
 		}
 		value.UpdatedAt = receipt.CreatedAt
 		return value, true, nil
 	}
-	if d.LastCheckpointID != expected || (d.State != drydock.StateReady && d.State != drydock.StateDelivered) {
+	if d.LastCheckpointID != expected || (d.State != runworktree.StateReady && d.State != runworktree.StateDelivered) {
 		return workspacecheckpoint.RunState{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock file boundary cursor changed")
 	}
@@ -202,8 +202,8 @@ func (s *drydockFileBoundaryStore) AdvanceWorkspaceCheckpointRunState(ctx contex
 	d.LastCheckpointID = checkpoint.ID
 	d.Generation++
 	d.UpdatedAt = s.owner.now().UTC()
-	receipt := s.owner.transitionReceipt(d, before, drydock.OperationCheckpoint, digest,
-		fingerprint, drydock.OutcomeSucceeded, "", "attributed reviewed file boundary "+strconv.FormatInt(before, 10),
+	receipt := s.owner.transitionReceipt(d, before, runworktree.OperationCheckpoint, digest,
+		fingerprint, runworktree.OutcomeSucceeded, "", "attributed reviewed file boundary "+strconv.FormatInt(before, 10),
 		previousBinding, d.ExpectedBindingFingerprint, "", checkpoint.ID, "")
 	receipt.RunID = value.RunID
 	updated, replayed, err := s.owner.store.AdvanceDrydock(ctx, d, before, receipt)

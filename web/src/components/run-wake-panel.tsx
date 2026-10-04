@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellOff, BellRing, LoaderCircle, Play } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { OperationReceiptView, RunDetailView, RunWakeStateView } from "../api/types";
 import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -9,7 +9,7 @@ import { ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
 import { OperationReceipt } from "./operation-receipt";
 
 export function RunWakePanel({ client, detail }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
 }) {
   const { t } = useLocale();

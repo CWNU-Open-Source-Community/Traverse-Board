@@ -56,7 +56,7 @@ func TestSupervisorMCPAdvertisementFenceRejectsRevokedThreeModes(t *testing.T) {
 						Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`),
 					}}}},
 			}}
-			supervisor := NewRunSupervisor(state, nil, policy.NewDefaultChecker()).
+			supervisor := NewAgentRunner(state, nil, policy.NewDefaultChecker()).
 				WithExecutionPermissionCapabilities(capabilities).
 				WithMCPClient(client)
 			turn, err := state.BeginSupervisorTurn(ctx, lease, "")

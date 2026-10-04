@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { RepositoryHistoryPanel } from "./repository-history-panel";
 
 describe("RepositoryHistoryPanel", () => {
@@ -88,7 +88,7 @@ describe("RepositoryHistoryPanel", () => {
       network_used: false, hooks_executed: false,
     });
     const client = { repositoryHistory, repositoryCommit, repositoryCommitComparison,
-      repositoryCommitFilePreview, repositoryFileHistory } as unknown as CyberAgentClient;
+      repositoryCommitFilePreview, repositoryFileHistory } as unknown as APIClient;
     const user = userEvent.setup();
     const queryClient = new QueryClient();
     const { rerender } = render(<QueryClientProvider client={queryClient}>

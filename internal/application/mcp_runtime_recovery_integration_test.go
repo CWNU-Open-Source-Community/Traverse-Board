@@ -54,7 +54,7 @@ func TestMCPRuntimeSupervisorRecoveryNeverRepeatsUncertainDispatch(t *testing.T)
 			state, turn, capabilities := f.st, f.turn, f.capabilities
 			client := &mcpReceiptFixtureClient{scenario: scenario}
 			fault := &mcpReceiptFaultStore{SQLiteStore: state, fail: scenario == "lost_receipt"}
-			supervisor := NewRunSupervisor(fault, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
+			supervisor := NewAgentRunner(fault, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
 			rounds, err := state.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 			if err != nil {
 				t.Fatal(err)
@@ -65,7 +65,7 @@ func TestMCPRuntimeSupervisorRecoveryNeverRepeatsUncertainDispatch(t *testing.T)
 			}
 			// Construct a new Supervisor and reload existing rows, rather than
 			// reusing an in-memory result or creating another recovery ledger.
-			supervisor = NewRunSupervisor(state, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
+			supervisor = NewAgentRunner(state, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
 			for resume := 0; resume < 2; resume++ {
 				rounds, err = state.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 				if err != nil {

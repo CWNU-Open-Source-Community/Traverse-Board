@@ -1,14 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronUp, CornerUpRight, FileText, ListEnd, MoreHorizontal, Pencil, Text, Trash2, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { QueuedMessage } from "../../api/queued-messages";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { V2ImagePreview } from "./image-input";
 import { V2FileAttachments } from "./file-input";
 
 export function V2QueuedMessageRow({ client, message, editDisabled, cancelDisabled, detailsID, detailsOpen, promotionUnavailable, onPromote, onDetails, onEdit, onCancel, onCollapse }: {
-  client: CyberAgentClient; message: QueuedMessage; editDisabled: boolean; cancelDisabled: boolean;
+  client: APIClient; message: QueuedMessage; editDisabled: boolean; cancelDisabled: boolean;
   detailsID: string; detailsOpen: boolean; onDetails: (trigger: HTMLButtonElement | null) => void;
   promotionUnavailable: string; onPromote: () => void;
   onEdit: () => void; onCancel: () => void; onCollapse: () => void;
@@ -51,7 +51,7 @@ export function V2QueuedMessageRow({ client, message, editDisabled, cancelDisabl
 }
 
 export function V2QueueMessageDetails({ client, snapshot, current, queueKnown, detailsID, trigger, fallbackFocus, onClose }: {
-  client: CyberAgentClient; snapshot: QueuedMessage; current?: QueuedMessage; queueKnown: boolean; detailsID: string;
+  client: APIClient; snapshot: QueuedMessage; current?: QueuedMessage; queueKnown: boolean; detailsID: string;
   trigger: HTMLElement | null; fallbackFocus: RefObject<HTMLButtonElement | null>; onClose: () => void;
 }) {
   const titleID = useId();

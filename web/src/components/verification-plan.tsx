@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, ClipboardList, Download, FileCheck2, ListTree,
   LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { VerificationPlanItemCoveragePage, VerificationPlanRequestView } from "../api/types";
 import { downloadTextFile } from "../lib/download";
 import { formatDate } from "../lib/format";
@@ -72,7 +72,7 @@ function mergeCoveragePages(pages: VerificationPlanItemCoveragePage[]) {
 }
 
 export function VerificationPlan({ client, runID, receiptReviewTarget }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   receiptReviewTarget?: ReceiptReviewNavigationTarget;
 }) {

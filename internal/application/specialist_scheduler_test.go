@@ -248,7 +248,7 @@ func TestSpecialistSchedulerContainsCoordinatorPanicAndFailsSummary(t *testing.T
 		domain.Budget{MaxTurns: 20}, 4, 64)
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	runner := application.NewSpecialistRunner(&panicAgentListStore{SQLiteStore: st},
+	runner := application.NewSubagentRunner(&panicAgentListStore{SQLiteStore: st},
 		router, policy.NewDefaultChecker())
 	scheduler := application.NewSpecialistScheduler(runner)
 	result, err := scheduler.Execute(context.Background(), application.SpecialistScheduleRequest{
@@ -282,7 +282,7 @@ func TestSpecialistSchedulerRechecksAggregateTokenBudget(t *testing.T) {
 		domain.Budget{MaxTurns: 20, MaxTokens: 10}, 4, 4)
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	rootTurn, err := application.NewRunSupervisor(st, router,
+	rootTurn, err := application.NewAgentRunner(st, router,
 		policy.NewDefaultChecker()).Step(context.Background(), run.ID)
 	if err != nil || rootTurn.Checkpoint.TotalTokens != 2 {
 		t.Fatalf("root budget seed failed: turn=%#v err=%v", rootTurn, err)
@@ -514,7 +514,7 @@ func newSpecialistSchedulerFixture(t testing.TB, provider llm.Provider, budget d
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	runner := application.NewSpecialistRunner(st, router, policy.NewDefaultChecker())
+	runner := application.NewSubagentRunner(st, router, policy.NewDefaultChecker())
 	return st, run, children, application.NewSpecialistScheduler(runner)
 }
 

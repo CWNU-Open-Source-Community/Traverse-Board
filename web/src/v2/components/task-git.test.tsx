@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import type { ThreadGitExecuteRequest, ThreadGitPreview, ThreadGitResult, ThreadGitSpec, ThreadGitState } from "../../api/task-delivery";
 import { V2RecoveryProvider, useV2RecoveryStore, type V2RecoveryStore } from "../recovery-storage";
@@ -61,7 +61,7 @@ function fixture() {
   const workspace: WorkspaceView = { id: "imported-worktree", name: "New isolated work", created_at: when };
   const importWorkspace = vi.fn().mockResolvedValue({ workspace });
   const client = { baseURL: "/api/v1", hasControl: true, hasWorkspaceImport: true, hasGitHubReviewControl: false,
-    get, postControl, importWorkspace } as unknown as CyberAgentClient;
+    get, postControl, importWorkspace } as unknown as APIClient;
   return { client, get, postControl, importWorkspace, workspace, observed, hooks,
     previews: () => postControl.mock.calls.filter(([path]) => path.endsWith("/preview")),
     executions: () => postControl.mock.calls.filter(([path]) => path.endsWith("/execute")) };

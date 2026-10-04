@@ -24,7 +24,7 @@ import (
 
 const legacyEmptyCreateJSON = `{"version":"agent-code-tools.v1","action":"create","path":"empty.txt","expected_sha256":"missing"}`
 
-func TestRunSupervisorRecoversAcceptedLegacyEmptyCreateAcrossRestart(t *testing.T) {
+func TestAgentRunnerRecoversAcceptedLegacyEmptyCreateAcrossRestart(t *testing.T) {
 	f := newLegacyEmptyCreateFixture(t, legacyEmptyCreateJSON, false)
 	f.reopen(t)
 	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
@@ -59,7 +59,7 @@ func TestRunSupervisorRecoversAcceptedLegacyEmptyCreateAcrossRestart(t *testing.
 	}
 }
 
-func TestRunSupervisorLegacyEmptyCreateStillRequiresCurrentAuthority(t *testing.T) {
+func TestAgentRunnerLegacyEmptyCreateStillRequiresCurrentAuthority(t *testing.T) {
 	for _, fullAccess := range []bool{false, true} {
 		name := "stopped Run"
 		if fullAccess {
@@ -89,7 +89,7 @@ func TestRunSupervisorLegacyEmptyCreateStillRequiresCurrentAuthority(t *testing.
 	}
 }
 
-func TestRunSupervisorRejectsNewCreateWithoutBodyBeforeEnqueue(t *testing.T) {
+func TestAgentRunnerRejectsNewCreateWithoutBodyBeforeEnqueue(t *testing.T) {
 	for _, payload := range []string{legacyEmptyCreateJSON, strings.TrimSuffix(legacyEmptyCreateJSON, "}") + `,"content":null}`} {
 		name := "missing"
 		if strings.Contains(payload, "null") {
@@ -114,7 +114,7 @@ func TestRunSupervisorRejectsNewCreateWithoutBodyBeforeEnqueue(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorLegacyEmptyCreateDoesNotCoverOtherPersistedShapes(t *testing.T) {
+func TestAgentRunnerLegacyEmptyCreateDoesNotCoverOtherPersistedShapes(t *testing.T) {
 	for _, tc := range []struct{ name, payload string }{
 		{"null body", strings.TrimSuffix(legacyEmptyCreateJSON, "}") + `,"content":null}`},
 		{"extra field", strings.TrimSuffix(legacyEmptyCreateJSON, "}") + `,"replacements":[]}`},
@@ -184,12 +184,12 @@ type legacyEmptyCreateFixture struct {
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
-func newLegacyEmptyCreateSupervisor(st application.RunSupervisorStore, provider *scriptedToolProvider) *application.RunSupervisor {
+func newLegacyEmptyCreateSupervisor(st application.AgentRunnerStore, provider *scriptedToolProvider) *application.AgentRunner {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	// These cases recover an explicitly reviewed proposal, including its
 	// original status. Current Ask also permits verified routine operations.
-	return application.NewRunSupervisor(st, router, &fileOperationPolicy{review: true})
+	return application.NewAgentRunner(st, router, &fileOperationPolicy{review: true})
 }
 
 func newLegacyEmptyCreateFixture(t *testing.T, payload string, fullAccess bool) *legacyEmptyCreateFixture {

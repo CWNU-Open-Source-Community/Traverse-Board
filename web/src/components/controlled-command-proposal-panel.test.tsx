@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ControlledCommandProposalPanel } from "./controlled-command-proposal-panel";
 
 const proposal = {
@@ -26,14 +26,14 @@ const proposal = {
 };
 
 it("keeps history visible without any command review actions", async () => {
- const client={controlledCommandProposals:vi.fn().mockResolvedValue({items:[proposal]})} as unknown as CyberAgentClient;
+ const client={controlledCommandProposals:vi.fn().mockResolvedValue({items:[proposal]})} as unknown as APIClient;
  renderPanel(client);
  expect(await screen.findByText(proposal.purpose)).toBeInTheDocument();
  expect(screen.queryByRole("button",{name:/approve|deny|execute/i})).not.toBeInTheDocument();
  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 });
 
-function renderPanel(client: CyberAgentClient) {
+function renderPanel(client: APIClient) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false },
     mutations: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>

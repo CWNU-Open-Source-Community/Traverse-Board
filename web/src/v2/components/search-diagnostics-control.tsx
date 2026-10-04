@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, LoaderCircle, RefreshCw, Settings, Wifi } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderSearchReadinessView, SearchDiagnosticCode,
   SearchDiagnosticsView } from "../../api/types";
 
@@ -63,7 +63,7 @@ function matchesBinding(result: SearchDiagnosticsView,
 }
 
 export function V2SearchDiagnosticsControl({ client, readiness, onOpenModelSettings }: {
-  client: CyberAgentClient;
+  client: APIClient;
   readiness: ProviderSearchReadinessView;
   onOpenModelSettings?: () => void;
 }) {

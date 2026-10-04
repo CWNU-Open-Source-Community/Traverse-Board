@@ -35,7 +35,7 @@ func TestStandardCodeContinuationRechecksRetainedMutationWithoutAnotherEdit(t *t
 	router := llm.NewRouter(ref)
 	router.RegisterProvider(p)
 	router.SetRoute("code", ref)
-	supervisor := NewRunSupervisor(f.state, router, policy.NewDefaultChecker()).WithDrydock(f.service).
+	supervisor := NewAgentRunner(f.state, router, policy.NewDefaultChecker()).WithRunWorktree(f.service).
 		WithExecutionPermissionCapabilities(standardCodeThreadTestRuntime().ExecutionPermissionCapabilities)
 	wait := func() *llm.ChatResponse {
 		raw, _ := json.Marshal(domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionWait,
@@ -101,7 +101,7 @@ func TestStandardCodeContinuationRechecksRetainedMutationWithoutAnotherEdit(t *t
 		t.Fatalf("edits=%+v err=%v", edits, err)
 	}
 	edit := edits[0]
-	if _, err = NewFileEditReviewService(f.state).WithDrydock(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
+	if _, err = NewFileEditReviewService(f.state).WithRunWorktree(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
 		RunID: f.run.ID, EditID: edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestStandardCodeContinuationRechecksRetainedMutationWithoutAnotherEdit(t *t
 			t.Fatal(err)
 		}
 		next, err := NewThreadServiceWithExecutionCapabilities(f.state, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).
-			WithDrydock(f.service).Submit(ctx, SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID,
+			WithRunWorktree(f.service).Submit(ctx, SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID,
 			Content: "Check the already applied change using the current configuration", OperationKey: fmt.Sprintf("continuation-new-input-%d", generation), RequestedBy: "operator"})
 		if err != nil {
 			t.Fatal(err)

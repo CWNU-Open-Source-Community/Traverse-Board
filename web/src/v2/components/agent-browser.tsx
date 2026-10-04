@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { agentBrowserAPIAbsent, agentBrowserQueryKey, closeAgentBrowser, readAgentBrowser, type AgentBrowserStatus } from "../../api/agent-browser";
 import "./agent-browser.css";
 
-export function V2AgentBrowser(props: { client: CyberAgentClient; runID: string; running: boolean }) {
+export function V2AgentBrowser(props: { client: APIClient; runID: string; running: boolean }) {
   return <AgentBrowserCard key={JSON.stringify([props.client.baseURL, props.runID])} {...props} />;
 }
 
@@ -39,7 +39,7 @@ function screenshotPath(runID: string, status: AgentBrowserStatus): string {
   })}`;
 }
 
-function AgentBrowserCard({ client, runID, running }: { client: CyberAgentClient; runID: string; running: boolean }) {
+function AgentBrowserCard({ client, runID, running }: { client: APIClient; runID: string; running: boolean }) {
   const queries = useQueryClient();
   const key = agentBrowserQueryKey(client.baseURL, runID);
   const [message, setMessage] = useState("");

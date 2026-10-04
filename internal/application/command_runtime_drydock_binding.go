@@ -4,16 +4,16 @@ import (
 	"context"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 // Physical ownership is historical. Runtime authority additionally requires
 // the exact current logical Run/Session and the Thread's current holder.
-func commandRuntimeDrydockBound(ctx context.Context, store any, workspace drydock.Workspace,
+func commandRuntimeDrydockBound(ctx context.Context, store any, workspace runworktree.Workspace,
 	runID, missionID, sessionID, sourceID string,
 ) (bool, error) {
 	if workspace.MissionID != missionID || workspace.SourceWorkspaceID != sourceID ||
-		(workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered) {
+		(workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered) {
 		return false, nil
 	}
 	if reader, ok := store.(interface {

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ModelAvailabilitySettings } from "./model-availability-dialog";
 
 function mockHarness(model: string) {
@@ -41,7 +41,7 @@ describe("ModelAvailabilitySettings", () => {
         credential_source: "none", network_required: false, configuration_error: false }],
       routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
         harness_ready: true }],
-    }) } as unknown as CyberAgentClient;
+    }) } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(<QueryClientProvider client={queryClient}>
       <ModelAvailabilitySettings client={client} />
@@ -75,7 +75,7 @@ describe("ModelAvailabilitySettings", () => {
         routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
           harness_ready: true }],
       }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } });
@@ -119,7 +119,7 @@ describe("ModelAvailabilitySettings", () => {
         routes: [{ name: "code", provider: "mimo", model: "model-secondary", available: true,
           harness_ready: false }],
       }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } });
@@ -156,7 +156,7 @@ describe("ModelAvailabilitySettings", () => {
         routes: [{ name: "code", provider: "openai", model: "gpt-4.1-mini",
           available: true, harness_ready: false }],
       }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } });
@@ -196,7 +196,7 @@ describe("ModelAvailabilitySettings", () => {
         routes: [{ name: "code", provider: "mock", model: "mock-code",
           available: true, harness_ready: true }],
       }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } });

@@ -4,14 +4,14 @@ import (
 	"context"
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"errors"
 )
 
 type threadFileContinuationStore interface {
-	GetRunFileDrydock(context.Context, string) (drydock.Workspace, bool, error)
+	GetRunFileDrydock(context.Context, string) (runworktree.Workspace, bool, error)
 	GetConfiguredStandardCodePresetOperation(context.Context, string) (domain.StandardCodePresetOperation, bool, error)
 	GetThreadModelRoutePreference(context.Context, string) (domain.ThreadModelRoutePreference, bool, error)
 	GetThreadExecutionPermission(context.Context, string) (domain.ThreadExecutionPermissionSnapshot, error)
@@ -45,7 +45,7 @@ func (s *ThreadService) prepareFileContinuation(ctx context.Context, request Sub
 	if !holder {
 		return nil, apperror.New(apperror.CodeConflict, "The previous execution no longer holds this Thread working directory")
 	}
-	if physical.State != drydock.StateReady && physical.State != drydock.StateDelivered {
+	if physical.State != runworktree.StateReady && physical.State != runworktree.StateDelivered {
 		return nil, apperror.New(apperror.CodeFailedPrecondition, "The current Thread working directory needs recovery before execution can continue")
 	}
 	checked, _, _, err := s.drydocks.loadExactDrydock(ctx, predecessor.ID, physical.Generation, false)

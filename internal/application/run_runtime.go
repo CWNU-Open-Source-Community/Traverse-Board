@@ -17,11 +17,11 @@ import (
 type RunRuntimeDependencies struct {
 	ActiveCalls                    *ActiveCallRegistry
 	ExecutionCapabilities          domain.ExecutionPermissionRuntimeCapabilities
-	Drydocks                       *DrydockService
+	Drydocks                       *RunWorktreeService
 	StandardCodeDelivery           *StandardCodeDeliveryService
 	CommandRuntime                 toolgateway.CommandRuntimeExecutor
 	DockerSandbox                  toolgateway.DockerSandboxProposalExecutor
-	MCPClient                      SupervisorMCPClient
+	MCPClient                      AgentRunnerMCPClient
 	LifecycleHooks                 *hooks.Engine
 	CodeIntel                      *codeintel.Manager
 	WebEvidence                    *webevidence.Service
@@ -31,13 +31,13 @@ type RunRuntimeDependencies struct {
 	DebugTerminal                  DebugTerminalAgentInputController
 }
 
-func NewRunSupervisorWithRuntime(store RunSupervisorStore, router *llm.Router,
+func NewAgentRunnerWithRuntime(store AgentRunnerStore, router *llm.Router,
 	checker policy.Checker, dependencies RunRuntimeDependencies,
-) *RunSupervisor {
-	s := NewRunSupervisor(store, router, checker).
+) *AgentRunner {
+	s := NewAgentRunner(store, router, checker).
 		WithExecutionPermissionCapabilities(dependencies.ExecutionCapabilities).
 		WithActiveCalls(dependencies.ActiveCalls).
-		WithDrydock(dependencies.Drydocks).
+		WithRunWorktree(dependencies.Drydocks).
 		WithStandardCodeDelivery(dependencies.StandardCodeDelivery).
 		WithWebFetchAuthorizationScheduler(dependencies.WebFetchAuthorizationScheduler).
 		WithWebEvidence(dependencies.WebEvidence).
@@ -58,5 +58,5 @@ func NewRunExecutionHandoffWithRuntime(store RunExecutionHandoffStore, router *l
 	checker policy.Checker, dependencies RunRuntimeDependencies,
 ) *RunExecutionHandoffService {
 	return &RunExecutionHandoffService{store: store,
-		supervisor: NewRunSupervisorWithRuntime(store, router, checker, dependencies)}
+		supervisor: NewAgentRunnerWithRuntime(store, router, checker, dependencies)}
 }

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ScheduledJobCreateRequestView, ScheduledJobView } from "../api/types";
 import { ScheduledTasksWorkspace } from "./scheduled-tasks-workspace";
 
@@ -133,7 +133,7 @@ describe("ScheduledTasksWorkspace", () => {
   });
 });
 
-function renderWorkspace(client: Partial<CyberAgentClient>) {
+function renderWorkspace(client: Partial<APIClient>) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
@@ -143,7 +143,7 @@ function renderWorkspace(client: Partial<CyberAgentClient>) {
         enabled: Boolean(client.hasScheduledJobWorker), state: client.hasScheduledJobWorker ? "running" : "disabled",
         selection_scope: "confirmed_read_only",
       } }), ...client,
-    } as CyberAgentClient} initialRunID="run-1" />
+    } as APIClient} initialRunID="run-1" />
   </QueryClientProvider>);
 }
 

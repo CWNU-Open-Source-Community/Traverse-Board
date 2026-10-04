@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderSearchReadinessView, SearchDiagnosticsView } from "../../api/types";
 import { V2SearchDiagnosticsControl } from "./search-diagnostics-control";
 
@@ -22,8 +22,8 @@ function diagnostic(overrides: Partial<SearchDiagnosticsView> = {}): SearchDiagn
   };
 }
 
-function clientWith(diagnoseThreadSearch: CyberAgentClient["diagnoseThreadSearch"]): CyberAgentClient {
-  return { hasControl: true, diagnoseThreadSearch } as unknown as CyberAgentClient;
+function clientWith(diagnoseThreadSearch: APIClient["diagnoseThreadSearch"]): APIClient {
+  return { hasControl: true, diagnoseThreadSearch } as unknown as APIClient;
 }
 
 describe("V2SearchDiagnosticsControl", () => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { CodeHandoffView } from "../api/types";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
@@ -9,7 +9,7 @@ import { SavedHostCommandOutput } from "./saved-host-command-output";
 type Commands = NonNullable<CodeHandoffView["host_commands"]>;
 type Command = Commands["items"][number];
 
-export function CodeHandoffHostCommands({ client, commands }: { client: CyberAgentClient; commands: Commands }) {
+export function CodeHandoffHostCommands({ client, commands }: { client: APIClient; commands: Commands }) {
   const { t } = useLocale();
   return <section aria-label={t("宿主命令执行记录", "Recorded host commands")}>
     <h3>{t("宿主命令执行记录", "Recorded host commands")}</h3>
@@ -22,7 +22,7 @@ export function CodeHandoffHostCommands({ client, commands }: { client: CyberAge
   </section>;
 }
 
-function HostCommand({ client, command }: { client: CyberAgentClient; command: Command }) {
+function HostCommand({ client, command }: { client: APIClient; command: Command }) {
   const { t } = useLocale();
   const [opened, setOpened] = useState(false);
   const query = useQuery({

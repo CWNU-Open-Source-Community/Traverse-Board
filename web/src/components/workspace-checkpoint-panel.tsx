@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Undo2,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   WorkspaceCheckpointForkView,
   WorkspaceCheckpointRestoreView,
@@ -45,7 +45,7 @@ const restoreIntentKey = (runID: string) => ["run", runID, "workspace-restore-in
 const reversibleKinds = new Set(["file_tool", "command_batch", "git_mutation", "agent_merge"]);
 
 export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "inspector", onChanged }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   runStatus: string;
   variant?: "inspector" | "conversation";

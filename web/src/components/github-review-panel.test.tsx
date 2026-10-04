@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { GitHubReviewWriteReviewResultView } from "../api/types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { GitHubReviewPanel } from "./github-review-panel";
@@ -63,7 +63,7 @@ describe("GitHubReviewPanel", () => {
       githubReviewConnections: vi.fn().mockResolvedValue([{ connection: connection(),
         credential: projection().credential }]),
       githubReviewProjection: vi.fn().mockResolvedValue(projection()),
-      executeGitHubWrite } as unknown as CyberAgentClient,
+      executeGitHubWrite } as unknown as APIClient,
     retained as unknown as GitHubReviewWriteReviewResultView, onOpenDelivery);
 
     expect(await screen.findByText(digest)).toBeInTheDocument();
@@ -77,7 +77,7 @@ describe("GitHubReviewPanel", () => {
   });
 });
 
-function renderPanel(client: CyberAgentClient,
+function renderPanel(client: APIClient,
   retainedReview?: GitHubReviewWriteReviewResultView | null,
   onOpenDelivery: () => void = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: {

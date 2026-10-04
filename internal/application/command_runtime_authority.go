@@ -22,7 +22,7 @@ type commandRuntimeAuthorityBinder interface {
 	BindCommandRuntimeAuthority(context.Context, json.RawMessage, json.RawMessage) (json.RawMessage, error)
 }
 
-func (s *RunSupervisor) bindCommandRuntimeCalls(ctx context.Context, calls []llm.ToolCall) ([]llm.ToolCall, error) {
+func (s *AgentRunner) bindCommandRuntimeCalls(ctx context.Context, calls []llm.ToolCall) ([]llm.ToolCall, error) {
 	for i := range calls {
 		if calls[i].Name != string(toolgateway.CommandRuntimeTool) {
 			continue

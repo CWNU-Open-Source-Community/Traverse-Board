@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { PlanDeliveryStateView, RunDetailView, WorkItemView } from "../api/types";
 import { PlanDeliveryWorkItems } from "./plan-delivery-work-items";
 
@@ -20,12 +20,12 @@ function state(runID = "run-a", count = 1): PlanDeliveryStateView {
 }
 const labels = ["Focused verification results", "Diff review", "Security review", "Full functional verification",
   "Failure and recovery checks", "Handoff summary"];
-function setup(options: { client?: Partial<CyberAgentClient>; count?: number; status?: string } = {}) {
+function setup(options: { client?: Partial<APIClient>; count?: number; status?: string } = {}) {
   const client = { hasPlanDelivery: true, getWorkItem: vi.fn(async (id: string) => {
     const value = item(id.startsWith("run-b") ? "run-b" : "run-a", id.endsWith("2") ? 2 : 1);
     return value;
   }), recordPlanDeliveryCheckpoint: vi.fn(async () => ({ current_work_item: item() })),
-  controlPlanDeliveryWorkItem: vi.fn(), ...options.client } as unknown as CyberAgentClient;
+  controlPlanDeliveryWorkItem: vi.fn(), ...options.client } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const content = (runID = "run-a", plan = state(runID, options.count ?? 1)) => <QueryClientProvider client={queryClient}>
     <PlanDeliveryWorkItems client={client} detail={{ run: { id: runID, status: options.status ?? "paused" },
@@ -78,7 +78,7 @@ it("shows inherited manual completion with its exact original handoff without cl
   const oldNote = { id: "original-handoff", run_id: "run-original", content: "Original manual observation; automated check failed." };
   const test = setup({ client: {
     getWorkItem: vi.fn(async () => ({ ...item(), status: "completed" as const, version: 1 })),
-    getNote: vi.fn(async () => oldNote as Awaited<ReturnType<CyberAgentClient["getNote"]>>),
+    getNote: vi.fn(async () => oldNote as Awaited<ReturnType<APIClient["getNote"]>>),
   } });
   const plan = { ...state(), ready_checkpoints: 1, continued_completions: [{
     work_item_id: item().id, source_run_id: "run-original", source_work_item_id: "original-item",

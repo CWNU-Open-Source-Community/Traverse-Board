@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -47,7 +47,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	created, err := fixture.service.Create(t.Context(), createRequest)
 	if err != nil || created.Workspace == nil || created.Trust == nil ||
 		created.Receipt == nil || created.Checkpoint == nil ||
-		created.Workspace.State != drydock.StateReady ||
+		created.Workspace.State != runworktree.StateReady ||
 		created.Trust.GrantsProcessAuthority || created.Receipt.GrantsProcessAuthority {
 		t.Fatalf("created=%+v err=%v", created, err)
 	}
@@ -158,7 +158,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 		RunID: fixture.run.ID, ExpectedGeneration: workspace.Generation,
 		OperationKey: "deliver-0001", RequestedBy: "operator", Confirm: true}
 	delivered, err := fixture.service.Deliver(t.Context(), deliveryRequest)
-	if err != nil || delivered.Workspace.State != drydock.StateDelivered ||
+	if err != nil || delivered.Workspace.State != runworktree.StateDelivered ||
 		delivered.Review.Proposal.AutomaticMerge || delivered.Review.Proposal.PushAuthorized ||
 		delivered.Review.Proposal.ForceAuthorized ||
 		delivered.Review.Proposal.SourceOverwriteAllowed ||
@@ -183,7 +183,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	prepareDrydockRestoreForTest(t, fixture)
 	rewound, err := fixture.service.Rewind(t.Context(), rewindRequest)
 	if err != nil || !rewound.Confirmed || rewound.After == nil || rewound.Receipt == nil ||
-		rewound.Receipt.Operation != drydock.OperationRewind ||
+		rewound.Receipt.Operation != runworktree.OperationRewind ||
 		rewound.After.ParentCheckpointID == "" {
 		t.Fatalf("rewound=%+v err=%v", rewound, err)
 	}
@@ -207,7 +207,7 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 	undoRequest.Confirm = true
 	undone, err := fixture.service.Undo(t.Context(), undoRequest)
 	if err != nil || !undone.Confirmed || undone.After == nil || undone.Receipt == nil ||
-		undone.Receipt.Operation != drydock.OperationUndo {
+		undone.Receipt.Operation != runworktree.OperationUndo {
 		t.Fatalf("undone=%+v err=%v", undone, err)
 	}
 	if got := readDrydockTestFile(t, filepath.Join(undone.Workspace.Path, "tracked.txt")); got != "staged\n" {
@@ -410,8 +410,8 @@ func TestDrydockStoredTrustCannotSilentlyAdoptSourceStateDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	trust := drydock.Trust{ID: drydockTrustID(fixture.run.ID, source.Identity),
-		ProtocolVersion: drydock.TrustProtocolVersion, RunID: fixture.run.ID,
+	trust := runworktree.Trust{ID: drydockTrustID(fixture.run.ID, source.Identity),
+		ProtocolVersion: runworktree.TrustProtocolVersion, RunID: fixture.run.ID,
 		WorkspaceID: fixture.workspace.ID, Source: source.Identity,
 		SourceState: source.State, ConfirmedBy: "operator", ConfirmedAt: now}
 	if _, _, err := fixture.state.CreateDrydockTrust(t.Context(), trust); err != nil {
@@ -423,7 +423,7 @@ func TestDrydockStoredTrustCannotSilentlyAdoptSourceStateDrift(t *testing.T) {
 	result, err := fixture.service.Create(t.Context(), DrydockCreateRequest{
 		RunID: fixture.run.ID, OperationKey: "trust-state-drift-create-0001",
 		RequestedBy: "operator", ConfirmWorkspaceTrust: true,
-		ExpectedTrustDigest: drydock.TrustConfirmationDigest(source.Identity, source.State)})
+		ExpectedTrustDigest: runworktree.TrustConfirmationDigest(source.Identity, source.State)})
 	if err == nil || !strings.Contains(err.Error(), "current source identity and state") ||
 		result.Workspace != nil {
 		t.Fatalf("source state drift result=%+v err=%v", result, err)
@@ -439,15 +439,15 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		now := time.Now().UTC()
-		trust := drydock.Trust{ID: drydockTrustID(fixture.run.ID, source.Identity),
-			ProtocolVersion: drydock.TrustProtocolVersion, RunID: fixture.run.ID,
+		trust := runworktree.Trust{ID: drydockTrustID(fixture.run.ID, source.Identity),
+			ProtocolVersion: runworktree.TrustProtocolVersion, RunID: fixture.run.ID,
 			WorkspaceID: fixture.workspace.ID, Source: source.Identity,
 			SourceState: source.State, ConfirmedBy: "operator", ConfirmedAt: now}
 		trust, _, err = fixture.state.CreateDrydockTrust(t.Context(), trust)
 		if err != nil {
 			t.Fatal(err)
 		}
-		identityDigest := drydock.Fingerprint("drydock", fixture.run.ID,
+		identityDigest := runworktree.Fingerprint("drydock", fixture.run.ID,
 			source.Identity.Fingerprint())
 		name := "drydock-" + identityDigest[:24]
 		branch := "codex/drydock/" + identityDigest[:24]
@@ -456,16 +456,16 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		workspace := drydock.Workspace{ID: "drydock-" + identityDigest[:32],
-			ProtocolVersion: drydock.WorkspaceProtocolVersion, RunID: fixture.run.ID,
+		workspace := runworktree.Workspace{ID: "drydock-" + identityDigest[:32],
+			ProtocolVersion: runworktree.WorkspaceProtocolVersion, RunID: fixture.run.ID,
 			MissionID: fixture.run.MissionID, SessionID: fixture.run.SessionID,
 			SourceWorkspaceID: fixture.workspace.ID,
 			WorkspaceID:       "drydock-ws-" + identityDigest[:32], TrustID: trust.ID,
 			Source: source.Identity, Name: name, Path: filepath.Clean(plan.Path),
-			PathSHA256: drydock.FingerprintBytes([]byte(filepath.ToSlash(filepath.Clean(plan.Path)))),
+			PathSHA256: runworktree.FingerprintBytes([]byte(filepath.ToSlash(filepath.Clean(plan.Path)))),
 			Branch:     branch, BaseCommit: source.Identity.BaseCommit,
-			CreatePreviewID: plan.Preview.ID, State: drydock.StatePreparing,
-			Generation: 1, ExpiresAt: now.Add(drydock.DefaultLifetime),
+			CreatePreviewID: plan.Preview.ID, State: runworktree.StatePreparing,
+			Generation: 1, ExpiresAt: now.Add(runworktree.DefaultLifetime),
 			CreatedAt: now, UpdatedAt: now}
 		workspace, _, err = fixture.state.PrepareDrydock(t.Context(), workspace)
 		if err != nil {
@@ -480,7 +480,7 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 			t.Fatalf("reconciled=%+v err=%v", reconciled, err)
 		}
 		stored, found, err := fixture.state.GetDrydockByRun(t.Context(), fixture.run.ID)
-		if err != nil || !found || stored.State != drydock.StateReady ||
+		if err != nil || !found || stored.State != runworktree.StateReady ||
 			stored.LastCheckpointID == "" {
 			t.Fatalf("stored=%+v found=%t err=%v", stored, found, err)
 		}
@@ -500,7 +500,7 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 			t.Fatalf("post-crash file was changed or removed: %q", got)
 		}
 		stored, found, err := fixture.state.GetDrydockByRun(t.Context(), fixture.run.ID)
-		if err != nil || !found || stored.State != drydock.StateReady || stored.Generation != created.Generation {
+		if err != nil || !found || stored.State != runworktree.StateReady || stored.Generation != created.Generation {
 			t.Fatalf("stored=%+v found=%t err=%v", stored, found, err)
 		}
 		if stored.ExpectedBindingFingerprint != created.ExpectedBindingFingerprint {
@@ -511,8 +511,8 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 				ExpectedGeneration: stored.Generation,
 				OperationKey:       "post-crash-unconfirmed-recovery-0001",
 				RequestedBy:        "operator"})
-		if err == nil || unconfirmed.Workspace.State != drydock.StateRecoveryRequired ||
-			unconfirmed.Receipt.Outcome != drydock.OutcomePreserved {
+		if err == nil || unconfirmed.Workspace.State != runworktree.StateRecoveryRequired ||
+			unconfirmed.Receipt.Outcome != runworktree.OutcomePreserved {
 			t.Fatalf("unconfirmed recovery=%+v err=%v", unconfirmed, err)
 		}
 		confirmed, err := fixture.service.Checkpoint(t.Context(),
@@ -520,8 +520,8 @@ func TestDrydockCrashRecoveryAndGCPreservePostCrashUserFile(t *testing.T) {
 				ExpectedGeneration: unconfirmed.Workspace.Generation,
 				OperationKey:       "post-crash-confirmed-recovery-0001",
 				RequestedBy:        "operator", ConfirmObservedChanges: true})
-		if err != nil || confirmed.Workspace.State != drydock.StateReady ||
-			confirmed.Receipt.Operation != drydock.OperationRecover {
+		if err != nil || confirmed.Workspace.State != runworktree.StateReady ||
+			confirmed.Receipt.Operation != runworktree.OperationRecover {
 			t.Fatalf("confirmed recovery=%+v err=%v", confirmed, err)
 		}
 		replayed, err := fixture.service.Checkpoint(t.Context(),
@@ -592,7 +592,7 @@ func TestDrydockCleanupUsesExactNonForceGitReceiptAndRetainsBranch(t *testing.T)
 	result, err := fixture.service.Cleanup(t.Context(), DrydockCleanupRequest{
 		RunID: fixture.run.ID, ExpectedGeneration: created.Generation,
 		OperationKey: "cleanup-0001", RequestedBy: "operator", Confirm: true})
-	if err != nil || result.Workspace.State != drydock.StateCleaned || result.Preserved ||
+	if err != nil || result.Workspace.State != runworktree.StateCleaned || result.Preserved ||
 		result.Receipt.GitReceiptID == "" {
 		t.Fatalf("cleanup=%+v err=%v", result, err)
 	}
@@ -649,13 +649,13 @@ func TestDrydockCleanupClosesExactlyAbsentPostCrashRegistrationWithoutDeleting(t
 		t.Fatalf("post-crash reconcile=%+v err=%v", reconciled, err)
 	}
 	stored, found, err := fixture.state.GetDrydockByRun(t.Context(), fixture.run.ID)
-	if err != nil || !found || stored.State != drydock.StateRecoveryRequired {
+	if err != nil || !found || stored.State != runworktree.StateRecoveryRequired {
 		t.Fatalf("post-crash stored=%+v found=%t err=%v", stored, found, err)
 	}
 	closed, err := fixture.service.Cleanup(t.Context(), DrydockCleanupRequest{
 		RunID: fixture.run.ID, ExpectedGeneration: stored.Generation,
 		OperationKey: "cleanup-absent-recovery-0001", RequestedBy: "operator", Confirm: true})
-	if err != nil || closed.Workspace.State != drydock.StateCleaned || closed.Preserved ||
+	if err != nil || closed.Workspace.State != runworktree.StateCleaned || closed.Preserved ||
 		closed.Receipt.GitReceiptID != "" ||
 		!strings.Contains(closed.Receipt.Summary, "no filesystem entry was deleted") {
 		t.Fatalf("absent cleanup=%+v err=%v", closed, err)
@@ -724,7 +724,7 @@ func TestDrydockForkUsesCheckpointAndCreatesAuthorityResetRun(t *testing.T) {
 	if err != nil || forked.Fork.Run.ID == fixture.run.ID ||
 		forked.Fork.Workspace.ID == created.WorkspaceID ||
 		forked.Fork.Checkpoint.RunID != forked.Fork.Run.ID ||
-		forked.Receipt.Operation != drydock.OperationFork ||
+		forked.Receipt.Operation != runworktree.OperationFork ||
 		forked.Workspace.Generation != created.Generation+1 {
 		t.Fatalf("forked=%+v err=%v", forked, err)
 	}
@@ -812,8 +812,8 @@ func TestDrydockReconcilesInterruptedCheckpointWithOwnedWorkspaceBinding(t *test
 type drydockApplicationFixture struct {
 	state        *store.SQLiteStore
 	databasePath string
-	service      *DrydockService
-	executor     *repository.DrydockExecutor
+	service      *RunWorktreeService
+	executor     *repository.RunWorktreeExecutor
 	run          domain.Run
 	workspace    store.WorkspaceRecord
 	sourceRoot   string
@@ -831,8 +831,8 @@ func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicat
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
-	workspace := store.WorkspaceRecord{ID: "workspace-" + drydock.Fingerprint("workspace", rootName)[:16],
-		Name:     "workspace-" + drydock.Fingerprint("workspace-name", rootName)[:16],
+	workspace := store.WorkspaceRecord{ID: "workspace-" + runworktree.Fingerprint("workspace", rootName)[:16],
+		Name:     "workspace-" + runworktree.Fingerprint("workspace-name", rootName)[:16],
 		RootPath: sourceRoot}
 	if err := state.SaveWorkspace(context.Background(), workspace); err != nil {
 		t.Fatal(err)
@@ -845,11 +845,11 @@ func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicat
 		t.Fatal(err)
 	}
 	managedRoot := filepath.Join(t.TempDir(), "产品 Drydock 根")
-	executor, err := repository.NewDrydockExecutor(managedRoot)
+	executor, err := repository.NewRunWorktreeExecutor(managedRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewDrydockService(state, executor)
+	service, err := NewRunWorktreeService(state, executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,7 +857,7 @@ func newDrydockApplicationFixture(t *testing.T, rootName string) drydockApplicat
 		run: run, workspace: workspace, sourceRoot: sourceRoot, databasePath: databasePath}
 }
 
-func mustCreateDrydock(t *testing.T, fixture drydockApplicationFixture) drydock.Workspace {
+func mustCreateDrydock(t *testing.T, fixture drydockApplicationFixture) runworktree.Workspace {
 	t.Helper()
 	preview, err := fixture.service.Create(t.Context(), DrydockCreateRequest{
 		RunID: fixture.run.ID, OperationKey: "create-preview-0000", RequestedBy: "operator"})

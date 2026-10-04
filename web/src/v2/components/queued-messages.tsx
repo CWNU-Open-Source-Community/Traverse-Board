@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import { inspectQueueCancellation, inspectQueuePromotion, inspectQueueRevision, promoteQueuedMessage, provesQueueRevisionUnchanged,
   readQueuedMessages, reviseQueuedMessage, type QueueBinding, type QueuePromotionInput, type QueuedMessage } from "../../api/queued-messages";
 import { getV2DraftDocument } from "../draft-context";
@@ -22,7 +22,7 @@ const promotionInput = (operation: QueueOperation): QueuePromotionInput => {
   return { ...operation, expectedAttemptID: operation.expectedAttemptID, expectedExecutionID: operation.expectedExecutionID };
 };
 
-export function useV2QueuedMessagesQuery(client: CyberAgentClient, binding: QueueBinding | null, running: boolean) {
+export function useV2QueuedMessagesQuery(client: APIClient, binding: QueueBinding | null, running: boolean) {
   return useQuery({ queryKey: [...v2QueryKeys.thread(binding?.threadID ?? ""), "queued-messages", client.baseURL,
     binding?.runID ?? "", binding?.sessionID ?? "", binding?.workspaceID ?? ""],
     queryFn: ({ signal }) => {
@@ -32,11 +32,11 @@ export function useV2QueuedMessagesQuery(client: CyberAgentClient, binding: Queu
     refetchInterval: (current) => running && !current.state.error ? 2000 : false });
 }
 
-export function V2QueuedMessages(props: QueueBinding & { client: CyberAgentClient; running: boolean; canPromote?: boolean }) {
+export function V2QueuedMessages(props: QueueBinding & { client: APIClient; running: boolean; canPromote?: boolean }) {
   // A late response belongs to the captured task and cannot replace another editor.
   return <QueuePanel key={JSON.stringify([props.client.baseURL, props.threadID, props.runID, props.sessionID, props.workspaceID])} {...props} />;
 }
-function QueuePanel({ client, running, canPromote = false, ...binding }: QueueBinding & { client: CyberAgentClient; running: boolean; canPromote?: boolean }) {
+function QueuePanel({ client, running, canPromote = false, ...binding }: QueueBinding & { client: APIClient; running: boolean; canPromote?: boolean }) {
   const queryClient = useQueryClient();
   const store = useV2RecoveryStore();
   const document = useMemo(() => store ? getV2DraftDocument(store) : null, [store]);
@@ -240,7 +240,7 @@ function QueuePanel({ client, running, canPromote = false, ...binding }: QueueBi
 }
 
 function QueueEditor({ edit, current, client, document, store, locked, queueKnown, previousRun, refresh, submit, startEdit }: {
-  edit: QueueEdit; current?: QueuedMessage; client: CyberAgentClient; document: DraftDocument; store: V2RecoveryStore;
+  edit: QueueEdit; current?: QueuedMessage; client: APIClient; document: DraftDocument; store: V2RecoveryStore;
   locked: boolean; queueKnown: boolean; previousRun: boolean; refresh: () => void; submit: (operation: QueueOperation) => void; startEdit: (message: QueuedMessage) => void;
 }) {
   const scope = useMemo(() => queueEditScope(edit), [edit.threadID, edit.runID, edit.sessionID, edit.message.id, edit.message.revision]);

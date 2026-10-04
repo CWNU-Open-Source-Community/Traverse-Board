@@ -16,9 +16,9 @@ type CodeIntelToolExecutor struct {
 	authority *AgentCodeToolExecutor
 }
 
-func (e *CodeIntelToolExecutor) WithDrydock(drydocks *DrydockService) *CodeIntelToolExecutor {
+func (e *CodeIntelToolExecutor) WithRunWorktree(drydocks *RunWorktreeService) *CodeIntelToolExecutor {
 	if e != nil && e.authority != nil {
-		e.authority.WithDrydock(drydocks)
+		e.authority.WithRunWorktree(drydocks)
 	}
 	return e
 }

@@ -142,12 +142,12 @@ func (a *App) runStandardCodePreset(ctx context.Context, command string,
 				dockerExecutor.Identity())
 		}
 	}
-	drydockExecutor, err := repository.NewDrydockExecutor(
+	drydockExecutor, err := repository.NewRunWorktreeExecutor(
 		filepath.Join(a.home, "drydocks"))
 	if err != nil {
 		return err
 	}
-	drydocks, err := application.NewDrydockService(a.store, drydockExecutor)
+	drydocks, err := application.NewRunWorktreeService(a.store, drydockExecutor)
 	if err != nil {
 		return err
 	}
@@ -376,11 +376,11 @@ func (a *App) newStandardCodeDockerService(dockerEnabled, permissionControl,
 		return nil, fmt.Errorf("%s must name one pre-existing exact OCI sha256 image digest",
 			standardCodeDockerImageEnvironment)
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(a.home, "drydocks"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(a.home, "drydocks"))
 	if err != nil {
 		return nil, err
 	}
-	drydocks, err := application.NewDrydockService(a.store, executor)
+	drydocks, err := application.NewRunWorktreeService(a.store, executor)
 	if err != nil {
 		return nil, err
 	}

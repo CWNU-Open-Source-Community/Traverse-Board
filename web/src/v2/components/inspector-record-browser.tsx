@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunView, SessionView } from "../../api/types";
 import { LifecycleStatusLabel } from "../../components/lifecycle-status";
 import { formatDate } from "../../lib/format";
@@ -10,7 +10,7 @@ import "./inspector-record-browser.css";
 type RecordKind = "run" | "session";
 
 export function InspectorRecordBrowser({ client, onOpen }: {
-  client: CyberAgentClient;
+  client: APIClient;
   onOpen: (kind: RecordKind, id: string) => void;
 }) {
   const [kind, setKind] = useState<RecordKind | null>(null);
@@ -26,7 +26,7 @@ export function InspectorRecordBrowser({ client, onOpen }: {
 }
 
 function RecordList({ client, kind, onOpen }: {
-  client: CyberAgentClient;
+  client: APIClient;
   kind: RecordKind;
   onOpen: (kind: RecordKind, id: string) => void;
 }) {

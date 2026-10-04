@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { V2FileReference } from "./file-context";
 import type { PageResult, ThreadDetailView, ThreadExecutionView, ThreadTranscriptItemView, WorkspaceView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
@@ -104,7 +104,7 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function renderConversation(client: CyberAgentClient, initialThreadID = "thread-a", extras?: ReactNode,
+function renderConversation(client: APIClient, initialThreadID = "thread-a", extras?: ReactNode,
   draftProps?: { draft: string; onDraftChange: (content: string, expected?: string) => void }) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -119,7 +119,7 @@ function renderConversation(client: CyberAgentClient, initialThreadID = "thread-
     rerenderThread: (threadID: string) => view.rerender(props(threadID)) };
 }
 
-function baseClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient {
+function baseClient(overrides: Partial<APIClient> = {}): APIClient {
   return {
     get: vi.fn((path: string) => {
       if (path.endsWith("/agent-browser")) return Promise.reject(new APIRequestError("Route unavailable", "NOT_FOUND", 404));
@@ -130,7 +130,7 @@ function baseClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient
     hasThreadControl: true,
     submitThreadTurn: vi.fn(() => Promise.resolve({ steering: { id: "steering-1" } })),
     ...overrides,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
 }
 
 function queuedTranscript(id: string, sourceRef: string, patch: Partial<ThreadTranscriptItemView> = {}) {
@@ -155,7 +155,7 @@ describe("V2Conversation", () => {
         ? { ...queueSnapshot(), current_attempt_id: "attempt-a", execution_id: "execution-a",
           items: queueSnapshot().items.map((item) => ({ ...item, can_edit: true, can_cancel: true })) }
         : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
-    } as unknown as Partial<CyberAgentClient>);
+    } as unknown as Partial<APIClient>);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } } });
     render(<V2RecoveryProvider client={client} scopeID="conversation-queue-owner-test"><QueryClientProvider client={queryClient}>
       <V2Conversation client={client} onArchive={vi.fn()} onManageModels={vi.fn()} onOpenInspector={vi.fn()}
@@ -175,7 +175,7 @@ describe("V2Conversation", () => {
       queuedTranscript("cancelled-source", "cancelled-one", { status: "cancelled" }),
       queuedTranscript("steer-replacement", "replacement-steer", { status: "committed", delivery_mode: "steer",
         promoted_from_message_id: "queued-one" }),
-    ]))) } as unknown as Partial<CyberAgentClient>);
+    ]))) } as unknown as Partial<APIClient>);
     const ui = renderConversation(client);
     const summary = await screen.findByText("排队消息已转为引导");
     expect(summary).toHaveAttribute("title", "同样的排队要求");
@@ -198,7 +198,7 @@ describe("V2Conversation", () => {
       queuedTranscript("unconfirmed-event", "queued-one", { durable: false, provisional: true })];
     const client = baseClient({ get: vi.fn((path: string) => Promise.resolve(path.endsWith("/queued-messages")
       ? queueSnapshot() : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
-      getPage: vi.fn(() => Promise.resolve(page(items))) } as unknown as Partial<CyberAgentClient>);
+      getPage: vi.fn(() => Promise.resolve(page(items))) } as unknown as Partial<APIClient>);
     const ui = renderConversation(client);
     await screen.findByRole("button", { name: "查看消息 1 全文" });
     await waitFor(() => expect(within(ui.container.querySelector(".v2-narrative")!).getAllByText("同样的排队要求")).toHaveLength(5));
@@ -215,7 +215,7 @@ describe("V2Conversation", () => {
         return Promise.resolve(queueSnapshot());
       }
       return Promise.resolve({ ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } });
-    }), getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<CyberAgentClient>);
+    }), getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<APIClient>);
     const ui = renderConversation(client);
     expect(await screen.findByText("同样的排队要求")).toBeInTheDocument();
     await act(async () => { pendingQueue.resolve(queueSnapshot()); });
@@ -232,7 +232,7 @@ describe("V2Conversation", () => {
     const client = baseClient({ get: vi.fn((path: string) => Promise.resolve(path.endsWith("/queued-messages")
       ? successor ? queueSnapshot("run-next", "sess-next") : { ...queueSnapshot(), pending: 2 }
       : { ...detail("thread-a"), active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
-      getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<CyberAgentClient>);
+      getPage: vi.fn(() => Promise.resolve(page([queuedTranscript("queued-event", "queued-one")]))) } as unknown as Partial<APIClient>);
     const ui = renderConversation(client);
     await screen.findByText(/暂时无法读取完整队列/u);
     expect(within(ui.container.querySelector(".v2-narrative")!).getByText("同样的排队要求")).toBeInTheDocument();
@@ -245,13 +245,13 @@ describe("V2Conversation", () => {
 
   it("sends an explicit current-task correction through the Session endpoint", async () => {
     const submitSessionMessage = vi.fn(() => Promise.resolve({ steering: { id: "steer-current" } } as Awaited<
-      ReturnType<CyberAgentClient["submitSessionMessage"]>>));
+      ReturnType<APIClient["submitSessionMessage"]>>));
     const submitThreadTurn = vi.fn();
     const client = baseClient({
       get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
         active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
       submitSessionMessage, submitThreadTurn,
-    } as Partial<CyberAgentClient>);
+    } as Partial<APIClient>);
     renderConversation(client);
     const user = userEvent.setup();
     await screen.findByRole("combobox", { name: "发送方式" });
@@ -272,7 +272,7 @@ describe("V2Conversation", () => {
       get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
         active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
       threadExecution: vi.fn(() => Promise.resolve(execution)), submitSessionMessage, submitThreadTurn,
-    } as Partial<CyberAgentClient>));
+    } as Partial<APIClient>));
     const user = userEvent.setup();
     await screen.findByRole("combobox", { name: "发送方式" });
     await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
@@ -447,7 +447,7 @@ describe("V2Conversation", () => {
         }],
       })),
       decideApproval: vi.fn(),
-    } as Partial<CyberAgentClient>);
+    } as Partial<APIClient>);
 
     renderConversation(client);
 
@@ -468,7 +468,7 @@ describe("V2Conversation", () => {
     } } as ThreadDetailView;
     const client = baseClient({
       get: vi.fn(() => Promise.resolve(failedDetail)),
-    } as Partial<CyberAgentClient>);
+    } as Partial<APIClient>);
 
     renderConversation(client);
 
@@ -488,7 +488,7 @@ describe("V2Conversation", () => {
         pending: 1, prepared: 0, capability_grant: false, items: [{ id: "message-pending", sequence: 1, status: "pending", prepared: false,
           content: "停止后仍保留的要求", content_sha256: "a".repeat(64), content_redacted: false, revision: 0,
           created_at: "2026-09-22T01:00:00Z", images: [], attachments: [], can_edit: false, can_cancel: false }],
-      } : current) as CyberAgentClient["get"],
+      } : current) as APIClient["get"],
     }));
     expect(await screen.findByText("停止尚未完成。请重试停止，确认后再发送；已受理的要求会保留。")).toBeInTheDocument();
     expect(await screen.findByText("待处理 1 条")).toBeInTheDocument();
@@ -506,9 +506,9 @@ describe("V2Conversation", () => {
   });
 
   it("isolates optimistic sends and their async completion by Thread", async () => {
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const submitThreadTurn = vi.fn(() => submission.promise);
-    const client = baseClient({ submitThreadTurn } as Partial<CyberAgentClient>);
+    const client = baseClient({ submitThreadTurn } as Partial<APIClient>);
     const user = userEvent.setup();
     const view = renderConversation(client);
 
@@ -523,7 +523,7 @@ describe("V2Conversation", () => {
 
     await act(async () => {
       submission.resolve({ steering: { id: "steering-a" } } as Awaited<
-        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+        ReturnType<APIClient["submitThreadTurn"]>>);
       await submission.promise;
     });
     expect(screen.queryByText("pending-thread-a")).not.toBeInTheDocument();
@@ -531,12 +531,12 @@ describe("V2Conversation", () => {
   });
 
   it("distinguishes an in-flight submission from Agent execution and consumes the completed Thread projection", async () => {
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const client = baseClient({
       get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
         active_run: { id: "run-thread-a", status: "running" } })),
       submitThreadTurn: vi.fn(() => submission.promise),
-    } as Partial<CyberAgentClient>);
+    } as Partial<APIClient>);
     const user = userEvent.setup();
     const view = renderConversation(client);
 
@@ -552,7 +552,7 @@ describe("V2Conversation", () => {
     const completed = detail("thread-a").thread;
     await act(async () => {
       submission.resolve({ steering: { id: "steering-a" }, thread: completed } as Awaited<
-        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+        ReturnType<APIClient["submitThreadTurn"]>>);
       await submission.promise;
     });
     await waitFor(() => expect(screen.queryByText("正在发送消息")).not.toBeInTheDocument());
@@ -561,7 +561,7 @@ describe("V2Conversation", () => {
   });
 
   it("keeps the next-message chip after the matching submission resolves", async () => {
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
       state: "running", queued_messages: 0, capability_grant: false };
     const onDraftChange = vi.fn();
@@ -578,7 +578,7 @@ describe("V2Conversation", () => {
 
     await act(async () => {
       submission.resolve({ steering: { id: "steering-a" } } as Awaited<
-        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+        ReturnType<APIClient["submitThreadTurn"]>>);
       await submission.promise;
     });
     // The settled mutation leaves the cache, but the leftover draft still
@@ -590,7 +590,7 @@ describe("V2Conversation", () => {
   });
 
   it("does not offer another Thread's unsent draft for clearing after a late confirmation", async () => {
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const onDraftChange = vi.fn();
     const client = baseClient({ hasThreadExecutionRead: true,
       threadExecution: vi.fn(async (threadID: string) => ({ version: "thread_execution.v1", thread_id: threadID,
@@ -606,7 +606,7 @@ describe("V2Conversation", () => {
     expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
     await act(async () => {
       submission.resolve({ steering: { id: "steering-a" } } as Awaited<
-        ReturnType<CyberAgentClient["submitThreadTurn"]>>);
+        ReturnType<APIClient["submitThreadTurn"]>>);
       await submission.promise;
     });
     expect(screen.queryByRole("button", { name: "编写下一条" })).not.toBeInTheDocument();
@@ -625,7 +625,7 @@ describe("V2Conversation", () => {
     const onDraftChange = vi.fn();
     renderConversation(baseClient({ hasThreadExecutionRead: true,
       threadExecution: vi.fn(async () => execution),
-      getPage: vi.fn(() => Promise.resolve(page([operatorItem]))) } as Partial<CyberAgentClient>),
+      getPage: vi.fn(() => Promise.resolve(page([operatorItem]))) } as Partial<APIClient>),
       "thread-a", undefined, { draft: "已经发送的内容", onDraftChange });
 
     const chip = await screen.findByRole("button", { name: "编写下一条" });
@@ -642,7 +642,7 @@ describe("V2Conversation", () => {
       get: vi.fn(() => Promise.resolve({ ...detail("thread-a"),
         active_run: { id: "run-thread-a", session_id: "sess-thread-a", status: "running" } })),
       threadExecution: vi.fn(() => Promise.resolve(execution)),
-    } as Partial<CyberAgentClient>));
+    } as Partial<APIClient>));
     const user = userEvent.setup();
     await screen.findByRole("combobox", { name: "发送方式" });
     await user.selectOptions(screen.getByRole("combobox", { name: "发送方式" }), "steer");
@@ -659,7 +659,7 @@ describe("V2Conversation", () => {
   });
 
   it("shows confirmed Agent activity and stopping while the submission response is still pending", async () => {
-    const submission = deferred<Awaited<ReturnType<CyberAgentClient["submitThreadTurn"]>>>();
+    const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
     const execution: ThreadExecutionView = { version: "thread_execution.v1", thread_id: "thread-a",
       state: "idle", queued_messages: 0, capability_grant: false };
     const view = renderConversation(baseClient({ hasThreadExecutionRead: true,
@@ -677,7 +677,7 @@ describe("V2Conversation", () => {
       { ...execution, state: "stopping", execution_id: "accepted-execution" }); });
     expect(await screen.findByText("正在停止")).toBeInTheDocument();
     await act(async () => { submission.resolve({ steering: { id: "steering-a" } } as Awaited<
-      ReturnType<CyberAgentClient["submitThreadTurn"]>>); await submission.promise; });
+      ReturnType<APIClient["submitThreadTurn"]>>); await submission.promise; });
   });
 
   it("pages toward older transcript records without reversing or duplicating the timeline", async () => {
@@ -687,7 +687,7 @@ describe("V2Conversation", () => {
         ? page([transcriptItem("oldest", "oldest message", 1), middle])
         : page([middle, transcriptItem("newest", "newest message", 3)], "older-cursor"),
     ));
-    const client = baseClient({ getPage } as Partial<CyberAgentClient>);
+    const client = baseClient({ getPage } as Partial<APIClient>);
     const user = userEvent.setup();
     const view = renderConversation(client);
 

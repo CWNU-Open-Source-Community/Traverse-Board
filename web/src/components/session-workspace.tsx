@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MessagesSquare } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { MessageView, RunDetailView, SessionDetailView } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatDate, formatNumber, shortID } from "../lib/format";
@@ -14,7 +14,7 @@ import { SafeMarkdown } from "./safe-markdown";
 import "./inspector-workspace-navigation.css";
 
 export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
-  client: CyberAgentClient;
+  client: APIClient;
   sessionID: string;
   onOpenPlugins?: () => void;
 }) {

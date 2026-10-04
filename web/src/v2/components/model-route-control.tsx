@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert,
   LoaderCircle, RotateCcw, Settings } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { AvailableModelRouteCollectionView, AvailableModelRouteView,
   ThreadModelRouteView } from "../../api/types";
 
@@ -107,7 +107,7 @@ function moveMenuFocus(event: ReactKeyboardEvent<HTMLElement>) {
 
 export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive = false,
   onManageModels, onPendingRouteChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   pendingRoute?: V2PendingModelRoute | null;
   runActive?: boolean;

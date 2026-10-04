@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,7 +24,7 @@ it("reads native plugins with absent author/version and uses the existing pinned
   const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ protocol_version: "extension-inventory.v1",
     mcp_servers: [], mcp_calls: [], plugins: [plugin] })).mockResolvedValueOnce(envelope({ ...plugin, state: "disabled", generation: 4 }));
   vi.stubGlobal("fetch", fetchMock);
-  const client = new CyberAgentClient("read", "/api/v1", "control", { extensionControlEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { extensionControlEnabled: true });
   await expect(client.extensionInventory()).resolves.toMatchObject({ plugins: [plugin] });
   await expect(client.reviewPluginInstallation(plugin.id, { version: "extension-control.v1", action: "disable",
     expected_package_fingerprint: plugin.package_fingerprint, expected_generation: 3, confirm_untrusted: false,
@@ -41,7 +41,7 @@ it.each(["missing snapshot", "changed revision", "unknown surface", "unsupported
     if (failure === "unsupported protocol") plugin.protocol_version = "unsupported";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(envelope({ protocol_version: "extension-inventory.v1",
       mcp_servers: [], mcp_calls: [], plugins: [plugin] })));
-    await expect(new CyberAgentClient("read").extensionInventory()).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    await expect(new APIClient("read").extensionInventory()).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
 
@@ -51,7 +51,7 @@ it.each(["agent-skills", "agent-plugins", "traverse-skill"])("imports %s through
   const result = { protocol_version: "plugin-installation.v2", installation: plugin, replayed: false };
   const fetchMock = vi.fn().mockResolvedValue(envelope(result));
   vi.stubGlobal("fetch", fetchMock);
-  const client = new CyberAgentClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
   await expect(client.installSkillPackage({ version: "plugin-installation.v2", archive_base64: "cGFja2FnZQ==",
     surface: "code", confirm_untrusted: true }, "plugin-install-operation")).resolves.toEqual(result);
 });
@@ -64,7 +64,7 @@ it.each(["enabled without replay", "wrong surface", "invented receipt"])("reject
   if (failure === "wrong surface") plugin.snapshot.surface = "cyber";
   if (failure === "invented receipt") result.receipt = { outcome: "installed" };
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(envelope(result)));
-  const client = new CyberAgentClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
   await expect(client.installSkillPackage({ version: "plugin-installation.v2", archive_base64: "cGFja2FnZQ==",
     surface: "code", confirm_untrusted: true }, "plugin-install-operation")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
 });
@@ -73,7 +73,7 @@ it("preserves a disabled Plugin replay without claiming a new activation", async
   const installation = { ...nativePlugin(), state: "disabled", generation: 4, enabled_capabilities: [] };
   const result = { protocol_version: "plugin-installation.v2", installation, replayed: true };
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(envelope(result)));
-  const client = new CyberAgentClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
   await expect(client.installSkillPackage({ version: "skill_package_installation.v1", archive_base64: "cGFja2FnZQ==",
     surface: "code", confirm_untrusted: true }, "plugin-install-operation")).resolves.toEqual(result);
 });
@@ -89,7 +89,7 @@ it("keeps historical recovery responses with their original mode metadata", asyn
     receipt: { protocol_version: "operation_receipt.v1", kind: "skill_package_install", outcome: "installed", durable: true,
       replayed: true, retry_safe: true, retry_strategy: "same_operation_key", recovery_action: "none", cleanup_state: "not_applicable" } };
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(envelope(result)));
-  const client = new CyberAgentClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { skillInstallationEnabled: true });
   await expect(client.installSkillPackage({ version: "skill_package_installation.v1", archive_base64: "cGFja2FnZQ==",
     surface: "code", confirm_untrusted: true }, "historical-import-operation")).resolves.toEqual(result);
 });

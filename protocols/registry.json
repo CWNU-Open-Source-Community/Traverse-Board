@@ -1928,7 +1928,7 @@
         },
         {
           "id": "project-instruction-audit-writer",
-          "source": "internal/application/run_supervisor.go",
+          "source": "internal/application/agent_runner.go",
           "versions": [
             1
           ],
@@ -2522,7 +2522,7 @@
       "class": "projection",
       "owner": "Supervisor input and context maintainers",
       "source_of_truth": [
-        "internal/application/run_supervisor.go",
+        "internal/application/agent_runner.go",
         "internal/application/supervisor_input_delivery.go",
         "internal/store"
       ],

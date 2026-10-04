@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"cyberagent-workbench/internal/apperror"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
@@ -15,7 +15,7 @@ type drydockRestoreJournalStore interface {
 	UpdateWorkspaceCheckpointTransaction(context.Context, workspacecheckpoint.Transaction) (workspacecheckpoint.Transaction, bool, error)
 }
 
-func (s *DrydockService) drydockRestoreJournal(ctx context.Context, digest string) (*workspacecheckpoint.Transaction, error) {
+func (s *RunWorktreeService) drydockRestoreJournal(ctx context.Context, digest string) (*workspacecheckpoint.Transaction, error) {
 	store, ok := s.store.(drydockRestoreJournalStore)
 	if !ok {
 		return nil, apperror.New(apperror.CodeFailedPrecondition, "Drydock restore journal is unavailable")
@@ -27,8 +27,8 @@ func (s *DrydockService) drydockRestoreJournal(ctx context.Context, digest strin
 	return &transaction, nil
 }
 
-func (s *DrydockService) prepareDrydockRestore(ctx context.Context, request DrydockRewindRequest,
-	operation drydock.Operation, digest string, workspace drydock.Workspace, before workspacecheckpoint.Snapshot,
+func (s *RunWorktreeService) prepareDrydockRestore(ctx context.Context, request DrydockRewindRequest,
+	operation runworktree.Operation, digest string, workspace runworktree.Workspace, before workspacecheckpoint.Snapshot,
 	preview workspacecheckpoint.Preview,
 ) (*workspacecheckpoint.Transaction, error) {
 	store, ok := s.store.(drydockRestoreJournalStore)
@@ -53,7 +53,7 @@ func (s *DrydockService) prepareDrydockRestore(ctx context.Context, request Dryd
 		return nil, apperror.Normalize(err)
 	}
 	kind := workspacecheckpoint.TransactionRewind
-	if operation == drydock.OperationUndo {
+	if operation == runworktree.OperationUndo {
 		kind = workspacecheckpoint.TransactionUndo
 	}
 	now := s.now().UTC()
@@ -71,7 +71,7 @@ func (s *DrydockService) prepareDrydockRestore(ctx context.Context, request Dryd
 
 // Keep the journal open until the lifecycle receipt is durable. That receipt
 // and the physical cursor then prove which request completed after a lost reply.
-func (s *DrydockService) finishDrydockRestoreJournal(ctx context.Context, digest string, receipt drydock.Receipt) error {
+func (s *RunWorktreeService) finishDrydockRestoreJournal(ctx context.Context, digest string, receipt runworktree.Receipt) error {
 	transaction, err := s.drydockRestoreJournal(ctx, digest)
 	if err != nil || transaction == nil || transaction.Status.Terminal() {
 		return err
@@ -82,7 +82,7 @@ func (s *DrydockService) finishDrydockRestoreJournal(ctx context.Context, digest
 	now := s.now().UTC()
 	transaction.Status = workspacecheckpoint.TransactionFailed
 	transaction.ErrorCode = "drydock_restore_preserved"
-	if receipt.Outcome == drydock.OutcomeSucceeded {
+	if receipt.Outcome == runworktree.OutcomeSucceeded {
 		transaction.Status = workspacecheckpoint.TransactionCompleted
 		transaction.ErrorCode = ""
 		transaction.AfterCheckpointID = receipt.CheckpointID
@@ -92,7 +92,7 @@ func (s *DrydockService) finishDrydockRestoreJournal(ctx context.Context, digest
 	return apperror.Normalize(err)
 }
 
-func (s *DrydockService) preserveDrydockRestore(ctx context.Context, digest string, receipt drydock.Receipt, err error) error {
+func (s *RunWorktreeService) preserveDrydockRestore(ctx context.Context, digest string, receipt runworktree.Receipt, err error) error {
 	if receipt.ID == "" {
 		return err
 	}
@@ -124,7 +124,7 @@ func drydockRestoreObservedIndex(expected, observed workspacecheckpoint.Snapshot
 // A checkpoint retains the Run and Session that actually captured it. A
 // successor may review that snapshot only through the immutable physical
 // directory binding, never by substituting its current execution identity.
-func (s *DrydockService) requireDrydockCheckpoint(ctx context.Context, workspace drydock.Workspace,
+func (s *RunWorktreeService) requireDrydockCheckpoint(ctx context.Context, workspace runworktree.Workspace,
 	checkpoint workspacecheckpoint.Checkpoint,
 ) error {
 	owned, found, err := readRunFileDrydock(ctx, s.store, checkpoint.RunID)
@@ -146,7 +146,7 @@ func (s *DrydockService) requireDrydockCheckpoint(ctx context.Context, workspace
 	return nil
 }
 
-func (s *DrydockService) skipTransferredDrydockReconciliation(ctx context.Context, workspace drydock.Workspace) (bool, error) {
+func (s *RunWorktreeService) skipTransferredDrydockReconciliation(ctx context.Context, workspace runworktree.Workspace) (bool, error) {
 	if pendingStore, ok := s.store.(interface {
 		HasPendingDrydockCleanup(context.Context, string) (bool, error)
 	}); ok {

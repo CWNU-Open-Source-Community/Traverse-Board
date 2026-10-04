@@ -1,4 +1,4 @@
-import { APIRequestError, type CyberAgentClient } from "./client";
+import { APIRequestError, type APIClient } from "./client";
 import { validFileAttachments, type WorkspaceFileAttachment } from "./file-attachments";
 import { validImageAttachments, type WorkspaceImageAttachment } from "./image-attachments";
 
@@ -83,7 +83,7 @@ export function parseQueuedMessages(value: unknown, binding: QueueBinding): Queu
     value.prepared !== value.items.filter((item) => item.prepared).length || value.pending + value.prepared !== value.items.length) throw invalid();
   return value as unknown as QueuedMessages;
 }
-export async function readQueuedMessages(client: CyberAgentClient, binding: QueueBinding, signal?: AbortSignal) {
+export async function readQueuedMessages(client: APIClient, binding: QueueBinding, signal?: AbortSignal) {
   return parseQueuedMessages(await client.get<unknown>(`/threads/${encodeURIComponent(binding.threadID)}/queued-messages`, {}, signal), binding);
 }
 export function parseQueueRevision(value: unknown, input: QueueRevisionInput): QueueRevision {
@@ -95,7 +95,7 @@ export function parseQueueRevision(value: unknown, input: QueueRevisionInput): Q
     !digest(value.receipt.new_content_sha256) || !timestamp(value.receipt.created_at)) throw invalid();
   return value as unknown as QueueRevision;
 }
-export async function reviseQueuedMessage(client: CyberAgentClient, input: QueueRevisionInput) {
+export async function reviseQueuedMessage(client: APIClient, input: QueueRevisionInput) {
   if (!client.hasSessionSteeringControl) throw new Error("当前连接没有修改排队消息的权限。");
   return parseQueueRevision(await client.postControl<unknown>(
     `/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/revise`,
@@ -106,7 +106,7 @@ function parseObservedMessage(value: unknown, input: Pick<QueueRevisionInput, "m
     !integer(value.revision) || !["pending", "committed", "cancelled"].includes(String(value.status))) throw invalid();
   return value as unknown as QueueObservedMessage;
 }
-export async function inspectQueueRevision(client: CyberAgentClient, input: QueueRevisionInput): Promise<QueueObservation> {
+export async function inspectQueueRevision(client: APIClient, input: QueueRevisionInput): Promise<QueueObservation> {
   const value = await client.get<unknown>(`/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/revisions/${encodeURIComponent(input.operationKey)}`);
   if (!object(value) || value.version !== "session_steering_revision.v1" || value.session_id !== input.sessionID ||
     value.message_id !== input.messageID || value.capability_grant !== false) throw invalid();
@@ -119,7 +119,7 @@ export async function inspectQueueRevision(client: CyberAgentClient, input: Queu
   parseQueueRevision(value.revision, input);
   return { state: "sealed" };
 }
-export async function inspectQueueCancellation(client: CyberAgentClient, input: Pick<QueueRevisionInput, "messageID" | "sessionID" | "runID" | "operationKey">): Promise<QueueObservation> {
+export async function inspectQueueCancellation(client: APIClient, input: Pick<QueueRevisionInput, "messageID" | "sessionID" | "runID" | "operationKey">): Promise<QueueObservation> {
   const value = await client.get<unknown>(`/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/cancellations/${encodeURIComponent(input.operationKey)}`);
   if (!object(value) || value.version !== "session_steering_cancellation.v1" || value.session_id !== input.sessionID ||
     value.message_id !== input.messageID || value.capability_grant !== false) throw invalid();
@@ -140,7 +140,7 @@ export function parseQueuePromotion(value: unknown, input: QueuePromotionInput):
     value.receipt.execution_id !== input.expectedExecutionID || !queueIdentity(value.receipt.cancellation_id) || !timestamp(value.receipt.created_at)) throw invalid();
   return value as unknown as QueuePromotion;
 }
-export async function promoteQueuedMessage(client: CyberAgentClient, input: QueuePromotionInput) {
+export async function promoteQueuedMessage(client: APIClient, input: QueuePromotionInput) {
   if (!client.hasSessionSteeringControl) throw new Error("当前连接没有引导当前任务的权限。");
   if (!queueIdentity(input.expectedAttemptID) || !queueIdentity(input.expectedExecutionID) || !digest(input.oldSHA256) || !integer(input.expectedRevision)) throw invalid();
   const value = await client.postControl<unknown>(
@@ -150,7 +150,7 @@ export async function promoteQueuedMessage(client: CyberAgentClient, input: Queu
       expected_execution_id: input.expectedExecutionID }, input.operationKey);
   return object(value) && value.rejected===true ? parseQueuePromotionRejection(value,input) : parseQueuePromotion(value,input);
 }
-export async function inspectQueuePromotion(client: CyberAgentClient, input: QueuePromotionInput): Promise<QueuePromotionObservation> {
+export async function inspectQueuePromotion(client: APIClient, input: QueuePromotionInput): Promise<QueuePromotionObservation> {
   const value = await client.get<unknown>(`/sessions/${encodeURIComponent(input.sessionID)}/messages/${encodeURIComponent(input.messageID)}/promotions/${encodeURIComponent(input.operationKey)}`);
   if (!object(value) || value.version !== "session_steering_promotion.v1" || value.session_id !== input.sessionID ||
     value.message_id !== input.messageID || value.capability_grant !== false || typeof value.execution_observed !== "boolean" ||

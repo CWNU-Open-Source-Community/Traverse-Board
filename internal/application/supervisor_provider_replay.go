@@ -34,7 +34,7 @@ type supervisorContextRecoveryLimitStore interface {
 	SupervisorContextRecoveryInputLimit(context.Context, domain.SupervisorCheckpoint, int, int) (int, bool, error)
 }
 
-func (s *RunSupervisor) attachSupervisorProviderReplay(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+func (s *AgentRunner) attachSupervisorProviderReplay(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	request llm.ChatRequest, rounds []domain.SupervisorToolRound,
 ) (llm.ChatRequest, error) {
 	store, ok := s.store.(supervisorProviderReplayStore)
@@ -76,7 +76,7 @@ func attachRecordedSupervisorProviderReplay(request llm.ChatRequest, rounds []do
 	return request, nil
 }
 
-func (s *RunSupervisor) requiresSupervisorPrivateHistory(route string) (bool, error) {
+func (s *AgentRunner) requiresSupervisorPrivateHistory(route string) (bool, error) {
 	if s.router == nil {
 		return false, nil
 	}
@@ -84,7 +84,7 @@ func (s *RunSupervisor) requiresSupervisorPrivateHistory(route string) (bool, er
 	return err == nil && s.router.RequiresPrivateAssistantHistory(ref), err
 }
 
-func (s *RunSupervisor) supervisorMessagesWithPrivateHistory(ctx context.Context, turn domain.SupervisorTurn,
+func (s *AgentRunner) supervisorMessagesWithPrivateHistory(ctx context.Context, turn domain.SupervisorTurn,
 	history []session.Message, messages []llm.Message, layout modelContextLayout,
 ) ([]llm.Message, modelContextLayout, error) {
 	required, err := s.requiresSupervisorPrivateHistory(turn.Run.Config.ModelRoute)
@@ -174,7 +174,7 @@ func (s *RunSupervisor) supervisorMessagesWithPrivateHistory(ctx context.Context
 	return result, layout, nil
 }
 
-func (s *RunSupervisor) requestWithSupervisorToolRounds(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+func (s *AgentRunner) requestWithSupervisorToolRounds(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	base llm.ChatRequest, rounds []domain.SupervisorToolRound,
 ) (llm.ChatRequest, error) {
 	request, err := supervisorRequestWithToolRounds(base, rounds)

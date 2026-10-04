@@ -9,8 +9,8 @@ import (
 
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 )
 
@@ -23,7 +23,7 @@ func TestLocalCommandCapabilitiesFollowPinnedRuntimeAndPreserveDrydock(t *testin
 	digest := strings.Repeat("a", 64)
 	executor := &LocalSandboxCommandRuntimeExecutor{backend: localCompileBackend{},
 		identity: commandruntimeadapter.Identity{Generation: digest}}
-	workspace := drydock.Workspace{ID: "drydock-test", Path: baseSpec.WorkspaceRoot,
+	workspace := runworktree.Workspace{ID: "drydock-test", Path: baseSpec.WorkspaceRoot,
 		Generation: 1, RootFingerprint: digest, ExpectedBindingFingerprint: digest}
 	scope := runner.CommandRuntimeScope{RunID: "run-test", MissionID: "mission-test",
 		SessionID: "session-test", WorkspaceID: "source-workspace", OperationKey: "test-operation"}

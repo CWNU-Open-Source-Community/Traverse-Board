@@ -10,7 +10,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 )
 
-func (s *RunSupervisor) watchModelCancellation(parent context.Context,
+func (s *AgentRunner) watchModelCancellation(parent context.Context,
 	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, live *activeCallLease,
 ) func() {
 	if s == nil || s.store == nil || live == nil || s.cancellationPollInterval <= 0 {
@@ -43,7 +43,7 @@ func (s *RunSupervisor) watchModelCancellation(parent context.Context,
 	}
 }
 
-func (s *RunSupervisor) pollModelCancellation(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+func (s *AgentRunner) pollModelCancellation(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	attempt llm.ModelAttempt, live *activeCallLease,
 ) (bool, bool) {
 	_, observed, err := s.store.ObserveSupervisorModelCancellation(ctx, checkpoint, attempt)

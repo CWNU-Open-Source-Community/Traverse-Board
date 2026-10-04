@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadCreationControlRequestView, ThreadView } from "../api/types";
 import type { V2FileReference } from "./components/file-context";
 import { useV2CreationRecovery } from "./recovery-creation";
@@ -29,7 +29,7 @@ function mount(client: ReturnType<typeof fixture>, selectedWorkspace = workspace
   let store!: V2RecoveryStore;
   function Probe() {
     store = useV2RecoveryStore()!;
-    helper = useV2CreationRecovery(client as unknown as CyberAgentClient, selectedWorkspace, onRecovered);
+    helper = useV2CreationRecovery(client as unknown as APIClient, selectedWorkspace, onRecovered);
     return helper.notice;
   }
   const view = render(<V2RecoveryProvider client={client} scopeID="creation-db"><Probe /></V2RecoveryProvider>);

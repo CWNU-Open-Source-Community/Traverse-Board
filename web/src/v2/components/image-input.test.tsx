@@ -3,7 +3,7 @@ import { File as NodeFile } from "node:buffer";
 import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2Composer } from "./composer";
 import { v2ImageReferenceKey } from "./image-input";
@@ -22,7 +22,7 @@ const fixture = (state = "supported") => ({ baseURL: "/api/v1", hasThreadControl
   uploadWorkspaceFile: vi.fn(async (workspace: string, file: File) => ({ id: "stored-file", workspace_id: workspace,
     name: file.name, mime_type: file.type, sha256: "d".repeat(64), byte_size: file.size,
     readability: "stored_only", text_bytes: 0, redacted: false })),
-} as unknown as CyberAgentClient);
+} as unknown as APIClient);
 
 beforeEach(() => {
   localStorage.clear();
@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function mount(client: CyberAgentClient, initial: WorkspaceImageAttachment[] = [], submit = vi.fn(async () => {})) {
+function mount(client: APIClient, initial: WorkspaceImageAttachment[] = [], submit = vi.fn(async () => {})) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   queries.setQueryData(v2ImageReferenceKey(image.workspace_id, ""), initial);
   const view = render(<QueryClientProvider client={queries}><V2Composer client={client} workspaceID={image.workspace_id}

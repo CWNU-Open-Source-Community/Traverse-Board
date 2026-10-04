@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { RepositoryStatePanel } from "./repository-state-panel";
 
 describe("RepositoryStatePanel", () => {
@@ -17,7 +17,7 @@ describe("RepositoryStatePanel", () => {
       remote_config_included: false, process_started: false, network_used: false,
       hooks_executed: false,
     });
-    renderPanel({ repositoryState } as unknown as CyberAgentClient);
+    renderPanel({ repositoryState } as unknown as APIClient);
 
     expect(await screen.findByText("src/main.go")).toBeInTheDocument();
     expect(screen.getByText("1234567890ab")).toBeInTheDocument();
@@ -35,13 +35,13 @@ describe("RepositoryStatePanel", () => {
       conflicted_count: 0, redaction_count: 0, truncated: false, read_only: true,
       root_path_exposed: false, content_included: false, remote_config_included: false,
       process_started: false, network_used: false, hooks_executed: false,
-    }) } as unknown as CyberAgentClient);
+    }) } as unknown as APIClient);
     expect(await screen.findByText("No Git repository at the registered Workspace root"))
       .toBeInTheDocument();
   });
 });
 
-function renderPanel(client: CyberAgentClient) {
+function renderPanel(client: APIClient) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

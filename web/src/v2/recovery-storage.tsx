@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 
 const VERSION = "v2_recovery.v1";
 const UNSUPPORTED = "当前连接尚未提供数据存储身份，草稿仅保留在本窗口。";
@@ -220,7 +220,7 @@ class RecoveryStorage implements V2RecoveryStore {
 const RecoveryContext = createContext<{ store: RecoveryStorage | null; warning: string | null } | null>(null);
 
 export function V2RecoveryProvider({ client, scopeID, children }: {
-  client: Pick<CyberAgentClient, "baseURL">;
+  client: Pick<APIClient, "baseURL">;
   scopeID?: string;
   children: ReactNode;
 }) {

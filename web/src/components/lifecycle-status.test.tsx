@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
 import { LocaleProvider } from "../lib/locale";
 import { StatusBadge } from "./common";
@@ -25,7 +25,7 @@ it("distinguishes record state from a real running tool without changing failure
 
 it("does not infer Agent work from an open Run or an occupied execution lease", () => {
   const client = { hasRunLifecycle: true, hasRunExecution: true,
-    controlRunLifecycle: vi.fn(), executeRun: vi.fn() } as unknown as CyberAgentClient;
+    controlRunLifecycle: vi.fn(), executeRun: vi.fn() } as unknown as APIClient;
   const detail = { run: { id: "run-open", status: "running" },
     operator_steering: { pending: 0, prepared: 0 }, execution_lease: { active: false } } as RunDetailView;
   const queries = new QueryClient();

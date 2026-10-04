@@ -10,8 +10,8 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
 )
@@ -27,7 +27,7 @@ type StandardCodeDockerStore interface {
 	GetRunExecutionPermission(context.Context, string) (
 		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
 	GetSandboxExecutionCandidate(context.Context, string) (
 		sandbox.ValidatedExecutionCandidate, error)
 	GetDockerLogCaptureReceiptByAttempt(context.Context, string) (
@@ -37,12 +37,12 @@ type StandardCodeDockerStore interface {
 	GetDockerSandboxRecord(context.Context, string) (domain.DockerSandboxRecord, error)
 	ListCompletedStandardCodeDockerSandboxes(context.Context, int) (
 		[]domain.DockerSandboxRecord, error)
-	GetDrydockReceiptByOperation(context.Context, string) (drydock.Receipt, bool, error)
+	GetDrydockReceiptByOperation(context.Context, string) (runworktree.Receipt, bool, error)
 }
 
 type StandardCodeDockerService struct {
 	store         StandardCodeDockerStore
-	drydocks      *DrydockService
+	drydocks      *RunWorktreeService
 	manifests     *SandboxManifestService
 	docker        *DockerSandboxService
 	imageDigest   string
@@ -50,7 +50,7 @@ type StandardCodeDockerService struct {
 }
 
 func NewStandardCodeDockerService(store StandardCodeDockerStore,
-	drydocks *DrydockService, manifests *SandboxManifestService,
+	drydocks *RunWorktreeService, manifests *SandboxManifestService,
 	docker *DockerSandboxService, imageDigest string,
 ) (*StandardCodeDockerService, error) {
 	imageDigest = strings.TrimSpace(imageDigest)
@@ -424,7 +424,7 @@ func (s *StandardCodeDockerService) RecoverStartup(ctx context.Context) (
 			continue
 		}
 		checkpointOperation := standardCodeStageKey(record.Admission.ID, "checkpoint")
-		checkpointDigest := drydockOperationDigest(drydock.OperationCheckpoint,
+		checkpointDigest := drydockOperationDigest(runworktree.OperationCheckpoint,
 			record.Admission.RunID, checkpointOperation)
 		if _, found, receiptErr := s.store.GetDrydockReceiptByOperation(ctx,
 			checkpointDigest); receiptErr != nil {
@@ -700,8 +700,8 @@ func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context
 	return err == nil && found && requireCurrentRunFileDrydock(ctx, s.store, scope.RunID, workspace) == nil && workspace.ID == scope.DrydockID &&
 		workspace.Generation == scope.DrydockGeneration &&
 		workspace.LastCheckpointID == scope.CheckpointID &&
-		workspace.State != drydock.StateCleaned &&
-		workspace.State != drydock.StateRecoveryRequired
+		workspace.State != runworktree.StateCleaned &&
+		workspace.State != runworktree.StateRecoveryRequired
 }
 
 func executionCandidateMatchesRunLease(candidate sandbox.ExecutionCandidate,

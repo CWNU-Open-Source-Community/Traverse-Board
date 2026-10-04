@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronDown, ClipboardList, FilePenLine, LoaderCircle, Search,
   TerminalSquare } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadActivityArtifactReferenceView, ThreadActivityDetailView as APIThreadActivityDetailView,
   ThreadActivityBoundaryView, ThreadActivityJSONFieldSummaryView,
   ThreadActivityCommandDetailView, ThreadActivityToolDetailView, ThreadActivityTypedDetailView } from "../../api/types";
@@ -117,7 +117,7 @@ export function projectThreadActivityDetail(
  * is deliberately not part of this component's props. */
 export function ThreadActivityToolDetailPanel({ activityRef, client, runID, threadID, tool }: {
   activityRef: string;
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   threadID: string;
   tool: ThreadActivityToolDetailView;
@@ -203,7 +203,7 @@ function typedKindLabel(kind: ThreadActivityTypedDetailView["kind"]): string {
 const maxRenderedDiffLines = 2_000;
 
 function FileEditDiff({ client, editID, runID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   editID: string;
   runID: string;
 }) {
@@ -280,7 +280,7 @@ function BoundaryFacts({ boundary }: {
 }
 
 function TypedToolDetail({ client, runID, typed }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   typed: NonNullable<ThreadActivityDetailView["typed"]>;
 }) {
@@ -318,7 +318,7 @@ function typedDetailCommon(detail: Exclude<ThreadActivityTypedDetailView, { kind
 }
 
 function TypedDetailBody({ client, detail, runID, status }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: Exclude<ThreadActivityTypedDetailView, { kind: "command" }>;
   runID: string;
   status: string;
@@ -415,7 +415,7 @@ function TypedDetailBody({ client, detail, runID, status }: {
 
 function CommandDetail({ activityRef, client, command, threadID }: {
   activityRef: string;
-  client: CyberAgentClient;
+  client: APIClient;
   command: ThreadActivityCommandDetail;
   threadID: string;
 }) {
@@ -481,7 +481,7 @@ function WebEvidenceDetail({ item }: { item: ActivityItem }) {
 }
 
 export function ActivityItemDetail({ client, item, threadID, initialOpen = false, expectedRunID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   item: ActivityItem;
   threadID: string;
   initialOpen?: boolean;
@@ -544,7 +544,7 @@ export function ActivityItemDetail({ client, item, threadID, initialOpen = false
 }
 
 export function V2ActivityGroup({ client, entry, threadID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   entry: ActivityEntry;
   threadID: string;
 }) {

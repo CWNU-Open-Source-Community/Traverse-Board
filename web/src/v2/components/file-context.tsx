@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { WorkspaceExplorer } from "../../components/workspace-explorer";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { useV2DraftDocument } from "../draft-context";
@@ -35,7 +35,7 @@ export function useV2FileReferences(workspaceID: string, threadID: string) {
 
 export function V2FileContext({ client, workspaceID, files, onChange, disabled, pendingIDs, unavailableReason,
   open, onOpenChange, returnFocusRef }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
   files: V2FileReference[];
   onChange: (change: (files: V2FileReference[]) => V2FileReference[]) => void;

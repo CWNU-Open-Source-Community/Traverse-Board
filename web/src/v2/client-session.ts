@@ -1,4 +1,4 @@
-import { CyberAgentClient, type ClientCapabilities } from "../api/client";
+import { APIClient, type ClientCapabilities } from "../api/client";
 import { useConnectionStore } from "../state/connection";
 
 type ConnectionSnapshot = ReturnType<typeof useConnectionStore.getState>;
@@ -55,6 +55,6 @@ function capabilities(state: ConnectionSnapshot): ClientCapabilities {
   };
 }
 
-export function createV2Client(state: ConnectionSnapshot): CyberAgentClient {
-  return new CyberAgentClient(state.token, undefined, state.controlToken, capabilities(state));
+export function createV2Client(state: ConnectionSnapshot): APIClient {
+  return new APIClient(state.token, undefined, state.controlToken, capabilities(state));
 }

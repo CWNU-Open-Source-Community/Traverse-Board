@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 )
 
@@ -14,7 +14,7 @@ func TestDrydockCleanupReservationSurvivesRestartAfterRemoval(t *testing.T) {
 	created := mustCreateDrydock(t, fixture)
 	request := DrydockCleanupRequest{RunID: fixture.run.ID, ExpectedGeneration: created.Generation,
 		OperationKey: "reserved-cleanup-restart-1", RequestedBy: "operator", Confirm: true}
-	digest := drydockOperationDigest(drydock.OperationCleanup, request.RunID, request.OperationKey)
+	digest := drydockOperationDigest(runworktree.OperationCleanup, request.RunID, request.OperationKey)
 	if err := fixture.service.beginDrydockCleanup(t.Context(), request, digest); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestDrydockCleanupReservationSurvivesRestartAfterRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	service, err := NewDrydockService(reopened, fixture.executor)
+	service, err := NewRunWorktreeService(reopened, fixture.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestDrydockCleanupReservationSurvivesRestartAfterRemoval(t *testing.T) {
 		t.Fatalf("startup changed an unresolved cleanup: %+v %v", pending, err)
 	}
 	result, err := service.Cleanup(t.Context(), request)
-	if err != nil || result.Workspace.State != drydock.StateCleaned || result.Receipt.CheckpointID != "" {
+	if err != nil || result.Workspace.State != runworktree.StateCleaned || result.Receipt.CheckpointID != "" {
 		t.Fatalf("confirm removed directory=%+v err=%v", result, err)
 	}
 	if result.Workspace.LastCheckpointID != created.LastCheckpointID {

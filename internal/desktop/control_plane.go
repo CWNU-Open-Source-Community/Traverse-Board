@@ -52,7 +52,7 @@ type ControlPlane struct {
 	userTerminal                   *desktopUserTerminalService
 	debugAgentInput                application.DebugTerminalAgentInputController
 	commandRuntime                 application.CommandRuntimeRuntime
-	standardCodeDrydocks           *application.DrydockService
+	standardCodeDrydocks           *application.RunWorktreeService
 	standardCodePreset             *application.StandardCodePresetService
 	policyChecker                  policy.Checker
 	uiEvidence                     *application.UIEvidenceService
@@ -387,16 +387,16 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	workspaceCheckpoints.WithLifecycleHooks(hookEngine)
-	var commandRuntimeDrydocks *application.DrydockService
+	var commandRuntimeDrydocks *application.RunWorktreeService
 	if config.RunExecutionEnabled &&
 		config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
-		drydockExecutor, executorErr := repository.NewDrydockExecutor(
+		drydockExecutor, executorErr := repository.NewRunWorktreeExecutor(
 			filepath.Join(home, "drydocks"))
 		if executorErr != nil {
 			_ = stateStore.Close()
 			return nil, executorErr
 		}
-		commandRuntimeDrydocks, err = application.NewDrydockService(stateStore,
+		commandRuntimeDrydocks, err = application.NewRunWorktreeService(stateStore,
 			drydockExecutor)
 		if err != nil {
 			_ = stateStore.Close()
@@ -729,10 +729,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	providerDefinitionControl.WithModelDiscoveryCredentials(credentialStore)
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
-	fileEditReview := application.NewFileEditReviewService(stateStore).WithDrydock(commandRuntimeDrydocks)
-	fileEditProposal := application.NewFileEditProposalService(stateStore, checker).WithDrydock(commandRuntimeDrydocks)
+	fileEditReview := application.NewFileEditReviewService(stateStore).WithRunWorktree(commandRuntimeDrydocks)
+	fileEditProposal := application.NewFileEditProposalService(stateStore, checker).WithRunWorktree(commandRuntimeDrydocks)
 	fileEditApply := application.NewFileEditApplyService(stateStore, checker,
-		workspaceCheckpoints).WithDrydock(commandRuntimeDrydocks)
+		workspaceCheckpoints).WithRunWorktree(commandRuntimeDrydocks)
 	runWakeControl := application.NewRunWakeControlService(stateStore)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(stateStore,
 		executionControl)
@@ -955,7 +955,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ProviderCredentialController: providerCredentialControl,
 		FileEditReviewController:     fileEditReview,
 		FileWorkspaceDrydocks:        commandRuntimeDrydocks,
-		ThreadReviewReader: application.NewThreadReviewService(stateStore).WithDrydock(commandRuntimeDrydocks).
+		ThreadReviewReader: application.NewThreadReviewService(stateStore).WithRunWorktree(commandRuntimeDrydocks).
 			WithCodeHandoff(application.NewCodeHandoffService(stateStore).WithStandardCodeDelivery(standardCodeDelivery)),
 		FileEditProposalController:          fileEditProposal,
 		RunWakeController:                   runWakeControl,

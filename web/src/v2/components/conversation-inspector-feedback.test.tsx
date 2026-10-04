@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadReview } from "../../api/task-delivery";
 import type { ThreadDetailView, WorkspaceView } from "../../api/types";
 import { V2Conversation } from "./conversation";
@@ -46,7 +46,7 @@ function setup(view: "conversation" | "inspector" = "inspector") {
     getPage: vi.fn().mockResolvedValue({ items: [], page: { limit: 100 }, requestID: "fixture" }),
     getFullCDPSession: vi.fn().mockResolvedValue({ session: { state: "closed" } }),
     submitThreadTurn: submit, postControl: post, controlRunLifecycle: lifecycle, openFullCDPSession: openPreview,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   function Harness() {
     const [threadID, setThreadID] = useState("thread-a");

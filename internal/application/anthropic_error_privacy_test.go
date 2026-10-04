@@ -84,7 +84,7 @@ func TestSupervisorAnthropicStreamErrorRemainsPrivateAfterReopen(t *testing.T) {
 
 func newQualifiedHTTPProviderSupervisor(t *testing.T, st *store.SQLiteStore, provider llm.Provider,
 	budget domain.Budget,
-) (domain.Run, *application.RunSupervisor, *llm.Router) {
+) (domain.Run, *application.AgentRunner, *llm.Router) {
 	t.Helper()
 	run := newStartedRunForProvider(t, st, provider.Name(), budget)
 	ref := llm.ModelRef{Provider: provider.Name(), Model: "model"}
@@ -102,5 +102,5 @@ func newQualifiedHTTPProviderSupervisor(t *testing.T, st *store.SQLiteStore, pro
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return run, application.NewRunSupervisor(st, router, policy.NewDefaultChecker()), router
+	return run, application.NewAgentRunner(st, router, policy.NewDefaultChecker()), router
 }

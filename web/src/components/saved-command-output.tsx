@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadActivityArtifactReferenceView } from "../api/types";
 import type { PrayuLocale } from "../lib/locale";
 
 interface SavedCommandOutputProps {
   activityRef: string;
   artifactRef: string;
-  client: CyberAgentClient;
+  client: APIClient;
   label?: string;
   locale?: PrayuLocale;
   reference?: ThreadActivityArtifactReferenceView;

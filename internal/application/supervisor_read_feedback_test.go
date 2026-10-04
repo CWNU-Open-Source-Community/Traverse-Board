@@ -81,7 +81,7 @@ func TestWorkspaceReadFeedbackPreservesNativePairsAndBoundary(t *testing.T) {
 	calls := recordedWorkspacePages(t)
 	rounds := []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{calls[1], calls[1]}}}
 	request := llm.ChatRequest{Tools: []llm.ToolSpec{{Name: "workspace_read"}}, Messages: []llm.Message{{Role: "user", Content: "Only read and explain; do not edit."}}}
-	s := &RunSupervisor{}
+	s := &AgentRunner{}
 	got, err := s.workspaceReadFeedbackRequest(t.Context(), domain.SupervisorCheckpoint{}, request, rounds)
 	if err != nil || len(got.Messages) != 2 || !strings.Contains(got.Messages[1].Content, "1 workspace_read") {
 		t.Fatalf("feedback=%+v err=%v", got, err)

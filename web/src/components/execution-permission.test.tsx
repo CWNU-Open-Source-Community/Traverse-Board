@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, CyberAgentClient } from "../api/client";
+import { APIRequestError, APIClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from
   "../test/capability-readiness";
@@ -100,7 +100,7 @@ describe("StandardCodeReadinessPanel", () => {
     expect(readiness.presets[0]?.selected).toBe(false);
     expect(readiness.command_runtime.current_run_granted).toBe(false);
     const configureStandardCode = vi.fn();
-    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
     const queryClient = new QueryClient();
     const content = (threadID?: string) => <QueryClientProvider client={queryClient}>
       <StandardCodeReadinessPanel client={client} detail={configured} readiness={readiness} threadID={threadID} />
@@ -126,7 +126,7 @@ describe("StandardCodeReadinessPanel", () => {
     };
     render(<QueryClientProvider client={new QueryClient()}>
       <StandardCodeReadinessPanel
-        client={new CyberAgentClient("read", "/api/v1")}
+        client={new APIClient("read", "/api/v1")}
         detail={detail()}
         readiness={readiness} />
     </QueryClientProvider>);
@@ -163,7 +163,7 @@ describe("StandardCodeReadinessPanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <StandardCodeReadinessPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
+        client={new APIClient("read", "/api/v1", "control", {
           runControlEnabled: true, standardCodePresetEnabled: true,
         })}
         detail={detail()}
@@ -228,7 +228,7 @@ describe("StandardCodeReadinessPanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <StandardCodeReadinessPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
+        client={new APIClient("read", "/api/v1", "control", {
           runControlEnabled: true, standardCodePresetEnabled: true,
         })}
         detail={running as RunDetailView} readiness={readiness} />
@@ -276,7 +276,7 @@ describe("StandardCodeReadinessPanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={queryClient}>
       <StandardCodeReadinessPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
+        client={new APIClient("read", "/api/v1", "control", {
           runControlEnabled: true, standardCodePresetEnabled: true,
         })}
         detail={original}
@@ -293,7 +293,7 @@ describe("StandardCodeReadinessPanel", () => {
     let finishFirst!: (value: unknown) => void;
     const configureStandardCode = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
       .mockRejectedValueOnce(new Error("configuration response lost"));
-    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const second = { ...detail(), run: { ...detail().run, id: "run-2" } };
@@ -338,7 +338,7 @@ describe("StandardCodeReadinessPanel", () => {
     const configureStandardCode = vi.fn().mockResolvedValueOnce(trust)
       .mockRejectedValueOnce(new APIRequestError("Configuration changed", "CONFLICT", 409, "request-1", undefined, marker))
       .mockResolvedValueOnce({ ...trust, trust_digest: "b".repeat(64) });
-    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as CyberAgentClient;
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const content = <QueryClientProvider client={queryClient}><StandardCodeReadinessPanel
       client={client} detail={detail()} readiness={standardCodeReadyReadiness()} threadID="thread-1" /></QueryClientProvider>;

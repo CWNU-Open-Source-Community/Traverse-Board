@@ -39,7 +39,7 @@ type FileEditApplyService struct {
 	manager               *fileedit.Manager
 	checker               policy.Checker
 	checkpoints           *WorkspaceCheckpointService
-	drydocks              *DrydockService
+	drydocks              *RunWorktreeService
 	now                   func() time.Time
 	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities
 }
@@ -53,7 +53,7 @@ func (s *FileEditApplyService) WithExecutionPermissionCapabilities(
 	return s
 }
 
-func (s *FileEditApplyService) WithDrydock(drydocks *DrydockService) *FileEditApplyService {
+func (s *FileEditApplyService) WithRunWorktree(drydocks *RunWorktreeService) *FileEditApplyService {
 	if s != nil {
 		s.drydocks = drydocks
 	}

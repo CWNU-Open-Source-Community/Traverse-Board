@@ -407,7 +407,7 @@ func TestCommandBoundedApprovalColdHistoryNeverRenewsOrResends(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
+				f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
 				control = NewApprovalControlService(f.st, toolgateway.New(nil, f.checker), f.checker)
 				for i := 0; i < 2; i++ {
 					replay, err := control.Decide(t.Context(), request)

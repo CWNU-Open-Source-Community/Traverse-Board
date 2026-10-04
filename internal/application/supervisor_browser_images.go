@@ -189,7 +189,7 @@ func supervisorBrowserScreenshotOperationKey(call domain.SupervisorToolCall) str
 
 // Enrich the existing user-role tool-result message. Native call/result pairs
 // stay intact; pixels are non-authorizing evidence and enter the normal budget.
-func (s *RunSupervisor) supervisorBrowserImages(ctx context.Context, checkpoint domain.SupervisorCheckpoint, ref llm.ModelRef, request llm.ChatRequest, rounds []domain.SupervisorToolRound) (llm.ChatRequest, error) {
+func (s *AgentRunner) supervisorBrowserImages(ctx context.Context, checkpoint domain.SupervisorCheckpoint, ref llm.ModelRef, request llm.ChatRequest, rounds []domain.SupervisorToolRound) (llm.ChatRequest, error) {
 	calls := map[string]domain.SupervisorToolCall{}
 	for _, round := range rounds {
 		for _, call := range round.Calls {

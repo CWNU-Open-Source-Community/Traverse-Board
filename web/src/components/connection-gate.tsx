@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LoaderCircle } from "lucide-react";
-import { CyberAgentClient, clientCapabilitiesFromRuntime } from "../api/client";
+import { APIClient, clientCapabilitiesFromRuntime } from "../api/client";
 import { desktopBridgeAvailable, desktopErrorMessage, loadDesktopBootstrap } from "../lib/desktop-bridge";
 import { useConnectionStore } from "../state/connection";
 import { useLocale } from "../lib/locale";
@@ -27,7 +27,7 @@ export function ConnectionGate() {
       if (!bootstrap || !active) {
         return;
       }
-      const client = new CyberAgentClient(bootstrap.read_token, bootstrap.api_base_url,
+      const client = new APIClient(bootstrap.read_token, bootstrap.api_base_url,
         bootstrap.control_token);
       const [health, runtime] = await Promise.all([client.health(), client.runtimeCapabilities()]);
       if (!active) {
@@ -109,7 +109,7 @@ export function ConnectionGate() {
     setConnecting(true);
     setError("");
     try {
-      const client = new CyberAgentClient(candidate);
+      const client = new APIClient(candidate);
       const [health, capabilities] = await Promise.all([
         client.health(), client.runtimeCapabilities(),
       ]);
@@ -130,7 +130,7 @@ export function ConnectionGate() {
         <PrayuBrand className="connection-brand" variant="hero" />
         <div className="connection-heading">
           <h1>{t("连接本地控制面", "Connect to local control plane")}</h1>
-          <p>Traverse Board · 针路簿 · Go API / api.v1</p>
+          <p>Universal Code · Go API / api.v1</p>
         </div>
         {connecting && desktopBridgeAvailable() &&
           <div className="desktop-connecting"><LoaderCircle aria-hidden="true" className="spin" size={16} />{t("启动桌面工作台", "Starting desktop workbench")}</div>}

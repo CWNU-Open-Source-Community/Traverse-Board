@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 const SafeWebReadinessProduct = "chrome";
 
-export function SafeWebReadinessPanel({ client }: { client: CyberAgentClient }) {
+export function SafeWebReadinessPanel({ client }: { client: APIClient }) {
   const { t } = useLocale();
   const query = useQuery({
     queryKey: ["safe-web-readiness", SafeWebReadinessProduct],

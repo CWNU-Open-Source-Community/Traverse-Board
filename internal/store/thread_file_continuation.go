@@ -11,8 +11,8 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 )
 
@@ -27,18 +27,18 @@ func (s *SQLiteStore) GetThreadDrydockBinding(ctx context.Context, runID string)
 	return b, err == nil, err
 }
 
-func getRunFileDrydock(ctx context.Context, q drydockQueryer, runID string) (drydock.Workspace, bool, error) {
+func getRunFileDrydock(ctx context.Context, q drydockQueryer, runID string) (runworktree.Workspace, bool, error) {
 	var hasView bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='view' AND name='run_file_drydock_bindings')`).Scan(&hasView); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if !hasView {
 		var hasTable bool
 		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='drydock_workspaces')`).Scan(&hasTable); err != nil {
-			return drydock.Workspace{}, false, err
+			return runworktree.Workspace{}, false, err
 		}
 		if !hasTable {
-			return drydock.Workspace{}, false, nil
+			return runworktree.Workspace{}, false, nil
 		}
 		return getDrydockByRun(ctx, q, runID)
 	}
@@ -53,7 +53,7 @@ func getRunFileDrydock(ctx context.Context, q drydockQueryer, runID string) (dry
 	}
 	return d, err == nil, err
 }
-func (s *SQLiteStore) GetRunFileDrydock(ctx context.Context, runID string) (drydock.Workspace, bool, error) {
+func (s *SQLiteStore) GetRunFileDrydock(ctx context.Context, runID string) (runworktree.Workspace, bool, error) {
 	return getRunFileDrydock(ctx, s.db, runID)
 }
 

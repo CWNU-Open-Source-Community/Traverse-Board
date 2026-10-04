@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { GitHubReviewConnectionView } from "../../api/types";
 import { createPullRequest, discoverPullRequest, observePullRequest, previewPullRequest, readThreadGit, refreshPullRequest, type PullRequestPreview, type PullRequestPreviewRequest, type PullRequestRefresh, type PullRequestResult } from "../../api/task-delivery";
 import { ErrorState, LoadingState, StatusBadge } from "../../components/common";
@@ -17,7 +17,7 @@ export function githubURL(value: string | undefined): string | undefined {
   try { const url = new URL(value || ""); return url.protocol === "https:" && url.hostname === "github.com" && !url.username && !url.password ? url.href : undefined; } catch { return undefined; }
 }
 export function TaskPullRequest({ client, threadID, working, onFeedback, onGit }: {
-  client: CyberAgentClient; threadID: string; working: boolean; onFeedback: (context: string) => void; onGit: () => void;
+  client: APIClient; threadID: string; working: boolean; onFeedback: (context: string) => void; onGit: () => void;
 }) {
   const queryClient = useQueryClient(), store = useV2RecoveryStore();
   const storageKey = `thread:${threadID}:pr-attempt`;
@@ -236,7 +236,7 @@ export function TaskPullRequest({ client, threadID, working, onFeedback, onGit }
 }
 
 function GitHubConnectionSetup({ client, threadID, selectedConnection, connection, onConfigured }: {
-  client: CyberAgentClient; threadID: string; selectedConnection: string; connection?: GitHubReviewConnectionView; onConfigured: (id: string) => void;
+  client: APIClient; threadID: string; selectedConnection: string; connection?: GitHubReviewConnectionView; onConfigured: (id: string) => void;
 }) {
   const [repository, setRepository] = useState(""), [name, setName] = useState("traverse-github");
   const [token, setToken] = useState(""), [write, setWrite] = useState<boolean | null>(null);

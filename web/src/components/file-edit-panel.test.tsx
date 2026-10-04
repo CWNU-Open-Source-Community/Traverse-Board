@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { FileEditPreviewView } from "../api/types";
 import { FileEditPanel } from "./file-edit-panel";
 
@@ -18,7 +18,7 @@ describe("FileEditPanel", () => {
           model_called: state === "completed" || state === "failed", tool_called: state === "completed" } });
       const client = { hasFileEditReview: true, hasFileEditApply: true, fileEditQueue: queue,
         fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(proposed)), reviewFileEdit: review,
-        applyFileEdit: vi.fn() } as unknown as CyberAgentClient;
+        applyFileEdit: vi.fn() } as unknown as APIClient;
       renderPanel(client);
       const user = userEvent.setup();
       await user.click(await screen.findByRole("button", { name: /README.md/ }));
@@ -41,7 +41,7 @@ describe("FileEditPanel", () => {
     const client = { hasFileEditReview: true, hasFileEditApply: true,
       fileEditQueue: vi.fn().mockResolvedValue({ items: [historical, current], truncated: false, apply_enabled: true }),
       fileEditChangeSet: vi.fn().mockResolvedValue(summary), applyFileEdit: vi.fn(), createFileEditRevertProposal: vi.fn(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /README.md.*Historical directory/ }));
@@ -59,7 +59,7 @@ describe("FileEditPanel", () => {
     const client = { hasFileEditReview: true,
       fileEditQueue: vi.fn().mockResolvedValue({ items: [edit], truncated: false, apply_enabled: false }),
       fileEditChangeSet: vi.fn().mockRejectedValue(new Error("exact target unavailable")),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client);
     expect(await screen.findByRole("button", { name: "Retry change summary" })).toBeEnabled();
     await userEvent.setup().click(screen.getByRole("button", { name: /README.md/ }));
@@ -92,7 +92,7 @@ describe("FileEditPanel", () => {
       }),
       fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)),
       reviewFileEdit,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
 
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /README\.md/ }));
@@ -133,7 +133,7 @@ describe("FileEditPanel", () => {
       }),
       fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)),
       reviewFileEdit: vi.fn(), applyFileEdit,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /safe\.txt/ }));
     await user.click(await screen.findByRole("button", { name: "Apply safe.txt" }));
@@ -173,7 +173,7 @@ describe("FileEditPanel", () => {
         diff_content_included: false,
       }),
       reviewFileEdit: vi.fn(), applyFileEdit: vi.fn(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
 
     renderPanel(client);
     expect(await screen.findByText("partial")).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe("FileEditPanel", () => {
       }),
       fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)),
       reviewFileEdit: vi.fn(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
 
     renderPanel(client);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
@@ -228,7 +228,7 @@ describe("FileEditPanel", () => {
     const client = { hasFileEditReview: true, hasFileEditApply: true, createFileEditRevertProposal, reviewFileEdit,
       applyFileEdit: vi.fn(), fileEdit: vi.fn(async () => inverse),
       fileEditQueue: vi.fn(async () => ({ items, apply_enabled: true })),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as APIClient;
     const user = userEvent.setup();
     const onRequestRevert = vi.fn();
     renderPanel(client, "running", undefined, { onRequestRevert });
@@ -259,7 +259,7 @@ describe("FileEditPanel", () => {
     const client = { hasFileEditReview: true, createFileEditRevertProposal,
       fileEditQueue: vi.fn().mockResolvedValue({ items: [source], apply_enabled: false }),
       fileEdit: vi.fn().mockResolvedValue(inverse),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const user = userEvent.setup();
     const first = renderPanel(client, "running", queryClient);
@@ -290,7 +290,7 @@ describe("FileEditPanel", () => {
     const client = { hasFileEditReview: true,
       createFileEditRevertProposal: vi.fn(() => new Promise((done) => { resolve = done; })),
       fileEditQueue: vi.fn().mockResolvedValue({ items: [source, other], apply_enabled: false }),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
@@ -312,7 +312,7 @@ describe("FileEditPanel", () => {
     const fileEdit = vi.fn().mockImplementationOnce(() => new Promise((done) => { resolve = done; })).mockResolvedValue(exact);
     const client = { hasFileEditReview: true, fileEdit,
       fileEditQueue: vi.fn().mockResolvedValue({ items: [deletion, other, move], apply_enabled: false }),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(deletion)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(deletion)) } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
     const deletionRow = await screen.findByRole("button", { name: /README.md/ });
@@ -349,7 +349,7 @@ describe("FileEditPanel", () => {
     });
     const client = { hasFileEditApply: true, hasFileEditReview: true, applyFileEdit,
       fileEditQueue: vi.fn(async () => ({ items: [current], apply_enabled: current.apply_enabled })),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(approved)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(approved)) } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const user = userEvent.setup();
     const first = renderPanel(client, "running", queryClient);
@@ -375,7 +375,7 @@ describe("FileEditPanel", () => {
     });
     const client = { hasFileEditApply: true, applyFileEdit,
       fileEditQueue: vi.fn(async () => ({ items: [edit], apply_enabled: edit.apply_enabled })),
-      fileEditChangeSet: vi.fn(async () => changeSetFor(edit)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn(async () => changeSetFor(edit)) } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
@@ -389,7 +389,7 @@ describe("FileEditPanel", () => {
     const edit = editFixture("source", "applied");
     const client = { hasFileEditReview: true, createFileEditRevertProposal: vi.fn(),
       fileEditQueue: vi.fn().mockResolvedValue({ items: [edit], apply_enabled: false }),
-      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)) } as unknown as CyberAgentClient;
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)) } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client, status);
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
@@ -434,7 +434,7 @@ function changeSetItem(edit: {
     apply_enabled: edit.apply_enabled, updated_at: edit.updated_at };
 }
 
-function renderPanel(client: CyberAgentClient, runStatus = "running", queryClient = new QueryClient({ defaultOptions: {
+function renderPanel(client: APIClient, runStatus = "running", queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } }), props: { onRequestRevert?: (edit: FileEditPreviewView) => void } = {}) {
   return render(<QueryClientProvider client={queryClient}>

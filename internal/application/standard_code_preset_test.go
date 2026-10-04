@@ -11,10 +11,10 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	eventpkg "cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 )
 
@@ -151,7 +151,7 @@ func TestStandardCodePresetRejectsNetworkAuthorityAddedAfterIntent(t *testing.T)
 		SelectedBackend: domain.StandardCodeSelectedLocal,
 	}
 	if _, err := service.prepareCommit(t.Context(), operation,
-		drydock.Workspace{ID: "drydock-network-race", Generation: 1}); apperror.CodeOf(err) != apperror.CodeConflict ||
+		runworktree.Workspace{ID: "drydock-network-race", Generation: 1}); apperror.CodeOf(err) != apperror.CodeConflict ||
 		!strings.Contains(err.Error(), "network authority changed") {
 		t.Fatalf("network-expanded Standard Code commit error=%v", err)
 	}
@@ -521,11 +521,11 @@ func TestStandardCodePresetCommitFailureRollsBackCompleteTupleAndRetries(t *test
 	if err != nil || run.Status != domain.RunRunning {
 		t.Fatalf("start rollback Run=%+v err=%v", run, err)
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(t.TempDir(), "drydocks"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "drydocks"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	drydocks, err := NewDrydockService(state, executor)
+	drydocks, err := NewRunWorktreeService(state, executor)
 	if err != nil {
 		t.Fatal(err)
 	}

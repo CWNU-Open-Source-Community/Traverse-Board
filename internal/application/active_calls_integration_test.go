@@ -15,7 +15,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 )
 
-func TestRunSupervisorActiveCallSubscriptionAndAuditedCancellation(t *testing.T) {
+func TestAgentRunnerActiveCallSubscriptionAndAuditedCancellation(t *testing.T) {
 	provider := newActiveCallBlockingProvider()
 	path, st, run, supervisor := newRetrySupervisor(t, provider)
 	_ = path

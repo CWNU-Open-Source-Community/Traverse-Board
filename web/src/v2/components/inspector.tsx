@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Search, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { PublicModelStreamSnapshot, ThreadDetailView, ThreadTranscriptItemView } from "../../api/types";
 import type { PublicModelStreamStatus } from "../../hooks/use-public-model-stream";
 import { StatusLabel } from "../../components/common";
@@ -14,7 +14,7 @@ import { V2ImagePreview } from "./image-input";
 import "./inspector.css";
 
 export interface V2InspectorProps {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   detail: ThreadDetailView;
   durableItems: ThreadTranscriptItemView[];
@@ -172,7 +172,7 @@ function InspectorContent({ client, threadID, detail, durableItems, liveSnapshot
   </section>;
 }
 
-function InspectorDetail({ client, threadID, item }: { client: CyberAgentClient; threadID: string; item: ThreadTranscriptItemView }) {
+function InspectorDetail({ client, threadID, item }: { client: APIClient; threadID: string; item: ThreadTranscriptItemView }) {
   return <div className="v2-inspector-detail-content">
     <h3>{item.tool_name || item.title}</h3>
     <p className="v2-inspector-origin">{sourceLabels[item.source]} · {item.stage === "running" && item.durable && !item.provisional ? "记录时执行中" : stageLabels[item.stage]}

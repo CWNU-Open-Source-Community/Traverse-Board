@@ -14,7 +14,7 @@ import (
 
 // recoverHistoricalHostTool consumes saved outcomes for the exact old call.
 // Retired proposals cannot dispatch commands or create new approval authority.
-func (s *RunSupervisor) recoverHistoricalHostTool(ctx context.Context, turn domain.SupervisorTurn,
+func (s *AgentRunner) recoverHistoricalHostTool(ctx context.Context, turn domain.SupervisorTurn,
 	call domain.SupervisorToolCall,
 ) (domain.SupervisorToolResult, error) {
 	failed := func(code, message string) (domain.SupervisorToolResult, error) {

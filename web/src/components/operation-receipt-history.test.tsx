@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { OperationReceiptHistory } from "./operation-receipt-history";
 
 describe("OperationReceiptHistory", () => {
@@ -15,7 +15,7 @@ describe("OperationReceiptHistory", () => {
           retry_strategy: "same_operation_key", recovery_action: "none",
           cleanup_state: "complete" } }],
     });
-    const client = { operationReceiptHistory } as unknown as CyberAgentClient;
+    const client = { operationReceiptHistory } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const user = userEvent.setup();
     render(<QueryClientProvider client={queryClient}>

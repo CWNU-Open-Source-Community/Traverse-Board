@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { GitBranch, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function RepositoryStatePanel({ client, workspaceID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
 }) {
   const { t } = useLocale();

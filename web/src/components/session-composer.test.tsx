@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { OperatorSteeringQueueView, RunView, SessionMessageControlView,
   SessionSteeringCancellationView, RunExecutionControlView,
   RunLifecycleControlView, PublicModelStreamSnapshot } from "../api/types";
@@ -56,7 +56,7 @@ describe("SessionComposer", () => {
       hasRunLifecycle: false,
       hasRunExecution: false,
       submitSessionMessage,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
@@ -99,7 +99,7 @@ describe("SessionComposer", () => {
     const client = {
       hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
       controlRunLifecycle, submitSessionMessage, executeRun,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderComposer(client, { id: "run-1", status: "created" } as RunView);
 
@@ -162,7 +162,7 @@ describe("SessionComposer", () => {
       hasControl: true, submitSessionMessage: vi.fn().mockResolvedValue(result),
       executeRun: vi.fn().mockReturnValue(execution),
       pollPublicModelStream: vi.fn().mockResolvedValue(snapshot), cancelModelCall,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
@@ -190,7 +190,7 @@ describe("SessionComposer", () => {
       hasRunLifecycle: false,
       hasRunExecution: false,
       submitSessionMessage,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderComposer(client, runningRun);
     const composer = screen.getByLabelText("Message current Run");
     fireEvent.change(composer, { target: { value: "Review the current branch" } });
@@ -228,7 +228,7 @@ describe("SessionComposer", () => {
       hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
       submitSessionMessage, executeRun,
       pollPublicModelStream: vi.fn().mockRejectedValue(new Error("no active model call")),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
@@ -264,7 +264,7 @@ describe("SessionComposer", () => {
     const client = {
       hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
       hasPlanDelivery: true, controlRunLifecycle, enterPlanMode,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     render(withProvider(<SessionComposer client={client} phase="deliver" run={runningRun}
       sessionID="sess-1" />));
@@ -290,7 +290,7 @@ describe("SessionComposer", () => {
       hasRunLifecycle: false,
       hasRunExecution: false,
       submitSessionMessage,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderComposer(client, runningRun);
 
     fireEvent.change(screen.getByLabelText("Message current Run"), {
@@ -305,7 +305,7 @@ describe("SessionComposer", () => {
     const disabled = {
       hasSessionMessages: false,
       submitSessionMessage: vi.fn(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const { rerender } = renderComposer(disabled, runningRun);
     expect(screen.queryByLabelText("Message current Run")).not.toBeInTheDocument();
 
@@ -314,7 +314,7 @@ describe("SessionComposer", () => {
       hasRunLifecycle: false,
       hasRunExecution: false,
       submitSessionMessage: vi.fn(),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     rerender(withProvider(<SessionComposer client={enabled} sessionID="sess-1"
       run={{ ...runningRun, status: "created" }} />));
     await waitFor(() => expect(screen.getByLabelText("Message current Run")).toBeDisabled());
@@ -331,7 +331,7 @@ describe("SessionSteeringQueue", () => {
     const client = {
       hasSessionSteeringControl: true,
       cancelSessionSteering,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const state = {
       pending: 1, prepared: 0, committed: 1, cancelled: 0,
       messages: [
@@ -364,7 +364,7 @@ describe("SessionSteeringQueue", () => {
   });
 
   it("stays hidden without its distinct capability", () => {
-    const client = { hasSessionSteeringControl: false } as CyberAgentClient;
+    const client = { hasSessionSteeringControl: false } as APIClient;
     render(withProvider(<SessionSteeringQueue client={client} sessionID="sess-1" state={{
       pending: 1, prepared: 0, committed: 0, cancelled: 0,
       messages: [{ id: "steer-1", sequence: 1, status: "pending", prepared: false,
@@ -374,7 +374,7 @@ describe("SessionSteeringQueue", () => {
   });
 
   it("does not offer cancellation for an already prepared message", () => {
-    const client = { hasSessionSteeringControl: true } as CyberAgentClient;
+    const client = { hasSessionSteeringControl: true } as APIClient;
     render(withProvider(<SessionSteeringQueue client={client} sessionID="sess-1" state={{
       pending: 0, prepared: 1, committed: 0, cancelled: 0,
       messages: [{ id: "steer-prepared", sequence: 1, status: "pending", prepared: true,
@@ -394,7 +394,7 @@ describe("SessionSteeringQueue", () => {
     } as RunExecutionControlView);
     const client = {
       hasSessionSteeringControl: true, hasRunExecution: true, executeRun,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     render(withProvider(<SessionSteeringQueue client={client} run={runningRun}
       sessionID="sess-1" state={{
@@ -410,7 +410,7 @@ describe("SessionSteeringQueue", () => {
   });
 });
 
-function renderComposer(client: CyberAgentClient, run: RunView | null) {
+function renderComposer(client: APIClient, run: RunView | null) {
   return render(withProvider(<SessionComposer client={client} sessionID="sess-1" run={run} />));
 }
 

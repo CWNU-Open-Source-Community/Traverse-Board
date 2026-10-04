@@ -105,7 +105,7 @@ func TestSupervisorResponsesGenericErrorRetryPrivacyAndUnknownCost(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var supervisor *application.RunSupervisor
+			var supervisor *application.AgentRunner
 			run, supervisor = boundaryMoneySupervisor(t, st, provider, domain.Budget{MaxTurns: 3, MaxCostUSD: tc.moneyCap})
 			result, stepErr := supervisor.Step(t.Context(), run.ID)
 			if calls.Load() != tc.calls || (stepErr == nil) != tc.recover || result.ProtocolRepairs != 0 || result.ToolCalls != 0 {

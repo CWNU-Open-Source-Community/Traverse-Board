@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ProviderDefinitionView, ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { V2Composer, v2ComposerNotSubmitted } from "./components/composer";
@@ -40,7 +40,7 @@ import "./shared-shell.css";
 
 function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, onCreated,
   onTurnSuccess, onManageModels, draft: legacyDraft, onDraftChange: legacyDraftChange, creationAttemptRef, options, onOptionsChange, moreProjects, onImported }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaces: WorkspaceView[];
   workspaceID: string;
   onWorkspaceChange: (workspaceID: string) => void;
@@ -114,7 +114,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
       network_mode: networkMode,
       ...(networkMode === "allowlist" ? { allowed_targets: allowedTargets } : {}),
       ...(modelRoute ? { provider: modelRoute.provider, model: modelRoute.model } : {}),
-    } as Parameters<CyberAgentClient["createThread"]>[0] & { provider?: string; model?: string };
+    } as Parameters<APIClient["createThread"]>[0] & { provider?: string; model?: string };
     if (recovery) {
       if (managedDraft) {
         if (draftVersion) assertV2DraftVersion(managedDraft, draftVersion, { text: submittedDraft, files, images, attachments });
@@ -180,7 +180,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   </section>;
 }
 
-export function V2Workbench({ client }: { client: CyberAgentClient }) {
+export function V2Workbench({ client }: { client: APIClient }) {
   const scopeID = useConnectionStore((state) => state.health?.data_store_id);
   const parentQueries = useQueryClient();
   const queries = useMemo(() => scopeID ? new QueryClient({ defaultOptions: parentQueries.getDefaultOptions() })
@@ -190,7 +190,7 @@ export function V2Workbench({ client }: { client: CyberAgentClient }) {
   </V2RecoveryProvider></QueryClientProvider>;
 }
 
-function V2WorkbenchContent({ client }: { client: CyberAgentClient }) {
+function V2WorkbenchContent({ client }: { client: APIClient }) {
   useV2RestoreTurns();
   const recovery = useV2RecoveryStore();
   const persistenceWarning = useV2PersistenceWarning();

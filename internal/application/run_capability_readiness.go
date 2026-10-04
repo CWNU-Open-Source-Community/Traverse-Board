@@ -11,7 +11,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -237,7 +237,7 @@ type RunCapabilityReadinessStore interface {
 	GetRunBrowserCDPPermission(context.Context, string) (domain.RunBrowserCDPPermissionSnapshot, error)
 	GetRunExecutionInteraction(context.Context, string) (domain.RunExecutionInteractionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
 }
 
 type RunCapabilityReadinessService struct {
@@ -313,8 +313,8 @@ func (s *RunCapabilityReadinessService) Project(ctx context.Context,
 		return RunCapabilityReadiness{}, apperror.Normalize(err)
 	}
 	drydockReady := drydockFound && requireCurrentRunFileDrydock(ctx, s.store, run.ID, drydockWorkspace) == nil &&
-		(drydockWorkspace.State == drydock.StateReady ||
-			drydockWorkspace.State == drydock.StateDelivered)
+		(drydockWorkspace.State == runworktree.StateReady ||
+			drydockWorkspace.State == runworktree.StateDelivered)
 	advertisedAdapter := commandruntimeadapter.Identity{}
 	advertised := false
 	if s.commandRuntime != nil {

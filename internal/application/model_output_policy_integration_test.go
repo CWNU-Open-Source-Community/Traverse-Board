@@ -51,7 +51,7 @@ func TestOutputPolicyRejectsReloadWithoutSendingOrCharging(t *testing.T) {
 	router := llm.NewRouter(ref)
 	router.RegisterProvider(p)
 	wrapper := &outputPolicyReloadStore{SQLiteStore: st, router: router, ref: ref}
-	supervisor := application.NewRunSupervisor(wrapper, router, policy.NewDefaultChecker()).WithMonetaryBudget(application.NewMonetaryBudgetService(st))
+	supervisor := application.NewAgentRunner(wrapper, router, policy.NewDefaultChecker()).WithMonetaryBudget(application.NewMonetaryBudgetService(st))
 	_, err = supervisor.Step(ctx, run.ID)
 	if err == nil {
 		t.Fatal("stale request unexpectedly succeeded")
@@ -100,7 +100,7 @@ func TestOutputPolicyUsesModelAllowanceInSupervisor(t *testing.T) {
 			if err := router.SetContextWindow(ref, w); err != nil {
 				t.Fatal(err)
 			}
-			supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithMonetaryBudget(application.NewMonetaryBudgetService(st))
+			supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithMonetaryBudget(application.NewMonetaryBudgetService(st))
 			if _, err := supervisor.Step(ctx, run.ID); err != nil {
 				t.Fatal(err)
 			}

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, FolderOpen, GitBranch, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { readThreadReview, type ThreadReviewChange } from "../../api/task-delivery";
 import { ErrorState, LoadingState, StatusBadge } from "../../components/common";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
@@ -13,7 +13,7 @@ const freshness: Record<string, string> = { current: "适用于当前版本", st
 export const taskReviewKey = (threadID: string) => ["thread", threadID, "task-review"] as const;
 
 export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile }: {
-  client: CyberAgentClient; threadID: string; onFeedback: (context: string) => void; onGit?: () => void;
+  client: APIClient; threadID: string; onFeedback: (context: string) => void; onGit?: () => void;
   onReviewFile?: (target: FileEditReviewTarget) => void;
 }) {
   const query = useQuery({ queryKey: taskReviewKey(threadID), queryFn: ({ signal }) => readThreadReview(client, threadID, signal), refetchOnMount: "always" });

@@ -717,7 +717,7 @@ func (m *Manager) resolveModelRef(route string) (llm.ModelRef, error) {
 }
 
 func systemPrompt(sess Session) string {
-	return "You are Traverse Board, a local-first coding agent. Prefer safe, scoped, auditable actions. " +
+	return "You are Universal Code, a local-first coding agent. Prefer safe, scoped, auditable actions. " +
 		UntrustedContextPolicy + " CTF-specific solving is deferred unless explicitly requested."
 }
 

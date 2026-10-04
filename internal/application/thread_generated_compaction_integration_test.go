@@ -280,7 +280,7 @@ func TestThreadGeneratedCompactionRejectsCancellationStopAndNewInput(t *testing.
 				// transport does not support interrupting an in-flight request.
 				close(release)
 			case "active_call_stop":
-				control := application.NewRunSupervisor(st, generatedFixtureRouter(p), policy.NewDefaultChecker()).WithActiveCalls(active)
+				control := application.NewAgentRunner(st, generatedFixtureRouter(p), policy.NewDefaultChecker()).WithActiveCalls(active)
 				stopped, err := control.CancelActiveCall(t.Context(), application.ActiveCallCancelRequest{RunID: run.ID, Reason: "explicit fixed-fixture Stop"})
 				if err != nil || !stopped.Found || !stopped.AuditRecorded || !stopped.Signaled {
 					t.Fatalf("normal active call Stop failed: %+v err=%v", stopped, err)
@@ -382,7 +382,7 @@ func TestThreadGeneratedCompactionUnrecordedTerminalReopenDoesNotRepeatCall(t *t
 			t.Fatal(err)
 		}
 	}
-	recoveredSupervisor := application.NewRunSupervisor(st, generatedFixtureRouter(p), policy.NewDefaultChecker())
+	recoveredSupervisor := application.NewAgentRunner(st, generatedFixtureRouter(p), policy.NewDefaultChecker())
 	recovered, recoveredErr := recoveredSupervisor.Execute(t.Context(), run.ID, 1)
 	if recoveredErr == nil && len(recovered.Steps) != 0 && recovered.Steps[0].Status == application.LifecycleTurnCompleted {
 		t.Fatalf("unresolved auxiliary call silently finished after reopen: %+v", recovered)

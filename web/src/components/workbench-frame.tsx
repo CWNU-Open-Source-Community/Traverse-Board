@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { useLocale } from "../lib/locale";
 import { WorkbenchDock, type WorkbenchResourceKind } from "./workbench-dock";
 
@@ -57,7 +57,7 @@ export function WorkbenchFrame({ title, children, client, desktop, resourceKind,
   sessionID, threadID = "" }: {
   title: string;
   children: ReactNode;
-  client: CyberAgentClient;
+  client: APIClient;
   desktop: boolean;
   resourceKind: WorkbenchResourceKind;
   runID: string;

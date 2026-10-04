@@ -1,10 +1,10 @@
 import { FolderOpen, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { WorkspaceExplorer } from "./workspace-explorer";
 import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export function WorkspaceAttachmentDialog({ client, open, onClose, runID, workspaceID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   open: boolean;
   onClose: () => void;
   runID: string;

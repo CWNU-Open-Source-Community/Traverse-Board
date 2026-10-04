@@ -39,7 +39,7 @@ func (r *Registry) probeKimiHarness(ctx context.Context, ref llm.ModelRef, base 
 	tool := llm.ToolSpec{Name: "prayu_harness_echo", Description: "Return the supplied qualification nonce without side effects.",
 		Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["nonce"],"properties":{"nonce":{"type":"string"}}}`)}
 	request := llm.ChatRequest{Messages: []llm.Message{
-		{Role: "system", Content: "Traverse Board K3 model Harness qualification. Call only prayu_harness_echo exactly once with nonce " + nonces[0] +
+		{Role: "system", Content: "Universal Code K3 model Harness qualification. Call only prayu_harness_echo exactly once with nonce " + nonces[0] +
 			". After its result, call the same tool exactly once with nonce " + nonces[1] +
 			". After that result, return exactly one JSON object with version " + HarnessProbeProtocolVersion + ", status ok, and nonce " + nonces[0] +
 			". When the next user asks for follow-up, return the same strict JSON with the second nonce. Do not call further tools. No external work is performed."},

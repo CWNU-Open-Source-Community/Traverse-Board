@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunDetailView, RunExecutionControlView, RunLifecycleControlView } from "../api/types";
 import { RunControlPanel } from "./run-workspace";
 
@@ -40,7 +40,7 @@ describe("RunControlPanel", () => {
       .mockResolvedValueOnce(result);
     const client = {
       hasRunLifecycle: true, hasRunExecution: false, controlRunLifecycle,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     render(provider(<RunControlPanel client={client} detail={current} />));
     await user.click(screen.getByRole("button", { name: "Start" }));
@@ -67,7 +67,7 @@ describe("RunControlPanel", () => {
     } as RunExecutionControlView);
     const client = {
       hasRunLifecycle: false, hasRunExecution: true, executeRun,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     render(provider(<RunControlPanel client={client} detail={current} />));
     const steps = screen.getByLabelText("Steps");
@@ -86,7 +86,7 @@ describe("RunControlPanel", () => {
     const executeRun = vi.fn().mockRejectedValue(new Error("response unavailable"));
     const client = {
       hasRunLifecycle: false, hasRunExecution: true, executeRun,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     render(provider(<RunControlPanel client={client} detail={current} />));
     await user.click(screen.getByRole("button", { name: "Run queue" }));

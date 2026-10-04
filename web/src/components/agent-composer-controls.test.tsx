@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { AgentComposerControls } from "./agent-composer-controls";
 
 vi.mock("../lib/locale", () => ({
@@ -9,7 +9,7 @@ vi.mock("../lib/locale", () => ({
     t: (chinese: string) => chinese }),
 }));
 
-function modelClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient {
+function modelClient(overrides: Partial<APIClient> = {}): APIClient {
   return {
     hasModelControl: true,
     modelAvailability: vi.fn().mockResolvedValue({
@@ -34,10 +34,10 @@ function modelClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClien
       harness_ready: true,
     }),
     ...overrides,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
 }
 
-function renderControls(client: CyberAgentClient, props: Record<string, unknown> = {}) {
+function renderControls(client: APIClient, props: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

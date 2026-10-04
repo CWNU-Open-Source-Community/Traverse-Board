@@ -423,7 +423,7 @@ func (s *AgentBrowserService) Shutdown(ctx context.Context) error {
 	}
 	return e
 }
-func (s *RunSupervisor) WithAgentBrowser(service *AgentBrowserService) *RunSupervisor {
+func (s *AgentRunner) WithAgentBrowser(service *AgentBrowserService) *AgentRunner {
 	if s != nil {
 		s.agentBrowser = service
 		if s.tools != nil {
@@ -438,7 +438,7 @@ func (s *RunExecutionHandoffService) WithAgentBrowser(service *AgentBrowserServi
 	}
 	return s
 }
-func (s *RunSupervisor) agentBrowserCapabilities(ctx context.Context, turn domain.SupervisorTurn) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
+func (s *AgentRunner) agentBrowserCapabilities(ctx context.Context, turn domain.SupervisorTurn) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
 	a, e := s.agentBrowser.authorityForAdvertisement(ctx, turn.Run.ID)
 	if e != nil {
 		return toolgateway.BrowserActionCapabilities{}, nil, nil

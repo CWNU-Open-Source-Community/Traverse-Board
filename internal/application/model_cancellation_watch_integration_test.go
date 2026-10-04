@@ -11,7 +11,7 @@ import (
 	"cyberagent-workbench/internal/store"
 )
 
-func TestRunSupervisorConsumesCrossProcessModelCancellation(t *testing.T) {
+func TestAgentRunnerConsumesCrossProcessModelCancellation(t *testing.T) {
 	provider := newActiveCallBlockingProvider()
 	path, workerStore, run, supervisor := newRetrySupervisor(t, provider)
 	supervisor.WithModelCancellationPollInterval(10 * time.Millisecond)

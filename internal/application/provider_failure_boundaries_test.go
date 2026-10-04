@@ -58,7 +58,7 @@ func boundaryHTTPAnthropic(t *testing.T, endpoint string, timeout time.Duration)
 	return p
 }
 
-func boundaryMoneySupervisor(t *testing.T, st *store.SQLiteStore, provider llm.Provider, budget domain.Budget) (domain.Run, *application.RunSupervisor) {
+func boundaryMoneySupervisor(t *testing.T, st *store.SQLiteStore, provider llm.Provider, budget domain.Budget) (domain.Run, *application.AgentRunner) {
 	t.Helper()
 	run, supervisor, router := newQualifiedHTTPProviderSupervisor(t, st, provider, budget)
 	importSupervisorPriceSnapshot(t, t.Context(), st)
@@ -135,7 +135,7 @@ func TestSupervisorHTTPTimeoutRetriesWithoutFailedOutputOrTools(t *testing.T) {
 			t.Cleanup(server.Close)
 			t.Cleanup(func() { close(release) })
 			provider := boundaryHTTPAnthropic(t, server.URL, 400*time.Millisecond)
-			var supervisor *application.RunSupervisor
+			var supervisor *application.AgentRunner
 			run, supervisor = boundaryMoneySupervisor(t, st, provider, domain.Budget{MaxTurns: 3, MaxCostUSD: 1})
 			result, err := supervisor.Step(t.Context(), run.ID)
 			if err != nil || result.ModelAttempts != 2 || calls.Load() != 2 || result.Text != "recovered reply" ||

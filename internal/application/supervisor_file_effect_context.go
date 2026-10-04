@@ -19,7 +19,7 @@ type supervisorFileEffectStore interface {
 // Keep a small, exact ledger projection outside the compactable history region.
 // Generated summaries, repeated compaction and legacy truncated failure records
 // cannot replace these observations with an assistant's completion claim.
-func (s *RunSupervisor) fileEffectContext(ctx context.Context, checkpoint domain.SupervisorCheckpoint, boundaryContext string) (string, error) {
+func (s *AgentRunner) fileEffectContext(ctx context.Context, checkpoint domain.SupervisorCheckpoint, boundaryContext string) (string, error) {
 	calls, err := s.fileEffectCalls(ctx, checkpoint)
 	if err != nil || len(calls) == 0 {
 		return "", err
@@ -27,7 +27,7 @@ func (s *RunSupervisor) fileEffectContext(ctx context.Context, checkpoint domain
 	return boundedSupervisorFileEffectContext(checkpoint, calls, boundaryContext)
 }
 
-func (s *RunSupervisor) fileEffectCalls(ctx context.Context, checkpoint domain.SupervisorCheckpoint) ([]domain.SupervisorToolCall, error) {
+func (s *AgentRunner) fileEffectCalls(ctx context.Context, checkpoint domain.SupervisorCheckpoint) ([]domain.SupervisorToolCall, error) {
 	reader, ok := s.store.(supervisorFileEffectStore)
 	if !ok {
 		return nil, nil

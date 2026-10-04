@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { WorkspaceFileAttachment } from "../api/file-attachments";
 import type { ThreadCreationControlRequestView, ThreadView } from "../api/types";
 import { recoveryAttachmentsKey, v2AttachmentReferenceKey } from "./attachment-keys";
@@ -37,7 +37,7 @@ function creation(client: ReturnType<typeof fixture>) {
   const recovered = vi.fn();
   function Probe() {
     store = useV2RecoveryStore()!;
-    helper = useV2CreationRecovery(client as unknown as CyberAgentClient, workspaceID, recovered);
+    helper = useV2CreationRecovery(client as unknown as APIClient, workspaceID, recovered);
     return helper.notice;
   }
   const page = render(<V2RecoveryProvider client={client} scopeID="attachment-pipeline"><Probe /></V2RecoveryProvider>);
@@ -54,7 +54,7 @@ function turns(client: ReturnType<typeof fixture>, restore = false) {
     store = useV2RecoveryStore()!;
     useV2RecoveryFiles();
     useV2RestoreTurns();
-    return { turn: useV2ThreadTurn(client as unknown as CyberAgentClient), submissions: useV2ThreadSubmissions(threadID) };
+    return { turn: useV2ThreadTurn(client as unknown as APIClient), submissions: useV2ThreadSubmissions(threadID) };
   }
   const page = renderHook(useProbe, { wrapper });
   // The flag documents tests which deliberately start with a persisted journal.
@@ -165,7 +165,7 @@ it("retains an unknown file-only payload across a new QueryClient and only GETs 
   first.unmount(); first.queries.clear();
   const reopened = turns(client, true);
   expect(reopened.result.current.submissions[0].input).toEqual(sent);
-  const observed = await inspectV2TurnRequest(client as unknown as CyberAgentClient, reopened.result.current.submissions[0].input);
+  const observed = await inspectV2TurnRequest(client as unknown as APIClient, reopened.result.current.submissions[0].input);
   expect(observed.state).toBe("not_received");
   expect(client.inspectThreadTurnRequest).toHaveBeenCalledWith(threadID, sent.operationKey, undefined);
   expect(client.submitThreadTurn).toHaveBeenCalledTimes(2);

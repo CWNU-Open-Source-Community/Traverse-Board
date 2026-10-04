@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Globe2, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadExecutionPermissionControlView } from "../../api/types";
 import { useLocale } from "../../lib/locale";
 import { v2QueryKeys } from "../query-keys";
@@ -25,7 +25,7 @@ function effectCopy(result: ThreadExecutionPermissionControlView, t: ReturnType<
 }
 
 type PermissionControlProps = {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   variant?: "menu" | "settings";
   onOpenModelSettings?: () => void;

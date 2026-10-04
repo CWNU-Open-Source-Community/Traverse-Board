@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlarmClock, FileDiff, ListChecks, MessageSquareMore, RefreshCw, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { OperatorActionItemView } from "../api/types";
 import { formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -19,7 +19,7 @@ const actionPresentation: Record<OperatorActionItemView["kind"], {
 };
 
 export function OperatorActionCenter({ client, runID, onNavigate }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onNavigate: (destination: OperatorActionItemView["destination"]) => void;
 }) {

@@ -25,7 +25,7 @@ const desktopDockerSandboxStagingDirectory = "docker-sandbox-staging"
 func newDesktopDockerSandboxService(ctx context.Context, stateStore *store.SQLiteStore,
 	home string, enabled bool,
 	permissionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
-	drydocks *application.DrydockService, imageDigest string,
+	drydocks *application.RunWorktreeService, imageDigest string,
 ) (*application.DockerSandboxService, *application.StandardCodeDockerService,
 	*sandbox.DockerReadiness, error,
 ) {

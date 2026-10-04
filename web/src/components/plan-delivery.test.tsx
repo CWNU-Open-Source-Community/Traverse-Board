@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { PlanDeliveryStateView, RunDetailView } from "../api/types";
 import { PlanDeliveryPanel } from "./run-workspace";
 
@@ -52,7 +52,7 @@ describe("PlanDeliveryPanel", () => {
   it.each([1, 2, 3])("adopts one of %i real options and enters Deliver with distinct exact requests", async (count) => {
     const selectPlanDirection = vi.fn().mockResolvedValue({ selection_id: "selection-1" });
     const enterPlanDelivery = vi.fn().mockResolvedValue({ selection_id: "selection-1" });
-    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as CyberAgentClient;
+    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as APIClient;
     const state = choiceState(count);
     const user = userEvent.setup();
     const view = renderWithQuery(<PlanDeliveryPanel client={client} detail={planDetail("run-a")} state={state} />);
@@ -80,7 +80,7 @@ describe("PlanDeliveryPanel", () => {
     const state = choiceState(1);
     state.proposal!.directions = kind === "empty" ? [] : kind === "four" ? [...directions, { ...directions[0], ordinal: 4 }] :
       [{ ...directions[0], ordinal: 2 }];
-    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, selectPlanDirection } as unknown as CyberAgentClient}
+    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, selectPlanDirection } as unknown as APIClient}
       detail={planDetail("run-a")} state={state} />);
     expect(screen.getByRole("alert")).toHaveTextContent("count or ordinals are inconsistent");
     for (const button of screen.queryAllByRole("button", { name: /Adopt plan/, hidden: true })) expect(button).toBeDisabled();
@@ -110,7 +110,7 @@ describe("PlanDeliveryPanel", () => {
       .mockRejectedValueOnce(new APIRequestError("Authorization changed", "FORBIDDEN", 403))
       .mockResolvedValueOnce({ selection_id: "selection-1" });
     const enterPlanDelivery = vi.fn().mockResolvedValue({ selection_id: "selection-1" });
-    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as CyberAgentClient;
+    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as APIClient;
     const user = userEvent.setup();
     renderWithQuery(<PlanDeliveryPanel client={client} detail={planDetail("run-a")} state={choiceState()} />);
     await user.click(screen.getByRole("button", { name: "Adopt plan and enter Deliver" }));
@@ -129,7 +129,7 @@ describe("PlanDeliveryPanel", () => {
     const selectPlanDirection = vi.fn(async (runID: string) => ({ selection_id: `selection-${runID}` }));
     const enterPlanDelivery = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
       .mockRejectedValueOnce(new Error("delivery response lost")).mockResolvedValueOnce({ selection_id: "selection-run-b" });
-    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as CyberAgentClient;
+    const client = { hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const content = (runID: string) => <QueryClientProvider client={queryClient}>
@@ -162,7 +162,7 @@ describe("PlanDeliveryPanel", () => {
     const enterPlanDelivery = vi.fn().mockRejectedValueOnce(new APIRequestError("Wait for active execution", "CONFLICT", 409))
       .mockResolvedValueOnce({ selection_id: "selection-1" });
     const user = userEvent.setup();
-    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as CyberAgentClient}
+    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, selectPlanDirection, enterPlanDelivery } as unknown as APIClient}
       detail={planDetail("run-a")} state={choiceState()} />);
     await user.click(screen.getByRole("button", { name: "Adopt plan and enter Deliver" }));
     await user.click(await screen.findByRole("button", { name: "Retry entering Deliver" }));
@@ -177,7 +177,7 @@ describe("PlanDeliveryPanel", () => {
         note_id: "note-1", items: [], version: 1, created_at: "2026-09-09T00:00:00Z" } };
     const enterPlanDelivery = vi.fn().mockResolvedValue({ selection_id: "other-selection" });
     const user = userEvent.setup();
-    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, enterPlanDelivery } as unknown as CyberAgentClient}
+    renderWithQuery(<PlanDeliveryPanel client={{ hasPlanDelivery: true, enterPlanDelivery } as unknown as APIClient}
       detail={planDetail("run-a")} state={state} />);
     await user.click(screen.getByRole("button", { name: "Enter Deliver" }));
     expect(await screen.findByRole("button", { name: "Confirm previous plan operation" })).toBeInTheDocument();

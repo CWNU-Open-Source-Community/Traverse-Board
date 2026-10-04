@@ -1,17 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { LocaleProvider } from "../../lib/locale";
 import { V2Settings } from "./settings";
 import type { V2SettingsSection } from "./sidebar";
 import { useConnectionStore } from "../../state/connection";
 
-function mount(client: Partial<CyberAgentClient>, section: V2SettingsSection, threadID = "", desktop = false) {
+function mount(client: Partial<APIClient>, section: V2SettingsSection, threadID = "", desktop = false) {
   window.localStorage.setItem("prayu.locale.v1", "zh-CN");
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = (currentSection: V2SettingsSection) => <QueryClientProvider client={queryClient}><LocaleProvider>
-    <V2Settings client={client as CyberAgentClient} desktop={desktop} onOpenInspector={vi.fn()}
+    <V2Settings client={client as APIClient} desktop={desktop} onOpenInspector={vi.fn()}
       onSelectSection={vi.fn()} section={currentSection} threadID={threadID} workspaces={[]} />
   </LocaleProvider></QueryClientProvider>;
   const rendered = render(view(section));

@@ -12,7 +12,7 @@ import {
   Plus,
   Target,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { useLocale } from "../lib/locale";
 
 export const defaultContextCapacityTokens = 32 * 1024;
@@ -21,7 +21,7 @@ export function AgentComposerControls({ client, route, contextTokens = 0,
   contextCapacity = defaultContextCapacityTokens, contextPartial = false,
   planMode = false, targetMode = false, onPlanModeChange, onTargetModeChange,
   onOpenFiles, onOpenPlugins, status, trailing }: {
-  client: CyberAgentClient;
+  client: APIClient;
   route: string;
   contextTokens?: number;
   contextCapacity?: number;
@@ -118,7 +118,7 @@ function ContextMeter({ used, capacity, partial }: {
   </div>;
 }
 
-function ModelQuickPicker({ client, route }: { client: CyberAgentClient; route: string }) {
+function ModelQuickPicker({ client, route }: { client: APIClient; route: string }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);

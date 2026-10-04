@@ -606,7 +606,7 @@ func TestManagerRuntimeStdioSupervisorRecoveryDoesNotResend(t *testing.T) {
 			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 			router.RegisterProvider(provider)
 			fault := &managerStdioReceiptFault{SQLiteStore: f.state.SQLiteStore}
-			supervisor := application.NewRunSupervisor(fault, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
+			supervisor := application.NewAgentRunner(fault, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 			_, firstErr := supervisor.Step(t.Context(), f.run.ID)
 			t.Logf("first Supervisor receipt: runtime spawn=%d tools/call=%d injected=%t status=%s error_code=%s result=%s",
 				countManagerStdioEvents(managerStdioEvents(t, f.dir, "runtime"), "spawn"),
@@ -646,7 +646,7 @@ func TestManagerRuntimeStdioSupervisorRecoveryDoesNotResend(t *testing.T) {
 					}
 				}
 				f.activateFull(t, true)
-				supervisor = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
+				supervisor = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 				step, err := supervisor.Step(t.Context(), f.run.ID)
 				if err != nil {
 					t.Fatalf("recovery %d failed: %v", resume, err)

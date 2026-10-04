@@ -94,7 +94,7 @@ func TestSessionRunChatQueuesConcurrentOperatorInputAtSafeBoundary(t *testing.T)
 		t.Fatalf("queued input did not defer the first finish action: result=%#v err=%v",
 			first.result, first.err)
 	}
-	step, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	step, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil || step.Action.Kind != domain.RootActionContinue || step.RunStatus != domain.RunRunning ||
 		step.UserMessage.Content != "also verify the queued requirement" {
 		t.Fatalf("queued input was not delivered by the next Supervisor step: result=%#v err=%v",

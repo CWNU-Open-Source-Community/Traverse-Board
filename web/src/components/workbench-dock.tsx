@@ -17,7 +17,7 @@ import {
   SquareTerminal,
   X,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   RepositoryStateView,
   RunDetailView,
@@ -79,7 +79,7 @@ const sidecarGroups: Array<{ id: SidecarGroup; label: [string, string] }> = [
 export function WorkbenchDock({ children, client, desktop, resourceKind, runID, sessionID,
   threadID = "", title }: {
   children: ReactNode;
-  client: CyberAgentClient;
+  client: APIClient;
   desktop: boolean;
   resourceKind: WorkbenchResourceKind;
   runID: string;
@@ -282,7 +282,7 @@ function WorkspaceOpenMenu({ desktop, workspaceID }: { desktop: boolean; workspa
 }
 
 function WorkbenchSummary({ client, context }: {
-  client: CyberAgentClient;
+  client: APIClient;
   context: WorkbenchContext;
 }) {
   const { t } = useLocale();
@@ -355,7 +355,7 @@ function BottomPanel({ desktop, runID, sessionID, onSession, onClose }: {
 }
 
 function SidecarContent({ client, context, runID, tab }: {
-  client: CyberAgentClient;
+  client: APIClient;
   context: WorkbenchContext;
   runID: string;
   tab: SidecarTab;
@@ -379,7 +379,7 @@ function SidecarContent({ client, context, runID, tab }: {
     <strong>终端尚未启动</strong><span>当前权限档位不允许工作台启动 Shell</span></div>;
 }
 
-function SideTaskPanel({ client, runID }: { client: CyberAgentClient; runID: string }) {
+function SideTaskPanel({ client, runID }: { client: APIClient; runID: string }) {
   const { t } = useLocale();
   const query = usePagedResource<WorkItemView>(client, ["run", runID, "sidecar-work-items"],
     `/runs/${encodeURIComponent(runID)}/work-items`, { limit: 50 }, Boolean(runID));
@@ -397,7 +397,7 @@ function SideTaskPanel({ client, runID }: { client: CyberAgentClient; runID: str
   </div>;
 }
 
-function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchResourceKind,
+function useWorkbenchContext(client: APIClient, resourceKind: WorkbenchResourceKind,
   runID: string, sessionID: string, threadID: string): WorkbenchContext {
   const run = useQuery({
     queryKey: ["run", runID],

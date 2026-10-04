@@ -19,7 +19,7 @@ import (
 	"cyberagent-workbench/internal/webevidence"
 )
 
-func TestRunSupervisorHeartbeatKeepsLongModelCallExclusive(t *testing.T) {
+func TestAgentRunnerHeartbeatKeepsLongModelCallExclusive(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "heartbeat.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,10 +44,10 @@ func TestRunSupervisorHeartbeatKeepsLongModelCallExclusive(t *testing.T) {
 	leasePolicy := application.RunExecutionLeasePolicy{
 		TTL: 750 * time.Millisecond, RenewInterval: 150 * time.Millisecond,
 	}
-	first := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).
+	first := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).
 		WithRunExecutionLeaseOwner("heartbeat-worker-a").
 		WithRunExecutionLeasePolicy(leasePolicy)
-	second := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).
+	second := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).
 		WithRunExecutionLeaseOwner("heartbeat-worker-b").
 		WithRunExecutionLeasePolicy(leasePolicy)
 
@@ -101,7 +101,7 @@ func TestRunSupervisorHeartbeatKeepsLongModelCallExclusive(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorHeartbeatKeepsLongWebSearchExclusive(t *testing.T) {
+func TestAgentRunnerHeartbeatKeepsLongWebSearchExclusive(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "web-search-heartbeat.db"))
 	if err != nil {
 		t.Fatal(err)

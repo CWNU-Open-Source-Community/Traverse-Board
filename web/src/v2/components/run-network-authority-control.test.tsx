@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderSearchReadinessView } from "../../api/types";
 import { V2RunNetworkAuthorityControl } from "./run-network-authority-control";
 
@@ -42,7 +42,7 @@ function renderControl(status: "created" | "paused" | "running" = "paused",
     network_request_attempted: true, http_status: 403,
   });
   const client = { hasControl: true, get, expandRunNetworkAuthority,
-    providerSearchReadiness, diagnoseThreadSearch } as unknown as CyberAgentClient;
+    providerSearchReadiness, diagnoseThreadSearch } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

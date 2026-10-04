@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { V2PendingModelRoute } from "./components/model-route-control";
 
-export function useV2ImageCapability(client: CyberAgentClient, threadID: string,
+export function useV2ImageCapability(client: APIClient, threadID: string,
   pendingRoute: V2PendingModelRoute | null | undefined, enabled: boolean, runActive = false) {
   const route = useQuery({ queryKey: ["v2", "thread", threadID, "model-route"],
     queryFn: ({ signal }) => client.threadModelRoute(threadID, signal),

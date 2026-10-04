@@ -298,14 +298,14 @@ type SandboxManifestService struct {
 	runtimeResourceRead  sandbox.DockerRuntimeInputResourceInspector
 	runtimeResourceClean sandbox.DockerRuntimeInputResourceCleanupTransport
 	productionEvidence   sandbox.DockerProductionEvidenceCollector
-	standardCodeDrydock  *DrydockService
+	standardCodeDrydock  *RunWorktreeService
 }
 
 // WithStandardCodeDrydock projects only the exact, fully bound Standard Code
 // manifest onto its product-owned Drydock root. Other sandbox manifests retain
 // the registered source Workspace binding.
 func (s *SandboxManifestService) WithStandardCodeDrydock(
-	drydockService *DrydockService,
+	drydockService *RunWorktreeService,
 ) *SandboxManifestService {
 	if s != nil {
 		s.standardCodeDrydock = drydockService

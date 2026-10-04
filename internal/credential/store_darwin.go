@@ -63,7 +63,7 @@ static OSStatus traverse_keychain_put(CFDictionaryRef query, SecKeychainRef targ
 		CFDictionarySetValue(attributes, kSecClass, kSecClassGenericPassword);
 		CFDictionarySetValue(attributes, kSecAttrService, CFDictionaryGetValue(query, kSecAttrService));
 		CFDictionarySetValue(attributes, kSecAttrAccount, CFDictionaryGetValue(query, kSecAttrAccount));
-		CFDictionarySetValue(attributes, kSecAttrLabel, CFSTR("Traverse Board"));
+		CFDictionarySetValue(attributes, kSecAttrLabel, CFSTR("Universal Code"));
 		CFDictionarySetValue(attributes, kSecUseKeychain, target);
 		CFDictionarySetValue(attributes, kSecValueData, data);
 		status = SecItemAdd(attributes, NULL);

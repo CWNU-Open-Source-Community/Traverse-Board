@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowUp, LoaderCircle, Paperclip, ClipboardPaste, FolderOpen } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { V2ModelRouteControl, type V2PendingModelRoute } from "./model-route-control";
 import { V2PermissionControl } from "./permission-control";
@@ -28,7 +28,7 @@ export function V2Composer({ client, threadID, workspaceID, workspaces, disabled
   placeholder = "输入消息…", newThreadControls, threadControls, runActive = false, onManageModels,
   pendingModelRoute, onPendingModelRouteChange, onWorkspaceChange, onSubmit, draft, onDraftChange,
   fileReferenceUnavailableReason, confirmedSubmission, presentedSubmissionErrors = [] }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   runID?: string;
   workspaceID: string;

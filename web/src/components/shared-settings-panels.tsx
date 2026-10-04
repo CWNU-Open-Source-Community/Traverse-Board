@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Cpu, LoaderCircle, PackageSearch, PlugZap, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { CodeIntelQualificationView, CodeIntelServerView, ExtensionMCPServerView,
   ExtensionPluginInstallationView, HealthView } from "../api/types";
 import { useLocale } from "../lib/locale";
@@ -29,7 +29,7 @@ export function persistDensity(density: Density) {
   }
 }
 
-export function WebSkillInstall({ client }: { client: CyberAgentClient }) {
+export function WebSkillInstall({ client }: { client: APIClient }) {
   const { t } = useLocale();
   const inputRef = useRef<HTMLInputElement>(null);
   const operationKey = useRef("");
@@ -102,7 +102,7 @@ export function AboutSettings({ desktop, health }: { desktop: boolean; health: H
   const { t } = useLocale();
   return <section className="settings-page-section about-prayu">
     <PrayuBrand className="about-mark" variant="icon" />
-    <h1>Traverse Board · 针路簿</h1>
+    <h1>Universal Code</h1>
     <p>{t("本地优先的 AI Agent 工作台", "Local-first AI Agent Workbench")}</p>
     <dl className="settings-row-list">
       <div><dt>{t("应用版本", "Application version")}</dt><dd>{health?.app_version ?? "dev"}</dd></div>
@@ -119,7 +119,7 @@ type ExtensionAction =
   | { kind: "disable-plugin"; installation: ExtensionPluginInstallationView };
 
 export function ExtensionSettings({ client, selectedRunID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   selectedRunID: string;
 }) {
   const { t } = useLocale();
@@ -284,7 +284,7 @@ function ExtensionCollection({ title, count, children }: {
 
 function MCPServerCard({ action, client, server }: {
   action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
-  client: CyberAgentClient;
+  client: APIClient;
   server: ExtensionMCPServerView;
 }) {
   const { t } = useLocale();
@@ -325,7 +325,7 @@ function MCPServerCard({ action, client, server }: {
 
 function PluginCard({ action, client, installation }: {
   action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
-  client: CyberAgentClient;
+  client: APIClient;
   installation: ExtensionPluginInstallationView;
 }) {
   const { t } = useLocale();

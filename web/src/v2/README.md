@@ -98,7 +98,7 @@ Inspector（旧 Run/Session/Event 页面，用户主动进入）
 ```text
 我先检查运行失败的原因。
 
-⌕ 搜索了 “RunSupervisor”
+⌕ 搜索了 “AgentRunner”
 ↳ 读取了 3 个相关文件
 
 问题已经定位：执行循环在返回 continue 后被前端截断。

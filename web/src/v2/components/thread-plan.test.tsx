@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import { parseThreadPlanObservation, type ThreadPlanAttempt, type ThreadPlanRequest } from "../../api/thread-plan";
 import { V2RecoveryProvider, useV2RecoveryStore, type V2RecoveryStore } from "../recovery-storage";
 import { V2ThreadPlanControl } from "./thread-plan";
@@ -30,7 +30,7 @@ function fixture() {
   });
   const inspectThreadPlanRequest = vi.fn(async (threadID: string, runID: string, action: ThreadPlanRequest["action"], key: string) =>
     hooks.observe ? hooks.observe() : result(threadID, requests.get(key)?.body ?? { version: "plan_delivery_control.v1", action, run_id: runID }, "not_received"));
-  const client = { baseURL: "http://localhost/api/v1", hasThreadControl: true, hasPlanDelivery: true, get, postControl, inspectThreadPlanRequest } as unknown as CyberAgentClient;
+  const client = { baseURL: "http://localhost/api/v1", hasThreadControl: true, hasPlanDelivery: true, get, postControl, inspectThreadPlanRequest } as unknown as APIClient;
   return { state, hooks, result, client, get, postControl, inspectThreadPlanRequest };
 }
 function mount(f: ReturnType<typeof fixture>, threadID = "task-a", draft = false) {

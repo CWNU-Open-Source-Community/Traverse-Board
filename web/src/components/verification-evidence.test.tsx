@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { VerificationEvidence } from "./verification-evidence";
 
 const emptyPlans = () => ({
@@ -30,7 +30,7 @@ describe("VerificationEvidence", () => {
     const recordVerificationEvidence = vi.fn().mockResolvedValue({ id: "verification-1" });
     const client = { hasVerificationEvidence: true, verificationEvidence,
       verificationPlans, verificationPlanCoverage,
-      recordVerificationEvidence } as unknown as CyberAgentClient;
+      recordVerificationEvidence } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: {
       queries: { retry: false }, mutations: { retry: false },
     } });
@@ -75,7 +75,7 @@ describe("VerificationEvidence", () => {
     const associateVerificationEvidence = vi.fn().mockResolvedValue({ id: "association-1" });
     const client = { hasVerificationEvidence: true, verificationEvidence, verificationPlans,
       verificationPlanCoverage, recordVerificationEvidence: vi.fn(),
-      associateVerificationEvidence } as unknown as CyberAgentClient;
+      associateVerificationEvidence } as unknown as APIClient;
     const user = userEvent.setup();
     const queryClient = new QueryClient();
     const { rerender } = render(<QueryClientProvider client={queryClient}>
@@ -90,7 +90,7 @@ describe("VerificationEvidence", () => {
       version: "operator_verification_plan_evidence_association.v1", plan_id: "plan-1",
       plan_item_ordinal: 1, evidence_id: "evidence-1",
     }, expect.stringMatching(/^web-verification-association-/u));
-    const readOnlyClient = { ...client, hasVerificationEvidence: false } as CyberAgentClient;
+    const readOnlyClient = { ...client, hasVerificationEvidence: false } as APIClient;
     rerender(<QueryClientProvider client={queryClient}>
       <VerificationEvidence client={readOnlyClient} runID="run-1" />
     </QueryClientProvider>);

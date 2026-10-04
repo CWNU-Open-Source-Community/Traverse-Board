@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 import { V2PermissionControl } from "../v2/components/permission-control";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.localStorage.removeItem("prayu.locale.v1"); });
@@ -42,7 +42,7 @@ function install(initial = states()[0]) {
       { status: request ? 202 : 200, headers: { "Content-Type": "application/json" } });
   });
   vi.stubGlobal("fetch", fetch);
-  const client = new CyberAgentClient("read", "/api/v1", "control", { executionPermissionControlEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { executionPermissionControlEnabled: true });
   return { client, fetch, threadID: initial.execution_permission.thread_id,
     posts: () => fetch.mock.calls.filter(([, options]) => options?.method === "POST") };
 }

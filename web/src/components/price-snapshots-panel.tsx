@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { LoaderCircle, Tag } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ErrorState, LoadingState } from "./common";
 import { useLocale } from "../lib/locale";
 
-export function PriceSnapshotsSection({ client }: { client: CyberAgentClient }) {
+export function PriceSnapshotsSection({ client }: { client: APIClient }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const [document, setDocument] = useState("");

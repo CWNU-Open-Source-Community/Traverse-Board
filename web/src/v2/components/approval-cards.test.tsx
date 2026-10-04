@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CyberAgentClient } from "../../api/client";
+import { APIClient } from "../../api/client";
 import type { ApprovalQueueItemView } from "../../api/types";
 import { V2ApprovalCards } from "./approval-cards";
 
@@ -54,7 +54,7 @@ function renderCards(item: ApprovalQueueItemView, previewOverrides = {}, onRevie
     source_current: true, redacted: false, truncated: false, ...previewOverrides,
   });
   const client = { hasApprovalControl: true, approvalQueue, decideApproval, approvalPreview,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
@@ -137,7 +137,7 @@ describe("V2ApprovalCards", () => {
       { status: path.endsWith("/decision") ? 202 : 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("test-read", "/api/v1", "test-control");
+    const client = new APIClient("test-read", "/api/v1", "test-control");
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
       <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
     </QueryClientProvider>);
@@ -162,7 +162,7 @@ describe("V2ApprovalCards", () => {
       request_id: "preview-create", data: String(url).endsWith("/preview") ? preview : queue }),
       { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("test-read", "/api/v1", "test-control");
+    const client = new APIClient("test-read", "/api/v1", "test-control");
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
     </QueryClientProvider>);

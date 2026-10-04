@@ -1,14 +1,14 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardCheck, Link2, LoaderCircle, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { VerificationEvidenceRequestView } from "../api/types";
 import { formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function VerificationEvidence({ client, runID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
 }) {
   const { t } = useLocale();

@@ -36,7 +36,7 @@ type mcpRecoveryAcceptanceFixture struct {
 	caps        domain.ExecutionPermissionRuntimeCapabilities
 	peer        *httptest.Server
 	manager     *mcp.Manager
-	supervisor  *RunSupervisor
+	supervisor  *AgentRunner
 	turns       *ThreadTurnService
 	controller  *ApprovalControlService
 	provider    *mcpRecoveryAcceptanceProvider
@@ -251,7 +251,7 @@ func newMCPRecoveryAcceptanceFixture(t *testing.T, mode domain.RunExecutionPermi
 	return f
 }
 
-func (f *mcpRecoveryAcceptanceFixture) services(t *testing.T, st *store.SQLiteStore) (*RunSupervisor, *ThreadTurnService, *ApprovalControlService) {
+func (f *mcpRecoveryAcceptanceFixture) services(t *testing.T, st *store.SQLiteStore) (*AgentRunner, *ThreadTurnService, *ApprovalControlService) {
 	t.Helper()
 	manager, err := mcp.NewClientManager(st, &mcpRuntimeCredentialFixture{}, mcp.ManagerOptions{HTTPClient: f.peer.Client()})
 	if err != nil {
@@ -261,7 +261,7 @@ func (f *mcpRecoveryAcceptanceFixture) services(t *testing.T, st *store.SQLiteSt
 	router.RegisterProvider(f.provider)
 	checker := policy.NewDefaultChecker()
 	deps := RunRuntimeDependencies{ExecutionCapabilities: f.caps, MCPClient: manager}
-	supervisor := NewRunSupervisorWithRuntime(st, router, checker, deps)
+	supervisor := NewAgentRunnerWithRuntime(st, router, checker, deps)
 	handoff := NewRunExecutionHandoffWithRuntime(st, router, checker, deps)
 	turns := NewThreadTurnServiceWithExecutionCapabilities(st, NewRunLifecycleControlService(st), handoff, f.caps)
 	return supervisor, turns, NewApprovalControlService(st, toolgateway.New(st, checker), checker)

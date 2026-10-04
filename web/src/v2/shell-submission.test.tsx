@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { V2Workbench } from "./app";
@@ -39,7 +39,7 @@ it("preserves an unknown submission across Inspector/settings and confirms only 
     get: vi.fn().mockResolvedValue(detail),
     getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace]
       : path === "/threads" ? [thread] : [], page: { limit: 100 }, requestID: path })),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   const key = v2FileReferenceKey(workspace.id, thread.id);
   queryClient.setQueryData(key, [original]);

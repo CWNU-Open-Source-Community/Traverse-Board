@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, X } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { RunDetailView } from "../../api/types";
 import { executeThreadPlan, observeThreadPlan, validThreadPlanAttempt, type ThreadPlanAttempt, type ThreadPlanObservation, type ThreadPlanRequest } from "../../api/thread-plan";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
@@ -36,7 +36,7 @@ const planErrorText = (failure: unknown) => {
 };
 
 interface Props {
-  client: CyberAgentClient; threadID: string; runID: string; active: boolean; working: boolean;
+  client: APIClient; threadID: string; runID: string; active: boolean; working: boolean;
   hasUnsentDraft: boolean; onRequestChange: (content: string) => void;
 }
 export function V2ThreadPlanControl(props: Props) {

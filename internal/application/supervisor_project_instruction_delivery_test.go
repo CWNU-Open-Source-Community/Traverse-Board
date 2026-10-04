@@ -225,7 +225,7 @@ func TestSupervisorProjectInstructionDeliveryStopsBeforeModelOrToolsWhenRequired
 					t.Fatal(err)
 				}
 			}
-			_, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(test.history).Step(t.Context(), run.ID)
+			_, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(test.history).Step(t.Context(), run.ID)
 			if apperror.CodeOf(err) != apperror.CodeResourceExhausted || len(provider.Requests()) != 0 {
 				t.Fatalf("required delivery silently degraded: error=%v outbound=%d", err, len(provider.Requests()))
 			}

@@ -17,7 +17,7 @@ import (
 	"cyberagent-workbench/internal/store"
 )
 
-func TestRunSupervisorAggregatesSplitUTF8Stream(t *testing.T) {
+func TestAgentRunnerAggregatesSplitUTF8Stream(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestRunSupervisorAggregatesSplitUTF8Stream(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorPublishesOnlySafeProvisionalRootMessage(t *testing.T) {
+func TestAgentRunnerPublishesOnlySafeProvisionalRootMessage(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestRunSupervisorPublishesOnlySafeProvisionalRootMessage(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorBoundsModelDeltaEventsWithoutPersistingText(t *testing.T) {
+func TestAgentRunnerBoundsModelDeltaEventsWithoutPersistingText(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestRunSupervisorBoundsModelDeltaEventsWithoutPersistingText(t *testing.T) 
 	}
 }
 
-func TestRunSupervisorRetriesRetryableMidStreamFailure(t *testing.T) {
+func TestAgentRunnerRetriesRetryableMidStreamFailure(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestRunSupervisorRetriesRetryableMidStreamFailure(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRejectsMalformedStreamBoundaries(t *testing.T) {
+func TestAgentRunnerRejectsMalformedStreamBoundaries(t *testing.T) {
 	usage := llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2}
 	tests := []struct {
 		name       string
@@ -235,7 +235,7 @@ func TestRunSupervisorRejectsMalformedStreamBoundaries(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorResumesAfterMidStreamCancellation(t *testing.T) {
+func TestAgentRunnerResumesAfterMidStreamCancellation(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -492,12 +492,12 @@ func (*cancelThenStreamProvider) SupportsTools(string) bool    { return false }
 func (*cancelThenStreamProvider) SupportsVision(string) bool   { return false }
 func (*cancelThenStreamProvider) SupportsJSONMode(string) bool { return true }
 
-func newStreamSupervisor(t *testing.T, st *store.SQLiteStore, provider llm.Provider, budget domain.Budget) (domain.Run, *application.RunSupervisor) {
+func newStreamSupervisor(t *testing.T, st *store.SQLiteStore, provider llm.Provider, budget domain.Budget) (domain.Run, *application.AgentRunner) {
 	t.Helper()
 	run := newStartedRunForProvider(t, st, provider.Name(), budget)
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	return run, application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	return run, application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 }
 
 func finalStreamChunk(provider string, model string, usage llm.Usage) llm.ChatChunk {

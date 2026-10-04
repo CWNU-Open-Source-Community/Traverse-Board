@@ -70,7 +70,7 @@ func TestFullCDPRejectsLegacyAuthorityAndRevokedCurrentFull(t *testing.T) {
 			if err != nil || !live || (binding.executionActivation == 0) != (mode != "dynamic_full") {
 				t.Fatalf("wrong live authority semantics: live=%t activation=%d err=%v", live, binding.executionActivation, err)
 			}
-			supervisor := &RunSupervisor{browserActions: service}
+			supervisor := &AgentRunner{browserActions: service}
 			turn := domain.SupervisorTurn{Run: baseStore.run, Mission: baseStore.mission,
 				Agent: domain.AgentNode{ID: "agent-browser-root", Role: domain.AgentRoleRoot},
 				Mode:  domain.RunModeSnapshot{Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver, Profile: domain.ProfileCode, Revision: 1}}

@@ -210,7 +210,7 @@ func TestThreadPlanContinuationKeepsUnselectedProposalSelectable(t *testing.T) {
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	if _, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, old.ID); err != nil {
+	if _, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, old.ID); err != nil {
 		t.Fatal(err)
 	}
 	proposals, err := st.ListPlanDeliveryProposals(ctx, old.ID, 10)
@@ -240,7 +240,7 @@ func TestThreadPlanContinuationKeepsUnselectedProposalSelectable(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider.responses = []*llm.ChatResponse{{Provider: "store-plan", Model: "model", Text: storeRootWaitResponse(t)}}
-	if _, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, next.ID); err != nil {
+	if _, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, next.ID); err != nil {
 		t.Fatal(err)
 	}
 	result, err := application.NewPlanDeliveryService(st).Select(ctx, application.SelectPlanDeliveryDirectionRequest{

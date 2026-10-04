@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderDefinitionView } from "../../api/types";
 import { V2ProviderSettings, validProviderEndpointURL, type V2ProviderDraftPreset } from "./provider-settings";
 
@@ -159,7 +159,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
       qualifyModelHarness,
       availableModelRoutes,
       discoverProviderModels,
-    } as unknown as CyberAgentClient,
+    } as unknown as APIClient,
     providerDefinitions,
     providerCredentialStatuses,
     changeProviderCredential,
@@ -172,7 +172,7 @@ function createClient(providers: ProviderDefinitionView[] = []) {
   };
 }
 
-function renderSettings(client: CyberAgentClient) {
+function renderSettings(client: APIClient) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

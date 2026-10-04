@@ -1,13 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { V2Composer, v2ComposerNotSubmitted } from "./composer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { V2RecoveryProvider } from "../recovery-storage";
 import type { ComponentProps } from "react";
 
-const client = {} as CyberAgentClient;
+const client = {} as APIClient;
 const workspaces: WorkspaceView[] = [
   { id: "workspace-1", name: "Traverse Board", created_at: "2026-08-29T00:00:00Z" },
 ];

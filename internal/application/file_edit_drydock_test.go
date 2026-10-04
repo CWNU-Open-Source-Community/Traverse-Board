@@ -9,9 +9,9 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -21,7 +21,7 @@ import (
 // check must exercise real SQLite/Git resolution, not interchangeable mock roots.
 func TestFileEditConfiguredSourceUsesOwnedDrydock(t *testing.T) {
 	fixture, owned := newFileEditDrydockFixture(t)
-	service := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service)
+	service := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service)
 	source, err := service.IssueSource(t.Context(), fixture.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestFileEditDrydockReviewApplyInverseAndCursorStayOnOwnedWorkspace(t *testi
 	if err != nil || !found || sourceCursor.WorkspaceID != fixture.workspace.ID {
 		t.Fatalf("source cursor=%+v found=%t err=%v", sourceCursor, found, err)
 	}
-	proposal := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service)
+	proposal := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service)
 	source, err := proposal.IssueSource(ctx, fixture.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -69,11 +69,11 @@ func TestFileEditDrydockReviewApplyInverseAndCursorStayOnOwnedWorkspace(t *testi
 	}
 	request := ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
 		RunID: fixture.run.ID, EditID: created.Edit.ID, OperationKey: "owned-file-apply-0001", AppliedBy: "operator"}
-	apply := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker(), checkpoints).WithDrydock(fixture.service)
+	apply := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker(), checkpoints).WithRunWorktree(fixture.service)
 	if _, err := apply.Apply(ctx, request); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("unreviewed apply error=%v", err)
 	}
-	review := NewFileEditReviewService(fixture.state).WithDrydock(fixture.service)
+	review := NewFileEditReviewService(fixture.state).WithRunWorktree(fixture.service)
 	if _, err := review.Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
 		RunID: fixture.run.ID, EditID: created.Edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestFileEditDrydockReviewApplyInverseAndCursorStayOnOwnedWorkspace(t *testi
 	}
 	interrupted := &fileEditFailTerminalOnce{SQLiteStore: fixture.state, fail: true}
 	if _, err := NewFileEditApplyService(interrupted, policy.NewDefaultChecker(), checkpoints).
-		WithDrydock(fixture.service).Apply(ctx, request); err == nil {
+		WithRunWorktree(fixture.service).Apply(ctx, request); err == nil {
 		t.Fatal("injected terminal persistence failure was not reached")
 	}
 	sealedBeforeRetry, _, err := fixture.state.GetDrydockByRun(ctx, fixture.run.ID)
@@ -192,7 +192,7 @@ func (s *fileEditNoWorkspaceReads) GetWorkspaceInfo(context.Context, string) (se
 
 func TestFileEditDrydockSourceHandleRejectsChangedGeneration(t *testing.T) {
 	fixture, owned := newFileEditDrydockFixture(t)
-	service := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service)
+	service := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service)
 	source, err := service.IssueSource(t.Context(), fixture.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -253,18 +253,18 @@ func TestFileEditOldSourceProposalNeverBecomesDrydockAuthority(t *testing.T) {
 	approvedSource := makeProposal("unapplied old authority\n", true)
 	pendingSource := makeProposal("pending old authority\n", false)
 	owned := configureFileEditDrydockFixture(t, fixture)
-	reviews.WithDrydock(fixture.service)
+	reviews.WithRunWorktree(fixture.service)
 	if _, err := reviews.Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
 		RunID: run.ID, EditID: pendingSource.ID, Action: FileEditApproveIntent}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("old source review became owned authority: %v", err)
 	}
 	staleApply := applyRequest
 	staleApply.EditID, staleApply.OperationKey = approvedSource.ID, "old-approved-after-preset"
-	if _, err := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service).
+	if _, err := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service).
 		Apply(ctx, staleApply); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("old source apply was reinterpreted: %v", err)
 	}
-	if _, err := proposals.WithDrydock(fixture.service).ProposeRevert(ctx, CreateFileEditRevertProposalRequest{
+	if _, err := proposals.WithRunWorktree(fixture.service).ProposeRevert(ctx, CreateFileEditRevertProposalRequest{
 		Version: FileEditProposalProtocolVersion, RunID: run.ID, SourceEditID: appliedSource.ID,
 		OperationKey: "old-source-inverse"}); apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("old source inverse was reinterpreted: %v", err)
@@ -286,7 +286,7 @@ func TestFileEditOldSourceProposalNeverBecomesDrydockAuthority(t *testing.T) {
 	}
 }
 
-func newFileEditDrydockFixture(t *testing.T) (drydockApplicationFixture, drydock.Workspace) {
+func newFileEditDrydockFixture(t *testing.T) (drydockApplicationFixture, runworktree.Workspace) {
 	t.Helper()
 	fixture := newDrydockApplicationFixture(t, "file edit owned target")
 	writeDrydockTestFile(t, filepath.Join(fixture.sourceRoot, "tracked.txt"), "user source\r\n")
@@ -295,7 +295,7 @@ func newFileEditDrydockFixture(t *testing.T) (drydockApplicationFixture, drydock
 	return fixture, owned
 }
 
-func configureFileEditDrydockFixture(t *testing.T, fixture drydockApplicationFixture) drydock.Workspace {
+func configureFileEditDrydockFixture(t *testing.T, fixture drydockApplicationFixture) runworktree.Workspace {
 	t.Helper()
 	preset, err := NewStandardCodePresetService(fixture.state, fixture.service, standardCodeThreadTestRuntime())
 	if err != nil {

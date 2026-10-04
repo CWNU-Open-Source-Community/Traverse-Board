@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { PlanDeliveryCheckpointControlRequestView, PlanDeliveryStateView,
   PlanDeliveryWorkItemControlRequestView, PlanDeliveryCheckpointControlView,
   PlanDeliveryWorkItemControlView, RunDetailView } from "../api/types";
@@ -28,7 +28,7 @@ const intentKey = (runID: string) => ["run", runID, "manual-delivery-intent"] as
 const draftsKey = (runID: string) => ["run", runID, "manual-delivery-drafts"] as const;
 
 export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
-  client: CyberAgentClient; detail: RunDetailView; state: PlanDeliveryStateView; threadID?: string;
+  client: APIClient; detail: RunDetailView; state: PlanDeliveryStateView; threadID?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -184,7 +184,7 @@ export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
   </section>;
 }
 
-export function PlanDeliveryHandoff({ client, runID, noteID }: { client: CyberAgentClient; runID: string; noteID: string }) {
+export function PlanDeliveryHandoff({ client, runID, noteID }: { client: APIClient; runID: string; noteID: string }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const note = useQuery({ queryKey: ["note", noteID], queryFn: ({ signal }) => client.getNote(noteID, signal), enabled: open });

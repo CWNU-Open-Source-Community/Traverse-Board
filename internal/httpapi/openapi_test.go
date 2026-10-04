@@ -1862,7 +1862,7 @@ func prepareOpenAPIPlanControlTarget(t *testing.T,
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	if _, err := application.NewRunSupervisor(fixture.store, router,
+	if _, err := application.NewAgentRunner(fixture.store, router,
 		policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}

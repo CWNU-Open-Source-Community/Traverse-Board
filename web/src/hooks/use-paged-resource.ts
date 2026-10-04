@@ -1,8 +1,8 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { CyberAgentClient, QueryValue } from "../api/client";
+import type { APIClient, QueryValue } from "../api/client";
 
 export function usePagedResource<T>(
-  client: CyberAgentClient,
+  client: APIClient,
   queryKey: readonly unknown[],
   path: string,
   query: Record<string, QueryValue> = {},

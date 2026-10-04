@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { History, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { OperationReceipt } from "./operation-receipt";
 
 export function OperationReceiptHistory({ client, runID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
 }) {
   const { t } = useLocale();

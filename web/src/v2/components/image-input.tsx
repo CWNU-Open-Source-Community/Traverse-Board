@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, LoaderCircle, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { acceptedImageTypes, maximumImageBytes, maximumImages, type WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2ImageViewer } from "./image-viewer";
 import { useV2DraftDocument } from "../draft-context";
@@ -23,7 +23,7 @@ export function useV2ImageReferences(workspaceID: string, threadID: string) {
 }
 
 function ImagePreview({ client, image, onRemove, locked }: {
-  client: CyberAgentClient; image: WorkspaceImageAttachment; onRemove?: () => void; locked?: boolean;
+  client: APIClient; image: WorkspaceImageAttachment; onRemove?: () => void; locked?: boolean;
 }) {
   const [original, setOriginal] = useState<{ url: string; blob: Blob } | null>(null);
   const [error, setError] = useState("");
@@ -58,7 +58,7 @@ function ImagePreview({ client, image, onRemove, locked }: {
 }
 
 export function V2ImagePreview({ client, images, onRemove, pendingIDs = [] }: {
-  client: CyberAgentClient; images: WorkspaceImageAttachment[]; onRemove?: (id: string) => void; pendingIDs?: string[];
+  client: APIClient; images: WorkspaceImageAttachment[]; onRemove?: (id: string) => void; pendingIDs?: string[];
 }) {
   if (!images.length) return null;
   return <div className="v2-image-list" aria-label={onRemove ? "待发送的图片" : "消息图片"}>
@@ -68,7 +68,7 @@ export function V2ImagePreview({ client, images, onRemove, pendingIDs = [] }: {
 }
 
 export function useV2ImageInput({ client, workspaceID, threadID, disabled }: {
-  client: CyberAgentClient; workspaceID: string; threadID: string; disabled: boolean;
+  client: APIClient; workspaceID: string; threadID: string; disabled: boolean;
 }) {
   const references = useV2ImageReferences(workspaceID, threadID);
   const status = useMemo(() => ({ busy: false, error: "" }), [workspaceID, threadID]);

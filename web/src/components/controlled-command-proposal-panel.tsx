@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function ControlledCommandProposalPanel({ client, runID, threadID = "" }: {
-  client: CyberAgentClient; runID: string; threadID?: string;
+  client: APIClient; runID: string; threadID?: string;
 }) {
   const { t } = useLocale();
   const query = useQuery({ queryKey: ["run", runID, "command-proposals"],

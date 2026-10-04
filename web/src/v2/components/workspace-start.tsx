@@ -2,14 +2,14 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, LoaderCircle, X } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { desktopWorkspaceImportEnabled, importDesktopWorkspace } from "../../lib/desktop-bridge";
 import { v2QueryKeys } from "../query-keys";
 
 export function V2WorkspaceStart({ client, onSelect }: {
-  client: CyberAgentClient; onSelect: (workspace: WorkspaceView) => void;
+  client: APIClient; onSelect: (workspace: WorkspaceView) => void;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -64,7 +64,7 @@ export function V2WorkspaceStart({ client, onSelect }: {
       <form onSubmit={(event) => { event.preventDefault(); if (client.hasWorkspaceImport && directory.trim() && !importing.isPending)
         importing.mutate(directory.trim()); }}>
         <div className="v2-project-import-body">
-          <p id={descriptionID}>输入运行 Traverse Board 服务的电脑上的文件夹完整路径。接入会登记已有目录，不会上传、复制或改写其中的文件；后续任务使用该项目，执行仍遵守任务权限。</p>
+          <p id={descriptionID}>输入运行 Universal Code 服务的电脑上的文件夹完整路径。接入会登记已有目录，不会上传、复制或改写其中的文件；后续任务使用该项目，执行仍遵守任务权限。</p>
           {client.hasWorkspaceImport ? <label>项目文件夹路径<input autoComplete="off" disabled={importing.isPending}
             maxLength={4096} onChange={(event) => setDirectory(event.target.value)} placeholder="D:\Projects\my-project 或 /home/me/my-project"
             ref={input} required spellCheck={false} type="text" value={directory} /></label>

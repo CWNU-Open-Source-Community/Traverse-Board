@@ -1,7 +1,7 @@
-import { CyberAgentClient } from "../api/client";
+import { APIClient } from "../api/client";
 import { inspectV2CreationRequest, inspectV2SteeringRequest, inspectV2TurnRequest } from "./recovery-api";
 
-const client = () => new CyberAgentClient("read-token", "/api/v1", "control-token");
+const client = () => new APIClient("read-token", "/api/v1", "control-token");
 const key = "original-operation-key";
 const completed = { kind: "turn", state: "completed", settled: true, workspace_id: "workspace-1",
   thread_id: "thread-1", run_id: "run-original", session_id: "session-original", message_id: "message-1", message_status: "committed", request_fingerprint: "a".repeat(64) };
@@ -61,7 +61,7 @@ it("rejects an invalid key before any network request", async () => {
 });
 
 it("confirms current-task steering only for an exact read-only steer receipt", async () => {
-  const steeringClient = new CyberAgentClient("read-token", "/api/v1", "control-token", { sessionMessageEnabled: true });
+  const steeringClient = new APIClient("read-token", "/api/v1", "control-token", { sessionMessageEnabled: true });
   const receipt = { version: "session_message_submission.v1", session_id: "session-original",
     state: "received", message_id: "steer-original", message_status: "pending", delivery_mode: "steer" };
   const fetcher = respond(receipt);

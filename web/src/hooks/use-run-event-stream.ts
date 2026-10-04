@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { RunEventStreamView } from "../api/types";
 import { desktopRuntimeActive } from "../lib/desktop-bridge";
 
@@ -65,7 +65,7 @@ function delay(signal: AbortSignal, delayMs = reconnectDelayMs): Promise<void> {
   });
 }
 
-export function useRunEventStream(client: CyberAgentClient, runID: string) {
+export function useRunEventStream(client: APIClient, runID: string) {
   const [frames, setFrames] = useState<RunEventStreamView[]>([]);
   const [status, setStatus] = useState<StreamStatus>("stopped");
   const [error, setError] = useState("");

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -111,7 +111,7 @@ func TestFileEditDrydockApplyCannotCompleteWhileAfterCursorKeepsFailing(t *testi
 
 type drydockApplyCursorRetryFixture struct {
 	fixture      drydockApplicationFixture
-	owned        drydock.Workspace
+	owned        runworktree.Workspace
 	sourceCursor workspacecheckpoint.RunState
 	failing      *drydockApplyCursorFailures
 	apply        *FileEditApplyService
@@ -122,7 +122,7 @@ func newDrydockApplyCursorRetryFixture(t *testing.T) drydockApplyCursorRetryFixt
 	t.Helper()
 	fixture, owned := newFileEditDrydockFixture(t)
 	checkpoints, sourceCursor := prepareDrydockBoundarySourceCursor(t, fixture)
-	proposal := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service)
+	proposal := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service)
 	source, err := proposal.IssueSource(t.Context(), fixture.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -132,19 +132,19 @@ func newDrydockApplyCursorRetryFixture(t *testing.T) drydockApplyCursorRetryFixt
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFileEditReviewService(fixture.state).WithDrydock(fixture.service).Review(t.Context(),
+	if _, err := NewFileEditReviewService(fixture.state).WithRunWorktree(fixture.service).Review(t.Context(),
 		ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: fixture.run.ID,
 			EditID: created.Edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
 	failing := &drydockApplyCursorFailures{SQLiteStore: fixture.state}
-	drydocks, err := NewDrydockService(failing, fixture.executor)
+	drydocks, err := NewRunWorktreeService(failing, fixture.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	drydocks.WithCheckpointService(checkpoints)
 	return drydockApplyCursorRetryFixture{fixture: fixture, owned: owned, sourceCursor: sourceCursor,
-		failing: failing, apply: NewFileEditApplyService(failing, policy.NewDefaultChecker(), checkpoints).WithDrydock(drydocks),
+		failing: failing, apply: NewFileEditApplyService(failing, policy.NewDefaultChecker(), checkpoints).WithRunWorktree(drydocks),
 		request: ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: fixture.run.ID,
 			EditID: created.Edit.ID, OperationKey: "owned-apply-cursor-retry", AppliedBy: "operator"}}
 }
@@ -189,21 +189,21 @@ type drydockApplyCursorFailures struct {
 	completeCalls  int
 }
 
-func (s *drydockApplyCursorFailures) AdvanceDrydock(ctx context.Context, value drydock.Workspace,
-	expectedGeneration int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
+func (s *drydockApplyCursorFailures) AdvanceDrydock(ctx context.Context, value runworktree.Workspace,
+	expectedGeneration int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
 	checkpoint, err := s.SQLiteStore.GetWorkspaceCheckpoint(ctx, value.LastCheckpointID)
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if checkpoint.Phase == workspacecheckpoint.PhaseBefore && s.failBefore > 0 {
 		s.failBefore--
 		s.beforeFailures++
-		return drydock.Workspace{}, false, errors.New("injected before cursor persistence failure")
+		return runworktree.Workspace{}, false, errors.New("injected before cursor persistence failure")
 	}
 	if checkpoint.Phase == workspacecheckpoint.PhaseAfter && s.failAfter {
 		s.afterFailures++
-		return drydock.Workspace{}, false, errors.New("injected persistent after cursor failure")
+		return runworktree.Workspace{}, false, errors.New("injected persistent after cursor failure")
 	}
 	return s.SQLiteStore.AdvanceDrydock(ctx, value, expectedGeneration, receipt)
 }

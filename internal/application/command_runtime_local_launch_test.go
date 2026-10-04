@@ -12,8 +12,8 @@ import (
 
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 )
 
@@ -115,7 +115,7 @@ func localLaunchTestCompile(spec runner.CommandRuntimeResolvedSpec) (sandbox.Loc
 	digest := strings.Repeat("a", 64)
 	executor := &LocalSandboxCommandRuntimeExecutor{backend: localCompileBackend{},
 		identity: commandruntimeadapter.Identity{Generation: digest}}
-	workspace := drydock.Workspace{ID: "drydock-test", Path: spec.WorkspaceRoot,
+	workspace := runworktree.Workspace{ID: "drydock-test", Path: spec.WorkspaceRoot,
 		Generation: 1, RootFingerprint: digest, ExpectedBindingFingerprint: digest}
 	return executor.compile(runner.CommandRuntimeScope{RunID: "run-test", MissionID: "mission-test",
 		SessionID: "session-test", WorkspaceID: "source-workspace", OperationKey: "test-operation"},

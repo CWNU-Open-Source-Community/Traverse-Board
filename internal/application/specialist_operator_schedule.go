@@ -22,7 +22,7 @@ import (
 const defaultSpecialistOperatorSchedulePollInterval = 50 * time.Millisecond
 
 type SpecialistOperatorScheduleStore interface {
-	SpecialistRunnerStore
+	SubagentRunnerStore
 	SpecialistScheduleStore
 	policy.DecisionRecorder
 	GetSpecialistDelegationProposal(ctx context.Context,
@@ -52,7 +52,7 @@ type SpecialistOperatorScheduleService struct {
 func NewSpecialistOperatorScheduleService(store SpecialistOperatorScheduleStore,
 	router *llm.Router, checker policy.Checker,
 ) *SpecialistOperatorScheduleService {
-	runner := NewSpecialistRunner(store, router, checker)
+	runner := NewSubagentRunner(store, router, checker)
 	if monetaryStore, ok := store.(MonetaryBudgetStore); ok {
 		runner.WithMonetaryBudget(NewMonetaryBudgetService(monetaryStore))
 	}

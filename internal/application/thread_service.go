@@ -51,10 +51,10 @@ type ThreadService struct {
 	store        ThreadStore
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 	modelRoutes  ThreadModelRouteRegistry
-	drydocks     *DrydockService
+	drydocks     *RunWorktreeService
 }
 
-func (s *ThreadService) WithDrydock(service *DrydockService) *ThreadService {
+func (s *ThreadService) WithRunWorktree(service *RunWorktreeService) *ThreadService {
 	if s != nil {
 		s.drydocks = service
 	}

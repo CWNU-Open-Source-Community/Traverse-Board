@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, GitPullRequest, RefreshCw, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { GitHubReviewWriteReviewResultView, GitHubReviewWriteSpecView } from "../api/types";
 import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -16,7 +16,7 @@ function operationKey(): string {
 
 export function GitHubReviewPanel({ client, runID, onOpenApprovals,
   onOpenDelivery, retainedReview, onRetainedReviewChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenApprovals: () => void;
   onOpenDelivery?: () => void;

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2Composer } from "./composer";
 import { v2FileReferenceKey, type V2FileReference } from "./file-context";
@@ -24,7 +24,7 @@ function mount() {
   const client = { baseURL: "/api/v1", hasThreadControl: true, hasEvidenceAttachment: true,
     getThreadExecutionPermission: vi.fn(async () => { throw new Error("This fixture does not expose permission controls"); }),
     downloadWorkspaceImage: vi.fn(async () => new Blob(["fixture image"], { type: "image/png" })),
-    uploadWorkspaceImage: upload } as unknown as CyberAgentClient;
+    uploadWorkspaceImage: upload } as unknown as APIClient;
   const confirm = vi.fn(); const submit = vi.fn(async () => {});
   // No RecoveryProvider: the real hooks must use their existing QueryClient
   // fallback. Only the consumer button is a probe; the supplied state is real.

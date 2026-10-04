@@ -33,7 +33,7 @@ type RunExecutionHandoffStore interface {
 
 type RunExecutionHandoffService struct {
 	store      RunExecutionHandoffStore
-	supervisor *RunSupervisor
+	supervisor *AgentRunner
 }
 
 type ExecuteRunHandoffRequest struct {
@@ -54,13 +54,13 @@ func NewRunExecutionHandoffService(store RunExecutionHandoffStore,
 	router *llm.Router, checker policy.Checker,
 ) *RunExecutionHandoffService {
 	return &RunExecutionHandoffService{
-		store: store, supervisor: NewRunSupervisor(store, router, checker),
+		store: store, supervisor: NewAgentRunner(store, router, checker),
 	}
 }
 
-func (s *RunExecutionHandoffService) WithDrydock(drydocks *DrydockService) *RunExecutionHandoffService {
+func (s *RunExecutionHandoffService) WithRunWorktree(drydocks *RunWorktreeService) *RunExecutionHandoffService {
 	if s != nil && s.supervisor != nil {
-		s.supervisor.WithDrydock(drydocks)
+		s.supervisor.WithRunWorktree(drydocks)
 	}
 	return s
 }

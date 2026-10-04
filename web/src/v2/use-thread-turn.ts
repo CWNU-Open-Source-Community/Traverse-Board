@@ -1,6 +1,6 @@
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import { v2QueryKeys } from "./query-keys";
 import { v2FileReferenceKey, type V2FileReference } from "./components/file-context";
 import { useV2RecoveryStore } from "./recovery-storage";
@@ -86,7 +86,7 @@ export function removeV2Submission(client: ReturnType<typeof useQueryClient>, in
 
 // Mutation lifetime belongs to the QueryClient, so changing views does not hide
 // an in-flight submission or its failure. Execution remains owned by Go.
-export function useV2ThreadTurn(client: CyberAgentClient) {
+export function useV2ThreadTurn(client: APIClient) {
   const queryClient = useQueryClient();
   const recovery = useV2RecoveryStore();
   return useMutation({

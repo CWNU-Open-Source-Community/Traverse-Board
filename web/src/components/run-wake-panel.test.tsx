@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
 import { RunWakePanel } from "./run-wake-panel";
 
@@ -56,7 +56,7 @@ describe("RunWakePanel", () => {
       hasRunWakeControl: false, hasRunWakeExecution: true,
       runWakeState: vi.fn().mockResolvedValueOnce(queuedState).mockResolvedValue(completedState),
       consumeRunWake,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client, runDetail(1, 0));
     await user.click(await screen.findByRole("button", { name: "Consume" }));
@@ -73,14 +73,14 @@ describe("RunWakePanel", () => {
       runtimeCapabilities: vi.fn().mockResolvedValue({
         wake_worker: { enabled: true, state: "draining", active: true },
       }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client, runDetail(1, 0));
     expect(await screen.findByText("draining / active")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /enable worker/i })).not.toBeInTheDocument();
   });
 });
 
-function wakeClient(scheduleRunWake: ReturnType<typeof vi.fn>): CyberAgentClient {
+function wakeClient(scheduleRunWake: ReturnType<typeof vi.fn>): APIClient {
   return {
     hasRunWakeControl: true,
     hasRunWakeExecution: false,
@@ -89,7 +89,7 @@ function wakeClient(scheduleRunWake: ReturnType<typeof vi.fn>): CyberAgentClient
     }),
     scheduleRunWake,
     cancelRunWake: vi.fn(),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
 }
 
 function runDetail(pending: number, prepared: number): RunDetailView {
@@ -113,7 +113,7 @@ function wakeIntent(status: "queued" | "completed") {
   };
 }
 
-function renderPanel(client: CyberAgentClient, detail: RunDetailView) {
+function renderPanel(client: APIClient, detail: RunDetailView) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

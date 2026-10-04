@@ -6,7 +6,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -16,12 +16,12 @@ import (
 type RunFileWorkspace struct {
 	Source    session.WorkspaceInfo
 	Workspace session.WorkspaceInfo
-	Drydock   *drydock.Workspace
+	Drydock   *runworktree.Workspace
 }
 
 // NewAgentCodeWorkspaceResolver keeps Run ownership in the resolution key;
 // several Runs may share one source while owning different working directories.
-func NewAgentCodeWorkspaceResolver(store AgentCodeToolStore, drydocks *DrydockService) toolgateway.AgentCodeWorkspaceResolver {
+func NewAgentCodeWorkspaceResolver(store AgentCodeToolStore, drydocks *RunWorktreeService) toolgateway.AgentCodeWorkspaceResolver {
 	return func(ctx context.Context, runID, sourceWorkspaceID string) (string, string, error) {
 		run, err := store.GetRun(ctx, runID)
 		if err != nil {
@@ -53,23 +53,23 @@ type RunFileWorkspaceStore interface {
 }
 
 type runFileDrydockStore interface {
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
 }
 
 type runFileDrydockBindingStore interface {
-	GetRunFileDrydock(context.Context, string) (drydock.Workspace, bool, error)
+	GetRunFileDrydock(context.Context, string) (runworktree.Workspace, bool, error)
 }
 
 // Return the actual physical owner object. A Thread epoch relation never
 // rewrites the creator Run/Session in historical Drydock records.
-func readRunFileDrydock(ctx context.Context, store any, runID string) (drydock.Workspace, bool, error) {
+func readRunFileDrydock(ctx context.Context, store any, runID string) (runworktree.Workspace, bool, error) {
 	if reader, ok := store.(runFileDrydockBindingStore); ok {
 		return reader.GetRunFileDrydock(ctx, runID)
 	}
 	if reader, ok := store.(runFileDrydockStore); ok {
 		return reader.GetDrydockByRun(ctx, runID)
 	}
-	return drydock.Workspace{}, false, nil
+	return runworktree.Workspace{}, false, nil
 }
 
 type runFilePresetStore interface {
@@ -91,7 +91,7 @@ func runHasOwnedFileWorkspace(ctx context.Context, store any, runID string) (boo
 // source directory. A configured Run, or any Run that owns a Drydock, may never
 // fall back to that source when the owned target is unavailable or has drifted.
 func ResolveRunFileWorkspace(ctx context.Context, store RunFileWorkspaceStore,
-	run domain.Run, mission domain.Mission, drydocks *DrydockService,
+	run domain.Run, mission domain.Mission, drydocks *RunWorktreeService,
 ) (RunFileWorkspace, error) {
 	files, err := resolveRunFileWorkspaceControl(ctx, store, run, mission, drydocks)
 	if err != nil || files.Drydock == nil {
@@ -106,7 +106,7 @@ func ResolveRunFileWorkspace(ctx context.Context, store RunFileWorkspaceStore,
 		exact.RunID != owned.RunID || exact.MissionID != mission.ID ||
 		exact.SessionID != owned.SessionID || exact.SourceWorkspaceID != files.Source.ID ||
 		exact.Generation != owned.Generation ||
-		(exact.State != drydock.StateReady && exact.State != drydock.StateDelivered) {
+		(exact.State != runworktree.StateReady && exact.State != runworktree.StateDelivered) {
 		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
 			"Run file workspace Drydock ownership changed during inspection")
 	}
@@ -120,7 +120,7 @@ func ResolveRunFileWorkspace(ctx context.Context, store RunFileWorkspaceStore,
 // retains the full physical inspection before review/execution; native sinks
 // additionally bind the physical root and compare their actual Git inputs.
 func resolveRunFileWorkspaceControl(ctx context.Context, store RunFileWorkspaceStore,
-	run domain.Run, mission domain.Mission, drydocks *DrydockService,
+	run domain.Run, mission domain.Mission, drydocks *RunWorktreeService,
 ) (RunFileWorkspace, error) {
 	if store == nil || run.ID == "" || run.MissionID != mission.ID ||
 		run.SessionID == "" || strings.TrimSpace(mission.WorkspaceID) == "" {
@@ -140,7 +140,7 @@ func resolveRunFileWorkspaceControl(ctx context.Context, store RunFileWorkspaceS
 		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
 			"Run, Session, and source workspace binding changed")
 	}
-	var owned drydock.Workspace
+	var owned runworktree.Workspace
 	var found bool
 	owned, found, err = readRunFileDrydock(ctx, store, run.ID)
 	if err != nil {
@@ -181,7 +181,7 @@ func resolveRunFileWorkspaceControl(ctx context.Context, store RunFileWorkspaceS
 	}
 	if owned.MissionID != mission.ID || owned.SourceWorkspaceID != source.ID ||
 		owned.WorkspaceID == source.ID || owned.WorkspaceID == "" ||
-		(owned.State != drydock.StateReady && owned.State != drydock.StateDelivered) ||
+		(owned.State != runworktree.StateReady && owned.State != runworktree.StateDelivered) ||
 		(configured && (preset.RunID != run.ID || preset.MissionID != mission.ID ||
 			preset.WorkspaceID != source.ID || preset.DrydockID != owned.ID)) {
 		return RunFileWorkspace{}, apperror.New(apperror.CodeConflict,
@@ -192,7 +192,7 @@ func resolveRunFileWorkspaceControl(ctx context.Context, store RunFileWorkspaceS
 		Drydock:   &owned}, nil
 }
 
-func requireCurrentRunFileDrydock(ctx context.Context, store any, runID string, physical drydock.Workspace) error {
+func requireCurrentRunFileDrydock(ctx context.Context, store any, runID string, physical runworktree.Workspace) error {
 	if reader, ok := store.(interface {
 		RunOwnsCurrentDrydock(context.Context, string, string) (bool, error)
 	}); ok {

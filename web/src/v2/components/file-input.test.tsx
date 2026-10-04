@@ -3,7 +3,7 @@ import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState, type PropsWithChildren } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceFileAttachment } from "../../api/file-attachments";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { getV2DraftDocument, v2DraftScope } from "../draft-context";
@@ -38,7 +38,7 @@ function mount(client: ReturnType<typeof fixture>, persistent = false, selectedW
   const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queries}>
     <V2RecoveryProvider client={client} scopeID={persistent ? "file-input-ui" : undefined}>{children}</V2RecoveryProvider>
   </QueryClientProvider>;
-  const component = (workspace: string, unavailableReason?: string) => <V2Composer client={client as unknown as CyberAgentClient} workspaceID={workspace}
+  const component = (workspace: string, unavailableReason?: string) => <V2Composer client={client as unknown as APIClient} workspaceID={workspace}
     threadID="" workspaces={[]} onWorkspaceChange={() => {}} onSubmit={submit} fileReferenceUnavailableReason={unavailableReason} />;
   const page = render(component(selectedWorkspace), { wrapper });
   return { ...page, queries, submit, changeWorkspace: (workspace: string) => page.rerender(component(workspace)),
@@ -162,8 +162,8 @@ it("treats an existing draft with no attachments field as empty instead of impor
     return <Selected />;
   }
   function Selected() {
-    const selected = useV2FileInput({ client: client as unknown as CyberAgentClient, workspaceID, threadID: "thread-old-draft", disabled: false });
-    return <V2FileAttachments client={client as unknown as CyberAgentClient} attachments={selected.attachments} onRemove={() => {}} />;
+    const selected = useV2FileInput({ client: client as unknown as APIClient, workspaceID, threadID: "thread-old-draft", disabled: false });
+    return <V2FileAttachments client={client as unknown as APIClient} attachments={selected.attachments} onRemove={() => {}} />;
   }
   render(<QueryClientProvider client={queries}><V2RecoveryProvider client={client} scopeID="old-draft-files"><Probe /></V2RecoveryProvider></QueryClientProvider>);
   expect(screen.queryByRole("button", { name: "移除文件 需求.txt" })).not.toBeInTheDocument();
@@ -188,7 +188,7 @@ it("shows file identity without interpreting receipt status and keeps exact down
     saved.push({ name: this.download, href: this.href });
   });
   const remove = vi.fn();
-  render(<V2FileAttachments client={client as unknown as CyberAgentClient} attachments={[text, partial, archive]}
+  render(<V2FileAttachments client={client as unknown as APIClient} attachments={[text, partial, archive]}
     onRemove={remove} pendingIDs={[text.id]} />);
   for (const file of [text, partial, archive]) expect(screen.getByTitle(file.name)).toHaveTextContent(file.name);
   for (const size of ["0 B", "2.0 KiB", "1.5 MiB"]) expect(screen.getByText(size)).toBeInTheDocument();
@@ -214,7 +214,7 @@ it("keeps a failed download visible on a message attachment without inventing a 
   const client = fixture();
   const file = await metadata(fixtureFile());
   client.downloadWorkspaceFile.mockRejectedValueOnce(new Error("附件下载连接中断"));
-  render(<V2FileAttachments client={client as unknown as CyberAgentClient} attachments={[file]} />);
+  render(<V2FileAttachments client={client as unknown as APIClient} attachments={[file]} />);
   expect(screen.queryByRole("button", { name: `移除文件 ${file.name}` })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: `下载文件 ${file.name}` }));
   expect(await screen.findByRole("alert")).toHaveTextContent("附件下载连接中断");

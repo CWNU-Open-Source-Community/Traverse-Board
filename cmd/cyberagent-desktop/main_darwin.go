@@ -40,7 +40,7 @@ func reportDesktopStartupFailure(err error) {
 // dialog; only the stable error code is shown.
 func desktopStartupFailureMessage(err error) string {
 	code := apperror.CodeOf(apperror.Normalize(err))
-	return "Traverse Board could not start.\n\nError code: " + string(code) +
+	return "Universal Code could not start.\n\nError code: " + string(code) +
 		"\n\nLocal data was not deleted or reset. Keep it for diagnosis."
 }
 

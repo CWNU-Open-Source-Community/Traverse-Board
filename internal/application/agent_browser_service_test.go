@@ -27,7 +27,7 @@ import (
 )
 
 type agentBrowserTestStore struct {
-	RunSupervisorStore
+	AgentRunnerStore
 	base       *fakeFullCDPProductionStore
 	mode       domain.RunModeSnapshot
 	root       domain.AgentNode
@@ -178,7 +178,7 @@ func (r *agentBrowserTestRuntime) Close(context.Context) (browserruntime.AgentBr
 }
 func (r *agentBrowserTestRuntime) Done() <-chan struct{} { return r.done }
 
-func newAgentBrowserFixture(t *testing.T) (*AgentBrowserService, *agentBrowserTestStore, *agentBrowserTestRuntime, *RunSupervisor, domain.SupervisorTurn) {
+func newAgentBrowserFixture(t *testing.T) (*AgentBrowserService, *agentBrowserTestStore, *agentBrowserTestRuntime, *AgentRunner, domain.SupervisorTurn) {
 	t.Helper()
 	legacy, base, _, _ := newFullCDPProductionServiceFixture(t)
 	base.run.Status = domain.RunRunning
@@ -199,7 +199,7 @@ func newAgentBrowserFixture(t *testing.T) (*AgentBrowserService, *agentBrowserTe
 		r.status = browserruntime.AgentBrowserStatus{SessionID: request.Authority.SessionID, State: "ready", Generation: request.Authority.Generation}
 		return r, nil
 	}
-	supervisor := (&RunSupervisor{store: st, tools: toolgateway.New(nil, policy.NewDefaultChecker())}).WithAgentBrowser(service)
+	supervisor := (&AgentRunner{store: st, tools: toolgateway.New(nil, policy.NewDefaultChecker())}).WithAgentBrowser(service)
 	turn := domain.SupervisorTurn{Run: base.run, Mission: base.mission, Mode: st.mode, Agent: st.root, Checkpoint: st.checkpoint}
 	return service, st, r, supervisor, turn
 }
@@ -218,7 +218,7 @@ func agentBrowserFixtureCall(t *testing.T, s *AgentBrowserService, st *agentBrow
 	st.calls[c.CallID] = c
 	return c
 }
-func runAgentBrowserFixtureCall(t *testing.T, supervisor *RunSupervisor, turn domain.SupervisorTurn, c domain.SupervisorToolCall) (bool, error) {
+func runAgentBrowserFixtureCall(t *testing.T, supervisor *AgentRunner, turn domain.SupervisorTurn, c domain.SupervisorToolCall) (bool, error) {
 	t.Helper()
 	_, waiting, e := supervisor.resumeSupervisorTools(t.Context(), turn, []domain.SupervisorToolRound{{Calls: []domain.SupervisorToolCall{c}}})
 	return waiting, e

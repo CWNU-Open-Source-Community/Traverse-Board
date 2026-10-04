@@ -57,7 +57,7 @@ const profileCopy: Record<V2HighRiskProfile, ProfileCopy> = {
   },
   debug: {
     title: "要开启调试模式吗？",
-    introduction: "调试模式继承完全访问的全部能力，并允许 Traverse 维持终端和后台进程。仅应在你信任当前工作区及其内容时使用。包括：",
+    introduction: "调试模式继承完全访问的全部能力，并允许 Universal Code 维持终端和后台进程。仅应在你信任当前工作区及其内容时使用。包括：",
     capabilities: [
       {
         title: "完全访问的全部能力",

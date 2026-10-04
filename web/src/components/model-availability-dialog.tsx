@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Check, Cpu, LoaderCircle, Route, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { useLocale } from "../lib/locale";
 import { PriceSnapshotsSection } from "./price-snapshots-panel";
 
-export function ModelAvailabilitySettings({ client }: { client: CyberAgentClient }) {
+export function ModelAvailabilitySettings({ client }: { client: APIClient }) {
   const { t } = useLocale();
   const qualificationStatusLabel = (status: string) => {
     const labels: Record<string, [string, string]> = {

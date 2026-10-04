@@ -3,7 +3,7 @@ import { LocaleProvider } from "../lib/locale";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunExecutionPermissionView,
   ThreadExecutionPermissionControlView } from "../api/types";
 import { v2QueryKeys } from "../v2/query-keys";
@@ -53,7 +53,7 @@ function fixture(host: Host) {
   const change = vi.fn((_target: string, _request: unknown, _operationKey: string) => pending.promise);
   const get = vi.fn(async (id: string) => threadResult(id));
   const client = { hasExecutionPermissionControl: true, getThreadExecutionPermission: get,
-    changeThreadExecutionPermission: change } as unknown as CyberAgentClient;
+    changeThreadExecutionPermission: change } as unknown as APIClient;
   for (const id of ["target-A", "target-B"]) {
     queries.setQueryData(v2QueryKeys.permission(id), threadResult(id));
   }

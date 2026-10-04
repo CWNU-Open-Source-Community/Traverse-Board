@@ -2,7 +2,7 @@ import { createRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadDetailView } from "../../api/types";
 import type { ThreadGitPreview, ThreadGitSpec, ThreadGitState } from "../../api/task-delivery";
 import { V2RecoveryProvider } from "../recovery-storage";
@@ -36,7 +36,7 @@ it("preserves selections through actual Git/PR tabs, review closure and task cha
     return { ...state(match[1], fingerprint), spec: body.spec, diff: "--- a/chosen.txt\n+++ b/chosen.txt\n@@ -1 +1 @@\n-old\n+new",
       preview_fingerprint: "c".repeat(64) } satisfies ThreadGitPreview;
   });
-  const client = { baseURL: "/api/v1", hasControl: true, hasGitHubReviewControl: false, get, postControl } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", hasControl: true, hasGitHubReviewControl: false, get, postControl } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } } });
   function Harness() {
     const [threadID, setThreadID] = useState("task-a");

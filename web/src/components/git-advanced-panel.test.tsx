@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { GitAdvancedReviewResultView } from "../api/types";
 import { GitAdvancedPanel } from "./git-advanced-panel";
 
@@ -65,14 +65,14 @@ function projection() {
 describe("GitAdvancedPanel", () => {
   it("shows the fail-closed startup gate without issuing requests", () => {
     const gitAdvancedProjection = vi.fn();
-    renderPanel({ hasGitAdvancedControl: false, gitAdvancedProjection } as unknown as CyberAgentClient);
+    renderPanel({ hasGitAdvancedControl: false, gitAdvancedProjection } as unknown as APIClient);
     expect(screen.getByText(/did not explicitly enable Advanced Git/)).toBeInTheDocument();
     expect(gitAdvancedProjection).not.toHaveBeenCalled();
   });
 
   it("renders conflict stages, stash roles, managed path digests, and never a host path", async () => {
     renderPanel({ hasGitAdvancedControl: true,
-      gitAdvancedProjection: vi.fn().mockResolvedValue(projection()) } as unknown as CyberAgentClient);
+      gitAdvancedProjection: vi.fn().mockResolvedValue(projection()) } as unknown as APIClient);
     expect(await screen.findByText("Conflict state")).toBeInTheDocument();
     expect(screen.getByText("base " + oid)).toBeInTheDocument();
     expect(screen.getByText("index " + "3".repeat(40))).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("GitAdvancedPanel", () => {
     const onOpenApprovals = vi.fn();
     renderPanel({ hasGitAdvancedControl: true,
       gitAdvancedProjection: vi.fn().mockResolvedValue(projection()),
-      reviewGitAdvanced, executeGitAdvanced } as unknown as CyberAgentClient, onOpenApprovals);
+      reviewGitAdvanced, executeGitAdvanced } as unknown as APIClient, onOpenApprovals);
 
     await user.click(await screen.findByRole("button", { name: "apply" }));
     await waitFor(() => expect(reviewGitAdvanced).toHaveBeenCalledTimes(1));
@@ -119,7 +119,7 @@ describe("GitAdvancedPanel", () => {
     const executeGitAdvanced = vi.fn().mockResolvedValue({ receipt: { status: "succeeded" } });
     renderPanel({ hasGitAdvancedControl: true,
       gitAdvancedProjection: vi.fn().mockResolvedValue(projection()),
-      executeGitAdvanced } as unknown as CyberAgentClient, vi.fn(),
+      executeGitAdvanced } as unknown as APIClient, vi.fn(),
     reviewed as unknown as GitAdvancedReviewResultView);
 
     expect(await screen.findByText("Exact one-time approval")).toBeInTheDocument();
@@ -146,7 +146,7 @@ describe("GitAdvancedPanel", () => {
     const reviewGitAdvanced = vi.fn().mockReturnValue(new Promise(() => undefined));
     renderPanel({ hasGitAdvancedControl: true,
       gitAdvancedProjection: vi.fn().mockResolvedValue(bisectProjection),
-      reviewGitAdvanced } as unknown as CyberAgentClient);
+      reviewGitAdvanced } as unknown as APIClient);
 
     expect(await screen.findByRole("button", { name: "reset" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "continue" })).not.toBeInTheDocument();
@@ -159,7 +159,7 @@ describe("GitAdvancedPanel", () => {
   });
 });
 
-function renderPanel(client: CyberAgentClient, onOpenApprovals = vi.fn(),
+function renderPanel(client: APIClient, onOpenApprovals = vi.fn(),
   retainedReview?: GitAdvancedReviewResultView | null) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },

@@ -174,7 +174,7 @@ func TestModelLiveCallEndToEndCancellation(t *testing.T) {
 	executor := application.NewSessionRunChatExecutor(st, router, checker).WithActiveCalls(registry)
 	sessionManager := session.NewManager(st, router, checker).WithRunChatExecutor(executor)
 	toolManager := toolrun.NewManager(st, checker)
-	supervisor := application.NewRunSupervisor(st, router, checker).WithActiveCalls(registry)
+	supervisor := application.NewAgentRunner(st, router, checker).WithActiveCalls(registry)
 	controller := &supervisorActiveCallController{supervisor: supervisor}
 	model, err := NewModel(context.Background(), sess, sessionManager, toolManager)
 	if err != nil {
@@ -279,7 +279,7 @@ type fakeActiveCallController struct {
 }
 
 type supervisorActiveCallController struct {
-	supervisor *application.RunSupervisor
+	supervisor *application.AgentRunner
 }
 
 func (c *supervisorActiveCallController) ActiveCallForSession(sessionID string) (application.ActiveCallInfo, bool) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -63,7 +63,7 @@ func TestDrydockFileBoundaryRestartRecoversTerminalPendingCursor(t *testing.T) {
 	fixture, owned := newFileEditDrydockFixture(t)
 	sourceCheckpoints, sourceCursor := prepareDrydockBoundarySourceCursor(t, fixture)
 	failing := &drydockBoundaryAdvanceFailure{SQLiteStore: fixture.state}
-	service, err := NewDrydockService(failing, fixture.executor)
+	service, err := NewRunWorktreeService(failing, fixture.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestDrydockFileBoundaryRestartRejectsExternalChangeAfterTerminalCursorFailu
 	fixture, owned := newFileEditDrydockFixture(t)
 	sourceCheckpoints, sourceCursor := prepareDrydockBoundarySourceCursor(t, fixture)
 	failing := &drydockBoundaryAdvanceFailure{SQLiteStore: fixture.state}
-	service, err := NewDrydockService(failing, fixture.executor)
+	service, err := NewRunWorktreeService(failing, fixture.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,12 +190,12 @@ type drydockBoundaryAdvanceFailure struct {
 	failNext bool
 }
 
-func (s *drydockBoundaryAdvanceFailure) AdvanceDrydock(ctx context.Context, workspace drydock.Workspace,
-	expectedGeneration int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
+func (s *drydockBoundaryAdvanceFailure) AdvanceDrydock(ctx context.Context, workspace runworktree.Workspace,
+	expectedGeneration int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
 	if s.failNext {
 		s.failNext = false
-		return drydock.Workspace{}, false, errors.New("injected Drydock cursor persistence failure")
+		return runworktree.Workspace{}, false, errors.New("injected Drydock cursor persistence failure")
 	}
 	return s.SQLiteStore.AdvanceDrydock(ctx, workspace, expectedGeneration, receipt)
 }
@@ -218,14 +218,14 @@ func prepareDrydockBoundarySourceCursor(t *testing.T, fixture drydockApplication
 	return checkpoints, cursor
 }
 
-func reopenDrydockBoundaryService(t *testing.T, fixture drydockApplicationFixture) (*store.SQLiteStore, *DrydockService) {
+func reopenDrydockBoundaryService(t *testing.T, fixture drydockApplicationFixture) (*store.SQLiteStore, *RunWorktreeService) {
 	t.Helper()
 	state, err := store.Open(fixture.databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
-	service, err := NewDrydockService(state, fixture.executor)
+	service, err := NewRunWorktreeService(state, fixture.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func assertDrydockRecoveryPreservesSource(t *testing.T, fixture drydockApplicati
 }
 
 func assertDrydockSecondReconciliationIsEmpty(t *testing.T, fixture drydockApplicationFixture,
-	state *store.SQLiteStore, service *DrydockService, expected drydock.Workspace,
+	state *store.SQLiteStore, service *RunWorktreeService, expected runworktree.Workspace,
 ) {
 	t.Helper()
 	count, err := service.ReconcileWorkspaceCheckpoints(t.Context())

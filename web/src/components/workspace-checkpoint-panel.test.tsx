@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   WorkspaceCheckpointRestoreView,
   WorkspaceCheckpointTimelineView,
@@ -103,7 +103,7 @@ function preview(): WorkspaceCheckpointRestoreView {
   };
 }
 
-function renderPanel(client: CyberAgentClient, runStatus = "paused", queryClient = new QueryClient({ defaultOptions: {
+function renderPanel(client: APIClient, runStatus = "paused", queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } })) {
   return render(<QueryClientProvider client={queryClient}>
@@ -127,7 +127,7 @@ describe("WorkspaceCheckpointPanel", () => {
       ? Promise.resolve({ ...preview(), preview: { ...preview().preview, truncated: incomplete } })
       : Promise.reject(new Error("connection lost before confirmation")));
     const client = { get: vi.fn().mockResolvedValue(timeline()), postControl,
-      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+      hasWorkspaceCheckpointControl: true } as unknown as APIClient;
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
     renderPanel(client);
@@ -149,7 +149,7 @@ describe("WorkspaceCheckpointPanel", () => {
     const get = vi.fn().mockResolvedValue(timeline());
     const postControl = vi.fn().mockImplementation((path: string) =>
       Promise.resolve(path.endsWith("/preview") ? preview() : restored("completed", "rewind")));
-    const client = { get, postControl, hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    const client = { get, postControl, hasWorkspaceCheckpointControl: true } as unknown as APIClient;
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
     renderPanel(client);
@@ -177,7 +177,7 @@ describe("WorkspaceCheckpointPanel", () => {
       get: vi.fn().mockResolvedValue(timeline()),
       postControl: vi.fn(),
       hasWorkspaceCheckpointControl: false,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client, "running");
 
     expect(await screen.findByText(/当前连接只能浏览时间线/)).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe("WorkspaceCheckpointPanel", () => {
     data.checkpoints.push(checkpoint("checkpoint-earlier", "Earlier work", "2026-08-17T00:00:00Z"));
     const postControl = vi.fn(() => new Promise<WorkspaceCheckpointRestoreView>((resolve) => { complete = resolve; }));
     const client = { get: vi.fn().mockResolvedValue(data), postControl,
-      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+      hasWorkspaceCheckpointControl: true } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /Before shell/ }));
@@ -215,7 +215,7 @@ describe("WorkspaceCheckpointPanel", () => {
       }
       return restored();
     });
-    const client = { get: vi.fn(async () => data), postControl, hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+    const client = { get: vi.fn(async () => data), postControl, hasWorkspaceCheckpointControl: true } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const user = userEvent.setup();
     vi.stubGlobal("confirm", vi.fn(() => true));
@@ -238,7 +238,7 @@ describe("WorkspaceCheckpointPanel", () => {
   it("treats a replayed failed transaction as a confirmed failure and allows a fresh preview", async () => {
     const postControl = vi.fn(async (path: string) => path.endsWith("/preview") ? preview() : restored("failed"));
     const client = { get: vi.fn().mockResolvedValue(timeline()), postControl,
-      hasWorkspaceCheckpointControl: true } as unknown as CyberAgentClient;
+      hasWorkspaceCheckpointControl: true } as unknown as APIClient;
     const user = userEvent.setup();
     vi.stubGlobal("confirm", vi.fn(() => true));
     renderPanel(client);
@@ -256,7 +256,7 @@ describe("WorkspaceCheckpointPanel", () => {
       get: vi.fn().mockResolvedValue(timeline()),
       postControl,
       hasWorkspaceCheckpointControl: true,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
     renderPanel(client);

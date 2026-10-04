@@ -13,9 +13,9 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -34,7 +34,7 @@ type CommandRuntimeStore interface {
 		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (
 		domain.RunExecutionLease, bool, error)
-	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error)
 }
 
 type CommandRuntimeService struct {
@@ -43,7 +43,7 @@ type CommandRuntimeService struct {
 	adapter      commandruntimeadapter.Identity
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 	checkpoints  *WorkspaceCheckpointService
-	drydocks     *DrydockService
+	drydocks     *RunWorktreeService
 	sandbox      runner.CommandRuntimeSandboxExecutor
 	checker      policy.Checker
 	policyMu     sync.RWMutex
@@ -66,7 +66,7 @@ type commandRuntimeBindings struct {
 	profile    domain.RunExecutionProfileSnapshot
 	permission domain.RunExecutionPermissionSnapshot
 	lease      domain.RunExecutionLease
-	drydock    drydock.Workspace
+	drydock    runworktree.Workspace
 	rootPath   string
 	rootSHA256 string
 }
@@ -101,7 +101,7 @@ func NewSandboxedCommandRuntimeService(store CommandRuntimeStore,
 	manager *runner.CommandRuntimeManager,
 	sandboxExecutor runner.CommandRuntimeSandboxExecutor,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
-	drydocks *DrydockService,
+	drydocks *RunWorktreeService,
 ) (*CommandRuntimeService, error) {
 	if store == nil || manager == nil || !manager.Available() || drydocks == nil ||
 		sandboxExecutor == nil || !sandboxExecutor.Available() ||
@@ -238,8 +238,8 @@ func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Cont
 		if err != nil {
 			return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
 		}
-		if !found || (workspace.State != drydock.StateReady &&
-			workspace.State != drydock.StateDelivered) {
+		if !found || (workspace.State != runworktree.StateReady &&
+			workspace.State != runworktree.StateDelivered) {
 			return commandruntimeadapter.Identity{}, false, nil
 		}
 	}

@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileDiff, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatBytes } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function RepositoryDiffPanel({ client, workspaceID, onRequestChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
   onRequestChange?: (path: string, baseHead: string) => void;
 }) {

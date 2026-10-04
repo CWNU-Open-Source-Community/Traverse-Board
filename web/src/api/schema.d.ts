@@ -1627,7 +1627,7 @@ export interface paths {
         put?: never;
         /**
          * Execute a bounded queued Run batch
-         * @description Freezes at most eight currently queued Session steering messages, then executes only those exact message identities through the Go RunSupervisor under one private execution lease. Retries replay the durable result and cannot consume messages appended after selection.
+         * @description Freezes at most eight currently queued Session steering messages, then executes only those exact message identities through the Go AgentRunner under one private execution lease. Retries replay the durable result and cannot consume messages appended after selection.
          */
         post: operations["executeRunSelection"];
         delete?: never;
@@ -2963,7 +2963,7 @@ export interface paths {
         put?: never;
         /**
          * Consume one due Run wake intent
-         * @description Explicitly claims one due wake generation and hands its bounded queued selection to the existing Go RunSupervisor. It starts no hidden worker or background loop; retries replay the generation-fenced durable handoff.
+         * @description Explicitly claims one due wake generation and hands its bounded queued selection to the existing Go AgentRunner. It starts no hidden worker or background loop; retries replay the generation-fenced durable handoff.
          */
         post: operations["consumeRunWake"];
         delete?: never;

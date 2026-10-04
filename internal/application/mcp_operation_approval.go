@@ -149,7 +149,7 @@ func RecheckMCPApproval(ctx context.Context, base ApprovalControlStore, record a
 	return nil
 }
 
-func (s *RunSupervisor) preflightMCPApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
+func (s *AgentRunner) preflightMCPApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
 	st, ok := s.store.(mcpApprovalStore)
 	if !ok {
 		return false, nil, mcpApprovalUnavailable("MCP approval storage unavailable")

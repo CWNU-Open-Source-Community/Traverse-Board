@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 const request = {version:"approval_control.v1",action:"approve_for_run",grant_ttl_seconds:120,grant_max_uses:2} as const;
@@ -10,7 +10,7 @@ const decision = {version:"approval_control.v1",run_id:"run-1",approval_id:"appr
 function clientReturning(data: unknown) {
   const fetch=vi.fn(async()=>new Response(JSON.stringify({version:"api.v1",request_id:"bounded-approval",data}),{status:202,headers:{"Content-Type":"application/json"}}));
   vi.stubGlobal("fetch",fetch);
-  return {client:new CyberAgentClient("read","/api/v1","control"),fetch};
+  return {client:new APIClient("read","/api/v1","control"),fetch};
 }
 
 describe("bounded command approval through the strict client",()=>{

@@ -15,7 +15,7 @@ import (
 // Recompute advisory feedback from sealed calls, including after recovery. It
 // never suppresses tools, changes a receipt, or authorizes the next operation.
 // Historical reads outside the bounded lookup are simply unknown here.
-func (s *RunSupervisor) workspaceReadFeedbackRequest(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+func (s *AgentRunner) workspaceReadFeedbackRequest(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	request llm.ChatRequest, rounds []domain.SupervisorToolRound,
 ) (llm.ChatRequest, error) {
 	if len(request.Tools) == 0 {

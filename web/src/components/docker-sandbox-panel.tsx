@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Box, LoaderCircle, Server } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { useLocale } from "../lib/locale";
 
-export function DockerSandboxPanel({ client }: { client: CyberAgentClient }) {
+export function DockerSandboxPanel({ client }: { client: APIClient }) {
   const { t } = useLocale();
   const [planID, setPlanID] = useState("");
   const [manifest, setManifest] = useState("");

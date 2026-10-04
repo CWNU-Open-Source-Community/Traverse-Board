@@ -51,7 +51,7 @@ func (s *commandApprovalPrepareStore) PrepareCommandRuntimeJobForAgent(ctx conte
 type commandApprovalFixture struct {
 	st            *store.SQLiteStore
 	preparedStore *commandApprovalPrepareStore
-	supervisor    *RunSupervisor
+	supervisor    *AgentRunner
 	service       *CommandRuntimeService
 	turn          domain.SupervisorTurn
 	call          domain.SupervisorToolCall
@@ -122,7 +122,7 @@ func newCommandApprovalFixture(t *testing.T, mode domain.RunExecutionPermissionM
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
+	f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
 	return f
 }
 
@@ -484,7 +484,7 @@ func TestCommandOperationApprovalColdDatabaseNeverReactivatesOrResends(t *testin
 				if err != nil {
 					t.Fatal(err)
 				}
-				f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
+				f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
 				for i := 0; i < 2; i++ {
 					if waiting, err := f.resume(t); err != nil || waiting {
 						t.Fatal("cold recovery did not settle", err)
@@ -713,7 +713,7 @@ func commandFixtureForScope(t *testing.T, st *store.SQLiteStore, service *Comman
 	if err != nil || !found {
 		t.Fatalf("checkpoint: %t %v", found, err)
 	}
-	f.supervisor = NewRunSupervisor(st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(service)
+	f.supervisor = NewAgentRunner(st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(service)
 	return f
 }
 

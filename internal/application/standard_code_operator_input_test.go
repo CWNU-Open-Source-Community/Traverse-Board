@@ -257,7 +257,7 @@ func TestStandardCodeSupervisorExplicitInputRechecksSameCommand(t *testing.T) {
 	}
 }
 
-func newStandardCodeOperatorInputFixture(t *testing.T) (drydockApplicationFixture, *RunSupervisor) {
+func newStandardCodeOperatorInputFixture(t *testing.T) (drydockApplicationFixture, *AgentRunner) {
 	f, owned := newFileEditDrydockFixture(t)
 	ctx := t.Context()
 	checkpoints, err := NewWorkspaceCheckpointService(f.state, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities)
@@ -270,7 +270,7 @@ func newStandardCodeOperatorInputFixture(t *testing.T) (drydockApplicationFixtur
 	router := llm.NewRouter(ref)
 	router.RegisterProvider(p)
 	router.SetRoute("code", ref)
-	supervisor := NewRunSupervisor(f.state, router, policy.NewDefaultChecker()).WithDrydock(f.service).
+	supervisor := NewAgentRunner(f.state, router, policy.NewDefaultChecker()).WithRunWorktree(f.service).
 		WithExecutionPermissionCapabilities(standardCodeThreadTestRuntime().ExecutionPermissionCapabilities)
 	wait := func() *llm.ChatResponse {
 		raw, _ := json.Marshal(domain.RootAction{Version: domain.RootLifecycleVersion, Kind: domain.RootActionWait,
@@ -336,7 +336,7 @@ func newStandardCodeOperatorInputFixture(t *testing.T) (drydockApplicationFixtur
 		t.Fatalf("edits=%+v err=%v", edits, err)
 	}
 	edit := edits[0]
-	if _, err = NewFileEditReviewService(f.state).WithDrydock(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
+	if _, err = NewFileEditReviewService(f.state).WithRunWorktree(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion,
 		RunID: f.run.ID, EditID: edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}

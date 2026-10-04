@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 import { V2ApprovalCards } from "../v2/components/approval-cards";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -49,7 +49,7 @@ describe("MCP approval through the strict HTTP client", () => {
     });
     vi.stubGlobal("fetch", fetch);
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-      <V2ApprovalCards client={new CyberAgentClient("read", "/api/v1", "control")} runID={data.preview.run_id} threadID="thread-mcp" />
+      <V2ApprovalCards client={new APIClient("read", "/api/v1", "control")} runID={data.preview.run_id} threadID="thread-mcp" />
     </QueryClientProvider>);
     expect(await screen.findByText(/exact review intent/)).toBeInTheDocument();
     expect(screen.getByText(/外部副作用未经验证/)).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe("MCP approval through the strict HTTP client", () => {
     const data = evidence("ask");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ version: "api.v1", request_id: "mcp-wrong-effect",
       data: { ...data.preview, effect: "dry_run" } }), { headers: { "Content-Type": "application/json" } })));
-    const client = new CyberAgentClient("read", "/api/v1", "control");
+    const client = new APIClient("read", "/api/v1", "control");
     await expect(client.approvalPreview(data.preview.run_id, data.preview.approval_id)).rejects.toThrow("different effect");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ version: "api.v1", request_id: "mcp-wrong-tool",
       data: { ...data.decision, tool_name: "shell" } }), { status: 202, headers: { "Content-Type": "application/json" } })));

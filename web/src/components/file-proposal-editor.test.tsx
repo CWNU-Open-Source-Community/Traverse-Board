@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { FileEditProposalSourceView } from "../api/types";
 import { FileProposalEditor } from "./file-proposal-editor";
 
@@ -28,7 +28,7 @@ describe("FileProposalEditor", () => {
       approval_required: true, file_written: false,
       edit: { id: "edit-1", status: "proposed", path: "README.md" },
     });
-    const client = { createFileEditProposal } as unknown as CyberAgentClient;
+    const client = { createFileEditProposal } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <FileProposalEditor client={client} onClose={vi.fn()} runID="run-1" source={source} />
@@ -61,7 +61,7 @@ describe("FileProposalEditor", () => {
       edit: { id: "edit-2", status: "proposed", path: "README.md" },
     });
     const client = { createFileEditProposal,
-      reissueFileEditProposalSource } as unknown as CyberAgentClient;
+      reissueFileEditProposalSource } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <FileProposalEditor client={client} onClose={vi.fn()} runID="run-1" source={source} />

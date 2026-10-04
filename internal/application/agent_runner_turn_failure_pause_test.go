@@ -67,7 +67,7 @@ func TestFailSupervisorTurnPausesRunAndUnlocksNetworkAuthority(t *testing.T) {
 	if _, _, err := st.ReleaseRunExecutionLease(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	if _, err := supervisor.Step(ctx, run.ID); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("paused run must reject automatic step retry: code=%s err=%v", apperror.CodeOf(err), err)
 	}
@@ -97,7 +97,7 @@ func TestFailSupervisorTurnPausesRunAndUnlocksNetworkAuthority(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorStepFailurePausesRunThenOperatorResumeContinues(t *testing.T) {
+func TestAgentRunnerStepFailurePausesRunThenOperatorResumeContinues(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestRunSupervisorStepFailurePausesRunThenOperatorResumeContinues(t *testing
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	run := newStartedRunForProvider(t, st, provider.Name(), domain.Budget{MaxTurns: 8})
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if err == nil {
 		t.Fatalf("expected model failure; result=%#v", result)

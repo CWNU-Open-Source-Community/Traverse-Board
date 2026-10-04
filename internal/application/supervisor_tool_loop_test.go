@@ -28,7 +28,7 @@ import (
 	"cyberagent-workbench/internal/webevidence"
 )
 
-func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *testing.T) {
+func TestAgentRunnerExecutesAllowlistedStructuredToolAndContinuesModel(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	}
 }
 
-func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
+func TestAgentRunnerExecutesDurableRunScopedWebFetch(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+func TestAgentRunnerInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
 	for _, mode := range []domain.RunExecutionPermissionMode{
 		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto, domain.RunExecutionPermissionFull,
 	} {
@@ -237,7 +237,7 @@ func testSupervisorInlineWebFetchApproval(t *testing.T, mode domain.RunExecution
 	checker := policy.NewDefaultChecker()
 	backend := &applicationWebFetchBackend{}
 	webService := webevidence.NewService(st, nil, backend)
-	supervisor := application.NewRunSupervisor(st, router, checker).
+	supervisor := application.NewAgentRunner(st, router, checker).
 		WithWebEvidence(webService).
 		WithWebFetchAuthorizationScheduler(true)
 	waiting, err := supervisor.Step(ctx, run.ID)
@@ -302,7 +302,7 @@ func testSupervisorInlineWebFetchApproval(t *testing.T, mode domain.RunExecution
 	}
 }
 
-func TestRunSupervisorCompletesTwoRealAgentCodeToolRounds(t *testing.T) {
+func TestAgentRunnerCompletesTwoRealAgentCodeToolRounds(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-agent-code-tools.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestRunSupervisorCompletesTwoRealAgentCodeToolRounds(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *testing.T) {
+func TestAgentRunnerFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-full-auto-file.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -554,7 +554,7 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 	}
 }
 
-func TestRunSupervisorPersistsReviewGatedDelegationWithoutSpawningAgents(t *testing.T) {
+func TestAgentRunnerPersistsReviewGatedDelegationWithoutSpawningAgents(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-delegation.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +616,7 @@ func TestRunSupervisorPersistsReviewGatedDelegationWithoutSpawningAgents(t *test
 	}
 }
 
-func TestRunSupervisorReturnsRejectedDelegationAsToolResult(t *testing.T) {
+func TestAgentRunnerReturnsRejectedDelegationAsToolResult(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-delegation-rejected.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -644,7 +644,7 @@ func TestRunSupervisorReturnsRejectedDelegationAsToolResult(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRecoversRootActionWithTrailingCommentaryAfterToolResult(t *testing.T) {
+func TestAgentRunnerRecoversRootActionWithTrailingCommentaryAfterToolResult(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-root-action-commentary.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -759,7 +759,7 @@ func dialogueWithSingleToolEvidence(t *testing.T, st *store.SQLiteStore, runID, 
 	return dialogue
 }
 
-func TestRunSupervisorRecoversPendingToolResultAcrossStoreRestart(t *testing.T) {
+func TestAgentRunnerRecoversPendingToolResultAcrossStoreRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "supervisor-tool-restart.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -812,7 +812,7 @@ func TestRunSupervisorRecoversPendingToolResultAcrossStoreRestart(t *testing.T) 
 	}
 }
 
-func TestRunSupervisorRecoversPendingAgentCodeReadAcrossStoreRestart(t *testing.T) {
+func TestAgentRunnerRecoversPendingAgentCodeReadAcrossStoreRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "supervisor-agent-code-restart.db")
 	workspaceRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspaceRoot, "README.md"),
@@ -888,7 +888,7 @@ func TestRunSupervisorRecoversPendingAgentCodeReadAcrossStoreRestart(t *testing.
 	}
 }
 
-func TestRunSupervisorReturnsPolicyDeniedToolResultWithoutCreatingNote(t *testing.T) {
+func TestAgentRunnerReturnsPolicyDeniedToolResultWithoutCreatingNote(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool-denied.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -911,7 +911,7 @@ func TestRunSupervisorReturnsPolicyDeniedToolResultWithoutCreatingNote(t *testin
 	}
 }
 
-func TestRunSupervisorSemanticToolKeySurvivesFailedTurnAndChangedProviderID(t *testing.T) {
+func TestAgentRunnerSemanticToolKeySurvivesFailedTurnAndChangedProviderID(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool-attempt.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -950,7 +950,7 @@ func TestRunSupervisorSemanticToolKeySurvivesFailedTurnAndChangedProviderID(t *t
 	}
 }
 
-func TestRunSupervisorReturnsToolBudgetExhaustionAndResetsTransportAttemptsPerRound(t *testing.T) {
+func TestAgentRunnerReturnsToolBudgetExhaustionAndResetsTransportAttemptsPerRound(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool-budget.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -995,7 +995,7 @@ func TestRunSupervisorReturnsToolBudgetExhaustionAndResetsTransportAttemptsPerRo
 	}
 }
 
-func TestRunSupervisorBoundsStructuredToolRounds(t *testing.T) {
+func TestAgentRunnerBoundsStructuredToolRounds(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool-round-limit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1025,7 +1025,7 @@ func TestRunSupervisorBoundsStructuredToolRounds(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorReplaysRepeatedSemanticIntentAcrossToolRounds(t *testing.T) {
+func TestAgentRunnerReplaysRepeatedSemanticIntentAcrossToolRounds(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-tool-repeat.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1158,12 +1158,12 @@ func (s *failOnceToolResultStore) RecordSupervisorToolResult(ctx context.Context
 	return s.SQLiteStore.RecordSupervisorToolResult(ctx, checkpoint, result)
 }
 
-func newToolLoopSupervisor(st application.RunSupervisorStore,
+func newToolLoopSupervisor(st application.AgentRunnerStore,
 	provider *scriptedToolProvider,
-) *application.RunSupervisor {
+) *application.AgentRunner {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	return application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	return application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 }
 
 func toolResponse(id string, name string, payload string) *llm.ChatResponse {

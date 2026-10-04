@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, FileCheck2, FileDiff, FileText, History,
   LoaderCircle, PanelRightClose, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ApprovalContinuationView, FileEditApplyView, FileEditPreviewView, FileEditQueueView, FileEditReviewRequestView, OperationReceiptView } from "../api/types";
 import { formatBytes, formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -27,7 +27,7 @@ type EditSelection = { runID: string; editID: string; workspaceID?: string };
 
 export function FileEditPanel({ client, runID, runStatus, onRequestChange, onRequestRevert,
   requestRevertUnavailableReason, onChanged, initialTarget }: {
-  client: CyberAgentClient; runID: string; runStatus?: string;
+  client: APIClient; runID: string; runStatus?: string;
   onRequestChange?: (edit: FileEditPreviewView) => void;
   onRequestRevert?: (edit: FileEditPreviewView) => void;
   requestRevertUnavailableReason?: string;
@@ -322,7 +322,7 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
   requestRevertInConversation, requestRevertUnavailableReason }: {
     applyEnabled: boolean;
     applying: boolean;
-    client: CyberAgentClient;
+    client: APIClient;
     diff: ParsedUnifiedDiff;
     edit: FileEditPreviewView;
     onApply: () => void;

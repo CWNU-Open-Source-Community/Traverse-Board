@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { CodeHandoffView } from "../api/types";
 import { CodeHandoffHostCommands } from "./code-handoff-host-commands";
 
@@ -22,7 +22,7 @@ function detail(command: Command) {
     receipt: command.receipt, untrusted_evidence: "Saved test output: 4 checks completed" };
 }
 function show(items: Command[], hostCommandProposal = vi.fn()) {
-  const client = {  hostCommandProposal } as unknown as CyberAgentClient;
+  const client = {  hostCommandProposal } as unknown as APIClient;
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <CodeHandoffHostCommands client={client} commands={{ items, truncated: false }} />
   </QueryClientProvider>);

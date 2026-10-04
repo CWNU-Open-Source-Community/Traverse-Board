@@ -16,7 +16,7 @@ type supervisorImageStore interface {
 	GetWorkspaceImage(context.Context, string, string) (domain.WorkspaceImage, []byte, error)
 }
 
-func (s *RunSupervisor) supervisorMessagesWithImages(ctx context.Context, turn domain.SupervisorTurn, history []session.Message, messages []llm.Message, layout modelContextLayout) ([]llm.Message, error) {
+func (s *AgentRunner) supervisorMessagesWithImages(ctx context.Context, turn domain.SupervisorTurn, history []session.Message, messages []llm.Message, layout modelContextLayout) ([]llm.Message, error) {
 	store, ok := s.store.(supervisorImageStore)
 	if !ok {
 		if turn.Checkpoint.PendingImageCount > 0 {

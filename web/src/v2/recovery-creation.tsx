@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { canonicalExactNetworkTarget } from "../api/client";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadCreationControlRequestView, ThreadDetailView, ThreadView } from "../api/types";
 import type { V2FileReference } from "./components/file-context";
 import { inspectV2CreationRequest } from "./recovery-api";
@@ -98,7 +98,7 @@ function boundThread(value: unknown, workspaceID: string, expectedID?: string): 
 
 type Observation = { thread?: ThreadView; message: string };
 
-export function useV2CreationRecovery(client: CyberAgentClient, workspaceID: string,
+export function useV2CreationRecovery(client: APIClient, workspaceID: string,
   onRecovered: (thread: ThreadView, submittedDraft: string, files: V2FileReference[], input: V2TurnInput) => void,
 ): {
   prepare(request: ThreadCreationControlRequestView, content: string, files: V2FileReference[], submittedDraft: string, images?: WorkspaceImageAttachment[], draftVersion?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]): CreationIntent;

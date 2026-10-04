@@ -314,7 +314,7 @@ func TestPortableSkillExplicitSelectionRejectsLifecycleDrift(t *testing.T) {
 					value = reviewInstalledFixture(t, st, value, plugins.ReviewEnable)
 				}
 			}
-			var source application.RunSupervisorStore = st
+			var source application.AgentRunnerStore = st
 			switch scenario.stage {
 			case "before":
 				change()
@@ -371,11 +371,11 @@ func TestPortableSkillExplicitSpecialistDeliveryAndRestart(t *testing.T) {
 				provider := &specialistTestProvider{responses: []llm.ChatResponse{{Text: specialistResponse(t, domain.SpecialistAction{Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue, Message: "Used selected guidance"}), Usage: llm.Usage{InputTokens: 2, OutputTokens: 2, TotalTokens: 4}}}}
 				router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 				router.RegisterProvider(provider)
-				var source application.SpecialistRunnerStore = st
+				var source application.SubagentRunnerStore = st
 				if changed {
 					source = &changedAfterExplicitPreparationStore{SQLiteStore: st, change: func() { reviewInstalledFixture(t, st, designated, plugins.ReviewRevoke) }}
 				}
-				runner := application.NewSpecialistRunner(source, router, policy.NewDefaultChecker())
+				runner := application.NewSubagentRunner(source, router, policy.NewDefaultChecker())
 				result, err := runner.Step(t.Context(), run.ID, admitted.Agent.ID)
 				if changed {
 					if err == nil || len(provider.requests) != 0 {
@@ -437,7 +437,7 @@ func TestPortableSkillExplicitSelectionRespectsPhaseProfileAndRole(t *testing.T)
 
 func TestPortableSkillLegacyV1RootDeliveryStillReadsRetainedObject(t *testing.T) {
 	p := &scriptedToolProvider{responses: []*llm.ChatResponse{textResponse(rootActionResponse(domain.RootActionContinue, "Read retained historical instructions", "", ""))}}
-	st, run, _, _ := newSpecialistRunnerFixtureWithExternal(t, p, domain.Budget{MaxTurns: 10}, 2, 64, true)
+	st, run, _, _ := newSubagentRunnerFixtureWithExternal(t, p, domain.Budget{MaxTurns: 10}, 2, 64, true)
 	selection, found, err := st.GetExternalSkillSelectionByRun(t.Context(), run.ID)
 	if err != nil || !found || selection.ProtocolVersion != skills.ExternalSelectionProtocolVersion || selection.Items[0].Plugin != nil || selection.Items[0].ObjectKey == "" {
 		t.Fatalf("missing real v1 selection: %+v %v", selection, err)

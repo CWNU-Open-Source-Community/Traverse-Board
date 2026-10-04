@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadExecutionView } from "../api/types";
 import { v2QueryKeys } from "./query-keys";
 import { useConnectionStore } from "../state/connection";
@@ -28,7 +28,7 @@ vi.mock("../components/scheduled-tasks-workspace", () => ({ ScheduledTasksWorksp
 afterEach(() => { cleanup(); submitResource.mockClear(); useConnectionStore.getState().disconnect(); });
 
 it.each(["run", "session"] as const)("does not transfer %s draft or uncertain operation state to another resource", (tool) => {
-  const client = {} as CyberAgentClient;
+  const client = {} as APIClient;
   const props = { client, tool, threadID: "", onBack: vi.fn(), onOpenSettings: vi.fn() };
   const view = render(<V2InspectorTools {...props} resourceID="resource-a" />);
   fireEvent.change(screen.getByLabelText("Resource-scoped draft"), { target: { value: "Only for resource A" } });
@@ -46,7 +46,7 @@ it("keeps direct resource navigation unbound to a previously selected Thread and
   useConnectionStore.getState().selectThread("unrelated-stale-thread");
   const onBack = vi.fn();
   const onOpenSettings = vi.fn();
-  render(<V2InspectorTools client={{} as CyberAgentClient} tool="run" resourceID="run-history"
+  render(<V2InspectorTools client={{} as APIClient} tool="run" resourceID="run-history"
     threadID="" onBack={onBack} onOpenSettings={onOpenSettings} />);
   expect(screen.getByText(/未绑定对话，任务权限设置不可用/)).toBeInTheDocument();
   expect(screen.queryByText(/unrelated-stale-thread/)).not.toBeInTheDocument();
@@ -62,7 +62,7 @@ it("keeps direct resource navigation unbound to a previously selected Thread and
 
 it("prioritizes saved record browsing and keeps auxiliary home destinations available on demand", () => {
   const getPage = vi.fn(), onOpenTool = vi.fn(), onOpenSettings = vi.fn();
-  render(<QueryClientProvider client={new QueryClient()}><V2InspectorHome client={{ getPage } as unknown as CyberAgentClient}
+  render(<QueryClientProvider client={new QueryClient()}><V2InspectorHome client={{ getPage } as unknown as APIClient}
     onOpenTool={onOpenTool} onOpenSettings={onOpenSettings} /></QueryClientProvider>);
   expect(screen.getByRole("button", { name: "运行记录" })).toBeVisible();
   expect(screen.getByRole("button", { name: "会话记录" })).toBeVisible();
@@ -82,7 +82,7 @@ it("keeps source Thread activity separate from a historical resource and does no
     state: "idle", queued_messages: 0, capability_grant: false });
   let resolveNext!: (state: ThreadExecutionView) => void;
   const threadExecution = vi.fn().mockResolvedValue(idle("task-a"));
-  const client = { hasThreadExecutionRead: true, threadExecution } as unknown as CyberAgentClient;
+  const client = { hasThreadExecutionRead: true, threadExecution } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (threadID: string) => <QueryClientProvider client={queryClient}>
     <V2InspectorTools client={client} tool="run" resourceID="historical-run" threadID={threadID}
