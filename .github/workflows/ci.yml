@@ -458,6 +458,7 @@ jobs:
           npm ci
           npm run build
       - name: Verify Windows Local Sandbox isolation and product gates
+        id: windows-native-gates
         shell: pwsh
         env:
           # Temporary content-free diagnosis of the existing fixed-command
@@ -485,6 +486,7 @@ jobs:
           # Preserve the operator-first launch order and retain both results.
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
           $fixedOperatorExitCode = $LASTEXITCODE
+          "fixed_operator_exit_code=$fixedOperatorExitCode" >> $env:GITHUB_OUTPUT
           go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
           if ($fixedOperatorExitCode -ne 0) { exit $fixedOperatorExitCode }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -494,6 +496,12 @@ jobs:
           # Run their launch freshness/capability tests on the actual platform.
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestLocalCommand'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Diagnose fixed PowerShell phases after gate failure
+        if: ${{ !cancelled() && failure() && steps.windows-native-gates.outputs.fixed_operator_exit_code != '' && steps.windows-native-gates.outputs.fixed_operator_exit_code != '0' }}
+        shell: pwsh
+        env:
+          CYBERAGENT_FIXED_COMMAND_DIAGNOSTICS: "1"
+        run: python scripts/diagnose-fixed-powershell.py
       - name: Test Desktop boundaries
         run: >-
           go test -tags "desktop,wv2runtime.error" -count=1

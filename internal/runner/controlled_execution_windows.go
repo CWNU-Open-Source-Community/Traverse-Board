@@ -16,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -35,11 +34,6 @@ var createRestrictedTokenProc = windows.NewLazySystemDLL(
 type controlledPipe struct {
 	read  windows.Handle
 	write windows.Handle
-}
-
-type controlledWaitResult struct {
-	exitCode int
-	err      error
 }
 
 type controlledOutputResult struct {
@@ -353,16 +347,6 @@ func newControlledJob() (windows.Handle, error) {
 	return job, nil
 }
 
-func controlledEnvironment(spec ControlledStartSpec, systemRoot string) []uint16 {
-	values := controlledEnvironmentValues(spec, systemRoot)
-	block := make([]uint16, 0, 1024)
-	for _, value := range values {
-		block = append(block, utf16.Encode([]rune(value))...)
-		block = append(block, 0)
-	}
-	return append(block, 0)
-}
-
 func controlledEnvironmentValues(spec ControlledStartSpec, systemRoot string) []string {
 	values := []string{
 		"ComSpec=" + filepath.Join(systemRoot, "System32", "cmd.exe"),
@@ -448,19 +432,6 @@ func readControlledOutput(handle windows.Handle,
 		case errorChannel <- readErr:
 		default:
 		}
-	}
-}
-
-func receiveControlledOutput(channel <-chan controlledOutputResult) (
-	controlledOutputResult, error,
-) {
-	select {
-	case value := <-channel:
-		return value, nil
-	case <-time.After(2 * time.Second):
-		return controlledOutputResult{}, fmt.Errorf(
-			"%w: output collector did not finish",
-			ErrControlledExecutionPlatform)
 	}
 }
 
