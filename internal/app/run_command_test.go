@@ -332,7 +332,7 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 	}
 	for _, mode := range []string{"auto", "ask"} {
 		shown, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
-			runID, mode, "--operation-key", "cli-current-"+mode)
+			runID, mode, "--operation-key", "cli-current-permission-"+mode+"-0001")
 		assertPreference(shown, stderr, code, mode, true)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
