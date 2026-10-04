@@ -290,7 +290,8 @@ func TestRunExecutionInteractionCLIRequiresExplicitOperatorBoundaries(t *testing
 }
 
 func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"choose an execution permission boundary", "--max-turns", "2")
 	if code != 0 || stderr != "" {
@@ -316,19 +317,55 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 	}
 	shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
 	assertPreference(shown, stderr, code, "ask", true)
+	initialEvents, stderr, code := executeTestCommand(t, "run", "events", runID)
+	if code != 0 || stderr != "" {
+		t.Fatalf("initial events stderr=%q code=%d", stderr, code)
+	}
+	assertRejectedWithoutEffects := func(retired string) {
+		t.Helper()
+		current, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+		assertPreference(current, stderr, code, "ask", true)
+		if current != shown {
+			t.Fatalf("retired argument %s changed permission: before=%q after=%q", retired, shown, current)
+		}
+		currentEvents, stderr, code := executeTestCommand(t, "run", "events", runID)
+		if code != 0 || stderr != "" || currentEvents != initialEvents {
+			t.Fatalf("retired argument %s changed events: before=%q after=%q stderr=%q code=%d",
+				retired, initialEvents, currentEvents, stderr, code)
+		}
+		st, err := store.Open(filepath.Join(home, "cyberagent.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		jobs, err := st.ListCommandRuntimeJobs(context.Background(), runner.CommandRuntimeListFilter{
+			RunID: runID, Limit: 1,
+		})
+		if err != nil || len(jobs) != 0 {
+			t.Fatalf("retired argument %s created command jobs: jobs=%+v err=%v", retired, jobs, err)
+		}
+		rounds, err := st.ListRunSupervisorToolRoundsPage(context.Background(), runID, 0, 1)
+		if err != nil || len(rounds) != 0 {
+			t.Fatalf("retired argument %s created tool calls: rounds=%+v err=%v", retired, rounds, err)
+		}
+	}
+	assertRejectedWithoutEffects("initial state")
 	for _, retired := range []string{"conservative", "workspace_access", "approval", "full_access", "debug"} {
 		_, stderr, code := executeTestCommand(t, "run", "execution-permission", "set", runID,
 			retired, "--operation-key", "cli-retired-"+retired)
 		if code != 2 || !strings.Contains(stderr, "approval mode must be ask, auto, or full") {
 			t.Fatalf("retired selector %s stderr=%q code=%d", retired, stderr, code)
 		}
+		assertRejectedWithoutEffects(retired)
 	}
 	for _, retired := range []string{"--confirm-workspace-access", "--confirm-user-approval",
 		"--confirm-danger-full-access", "--confirm-debug-access"} {
-		if _, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
-			runID, "full", "--operation-key", "cli-retired-confirmation", retired); code != 2 || !strings.Contains(stderr, "flag provided but not defined") {
-			t.Fatalf("retired confirmation %s stderr=%q code=%d", retired, stderr, code)
+		if stdout, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
+			runID, "full", "--operation-key", "cli-retired-confirmation", retired); code != 2 || stdout != "" ||
+			!strings.Contains(stderr, "usage: cyberagent run execution-permission ") {
+			t.Fatalf("retired confirmation %s stdout=%q stderr=%q code=%d", retired, stdout, stderr, code)
 		}
+		assertRejectedWithoutEffects(retired)
 	}
 	for _, mode := range []string{"auto", "ask"} {
 		shown, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
