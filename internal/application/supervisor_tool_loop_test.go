@@ -483,9 +483,9 @@ func TestRunSupervisorFullAccessCreatesAndMovesFileWithoutPerFileApproval(t *tes
 		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
 	selected, err := application.NewRunExecutionPermissionService(st, runtimeCapabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "supervisor-full-auto-permission-0001", RequestedBy: "test_operator",
-			Reason: "allow this Run to complete ordinary file edits", ConfirmDangerFullAccess: true})
+			Reason: "allow this Run to complete ordinary file edits", ConfirmFull: true})
 	if err != nil {
 		t.Fatal(err)
 	}

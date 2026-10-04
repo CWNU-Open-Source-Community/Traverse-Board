@@ -37,8 +37,11 @@ func newOperatorCommandFixture(t *testing.T, mode domain.RunExecutionPermissionM
 
 func newOperatorCommandFixtureAtStatus(t *testing.T, mode domain.RunExecutionPermissionMode, status domain.RunStatus) *operatorCommandFixture {
 	t.Helper()
-	f := &operatorCommandFixture{root: t.TempDir(), path: filepath.Join(t.TempDir(), "operator.db")}
-	var err error
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &operatorCommandFixture{root: root, path: filepath.Join(t.TempDir(), "operator.db")}
 	f.st, err = store.Open(f.path)
 	if err != nil {
 		t.Fatal(err)
