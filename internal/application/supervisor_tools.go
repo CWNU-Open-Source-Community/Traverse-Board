@@ -550,29 +550,13 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 	if s == nil || s.webEvidence == nil || turn.Agent.Role != domain.AgentRoleRoot {
 		return toolgateway.WebEvidenceCapabilities{}, nil, nil
 	}
-	permissionGeneration := uint64(0)
-	permissionSnapshotID := ""
-	permissionRuntimeEpoch := ""
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		s.executionCapabilities.FullAccessRequiresRuntimeGrant {
-		var live bool
-		permissionGeneration, live = s.executionCapabilities.FullAccessGeneration(permission)
-		if !live {
-			return toolgateway.WebEvidenceCapabilities{
-				ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
-				Refusal:         "Full Access web evidence requires a live confirmed permission activation",
-			}, nil, nil
-		}
-		permissionSnapshotID = permission.ID
-		if s.executionCapabilities.RuntimeAuthority != nil {
-			permissionRuntimeEpoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-		}
-		if permissionRuntimeEpoch == "" {
-			return toolgateway.WebEvidenceCapabilities{
-				ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
-				Refusal:         "Full Access web evidence requires a valid runtime activation",
-			}, nil, nil
-		}
+	permissionSnapshotID, permissionGeneration, permissionRuntimeEpoch, live :=
+		bindWebEvidenceRuntime(s.executionCapabilities, permission)
+	if !live {
+		return toolgateway.WebEvidenceCapabilities{
+			ProtocolVersion: toolgateway.WebEvidenceRegistryVersion,
+			Refusal:         "Full Access web evidence requires a live confirmed permission activation",
+		}, nil, nil
 	}
 	networkAuthority := effectiveWebEvidenceAuthority(turn.Mode.Scope, permission.Mode)
 	providerFingerprint := s.webEvidence.SearchProviderFingerprintForScope(ctx,
@@ -1205,18 +1189,9 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
-		live := true
-		if permissionErr == nil && permission.Mode == domain.RunExecutionPermissionFullAccess &&
-			s.executionCapabilities.FullAccessRequiresRuntimeGrant {
-			generation, active := s.executionCapabilities.FullAccessGeneration(permission)
-			epoch := ""
-			if s.executionCapabilities.RuntimeAuthority != nil {
-				epoch = s.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-			}
-			live = active && authority.PermissionSnapshotID == permission.ID &&
-				authority.PermissionGeneration == generation && epoch != "" &&
-				authority.PermissionRuntimeEpoch == epoch
-		}
+		snapshotID, generation, epoch, live := bindWebEvidenceRuntime(s.executionCapabilities, permission)
+		live = live && authority.PermissionSnapshotID == snapshotID &&
+			authority.PermissionGeneration == generation && authority.PermissionRuntimeEpoch == epoch
 		if authorityErr != nil || authority.RunID != call.RunID ||
 			permissionErr != nil || !live || permission.Mode != authority.PermissionMode ||
 			permission.Revision != authority.PermissionRevision ||

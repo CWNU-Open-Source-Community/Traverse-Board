@@ -148,18 +148,20 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"web evidence Run route no longer matches the Supervisor scope")
 	}
+	_, _, permissionRuntimeEpoch, _ := bindWebEvidenceRuntime(e.executionCapabilities, permission)
 	checkLiveFullAccess := func() error {
-		if permission.Mode != domain.RunExecutionPermissionFullAccess ||
-			!e.executionCapabilities.FullAccessRequiresRuntimeGrant {
+		if !permission.Mode.IsFullPreference() {
 			return nil
 		}
-		generation, live := e.executionCapabilities.FullAccessGeneration(permission)
-		epoch := ""
-		if e.executionCapabilities.RuntimeAuthority != nil {
-			epoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
+		current, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
+		if err != nil {
+			return apperror.Normalize(err)
 		}
-		if scope.PermissionSnapshotID != permission.ID || !live ||
-			generation != scope.PermissionGeneration || epoch == "" {
+		snapshotID, generation, epoch, live := bindWebEvidenceRuntime(e.executionCapabilities, current)
+		if current.ID != permission.ID || current.Mode != permission.Mode ||
+			current.Revision != permission.Revision || !live ||
+			scope.PermissionSnapshotID != snapshotID || generation != scope.PermissionGeneration ||
+			epoch != permissionRuntimeEpoch {
 			return apperror.New(apperror.CodePolicyDenied,
 				"Full Access web evidence requires the exact live permission activation")
 		}
@@ -183,9 +185,10 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		RootAgentID: scope.RootAgentID, WorkspaceID: scope.WorkspaceID,
 		Surface: mode.Surface, Phase: mode.Phase, Role: scope.Role, Profile: mode.Profile,
 		PermissionMode: permission.Mode, PermissionRevision: permission.Revision,
-		PermissionSnapshotID: scope.PermissionSnapshotID,
-		PermissionGeneration: scope.PermissionGeneration,
-		ModeRevision:         mode.Revision, NetworkMode: networkAuthority.Mode,
+		PermissionSnapshotID:   scope.PermissionSnapshotID,
+		PermissionGeneration:   scope.PermissionGeneration,
+		PermissionRuntimeEpoch: permissionRuntimeEpoch,
+		ModeRevision:           mode.Revision, NetworkMode: networkAuthority.Mode,
 		AllowedTargets:                  append([]string(nil), networkAuthority.AllowedTargets...),
 		ProviderAvailable:               providerFingerprint != "",
 		ProviderFingerprint:             providerFingerprint,
@@ -193,11 +196,6 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		SourceConnectorAvailable:        connectorFingerprint != "",
 		SourceConnectorFingerprint:      connectorFingerprint,
 		InlineWebFetchApprovalAvailable: e.webFetchAuthorizationSchedulerEnabled}
-	if permission.Mode == domain.RunExecutionPermissionFullAccess &&
-		e.executionCapabilities.FullAccessRequiresRuntimeGrant &&
-		e.executionCapabilities.RuntimeAuthority != nil {
-		capabilityContext.PermissionRuntimeEpoch = e.executionCapabilities.RuntimeAuthority.RuntimeEpoch()
-	}
 	capabilities := toolgateway.WebEvidenceCapabilitySnapshot(capabilityContext)
 	if mode.RunID != scope.RunID || mode.MissionID != scope.MissionID ||
 		mode.Revision != scope.ModeRevision || permission.Mode != scope.PermissionMode ||

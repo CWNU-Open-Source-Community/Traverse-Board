@@ -204,6 +204,15 @@ func TestWebEvidenceExecutorInlineApprovalProjectsDisabledToExactAuthority(t *te
 }
 
 func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{
+		domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto,
+	} {
+		t.Run(string(mode), func(t *testing.T) { testWebEvidenceExactRunAuthority(t, mode) })
+	}
+}
+
+func testWebEvidenceExactRunAuthority(t *testing.T, permissionMode domain.RunExecutionPermissionMode) {
+	t.Helper()
 	ctx := context.Background()
 	state, err := store.Open(filepath.Join(t.TempDir(), "web-evidence-application.db"))
 	if err != nil {
@@ -216,6 +225,14 @@ func TestWebEvidenceExecutorRechecksPersistedRunAuthorityAndHasNoSearchFallback(
 			Budget: domain.Budget{MaxTurns: 4, MaxToolCalls: 8}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if permissionMode != domain.RunExecutionPermissionAsk {
+		if _, err := application.NewRunExecutionPermissionService(state, domain.ExecutionPermissionRuntimeCapabilities{}).
+			Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
+				Mode: string(permissionMode), OperationKey: "web-exact-permission",
+				RequestedBy: "test_operator", Reason: "preserve exact network authority"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	run, err := application.NewRunService(state).Start(ctx, created.ID)
 	if err != nil {
@@ -505,6 +522,21 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 	liveScope.PermissionSnapshotID = permission.ID
 	liveScope.PermissionGeneration = grant.Generation
 	liveScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(liveContext).Generation
+	for _, mismatch := range []string{"missing-snapshot", "wrong-snapshot", "wrong-generation"} {
+		stale := liveScope
+		switch mismatch {
+		case "missing-snapshot":
+			stale.PermissionSnapshotID, stale.PermissionGeneration = "", 0
+		case "wrong-snapshot":
+			stale.PermissionSnapshotID = "another-permission-snapshot"
+		case "wrong-generation":
+			stale.PermissionGeneration++
+		}
+		if _, err := executor.ExecuteWebEvidence(ctx, stale, toolgateway.WebFetchTool,
+			json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/stale"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 1 {
+			t.Fatalf("%s binding calls=%d err=%v", mismatch, backend.calls, err)
+		}
+	}
 	if _, err := executor.ExecuteWebEvidence(ctx, liveScope, toolgateway.WebFetchTool,
 		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/live"}`)); err != nil || backend.calls != 2 {
 		t.Fatalf("live Full Access fetch calls=%d err=%v", backend.calls, err)
@@ -560,4 +592,81 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
 		t.Fatalf("old generation was revived: calls=%d err=%v", backend.calls, err)
 	}
+	for _, change := range []string{"revoke", "snapshot-drift", "runtime-epoch"} {
+		t.Run("before-fetch-"+change, func(t *testing.T) {
+			grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+			if err != nil {
+				t.Fatal(err)
+			}
+			currentContext := liveContext
+			currentContext.PermissionGeneration = grant.Generation
+			currentScope := liveScope
+			currentScope.PermissionGeneration = grant.Generation
+			currentScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(currentContext).Generation
+			currentScope.OperationKey = "web-before-fetch-" + change
+			probe := &webRuntimeBoundaryStore{SQLiteStore: state}
+			checked, err := application.NewWebEvidenceToolExecutor(probe, webevidence.NewService(state, nil, backend))
+			if err != nil {
+				t.Fatal(err)
+			}
+			checked.WithExecutionPermissionCapabilities(liveCapabilities)
+			probe.afterSourceRead = func() {
+				switch change {
+				case "revoke":
+					runtimeAuthority.RevokeRun(run.ID)
+				case "snapshot-drift":
+					next, err := permission.Next("web-drifted-permission", permission.Mode, true,
+						"test_operator", "changed while resolving source", permission.CreatedAt.Add(time.Second))
+					if err != nil {
+						t.Fatal(err)
+					}
+					probe.permission = &next
+				case "runtime-epoch":
+					fresh := domain.NewExecutionPermissionRuntimeAuthority()
+					for i := uint64(0); i < grant.Generation; i++ {
+						if _, err := fresh.ActivateRunFullAccess(permission); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if generation, live := fresh.AllowsFullAccess(permission); !live || generation != grant.Generation {
+						t.Fatal("same-generation runtime fixture was not established")
+					}
+					changed := liveCapabilities
+					changed.RuntimeAuthority = fresh
+					checked.WithExecutionPermissionCapabilities(changed)
+				}
+			}
+			payload, _ := json.Marshal(toolgateway.WebFetchPayload{Version: "web_fetch.v1", SourceID: result.Metadata["source_id"]})
+			if _, err := checked.ExecuteWebEvidence(ctx, currentScope, toolgateway.WebFetchTool, payload); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 || probe.sourceReads != 1 {
+				t.Fatalf("final %s check calls=%d sourceReads=%d err=%v", change, backend.calls, probe.sourceReads, err)
+			}
+		})
+	}
+}
+
+// Only the executor's source lookup uses this hook; the real service keeps its
+// original store. Revocation occurs after capability validation, before Fetch.
+type webRuntimeBoundaryStore struct {
+	*store.SQLiteStore
+	afterSourceRead func()
+	permission      *domain.RunExecutionPermissionSnapshot
+	sourceReads     int
+}
+
+func (s *webRuntimeBoundaryStore) GetWebSource(ctx context.Context, runID, sourceID string) (webevidence.Source, error) {
+	source, err := s.SQLiteStore.GetWebSource(ctx, runID, sourceID)
+	if err == nil {
+		s.sourceReads++
+		if s.afterSourceRead != nil {
+			s.afterSourceRead()
+		}
+	}
+	return source, err
+}
+
+func (s *webRuntimeBoundaryStore) GetRunExecutionPermission(ctx context.Context, runID string) (domain.RunExecutionPermissionSnapshot, error) {
+	if s.permission != nil {
+		return *s.permission, nil
+	}
+	return s.SQLiteStore.GetRunExecutionPermission(ctx, runID)
 }
