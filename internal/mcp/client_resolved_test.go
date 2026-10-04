@@ -333,7 +333,10 @@ func TestResolvedCancellationKeepsReceiptAndConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := resolvedFixtureClient(t, launch, &resolvedGuardProbe{}, nil)
+	probe := &resolvedGuardProbe{}
+	client := resolvedFixtureClient(t, launch, probe, nil)
+	writeCompleted := make(chan struct{})
+	client.transport = &completedMCPWriteTransport{Transport: client.transport, toolWritten: writeCompleted}
 	ctx, stop := context.WithTimeout(t.Context(), 10*time.Second)
 	defer stop()
 	if _, err := client.DiscoverWithScope(ctx, testResolvedScope(t, launch, 3)); err != nil {
@@ -360,6 +363,13 @@ func TestResolvedCancellationKeepsReceiptAndConnection(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	// Cancel a response wait only after the real adapter's Write has returned.
+	// Cancellation while still writing has a different fail-closed contract.
+	select {
+	case <-writeCompleted:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 	cancel()
 	select {
 	case <-done:
@@ -371,6 +381,9 @@ func TestResolvedCancellationKeepsReceiptAndConnection(t *testing.T) {
 	result, _, receipt, err := client.CallToolWithReceipt(ctx, operation, "lookup", json.RawMessage("{}"))
 	if err != nil || result == nil || receipt.State != toolcontract.ReceiptResultReceived {
 		t.Fatalf("connection after cancellation: %v %v", receipt, err)
+	}
+	if probe.connects.Load() != 1 || probe.calls.Load() != 2 {
+		t.Fatalf("cancellation reconnected or resent an unknown operation: connects=%d calls=%d", probe.connects.Load(), probe.calls.Load())
 	}
 }
 
