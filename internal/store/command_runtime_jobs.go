@@ -219,7 +219,14 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		return runner.CommandRuntimeJob{}, apperror.New(
 			apperror.CodeInvalidArgument, "command runtime transition is invalid")
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE command_runtime_jobs SET
+	// The owner retains expectedVersion if this call fails. Keep the update
+	// and readback atomic so a cancelled read cannot consume that version.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE command_runtime_jobs SET
 		state = ?, pid = ?, process_group = ?, stdout = ?, stderr = ?,
 		stdout_observed_bytes = ?, stderr_observed_bytes = ?, output_cursor = ?,
 		output_base_cursor = ?, output_frames_json = ?, stdout_sha256 = ?,
@@ -254,13 +261,20 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		return runner.CommandRuntimeJob{}, err
 	}
 	if changed != 1 {
-		if _, getErr := s.GetCommandRuntimeJob(ctx, job.ID); getErr != nil {
+		if _, getErr := getCommandRuntimeJob(ctx, tx, job.ID); getErr != nil {
 			return runner.CommandRuntimeJob{}, getErr
 		}
 		return runner.CommandRuntimeJob{}, apperror.New(
 			apperror.CodeConflict, "command runtime record version changed")
 	}
-	return s.GetCommandRuntimeJob(ctx, job.ID)
+	stored, err := getCommandRuntimeJob(ctx, tx, job.ID)
+	if err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return runner.CommandRuntimeJob{}, err
+	}
+	return stored, nil
 }
 
 func (s *SQLiteStore) GetCommandRuntimeJob(ctx context.Context,

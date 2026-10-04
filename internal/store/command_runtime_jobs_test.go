@@ -309,6 +309,9 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 	if err != nil || terminal.State != runner.CommandRuntimeJobCompleted {
 		t.Fatalf("terminal=%#v err=%v", terminal, err)
 	}
+	if _, err := st.UpdateCommandRuntimeJob(ctx, terminal, running.Version); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("already consumed terminal version did not remain a conflict: %v", err)
+	}
 	if active, err := st.CommandRuntimeJobOwnershipActive(ctx, terminal); err != nil || active {
 		t.Fatalf("terminal command runtime ownership=%t err=%v", active, err)
 	}
