@@ -1043,7 +1043,10 @@ func newUIEvidenceGitWorkspace(t *testing.T) string {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git unavailable")
 	}
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "fixture.txt"), []byte("fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

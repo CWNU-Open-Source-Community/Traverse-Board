@@ -18,7 +18,8 @@ $native = $ast.Find({ param($node)
 }, $true)
 if ($null -eq $native) { throw 'Native readiness observer not found' }
 . ([scriptblock]::Create($native.Extent.Text))
-foreach ($name in @('Wait-CandidateReady', 'Get-SafeFailureCode', 'Get-SafeCandidateExitCode')) {
+foreach ($name in @('Wait-CandidateReady', 'Get-SafeFailureCode', 'Get-SafeCandidateExitCode',
+        'Test-ContainsBytePattern', 'Test-SentinelPersisted')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $false)
@@ -102,6 +103,7 @@ function Assert-ReadinessRejected {
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ('packaged-readiness-' + [guid]::NewGuid().ToString('N'))
 [System.IO.Directory]::CreateDirectory($root) | Out-Null
 $script:database = Join-Path $root 'stale.db'
+$sentinelFile = Join-Path $root 'sentinel-evidence.bin'
 $StartupTimeoutSeconds = 0.3
 $windows = [System.Collections.Generic.List[IntPtr]]::new()
 $child = $null
@@ -154,6 +156,49 @@ try {
         throw 'Unknown failure details were exposed'
     }
     $passed.Add('unknown_failure_detail_redacted')
+
+    $sentinel = 'synthetic-packaged-readiness-sentinel'
+    foreach ($encoding in @([System.Text.Encoding]::UTF8, [System.Text.Encoding]::Unicode)) {
+        [System.IO.File]::WriteAllBytes($sentinelFile, $encoding.GetBytes("prefix-$sentinel-suffix"))
+        if (-not (Test-SentinelPersisted -Roots @($root) -Sentinels @($sentinel))) {
+            throw 'Persisted sentinel was not detected'
+        }
+    }
+    $passed.Add('utf8_and_utf16_sentinels_detected')
+    [System.IO.File]::WriteAllText($sentinelFile, 'no sentinel present')
+    if (Test-SentinelPersisted -Roots @($root) -Sentinels @($sentinel)) {
+        throw 'Clean evidence reported a persisted sentinel'
+    }
+    $passed.Add('clean_sentinel_evidence_accepted')
+
+    foreach ($sharing in @([System.IO.FileShare]::Read, [System.IO.FileShare]::None)) {
+        $held = [System.IO.File]::Open($sentinelFile, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite, $sharing)
+        try {
+            $readFailure = $null
+            try { $null = Test-SentinelPersisted -Roots @($root) -Sentinels @($sentinel) }
+            catch { $readFailure = $_.Exception }
+            if ($null -eq $readFailure -or
+                (Get-SafeFailureCode -Message $readFailure.Message) -cne 'sentinel_evidence_unreadable') {
+                throw 'Unreadable sentinel evidence was not rejected'
+            }
+            $facts = $readFailure.Data['sentinel_evidence_read']
+            if ($null -eq $facts -or $facts.root_index -ne 0 -or $facts.webview2_data -or
+                $facts.exception_type -cne 'System.IO.IOException' -or
+                ($facts.hresult -band 0xffff) -ne 32 -or
+                $facts.file_attributes -ne [int](Get-Item -LiteralPath $sentinelFile).Attributes) {
+                throw 'Unreadable sentinel evidence did not retain safe failure facts'
+            }
+            $json = $facts | ConvertTo-Json -Compress
+            if ($facts.PSObject.Properties.Name.Count -ne 5 -or
+                $json.Contains($root) -or $json.Contains('sentinel-evidence.bin') -or $json.Contains($sentinel)) {
+                throw 'Sentinel failure facts exposed raw details'
+            }
+        } finally {
+            $held.Dispose()
+        }
+    }
+    $passed.Add('shared_writer_and_exclusive_lock_fail_closed_with_redacted_facts')
     [pscustomobject]@{ passed = $passed.Count; cases = @($passed) } | ConvertTo-Json -Depth 3
 } finally {
     [PackagedReadinessFixture]::StopBlockedWindow()
@@ -166,5 +211,6 @@ try {
     }
     # Only this invocation's known file and empty directory are removed.
     if (Test-Path -LiteralPath $script:database) { Remove-Item -LiteralPath $script:database -Force }
+    if (Test-Path -LiteralPath $sentinelFile) { Remove-Item -LiteralPath $sentinelFile -Force }
     Remove-Item -LiteralPath $root -Force
 }

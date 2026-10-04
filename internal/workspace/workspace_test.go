@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -41,6 +42,93 @@ func TestWorkspaceInitCreatesExpectedLayout(t *testing.T) {
 		if !info.IsDir() {
 			t.Fatalf("%s is not a directory", path)
 		}
+	}
+}
+
+func TestWorkspaceInitRegistersCanonicalRootThroughDirectoryAlias(t *testing.T) {
+	home := t.TempDir()
+	state, err := store.Open(filepath.Join(home, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	realHome, aliasHome := createWorkspaceHomeAlias(t, home)
+	manager := NewManager(aliasHome, state)
+	first, err := manager.Init(t.Context(), "New Project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(filepath.Join(realHome, "workspaces", "new-project"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(first.RootPath) || first.RootPath != wantRoot {
+		t.Fatalf("new workspace root = %q, want canonical %q", first.RootPath, wantRoot)
+	}
+	if _, err := os.Stat(filepath.Join(wantRoot, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, load := range []func(context.Context, string) (session.WorkspaceRecord, error){
+		manager.Init, manager.Ensure, state.GetWorkspaceByName,
+	} {
+		repeated, err := load(t.Context(), first.Name)
+		if err != nil || repeated.ID != first.ID || repeated.RootPath != first.RootPath ||
+			!repeated.CreatedAt.Equal(first.CreatedAt) {
+			t.Fatalf("new registration changed: first=%#v repeated=%#v err=%v", first, repeated, err)
+		}
+	}
+}
+
+func TestWorkspaceInitPreservesExistingRegistrationWithoutWritingAnotherHome(t *testing.T) {
+	home := t.TempDir()
+	state, err := store.Open(filepath.Join(home, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	original := session.WorkspaceRecord{ID: "ws-existing", Name: "registered-project",
+		RootPath: t.TempDir(), CreatedAt: time.Now().UTC().Truncate(time.Second)}
+	if err := state.SaveWorkspace(t.Context(), original); err != nil {
+		t.Fatal(err)
+	}
+	unusedHome := filepath.Join(home, "unused-home")
+	manager := NewManager(unusedHome, state)
+	repeated, err := manager.Init(t.Context(), original.Name)
+	if err != nil || repeated.ID != original.ID || repeated.RootPath != original.RootPath ||
+		!repeated.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("existing registration changed: original=%#v repeated=%#v err=%v", original, repeated, err)
+	}
+	if _, err := os.Stat(unusedHome); !os.IsNotExist(err) {
+		t.Fatalf("Init wrote an unrelated home: %v", err)
+	}
+	stored, err := state.GetWorkspaceByName(t.Context(), original.Name)
+	if err != nil || stored.ID != original.ID || stored.RootPath != original.RootPath ||
+		!stored.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("stored registration changed: original=%#v stored=%#v err=%v", original, stored, err)
+	}
+}
+
+func TestWorkspaceInitRejectsOccupiedIdentityWithoutOverwritingRegistration(t *testing.T) {
+	home := t.TempDir()
+	state, err := store.Open(filepath.Join(home, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	original := session.WorkspaceRecord{ID: "ws-new-project", Name: "existing-project",
+		RootPath: t.TempDir(), CreatedAt: time.Now().UTC().Truncate(time.Second)}
+	if err := state.SaveWorkspace(t.Context(), original); err != nil {
+		t.Fatal(err)
+	}
+	created, err := NewManager(home, state).Init(t.Context(), "New Project")
+	if !errors.Is(err, sql.ErrNoRows) || created.ID != "" {
+		t.Fatalf("identity collision reported successful creation: created=%#v err=%v", created, err)
+	}
+	records, err := state.ListWorkspaces(t.Context())
+	if err != nil || len(records) != 1 || records[0].ID != original.ID ||
+		records[0].Name != original.Name || records[0].RootPath != original.RootPath ||
+		!records[0].CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("identity collision changed stored registration: records=%#v err=%v", records, err)
 	}
 }
 
@@ -84,25 +172,17 @@ func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T)
 		t.Fatal(err)
 	}
 	defer state.Close()
-	realHome := filepath.Join(home, "real")
-	if err := os.Mkdir(realHome, 0o755); err != nil {
+	realHome, aliasHome := createWorkspaceHomeAlias(t, home)
+	manager := NewManager(aliasHome, state)
+	// Seed a historical registration directly: new Init registrations now use
+	// canonical roots, but Import must not rewrite existing identities.
+	original := session.WorkspaceRecord{ID: "ws-registered-project", Name: "registered-project",
+		RootPath:  filepath.Join(aliasHome, "workspaces", "registered-project"),
+		CreatedAt: time.Now().UTC().Truncate(time.Second)}
+	if err := os.MkdirAll(original.RootPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	aliasHome := filepath.Join(home, "alias")
-	if runtime.GOOS == "windows" {
-		// Directory junctions also exercise reparse-backed Windows temp paths
-		// without requiring the symbolic-link privilege.
-		command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"),
-			"/d", "/c", "mklink", "/J", aliasHome, realHome)
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("create directory junction: %v output=%s", err, output)
-		}
-	} else if err := os.Symlink(realHome, aliasHome); err != nil {
-		t.Fatalf("create directory alias: %v", err)
-	}
-	manager := NewManager(aliasHome, state)
-	original, err := manager.Init(t.Context(), "Registered Project")
-	if err != nil {
+	if err := state.SaveWorkspace(t.Context(), original); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := filepath.EvalSymlinks(filepath.Join(realHome, "workspaces", original.Name))
@@ -111,6 +191,10 @@ func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T)
 	}
 	if resolved == original.RootPath {
 		t.Fatal("directory alias fixture did not change the root representation")
+	}
+	repeated, err := manager.Init(t.Context(), original.Name)
+	if err != nil || repeated.RootPath != original.RootPath {
+		t.Fatalf("Init rewrote historical root: repeated=%#v err=%v", repeated, err)
 	}
 	for _, selected := range []string{resolved, resolved + string(filepath.Separator)} {
 		imported, err := manager.Import(t.Context(), selected)
@@ -131,6 +215,26 @@ func TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias(t *testing.T)
 		stored.RootPath != original.RootPath || !stored.CreatedAt.Equal(original.CreatedAt) {
 		t.Fatalf("alias import rewrote registration: original=%#v stored=%#v", original, stored)
 	}
+}
+
+func createWorkspaceHomeAlias(t *testing.T, home string) (string, string) {
+	t.Helper()
+	realHome := filepath.Join(home, "real")
+	if err := os.Mkdir(realHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasHome := filepath.Join(home, "alias")
+	if runtime.GOOS == "windows" {
+		// Junctions require no symbolic-link privilege on Windows runners.
+		command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"),
+			"/d", "/c", "mklink", "/J", aliasHome, realHome)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("create directory junction: %v output=%s", err, output)
+		}
+	} else if err := os.Symlink(realHome, aliasHome); err != nil {
+		t.Fatalf("create directory alias: %v", err)
+	}
+	return realHome, aliasHome
 }
 
 func TestWorkspaceImportKeepsSameBasenameDirectoriesDistinct(t *testing.T) {

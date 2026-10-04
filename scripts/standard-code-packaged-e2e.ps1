@@ -416,7 +416,25 @@ function Test-SentinelPersisted {
                     $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
                     break
                 } catch {
-                    if ($attempt -eq 5) { throw "Sentinel evidence file remained unreadable" }
+                    if ($attempt -eq 5) {
+                        $readError = $_.Exception
+                        while ($null -ne $readError.InnerException) {
+                            $readError = $readError.InnerException
+                        }
+                        $failure = [System.IO.IOException]::new("Sentinel evidence file remained unreadable")
+                        # Fixed categories and numeric error facts only: no local
+                        # path, file bytes, exception message or sentinel value.
+                        $failure.Data["sentinel_evidence_read"] = [pscustomobject][ordered]@{
+                            root_index = [array]::IndexOf($Roots, $root)
+                            webview2_data = $file.FullName.StartsWith(
+                                (Join-Path $Roots[0] "webview2") + [System.IO.Path]::DirectorySeparatorChar,
+                                [System.StringComparison]::OrdinalIgnoreCase)
+                            exception_type = $readError.GetType().FullName
+                            hresult = [int]$readError.HResult
+                            file_attributes = [int]$file.Attributes
+                        }
+                        throw $failure
+                    }
                     Start-Sleep -Milliseconds 200
                 }
             }
@@ -699,6 +717,7 @@ try {
         phase = $bootstrapPhase
         launch_ordinal = $script:startedCandidates.Count
         candidate_exit_code = Get-SafeCandidateExitCode
+        sentinel_evidence_read = $_.Exception.Data["sentinel_evidence_read"]
         detail_redacted = $true
     })
 } finally {

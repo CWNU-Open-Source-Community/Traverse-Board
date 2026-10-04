@@ -58,7 +58,10 @@ func toolBoundaryFixture(t *testing.T, budget domain.Budget) (*store.SQLiteStore
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("original text\n"), 0600); err != nil {
 		t.Fatal(err)
 	}

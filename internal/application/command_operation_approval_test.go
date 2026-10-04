@@ -64,8 +64,11 @@ type commandApprovalFixture struct {
 
 func newCommandApprovalFixture(t *testing.T, mode domain.RunExecutionPermissionMode, require bool) *commandApprovalFixture {
 	t.Helper()
-	f := &commandApprovalFixture{root: t.TempDir(), checker: &commandApprovalChecker{Checker: policy.NewDefaultChecker(), require: require}}
-	var err error
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &commandApprovalFixture{root: root, checker: &commandApprovalChecker{Checker: policy.NewDefaultChecker(), require: require}}
 	f.path = filepath.Join(t.TempDir(), "command-approval.db")
 	f.st, err = store.Open(f.path)
 	if err != nil {
@@ -249,9 +252,9 @@ func TestCommandOperationApprovalRealNativeThreeModes(t *testing.T) {
 					t.Fatalf("missing review: waiting=%t err=%v", waiting, err)
 				}
 				f.assertNoMarker(t, "count.txt")
-				jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.call.RunID, Limit: 20})
-				if err != nil || len(jobs) != 0 {
-					t.Fatal("review created a job", jobs, err)
+				jobs, listErr := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.call.RunID, Limit: 20})
+				if listErr != nil || len(jobs) != 0 {
+					t.Fatal("review created a job", jobs, listErr)
 				}
 				f.decide(t, ApprovalControlApproveOnce)
 				waiting, err = f.resume(t)
@@ -883,7 +886,10 @@ func TestCommandOperationApprovalWorkspaceRootDriftReapsOriginalJob(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.RootPath = t.TempDir()
+	source.RootPath, err = filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := f.st.SaveWorkspace(t.Context(), source); err != nil {
 		t.Fatal(err)
 	}

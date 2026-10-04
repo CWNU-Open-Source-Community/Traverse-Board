@@ -867,7 +867,10 @@ func newCommandRuntimeTestRuntime(t *testing.T, ctx context.Context) (
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
-	workspaceRoot := t.TempDir()
+	workspaceRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	workspace := store.WorkspaceRecord{ID: "workspace-command-runtime-app",
 		Name: "command-runtime-app", RootPath: workspaceRoot}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

@@ -499,8 +499,8 @@ jobs:
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify command operation authority and cross-turn ownership
         run: >-
-          go test -v -count=1 -timeout 10m ./internal/application
-          -run '^(TestCommandOperationApproval.*|TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch|TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority|TestCommandRuntimeForegroundCancellationReapsProcessTree|TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease|TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause)$'
+          go test -v -count=1 -timeout 10m ./internal/application ./internal/workspace
+          -run '^(TestCommandOperationApproval.*|TestCommandOperationRechecksAfterPrepareAndAtNativeLaunch|TestCommandOperationInitialInputOutlivesRequestButRechecksAuthority|TestCommandRuntimeForegroundCancellationReapsProcessTree|TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease|TestThreadBackgroundCommandWaitRetainsJobUntilExplicitPause|TestWorkspaceInit.*|TestWorkspaceImportPreservesRegistrationThroughDirectoryAlias)$'
       - name: Verify Windows command runtime transports
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell(5PowerShell7AndGitBashSmoke|5BindsWorkspaceProfileBeforeLaunch|5ProfileWatchdogReapsProcess|7KeepsExistingProfileEnvironment))$'
       - name: Verify Windows analyzer conformance boundaries
