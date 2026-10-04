@@ -151,17 +151,17 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 			modelregistry.RouteControlProtocolVersion, model)), http.StatusAccepted, nil)
 
 	fullThread := apiAgentBrowserCreateThread(t, client, baseURL, controlToken,
-		imported.Workspace.ID, "Full Access ordinary browser wiring", "api-agent-browser-full-thread-0001")
+		imported.Workspace.ID, "Current Full ordinary browser wiring", "api-agent-browser-full-thread-0001")
 	apiAgentBrowserControlJSON(t, client,
 		baseURL+"/threads/"+fullThread.Thread.ID+"/execution-permission", controlToken,
 		"api-agent-browser-full-permission-0001",
-		[]byte(`{"mode":"full_access","reason":"inspect ordinary browser tools","confirm_danger_full_access":true}`),
+		[]byte(`{"mode":"full","reason":"inspect ordinary browser tools","confirm_full":true}`),
 		http.StatusAccepted, nil)
 	apiAgentBrowserCompleteTurn(t, client, baseURL, controlToken, fullThread,
 		"Inspect the ordinary browser tools available to this Run", "api-agent-browser-full-turn-0001")
 
 	restrictedThread := apiAgentBrowserCreateThread(t, client, baseURL, controlToken,
-		imported.Workspace.ID, "Conservative ordinary browser boundary", "api-agent-browser-restricted-thread-0001")
+		imported.Workspace.ID, "Ask ordinary browser boundary", "api-agent-browser-restricted-thread-0001")
 	apiAgentBrowserCompleteTurn(t, client, baseURL, controlToken, restrictedThread,
 		"Inspect tools without elevated execution permission", "api-agent-browser-restricted-turn-0001")
 
@@ -169,7 +169,7 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 	captured := append([]apiAgentBrowserProviderRequest(nil), modelRequests...)
 	requestMu.Unlock()
 	if len(captured) != 2 {
-		t.Fatalf("Supervisor model request count=%d, want one Full Access and one conservative request", len(captured))
+		t.Fatalf("Supervisor model request count=%d, want one current Full and one Ask request", len(captured))
 	}
 	fullTools := apiAgentBrowserToolsByName(captured[0].Tools)
 	restrictedTools := apiAgentBrowserToolsByName(captured[1].Tools)
@@ -177,14 +177,14 @@ func TestAPIServeWiresOrdinaryAgentBrowserIntoModelRequests(t *testing.T) {
 		_, fullFound := fullTools[name]
 		_, restrictedFound := restrictedTools[name]
 		if runtime.GOOS == "windows" && !fullFound {
-			t.Fatalf("Windows Full Access API Provider tools omitted %s: %v", name,
+			t.Fatalf("Windows current Full API Provider tools omitted %s: %v", name,
 				apiAgentBrowserToolNames(captured[0].Tools))
 		}
 		if runtime.GOOS != "windows" && fullFound {
 			t.Fatalf("non-Windows API advertised unavailable ordinary browser tool %s", name)
 		}
 		if restrictedFound {
-			t.Fatalf("conservative API Run received ordinary browser tool %s: %v", name,
+			t.Fatalf("Ask API Run received ordinary browser tool %s: %v", name,
 				apiAgentBrowserToolNames(captured[1].Tools))
 		}
 	}

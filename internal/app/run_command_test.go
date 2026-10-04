@@ -161,14 +161,17 @@ func TestRunCapabilityReadinessCLIEmitsStrictNonAuthorizingProjection(t *testing
 		t.Fatal(err)
 	}
 	if projection.RunID != runID || projection.CapabilityGrant ||
-		projection.Validate() != nil || len(projection.Permissions) != 5 ||
+		projection.Validate() != nil || len(projection.Permissions) != 3 ||
 		len(projection.Presets) != 1 {
 		t.Fatalf("invalid CLI readiness projection: %#v", projection)
 	}
-	workspace := projection.Permissions[1]
-	if workspace.Value != "workspace_access" || workspace.Selectable ||
-		workspace.RuntimeAvailable || !workspace.RestartRequired {
-		t.Fatalf("CLI readiness widened Workspace Access: %#v", workspace)
+	for index, mode := range []string{"ask", "auto", "full"} {
+		option := projection.Permissions[index]
+		if option.Value != mode || option.Selected != (mode == "ask") ||
+			option.Selectable || !option.RestartRequired ||
+			option.RuntimeAvailable != (mode != "full") {
+			t.Fatalf("CLI readiness widened current %s preference: %#v", mode, option)
+		}
 	}
 	if strings.Contains(strings.ToLower(output), "root_path") ||
 		strings.Contains(strings.ToLower(output), "lease_id") {

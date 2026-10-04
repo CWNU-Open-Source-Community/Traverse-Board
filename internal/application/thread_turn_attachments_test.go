@@ -43,13 +43,13 @@ func TestPureFileAttachmentApprovalContinuationRetainsOriginalEmptyInput(t *test
 			return textResponse(rootActionResponse(domain.RootActionFinish, "Denial observed; no file written", "done", "")), nil
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	result, err := turns.Execute(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	edits, err := st.ListFileEdits(t.Context(), fileedit.ListFilter{SessionID: run.SessionID})
-	if err != nil || len(edits) != 1 {
+	if err != nil || len(edits) != 1 || edits[0].Status != fileedit.StatusProposed {
 		t.Fatal("missing actual proposal", err)
 	}
 	if _, err := application.NewFileEditReviewService(st).Review(t.Context(), application.ReviewFileEditRequest{Version: application.FileEditReviewProtocolVersion, RunID: run.ID, EditID: edits[0].ID, Action: application.FileEditDeny}); err != nil {

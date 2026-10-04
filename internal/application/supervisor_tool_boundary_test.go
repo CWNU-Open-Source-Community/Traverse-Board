@@ -78,10 +78,14 @@ func toolBoundaryFixture(t *testing.T, budget domain.Budget) (*store.SQLiteStore
 }
 
 func toolBoundaryService(st application.RunExecutionHandoffStore, threadStore application.ThreadStore, provider llm.Provider) *application.ThreadTurnService {
+	return toolBoundaryServiceWithPolicy(st, threadStore, provider, policy.NewDefaultChecker())
+}
+
+func toolBoundaryServiceWithPolicy(st application.RunExecutionHandoffStore, threadStore application.ThreadStore, provider llm.Provider, checker policy.Checker) *application.ThreadTurnService {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
 	return application.NewThreadTurnService(threadStore, application.NewRunLifecycleControlService(st.(application.RunLifecycleControlStore)),
-		application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker()).WithGeneratedContextCompaction(false)) // fixed extractive/tool-boundary script
+		application.NewRunExecutionHandoffService(st, router, checker).WithGeneratedContextCompaction(false)) // fixed extractive/tool-boundary script
 }
 
 func boundaryRead(id string, line int) *llm.ChatResponse {

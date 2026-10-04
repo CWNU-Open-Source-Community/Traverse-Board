@@ -37,7 +37,7 @@ func TestThreadWorkspaceCreateConflictAllowsCorrectedProposal(t *testing.T) {
 			return nil, fmt.Errorf("unexpected model request %d", index)
 		}
 	}
-	service := toolBoundaryService(st, st, p)
+	service := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	result, err := service.Execute(t.Context(), input)
 	if err != nil || result.Execution == nil || result.Submission.Message.Status != domain.OperatorSteeringCommitted {
 		t.Fatalf("conflict stranded the accepted input: %#v %v", result, err)
@@ -92,7 +92,7 @@ func TestThreadWorkspaceCreateConflictAllowsCorrectedProposal(t *testing.T) {
 	followup := &scriptedToolProvider{responses: []*llm.ChatResponse{
 		textResponse(rootActionResponse(domain.RootActionFinish, "Proposal retained without applying it", "unchanged", "")),
 	}}
-	continued, err := toolBoundaryService(st, st, followup).Execute(t.Context(), next)
+	continued, err := toolBoundaryServiceWithPolicy(st, st, followup, &fileOperationPolicy{review: true}).Execute(t.Context(), next)
 	if err != nil || continued.Submission.Message.Status != domain.OperatorSteeringCommitted || len(followup.Requests()) != 1 {
 		t.Fatalf("ordinary follow-up remained blocked: %#v %v", continued, err)
 	}

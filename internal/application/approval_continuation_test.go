@@ -47,12 +47,12 @@ func TestApprovalContinuationFileDecisionReturnsToOriginalTask(t *testing.T) {
 					return nil, fmt.Errorf("unexpected model call %d", index)
 				}
 			}
-			turns := toolBoundaryService(st, st, provider)
+			turns := toolBoundaryServiceWithPolicy(st, st, provider, &fileOperationPolicy{review: true})
 			if _, err := turns.Execute(t.Context(), input); err != nil {
 				t.Fatal(err)
 			}
 			edits, err := st.ListFileEdits(t.Context(), fileedit.ListFilter{SessionID: run.SessionID})
-			if err != nil || len(edits) != 1 {
+			if err != nil || len(edits) != 1 || edits[0].Status != fileedit.StatusProposed {
 				t.Fatalf("edits=%#v err=%v", edits, err)
 			}
 			edit = edits[0]
@@ -120,7 +120,7 @@ func TestApprovalContinuationChainedReviewsReuseUserWithoutReplayingWrites(t *te
 			return nil, fmt.Errorf("unexpected call %d", index)
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	if _, err := turns.Execute(t.Context(), input); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestApprovalContinuationStopPreventsLateApprovalRevival(t *testing.T) {
 			return nil, fmt.Errorf("unexpected call %d", index)
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	if _, err := turns.Execute(t.Context(), input); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestApprovalContinuationDecisionDuringModelWaitUsesExistingOwner(t *testing
 			return nil, fmt.Errorf("unexpected call %d", index)
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	done := make(chan error, 1)
 	go func() { _, err := turns.Execute(t.Context(), input); done <- err }()
 	select {
@@ -308,7 +308,7 @@ func TestApprovalContinuationPreservesInputAcrossFourToolRoundBoundary(t *testin
 			return nil, fmt.Errorf("unexpected call %d", index)
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	if _, err := turns.Execute(t.Context(), input); err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestApprovalContinuationProposalBeforeBoundaryWaitsForExactLaterSegment(t *
 			return nil, fmt.Errorf("unexpected call %d", index)
 		}
 	}
-	turns := toolBoundaryService(st, st, p)
+	turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 	if _, err := turns.Execute(t.Context(), input); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestApprovalContinuationDoesNotWakeManualReviewOrOverrideNewInput(t *testin
 				}
 				return nil, fmt.Errorf("unrelated approval started model call %d", index)
 			}
-			turns := toolBoundaryService(st, st, p)
+			turns := toolBoundaryServiceWithPolicy(st, st, p, &fileOperationPolicy{review: true})
 			if _, err := turns.Execute(t.Context(), input); err != nil {
 				t.Fatal(err)
 			}

@@ -20,7 +20,7 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 	}
 	caps := newAPIExecutionPermissionCapabilities(true, true, false)
 	service := application.NewThreadExecutionPermissionService(st, caps)
-	request := application.ChangeThreadExecutionPermissionRequest{ThreadID: domain.InitialThreadID(run.ID), Mode: "full_access", OperationKey: "api-explicit-full-activation", RequestedBy: "test_operator", ConfirmDangerFullAccess: true, Reason: "Explicitly enable Full for this task"}
+	request := application.ChangeThreadExecutionPermissionRequest{ThreadID: domain.InitialThreadID(run.ID), Mode: "full", OperationKey: "api-explicit-full-activation", RequestedBy: "test_operator", ConfirmFull: true, Reason: "Explicitly enable Full for this task"}
 	if _, err := service.Change(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +56,9 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 		t.Fatal("explicit cold exact POST could not reactivate current Full")
 	}
 	downgrade := request
-	downgrade.Mode = "conservative"
+	downgrade.Mode = "ask"
 	downgrade.OperationKey = "api-revoke-full-activation"
-	downgrade.ConfirmDangerFullAccess = false
+	downgrade.ConfirmFull = false
 	if _, err := cold.Change(t.Context(), downgrade); err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,9 @@ func TestAPIFullAccessNeedsExplicitCurrentActivationAndPreservesCLI(t *testing.T
 	if fresh.AllowsSnapshot(permission) {
 		t.Fatal("stale POST revived revoked authority")
 	}
-	if cliExecutionPermissionCapabilities(true, true, false).FullAccessRequiresRuntimeGrant {
-		t.Fatal("API change altered CLI startup contract")
+	cli := cliExecutionPermissionCapabilities(true, true, false)
+	if cli.RuntimeAuthority == nil || cli.AllowsSnapshot(permission) {
+		t.Fatal("a new CLI process inherited persisted Full authority")
 	}
 	for _, args := range [][3]bool{{false, false, false}, {true, false, false}, {true, true, true}} {
 		c := newAPIExecutionPermissionCapabilities(args[0], args[1], args[2])
