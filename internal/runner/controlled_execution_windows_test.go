@@ -5,8 +5,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +20,7 @@ import (
 )
 
 func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir())
 	for _, kind := range []ControlledCommandKind{ControlledCommandGoVersion, ControlledCommandPowerShellWorkspaceList} {
 		t.Run(string(kind), func(t *testing.T) {
 			request := controlledCommandTestRequest(t, kind)
@@ -38,6 +39,23 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				profile := ""
+				for _, entry := range resolved.Environment {
+					name, value, _ := strings.Cut(entry, "=")
+					if strings.EqualFold(name, "USERPROFILE") {
+						profile = value
+					}
+				}
+				if profile != resolved.WorkspaceRoot || commandRuntimePathEqual(profile, os.Getenv("USERPROFILE")) ||
+					resolved.EnvironmentInherited || resolved.ProfileStartupFiles {
+					t.Fatalf("fixed PowerShell did not bind the workspace profile: %+v", resolved)
+				}
+				encoded, _ := json.Marshal(resolved.Environment)
+				if resolved.EnvironmentSHA256 != commandRuntimeStringSHA256(string(encoded)) {
+					t.Fatal("fixed environment digest does not describe the launch")
+				}
+			}
 			changed := intent
 			changed.Environment = []CommandRuntimeEnvironment{{Name: "UNTRUSTED", Value: "1"}}
 			if _, err := manager.NormalizeCommandRuntimeSpec(changed, request.WorkspaceRoot); err == nil {
@@ -50,6 +68,15 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 			forged.AttributionSource = domain.AgentAttributionRecorded
 			if _, err := manager.starter.Start(ctx, forged, resolved); err == nil {
 				t.Fatal("fixed native starter accepted an agent source")
+			}
+			if kind == ControlledCommandPowerShellWorkspaceList {
+				redirected := resolved
+				redirected.Environment = replaceCommandRuntimeEnvironment(append([]string(nil), resolved.Environment...), "USERPROFILE", os.Getenv("USERPROFILE"))
+				encoded, _ := json.Marshal(redirected.Environment)
+				redirected.EnvironmentSHA256 = commandRuntimeStringSHA256(string(encoded))
+				if _, err := manager.starter.Start(ctx, scope, redirected); err == nil {
+					t.Fatal("fixed native starter accepted a redirected profile with a matching digest")
+				}
 			}
 			process, err := manager.starter.Start(ctx, scope, resolved)
 			if err != nil {
@@ -80,21 +107,19 @@ func TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess(t *testing.T) {
 			if limits.BasicLimitInformation.ActiveProcessLimit != 1 || limits.ProcessMemoryLimit != MaxControlledProcessMemoryBytes || limits.BasicLimitInformation.LimitFlags&windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0 {
 				t.Fatalf("fixed Job limits changed %+v", limits)
 			}
-			stdout := make(chan []byte, 1)
-			stderr := make(chan []byte, 1)
-			go func() { b, _ := io.ReadAll(process.Stdout()); stdout <- b }()
-			go func() { b, _ := io.ReadAll(process.Stderr()); stderr <- b }()
-			code, err := process.Wait()
-			out, diagnostic := <-stdout, <-stderr
-			if err != nil || code != 0 || len(diagnostic) != 0 {
-				t.Fatalf("restricted process exit=%d stdout=%q stderr=%q error=%v", code, out, diagnostic, err)
+			result := waitWindowsProfileTestProcess(process, time.Duration(plan.TimeoutMilliseconds)*time.Millisecond)
+			t.Logf("fixed native wait: elapsed=%s watchdog=%t exit=%d stdout_bytes=%d stderr_bytes=%d",
+				result.elapsed, result.watchdog, result.exitCode, len(result.stdout.value), len(result.stderr.value))
+			if result.watchdog || result.waitErr != nil || result.killErr != nil || result.exitCode != 0 ||
+				result.stdout.err != nil || result.stderr.err != nil || len(result.stderr.value) != 0 {
+				t.Fatalf("restricted process failed: %s", result)
 			}
 			want := "go version "
 			if kind == ControlledCommandPowerShellWorkspaceList {
 				want = "fixed-list-marker.txt"
 			}
-			if !bytes.Contains(out, []byte(want)) {
-				t.Fatalf("fixed output missing %q: %q", want, out)
+			if !bytes.Contains(result.stdout.value, []byte(want)) {
+				t.Fatalf("fixed output missing %q: %q", want, result.stdout.value)
 			}
 			if reaped, err := waitControlledJobReaped(t.Context(), native.job, time.Second); err != nil || !reaped {
 				t.Fatal("fixed process tree remained", reaped, err)

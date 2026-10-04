@@ -64,14 +64,10 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 	if receipt, found, err := readOperatorCommandReceipt(ctx, s.store, prepared); found || err != nil {
 		return receipt, err
 	}
-	spec, operationKey, invocationID := prepared.spec, prepared.operationKey, prepared.invocationID
-	nativeOperationKey := commandRuntimeBatchOperationKey(operationKey, 0)
-	_, fixed := s.manager.FixedCommandPlan()
-	if fixed {
-		// Retain the same single-Job identity when using start/wait instead of
-		// the model-facing foreground action and its shorter timeout ceiling.
-		operationKey = nativeOperationKey
-	}
+	// Each operator invocation owns one Job, including commands whose budget
+	// or retained output exceeds the model-facing foreground batch limits.
+	spec, invocationID := prepared.spec, prepared.invocationID
+	operationKey := commandRuntimeBatchOperationKey(prepared.operationKey, 0)
 	leaseStore, ok := s.store.(RunExecutionLeaseStore)
 	if !ok || s.adapter.Kind != commandruntimeadapter.KindHostUnsandboxed || s.capabilities.RuntimeAuthority == nil {
 		return result, apperror.New(apperror.CodeFailedPrecondition, "operator command requires the host command runtime and Run lease service")
@@ -129,12 +125,8 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 		if err != nil {
 			return err
 		}
-		limit := spec.Output.InlineBytes
 		input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
-			Action: toolgateway.CommandRuntimeActionRun, Commands: []runner.CommandRuntimeSpec{spec}, FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &limit}
-		if fixed {
-			input.Action, input.FailurePolicy, input.MaxBytes = toolgateway.CommandRuntimeActionStart, "", nil
-		}
+			Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{spec}}
 		binding, err := commandOperationBindingFingerprint(s.runnerScope(scope, bindings, scope.OperationKey))
 		if err != nil {
 			return err
@@ -145,7 +137,7 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 		leaseCtx = context.WithValue(leaseCtx, operatorCommandApprovalKey{}, consent)
 		// Reuse the same operation check before preparing a Job as at the native
 		// sink. A missing operator review must not consume the operation key.
-		start, err := s.authorizedCommandStart(scope, bindings, nativeOperationKey, resolved)
+		start, err := s.authorizedCommandStart(scope, bindings, operationKey, resolved)
 		if err != nil {
 			return err
 		}
@@ -154,13 +146,13 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 		}
 		value, err := s.ExecuteCommandRuntime(leaseCtx, scope, input)
 		if len(value.Jobs) == 1 {
-			if fixed && err == nil {
-				err = s.waitForFixedOperatorCommand(leaseCtx, value.Jobs[0].ID)
+			if err == nil {
+				err = s.waitForOperatorCommand(leaseCtx, value.Jobs[0].ID)
 			}
 			job, readErr := s.store.GetCommandRuntimeJob(context.WithoutCancel(leaseCtx), value.Jobs[0].ID)
 			result = OperatorCommandResult{Job: job, Replayed: value.Replayed}
 			err = errors.Join(err, readErr)
-			if fixed && readErr == nil && job.State.Terminal() {
+			if readErr == nil && job.State.Terminal() {
 				err = errors.Join(err, s.completeCommandRuntimeJobBoundary(context.WithoutCancel(leaseCtx), job))
 			}
 		}
@@ -169,7 +161,7 @@ func (s *CommandRuntimeService) RunOperatorCommand(ctx context.Context, request 
 	return result, err
 }
 
-func (s *CommandRuntimeService) waitForFixedOperatorCommand(ctx context.Context, jobID string) (err error) {
+func (s *CommandRuntimeService) waitForOperatorCommand(ctx context.Context, jobID string) (err error) {
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, s.cancelForegroundJob(jobID))

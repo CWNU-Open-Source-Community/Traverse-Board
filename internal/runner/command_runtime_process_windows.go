@@ -279,6 +279,12 @@ func (f *fixedCommandRuntime) normalize(spec CommandRuntimeSpec, workspaceRoot s
 		return CommandRuntimeResolvedSpec{}, err
 	}
 	environment := controlledEnvironmentValues(f.startSpec(), systemRoot)
+	environment = commandRuntimePlatformEnvironmentWithoutProxy(path, root, environment, CommandRuntimeNetworkDisabled, nil)
+	sort.Slice(environment, func(left, right int) bool {
+		leftKey, _, _ := strings.Cut(environment[left], "=")
+		rightKey, _, _ := strings.Cut(environment[right], "=")
+		return strings.ToLower(leftKey) < strings.ToLower(rightKey)
+	})
 	encoded, err := json.Marshal(environment)
 	if err != nil {
 		return CommandRuntimeResolvedSpec{}, err

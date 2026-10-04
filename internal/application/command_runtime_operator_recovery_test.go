@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -136,31 +137,43 @@ func TestOperatorCommandRunningProcessHonorsRevocationAndCancellation(t *testing
 	}
 }
 
-type operatorOriginalActionPolicy struct {
+type operatorStartRequestPolicy struct {
 	policy.Checker
-	observed []string
+	observed []toolgateway.CommandRuntimeInput
 }
 
-func (p *operatorOriginalActionPolicy) CheckToolCall(call tools.Call) policy.Decision {
+func (p *operatorStartRequestPolicy) CheckToolCall(call tools.Call) policy.Decision {
 	if call.Name == string(toolgateway.CommandRuntimeTool) {
 		var input toolgateway.CommandRuntimeInput
 		if err := json.Unmarshal([]byte(call.Args["payload"]), &input); err != nil {
-			return policy.Decision{Allowed: false, Risk: "high", Reason: "invalid original request"}
+			return policy.Decision{Allowed: false, Risk: "high", Reason: "invalid operator request"}
 		}
-		p.observed = append(p.observed, input.Action)
-		return policy.Decision{Allowed: input.Action != toolgateway.CommandRuntimeActionRun, Risk: "high", Reason: "fixture denies original foreground action"}
+		p.observed = append(p.observed, input)
+		return policy.Decision{Allowed: input.Action != toolgateway.CommandRuntimeActionStart, Risk: "high", Reason: "fixture denies exact operator start"}
 	}
 	return p.Checker.CheckToolCall(call)
 }
-func TestOperatorCommandPolicyReceivesOriginalAction(t *testing.T) {
+func TestOperatorCommandPolicyReceivesExactStartRequest(t *testing.T) {
 	f := newOperatorCommandFixture(t, domain.RunExecutionPermissionFull)
-	checker := &operatorOriginalActionPolicy{Checker: policy.NewDefaultChecker()}
+	checker := &operatorStartRequestPolicy{Checker: policy.NewDefaultChecker()}
 	f.service.SetCommandRuntimePolicy(checker)
-	if _, err := f.service.RunOperatorCommand(t.Context(), f.request(t, false)); err == nil {
-		t.Fatal("native start action concealed denied foreground action")
+	request := f.request(t, false)
+	request.Command.TimeoutMilliseconds = 120_000
+	if _, err := f.service.RunOperatorCommand(t.Context(), request); err == nil {
+		t.Fatal("operator command bypassed the host start policy")
 	}
-	if len(checker.observed) == 0 || checker.observed[0] != toolgateway.CommandRuntimeActionRun {
+	command, err := runner.NormalizeCommandRuntimeIntent(request.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+		Action: toolgateway.CommandRuntimeActionStart, Commands: []runner.CommandRuntimeSpec{command}}
+	if len(checker.observed) == 0 || !reflect.DeepEqual(checker.observed[0], want) {
 		t.Fatalf("host policy saw wrong input: %v", checker.observed)
+	}
+	jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.run.ID, Limit: 10})
+	if err != nil || len(jobs) != 0 {
+		t.Fatalf("denied start consumed a Job: %+v err=%v", jobs, err)
 	}
 	f.noProcess(t)
 }

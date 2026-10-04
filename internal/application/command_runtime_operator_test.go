@@ -124,9 +124,16 @@ func TestOperatorCommandThreeModesShareNativeAuthorization(t *testing.T) {
 				}
 			}
 			request := f.request(t, mode != domain.RunExecutionPermissionFull)
+			request.Command.TimeoutMilliseconds = 120_000
+			request.Command.Output = runner.CommandRuntimeOutputPolicy{InlineBytes: 64 * 1024, ArtifactBytes: 64 * 1024}
 			result, err := f.service.RunOperatorCommand(t.Context(), request)
-			if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped {
+			if err != nil || result.Replayed || result.Job.State != runner.CommandRuntimeJobCompleted || !result.Job.TreeReaped ||
+				result.Job.TimeoutMilliseconds != request.Command.TimeoutMilliseconds || result.Job.InlineLimitBytes != request.Command.Output.InlineBytes {
 				t.Fatalf("operator result=%+v err=%v", result, err)
+			}
+			jobs, err := f.st.ListCommandRuntimeJobs(t.Context(), runner.CommandRuntimeListFilter{RunID: f.run.ID, Limit: 10})
+			if err != nil || len(jobs) != 1 || jobs[0].ID != result.Job.ID {
+				t.Fatalf("operator command did not retain one Job: %+v err=%v", jobs, err)
 			}
 			db, err := sql.Open("sqlite3", f.path)
 			if err != nil {
