@@ -38,7 +38,9 @@ func TestServiceNetworkPreflightGuardsDispatchAndPreservesReplay(t *testing.T) {
 			github := &fakeSourceConnector{name: "github", version: "github-test.v1",
 				endpoint: "https://api.github.com/search/issues",
 				document: ConnectorDocument{CanonicalURL: url, RawDigest: DigestBytes([]byte("raw")),
-					HTTPStatus: 200, MIME: "text/markdown", Body: "saved connector evidence"}}
+					RequestEndpoints: []string{"https://api.github.com/repos/example/project/issues/1"},
+					HTTPStatus:       200, MIME: "text/markdown", Charset: "utf-8", Body: "saved connector evidence",
+					ContentKind: "github_issue_thread", Coverage: "body_and_comments", ItemsIncluded: 1, ItemsAvailable: 1}}
 			hackerNews := &fakeSourceConnector{name: "hacker_news", version: "hn-test.v1",
 				endpoint: "https://hn.algolia.com/api/v1/search"}
 			original := NewService(state, provider, fetcher).WithSourceConnectors(github, hackerNews)
