@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -43,6 +44,9 @@ type windowsCommandRuntimeProcess struct {
 	stderr  *os.File
 	pid     int
 	closed  bool
+	// Opt-in fixed-backend diagnostics never include paths, argv, env or output.
+	diagnostics bool
+	resumedAt   time.Time
 }
 
 func (starter windowsCommandRuntimeStarter) Start(ctx context.Context, scope CommandRuntimeScope,
@@ -222,9 +226,12 @@ func (starter windowsCommandRuntimeStarter) Start(ctx context.Context, scope Com
 		return nil, ErrCommandRuntimeUnavailable
 	}
 	cleanup = false
-	return &windowsCommandRuntimeProcess{process: processInfo.Process, job: job,
+	process := &windowsCommandRuntimeProcess{process: processInfo.Process, job: job,
 		stdin: stdinFile, stdout: stdoutFile, stderr: stderrFile,
-		pid: int(processInfo.ProcessId)}, nil
+		pid: int(processInfo.ProcessId), resumedAt: time.Now(),
+		diagnostics: starter.fixed != nil && os.Getenv("CYBERAGENT_FIXED_COMMAND_DIAGNOSTICS") == "1"}
+	process.traceFixedNative("resumed")
+	return process, nil
 }
 
 func newFixedCommandRuntimeStarter(fixed *fixedCommandRuntime) (commandRuntimeStarter, CommandRuntimeSpec, error) {
@@ -318,6 +325,7 @@ func (p *windowsCommandRuntimeProcess) Wait() (int, error) {
 	}
 	code, err := waitControlledProcess(context.Background(), process,
 		MaxCommandRuntimeTimeout+time.Minute)
+	p.traceFixedNative("native_wait_complete")
 	// Descendants are not allowed to outlive the main command. This also
 	// closes inherited output handles so collectors cannot hang forever.
 	_ = p.terminateJob()
@@ -325,11 +333,40 @@ func (p *windowsCommandRuntimeProcess) Wait() (int, error) {
 	return code, errors.Join(err, reapErr)
 }
 func (p *windowsCommandRuntimeProcess) Cancel(time.Duration) error {
+	p.traceFixedNative("cancel_requested")
 	return p.terminateJob()
 }
 func (p *windowsCommandRuntimeProcess) Kill() error {
+	p.traceFixedNative("kill_requested")
 	return p.terminateJob()
 }
+
+// A zero-time native wait distinguishes a still-running process from a command
+// whose output collectors have not finished after native exit. This observation
+// cannot change the Job state, timeout, ownership or captured output.
+func (p *windowsCommandRuntimeProcess) traceFixedNative(phase string) {
+	if !p.diagnostics {
+		return
+	}
+	p.mu.Lock()
+	if p.closed || p.process == 0 {
+		p.mu.Unlock()
+		return
+	}
+	status, waitErr := windows.WaitForSingleObject(p.process, 0)
+	var exitCode uint32
+	exitErr := windows.GetExitCodeProcess(p.process, &exitCode)
+	var created, exited, kernel, user windows.Filetime
+	timesErr := windows.GetProcessTimes(p.process, &created, &exited, &kernel, &user)
+	kernelMillis := (uint64(kernel.HighDateTime)<<32 | uint64(kernel.LowDateTime)) / 10000
+	userMillis := (uint64(user.HighDateTime)<<32 | uint64(user.LowDateTime)) / 10000
+	elapsed, pid := time.Since(p.resumedAt).Milliseconds(), p.pid
+	p.mu.Unlock()
+	log.Printf("fixed command native: phase=%s pid=%d elapsed_ms=%d wait_status=%d wait_ok=%t exit_code=%d exit_ok=%t cpu_ok=%t kernel_ms=%d user_ms=%d",
+		phase, pid, elapsed, status, waitErr == nil,
+		exitCode, exitErr == nil, timesErr == nil, kernelMillis, userMillis)
+}
+
 func (p *windowsCommandRuntimeProcess) terminateJob() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -339,6 +376,7 @@ func (p *windowsCommandRuntimeProcess) terminateJob() error {
 	return windows.TerminateJobObject(p.job, commandRuntimeWindowsExitCode)
 }
 func (p *windowsCommandRuntimeProcess) Close() error {
+	p.traceFixedNative("close")
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()

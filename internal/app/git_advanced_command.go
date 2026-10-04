@@ -11,7 +11,6 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
-	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
 )
@@ -111,10 +110,8 @@ func (a *App) gitAdvancedCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: *dangerFullAccess,
-		DebugMaximumAccessEnabled: *debugMaximumAccess,
-	}
+	capabilities := cliExecutionPermissionCapabilities(*permissionControl,
+		*dangerFullAccess, *debugMaximumAccess)
 	checkpoints, err := application.NewWorkspaceCheckpointService(a.store, capabilities)
 	if err != nil {
 		return err

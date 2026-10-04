@@ -297,110 +297,96 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
 	}
 	runID := runIDPattern.FindString(created)
-	shown, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		runID)
-	if code != 0 || stderr != "" ||
-		!strings.Contains(shown, "mode: conservative") ||
-		!strings.Contains(shown, "approval_policy: fixed_templates") ||
-		!strings.Contains(shown, "sandboxed_command_runtime: false") ||
-		!strings.Contains(shown, "unsandboxed_host_process: false") ||
-		!strings.Contains(shown, "runtime_gate_available: true") ||
-		!strings.Contains(shown, "execution_authorized: false") {
-		t.Fatalf("unexpected initial permission output=%q stderr=%q code=%d",
-			shown, stderr, code)
+	assertPreference := func(shown, stderr string, code int, mode string, active bool) {
+		t.Helper()
+		if code != 0 || stderr != "" {
+			t.Fatalf("permission output=%q stderr=%q code=%d", shown, stderr, code)
+		}
+		for _, want := range []string{"mode: " + mode,
+			"approval_policy: per_operation", "command_scope: per_operation",
+			"filesystem_scope: per_operation", "network_scope: per_operation",
+			"persistent_terminal: false", "background_process: false", "agent_terminal_input: false",
+			"sandboxed_command_runtime: true", "unsandboxed_host_process: true",
+			fmt.Sprintf("runtime_gate_available: %t", active),
+			"process_enabled: false", "execution_authorized: false", "capability_grant: false"} {
+			if !strings.Contains(shown, want) {
+				t.Fatalf("permission omitted %q: %s", want, shown)
+			}
+		}
+	}
+	shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+	assertPreference(shown, stderr, code, "ask", true)
+	for _, retired := range []string{"conservative", "workspace_access", "approval", "full_access", "debug"} {
+		_, stderr, code := executeTestCommand(t, "run", "execution-permission", "set", runID,
+			retired, "--operation-key", "cli-retired-"+retired)
+		if code != 2 || !strings.Contains(stderr, "approval mode must be ask, auto, or full") {
+			t.Fatalf("retired selector %s stderr=%q code=%d", retired, stderr, code)
+		}
+	}
+	for _, retired := range []string{"--confirm-workspace-access", "--confirm-user-approval",
+		"--confirm-danger-full-access", "--confirm-debug-access"} {
+		if _, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
+			runID, "full", "--operation-key", "cli-retired-confirmation", retired); code != 2 || !strings.Contains(stderr, "flag provided but not defined") {
+			t.Fatalf("retired confirmation %s stderr=%q code=%d", retired, stderr, code)
+		}
+	}
+	for _, mode := range []string{"auto", "ask"} {
+		shown, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
+			runID, mode, "--operation-key", "cli-current-"+mode)
+		assertPreference(shown, stderr, code, mode, true)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "workspace_access",
-		"--operation-key", "cli-workspace-access-no-adapter-0001",
-		"--confirm-workspace-access"); code != 5 ||
-		!strings.Contains(stderr, "workspace_sandbox_adapter") {
-		t.Fatalf("Workspace Access without adapter stderr=%q code=%d", stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-no-runtime-gate-0001",
+		"--confirm-full"); code != 5 || !strings.Contains(stderr, "lacks gate") {
+		t.Fatalf("closed Full runtime gate stderr=%q code=%d", stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-no-runtime-gate-0001",
-		"--confirm-user-approval"); code != 5 ||
-		!strings.Contains(stderr, "lacks gate") {
-		t.Fatalf("closed runtime gate stderr=%q code=%d", stderr, code)
-	}
-	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-no-confirmation-0001",
-		"--enable-permission-control"); code != 2 ||
-		!strings.Contains(stderr, "exact user-approval confirmation") {
-		t.Fatalf("missing approval confirmation stderr=%q code=%d", stderr, code)
-	}
-	approval, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-approval-0001",
-		"--enable-permission-control", "--confirm-user-approval")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(approval, "mode: approval") ||
-		!strings.Contains(approval, "approval_policy: per_command") ||
-		!strings.Contains(approval, "command_scope: arbitrary_stateless") ||
-		!strings.Contains(approval, "runtime_gate_available: true") ||
-		!strings.Contains(approval, "execution_authorized: false") {
-		t.Fatalf("unexpected approval output=%q stderr=%q code=%d",
-			approval, stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-no-confirmation-0001",
+		"--enable-permission-control", "--enable-danger-full-access"); code != 2 ||
+		!strings.Contains(stderr, "full requires explicit confirm_full=true") {
+		t.Fatalf("missing Full confirmation stderr=%q code=%d", stderr, code)
 	}
 	full, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "full_access",
-		"--operation-key", "cli-permission-full-access-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--confirm-danger-full-access")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(full, "mode: full_access") ||
-		!strings.Contains(full, "approval_policy: none") ||
-		!strings.Contains(full, "filesystem_scope: host_full") ||
-		!strings.Contains(full, "network_scope: host") ||
-		!strings.Contains(full, "persistent_terminal: false") ||
-		!strings.Contains(full, "execution_authorized: false") {
-		t.Fatalf("unexpected full-access output=%q stderr=%q code=%d",
-			full, stderr, code)
+		"set", runID, "full", "--operation-key", "cli-permission-full-0001",
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full")
+	assertPreference(full, stderr, code, "full", true)
+	if !strings.Contains(full, "activation_lifetime: this CLI process only") {
+		t.Fatalf("Full activation lifetime missing: %s", full)
 	}
-	debug, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "debug",
-		"--operation-key", "cli-permission-debug-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--confirm-debug-access")
-	if code != 0 || stderr != "" ||
-		!strings.Contains(debug, "mode: debug") ||
-		!strings.Contains(debug, "command_scope: arbitrary_persistent") ||
-		!strings.Contains(debug, "persistent_terminal: true") ||
-		!strings.Contains(debug, "background_process: true") ||
-		!strings.Contains(debug, "agent_terminal_input: true") ||
-		!strings.Contains(debug, "capability_grant: false") {
-		t.Fatalf("unexpected debug output=%q stderr=%q code=%d",
-			debug, stderr, code)
-	}
+	cold, stderr, code := executeTestCommand(t, "run", "execution-permission", runID)
+	assertPreference(cold, stderr, code, "full", false)
+
 	cdp, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
 	if code != 0 || stderr != "" ||
 		!strings.Contains(cdp, "mode: full_debug") ||
 		!strings.Contains(cdp, "navigate_allowed: true") ||
 		!strings.Contains(cdp, "request_mutation_allowed: true") ||
 		!strings.Contains(cdp, "transport_enabled: false") {
-		t.Fatalf("Full/Debug did not default Full CDP on safely: output=%q stderr=%q code=%d",
+		t.Fatalf("Full did not default Full CDP on safely: output=%q stderr=%q code=%d",
 			cdp, stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-no-gate-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-no-gate-0001",
 		"--enable-browser-cdp-control", "--confirm-full-cdp-debug"); code != 5 ||
 		!strings.Contains(stderr, "lacks gate") {
 		t.Fatalf("closed browser CDP gate stderr=%q code=%d", stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-no-confirmation-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-no-confirmation-0001",
 		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access"); code != 2 ||
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"); code != 2 ||
 		!strings.Contains(stderr, "exact highly-sensitive confirmation") {
 		t.Fatalf("missing browser CDP confirmation stderr=%q code=%d", stderr, code)
 	}
+	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-cold-full-0001",
+		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
+		"--enable-permission-control", "--enable-danger-full-access", "--confirm-full-cdp-debug"); code != 5 ||
+		!strings.Contains(stderr, "live Full authority") {
+		t.Fatalf("cold Full gained CDP authority stderr=%q code=%d", stderr, code)
+	}
 	restrictedCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "restricted",
-		"--operation-key", "cli-browser-cdp-disable-0001",
+		"set", runID, "restricted", "--operation-key", "cli-browser-cdp-disable-0001",
 		"--enable-browser-cdp-control")
 	if code != 0 || stderr != "" ||
 		!strings.Contains(restrictedCDP, "mode: restricted") ||
@@ -410,11 +396,10 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 			restrictedCDP, stderr, code)
 	}
 	fullCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
-		"set", runID, "full_debug",
-		"--operation-key", "cli-browser-cdp-full-0001",
+		"set", runID, "full_debug", "--operation-key", "cli-browser-cdp-full-0001",
 		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 		"--enable-permission-control", "--enable-danger-full-access",
-		"--enable-debug-maximum-access", "--confirm-full-cdp-debug")
+		"--confirm-full", "--confirm-full-cdp-debug")
 	if code != 0 || stderr != "" ||
 		!strings.Contains(fullCDP, "mode: full_debug") ||
 		!strings.Contains(fullCDP, "request_mutation_allowed: true") ||
@@ -426,15 +411,11 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 			fullCDP, stderr, code)
 	}
 	if lowered, stderr, code := executeTestCommand(t, "run", "execution-permission",
-		"set", runID, "approval",
-		"--operation-key", "cli-permission-lower-forces-cdp-off-0001",
-		"--enable-permission-control", "--confirm-user-approval"); code != 0 ||
-		stderr != "" || !strings.Contains(lowered, "mode: approval") {
+		"set", runID, "ask", "--operation-key", "cli-permission-lower-forces-cdp-off-0001"); code != 0 || stderr != "" || !strings.Contains(lowered, "mode: ask") {
 		t.Fatalf("execution downgrade failed output=%q stderr=%q code=%d",
 			lowered, stderr, code)
 	}
-	forcedRestricted, stderr, code := executeTestCommand(t, "run",
-		"browser-cdp-permission", runID)
+	forcedRestricted, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
 	if code != 0 || stderr != "" ||
 		!strings.Contains(forcedRestricted, "mode: restricted") ||
 		!strings.Contains(forcedRestricted, "request_mutation_allowed: false") {

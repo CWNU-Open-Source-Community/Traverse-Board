@@ -75,10 +75,8 @@ func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
 			code, projection)
 	}
 
-	if _, stderr, code = executeTestCommand(t, "run", "execution-permission", "set", runID,
-		"approval", "--operation-key", "drydock-cli-restore-permission-0001",
-		"--enable-permission-control", "--confirm-user-approval"); code != 0 {
-		t.Fatalf("restore permission failed: %s", stderr)
+	if shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID); code != 0 || stderr != "" || !strings.Contains(shown, "mode: ask") {
+		t.Fatalf("initial restore permission=%s stderr=%s code=%d", shown, stderr, code)
 	}
 	for _, action := range []string{"start", "pause"} {
 		if _, stderr, code = executeTestCommand(t, "run", action, runID); code != 0 {

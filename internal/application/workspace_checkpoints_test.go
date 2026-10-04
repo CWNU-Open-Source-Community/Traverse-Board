@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,80 @@ func TestWorkspaceCheckpointServiceBoundaryUndoRedoAndTimeline(t *testing.T) {
 	if err != nil || !replay.Replayed || replay.Transaction == nil ||
 		replay.Transaction.ID != redo.Transaction.ID {
 		t.Fatalf("redo replay=%+v err=%v", replay, err)
+	}
+}
+
+func TestWorkspaceCheckpointRestoreRequiresProcessGateForCurrentPreferences(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionAsk, domain.RunExecutionPermissionAuto} {
+		t.Run(string(mode), func(t *testing.T) {
+			fixture := newWorkspaceCheckpointApplicationFixture(t)
+			defer fixture.state.Close()
+			initial, _, err := fixture.service.Capture(t.Context(),
+				application.WorkspaceCheckpointCaptureRequest{RunID: fixture.run.ID,
+					OperationKey: "gate-initial", RequestedBy: "cli_operator"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mustWorkspaceCheckpointApplicationWrite(t, filepath.Join(fixture.root, "file.txt"), []byte("changed\n"))
+			current, _, err := fixture.service.Capture(t.Context(),
+				application.WorkspaceCheckpointCaptureRequest{RunID: fixture.run.ID,
+					OperationKey: "gate-current", RequestedBy: "cli_operator"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.pause(t)
+			if mode != domain.RunExecutionPermissionAsk {
+				if _, err := application.NewRunExecutionPermissionService(fixture.state,
+					domain.ExecutionPermissionRuntimeCapabilities{}).Change(t.Context(),
+					application.ChangeRunExecutionPermissionRequest{RunID: fixture.run.ID,
+						Mode: string(mode), OperationKey: "checkpoint-gate-preference-0001", RequestedBy: "cli_operator"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			closed, err := application.NewWorkspaceCheckpointService(fixture.state,
+				domain.ExecutionPermissionRuntimeCapabilities{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := closed.Timeline(t.Context(), fixture.run.ID, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := application.WorkspaceRestoreRequest{RunID: fixture.run.ID,
+				TargetCheckpointID: initial.ID, ExpectedCurrentCheckpointID: current.ID,
+				OperationKey: "gate-restore", RequestedBy: "cli_operator",
+				Kind: workspacecheckpoint.TransactionRewind, TriggerReceiptID: "gate-restore-trigger"}
+			preview, err := closed.Restore(t.Context(), request)
+			if err != nil || preview.Confirmed || preview.Transaction != nil {
+				t.Fatalf("closed-gate preview=%+v err=%v", preview, err)
+			}
+			request.Confirm = true
+			denied, err := closed.Restore(t.Context(), request)
+			if apperror.CodeOf(err) != apperror.CodePolicyDenied || denied.Transaction != nil || denied.After != nil {
+				t.Fatalf("closed-gate restore=%+v err=%v", denied, err)
+			}
+			after, err := closed.Timeline(t.Context(), fixture.run.ID, 100)
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatalf("closed gate changed checkpoint ledger: before=%+v after=%+v err=%v", before, after, err)
+			}
+			data, err := os.ReadFile(filepath.Join(fixture.root, "file.txt"))
+			if err != nil || string(data) != "changed\n" {
+				t.Fatalf("closed gate changed workspace: %q err=%v", data, err)
+			}
+			restored, err := fixture.service.Restore(t.Context(), request)
+			if err != nil || restored.After == nil || !restored.Confirmed {
+				t.Fatalf("enabled restore=%+v err=%v", restored, err)
+			}
+			data, err = os.ReadFile(filepath.Join(fixture.root, "file.txt"))
+			if err != nil || string(data) != "before\n" {
+				t.Fatalf("enabled restore file=%q err=%v", data, err)
+			}
+			replay, err := closed.Restore(t.Context(), request)
+			if err != nil || !replay.Replayed || replay.Transaction == nil ||
+				replay.Transaction.ID != restored.Transaction.ID {
+				t.Fatalf("closed-gate terminal replay=%+v err=%v", replay, err)
+			}
+		})
 	}
 }
 

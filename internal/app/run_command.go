@@ -1402,6 +1402,7 @@ func (a *App) runUsage(ctx context.Context, service *application.RunService, arg
 
 func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr error) {
 	fs := newFlagSet("run step", a.errOut)
+	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this invocation")
 	enablePermissionControl := fs.Bool("enable-permission-control", false,
 		"enable execution permission evaluation for this process")
 	enableFullAccess := fs.Bool("enable-danger-full-access", false,
@@ -1410,15 +1411,20 @@ func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr e
 		"allow Debug Runs to inherit the full-access command runtime")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"enable-permission-control": false, "enable-danger-full-access": false,
-		"enable-debug-maximum-access": false,
+		"enable-debug-maximum-access": false, "confirm-full": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: cyberagent run step <run-id> [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
+		return errors.New("usage: cyberagent run step <run-id> [--enable-permission-control --enable-danger-full-access --confirm-full]")
 	}
-	runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
-		*enablePermissionControl, *enableFullAccess, *enableDebug), true)
+	capabilities := cliExecutionPermissionCapabilities(*enablePermissionControl, *enableFullAccess, *enableDebug)
+	releaseFull, err := a.activateCLIInvocationFull(ctx, fs.Arg(0), capabilities, *confirmFull)
+	if err != nil {
+		return err
+	}
+	defer releaseFull()
+	runtime, err := a.newCLIExecutionRuntime(ctx, capabilities, true)
 	if err != nil {
 		return err
 	}
@@ -1473,6 +1479,7 @@ func (a *App) runAgentGraph(ctx context.Context, args []string) error {
 
 func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultErr error) {
 	fs := newFlagSet("run execute", a.errOut)
+	confirmFull := fs.Bool("confirm-full", false, "activate the current Full preference for this invocation")
 	maxSteps := fs.Int("max-steps", 1, "maximum supervised turns in this invocation")
 	finish := fs.Bool("finish", false, "finalize the run as completed after the step limit")
 	summary := fs.String("summary", "", "completion summary used with --finish")
@@ -1485,15 +1492,20 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultEr
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"max-steps": true, "finish": false, "summary": true,
 		"enable-permission-control": false, "enable-danger-full-access": false,
-		"enable-debug-maximum-access": false,
+		"enable-debug-maximum-access": false, "confirm-full": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || *maxSteps <= 0 {
-		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>] [--enable-permission-control --enable-danger-full-access [--enable-debug-maximum-access]]")
+		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>] [--enable-permission-control --enable-danger-full-access --confirm-full]")
 	}
-	runtime, err := a.newCLIExecutionRuntime(ctx, cliExecutionPermissionCapabilities(
-		*enablePermissionControl, *enableFullAccess, *enableDebug), true)
+	capabilities := cliExecutionPermissionCapabilities(*enablePermissionControl, *enableFullAccess, *enableDebug)
+	releaseFull, err := a.activateCLIInvocationFull(ctx, fs.Arg(0), capabilities, *confirmFull)
+	if err != nil {
+		return err
+	}
+	defer releaseFull()
+	runtime, err := a.newCLIExecutionRuntime(ctx, capabilities, true)
 	if err != nil {
 		return err
 	}
@@ -2201,9 +2213,10 @@ func (a *App) runBrowserCDPPermission(ctx context.Context, args []string) error 
 		return nil
 	}
 	if len(args) == 0 || args[0] != "set" {
-		return errors.New("usage: cyberagent run browser-cdp-permission <run-id> | cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run browser-cdp-permission <run-id> | cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --confirm-full] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
 	fs := newFlagSet("run browser-cdp-permission set", a.errOut)
+	confirmInvocationFull := fs.Bool("confirm-full", false, "activate the current Full preference for this invocation")
 	operationKey := fs.String("operation-key", "", "stable browser-CDP operation key")
 	operator := fs.String("operator", "cli_operator", "operator identity")
 	reason := fs.String("reason", "", "redacted selection reason")
@@ -2221,20 +2234,17 @@ func (a *App) runBrowserCDPPermission(ctx context.Context, args []string) error 
 		"enable maximum Debug access for this process")
 	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 		"operation-key": true, "operator": true, "reason": true,
-		"confirm-full-cdp-debug": false, "enable-browser-cdp-control": false,
+		"confirm-full-cdp-debug": false, "confirm-full": false, "enable-browser-cdp-control": false,
 		"enable-full-cdp-debug": false, "enable-permission-control": false,
 		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
-		return errors.New("usage: cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --confirm-full] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
-	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *enablePermissionControl,
-		DangerFullAccessEnabled:   *enableDangerFullAccess,
-		DebugMaximumAccessEnabled: *enableDebugMaximumAccess,
-	}
+	executionCapabilities := cliExecutionPermissionCapabilities(*enablePermissionControl,
+		*enableDangerFullAccess, *enableDebugMaximumAccess)
 	if err := executionCapabilities.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
@@ -2248,6 +2258,11 @@ func (a *App) runBrowserCDPPermission(ctx context.Context, args []string) error 
 	if err := capabilities.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
 	}
+	releaseFull, err := a.activateCLIInvocationFull(ctx, fs.Arg(0), executionCapabilities, *confirmInvocationFull)
+	if err != nil {
+		return err
+	}
+	defer releaseFull()
 	service := application.NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(
 		a.store, capabilities, executionCapabilities)
 	result, err := service.Change(ctx, application.ChangeRunBrowserCDPPermissionRequest{

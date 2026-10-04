@@ -64,11 +64,8 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 		"local", "--operation-key", "git-advanced-cli-profile-0001"); code != 0 {
 		t.Fatalf("local execution profile failed: %s", stderr)
 	}
-	if _, stderr, code = executeTestCommand(t, "run", "execution-permission", "set", runID,
-		"full_access", "--operation-key", "git-advanced-cli-permission-0001",
-		"--enable-permission-control", "--enable-danger-full-access",
-		"--confirm-danger-full-access"); code != 0 {
-		t.Fatalf("full-access permission failed: %s", stderr)
+	if shown, stderr, code := executeTestCommand(t, "run", "execution-permission", runID); code != 0 || stderr != "" || !strings.Contains(shown, "mode: ask") {
+		t.Fatalf("initial Ask permission=%s stderr=%s code=%d", shown, stderr, code)
 	}
 	if _, stderr, code = executeTestCommand(t, "run", "start", runID); code != 0 {
 		t.Fatalf("run start failed: %s", stderr)
@@ -91,7 +88,7 @@ func TestGitAdvancedCLIStashPreviewIsNonAuthorizingAndConfirmedRunIsCheckpointed
 	}
 
 	base := []string{"git-advanced", "run", "stash_create", "--run", runID,
-		"--enable-git-advanced", "--enable-permission-control", "--enable-danger-full-access",
+		"--enable-git-advanced", "--enable-permission-control",
 		"--operation-key", "git-advanced-cli-stash-0001", "--message", "CLI exact stash"}
 	preview, stderr, code := executeTestCommand(t, base...)
 	if code != 0 || stderr != "" || !strings.Contains(preview, "review_only: true") ||

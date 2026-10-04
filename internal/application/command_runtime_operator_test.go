@@ -369,6 +369,7 @@ func TestOperatorFixedCommandUsesSharedJobLedger(t *testing.T) {
 		}
 	})
 	t.Run("multiple-output-pages", func(t *testing.T) {
+		t.Setenv("CYBERAGENT_FIXED_COMMAND_DIAGNOSTICS", "1")
 		f, request := newFixedOperatorFixture(t, domain.RunCreated, runner.ControlledCommandPowerShellWorkspaceList, 0)
 		for i := 0; i < 400; i++ {
 			name := fmt.Sprintf("page-%03d-%s.txt", i, strings.Repeat("x", 60))
