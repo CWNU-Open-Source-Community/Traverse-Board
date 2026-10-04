@@ -642,6 +642,12 @@ $previousHome = $env:CYBERAGENT_HOME
 $process = $null
 $startedProcessID = $null
 $startupSucceeded = $false
+$windowReady = $false
+$closeRequested = $false
+$cleanExit = $false
+$forced = $false
+$exitCode = $null
+$smokeFailure = $null
 $observedSchemaVersion = $null
 $lastDatabaseProbeError = $null
 $seedUpgradeSnapshot = $null
@@ -685,6 +691,13 @@ try {
             throw "Desktop exited during startup with code $($process.ExitCode)"
         }
         if (Test-Path -LiteralPath $database -PathType Leaf) {
+            # The store is opened before Wails publishes its native window.
+            # Stay within the startup deadline until a closeable window exists.
+            if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
+                Start-Sleep -Milliseconds 100
+                continue
+            }
+            $windowReady = $true
             if ($null -ne $seedDatabase) {
                 try {
                     $observedSchemaVersion = Read-DatabaseSchemaVersion -DatabasePath $database `
@@ -735,23 +748,45 @@ try {
         throw "Desktop did not upgrade the isolated database before the startup deadline: seed=v$seedSchemaVersion expected=v$latestSchemaVersion observed=$observed last_probe_error=$probeDetail"
     }
     if (-not $startupSucceeded) {
-        throw "Desktop did not create its isolated local store before the startup deadline"
+        throw "Desktop did not create its isolated local store and native window before the startup deadline"
     }
+}
+catch {
+    $smokeFailure = $_
 }
 finally {
     try {
         $env:CYBERAGENT_HOME = $previousHome
         if ($null -ne $process) {
-            $process.Refresh()
-            if (-not $process.HasExited) {
-                $null = $process.CloseMainWindow()
-                if (-not $process.WaitForExit(5000)) {
-                    Stop-Process -Id $process.Id -Force
-                    $process.WaitForExit()
+            try {
+                $process.Refresh()
+                if (-not $process.HasExited) {
+                    $closeRequested = $windowReady -and $process.CloseMainWindow()
+                    $cleanExit = $closeRequested -and $process.WaitForExit(5000)
+                    if (-not $cleanExit) {
+                        $process.Refresh()
+                        if (-not $process.HasExited) {
+                            $forced = $true
+                            Stop-Process -Id $process.Id -Force
+                            $process.WaitForExit()
+                        }
+                    }
                 }
+                $process.Refresh()
+                $exitCode = $process.ExitCode
             }
-            $process.Dispose()
+            finally {
+                $process.Dispose()
+            }
         }
+        Write-Output ("desktop_direct_launch_lifecycle: " + ([ordered]@{
+            startup_succeeded = $startupSucceeded
+            window_ready = $windowReady
+            close_requested = $closeRequested
+            clean_exit = $cleanExit
+            forced = $forced
+            exit_code = $exitCode
+        } | ConvertTo-Json -Compress))
         if (-not $KeepData -and (Test-Path -LiteralPath $isolatedHome)) {
             $resolvedHome = [System.IO.Path]::GetFullPath($isolatedHome)
             $resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot).TrimEnd('\') + '\'
@@ -767,14 +802,25 @@ finally {
                     if (Test-Path -LiteralPath $resolvedHome) {
                         Remove-Item -LiteralPath $resolvedHome -Recurse -Force -ErrorAction Stop
                     }
+                    Write-Output "desktop_direct_launch_cleanup_attempt: $attempt"
                     break
                 }
                 catch [System.IO.IOException] {
-                    if ($attempt -eq 20) { throw }
+                    if ($attempt -eq 20) {
+                        Write-Output "desktop_direct_launch_cleanup_attempt: $attempt"
+                        throw
+                    }
                     Start-Sleep -Milliseconds 250
                 }
             }
         }
+        if ($startupSucceeded -and (-not $cleanExit -or $exitCode -ne 0)) {
+            throw "Desktop did not close normally with exit code zero"
+        }
+    }
+    catch {
+        Write-Output "desktop_direct_launch_cleanup_failed: true"
+        if ($null -eq $smokeFailure) { $smokeFailure = $_ }
     }
     finally {
         if ($null -ne $seedDatabase) {
@@ -786,6 +832,7 @@ finally {
     }
 }
 
+if ($null -ne $smokeFailure) { throw $smokeFailure }
 Write-Output "desktop_direct_launch_smoke: pass"
 Write-Output "desktop_direct_launch_pid: $startedProcessID"
 Write-Output "desktop_direct_launch_store_created: true"

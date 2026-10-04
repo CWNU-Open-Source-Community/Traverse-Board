@@ -23,8 +23,9 @@ def phase(label):
 
 
 def make_overlay(source, test):
-    # The first marker precedes the Process/CPU query. Keep the existing cmdlet
-    # pipeline intact so diagnostics do not reorder module initialization.
+    # This sequential comparison retains all three cmdlets but materializes
+    # intermediate results. Their initialization order differs from the original
+    # pipeline, so these phases are diagnostic evidence, not a production fix.
     source = replace_once(
         source,
         "param([string]$RelativePathHex) if",
@@ -39,8 +40,10 @@ def make_overlay(source, test):
     )
     source = replace_once(
         source,
-        "| Select-Object Name,Length,Attributes | ConvertTo-Json -Compress }`",
-        "| Select-Object Name,Length,Attributes | ConvertTo-Json -Compress; " + phase("completed") + "}`",
+        "Get-ChildItem -LiteralPath $RelativePath -Force | Select-Object Name,Length,Attributes | ConvertTo-Json -Compress }`",
+        "$Items = @(Get-ChildItem -LiteralPath $RelativePath -Force); " + phase("enumerated")
+        + "$Rows = @($Items | Select-Object Name,Length,Attributes); " + phase("projected")
+        + "$Rows | ConvertTo-Json -Compress; " + phase("completed") + "}`",
     )
     test = replace_once(test, '\t"errors"\n', '\t"errors"\n\t"fmt"\n')
     test = replace_once(test, '\t"path/filepath"\n', '\t"path/filepath"\n\t"regexp"\n')
@@ -56,7 +59,7 @@ def make_overlay(source, test):
     test = replace_once(
         test,
         '\t\t\tif result.watchdog || result.waitErr != nil || result.killErr != nil || result.exitCode != 0 ||\n',
-        '\t\t\tphaseLine := regexp.MustCompile(`^fixed_phase=(entry utc_ticks=[0-9]+|(entry_cpu|decoded|completed) utc_ticks=[0-9]+ cpu_ms=[0-9]+)$`)\n'
+        '\t\t\tphaseLine := regexp.MustCompile(`^fixed_phase=(entry utc_ticks=[0-9]+|(entry_cpu|decoded|enumerated|projected|completed) utc_ticks=[0-9]+ cpu_ms=[0-9]+)$`)\n'
         '\t\t\tvar phases []string\n'
         '\t\t\tfor _, line := range strings.Split(strings.TrimSpace(string(result.stderr.value)), "\\n") {\n'
         '\t\t\t\tline = strings.TrimSpace(line)\n'
@@ -83,7 +86,7 @@ def make_overlay(source, test):
     test = replace_once(
         test,
         '\t\t\tif reaped, err := waitControlledJobReaped(t.Context(), native.job, time.Second); err != nil || !reaped {',
-        '\t\t\tif strings.Join(phases, " ") != "fixed_phase=entry fixed_phase=entry_cpu fixed_phase=decoded fixed_phase=completed" {\n'
+        '\t\t\tif strings.Join(phases, " ") != "fixed_phase=entry fixed_phase=entry_cpu fixed_phase=decoded fixed_phase=enumerated fixed_phase=projected fixed_phase=completed" {\n'
         '\t\t\t\tt.Fatalf("diagnostic phases incomplete: %v", phases)\n\t\t\t}\n'
         '\t\t\tif entries := strings.Count(string(result.stdout.value), "page-"); entries != 400 {\n'
         '\t\t\t\tt.Fatalf("diagnostic output entries=%d want=400", entries)\n\t\t\t}\n'
