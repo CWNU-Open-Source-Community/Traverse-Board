@@ -592,65 +592,93 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 		json.RawMessage(`{"version":"web_fetch.v1","url":"https://docs.example.org/revoked"}`)); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 {
 		t.Fatalf("old generation was revived: calls=%d err=%v", backend.calls, err)
 	}
-	for _, change := range []string{"revoke", "snapshot-drift", "runtime-epoch"} {
-		t.Run("before-fetch-"+change, func(t *testing.T) {
-			grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
-			if err != nil {
-				t.Fatal(err)
-			}
-			currentContext := liveContext
-			currentContext.PermissionGeneration = grant.Generation
-			currentScope := liveScope
-			currentScope.PermissionGeneration = grant.Generation
-			currentScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(currentContext).Generation
-			currentScope.OperationKey = "web-before-fetch-" + change
-			probe := &webRuntimeBoundaryStore{SQLiteStore: state}
-			checked, err := application.NewWebEvidenceToolExecutor(probe, webevidence.NewService(state, nil, backend))
-			if err != nil {
-				t.Fatal(err)
-			}
-			checked.WithExecutionPermissionCapabilities(liveCapabilities)
-			probe.afterSourceRead = func() {
-				switch change {
-				case "revoke":
-					runtimeAuthority.RevokeRun(run.ID)
-				case "snapshot-drift":
-					next, err := permission.Next("web-drifted-permission", permission.Mode, true,
-						"test_operator", "changed while resolving source", permission.CreatedAt.Add(time.Second))
-					if err != nil {
-						t.Fatal(err)
-					}
-					probe.permission = &next
-				case "runtime-epoch":
-					fresh := domain.NewExecutionPermissionRuntimeAuthority()
-					for i := uint64(0); i < grant.Generation; i++ {
-						if _, err := fresh.ActivateRunFullAccess(permission); err != nil {
+	for _, boundary := range []string{"executor-source", "service-source", "service-replay"} {
+		for _, change := range []string{"revoke", "snapshot-drift", "runtime-epoch"} {
+			t.Run(boundary+"-"+change, func(t *testing.T) {
+				beforeCalls := backend.calls
+				grant, err := runtimeAuthority.ActivateRunFullAccess(permission)
+				if err != nil {
+					t.Fatal(err)
+				}
+				currentContext := liveContext
+				currentContext.PermissionGeneration = grant.Generation
+				currentScope := liveScope
+				currentScope.PermissionGeneration = grant.Generation
+				currentScope.CapabilityGeneration = toolgateway.WebEvidenceCapabilitySnapshot(currentContext).Generation
+				currentScope.OperationKey = "web-before-fetch-" + boundary + "-" + change
+				probe := &webRuntimeBoundaryStore{SQLiteStore: state}
+				serviceProbe := &webRuntimeBoundaryStore{SQLiteStore: state}
+				checked, err := application.NewWebEvidenceToolExecutor(probe, webevidence.NewService(serviceProbe, nil, backend))
+				if err != nil {
+					t.Fatal(err)
+				}
+				checked.WithExecutionPermissionCapabilities(liveCapabilities)
+				changeAuthority := func() {
+					switch change {
+					case "revoke":
+						runtimeAuthority.RevokeRun(run.ID)
+					case "snapshot-drift":
+						next, err := permission.Next("web-drifted-permission", permission.Mode, true,
+							"test_operator", "changed while resolving source", permission.CreatedAt.Add(time.Second))
+						if err != nil {
 							t.Fatal(err)
 						}
+						probe.permission = &next
+					case "runtime-epoch":
+						fresh := domain.NewExecutionPermissionRuntimeAuthority()
+						for i := uint64(0); i < grant.Generation; i++ {
+							if _, err := fresh.ActivateRunFullAccess(permission); err != nil {
+								t.Fatal(err)
+							}
+						}
+						if generation, live := fresh.AllowsFullAccess(permission); !live || generation != grant.Generation {
+							t.Fatal("same-generation runtime fixture was not established")
+						}
+						changed := liveCapabilities
+						changed.RuntimeAuthority = fresh
+						checked.WithExecutionPermissionCapabilities(changed)
 					}
-					if generation, live := fresh.AllowsFullAccess(permission); !live || generation != grant.Generation {
-						t.Fatal("same-generation runtime fixture was not established")
-					}
-					changed := liveCapabilities
-					changed.RuntimeAuthority = fresh
-					checked.WithExecutionPermissionCapabilities(changed)
 				}
-			}
-			payload, _ := json.Marshal(toolgateway.WebFetchPayload{Version: "web_fetch.v1", SourceID: result.Metadata["source_id"]})
-			if _, err := checked.ExecuteWebEvidence(ctx, currentScope, toolgateway.WebFetchTool, payload); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != 3 || probe.sourceReads != 1 {
-				t.Fatalf("final %s check calls=%d sourceReads=%d err=%v", change, backend.calls, probe.sourceReads, err)
-			}
-		})
+				switch boundary {
+				case "executor-source":
+					probe.afterSourceRead = changeAuthority
+				case "service-source":
+					serviceProbe.afterSourceRead = changeAuthority
+				case "service-replay":
+					serviceProbe.afterOperationRead = changeAuthority
+				}
+				payload, _ := json.Marshal(toolgateway.WebFetchPayload{Version: "web_fetch.v1", SourceID: result.Metadata["source_id"]})
+				if _, err := checked.ExecuteWebEvidence(ctx, currentScope, toolgateway.WebFetchTool, payload); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodePolicyDenied || backend.calls != beforeCalls || probe.sourceReads != 1 {
+					t.Fatalf("final %s/%s check calls=%d want=%d sourceReads=%d err=%v", boundary, change, backend.calls, beforeCalls, probe.sourceReads, err)
+				}
+				if boundary != "executor-source" && (serviceProbe.sourceReads != 1 || serviceProbe.operationReads != 1) {
+					t.Fatalf("service boundary not reached: sources=%d operations=%d", serviceProbe.sourceReads, serviceProbe.operationReads)
+				}
+			})
+		}
 	}
 }
 
-// Only the executor's source lookup uses this hook; the real service keeps its
-// original store. Revocation occurs after capability validation, before Fetch.
+// Separate wrappers place authority changes in application source resolution
+// and service preparation, including its final durable replay lookup.
 type webRuntimeBoundaryStore struct {
 	*store.SQLiteStore
-	afterSourceRead func()
-	permission      *domain.RunExecutionPermissionSnapshot
-	sourceReads     int
+	afterSourceRead    func()
+	afterOperationRead func()
+	permission         *domain.RunExecutionPermissionSnapshot
+	sourceReads        int
+	operationReads     int
+}
+
+func (s *webRuntimeBoundaryStore) GetWebEvidenceOperation(ctx context.Context, runID, key string) (webevidence.Operation, bool, error) {
+	operation, found, err := s.SQLiteStore.GetWebEvidenceOperation(ctx, runID, key)
+	if err == nil {
+		s.operationReads++
+		if s.afterOperationRead != nil {
+			s.afterOperationRead()
+		}
+	}
+	return operation, found, err
 }
 
 func (s *webRuntimeBoundaryStore) GetWebSource(ctx context.Context, runID, sourceID string) (webevidence.Source, error) {
