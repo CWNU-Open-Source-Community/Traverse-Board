@@ -230,49 +230,105 @@ func TestCLIApprovalExecutionHandoffWiresOrdinaryAgentBrowser(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("ordinary Agent browser adapter is Windows-only")
 	}
-	home := t.TempDir()
-	runID := createCLIAgentBrowserRun(t, home, domain.RunExecutionPermissionFullAccess)
-	state, err := store.Open(filepath.Join(home, "cyberagent.db"))
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		name                       string
+		permission                 domain.RunExecutionPermissionMode
+		permissionGate, fullGate   bool
+		confirmFull, browserWanted bool
+		wantError                  string
+	}{
+		{name: "confirmed Full", permission: domain.RunExecutionPermissionFull,
+			permissionGate: true, fullGate: true, confirmFull: true, browserWanted: true},
+		{name: "cold Full", permission: domain.RunExecutionPermissionFull,
+			permissionGate: true, fullGate: true},
+		{name: "no gates", permission: domain.RunExecutionPermissionFull},
+		{name: "missing Full gate", permission: domain.RunExecutionPermissionFull,
+			permissionGate: true, confirmFull: true, wantError: "requires --enable-permission-control"},
+		{name: "missing permission gate", permission: domain.RunExecutionPermissionFull,
+			fullGate: true, confirmFull: true, wantError: "invalid CLI runtime capabilities"},
+		{name: "Ask cannot confirm Full", permission: domain.RunExecutionPermissionAsk,
+			permissionGate: true, fullGate: true, confirmFull: true, wantError: "current Full preference"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			runID := createCLIAgentBrowserRun(t, home, test.permission)
+			state, err := store.Open(filepath.Join(home, "cyberagent.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.Close()
+			permission, err := state.GetRunExecutionPermission(t.Context(), runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := application.NewThreadService(state).Submit(t.Context(),
+				application.SubmitThreadMessageRequest{
+					Version: domain.ThreadMessageProtocolVersion, ThreadID: domain.InitialThreadID(runID),
+					Content:      "continue this reviewed turn through the CLI approval handoff",
+					OperationKey: "cli-agent-browser-approval-message", RequestedBy: "test_operator",
+				}); err != nil {
+				t.Fatal(err)
+			}
+			provider := &cliAgentBrowserProvider{expectBrowser: test.browserWanted}
+			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+			router.RegisterProvider(provider)
+			app := &App{home: home, store: state, router: router, checker: policy.NewDefaultChecker(),
+				calls: application.NewActiveCallRegistry()}
+			capabilities := cliExecutionPermissionCapabilities(test.permissionGate, test.fullGate, false)
+			runtimeCtx, cancelRuntime := context.WithCancel(t.Context())
+			defer cancelRuntime()
+			handoff, closeRuntime, err := app.newCLIApprovalExecution(runtimeCtx, runID, capabilities, test.confirmFull)
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) || handoff != nil || closeRuntime != nil {
+					t.Fatalf("invalid confirmation created a runtime: %v", err)
+				}
+				if _, active := capabilities.RuntimeAuthority.AllowsFullAccess(permission); active {
+					t.Fatal("rejected continuation retained Full authority")
+				}
+				requests, _ := provider.snapshot()
+				if len(requests) != 0 {
+					t.Fatal("rejected continuation called the provider")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := closeRuntime(); err != nil {
+					t.Errorf("close approval runtime: %v", err)
+				}
+			}()
+			if _, active := capabilities.RuntimeAuthority.AllowsFullAccess(permission); active != test.browserWanted {
+				t.Fatalf("approval runtime Full authority=%t want=%t", active, test.browserWanted)
+			}
+			result, err := handoff.Execute(t.Context(), application.ExecuteRunHandoffRequest{
+				Version: domain.RunExecutionHandoffProtocolVersion, RunID: runID, MaxSteps: 1,
+				OperationKey: "cli-agent-browser-approval-handoff", RequestedBy: "cli_approval",
+			})
+			if err != nil || result.Handoff.Result == nil ||
+				result.Handoff.Result.Status != domain.RunExecutionHandoffCompleted {
+				t.Fatalf("approval execution handoff=%#v err=%v", result, err)
+			}
+			requests, providerErr := provider.snapshot()
+			if providerErr != nil {
+				t.Fatal(providerErr)
+			}
+			assertCLIAgentBrowserRequests(t, requests, test.browserWanted)
+			assertCLIAgentBrowserDurableResult(t, home, runID, test.browserWanted)
+			cancelRuntime()
+			if err := closeRuntime(); err != nil {
+				t.Fatal(err)
+			}
+			if _, active := capabilities.RuntimeAuthority.AllowsFullAccess(permission); active {
+				t.Fatal("closed continuation retained Full authority")
+			}
+			persisted, err := state.GetRunExecutionPermission(t.Context(), runID)
+			if err != nil || !reflect.DeepEqual(persisted, permission) {
+				t.Fatalf("continuation changed durable permission: %+v err=%v", persisted, err)
+			}
+		})
 	}
-	defer state.Close()
-	if _, err := application.NewThreadService(state).Submit(t.Context(),
-		application.SubmitThreadMessageRequest{
-			Version: domain.ThreadMessageProtocolVersion, ThreadID: domain.InitialThreadID(runID),
-			Content:      "continue this reviewed turn through the CLI approval handoff",
-			OperationKey: "cli-agent-browser-approval-message", RequestedBy: "test_operator",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	provider := &cliAgentBrowserProvider{expectBrowser: true}
-	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
-	router.RegisterProvider(provider)
-	app := &App{home: home, store: state, router: router, checker: policy.NewDefaultChecker(),
-		calls: application.NewActiveCallRegistry()}
-	handoff, closeRuntime, err := app.newCLIApprovalExecution(t.Context(), runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := closeRuntime(); err != nil {
-			t.Errorf("close approval runtime: %v", err)
-		}
-	}()
-	result, err := handoff.Execute(t.Context(), application.ExecuteRunHandoffRequest{
-		Version: domain.RunExecutionHandoffProtocolVersion, RunID: runID, MaxSteps: 1,
-		OperationKey: "cli-agent-browser-approval-handoff", RequestedBy: "cli_approval",
-	})
-	if err != nil || result.Handoff.Result == nil ||
-		result.Handoff.Result.Status != domain.RunExecutionHandoffCompleted {
-		t.Fatalf("approval execution handoff=%#v err=%v", result, err)
-	}
-	requests, providerErr := provider.snapshot()
-	if providerErr != nil {
-		t.Fatal(providerErr)
-	}
-	assertCLIAgentBrowserRequests(t, requests, true)
-	assertCLIAgentBrowserDurableResult(t, home, runID, true)
 }
 
 func createCLIAgentBrowserRun(t *testing.T, home string,

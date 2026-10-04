@@ -464,7 +464,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/app -run '^TestWindowsAPIServe'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test -v -count=1 -timeout 10m ./internal/app -run '^TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce$'
+          $cliTests = @(
+            'TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce'
+            'TestCLIExecutionEntrypointsWireOrdinaryAgentBrowser'
+            'TestCLIWakeConsumeWiresOrdinaryAgentBrowser'
+            'TestCLIApprovalExecutionHandoffWiresOrdinaryAgentBrowser'
+            'TestCLIExecutionRuntimeClosesAgentBrowserWithoutGrantingPersistedFullAccess'
+            'TestCLIApprovalContinuationRequiresInvocationFullConfirmation'
+            'TestCLIFileReviewKeepsExactDecisionSeparateFromContinuationFull'
+            'TestCLIApprovalCompletedContinuationReplaysWithoutModelOrTool'
+            'TestCLIApprovalDenyContinuesOnceAndReplaysAcrossApps'
+            'TestCLIApprovalDoesNotWakePausedOrCancelledRun'
+          )
+          go test -v -count=1 -timeout 10m ./internal/app -run ('^(' + ($cliTests -join '|') + ')$')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

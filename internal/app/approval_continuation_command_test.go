@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/store"
@@ -25,6 +28,7 @@ type cliApprovalProvider struct {
 	mu        sync.Mutex
 	responses []*llm.ChatResponse
 	requests  int
+	lastTools []llm.ToolSpec
 }
 
 func (*cliApprovalProvider) Name() string { return "cli-approval-test" }
@@ -40,6 +44,7 @@ func (p *cliApprovalProvider) Chat(_ context.Context,
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.requests++
+	p.lastTools = append([]llm.ToolSpec(nil), request.Tools...)
 	if len(p.responses) == 0 {
 		return nil, errors.New("unexpected CLI approval model request")
 	}
@@ -73,6 +78,17 @@ func (p *cliApprovalProvider) requestCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.requests
+}
+
+func (p *cliApprovalProvider) lastRequestHasTool(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tool := range p.lastTools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 type cliApprovalFetchBackend struct {
@@ -116,20 +132,50 @@ func newCLIApprovalFixture(t *testing.T, home string,
 	continuation *llm.ChatResponse,
 ) cliApprovalFixture {
 	t.Helper()
+	return newCLIApprovalFixtureWithPermission(t, home, continuation, domain.RunExecutionPermissionAsk)
+}
+
+func newCLIApprovalFixtureWithPermission(t *testing.T, home string,
+	continuation *llm.ChatResponse, permission domain.RunExecutionPermissionMode,
+) cliApprovalFixture {
+	t.Helper()
 	state, err := store.Open(filepath.Join(home, "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceID, profile := "", "review"
+	if permission == domain.RunExecutionPermissionFull {
+		profile = "code"
+		workspaceID = "cli-approval-workspace"
+		if err := state.SaveWorkspace(t.Context(), store.WorkspaceRecord{
+			ID: workspaceID, Name: "cli-approval", RootPath: home,
+		}); err != nil {
+			_ = state.Close()
+			t.Fatal(err)
+		}
+	}
 	_, run, err := application.NewRunService(state).Create(t.Context(),
 		application.CreateRunRequest{
-			Goal: "review one public source", Profile: "review", Surface: "code",
+			Goal: "review one public source", Profile: profile, Surface: "code",
 			Phase: "deliver", ModelRoute: "cli-approval-test/model", Interactive: true,
+			WorkspaceID: workspaceID,
 			NetworkMode: "disabled",
 			Budget:      domain.Budget{MaxTurns: 4, MaxToolCalls: 4},
 		})
 	if err != nil {
 		_ = state.Close()
 		t.Fatal(err)
+	}
+	if permission != domain.RunExecutionPermissionAsk {
+		if _, err := application.NewRunExecutionPermissionService(state,
+			cliExecutionPermissionCapabilities(true, true, false)).Change(t.Context(),
+			application.ChangeRunExecutionPermissionRequest{
+				RunID: run.ID, Mode: string(permission), OperationKey: "cli-approval-initial-permission",
+				RequestedBy: "test_operator", ConfirmFull: permission == domain.RunExecutionPermissionFull,
+			}); err != nil {
+			_ = state.Close()
+			t.Fatal(err)
+		}
 	}
 	responses := []*llm.ChatResponse{{
 		Provider: "cli-approval-test", Model: "model",
@@ -188,7 +234,7 @@ func cliApprovalTextResponse(t *testing.T, message string) *llm.ChatResponse {
 }
 
 func executeCLIApproval(t *testing.T, router *llm.Router,
-	action, approvalID string,
+	action, approvalID string, flags ...string,
 ) (string, string, int) {
 	t.Helper()
 	var out, errOut bytes.Buffer
@@ -196,6 +242,7 @@ func executeCLIApproval(t *testing.T, router *llm.Router,
 	if action == "deny" {
 		args = append(args, "--reason", "operator review")
 	}
+	args = append(args, flags...)
 	code := executeContextWithConfig(t.Context(), args, &out, &errOut, func(app *App) {
 		app.router = router
 	})
@@ -273,6 +320,59 @@ func TestCLIApprovalDenyContinuesOnceAndReplaysAcrossApps(t *testing.T) {
 	}
 }
 
+func TestCLIApprovalContinuationRequiresInvocationFullConfirmation(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		permission domain.RunExecutionPermissionMode
+		flags      []string
+		wantError  string
+		full       bool
+	}{
+		{name: "confirmed Full", permission: domain.RunExecutionPermissionFull, full: true,
+			flags: []string{"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"}},
+		{name: "cold Full", permission: domain.RunExecutionPermissionFull,
+			flags: []string{"--enable-permission-control", "--enable-danger-full-access"}},
+		{name: "no gates", permission: domain.RunExecutionPermissionFull},
+		{name: "missing gates", permission: domain.RunExecutionPermissionFull,
+			flags: []string{"--confirm-full"}, wantError: "requires --enable-permission-control"},
+		{name: "Ask cannot confirm Full", permission: domain.RunExecutionPermissionAsk,
+			flags: []string{"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"}, wantError: "current Full preference"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CYBERAGENT_HOME", home)
+			fixture := newCLIApprovalFixtureWithPermission(t, home,
+				cliApprovalTextResponse(t, "exact denial observed"), test.permission)
+			defer fixture.state.Close()
+			stdout, stderr, code := executeCLIApproval(t, fixture.router, "deny", fixture.approvalID, test.flags...)
+			decision, err := fixture.state.GetApproval(t.Context(), fixture.approvalID)
+			if err != nil || decision.Status != approval.StatusDenied || !strings.Contains(stdout, "decision_saved: true") {
+				t.Fatalf("exact decision was not saved: %+v err=%v stdout=%s", decision, err, stdout)
+			}
+			if fixture.backend.callCount() != 0 {
+				t.Fatal("denied fetch executed")
+			}
+			if test.wantError != "" {
+				if code == 0 || !strings.Contains(stderr, test.wantError) || fixture.provider.requestCount() != 1 {
+					t.Fatalf("invalid continuation: code=%d stderr=%s models=%d", code, stderr, fixture.provider.requestCount())
+				}
+				return
+			}
+			if code != 0 || stderr != "" || !strings.Contains(stdout, "continuation: completed") || fixture.provider.requestCount() != 2 {
+				t.Fatalf("continuation: code=%d stdout=%s stderr=%s models=%d", code, stdout, stderr, fixture.provider.requestCount())
+			}
+			if got, want := fixture.provider.lastRequestHasTool("browser_status"), test.full && runtime.GOOS == "windows"; got != want {
+				t.Fatalf("continuation browser advertised=%t want=%t", got, want)
+			}
+			permission, err := fixture.state.GetRunExecutionPermission(t.Context(), fixture.run.ID)
+			if err != nil || permission.Mode != test.permission ||
+				cliExecutionPermissionCapabilities(true, true, false).AllowsSnapshot(permission) {
+				t.Fatalf("continuation persisted Full authority: %+v err=%v", permission, err)
+			}
+		})
+	}
+}
+
 func TestCLIApprovalDoesNotWakePausedOrCancelledRun(t *testing.T) {
 	for _, status := range []domain.RunStatus{domain.RunPaused, domain.RunCancelled} {
 		t.Run(string(status), func(t *testing.T) {
@@ -310,6 +410,66 @@ func TestCLIApprovalDoesNotWakePausedOrCancelledRun(t *testing.T) {
 				t.Fatalf("status=%s stored=%#v models=%d/%d fetches=%d err=%v",
 					status, stored, fixture.provider.requestCount(), modelsBefore,
 					fixture.backend.callCount(), err)
+			}
+		})
+	}
+}
+
+func TestCLIFileReviewKeepsExactDecisionSeparateFromContinuationFull(t *testing.T) {
+	for _, test := range []struct {
+		name, action string
+		flags        []string
+		denied       bool
+	}{
+		{name: "approved with Full", action: "review-approve",
+			flags: []string{"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"}},
+		{name: "denied with Full", action: "review-deny",
+			flags: []string{"--enable-permission-control", "--enable-danger-full-access", "--confirm-full"}},
+		{name: "cold Full", action: "review-approve"},
+		{name: "missing gates", action: "review-approve", flags: []string{"--confirm-full"}, denied: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CYBERAGENT_HOME", home)
+			runID := createCLIAgentBrowserRun(t, home, domain.RunExecutionPermissionFull)
+			state, err := store.Open(filepath.Join(home, "cyberagent.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer state.Close()
+			run, err := state.GetRun(t.Context(), runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			edit, err := fileedit.NewManager(state).Propose(t.Context(), fileedit.Proposal{
+				SessionID: run.SessionID, WorkspaceID: "cli-agent-browser-workspace", WorkspaceRoot: home,
+				Path: "manual-review.txt", ProposedText: "review does not apply this file\n",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"edit", test.action, runID, edit.ID}, test.flags...)
+			stdout, stderr, code := executeTestCommand(t, args...)
+			if !strings.Contains(stdout, "file_written: false") {
+				t.Fatalf("review was not saved: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if test.denied {
+				if code != 5 || !strings.Contains(stderr, "review saved; continuation setup failed") {
+					t.Fatalf("missing continuation gates: code=%d stderr=%s", code, stderr)
+				}
+			} else if code != 0 || stderr != "" || !strings.Contains(stdout, "continuation: not_started") {
+				t.Fatalf("manual review started a continuation: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			stored, err := state.GetFileEdit(t.Context(), edit.ID)
+			want := fileedit.StatusApproved
+			if test.action == "review-deny" {
+				want = fileedit.StatusDenied
+			}
+			if err != nil || stored.Status != want {
+				t.Fatalf("saved review=%+v err=%v", stored, err)
+			}
+			if _, err := os.Stat(filepath.Join(home, "manual-review.txt")); !os.IsNotExist(err) {
+				t.Fatalf("review wrote the file: %v", err)
 			}
 		})
 	}
