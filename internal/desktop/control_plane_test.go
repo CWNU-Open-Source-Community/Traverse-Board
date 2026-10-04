@@ -386,9 +386,13 @@ func TestControlPlaneBootstrapsOnlyAnEmptyWorkspaceRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedRoot, err := filepath.EvalSymlinks(filepath.Join(home, "workspaces", "default"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(records) != 1 || records[0].ID != "ws-default" ||
 		records[0].Name != "default" ||
-		records[0].RootPath != filepath.Join(home, "workspaces", "default") {
+		records[0].RootPath != expectedRoot {
 		t.Fatalf("unexpected first-run Workspace: %#v", records)
 	}
 }

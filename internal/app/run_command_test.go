@@ -469,6 +469,11 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 		"command-plan-demo"); code != 0 {
 		t.Fatalf("workspace init failed: %s", stderr)
 	}
+	rawRoot := filepath.Join(home, "workspaces", "command-plan-demo")
+	canonicalRoot, err := filepath.EvalSymlinks(rawRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	created, stderr, code := executeTestCommand(t, "run", "create",
 		"plan one controlled command", "--workspace", "command-plan-demo",
 		"--max-turns", "2")
@@ -498,8 +503,7 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 		!strings.Contains(planned, "start_blocked: true") ||
 		!strings.Contains(planned, "product_execution_enabled: false") ||
 		strings.Contains(planned, "Get-ChildItem") ||
-		strings.Contains(planned,
-			filepath.Join(home, "workspaces", "command-plan-demo")) {
+		strings.Contains(planned, rawRoot) || strings.Contains(planned, canonicalRoot) {
 		t.Fatalf("unexpected command plan output=%q stderr=%q code=%d",
 			planned, stderr, code)
 	}
