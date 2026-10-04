@@ -391,14 +391,15 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initialRuntimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true}
+		DangerFullAccessEnabled: true, RuntimeAuthority: initialRuntimeAuthority}
 	if _, err := application.NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 		application.ChangeRunExecutionPermissionRequest{RunID: created.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
+			Mode:         string(domain.RunExecutionPermissionFull),
 			OperationKey: "web-evidence-full-access-permission-0001",
 			RequestedBy:  "test_operator", Reason: "exercise safe public HTTPS projection",
-			ConfirmDangerFullAccess: true}); err != nil {
+			ConfirmFull: true}); err != nil {
 		t.Fatal(err)
 	}
 	run, err := application.NewRunService(state).Start(ctx, created.ID)
@@ -412,6 +413,10 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 	permission, err := state.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	initialGeneration, live := capabilities.FullAccessGeneration(permission)
+	if !live || initialGeneration == 0 {
+		t.Fatal("current Full fixture needs its exact live activation")
 	}
 	root, found, err := state.GetRootAgent(ctx, run.ID)
 	if err != nil || !found {
@@ -429,12 +434,15 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	executor.WithExecutionPermissionCapabilities(capabilities)
 	capabilityContext := toolgateway.WebEvidenceCapabilityContext{RunID: run.ID,
 		MissionID: mission.ID, SessionID: run.SessionID, RootAgentID: root.ID,
 		WorkspaceID: mission.WorkspaceID, Surface: mode.Surface, Phase: mode.Phase,
 		Role: root.Role, Profile: mode.Profile, PermissionMode: permission.Mode,
 		PermissionRevision: permission.Revision, ModeRevision: mode.Revision,
-		NetworkMode: "allowlist", AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
+		PermissionSnapshotID: permission.ID, PermissionGeneration: initialGeneration,
+		PermissionRuntimeEpoch: initialRuntimeAuthority.RuntimeEpoch(),
+		NetworkMode:            "allowlist", AllowedTargets: []string{webevidence.PublicHTTPSTarget}}
 	scope := toolgateway.WebEvidenceExecutionScope{InvocationID: "web-full-access-invocation-1",
 		OperationKey: "web-full-access-fetch-0001", RunID: run.ID,
 		SupervisorTurn: 1, SupervisorToolCallID: "web-full-access-call-1",
@@ -442,6 +450,7 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 		WorkspaceID: mission.WorkspaceID, Surface: mode.Surface, Phase: mode.Phase,
 		Role: root.Role, Profile: mode.Profile, PermissionMode: permission.Mode,
 		PermissionRevision: permission.Revision, ModeRevision: mode.Revision,
+		PermissionSnapshotID: permission.ID, PermissionGeneration: initialGeneration,
 		CapabilityGeneration: toolgateway.WebEvidenceCapabilitySnapshot(capabilityContext).Generation,
 		LeaseID:              lease.Lease.LeaseID, LeaseGeneration: lease.Lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{Allowed: true,
@@ -467,13 +476,13 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 		t.Fatalf("unsafe target err=%v calls=%d", err, backend.calls)
 	}
 
-	// The normal desktop requires a process-local activation in addition to the
-	// durable Full Access snapshot. An old call must not acquire that authority
+	// Current Full requires a process-local activation even when the historical
+	// FullAccessRequiresRuntimeGrant flag is false. An old call must not acquire that authority
 	// after a cold start or after a revoke/re-activation cycle.
 	runtimeAuthority := domain.NewExecutionPermissionRuntimeAuthority()
 	liveCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: runtimeAuthority}
+		RuntimeAuthority: runtimeAuthority}
 	executor.WithExecutionPermissionCapabilities(liveCapabilities)
 	oldScope := scope
 	oldScope.InvocationID = "web-full-access-invocation-cold"
@@ -513,7 +522,7 @@ func TestWebEvidenceExecutorProjectsFullAccessToSafePublicHTTPS(t *testing.T) {
 	}
 	executor.WithExecutionPermissionCapabilities(domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
-		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: freshRuntimeAuthority})
+		RuntimeAuthority: freshRuntimeAuthority})
 	oldProcessScope := liveScope
 	oldProcessScope.InvocationID = "web-full-access-invocation-old-process"
 	oldProcessScope.OperationKey = "web-full-access-fetch-old-process-0001"

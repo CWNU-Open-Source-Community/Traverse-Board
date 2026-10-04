@@ -220,10 +220,10 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 	}
 	selection, err := application.NewRunExecutionPermissionService(st, capabilities).
 		Change(ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionFull),
 			OperationKey: "supervisor-full-web-permission-0001",
 			RequestedBy:  "test_operator", Reason: "test the live Full Access boundary",
-			ConfirmDangerFullAccess: true})
+			ConfirmFull: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,23 +234,30 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 		t.Fatal(err)
 	}
 	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-cold-full-web-fetch", string(toolgateway.WebFetchTool),
+			`{"version":"web_fetch.v1","url":"https://docs.example.com/cold"}`),
 		textResponse(rootActionResponse(domain.RootActionContinue,
 			"waiting for permission activation", "", "")),
 		toolResponse("provider-full-web-fetch", string(toolgateway.WebFetchTool),
 			`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`),
 		textResponse(rootActionResponse(domain.RootActionContinue,
 			"fetched with live permission", "", "")),
+		toolResponse("provider-revoked-full-web-fetch", string(toolgateway.WebFetchTool),
+			`{"version":"web_fetch.v1","url":"https://docs.example.com/revoked"}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"permission revoked", "", "")),
 	}}
 	backend := &applicationWebFetchBackend{}
 	supervisor := newToolLoopSupervisor(st, provider).
 		WithWebEvidence(webevidence.NewService(st, nil, backend)).
 		WithExecutionPermissionCapabilities(capabilities)
 	cold, err := supervisor.Step(ctx, run.ID)
-	if err != nil || cold.Text != "waiting for permission activation" || backend.calls != 0 {
+	if err != nil || cold.Text != "waiting for permission activation" ||
+		cold.ToolCalls != 0 || cold.ModelAttempts != 2 || backend.calls != 0 {
 		t.Fatalf("cold Full web turn=%#v calls=%d err=%v", cold, backend.calls, err)
 	}
 	requests := provider.Requests()
-	if len(requests) != 1 || hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) {
+	if len(requests) != 2 || hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) {
 		t.Fatalf("cold Full snapshot advertised direct fetch: %#v", requests)
 	}
 	grant, err := runtimeAuthority.ActivateRunFullAccess(selection.Permission)
@@ -263,7 +270,7 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 		t.Fatalf("live Full web turn=%#v calls=%d err=%v", live, backend.calls, err)
 	}
 	requests = provider.Requests()
-	if len(requests) != 3 || !hasToolSpec(requests[1], string(toolgateway.WebFetchTool)) {
+	if len(requests) != 4 || !hasToolSpec(requests[2], string(toolgateway.WebFetchTool)) {
 		t.Fatalf("live Full permission did not advertise fetch: %#v", requests)
 	}
 	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
@@ -276,6 +283,23 @@ func TestRunSupervisorFullAccessWebRequiresCurrentRuntimeActivation(t *testing.T
 		callAuthority.PermissionGeneration != grant.Generation ||
 		callAuthority.PermissionRuntimeEpoch != runtimeAuthority.RuntimeEpoch() {
 		t.Fatalf("durable live Full authority=%#v err=%v", callAuthority, err)
+	}
+	runtimeAuthority.RevokeRun(run.ID)
+	revoked, err := supervisor.Step(ctx, run.ID)
+	if err != nil || revoked.Text != "permission revoked" ||
+		revoked.ToolCalls != 0 || revoked.ModelAttempts != 2 || backend.calls != 1 {
+		t.Fatalf("revoked Full web turn=%#v calls=%d err=%v", revoked, backend.calls, err)
+	}
+	requests = provider.Requests()
+	if len(requests) != 6 || hasToolSpec(requests[4], string(toolgateway.WebFetchTool)) {
+		t.Fatalf("revoked Full advertised direct fetch: requests=%d", len(requests))
+	}
+	after, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 3)
+	if err != nil || len(after) != 1 || len(after[0].Calls) != 1 ||
+		after[0].Calls[0].Status != domain.SupervisorToolCompleted ||
+		after[0].Calls[0].ResultJSON != rounds[0].Calls[0].ResultJSON ||
+		after[0].Calls[0].AuthorityJSON != rounds[0].Calls[0].AuthorityJSON {
+		t.Fatalf("revocation changed the completed historical result: rounds=%#v err=%v", after, err)
 	}
 }
 
