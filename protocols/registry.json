@@ -3461,6 +3461,8 @@
       "identifier": "github-test.v1",
       "kind": "test-fixture",
       "sources": [
+        "internal/application/web_evidence_tool_test.go",
+        "internal/webevidence/service_preflight_test.go",
         "internal/webevidence/service_source_connector_test.go"
       ],
       "reason": "Test connector identity used to verify bounded source search and snapshot replay; not a production connector."
@@ -3477,6 +3479,7 @@
       "identifier": "hn-test.v1",
       "kind": "test-fixture",
       "sources": [
+        "internal/webevidence/service_preflight_test.go",
         "internal/webevidence/service_source_connector_test.go"
       ],
       "reason": "Test connector identity used to verify bounded source search and snapshot replay; not a production connector."
