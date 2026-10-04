@@ -52,16 +52,6 @@ func (ReadFileTool) Name() string {
 	return "read_file"
 }
 
-func (ReadFileTool) Schema() Schema {
-	return Schema{
-		Description: "Read a scoped local file.",
-		Parameters: map[string]string{
-			"path":      "Workspace-relative path to read",
-			"max_bytes": "Maximum UTF-8 content bytes to read",
-		},
-	}
-}
-
 func (t ReadFileTool) Run(ctx context.Context, call Call) (Result, error) {
 	if ctx == nil {
 		return Result{Stderr: "tool context is required", ExitCode: 1, MIME: "text/plain; charset=utf-8"}, errors.New("tool context is required")
@@ -100,16 +90,6 @@ func NewListWorkspaceTool(root string) ListWorkspaceTool {
 
 func (ListWorkspaceTool) Name() string {
 	return "list_workspace"
-}
-
-func (ListWorkspaceTool) Schema() Schema {
-	return Schema{
-		Description: "List files under a workspace-scoped path.",
-		Parameters: map[string]string{
-			"path":      "Relative workspace path to list",
-			"max_depth": "Maximum recursive depth, default 2",
-		},
-	}
 }
 
 func (t ListWorkspaceTool) Run(ctx context.Context, call Call) (Result, error) {

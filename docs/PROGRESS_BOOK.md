@@ -316,7 +316,7 @@ P6 当前已推进到 schema v68：v63 固定阻塞态 start-gate 审查，v64 �
 ### Agent 与运行时
 
 - CLI 入口、命令分发、版本命令和 Run-first Bubble Tea TUI；选择器对 Run/Session 各限最近 50 条，Edits 对最近 20 条 FileEdit 提供 metadata/diff-only 只读详情和 128 KiB/4096 行显示上限。
-- Agent Kernel、Planner、Executor、Critic 与 Task/Event 类型边界。
+- Task/Event 类型、任务适配与历史事件读取；模型与工具执行循环由 `application.RunSupervisor` 承担。
 - schema v19 为每个新 Run 原子创建稳定 root `AgentNode`；旧库可惰性补建。root 的 ready/running/waiting/completed/failed/cancelled、turn/token 用量和 active attempt 与 RunSupervisor/RunService 同事务投影。
 - `internal/coordinator` 提供 root register、结构化 inbox send/consume、snapshot/restore；`run graph` 验证当前节点与 pending inbox metadata 是否匹配最新 `agent_graph.v1` 快照。
 - 图最多 3 个节点、深度 1、每个 inbox 最多 128 条 pending/4096 条总历史、每批消费 32 条、快照保留 32 份；payload 递归脱敏并以 SHA-256 进入快照完整性校验。默认 Coordinator 无 admission capability，显式内部 policy 才能把 root capacity 提升到最多两个 child；Runner/context/scheduler 均只有 Go 内部显式入口，仍没有公开/model spawn。

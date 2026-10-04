@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
@@ -13,11 +12,6 @@ const (
 	DefaultExecutionTimeout = 15 * time.Second
 	MaxExecutionTimeout     = 5 * time.Minute
 )
-
-type Schema struct {
-	Description string
-	Parameters  map[string]string
-}
 
 type Call struct {
 	Name       string
@@ -35,7 +29,6 @@ type Result struct {
 
 type Tool interface {
 	Name() string
-	Schema() Schema
 	Run(ctx context.Context, call Call) (Result, error)
 }
 
@@ -60,15 +53,6 @@ func (r *Registry) WithExecutionTimeout(timeout time.Duration) *Registry {
 		r.executionTimeout = timeout
 	}
 	return r
-}
-
-func (r *Registry) Names() []string {
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func (r *Registry) Run(ctx context.Context, call Call) (Result, error) {

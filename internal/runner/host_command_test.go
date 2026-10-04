@@ -168,11 +168,11 @@ func TestHostCommandProposalAcceptsOnlyCanonicalReviewedShellEnvelopes(t *testin
 			if err := ValidateHostCommandProposalTransport(tamperedSpec); err == nil {
 				t.Fatal("non-canonical shell argv unexpectedly passed approval mode")
 			}
-			permission := hostCommandApprovalPermission(t)
-			proposalRequest := hostCommandProposalTestRequest(tamperedSpec, permission,
-				time.Now().UTC())
-			if _, err := NewHostCommandProposal(proposalRequest); err == nil {
-				t.Fatal("non-canonical shell argv entered the durable proposal domain")
+			proposal := hostCommandProposalFixture(t)
+			proposal.Spec = tamperedSpec
+			proposal.Fingerprint = HostCommandProposalFingerprint(proposal)
+			if proposal.Validate() == nil {
+				t.Fatal("non-canonical shell argv unexpectedly validated in a historical proposal")
 			}
 		})
 	}
@@ -181,37 +181,26 @@ func TestHostCommandProposalAcceptsOnlyCanonicalReviewedShellEnvelopes(t *testin
 	}
 }
 
-func TestHostCommandProposalRequiresApprovalSnapshotAndExactReview(t *testing.T) {
+func TestHistoricalHostCommandProposalAndReviewRejectAlteredAuthority(t *testing.T) {
 	proposal := hostCommandProposalFixture(t)
-	if proposal.ExecutionAuthorized || proposal.InstructionAuthorized ||
-		proposal.CapabilityGrant || proposal.PermissionMode !=
-		domain.RunExecutionPermissionApproval {
-		t.Fatalf("proposal unexpectedly carries authority: %+v", proposal)
+	if proposal.Validate() != nil {
+		t.Fatal("historical proposal did not validate")
 	}
-
-	review, err := NewHostCommandReview(
-		"host-command-review", proposal, HostCommandReviewApprove,
-		"cli_operator", "approved after exact command review",
-		hostCommandTestDigest, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !review.SingleUseExecutionAuthorized || review.CapabilityGrant {
-		t.Fatalf("unexpected review authority: %+v", review)
+	review := hostCommandReviewFixture(proposal)
+	if review.Validate() != nil {
+		t.Fatal("historical review did not validate")
 	}
 	tampered := review
 	tampered.ProposalFingerprint = hostCommandTestDigest
 	if err := tampered.Validate(); err == nil {
 		t.Fatal("review detached from its proposal unexpectedly validated")
 	}
-
-	for _, reviewer := range []string{
-		"agent", "model", "repository", "skill", "supervisor", "run_supervisor",
-	} {
-		if _, err := NewHostCommandReview(
-			"review-"+reviewer, proposal, HostCommandReviewApprove,
-			reviewer, "must be rejected", hostCommandTestDigest,
-			time.Now().UTC()); err == nil {
+	for _, reviewer := range []string{"agent", "model", "repository", "skill", "supervisor", "run_supervisor"} {
+		tampered := review
+		tampered.ReviewedBy = reviewer
+		tampered.RequestFingerprint = HostCommandReviewRequestFingerprint(tampered)
+		tampered.Fingerprint = HostCommandReviewFingerprint(tampered)
+		if err := tampered.Validate(); err == nil {
 			t.Fatalf("reserved reviewer %q unexpectedly validated", reviewer)
 		}
 	}
@@ -287,91 +276,44 @@ func TestHostPowerShellRejectsOpeningDeclarationsWithoutInspectingCodeValues(t *
 	}
 }
 
-func TestHostCommandProposalRejectsNonApprovalPermission(t *testing.T) {
-	now := time.Now().UTC()
-	mission := domain.Mission{ID: "mission-host-command", CreatedAt: now}
-	run := domain.Run{
-		ID: "run-host-command", MissionID: mission.ID,
-		Status: domain.RunCreated, CreatedAt: now,
-	}
-	permission, err := domain.NewInitialRunExecutionPermissionSnapshot(
-		"permission-conservative", run, mission, "test_operator", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, err := NewHostCommandSpec(hostCommandSpecTestRequest(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := hostCommandProposalTestRequest(spec, permission, now)
-	if _, err := NewHostCommandProposal(request); err == nil {
-		t.Fatal("conservative permission unexpectedly produced a host command proposal")
-	}
-	full, err := permission.Next(
-		"permission-full", domain.RunExecutionPermissionFullAccess, true,
-		"test_operator", "test transition", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Permission = full
-	if _, err := NewHostCommandProposal(request); err == nil {
-		t.Fatal("full-access permission unexpectedly used the approval protocol")
+func TestHistoricalHostCommandProposalRejectsNonApprovalPermission(t *testing.T) {
+	for _, mode := range []domain.RunExecutionPermissionMode{domain.RunExecutionPermissionConservative, domain.RunExecutionPermissionFullAccess} {
+		proposal := hostCommandProposalFixture(t)
+		proposal.PermissionMode = mode
+		proposal.Fingerprint = HostCommandProposalFingerprint(proposal)
+		if proposal.Validate() == nil {
+			t.Fatalf("permission %q unexpectedly validated in the retired approval protocol", mode)
+		}
 	}
 }
 
 func hostCommandProposalFixture(t *testing.T) HostCommandProposal {
 	t.Helper()
-	now := time.Now().UTC()
-	permission := hostCommandApprovalPermission(t)
 	spec, err := NewHostCommandSpec(hostCommandSpecTestRequest(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := NewHostCommandProposal(
-		hostCommandProposalTestRequest(spec, permission, now))
-	if err != nil {
-		t.Fatal(err)
+	proposal := HostCommandProposal{
+		ID: "host-command-proposal", ProtocolVersion: HostCommandProposalProtocolVersion, PolicyVersion: HostCommandPolicyVersion,
+		RunID: "run-host-proposal", MissionID: "mission-host-proposal", SessionID: "session-host-command", WorkspaceID: "workspace-host-command",
+		RootAgentID: "agent-root-host-command", InteractionSnapshotID: "interaction-host-command", InteractionRevision: 1, ExecutionProfileRevision: 1,
+		PermissionSnapshotID: "permission-host-approval", PermissionRevision: 2, PermissionMode: domain.RunExecutionPermissionApproval,
+		Spec: spec, RequestedBy: "run_supervisor", CreatedAt: time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC),
 	}
+	proposal.Fingerprint = HostCommandProposalFingerprint(proposal)
 	return proposal
 }
 
-func hostCommandApprovalPermission(
-	t *testing.T,
-) domain.RunExecutionPermissionSnapshot {
-	t.Helper()
-	now := time.Now().UTC()
-	mission := domain.Mission{ID: "mission-host-proposal", CreatedAt: now}
-	run := domain.Run{
-		ID: "run-host-proposal", MissionID: mission.ID,
-		Status: domain.RunCreated, CreatedAt: now,
+func hostCommandReviewFixture(proposal HostCommandProposal) HostCommandReview {
+	review := HostCommandReview{
+		ID: "host-command-review", ProtocolVersion: HostCommandReviewProtocolVersion, PolicyVersion: HostCommandPolicyVersion,
+		ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint, RunID: proposal.RunID, Decision: HostCommandReviewApprove,
+		ReviewedBy: "cli_operator", Reason: "approved after exact command review", OperationKeyDigest: hostCommandTestDigest,
+		SingleUseExecutionAuthorized: true, CreatedAt: proposal.CreatedAt,
 	}
-	initial, err := domain.NewInitialRunExecutionPermissionSnapshot(
-		"permission-host-conservative", run, mission, "test_operator", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	permission, err := initial.Next(
-		"permission-host-approval", domain.RunExecutionPermissionApproval, true,
-		"test_operator", "approve each exact host command", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return permission
-}
-
-func hostCommandProposalTestRequest(spec HostCommandSpec,
-	permission domain.RunExecutionPermissionSnapshot, now time.Time,
-) HostCommandProposalRequest {
-	return HostCommandProposalRequest{
-		ID:    "host-command-proposal",
-		RunID: permission.RunID, MissionID: permission.MissionID,
-		SessionID: "session-host-command", WorkspaceID: "workspace-host-command",
-		RootAgentID:           "agent-root-host-command",
-		InteractionSnapshotID: "interaction-host-command",
-		InteractionRevision:   1, ExecutionProfileRevision: 1,
-		Permission: permission, Spec: spec,
-		RequestedBy: "run_supervisor", CreatedAt: now,
-	}
+	review.RequestFingerprint = HostCommandReviewRequestFingerprint(review)
+	review.Fingerprint = HostCommandReviewFingerprint(review)
+	return review
 }
 
 func hostCommandSpecTestRequest(t *testing.T) HostCommandSpecRequest {

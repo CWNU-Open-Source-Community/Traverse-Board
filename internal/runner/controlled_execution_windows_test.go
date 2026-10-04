@@ -209,21 +209,24 @@ func TestControlledOutputReaderOwnsAndClosesTransferredHandle(t *testing.T) {
 }
 
 func TestControlledWorkspaceRejectsEscapingRelativeDirectory(t *testing.T) {
-	request := controlledExecutionTestRequest(t,
-		ControlledCommandPowerShellWorkspaceList)
+	request := controlledCommandTestRequest(t, ControlledCommandPowerShellWorkspaceList)
+	plan, err := PlanControlledCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	outside := t.TempDir()
 	link := filepath.Join(request.WorkspaceRoot, "escape")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("directory symlink is unavailable: %v", err)
 	}
-	request.Plan.RelativePath = "escape"
-	request.Plan.Argv[7] = encodeControlledRelativePath("escape")
-	request.Plan.Fingerprint = controlledCommandPlanFingerprint(request.Plan)
+	plan.RelativePath = "escape"
+	plan.Argv[7] = encodeControlledRelativePath("escape")
+	plan.Fingerprint = controlledCommandPlanFingerprint(plan)
 	spec := ControlledStartSpec{
-		RequestID: ControlledExecutionRequestID(request.Plan),
-		PlanID:    request.Plan.ID, PlanFingerprint: request.Plan.Fingerprint,
-		ExecutableID:  request.Plan.ExecutableID,
-		Argv:          append([]string(nil), request.Plan.Argv...),
+		RequestID: ControlledExecutionRequestID(plan),
+		PlanID:    plan.ID, PlanFingerprint: plan.Fingerprint,
+		ExecutableID:  plan.ExecutableID,
+		Argv:          append([]string(nil), plan.Argv...),
 		WorkspaceRoot: request.WorkspaceRoot,
 		Timeout:       DefaultControlledCommandTimeout,
 	}

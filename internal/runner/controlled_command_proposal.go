@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/redact"
 )
 
 const (
@@ -26,18 +25,6 @@ const (
 
 var ErrControlledCommandProposalBoundary = errors.New(
 	"controlled command proposal boundary is invalid")
-
-type ControlledCommandProposalRequest struct {
-	ID          string
-	Plan        ControlledCommandPlan
-	MissionID   string
-	SessionID   string
-	RootAgentID string
-	Permission  domain.RunExecutionPermissionSnapshot
-	Purpose     string
-	RequestedBy string
-	CreatedAt   time.Time
-}
 
 // ControlledCommandProposal is a non-authorizing request for one Go-owned
 // command template. It intentionally contains no executable, argv, shell text,
@@ -69,57 +56,6 @@ type ControlledCommandProposal struct {
 	CapabilityGrant          bool
 	Fingerprint              string
 	CreatedAt                time.Time
-}
-
-func NewControlledCommandProposal(
-	request ControlledCommandProposalRequest,
-) (ControlledCommandProposal, error) {
-	request.ID = strings.TrimSpace(request.ID)
-	request.MissionID = strings.TrimSpace(request.MissionID)
-	request.SessionID = strings.TrimSpace(request.SessionID)
-	request.RootAgentID = strings.TrimSpace(request.RootAgentID)
-	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
-	request.Purpose = strings.TrimSpace(redact.String(request.Purpose))
-	request.CreatedAt = request.CreatedAt.UTC()
-	if err := request.Plan.Validate(); err != nil {
-		return ControlledCommandProposal{}, err
-	}
-	if err := request.Permission.Validate(); err != nil {
-		return ControlledCommandProposal{}, err
-	}
-	if request.Permission.RunID != request.Plan.RunID ||
-		request.Permission.MissionID != request.MissionID ||
-		!domain.ValidAgentID(request.SessionID) ||
-		!domain.ValidAgentID(request.RootAgentID) ||
-		request.RequestedBy != "run_supervisor" {
-		return ControlledCommandProposal{}, ErrControlledCommandProposalBoundary
-	}
-	proposal := ControlledCommandProposal{
-		ID: request.ID, ProtocolVersion: ControlledCommandProposalProtocolVersion,
-		PolicyVersion: ControlledCommandProposalPolicyVersion,
-		RunID:         request.Plan.RunID, MissionID: request.MissionID,
-		SessionID: request.SessionID, WorkspaceID: request.Plan.WorkspaceID,
-		RootAgentID:              request.RootAgentID,
-		InteractionSnapshotID:    request.Plan.InteractionSnapshotID,
-		InteractionRevision:      request.Plan.InteractionRevision,
-		ExecutionProfileRevision: request.Plan.ExecutionProfileRevision,
-		PermissionSnapshotID:     request.Permission.ID,
-		PermissionRevision:       request.Permission.Revision,
-		PermissionMode:           request.Permission.Mode,
-		PlanID:                   request.Plan.ID,
-		PlanFingerprint:          request.Plan.Fingerprint,
-		Kind:                     request.Plan.Kind,
-		RelativePath:             request.Plan.RelativePath,
-		TimeoutMilliseconds:      request.Plan.TimeoutMilliseconds,
-		Purpose:                  request.Purpose,
-		RequestedBy:              request.RequestedBy,
-		CreatedAt:                request.CreatedAt,
-	}
-	proposal.Fingerprint = ControlledCommandProposalFingerprint(proposal)
-	if err := proposal.Validate(); err != nil {
-		return ControlledCommandProposal{}, err
-	}
-	return proposal, nil
 }
 
 func (p ControlledCommandProposal) Validate() error {
@@ -171,53 +107,6 @@ func ControlledCommandProposalFingerprint(
 ) string {
 	proposal.Fingerprint = ""
 	encoded, err := json.Marshal(proposal)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
-}
-
-func ControlledCommandProposalRequestFingerprint(
-	proposal ControlledCommandProposal,
-) string {
-	semantic := struct {
-		ProtocolVersion          string
-		PolicyVersion            string
-		RunID                    string
-		MissionID                string
-		SessionID                string
-		WorkspaceID              string
-		RootAgentID              string
-		InteractionSnapshotID    string
-		InteractionRevision      int64
-		ExecutionProfileRevision int64
-		PermissionSnapshotID     string
-		PermissionRevision       int64
-		PermissionMode           domain.RunExecutionPermissionMode
-		PlanFingerprint          string
-		Kind                     ControlledCommandKind
-		RelativePath             string
-		TimeoutMilliseconds      int64
-		Purpose                  string
-		RequestedBy              string
-	}{
-		ProtocolVersion: proposal.ProtocolVersion, PolicyVersion: proposal.PolicyVersion,
-		RunID: proposal.RunID, MissionID: proposal.MissionID,
-		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
-		RootAgentID:              proposal.RootAgentID,
-		InteractionSnapshotID:    proposal.InteractionSnapshotID,
-		InteractionRevision:      proposal.InteractionRevision,
-		ExecutionProfileRevision: proposal.ExecutionProfileRevision,
-		PermissionSnapshotID:     proposal.PermissionSnapshotID,
-		PermissionRevision:       proposal.PermissionRevision,
-		PermissionMode:           proposal.PermissionMode,
-		PlanFingerprint:          proposal.PlanFingerprint, Kind: proposal.Kind,
-		RelativePath:        proposal.RelativePath,
-		TimeoutMilliseconds: proposal.TimeoutMilliseconds,
-		Purpose:             proposal.Purpose, RequestedBy: proposal.RequestedBy,
-	}
-	encoded, err := json.Marshal(semantic)
 	if err != nil {
 		return ""
 	}
@@ -286,46 +175,6 @@ type ControlledCommandProposalReview struct {
 	SingleUseExecutionAuthorized bool
 	CapabilityGrant              bool
 	CreatedAt                    time.Time
-}
-
-func NewControlledCommandProposalReview(
-	id string,
-	proposal ControlledCommandProposal,
-	decision ControlledCommandReviewDecision,
-	reviewedBy string,
-	reason string,
-	operationKeyDigest string,
-	at time.Time,
-) (ControlledCommandProposalReview, error) {
-	if err := proposal.Validate(); err != nil {
-		return ControlledCommandProposalReview{}, err
-	}
-	reviewedBy = strings.TrimSpace(reviewedBy)
-	reason = strings.TrimSpace(redact.String(reason))
-	if reason == "" {
-		if decision == ControlledCommandReviewApprove {
-			reason = "operator approved the exact fixed command proposal"
-		} else {
-			reason = "operator denied the fixed command proposal"
-		}
-	}
-	review := ControlledCommandProposalReview{
-		ID:              strings.TrimSpace(id),
-		ProtocolVersion: ControlledCommandReviewProtocolVersion,
-		PolicyVersion:   ControlledCommandProposalPolicyVersion,
-		ProposalID:      proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		RunID: proposal.RunID, MissionID: proposal.MissionID,
-		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
-		Decision: decision, ReviewedBy: reviewedBy, Reason: reason,
-		OperationKeyDigest:           operationKeyDigest,
-		SingleUseExecutionAuthorized: decision == ControlledCommandReviewApprove,
-		CreatedAt:                    at.UTC(),
-	}
-	review.RequestFingerprint = ControlledCommandReviewRequestFingerprint(review)
-	if err := review.Validate(); err != nil {
-		return ControlledCommandProposalReview{}, err
-	}
-	return review, nil
 }
 
 func (r ControlledCommandProposalReview) Validate() error {
@@ -421,42 +270,6 @@ type ControlledCommandProposalResult struct {
 	RawOutputPersisted    bool
 	AutomaticRetryAllowed bool
 	CreatedAt             time.Time
-}
-
-func NewControlledCommandProposalResult(
-	id string,
-	proposal ControlledCommandProposal,
-	review ControlledCommandProposalReview,
-	execution ControlledExecutionResult,
-	sessionMessageID int64,
-	sourceKind string,
-	sourceRef string,
-	contentSHA256 string,
-	at time.Time,
-) (ControlledCommandProposalResult, error) {
-	status := ControlledCommandProposalResultCompleted
-	if execution.ExitCode != 0 || execution.TimedOut || execution.Cancelled ||
-		execution.OutputLimitExceeded {
-		status = ControlledCommandProposalResultFailed
-	}
-	result := ControlledCommandProposalResult{
-		ID:              strings.TrimSpace(id),
-		ProtocolVersion: ControlledCommandResultProtocolVersion,
-		PolicyVersion:   ControlledCommandProposalPolicyVersion,
-		ProposalID:      proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		ReviewID: review.ID, RequestID: execution.RequestID,
-		RunID: proposal.RunID, MissionID: proposal.MissionID,
-		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
-		SessionMessageID: sessionMessageID, Status: status,
-		SourceKind:    strings.TrimSpace(sourceKind),
-		SourceRef:     strings.TrimSpace(sourceRef),
-		ContentSHA256: strings.TrimSpace(contentSHA256),
-		CreatedAt:     at.UTC(),
-	}
-	if err := result.Validate(); err != nil {
-		return ControlledCommandProposalResult{}, err
-	}
-	return result, nil
 }
 
 func (r ControlledCommandProposalResult) Validate() error {

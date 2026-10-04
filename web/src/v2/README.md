@@ -72,7 +72,7 @@ Inspector（旧 Run/Session/Event 页面，用户主动进入）
 ## 强制产品抽象
 
 1. 默认产品对象只有 Thread（中文 UI 使用“对话/任务”）。Mission、Run、Session、Event、Receipt、sequence、stage、policy revision、capability generation 全部退出默认工作面。
-2. 旧 `thread-workspace.tsx`、`thread-transcript.tsx`、`resource-sidebar.tsx`、`run-creation-dialog.tsx` 和 Run/Session 页面冻结为 Legacy/Inspector；不得继续在其上堆叠产品功能。
+2. 已删除不再挂载的旧 Thread 工作面、侧栏、Run 创建和设置入口；仍在使用的 `thread-transcript.tsx` 与 Run/Session 页面保留为 Inspector，不继续堆叠产品功能。
 3. React 发送消息时只调用一个产品入口：`POST /threads/{thread_id}/turns`。它不得判断 Run 是 created/paused/running，不得调用 start/resume，不得传 `max_steps`。
 4. Go Application Service 负责：接收用户消息、获取/创建 active Run、必要时 start/resume、连续执行 Supervisor turn，直到 finish、wait、approval、cancel、budget 或 fatal error。
 5. 新建对话没有 Run 创建向导。用户选择/继承工作区后直接看到空白对话；第一句话创建 Thread + Run 并自动工作。

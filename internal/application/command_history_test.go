@@ -64,8 +64,13 @@ func hostHandoffRecordedFixture(t *testing.T) *hostHistoryFixture {
 	if err := proposal.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	review, err := runner.NewHostCommandReview("review-history", proposal, runner.HostCommandReviewApprove, "test_operator", "saved decision", strings.Repeat("b", 64), now)
-	if err != nil {
+	review := runner.HostCommandReview{ID: "review-history", ProtocolVersion: runner.HostCommandReviewProtocolVersion,
+		PolicyVersion: runner.HostCommandPolicyVersion, ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint,
+		RunID: proposal.RunID, Decision: runner.HostCommandReviewApprove, ReviewedBy: "test_operator", Reason: "saved decision",
+		OperationKeyDigest: strings.Repeat("b", 64), SingleUseExecutionAuthorized: true, CreatedAt: now}
+	review.RequestFingerprint = runner.HostCommandReviewRequestFingerprint(review)
+	review.Fingerprint = runner.HostCommandReviewFingerprint(review)
+	if err := review.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	receipt := runner.HostExecutionReceipt{RequestID: "request-history", ProtocolVersion: runner.HostCommandReceiptProtocolVersion,
@@ -76,9 +81,13 @@ func hostHandoffRecordedFixture(t *testing.T) *hostHistoryFixture {
 	if err := receipt.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.NewHostCommandProposalResult("result-history", proposal, review, receipt.RequestID, "completed",
-		session.SourceGoCommandResult, "host-command-proposal:"+proposal.ID, strings.Repeat("c", 64), now)
-	if err != nil {
+	result := runner.HostCommandProposalResult{ID: "result-history", ProtocolVersion: runner.HostCommandResultProtocolVersion,
+		PolicyVersion: runner.HostCommandPolicyVersion, ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint,
+		ReviewID: review.ID, ReviewFingerprint: review.Fingerprint, RequestID: receipt.RequestID,
+		RunID: proposal.RunID, SessionID: proposal.SessionID, Status: "completed", SourceKind: session.SourceGoCommandResult,
+		SourceRef: "host-command-proposal:" + proposal.ID, ContentSHA256: strings.Repeat("c", 64), CreatedAt: now}
+	result.Fingerprint = runner.HostCommandProposalResultFingerprint(result)
+	if err := result.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	return &hostHistoryFixture{proposal: proposal, review: &review, result: &result, receipt: &receipt,

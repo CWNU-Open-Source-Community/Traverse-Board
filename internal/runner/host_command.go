@@ -384,22 +384,6 @@ func HostEnvironmentDigest(environment []string) (string, error) {
 	return digest, nil
 }
 
-type HostCommandProposalRequest struct {
-	ID                       string
-	RunID                    string
-	MissionID                string
-	SessionID                string
-	WorkspaceID              string
-	RootAgentID              string
-	InteractionSnapshotID    string
-	InteractionRevision      int64
-	ExecutionProfileRevision int64
-	Permission               domain.RunExecutionPermissionSnapshot
-	Spec                     HostCommandSpec
-	RequestedBy              string
-	CreatedAt                time.Time
-}
-
 // HostCommandProposal is deliberately distinct from
 // controlled_command_proposal.v1. It can exist only for approval mode and
 // never carries execution authority.
@@ -425,51 +409,6 @@ type HostCommandProposal struct {
 	CapabilityGrant          bool
 	Fingerprint              string
 	CreatedAt                time.Time
-}
-
-func NewHostCommandProposal(
-	request HostCommandProposalRequest,
-) (HostCommandProposal, error) {
-	if err := request.Spec.Validate(); err != nil ||
-		request.Permission.Validate() != nil {
-		return HostCommandProposal{}, ErrHostCommandBoundary
-	}
-	request.ID = strings.TrimSpace(request.ID)
-	request.RunID = strings.TrimSpace(request.RunID)
-	request.MissionID = strings.TrimSpace(request.MissionID)
-	request.SessionID = strings.TrimSpace(request.SessionID)
-	request.WorkspaceID = strings.TrimSpace(request.WorkspaceID)
-	request.RootAgentID = strings.TrimSpace(request.RootAgentID)
-	request.InteractionSnapshotID =
-		strings.TrimSpace(request.InteractionSnapshotID)
-	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
-	if request.Permission.Mode != domain.RunExecutionPermissionApproval ||
-		request.Permission.RunID != request.RunID ||
-		request.Permission.MissionID != request.MissionID ||
-		request.RequestedBy != "run_supervisor" {
-		return HostCommandProposal{}, ErrHostCommandBoundary
-	}
-	proposal := HostCommandProposal{
-		ID: request.ID, ProtocolVersion: HostCommandProposalProtocolVersion,
-		PolicyVersion: HostCommandPolicyVersion,
-		RunID:         request.RunID, MissionID: request.MissionID,
-		SessionID: request.SessionID, WorkspaceID: request.WorkspaceID,
-		RootAgentID:              request.RootAgentID,
-		InteractionSnapshotID:    request.InteractionSnapshotID,
-		InteractionRevision:      request.InteractionRevision,
-		ExecutionProfileRevision: request.ExecutionProfileRevision,
-		PermissionSnapshotID:     request.Permission.ID,
-		PermissionRevision:       request.Permission.Revision,
-		PermissionMode:           request.Permission.Mode,
-		Spec:                     request.Spec,
-		RequestedBy:              request.RequestedBy,
-		CreatedAt:                request.CreatedAt.UTC(),
-	}
-	proposal.Fingerprint = HostCommandProposalFingerprint(proposal)
-	if err := proposal.Validate(); err != nil {
-		return HostCommandProposal{}, err
-	}
-	return proposal, nil
 }
 
 func (p HostCommandProposal) Validate() error {
@@ -501,48 +440,6 @@ func (p HostCommandProposal) Validate() error {
 func HostCommandProposalFingerprint(proposal HostCommandProposal) string {
 	proposal.Fingerprint = ""
 	encoded, err := json.Marshal(proposal)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
-}
-
-func HostCommandProposalRequestFingerprint(
-	proposal HostCommandProposal,
-) string {
-	semantic := struct {
-		ProtocolVersion          string
-		PolicyVersion            string
-		RunID                    string
-		MissionID                string
-		SessionID                string
-		WorkspaceID              string
-		RootAgentID              string
-		InteractionSnapshotID    string
-		InteractionRevision      int64
-		ExecutionProfileRevision int64
-		PermissionSnapshotID     string
-		PermissionRevision       int64
-		PermissionMode           domain.RunExecutionPermissionMode
-		SpecFingerprint          string
-		RequestedBy              string
-	}{
-		ProtocolVersion: proposal.ProtocolVersion,
-		PolicyVersion:   proposal.PolicyVersion,
-		RunID:           proposal.RunID, MissionID: proposal.MissionID,
-		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
-		RootAgentID:              proposal.RootAgentID,
-		InteractionSnapshotID:    proposal.InteractionSnapshotID,
-		InteractionRevision:      proposal.InteractionRevision,
-		ExecutionProfileRevision: proposal.ExecutionProfileRevision,
-		PermissionSnapshotID:     proposal.PermissionSnapshotID,
-		PermissionRevision:       proposal.PermissionRevision,
-		PermissionMode:           proposal.PermissionMode,
-		SpecFingerprint:          proposal.Spec.Fingerprint,
-		RequestedBy:              proposal.RequestedBy,
-	}
-	encoded, err := json.Marshal(semantic)
 	if err != nil {
 		return ""
 	}
@@ -612,40 +509,6 @@ type HostCommandReview struct {
 	CapabilityGrant              bool
 	Fingerprint                  string
 	CreatedAt                    time.Time
-}
-
-func NewHostCommandReview(id string, proposal HostCommandProposal,
-	decision HostCommandReviewDecision, reviewedBy string, reason string,
-	operationKeyDigest string, createdAt time.Time,
-) (HostCommandReview, error) {
-	if proposal.Validate() != nil || decision.Validate() != nil {
-		return HostCommandReview{}, ErrHostCommandBoundary
-	}
-	reason = strings.TrimSpace(redact.String(reason))
-	if reason == "" {
-		if decision == HostCommandReviewApprove {
-			reason = "operator approved this exact one-shot host command"
-		} else {
-			reason = "operator denied this one-shot host command"
-		}
-	}
-	review := HostCommandReview{
-		ID:              strings.TrimSpace(id),
-		ProtocolVersion: HostCommandReviewProtocolVersion,
-		PolicyVersion:   HostCommandPolicyVersion,
-		ProposalID:      proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		RunID: proposal.RunID, Decision: decision,
-		ReviewedBy: strings.TrimSpace(reviewedBy), Reason: reason,
-		OperationKeyDigest:           strings.ToLower(strings.TrimSpace(operationKeyDigest)),
-		SingleUseExecutionAuthorized: decision == HostCommandReviewApprove,
-		CreatedAt:                    createdAt.UTC(),
-	}
-	review.RequestFingerprint = HostCommandReviewRequestFingerprint(review)
-	review.Fingerprint = HostCommandReviewFingerprint(review)
-	if err := review.Validate(); err != nil {
-		return HostCommandReview{}, err
-	}
-	return review, nil
 }
 
 func (r HostCommandReview) Validate() error {
@@ -743,38 +606,6 @@ type HostCommandProposalResult struct {
 	CreatedAt             time.Time
 	// Omitted for historical records, preserving their original JSON fingerprint.
 	SavedOutput *HostCommandSavedOutput `json:"SavedOutput,omitempty"`
-}
-
-func NewHostCommandProposalResult(id string, proposal HostCommandProposal,
-	review HostCommandReview, requestID string, status string,
-	sourceKind string, sourceRef string, contentSHA256 string,
-	createdAt time.Time, savedOutput ...HostCommandSavedOutput,
-) (HostCommandProposalResult, error) {
-	result := HostCommandProposalResult{
-		ID: strings.TrimSpace(id), ProtocolVersion: HostCommandResultProtocolVersion,
-		PolicyVersion: HostCommandPolicyVersion,
-		ProposalID:    proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		ReviewID: review.ID, ReviewFingerprint: review.Fingerprint,
-		RequestID: strings.TrimSpace(requestID), RunID: proposal.RunID,
-		SessionID: proposal.SessionID, Status: strings.TrimSpace(status),
-		SourceKind: strings.TrimSpace(sourceKind), SourceRef: strings.TrimSpace(sourceRef),
-		ContentSHA256: strings.ToLower(strings.TrimSpace(contentSHA256)),
-		CreatedAt:     createdAt.UTC(),
-	}
-	if len(savedOutput) > 1 {
-		return HostCommandProposalResult{}, ErrHostCommandBoundary
-	}
-	if len(savedOutput) == 1 {
-		copy := savedOutput[0]
-		result.SavedOutput = &copy
-	}
-	result.Fingerprint = HostCommandProposalResultFingerprint(result)
-	if proposal.Validate() != nil || review.Validate() != nil ||
-		review.ProposalID != proposal.ID ||
-		review.Decision != HostCommandReviewApprove || result.Validate() != nil {
-		return HostCommandProposalResult{}, ErrHostCommandBoundary
-	}
-	return result, nil
 }
 
 func (r HostCommandProposalResult) Validate() error {

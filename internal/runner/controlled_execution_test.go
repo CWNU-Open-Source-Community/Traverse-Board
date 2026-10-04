@@ -9,10 +9,14 @@ import (
 )
 
 func TestControlledStartSpecRejectsCallerSelectedCommandShapes(t *testing.T) {
-	request := controlledExecutionTestRequest(t, ControlledCommandGoVersion)
+	request := controlledCommandTestRequest(t, ControlledCommandGoVersion)
+	plan, err := PlanControlledCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	spec := ControlledStartSpec{
-		RequestID: ControlledExecutionRequestID(request.Plan),
-		PlanID:    request.Plan.ID, PlanFingerprint: request.Plan.Fingerprint,
+		RequestID: ControlledExecutionRequestID(plan),
+		PlanID:    plan.ID, PlanFingerprint: plan.Fingerprint,
 		ExecutableID: "go", Argv: []string{"env", "GOPATH"},
 		WorkspaceRoot: request.WorkspaceRoot,
 		Timeout:       DefaultControlledCommandTimeout,
@@ -27,57 +31,27 @@ func TestControlledStartSpecRejectsCallerSelectedCommandShapes(t *testing.T) {
 	}
 }
 
-func TestControlledStartResultRejectsUnsupportedOutputLimitClaim(t *testing.T) {
-	result := controlledStartTestResult()
-	result.OutputLimitExceeded = true
-	if err := result.Validate(); !errors.Is(err, ErrControlledExecutionBoundary) {
-		t.Fatalf("unsupported output-limit claim error=%v", err)
-	}
-
-	data := make([]byte, MaxControlledOutputCaptureBytes)
-	digest := sha256.Sum256(data)
-	result.Stdout = ControlledOutput{
-		Data: data, ObservedBytes: MaxControlledOutputObservedBytes,
-		CapturedBytes:        len(data),
-		CapturedPrefixSHA256: hex.EncodeToString(digest[:]),
-		Truncated:            true,
-	}
-	if err := result.Validate(); err != nil {
-		t.Fatalf("supported output-limit claim error=%v", err)
-	}
-}
-
-func controlledExecutionTestRequest(t *testing.T,
-	kind ControlledCommandKind,
-) ControlledExecutionRequest {
-	t.Helper()
-	planRequest := controlledCommandTestRequest(t, kind)
-	plan, err := PlanControlledCommand(planRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ControlledExecutionRequest{
-		Plan: plan, WorkspaceRoot: planRequest.WorkspaceRoot,
-		Interaction:    planRequest.Interaction,
-		CurrentProfile: planRequest.CurrentProfile,
-		CurrentSurface: planRequest.CurrentSurface,
-		RequestedBy:    "test_operator", OperatorConfirmed: true,
-	}
-}
-
-func controlledStartTestResult() ControlledStartResult {
+func TestControlledExecutionReceiptRejectsUnsupportedOutputLimitClaim(t *testing.T) {
 	now := time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC)
 	emptyDigest := sha256.Sum256(nil)
-	empty := ControlledOutput{
-		CapturedPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
-	}
-	return ControlledStartResult{
-		ExitCode: 0, Stdout: empty, Stderr: empty,
-		StartedAt: now, CompletedAt: now.Add(time.Second),
+	receipt := ControlledExecutionReceipt{
+		RequestID: "controlled-exec-receipt", ProtocolVersion: ControlledExecutionProtocolVersion,
+		PolicyVersion: ControlledExecutionPolicyVersion, Backend: "windows-fixed-restricted",
+		StdoutPrefixSHA256: hex.EncodeToString(emptyDigest[:]), StderrPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
+		StartedAt: now, CompletedAt: now.Add(time.Second), OutputLimitExceeded: true,
 		TreeReaped: true, RestrictedToken: true, LowIntegrityToken: true,
-		JobAssignedAtCreation: true, KillOnJobClose: true,
-		ActiveProcessLimit: 1,
-		ProcessMemoryLimit: MaxControlledProcessMemoryBytes,
-		StdinClosed:        true, ProductExecutionEnabled: true,
+		JobAssignedAtCreation: true, KillOnJobClose: true, ActiveProcessLimit: 1,
+		ProcessMemoryLimit: MaxControlledProcessMemoryBytes, StdinClosed: true, ProductExecutionEnabled: true,
+	}
+	if err := receipt.Validate(); !errors.Is(err, ErrControlledExecutionBoundary) {
+		t.Fatalf("unsupported output-limit claim error=%v", err)
+	}
+	digest := sha256.Sum256(make([]byte, MaxControlledOutputCaptureBytes))
+	receipt.StdoutObservedBytes = MaxControlledOutputObservedBytes
+	receipt.StdoutCapturedBytes = MaxControlledOutputCaptureBytes
+	receipt.StdoutPrefixSHA256 = hex.EncodeToString(digest[:])
+	receipt.StdoutTruncated = true
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("supported output-limit claim error=%v", err)
 	}
 }

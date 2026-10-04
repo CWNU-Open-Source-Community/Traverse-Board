@@ -26,34 +26,20 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 	}
 	emptyDigest := sha256.Sum256(nil)
 	startedAt := time.Date(2026, 8, 30, 8, 0, 0, 0, time.UTC)
-	result := runner.HostExecutionResult{
-		ProtocolVersion: runner.HostExecutionProtocolVersion,
+	receipt := runner.HostExecutionReceipt{
+		ProtocolVersion: runner.HostCommandReceiptProtocolVersion,
 		PolicyVersion:   runner.HostExecutionPolicyVersion,
-		RequestID:       intent.RequestID, OperationKeyDigest: intent.OperationKeyDigest,
-		RunID: intent.RunID, MissionID: intent.MissionID,
-		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
-		InteractionSnapshotID:    intent.InteractionSnapshotID,
-		InteractionRevision:      intent.InteractionRevision,
-		ExecutionProfileRevision: intent.ExecutionProfileRevision,
-		PermissionSnapshotID:     intent.PermissionSnapshotID,
-		PermissionRevision:       intent.PermissionRevision,
-		PermissionMode:           intent.PermissionMode,
-		SpecFingerprint:          intent.Spec.Fingerprint,
-		Backend:                  "migration-v142-test",
-		Stdout: runner.ControlledOutput{
-			CapturedPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
-		},
-		Stderr: runner.ControlledOutput{
-			CapturedPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
-		},
-		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Millisecond),
+		RequestID:       intent.RequestID, Backend: "migration-v142-test",
+		StdoutPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
+		StderrPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
+		StartedAt:          startedAt, CompletedAt: startedAt.Add(time.Millisecond),
 		TreeReaped: true, NonSandboxed: true,
 		JobAssignedAtCreation: true, KillOnJobClose: true,
 		ActiveProcessLimit: runner.MaxHostActiveProcesses,
 		JobMemoryLimit:     runner.MaxHostProcessMemoryBytes,
 		StdinClosed:        true, NetworkRequested: true, ProductExecutionEnabled: true,
 	}
-	if _, replayed, err := seedHistoricalHostExecutionReceipt(ctx, state, result); err != nil || replayed {
+	if _, replayed, err := seedHistoricalHostExecutionReceipt(ctx, state, intent, receipt); err != nil || replayed {
 		t.Fatalf("record v141 host receipt replayed=%t err=%v", replayed, err)
 	}
 
@@ -77,23 +63,14 @@ func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	interaction, err := state.GetRunExecutionInteraction(ctx, intent.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile, err := state.GetRunExecutionProfile(ctx, intent.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	debugIntent, err := runner.NewHostExecutionIntent(runner.HostExecutionIntentRequest{
-		OperationKeyDigest: strings.Repeat("d", 64),
-		RunID:              intent.RunID, MissionID: intent.MissionID,
-		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
-		Interaction: interaction, Profile: profile,
-		Permission: permission, Spec: intent.Spec,
-		RequestedBy: "test_operator", CreatedAt: startedAt.Add(time.Second),
-	})
-	if err != nil {
+	debugIntent := intent
+	debugIntent.OperationKeyDigest = strings.Repeat("d", 64)
+	debugIntent.PermissionSnapshotID = permission.ID
+	debugIntent.PermissionRevision = permission.Revision
+	debugIntent.PermissionMode = permission.Mode
+	debugIntent.CreatedAt = startedAt.Add(time.Second)
+	debugIntent.RequestID = runner.HostExecutionRequestID(debugIntent.RunID, debugIntent.OperationKeyDigest, debugIntent.Spec.Fingerprint)
+	if err := debugIntent.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	if replayed, err := seedHistoricalHostExecutionIntent(ctx, state, debugIntent); err != nil || replayed {

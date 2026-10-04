@@ -1,38 +1,13 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Check, Cpu, KeyRound, LoaderCircle, Route, Save, ShieldCheck, Trash2, X } from "lucide-react";
+import { Activity, Check, Cpu, LoaderCircle, Route, ShieldCheck } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { useLocale } from "../lib/locale";
-import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 import { PriceSnapshotsSection } from "./price-snapshots-panel";
 
-export function ModelAvailabilityDialog({ client, open, onClose }: {
-  client: CyberAgentClient;
-  open: boolean;
-  onClose: () => void;
-}) {
-  return <ModelAvailabilitySurface client={client} onClose={onClose} open={open}
-    presentation="dialog" />;
-}
-
-export function ModelAvailabilityWorkspace({ client }: { client: CyberAgentClient }) {
-  return <ModelAvailabilitySurface client={client} onClose={() => undefined} open
-    presentation="workspace" />;
-}
-
 export function ModelAvailabilitySettings({ client }: { client: CyberAgentClient }) {
-  return <ModelAvailabilitySurface client={client} onClose={() => undefined} open
-    presentation="settings" />;
-}
-
-function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
-  client: CyberAgentClient;
-  open: boolean;
-  onClose: () => void;
-  presentation: "dialog" | "workspace" | "settings";
-}) {
   const { t } = useLocale();
   const qualificationStatusLabel = (status: string) => {
     const labels: Record<string, [string, string]> = {
@@ -70,16 +45,9 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
   const [qualification, setQualification] = useState<ModelHarnessQualificationView | null>(null);
-  const [credentialBusy, setCredentialBusy] = useState("");
-  const [credentialError, setCredentialError] = useState("");
-  const [credentialRestart, setCredentialRestart] = useState(false);
-  const [credentialGeneration, setCredentialGeneration] = useState<number | null>(null);
-  const credentialInputs = useRef(new Map<string, HTMLInputElement>());
-  const dialogRef = useModalFocusTrap<HTMLElement>(open && presentation === "dialog", onClose);
   const query = useQuery({
     queryKey: ["models", "availability"],
     queryFn: ({ signal }) => client.modelAvailability(signal),
-    enabled: open,
   });
   const refreshModelRoutes = async () => {
     await Promise.all([
@@ -90,11 +58,6 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         candidate.queryKey.at(-1) === "model-route" }),
     ]);
   };
-  const credentialQuery = useQuery({
-    queryKey: ["models", "credentials"],
-    queryFn: ({ signal }) => client.providerCredentialStatuses(signal),
-    enabled: open && presentation !== "settings" && client.hasProviderCredentials,
-  });
   const routeMutation = useMutation({
     mutationFn: ({ route, reference }: { route: string; reference: string }) => {
       const slash = reference.indexOf("/");
@@ -126,52 +89,9 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       await refreshModelRoutes();
     },
   });
-  const changeCredential = async (provider: string, action: "set" | "delete") => {
-    if (credentialBusy) return;
-    const input = credentialInputs.current.get(provider);
-    const secret = action === "set" ? input?.value ?? "" : "";
-    if (action === "set" && secret.length < 8) {
-      setCredentialError(t("凭证必须至少包含 8 个非空白字符", "Credential must contain at least 8 non-space characters"));
-      return;
-    }
-    if (input) input.value = "";
-    setCredentialBusy(provider);
-    setCredentialError("");
-    const body = { version: "provider_credential.v1" as const, action,
-      secret, confirm: true };
-    try {
-      const status = await client.changeProviderCredential(provider, body);
-      setCredentialRestart(status.restart_required);
-      setCredentialGeneration(status.registry_reloaded ? status.registry_generation : null);
-      await Promise.all([credentialQuery.refetch(), refreshModelRoutes()]);
-    } catch (caught) {
-      setCredentialError(caught instanceof Error ? caught.message : t("凭证修改失败", "Credential change failed"));
-    } finally {
-      body.secret = "";
-      setCredentialBusy("");
-    }
-  };
-  if (!open) {
-    return null;
-  }
-  const surface = (
-      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : presentation === "settings" ? t("高级模型设置", "Advanced model settings") : t("模型切换", "Model selection")}
-        aria-modal={presentation === "dialog" ? "true" : undefined}
-        className={presentation === "dialog"
-          ? "desktop-dialog model-availability-dialog" : "model-control-workspace"}
-        ref={dialogRef} role={presentation === "dialog" ? "dialog" : "region"}
-        tabIndex={presentation === "dialog" ? -1 : undefined}>
-        {presentation !== "settings" && <header>
-          <div>
-            <span className="dialog-icon"><Cpu aria-hidden="true" size={18} /></span>
-            <div><h2>{presentation === "dialog" ? t("模型", "Models") : t("模型切换", "Model selection")}</h2>
-              <small>model_availability.v2</small></div>
-          </div>
-          {presentation === "dialog" && <button aria-label={t("关闭模型面板", "Close model availability")} className="icon-button"
-            onClick={onClose} title={t("关闭", "Close")} type="button">
-            <X aria-hidden="true" size={17} />
-          </button>}
-        </header>}
+  return (
+      <section aria-label={t("高级模型设置", "Advanced model settings")}
+        className="model-control-workspace" role="region">
         <div className="desktop-dialog-body model-availability-body">
           {query.isLoading && <LoadingState label={t("加载模型可用性", "Loading model availability")} />}
           {query.isError && <ErrorState error={query.error} />}
@@ -270,61 +190,14 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                     ? qualificationMutation.error.message : t("模型 Harness 验证失败", "Model Harness qualification failed")}
                 </div>}
               </section>
-              {presentation !== "settings" && client.hasProviderCredentials && <section className="model-availability-section">
-                <h3><KeyRound aria-hidden="true" size={14} />{t("系统凭证", "System credentials")}</h3>
-                {credentialQuery.isLoading && <LoadingState label={t("加载凭证状态", "Loading credential status")} />}
-                {credentialQuery.isError && <ErrorState error={credentialQuery.error} />}
-                {credentialQuery.data && <div className="provider-credential-list">
-                  {credentialQuery.data.items.map((item) => <div className="provider-credential-row"
-                    key={item.provider}>
-                    <div><strong>{item.provider}</strong><small>{item.store_kind}</small></div>
-                    <StatusBadge status={item.configured ? "configured" : "not configured"} />
-                    <input aria-label={t(`${item.provider} API 凭证`, `${item.provider} API credential`)} autoCapitalize="none"
-                      autoComplete="off" autoCorrect="off"
-                      disabled={!item.store_available || credentialBusy === item.provider}
-                      maxLength={2560} ref={(element) => {
-                        if (element) credentialInputs.current.set(item.provider, element);
-                        else credentialInputs.current.delete(item.provider);
-                      }} spellCheck={false} type="password" />
-                    <button aria-label={t(`保存 ${item.provider} 凭证`, `Store ${item.provider} credential`)} className="icon-button"
-                      disabled={!item.store_available || Boolean(credentialBusy)}
-                      onClick={() => void changeCredential(item.provider, "set")}
-                      title={t("保存到操作系统凭证管理器", "Store in the OS credential manager")} type="button">
-                      {credentialBusy === item.provider ?
-                        <LoaderCircle aria-hidden="true" className="spin" size={15} /> :
-                        <Save aria-hidden="true" size={15} />}
-                    </button>
-                    <button aria-label={t(`删除 ${item.provider} 凭证`, `Delete ${item.provider} credential`)} className="icon-button"
-                      disabled={!item.store_available || !item.configured || Boolean(credentialBusy)}
-                      onClick={() => void changeCredential(item.provider, "delete")}
-                      title={t("删除操作系统凭证", "Delete OS credential")} type="button">
-                      <Trash2 aria-hidden="true" size={15} />
-                    </button>
-                  </div>)}
-                </div>}
-                {credentialRestart && <div className="model-diagnostic-result" role="status">
-                  <Check aria-hidden="true" size={14} />{t("凭证状态已更新", "Credential status updated")}
-                  <span>{t("需要重启才能加载 Provider", "Restart required to load the Provider")}</span>
-                </div>}
-                {credentialGeneration !== null && <div className="model-diagnostic-result" role="status">
-                  <Check aria-hidden="true" size={14} />{t("凭证状态已更新", "Credential status updated")}
-                  <span>{t(`注册表代次 ${credentialGeneration} 已生效`, `Registry generation ${credentialGeneration} active`)}</span>
-                </div>}
-                {credentialError && <div className="inline-warning" role="alert">
-                  {credentialError}
-                </div>}
-              </section>}
               </>
               <section className="model-availability-section">
-                <h3><Route aria-hidden="true" size={14} />{presentation === "settings"
-                  ? t("新对话默认模型", "Default model for new conversations") : t("模型路由", "Routes")}</h3>
+                <h3><Route aria-hidden="true" size={14} />{t("新对话默认模型", "Default model for new conversations")}</h3>
                 <div className="model-route-list">
-                  {query.data.routes.filter((route) => presentation !== "settings" || route.name === "code").map((route) => (
+                  {query.data.routes.filter((route) => route.name === "code").map((route) => (
                     <div className="model-route-row" key={route.name}>
-                      <strong>{presentation === "settings" ? t("默认", "Default") : route.name}</strong>
-                      {client.hasModelControl ? <select aria-label={presentation === "settings"
-                        ? t("新对话默认模型", "Default model for new conversations")
-                        : t(`${route.name} 模型路由`, `${route.name} model route`)}
+                      <strong>{t("默认", "Default")}</strong>
+                      {client.hasModelControl ? <select aria-label={t("新对话默认模型", "Default model for new conversations")}
                         onChange={(event) => setSelections((current) => ({ ...current,
                           [route.name]: event.target.value }))}
                         value={selections[route.name] ?? `${route.provider}/${route.model}`}>
@@ -337,9 +210,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                       </select> : <span>{route.provider}/{route.model}</span>}
                       <StatusBadge status={!route.available ? "unavailable"
                         : route.harness_ready ? "harness ready" : "qualification required"} />
-                      {client.hasModelControl && <button aria-label={presentation === "settings"
-                        ? t("保存新对话默认模型", "Save default model for new conversations")
-                        : t(`保存 ${route.name} 路由`, `Save ${route.name} route`)}
+                      {client.hasModelControl && <button aria-label={t("保存新对话默认模型", "Save default model for new conversations")}
                         className="icon-button" disabled={routeMutation.isPending}
                         onClick={() => routeMutation.mutate({ route: route.name,
                           reference: selections[route.name] ?? `${route.provider}/${route.model}` })}
@@ -351,22 +222,20 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                     </div>
                   ))}
                 </div>
-                {presentation === "settings" && <p>此设置写入 code 默认路由。新对话未单独选模型时会优先使用已通过能力验证的默认模型；若它不可用，创建时会查找其他可用模型。仍引用 code 的旧任务也可能在后续执行中使用此值；其他四条命名路由不会被修改。</p>}
+                <p>此设置写入 code 默认路由。新对话未单独选模型时会优先使用已通过能力验证的默认模型；若它不可用，创建时会查找其他可用模型。仍引用 code 的旧任务也可能在后续执行中使用此值；其他四条命名路由不会被修改。</p>
               </section>
               {routeMutation.isError && <div className="inline-warning" role="alert">
                 {routeMutation.error instanceof Error
                   ? routeMutation.error.message : t("模型路由选择失败", "Model route selection failed")}
               </div>}
-              {presentation === "settings" ? <details className="model-optional-prices">
+              <details className="model-optional-prices">
                 <summary>费用上限所用价格（可选）</summary>
                 <p>仅启用美元费用上限的任务需要价格快照；它用于本地估算，不是供应商账单。</p>
                 <PriceSnapshotsSection client={client} />
-              </details> : <PriceSnapshotsSection client={client} />}
+              </details>
             </>
           )}
         </div>
       </section>
   );
-  if (presentation !== "dialog") return surface;
-  return <div className="desktop-dialog-backdrop" role="presentation">{surface}</div>;
 }

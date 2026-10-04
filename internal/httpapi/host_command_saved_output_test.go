@@ -26,7 +26,10 @@ func TestHostCommandSavedOutputProjectionRequiresExactSavedIdentity(t *testing.T
 	receipt.ProtocolVersion, receipt.PolicyVersion = runner.HostCommandReceiptProtocolVersion, runner.HostExecutionPolicyVersion
 	receipt.StdoutCapturedBytes, receipt.StdoutObservedBytes = 6, 6
 	view.Receipt = receipt
-	output := runner.NewHostCommandSavedOutput(runner.HostExecutionResult{Stdout: runner.ControlledOutput{Data: []byte("中文")}})
+	output := runner.HostCommandSavedOutput{
+		Stdout: runner.HostCommandSavedStream{Text: "中文", Redacted: true},
+		Stderr: runner.HostCommandSavedStream{Redacted: true},
+	}
 	result := runner.HostCommandProposalResult{
 		ID: "host-result-saved-output", ProtocolVersion: runner.HostCommandResultProtocolVersion,
 		PolicyVersion: runner.HostCommandPolicyVersion, ProposalID: view.Proposal.ID,

@@ -12,10 +12,6 @@ import (
 	"time"
 )
 
-// onceExecutableExtensionAllowed accepts native Unix executables; the shell
-// interpreter denylist is the guard here.
-func onceExecutableExtensionAllowed(string) bool { return true }
-
 // unixOnceStarter runs the executable in its own process group so timeout and
 // cancellation can signal the complete tree.
 type unixOnceStarter struct{}

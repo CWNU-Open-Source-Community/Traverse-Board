@@ -10,13 +10,6 @@ import { V2Workbench } from "./app";
 import * as desktopBridge from "../lib/desktop-bridge";
 import { v2FileReferenceKey } from "./components/file-context";
 
-const openLegacyInspector = vi.hoisted(() => vi.fn());
-
-vi.mock("../legacy-route", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../legacy-route")>(),
-  openLegacyInspector,
-}));
-
 vi.mock("./components/conversation", () => ({
   V2Conversation: ({ threadID, view = "conversation", draft, onDraftChange }: {
     threadID: string;
@@ -76,7 +69,6 @@ const readyModelCatalog = () => vi.fn().mockResolvedValue(selectableModelCatalog
 afterEach(() => {
   cleanup();
   useConnectionStore.getState().disconnect();
-  openLegacyInspector.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
@@ -95,7 +87,6 @@ function expectNoNavigationWrites(client: CyberAgentClient) {
   for (const call of [client.createThread, client.submitThreadTurn, client.executeRun, client.transitionThread]) {
     expect(call).not.toHaveBeenCalled();
   }
-  expect(openLegacyInspector).not.toHaveBeenCalled();
 }
 
 describe("V2Workbench inspector navigation", () => {

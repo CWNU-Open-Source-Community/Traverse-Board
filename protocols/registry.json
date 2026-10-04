@@ -437,10 +437,7 @@
         "executionauth.authorization.v1",
         "full-cdp-session-operation.v1",
         "once_command.v1",
-        "once_command_approval.v1",
         "once_command_policy.v1",
-        "once_command_request.v1",
-        "once_command_spec.v1",
         "operator_steering_cancellation_operation.v1",
         "operator_steering_cancellation_request.v1",
         "operator_steering_delivery_mode.v1",
@@ -483,7 +480,26 @@
         "toolcontract.launch.v1",
         "toolcontract.operation.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "once_command_approval.v1",
+          "decision": "ADR 0165 retires the Once execution producer; remove its uncalled approval fingerprint helper.",
+          "migration_evidence": "Stored approval fingerprints remain unchanged in once_command_proposals and are read directly by internal/store/once_command_proposals.go. Historical reads do not regenerate approval fingerprints.",
+          "rollback": "Restore the helper from Git if a retained reader needs it; keep stored records and the command-runtime.v2 execution path unchanged."
+        },
+        {
+          "identifier": "once_command_request.v1",
+          "decision": "ADR 0165 retires the Once execution producer; remove its uncalled request fingerprint helper.",
+          "migration_evidence": "Stored request and execution-request fingerprints remain unchanged in once_command_proposals and are read directly by internal/store/once_command_proposals.go. Historical reads do not regenerate execution requests.",
+          "rollback": "Restore the helper from Git if a retained reader needs it; keep stored records and the command-runtime.v2 execution path unchanged."
+        },
+        {
+          "identifier": "once_command_spec.v1",
+          "decision": "ADR 0165 retires the Once execution producer; remove its uncalled command-spec fingerprint helper.",
+          "migration_evidence": "Stored spec fingerprints remain unchanged in once_command_proposals and are read directly by internal/store/once_command_proposals.go. Historical reads do not reconstruct the removed OnceCommandSpec request type.",
+          "rollback": "Restore the helper from Git if a retained reader needs it; keep stored records and the command-runtime.v2 execution path unchanged."
+        }
+      ]
     },
     {
       "id": "browser-cdp-process-session",
@@ -1146,10 +1162,15 @@
         "desktop_workspace_launcher_list.v1",
         "desktop_workspace_open.v1",
         "prayu.run-navigation.v1",
-        "prayu.settings.sidebar.width.v1",
         "v2_file_upload.v1"
       ],
       "retired_identifiers": [
+        {
+          "identifier": "prayu.settings.sidebar.width.v1",
+          "decision": "Remove the unreachable legacy SettingsView and its private sidebar-width preference reader/writer.",
+          "rebuild_evidence": "web/src/App.tsx already selects the V2 shell. Its settings layout uses --v2-sidebar-width in web/src/v2/styles.css and does not read this legacy key; removing SettingsView preserves that current layout. Existing localStorage values are retained.",
+          "rollback": "Restore SettingsView from Git to read the unchanged localStorage value. No stored user setting is deleted."
+        },
         {
           "identifier": "prayu.sidebar.width.v1",
           "decision": "The authorized unified-shell replacement removed the legacy App sidebar reader/writer. This is presentation retirement only; existing localStorage values are neither deleted nor migrated.",

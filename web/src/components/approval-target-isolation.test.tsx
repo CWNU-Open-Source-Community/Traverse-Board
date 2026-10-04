@@ -4,12 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
-import type { RunDetailView, RunExecutionPermissionControlView, RunExecutionPermissionView,
+import type { RunExecutionPermissionView,
   ThreadExecutionPermissionControlView } from "../api/types";
-import { capabilityReadinessFixture } from "../test/capability-readiness";
 import { v2QueryKeys } from "../v2/query-keys";
 import { V2PermissionControl } from "../v2/components/permission-control";
-import { ExecutionPermissionPanel } from "./run-permission-settings";
 
 afterEach(() => { cleanup(); window.localStorage.removeItem("prayu.locale.v1"); });
 
@@ -39,11 +37,6 @@ function threadResult(id: string, full = false): ThreadExecutionPermissionContro
     current_run_effect: "no_active_run", current_run_synchronized: false, replayed: false };
 }
 
-function runDetail(id: string, full = false): RunDetailView {
-  // This exported permission panel consumes only its Run identity and preference.
-  return { run: { id }, execution_permission: permission(full) } as RunDetailView;
-}
-
 function deferred<T>() {
   let resolve!: (result: T) => void;
   let reject!: (error: Error) => void;
@@ -51,24 +44,21 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-type Host = "thread menu" | "thread settings" | "run panel";
+type Host = "thread menu" | "thread settings";
 function fixture(host: Host) {
   const queries = new QueryClient({ defaultOptions: {
     queries: { retry: false, staleTime: Infinity }, mutations: { retry: false },
   } });
-  const pending = deferred<ThreadExecutionPermissionControlView | RunExecutionPermissionControlView>();
+  const pending = deferred<ThreadExecutionPermissionControlView>();
   const change = vi.fn((_target: string, _request: unknown, _operationKey: string) => pending.promise);
   const get = vi.fn(async (id: string) => threadResult(id));
   const client = { hasExecutionPermissionControl: true, getThreadExecutionPermission: get,
-    changeThreadExecutionPermission: change, postControl: change } as unknown as CyberAgentClient;
+    changeThreadExecutionPermission: change } as unknown as CyberAgentClient;
   for (const id of ["target-A", "target-B"]) {
     queries.setQueryData(v2QueryKeys.permission(id), threadResult(id));
-    queries.setQueryData(["run", id], runDetail(id));
   }
   const view = (id: string) => <QueryClientProvider client={queries}>
-    {host === "run panel"
-      ? <ExecutionPermissionPanel client={client} detail={runDetail(id)} readiness={capabilityReadinessFixture()} />
-      : <V2PermissionControl client={client} threadID={id} variant={host === "thread menu" ? "menu" : "settings"} />}
+    <V2PermissionControl client={client} threadID={id} variant={host === "thread menu" ? "menu" : "settings"} />
   </QueryClientProvider>;
   const mounted = render(view("target-A"));
   const user = userEvent.setup();
@@ -78,17 +68,13 @@ function fixture(host: Host) {
     return within(screen.getByRole("dialog", { name: "启用完全访问权限？" }))
       .getByRole("button", { name: "确认启用" });
   };
-  const targetMode = (id: string) => host === "run panel"
-    ? queries.getQueryData<RunDetailView>(["run", id])!.execution_permission.approval_mode
-    : queries.getQueryData<ThreadExecutionPermissionControlView>(v2QueryKeys.permission(id))!.execution_permission.approval_mode;
-  const fullResult = () => host === "run panel"
-    ? { execution_permission: permission(true), replayed: false }
-    : threadResult("target-A", true);
+  const targetMode = (id: string) => queries.getQueryData<ThreadExecutionPermissionControlView>(v2QueryKeys.permission(id))!.execution_permission.approval_mode;
+  const fullResult = () => threadResult("target-A", true);
   return { queries, pending, change, get, user, openFull, targetMode, fullResult,
     switchToB: () => mounted.rerender(view("target-B")) };
 }
 
-describe.each(["thread menu", "thread settings", "run panel"] as const)("%s target isolation", (host) => {
+describe.each(["thread menu", "thread settings"] as const)("%s target isolation", (host) => {
   it("cancels A's Full confirmation when B has the same cached preference", async () => {
     const f = fixture(host);
     const oldConfirm = await f.openFull();
@@ -109,8 +95,7 @@ describe.each(["thread menu", "thread settings", "run panel"] as const)("%s targ
     const f = fixture(host);
     await f.user.click(await f.openFull());
     await waitFor(() => expect(f.change).toHaveBeenCalledTimes(1));
-    expect(f.change.mock.calls[0]![0]).toBe(host === "run panel"
-      ? "/runs/target-A/execution-permission" : "target-A");
+    expect(f.change.mock.calls[0]![0]).toBe("target-A");
     f.switchToB();
     await act(async () => { f.pending.resolve(f.fullResult()); });
     await waitFor(() => expect(f.targetMode("target-A")).toBe("full"));

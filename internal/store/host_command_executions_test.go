@@ -68,30 +68,14 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 	rawDigest := sha256.Sum256(rawOutput)
 	emptyDigest := sha256.Sum256(nil)
 	startedAt := time.Date(2026, 7, 30, 14, 0, 0, 0, time.UTC)
-	result := runner.HostExecutionResult{
-		ProtocolVersion:    runner.HostExecutionProtocolVersion,
-		PolicyVersion:      runner.HostExecutionPolicyVersion,
-		RequestID:          intent.RequestID,
-		OperationKeyDigest: intent.OperationKeyDigest,
-		RunID:              intent.RunID, MissionID: intent.MissionID,
-		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
-		InteractionSnapshotID:    intent.InteractionSnapshotID,
-		InteractionRevision:      intent.InteractionRevision,
-		ExecutionProfileRevision: intent.ExecutionProfileRevision,
-		PermissionSnapshotID:     intent.PermissionSnapshotID,
-		PermissionRevision:       intent.PermissionRevision,
-		PermissionMode:           intent.PermissionMode,
-		SpecFingerprint:          intent.Spec.Fingerprint,
-		Backend:                  "test-host-backend",
-		Stdout: runner.ControlledOutput{
-			Data: rawOutput, ObservedBytes: int64(len(rawOutput)),
-			CapturedBytes:        len(rawOutput),
-			CapturedPrefixSHA256: hex.EncodeToString(rawDigest[:]),
-		},
-		Stderr: runner.ControlledOutput{
-			CapturedPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
-		},
-		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second),
+	savedReceipt := runner.HostExecutionReceipt{
+		ProtocolVersion: runner.HostCommandReceiptProtocolVersion,
+		PolicyVersion:   runner.HostExecutionPolicyVersion, RequestID: intent.RequestID,
+		Backend:             "test-host-backend",
+		StdoutObservedBytes: int64(len(rawOutput)), StdoutCapturedBytes: len(rawOutput),
+		StdoutPrefixSHA256: hex.EncodeToString(rawDigest[:]),
+		StderrPrefixSHA256: hex.EncodeToString(emptyDigest[:]),
+		StartedAt:          startedAt, CompletedAt: startedAt.Add(time.Second),
 		TreeReaped: true, NonSandboxed: true,
 		JobAssignedAtCreation: true, KillOnJobClose: true,
 		ActiveProcessLimit: runner.MaxHostActiveProcesses,
@@ -99,7 +83,7 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 		StdinClosed:        true, NetworkRequested: true,
 		ProductExecutionEnabled: true,
 	}
-	receipt, replayed, err := seedHistoricalHostExecutionReceipt(ctx, st, result)
+	receipt, replayed, err := seedHistoricalHostExecutionReceipt(ctx, st, intent, savedReceipt)
 	if err != nil || replayed {
 		t.Fatalf("record replayed=%v receipt=%+v err=%v",
 			replayed, receipt, err)
@@ -108,7 +92,7 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 	if err != nil || !found || loaded != receipt {
 		t.Fatalf("loaded found=%v receipt=%+v err=%v", found, loaded, err)
 	}
-	_, replayed, err = seedHistoricalHostExecutionReceipt(ctx, st, result)
+	_, replayed, err = seedHistoricalHostExecutionReceipt(ctx, st, intent, savedReceipt)
 	if err != nil || !replayed {
 		t.Fatalf("result replay replayed=%v err=%v", replayed, err)
 	}
@@ -302,17 +286,18 @@ func hostExecutionStoreIntent(
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent, err := runner.NewHostExecutionIntent(
-		runner.HostExecutionIntentRequest{
-			OperationKeyDigest: strings.Repeat("b", 64),
-			RunID:              runRecord.ID, MissionID: mission.ID,
-			SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
-			Interaction: interaction.Interaction, Profile: profile.Profile,
-			Permission: permission, Spec: spec,
-			RequestedBy: "test_operator",
-			CreatedAt:   time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC),
-		})
-	if err != nil {
+	intent := runner.HostExecutionIntent{
+		ProtocolVersion: runner.HostCommandIntentProtocolVersion, PolicyVersion: runner.HostExecutionPolicyVersion,
+		OperationKeyDigest: strings.Repeat("b", 64), RunID: runRecord.ID, MissionID: mission.ID,
+		SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
+		InteractionSnapshotID: interaction.Interaction.ID, InteractionRevision: interaction.Interaction.Revision,
+		ExecutionProfileRevision: profile.Profile.Revision, PermissionSnapshotID: permission.ID,
+		PermissionRevision: permission.Revision, PermissionMode: permission.Mode,
+		Spec: spec, RequestedBy: "test_operator", NonSandboxed: true,
+		CreatedAt: time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC),
+	}
+	intent.RequestID = runner.HostExecutionRequestID(intent.RunID, intent.OperationKeyDigest, spec.Fingerprint)
+	if err := intent.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	return intent, environment

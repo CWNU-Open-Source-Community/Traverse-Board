@@ -43,7 +43,7 @@ func TestLegacyTemplateCommandsDoNotCallModelOrClaimCompletion(t *testing.T) {
 	var out, errOut bytes.Buffer
 	checker := policy.NewDefaultChecker()
 	a := &App{home: home, out: &out, errOut: &errOut, store: st, router: router,
-		checker: checker, kernel: agent.NewKernel(st, router, checker)}
+		checker: checker}
 
 	if err := a.dispatch(t.Context(), []string{
 		"script", "new", "Create a Python add function", "--workspace", "audit", "--language", "python",

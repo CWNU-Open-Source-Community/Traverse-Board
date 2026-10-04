@@ -37,31 +37,6 @@ type ControlledExecutionIntent struct {
 	CreatedAt                time.Time
 }
 
-func NewControlledExecutionIntent(plan ControlledCommandPlan,
-	requestedBy string, createdAt time.Time,
-) (ControlledExecutionIntent, error) {
-	if err := plan.Validate(); err != nil || !validExecutionOperator(requestedBy) ||
-		createdAt.IsZero() {
-		return ControlledExecutionIntent{}, ErrControlledExecutionBoundary
-	}
-	intent := ControlledExecutionIntent{
-		ProtocolVersion: ControlledExecutionIntentProtocolVersion,
-		PolicyVersion:   ControlledExecutionPolicyVersion,
-		RequestID:       ControlledExecutionRequestID(plan),
-		PlanID:          plan.ID, PlanFingerprint: plan.Fingerprint,
-		RunID: plan.RunID, WorkspaceID: plan.WorkspaceID,
-		InteractionSnapshotID:    plan.InteractionSnapshotID,
-		InteractionRevision:      plan.InteractionRevision,
-		ExecutionProfileRevision: plan.ExecutionProfileRevision,
-		Kind:                     plan.Kind, RequestedBy: requestedBy,
-		CreatedAt: createdAt.UTC(),
-	}
-	if err := intent.Validate(); err != nil {
-		return ControlledExecutionIntent{}, err
-	}
-	return intent, nil
-}
-
 func ControlledExecutionRequestID(plan ControlledCommandPlan) string {
 	if !validSHA256(plan.Fingerprint) {
 		return ""
@@ -91,19 +66,6 @@ var (
 	ErrControlledExecutionPlatform = errors.New("controlled command execution platform is unavailable")
 	ErrControlledOutputLimit       = errors.New("controlled command output limit exceeded")
 )
-
-// ControlledExecutionRequest is an operator-only, one-shot use of a closed
-// command plan. It deliberately repeats the current durable bindings so a
-// stale plan cannot be started after a Run mode or profile transition.
-type ControlledExecutionRequest struct {
-	Plan              ControlledCommandPlan
-	WorkspaceRoot     string
-	Interaction       domain.RunExecutionInteractionSnapshot
-	CurrentProfile    domain.RunExecutionProfileSnapshot
-	CurrentSurface    domain.ExecutionSurface
-	RequestedBy       string
-	OperatorConfirmed bool
-}
 
 type ControlledStartSpec struct {
 	RequestID       string
@@ -194,89 +156,6 @@ func (o ControlledOutput) Validate() error {
 	return nil
 }
 
-type ControlledStartResult struct {
-	ExitCode                int
-	Stdout                  ControlledOutput
-	Stderr                  ControlledOutput
-	StartedAt               time.Time
-	CompletedAt             time.Time
-	TimedOut                bool
-	Cancelled               bool
-	OutputLimitExceeded     bool
-	TreeReaped              bool
-	RestrictedToken         bool
-	LowIntegrityToken       bool
-	JobAssignedAtCreation   bool
-	KillOnJobClose          bool
-	ActiveProcessLimit      int
-	ProcessMemoryLimit      int64
-	StdinClosed             bool
-	EnvironmentInherited    bool
-	NetworkRequested        bool
-	PersistentProcess       bool
-	ProductExecutionEnabled bool
-}
-
-func (r ControlledStartResult) Validate() error {
-	if r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) ||
-		!r.TreeReaped || !r.RestrictedToken || !r.LowIntegrityToken ||
-		!r.JobAssignedAtCreation || !r.KillOnJobClose ||
-		r.ActiveProcessLimit != 1 ||
-		r.ProcessMemoryLimit != MaxControlledProcessMemoryBytes ||
-		!r.StdinClosed || r.EnvironmentInherited || r.NetworkRequested ||
-		r.PersistentProcess || !r.ProductExecutionEnabled ||
-		(r.TimedOut && r.Cancelled) {
-		return ErrControlledExecutionBoundary
-	}
-	if err := r.Stdout.Validate(); err != nil {
-		return err
-	}
-	if err := r.Stderr.Validate(); err != nil {
-		return err
-	}
-	if r.OutputLimitExceeded &&
-		r.Stdout.ObservedBytes != MaxControlledOutputObservedBytes &&
-		r.Stderr.ObservedBytes != MaxControlledOutputObservedBytes {
-		return ErrControlledExecutionBoundary
-	}
-	return nil
-}
-
-type ControlledExecutionResult struct {
-	ProtocolVersion          string
-	PolicyVersion            string
-	RequestID                string
-	PlanID                   string
-	PlanFingerprint          string
-	RunID                    string
-	WorkspaceID              string
-	InteractionSnapshotID    string
-	InteractionRevision      int64
-	ExecutionProfileRevision int64
-	Kind                     ControlledCommandKind
-	Backend                  string
-	ExitCode                 int
-	Stdout                   ControlledOutput
-	Stderr                   ControlledOutput
-	StartedAt                time.Time
-	CompletedAt              time.Time
-	TimedOut                 bool
-	Cancelled                bool
-	OutputLimitExceeded      bool
-	TreeReaped               bool
-	RestrictedToken          bool
-	LowIntegrityToken        bool
-	JobAssignedAtCreation    bool
-	KillOnJobClose           bool
-	ActiveProcessLimit       int
-	ProcessMemoryLimit       int64
-	StdinClosed              bool
-	EnvironmentInherited     bool
-	NetworkRequested         bool
-	PersistentProcess        bool
-	ProductExecutionEnabled  bool
-}
-
 // ControlledExecutionReceipt is the metadata-only durable projection of a
 // sealed execution result. Raw stdout and stderr deliberately do not belong to
 // this type.
@@ -358,36 +237,6 @@ func (r ControlledExecutionReceipt) Validate() error {
 		return ErrControlledExecutionBoundary
 	}
 	return nil
-}
-
-func (r ControlledExecutionResult) Validate() error {
-	if r.ProtocolVersion != ControlledExecutionProtocolVersion ||
-		r.PolicyVersion != ControlledExecutionPolicyVersion ||
-		!validIdentity(r.RequestID) || !validIdentity(r.PlanID) ||
-		!validSHA256(r.PlanFingerprint) || !domain.ValidAgentID(r.RunID) ||
-		!domain.ValidAgentID(r.WorkspaceID) ||
-		!validIdentity(r.InteractionSnapshotID) ||
-		r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
-		!validIdentity(r.Backend) {
-		return ErrControlledExecutionBoundary
-	}
-	if _, err := ParseControlledCommandKind(string(r.Kind)); err != nil {
-		return err
-	}
-	started := ControlledStartResult{
-		ExitCode: r.ExitCode, Stdout: r.Stdout, Stderr: r.Stderr,
-		StartedAt: r.StartedAt, CompletedAt: r.CompletedAt,
-		TimedOut: r.TimedOut, Cancelled: r.Cancelled,
-		OutputLimitExceeded: r.OutputLimitExceeded, TreeReaped: r.TreeReaped,
-		RestrictedToken: r.RestrictedToken, LowIntegrityToken: r.LowIntegrityToken,
-		JobAssignedAtCreation: r.JobAssignedAtCreation,
-		KillOnJobClose:        r.KillOnJobClose, ActiveProcessLimit: r.ActiveProcessLimit,
-		ProcessMemoryLimit: r.ProcessMemoryLimit, StdinClosed: r.StdinClosed,
-		EnvironmentInherited: r.EnvironmentInherited,
-		NetworkRequested:     r.NetworkRequested, PersistentProcess: r.PersistentProcess,
-		ProductExecutionEnabled: r.ProductExecutionEnabled,
-	}
-	return started.Validate()
 }
 
 func validControlledArgument(value string) bool {

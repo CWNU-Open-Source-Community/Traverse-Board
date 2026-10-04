@@ -186,15 +186,31 @@ func TestHistoricalHostProposalUpgradePreservesEvidenceAndContinuation(t *testin
 			if scenario == "denied" {
 				decision = runner.HostCommandReviewDeny
 			}
-			review, err := runner.NewHostCommandReview("history-host-review", proposal, decision, "operator", "saved review", strings.Repeat("b", 64), now)
-			if err != nil {
+			review := runner.HostCommandReview{ID: "history-host-review", ProtocolVersion: runner.HostCommandReviewProtocolVersion,
+				PolicyVersion: runner.HostCommandPolicyVersion, ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint,
+				RunID: run.ID, Decision: decision, ReviewedBy: "operator", Reason: "saved review",
+				OperationKeyDigest: strings.Repeat("b", 64), SingleUseExecutionAuthorized: decision == runner.HostCommandReviewApprove, CreatedAt: now}
+			review.RequestFingerprint = runner.HostCommandReviewRequestFingerprint(review)
+			review.Fingerprint = runner.HostCommandReviewFingerprint(review)
+			if err := review.Validate(); err != nil {
 				t.Fatal(err)
 			}
 			historicalProposalExec(t, st, `INSERT INTO host_command_proposal_reviews(id,proposal_id,proposal_fingerprint,run_id,decision,reviewed_by,operation_key_digest,request_fingerprint,single_use_execution_authorized,capability_grant,review_fingerprint,payload_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)`, review.ID, proposal.ID, proposal.Fingerprint, run.ID, review.Decision, review.ReviewedBy, review.OperationKeyDigest, review.RequestFingerprint, review.SingleUseExecutionAuthorized, review.Fingerprint, historicalProposalJSON(t, review), ts(now))
 			var receipt *runner.HostExecutionReceipt
 			if scenario != "denied" {
-				intent, err := runner.NewApprovedHostExecutionIntent(proposal, review, strings.Repeat("c", 64), now)
-				if err != nil {
+				intent := runner.HostExecutionIntent{
+					ProtocolVersion: runner.HostCommandIntentProtocolVersion, PolicyVersion: runner.HostExecutionPolicyVersion,
+					OperationKeyDigest: strings.Repeat("c", 64), RunID: run.ID, MissionID: run.MissionID,
+					SessionID: run.SessionID, WorkspaceID: proposal.WorkspaceID,
+					InteractionSnapshotID: proposal.InteractionSnapshotID, InteractionRevision: proposal.InteractionRevision,
+					ExecutionProfileRevision: proposal.ExecutionProfileRevision, PermissionSnapshotID: proposal.PermissionSnapshotID,
+					PermissionRevision: proposal.PermissionRevision, PermissionMode: proposal.PermissionMode,
+					AuthorizationProposalID: proposal.ID, AuthorizationProposalFingerprint: proposal.Fingerprint,
+					AuthorizationReviewID: review.ID, AuthorizationReviewFingerprint: review.Fingerprint,
+					Spec: proposal.Spec, RequestedBy: review.ReviewedBy, NonSandboxed: true, CreatedAt: now,
+				}
+				intent.RequestID = runner.HostExecutionRequestID(intent.RunID, intent.OperationKeyDigest, intent.Spec.Fingerprint)
+				if err := intent.Validate(); err != nil {
 					t.Fatal(err)
 				}
 				data := historicalProposalJSON(t, intent)
@@ -220,13 +236,21 @@ func TestHistoricalHostProposalUpgradePreservesEvidenceAndContinuation(t *testin
 					if err := tx.Commit(); err != nil {
 						t.Fatal(err)
 					}
-					result, err := runner.NewHostCommandProposalResult("history-host-result", proposal, review, saved.RequestID, status, evidence.Provenance.SourceKind, evidence.Provenance.SourceRef, session.ContentSHA256(evidence.Content), now)
-					if err != nil {
+					result := runner.HostCommandProposalResult{
+						ID: "history-host-result", ProtocolVersion: runner.HostCommandResultProtocolVersion, PolicyVersion: runner.HostCommandPolicyVersion,
+						ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint, ReviewID: review.ID, ReviewFingerprint: review.Fingerprint,
+						RequestID: saved.RequestID, RunID: run.ID, SessionID: run.SessionID, Status: status,
+						SourceKind: evidence.Provenance.SourceKind, SourceRef: evidence.Provenance.SourceRef,
+						ContentSHA256: session.ContentSHA256(evidence.Content), CreatedAt: now,
+						SavedOutput: &runner.HostCommandSavedOutput{
+							Stdout: runner.HostCommandSavedStream{Text: "verified helper output", Redacted: true},
+							Stderr: runner.HostCommandSavedStream{Redacted: true},
+						},
+					}
+					result.Fingerprint = runner.HostCommandProposalResultFingerprint(result)
+					if err := result.Validate(); err != nil {
 						t.Fatal(err)
 					}
-					out := runner.NewHostCommandSavedOutput(runner.HostExecutionResult{Stdout: runner.ControlledOutput{Data: []byte("verified helper output")}})
-					result.SavedOutput = &out
-					result.Fingerprint = runner.HostCommandProposalResultFingerprint(result)
 					receiptJSON := historicalProposalJSON(t, saved)
 					historicalProposalExec(t, st, `INSERT INTO host_command_proposal_results(id,proposal_id,review_id,request_id,run_id,session_id,session_message_id,status,result_fingerprint,receipt_fingerprint,result_json,receipt_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, result.ID, proposal.ID, review.ID, saved.RequestID, run.ID, run.SessionID, message.ID, status, result.Fingerprint, session.ContentSHA256(receiptJSON), historicalProposalJSON(t, result), receiptJSON, ts(now))
 				}
@@ -237,7 +261,7 @@ func TestHistoricalHostProposalUpgradePreservesEvidenceAndContinuation(t *testin
 			if err := st.Close(); err != nil {
 				t.Fatal(err)
 			}
-			st, err = Open(f.path)
+			st, err := Open(f.path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -284,8 +308,19 @@ func TestHistoricalRiskResumeRequiresSavedOutcomeExactTurnAndNoLiveLease(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			p, err := runner.NewRiskEscalationProposal(runner.RiskEscalationProposalRequest{ID: "risk-escalation-history-proposal", RunID: run.ID, MissionID: run.MissionID, SessionID: run.SessionID, WorkspaceID: f.turn.Mission.WorkspaceID, RootAgentID: f.turn.Agent.ID, SupervisorTurn: f.turn.Checkpoint.NextTurn, SupervisorToolCallID: "historical-risk-call", ToolInvocationID: "historical-risk-invocation", ModeSnapshotID: f.mode.ID, ModeRevision: f.mode.Revision, InteractionSnapshotID: f.interaction.ID, InteractionRevision: f.interaction.Revision, ExecutionProfileSnapshotID: f.profile.ID, ExecutionProfileRevision: f.profile.Revision, Permission: f.permission, WorkspaceRootFingerprint: strings.Repeat("a", 64), CapabilityGeneration: strings.Repeat("b", 64), Spec: f.spec, Scope: scope, RequestedBy: "run_supervisor", CreatedAt: now})
-			if err != nil {
+			p := runner.RiskEscalationProposal{
+				ID: "risk-escalation-history-proposal", ProtocolVersion: runner.RiskEscalationProtocolVersion, PolicyVersion: runner.RiskEscalationPolicyVersion,
+				RunID: run.ID, MissionID: run.MissionID, SessionID: run.SessionID, WorkspaceID: f.turn.Mission.WorkspaceID,
+				RootAgentID: f.turn.Agent.ID, SupervisorTurn: f.turn.Checkpoint.NextTurn, SupervisorToolCallID: "historical-risk-call",
+				ToolInvocationID: "historical-risk-invocation", ModeSnapshotID: f.mode.ID, ModeRevision: f.mode.Revision,
+				InteractionSnapshotID: f.interaction.ID, InteractionRevision: f.interaction.Revision,
+				ExecutionProfileSnapshotID: f.profile.ID, ExecutionProfileRevision: f.profile.Revision,
+				PermissionSnapshotID: f.permission.ID, PermissionRevision: f.permission.Revision, PermissionMode: f.permission.Mode,
+				WorkspaceRootFingerprint: strings.Repeat("a", 64), CapabilityGeneration: strings.Repeat("b", 64),
+				Spec: f.spec, Scope: scope, ResourceBudget: runner.NewRiskEscalationResourceBudget(f.spec), RequestedBy: "run_supervisor", CreatedAt: now,
+			}
+			p.Fingerprint = runner.RiskEscalationProposalFingerprint(p)
+			if err := p.Validate(); err != nil {
 				t.Fatal(err)
 			}
 			if strings.Contains(scenario, "wrong_turn") {
@@ -307,12 +342,26 @@ func TestHistoricalRiskResumeRequiresSavedOutcomeExactTurnAndNoLiveLease(t *test
 			}
 			historicalProposalExec(t, st, `INSERT INTO tool_approvals(id,idempotency_key,proposal_id,run_id,session_id,workspace_id,tool_name,action_class,mode,status,request_fingerprint,decision_reason,requested_by,reviewed_by,version,created_at,updated_at,decided_at) VALUES ('historical-risk-approval','historical-risk-key',?,?,?,?,'host_command_propose','risk_escalation','per_call',?,?,'historical decision','run_supervisor',?,1,?,?,?)`, p.ID, run.ID, run.SessionID, p.WorkspaceID, status, strings.Repeat("c", 64), reviewer, ts(now), ts(now), decided)
 			if scenario == "unknown" || scenario == "completed" {
-				auth, err := runner.NewRiskEscalationAuthorization(p, "historical-risk-approval", 1, strings.Repeat("c", 64), "", 0, "", "operator", now)
-				if err != nil {
+				auth := runner.RiskEscalationAuthorization{
+					ProtocolVersion: runner.RiskEscalationProtocolVersion, ProposalID: p.ID, ProposalFingerprint: p.Fingerprint,
+					ApprovalID: "historical-risk-approval", ApprovalVersion: 1, ApprovalFingerprint: strings.Repeat("c", 64),
+					ScopeFingerprint: p.Scope.Fingerprint, ReviewedBy: "operator", AuthorizedAt: now,
+				}
+				if err := auth.Validate(); err != nil {
 					t.Fatal(err)
 				}
-				intent, err := runner.NewRiskEscalationHostExecutionIntent(p, auth, strings.Repeat("d", 64), now)
-				if err != nil {
+				intent := runner.HostExecutionIntent{
+					ProtocolVersion: runner.HostCommandIntentProtocolVersion, PolicyVersion: runner.HostExecutionPolicyVersion,
+					OperationKeyDigest: strings.Repeat("d", 64), RunID: run.ID, MissionID: run.MissionID, SessionID: run.SessionID,
+					WorkspaceID: p.WorkspaceID, InteractionSnapshotID: p.InteractionSnapshotID, InteractionRevision: p.InteractionRevision,
+					ExecutionProfileRevision: p.ExecutionProfileRevision, PermissionSnapshotID: p.PermissionSnapshotID,
+					PermissionRevision: p.PermissionRevision, PermissionMode: p.PermissionMode,
+					AuthorizationProposalID: p.ID, AuthorizationProposalFingerprint: p.Fingerprint,
+					AuthorizationReviewID: auth.ApprovalID, AuthorizationReviewFingerprint: runner.RiskEscalationAuthorizationFingerprint(auth),
+					Spec: p.Spec, RequestedBy: auth.ReviewedBy, NonSandboxed: true, CreatedAt: now,
+				}
+				intent.RequestID = runner.HostExecutionRequestID(intent.RunID, intent.OperationKeyDigest, intent.Spec.Fingerprint)
+				if err := intent.Validate(); err != nil {
 					t.Fatal(err)
 				}
 				data := historicalProposalJSON(t, intent)
@@ -331,8 +380,15 @@ func TestHistoricalRiskResumeRequiresSavedOutcomeExactTurnAndNoLiveLease(t *test
 					if err := tx.Commit(); err != nil {
 						t.Fatal(err)
 					}
-					result, err := runner.NewRiskEscalationResult("history-risk-result", p, auth, intent.RequestID, "completed", "", evidence.Provenance.SourceKind, evidence.Provenance.SourceRef, session.ContentSHA256(evidence.Content), false, now)
-					if err != nil {
+					result := runner.RiskEscalationResult{
+						ID: "history-risk-result", ProtocolVersion: runner.RiskEscalationProtocolVersion,
+						ProposalID: p.ID, ProposalFingerprint: p.Fingerprint, ApprovalID: auth.ApprovalID, ApprovalFingerprint: auth.ApprovalFingerprint,
+						RequestID: intent.RequestID, RunID: run.ID, SessionID: run.SessionID, Status: "completed",
+						SourceKind: evidence.Provenance.SourceKind, SourceRef: evidence.Provenance.SourceRef,
+						ContentSHA256: session.ContentSHA256(evidence.Content), CreatedAt: now,
+					}
+					result.Fingerprint = runner.RiskEscalationResultFingerprint(result)
+					if err := result.Validate(); err != nil {
 						t.Fatal(err)
 					}
 					receiptJSON := historicalProposalJSON(t, historicalReceipt(intent.RequestID, now))
