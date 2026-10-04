@@ -149,7 +149,7 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			"web evidence Run route no longer matches the Supervisor scope")
 	}
 	_, _, permissionRuntimeEpoch, _ := bindWebEvidenceRuntime(e.executionCapabilities, permission)
-	checkLiveFullAccess := func() error {
+	checkLiveFullAccess := func(ctx context.Context) error {
 		if !permission.Mode.IsFullPreference() {
 			return nil
 		}
@@ -167,7 +167,7 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		}
 		return nil
 	}
-	if err := checkLiveFullAccess(); err != nil {
+	if err := checkLiveFullAccess(ctx); err != nil {
 		return toolgateway.WebEvidenceExecutionResult{}, err
 	}
 	networkAuthority := effectiveWebEvidenceAuthority(mode.Scope, permission.Mode)
@@ -216,16 +216,17 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		RobotsPolicy:         effectiveWebEvidenceRobotsPolicy(permission.Mode),
 		ProviderFingerprint:  scope.ProviderFingerprint,
 		ConnectorFingerprint: scope.ConnectorFingerprint}
+	service := e.service.WithNetworkPreflight(checkLiveFullAccess)
 	switch name {
 	case toolgateway.WebSearchTool:
 		var request toolgateway.WebSearchPayload
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
-		if err := checkLiveFullAccess(); err != nil {
+		if err := checkLiveFullAccess(ctx); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
-		result, err := e.service.Search(ctx, executionScope, webevidence.SearchRequest{
+		result, err := service.Search(ctx, executionScope, webevidence.SearchRequest{
 			Query: request.Query, Limit: request.Limit, AllowedDomains: request.AllowedDomains, BlockedDomains: request.BlockedDomains}, scope.OperationKey)
 		if err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
@@ -255,10 +256,10 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 		if err := json.Unmarshal(payload, &request); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
-		if err := checkLiveFullAccess(); err != nil {
+		if err := checkLiveFullAccess(ctx); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
-		result, err := e.service.SourceSearch(ctx, executionScope,
+		result, err := service.SourceSearch(ctx, executionScope,
 			webevidence.SourceSearchRequest{Connectors: request.Connectors,
 				Query: request.Query, Limit: request.Limit}, scope.OperationKey)
 		if err != nil {
@@ -312,10 +313,10 @@ func (e *WebEvidenceToolExecutor) ExecuteWebEvidence(ctx context.Context,
 			executionScope.Authority = webevidence.NetworkAuthority{Mode: "allowlist",
 				AllowedTargets: []string{inlineAuthorization.ExactTarget}}
 		}
-		if err := checkLiveFullAccess(); err != nil {
+		if err := checkLiveFullAccess(ctx); err != nil {
 			return toolgateway.WebEvidenceExecutionResult{}, err
 		}
-		result, err := e.service.Fetch(ctx, executionScope, webevidence.FetchRequest{
+		result, err := service.Fetch(ctx, executionScope, webevidence.FetchRequest{
 			SourceID: request.SourceID, URL: request.URL,
 			Connector: request.Connector, MaxItems: request.MaxItems, Question: request.Question}, scope.OperationKey)
 		if err != nil {

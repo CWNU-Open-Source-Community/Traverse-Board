@@ -105,9 +105,10 @@ func (s *Service) SourceSearch(ctx context.Context, scope ExecutionScope,
 	}
 
 	type connectorOutcome struct {
-		connector SourceConnector
-		items     []ConnectorSearchItem
-		err       error
+		connector    SourceConnector
+		items        []ConnectorSearchItem
+		err          error
+		preflightErr error
 	}
 	outcomes := make([]connectorOutcome, len(selected))
 	var wait sync.WaitGroup
@@ -115,11 +116,20 @@ func (s *Service) SourceSearch(ctx context.Context, scope ExecutionScope,
 		wait.Add(1)
 		go func(index int, connector SourceConnector) {
 			defer wait.Done()
+			if err := s.checkNetworkPreflight(ctx); err != nil {
+				outcomes[index] = connectorOutcome{connector: connector, preflightErr: err}
+				return
+			}
 			items, searchErr := connector.Search(ctx, query, limit, scope.Authority)
 			outcomes[index] = connectorOutcome{connector: connector, items: items, err: searchErr}
 		}(index, connector)
 	}
 	wait.Wait()
+	for _, outcome := range outcomes {
+		if outcome.preflightErr != nil {
+			return SourceSearchResult{}, outcome.preflightErr
+		}
+	}
 
 	now := s.now().UTC()
 	result := SourceSearchResult{ProtocolVersion: SourceSearchProtocolVersion,
