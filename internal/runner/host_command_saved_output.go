@@ -23,26 +23,6 @@ type HostCommandSavedOutput struct {
 	Stderr HostCommandSavedStream
 }
 
-// NewHostCommandSavedOutput projects each actual execution stream before any
-// evidence envelope is assembled. It never interprets output as delimiters.
-func NewHostCommandSavedOutput(execution HostExecutionResult) HostCommandSavedOutput {
-	remaining := MaxHostCommandSavedOutputBytes
-	project := func(output ControlledOutput) HostCommandSavedStream {
-		text := redact.String(SanitizeCommandEvidence(output.Data))
-		truncated := output.Truncated || len(text) > remaining
-		if len(text) > remaining {
-			end := remaining
-			for end > 0 && !utf8.ValidString(text[:end]) {
-				end--
-			}
-			text = text[:end]
-		}
-		remaining -= len(text)
-		return HostCommandSavedStream{Text: text, Truncated: truncated, Redacted: true}
-	}
-	return HostCommandSavedOutput{Stdout: project(execution.Stdout), Stderr: project(execution.Stderr)}
-}
-
 func (output HostCommandSavedOutput) Validate() error {
 	if len(output.Stdout.Text)+len(output.Stderr.Text) > MaxHostCommandSavedOutputBytes {
 		return ErrHostCommandBoundary

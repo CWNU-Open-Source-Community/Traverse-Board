@@ -7,99 +7,55 @@ import (
 	"cyberagent-workbench/internal/domain"
 )
 
-func TestControlledCommandProposalSealsFixedIntent(t *testing.T) {
-	now := time.Now().UTC()
-	request := controlledCommandTestRequest(t, ControlledCommandGitStatus)
-	request.ID = "plan-proposal"
-	plan, err := PlanControlledCommand(request)
-	if err != nil {
+func TestHistoricalControlledCommandProposalRejectsAlteredIntent(t *testing.T) {
+	proposal := controlledCommandProposalFixture()
+	if err := proposal.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	run := domain.Run{ID: plan.RunID, MissionID: request.Interaction.MissionID}
-	mission := domain.Mission{ID: run.MissionID}
-	permission, err := domain.NewInitialRunExecutionPermissionSnapshot(
-		"permission-proposal", run, mission, "schema_v88", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := NewControlledCommandProposal(
-		ControlledCommandProposalRequest{
-			ID: "command-proposal", Plan: plan, MissionID: mission.ID,
-			SessionID: "session-proposal", RootAgentID: "agent-root-proposal",
-			Permission: permission, Purpose: "inspect repository status",
-			RequestedBy: "run_supervisor", CreatedAt: now,
-		})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proposal.ExecutionAuthorized || proposal.InstructionAuthorized ||
-		proposal.CapabilityGrant || proposal.Kind != ControlledCommandGitStatus ||
-		proposal.Fingerprint == "" {
-		t.Fatalf("unexpected proposal: %+v", proposal)
-	}
-	tampered := proposal
-	tampered.Kind = ControlledCommandGoVersion
-	if err := tampered.Validate(); err == nil {
-		t.Fatal("tampered proposal unexpectedly validated")
+	proposal.Kind = ControlledCommandGitStatus
+	if err := proposal.Validate(); err == nil {
+		t.Fatal("tampered historical proposal unexpectedly validated")
 	}
 }
 
-func TestControlledCommandProposalReviewIsSingleUseAndImmutable(t *testing.T) {
-	proposal := controlledCommandProposalFixture(t)
-	review, err := NewControlledCommandProposalReview(
-		"command-review", proposal, ControlledCommandReviewApprove,
-		"cli_operator", "approved for exact execution",
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
+func TestHistoricalControlledCommandReviewIsSingleUseAndImmutable(t *testing.T) {
+	proposal := controlledCommandProposalFixture()
+	review := ControlledCommandProposalReview{
+		ID: "command-review", ProtocolVersion: ControlledCommandReviewProtocolVersion,
+		PolicyVersion: ControlledCommandProposalPolicyVersion, ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint,
+		RunID: proposal.RunID, MissionID: proposal.MissionID, SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
+		Decision: ControlledCommandReviewApprove, ReviewedBy: "cli_operator", Reason: "approved for exact execution",
+		OperationKeyDigest: hostCommandTestDigest, SingleUseExecutionAuthorized: true, CreatedAt: proposal.CreatedAt,
 	}
-	if !review.SingleUseExecutionAuthorized || review.CapabilityGrant {
-		t.Fatalf("unexpected review authority: %+v", review)
+	review.RequestFingerprint = ControlledCommandReviewRequestFingerprint(review)
+	if err := review.Validate(); err != nil {
+		t.Fatal(err)
 	}
 	tampered := review
 	tampered.Decision = ControlledCommandReviewDeny
 	if err := tampered.Validate(); err == nil {
-		t.Fatal("tampered review unexpectedly validated")
+		t.Fatal("tampered historical review unexpectedly validated")
 	}
-	for _, reviewer := range []string{
-		"agent", "model", "repository", "skill", "supervisor", "run_supervisor",
-	} {
-		if _, err := NewControlledCommandProposalReview(
-			"command-review-"+reviewer, proposal,
-			ControlledCommandReviewApprove, reviewer, "must be rejected",
-			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			time.Now().UTC()); err == nil {
+	for _, reviewer := range []string{"agent", "model", "repository", "skill", "supervisor", "run_supervisor"} {
+		tampered := review
+		tampered.ReviewedBy = reviewer
+		tampered.RequestFingerprint = ControlledCommandReviewRequestFingerprint(tampered)
+		if err := tampered.Validate(); err == nil {
 			t.Fatalf("reserved reviewer %q unexpectedly validated", reviewer)
 		}
 	}
 }
 
-func controlledCommandProposalFixture(t *testing.T) ControlledCommandProposal {
-	t.Helper()
-	now := time.Now().UTC()
-	request := controlledCommandTestRequest(t, ControlledCommandGoVersion)
-	request.ID = "plan-fixture"
-	plan, err := PlanControlledCommand(request)
-	if err != nil {
-		t.Fatal(err)
+func controlledCommandProposalFixture() ControlledCommandProposal {
+	proposal := ControlledCommandProposal{
+		ID: "proposal-fixture", ProtocolVersion: ControlledCommandProposalProtocolVersion, PolicyVersion: ControlledCommandProposalPolicyVersion,
+		RunID: "run-fixture", MissionID: "mission-fixture", SessionID: "session-fixture", WorkspaceID: "workspace-fixture", RootAgentID: "agent-root-fixture",
+		InteractionSnapshotID: "interaction-fixture", InteractionRevision: 1, ExecutionProfileRevision: 1,
+		PermissionSnapshotID: "permission-fixture", PermissionRevision: 1, PermissionMode: domain.RunExecutionPermissionConservative,
+		PlanID: "plan-fixture", PlanFingerprint: hostCommandTestDigest, Kind: ControlledCommandGoVersion,
+		TimeoutMilliseconds: 1000, Purpose: "inspect Go toolchain version", RequestedBy: "run_supervisor",
+		CreatedAt: time.Date(2026, 7, 26, 13, 0, 0, 0, time.UTC),
 	}
-	run := domain.Run{ID: plan.RunID, MissionID: request.Interaction.MissionID}
-	mission := domain.Mission{ID: run.MissionID}
-	permission, err := domain.NewInitialRunExecutionPermissionSnapshot(
-		"permission-fixture", run, mission, "schema_v88", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := NewControlledCommandProposal(
-		ControlledCommandProposalRequest{
-			ID: "proposal-fixture", Plan: plan, MissionID: mission.ID,
-			SessionID: "session-fixture", RootAgentID: "agent-root-fixture",
-			Permission: permission, Purpose: "inspect Go toolchain version",
-			RequestedBy: "run_supervisor", CreatedAt: now,
-		})
-	if err != nil {
-		t.Fatal(err)
-	}
+	proposal.Fingerprint = ControlledCommandProposalFingerprint(proposal)
 	return proposal
 }

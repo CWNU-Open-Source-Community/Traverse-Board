@@ -199,31 +199,6 @@ func (b RiskEscalationResourceBudget) Validate(spec HostCommandSpec) error {
 	return nil
 }
 
-type RiskEscalationProposalRequest struct {
-	ID                         string
-	RunID                      string
-	MissionID                  string
-	SessionID                  string
-	WorkspaceID                string
-	RootAgentID                string
-	SupervisorTurn             int
-	SupervisorToolCallID       string
-	ToolInvocationID           string
-	ModeSnapshotID             string
-	ModeRevision               int64
-	InteractionSnapshotID      string
-	InteractionRevision        int64
-	ExecutionProfileSnapshotID string
-	ExecutionProfileRevision   int64
-	Permission                 domain.RunExecutionPermissionSnapshot
-	WorkspaceRootFingerprint   string
-	CapabilityGeneration       string
-	Spec                       HostCommandSpec
-	Scope                      RiskEscalationScope
-	RequestedBy                string
-	CreatedAt                  time.Time
-}
-
 type RiskEscalationProposal struct {
 	ID                         string
 	ProtocolVersion            string
@@ -258,40 +233,6 @@ type RiskEscalationProposal struct {
 	CreatedAt                  time.Time
 }
 
-func NewRiskEscalationProposal(request RiskEscalationProposalRequest) (
-	RiskEscalationProposal, error,
-) {
-	proposal := RiskEscalationProposal{
-		ID:              strings.TrimSpace(request.ID),
-		ProtocolVersion: RiskEscalationProtocolVersion,
-		PolicyVersion:   RiskEscalationPolicyVersion,
-		RunID:           strings.TrimSpace(request.RunID), MissionID: strings.TrimSpace(request.MissionID),
-		SessionID: strings.TrimSpace(request.SessionID), WorkspaceID: strings.TrimSpace(request.WorkspaceID),
-		RootAgentID: strings.TrimSpace(request.RootAgentID), SupervisorTurn: request.SupervisorTurn,
-		SupervisorToolCallID: strings.TrimSpace(request.SupervisorToolCallID),
-		ToolInvocationID:     strings.TrimSpace(request.ToolInvocationID),
-		ModeSnapshotID:       strings.TrimSpace(request.ModeSnapshotID), ModeRevision: request.ModeRevision,
-		InteractionSnapshotID:      strings.TrimSpace(request.InteractionSnapshotID),
-		InteractionRevision:        request.InteractionRevision,
-		ExecutionProfileSnapshotID: strings.TrimSpace(request.ExecutionProfileSnapshotID),
-		ExecutionProfileRevision:   request.ExecutionProfileRevision,
-		PermissionSnapshotID:       request.Permission.ID,
-		PermissionRevision:         request.Permission.Revision,
-		PermissionMode:             request.Permission.Mode,
-		WorkspaceRootFingerprint:   strings.ToLower(strings.TrimSpace(request.WorkspaceRootFingerprint)),
-		CapabilityGeneration:       strings.ToLower(strings.TrimSpace(request.CapabilityGeneration)),
-		Spec:                       request.Spec, Scope: request.Scope,
-		ResourceBudget: NewRiskEscalationResourceBudget(request.Spec),
-		RequestedBy:    strings.TrimSpace(request.RequestedBy), CreatedAt: request.CreatedAt.UTC(),
-	}
-	proposal.Fingerprint = RiskEscalationProposalFingerprint(proposal)
-	if request.Permission.Validate() != nil || request.Permission.RunID != proposal.RunID ||
-		request.Permission.MissionID != proposal.MissionID || proposal.Validate() != nil {
-		return RiskEscalationProposal{}, ErrHostCommandBoundary
-	}
-	return proposal, nil
-}
-
 func (p RiskEscalationProposal) Validate() error {
 	for _, value := range []string{p.ID, p.RunID, p.MissionID, p.SessionID,
 		p.WorkspaceID, p.RootAgentID, p.SupervisorToolCallID, p.ToolInvocationID,
@@ -320,61 +261,6 @@ func (p RiskEscalationProposal) Validate() error {
 func RiskEscalationProposalFingerprint(proposal RiskEscalationProposal) string {
 	proposal.Fingerprint = ""
 	encoded, err := json.Marshal(proposal)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
-}
-
-func RiskEscalationProposalRequestFingerprint(proposal RiskEscalationProposal) string {
-	// ToolInvocationID identifies one gateway attempt, not the durable semantic
-	// call. Resuming the same Supervisor call allocates a fresh attempt identity;
-	// the immutable proposal still retains the original invocation for audit.
-	semantic := struct {
-		ProtocolVersion            string
-		PolicyVersion              string
-		RunID                      string
-		MissionID                  string
-		SessionID                  string
-		WorkspaceID                string
-		RootAgentID                string
-		SupervisorTurn             int
-		SupervisorToolCallID       string
-		ModeSnapshotID             string
-		ModeRevision               int64
-		InteractionSnapshotID      string
-		InteractionRevision        int64
-		ExecutionProfileSnapshotID string
-		ExecutionProfileRevision   int64
-		PermissionSnapshotID       string
-		PermissionRevision         int64
-		PermissionMode             domain.RunExecutionPermissionMode
-		WorkspaceRootFingerprint   string
-		CapabilityGeneration       string
-		SpecFingerprint            string
-		ScopeFingerprint           string
-		ResourceBudget             RiskEscalationResourceBudget
-		RequestedBy                string
-	}{
-		ProtocolVersion: proposal.ProtocolVersion, PolicyVersion: proposal.PolicyVersion,
-		RunID: proposal.RunID, MissionID: proposal.MissionID, SessionID: proposal.SessionID,
-		WorkspaceID: proposal.WorkspaceID, RootAgentID: proposal.RootAgentID,
-		SupervisorTurn:       proposal.SupervisorTurn,
-		SupervisorToolCallID: proposal.SupervisorToolCallID,
-		ModeSnapshotID:       proposal.ModeSnapshotID, ModeRevision: proposal.ModeRevision,
-		InteractionSnapshotID:      proposal.InteractionSnapshotID,
-		InteractionRevision:        proposal.InteractionRevision,
-		ExecutionProfileSnapshotID: proposal.ExecutionProfileSnapshotID,
-		ExecutionProfileRevision:   proposal.ExecutionProfileRevision,
-		PermissionSnapshotID:       proposal.PermissionSnapshotID,
-		PermissionRevision:         proposal.PermissionRevision, PermissionMode: proposal.PermissionMode,
-		WorkspaceRootFingerprint: proposal.WorkspaceRootFingerprint,
-		CapabilityGeneration:     proposal.CapabilityGeneration,
-		SpecFingerprint:          proposal.Spec.Fingerprint, ScopeFingerprint: proposal.Scope.Fingerprint,
-		ResourceBudget: proposal.ResourceBudget, RequestedBy: proposal.RequestedBy,
-	}
-	encoded, err := json.Marshal(semantic)
 	if err != nil {
 		return ""
 	}
@@ -428,27 +314,6 @@ type RiskEscalationAuthorization struct {
 	ScopeFingerprint    string
 	ReviewedBy          string
 	AuthorizedAt        time.Time
-}
-
-func NewRiskEscalationAuthorization(proposal RiskEscalationProposal,
-	approvalID string, approvalVersion int64, approvalFingerprint string,
-	grantID string, grantGeneration int64, grantConsumptionID string,
-	reviewedBy string, authorizedAt time.Time,
-) (RiskEscalationAuthorization, error) {
-	authorization := RiskEscalationAuthorization{
-		ProtocolVersion: RiskEscalationProtocolVersion,
-		ProposalID:      proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		ApprovalID: strings.TrimSpace(approvalID), ApprovalVersion: approvalVersion,
-		ApprovalFingerprint: strings.ToLower(strings.TrimSpace(approvalFingerprint)),
-		GrantID:             strings.TrimSpace(grantID), GrantGeneration: grantGeneration,
-		GrantConsumptionID: strings.TrimSpace(grantConsumptionID),
-		ScopeFingerprint:   proposal.Scope.Fingerprint,
-		ReviewedBy:         strings.TrimSpace(reviewedBy), AuthorizedAt: authorizedAt.UTC(),
-	}
-	if proposal.Validate() != nil || authorization.Validate() != nil {
-		return RiskEscalationAuthorization{}, ErrHostCommandBoundary
-	}
-	return authorization, nil
 }
 
 func (a RiskEscalationAuthorization) Validate() error {
@@ -518,20 +383,6 @@ type RiskEscalationInvalidation struct {
 	CreatedAt   time.Time
 }
 
-func NewRiskEscalationInvalidation(id string, proposalID string, grantID string,
-	reasonCode string, detail string, createdAt time.Time,
-) (RiskEscalationInvalidation, error) {
-	value := RiskEscalationInvalidation{ID: strings.TrimSpace(id),
-		ProposalID: strings.TrimSpace(proposalID), GrantID: strings.TrimSpace(grantID),
-		ReasonCode: strings.TrimSpace(reasonCode), Detail: normalizeRiskText(detail),
-		CreatedAt: createdAt.UTC()}
-	value.Fingerprint = RiskEscalationInvalidationFingerprint(value)
-	if value.Validate() != nil {
-		return RiskEscalationInvalidation{}, ErrHostCommandBoundary
-	}
-	return value, nil
-}
-
 func (i RiskEscalationInvalidation) Validate() error {
 	if !validIdentity(i.ID) || !validIdentity(i.ProposalID) ||
 		(i.GrantID != "" && !validIdentity(i.GrantID)) || i.Detail == "" ||
@@ -557,33 +408,6 @@ func RiskEscalationInvalidationFingerprint(value RiskEscalationInvalidation) str
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
-}
-
-func NewRiskEscalationResult(id string, proposal RiskEscalationProposal,
-	authorization RiskEscalationAuthorization, requestID string, status string,
-	errorCode string, sourceKind string, sourceRef string, contentSHA256 string,
-	uncertain bool, createdAt time.Time,
-) (RiskEscalationResult, error) {
-	result := RiskEscalationResult{
-		ID: strings.TrimSpace(id), ProtocolVersion: RiskEscalationProtocolVersion,
-		ProposalID: proposal.ID, ProposalFingerprint: proposal.Fingerprint,
-		ApprovalID:          authorization.ApprovalID,
-		ApprovalFingerprint: authorization.ApprovalFingerprint,
-		GrantID:             authorization.GrantID,
-		GrantConsumptionID:  authorization.GrantConsumptionID,
-		RequestID:           strings.TrimSpace(requestID), RunID: proposal.RunID,
-		SessionID: proposal.SessionID, Status: strings.TrimSpace(status),
-		ErrorCode: strings.TrimSpace(errorCode), SourceKind: strings.TrimSpace(sourceKind),
-		SourceRef:     strings.TrimSpace(sourceRef),
-		ContentSHA256: strings.ToLower(strings.TrimSpace(contentSHA256)),
-		Uncertain:     uncertain, CreatedAt: createdAt.UTC(),
-	}
-	result.Fingerprint = RiskEscalationResultFingerprint(result)
-	if proposal.Validate() != nil || authorization.Validate() != nil ||
-		authorization.ProposalID != proposal.ID || result.Validate() != nil {
-		return RiskEscalationResult{}, ErrHostCommandBoundary
-	}
-	return result, nil
 }
 
 func (r RiskEscalationResult) Validate() error {

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -153,12 +152,6 @@ func onceCaptureFromControlled(result controlledOutputResult) OnceOutputCapture 
 	capture.ObservedSHA256 = result.observedSHA256
 	capture.Truncated = result.output.Truncated || result.err != nil
 	return capture
-}
-
-// onceExecutableExtensionAllowed restricts Windows to native binaries so a
-// .bat/.cmd script can never smuggle a cmd.exe shell wrapper.
-func onceExecutableExtensionAllowed(base string) bool {
-	return filepath.Ext(base) == ".exe" || filepath.Ext(base) == ".com"
 }
 
 // onceEnvironmentBlock builds a full replacement environment block from the

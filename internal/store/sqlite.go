@@ -542,34 +542,6 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (agent.Task, error
 	return task, nil
 }
 
-func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id string, status string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE tasks SET status = ? WHERE id = ?`, status, id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("task %q not found", id)
-	}
-	return nil
-}
-
-func (s *SQLiteStore) RecordEvent(ctx context.Context, event agent.Event) error {
-	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now().UTC()
-	}
-	event.Message = redact.String(event.Message)
-	redactedPayload, err := redactJSONPayload(event.PayloadJSON)
-	if err != nil {
-		return err
-	}
-	event.PayloadJSON = redactedPayload
-	_, err = s.db.ExecContext(ctx, `INSERT INTO events (task_id, workspace_id, type, message, payload_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		event.TaskID, event.WorkspaceID, event.Type, event.Message, event.PayloadJSON, ts(event.CreatedAt))
-	return err
-}
-
 func (s *SQLiteStore) ListEventsByTask(ctx context.Context, taskID string) ([]agent.Event, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, task_id, workspace_id, type, message, payload_json, created_at
 		FROM events WHERE task_id = ? ORDER BY id`, taskID)

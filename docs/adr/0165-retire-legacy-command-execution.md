@@ -17,6 +17,11 @@ flags and capability fields. Fixed operator commands use Command Runtime.
 `command-plan`, historical `command-proposal list/show`, and
 `once-command proposals` remain non-executing reads.
 
+Remove uncalled request constructors and their producer-only validation helpers
+as well. Historical tests construct saved records directly, retaining record
+validation and fingerprint checks. The retired Once spec/request/approval hash
+helpers are unnecessary for reading the stored fingerprint fields.
+
 ## Retained data and continuation
 
 Keep schema migrations, immutable proposal/approval/grant/intent/result tables,

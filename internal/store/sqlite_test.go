@@ -1751,7 +1751,10 @@ func TestSQLiteStoreTaskAndEvents(t *testing.T) {
 	if err := st.SaveTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordEvent(ctx, agent.Event{TaskID: task.ID, WorkspaceID: task.WorkspaceID, Type: "test.event", Message: "hello"}); err != nil {
+	// Retired mock-agent events remain readable from existing databases.
+	if _, err := st.db.ExecContext(ctx, `INSERT INTO events
+		(task_id, workspace_id, type, message, payload_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`, task.ID, task.WorkspaceID, "test.event", "hello", "", ts(task.CreatedAt)); err != nil {
 		t.Fatal(err)
 	}
 	events, err := st.ListEventsByTask(ctx, task.ID)
@@ -1761,7 +1764,8 @@ func TestSQLiteStoreTaskAndEvents(t *testing.T) {
 	if len(events) != 1 || events[0].Type != "test.event" {
 		t.Fatalf("unexpected events: %#v", events)
 	}
-	if err := st.UpdateTaskStatus(ctx, task.ID, agent.StatusCompleted); err != nil {
+	task.Status = agent.StatusCompleted
+	if err := st.SaveTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := st.GetTask(ctx, task.ID)
@@ -1835,19 +1839,6 @@ func TestSQLiteStoreRedactsSensitiveContent(t *testing.T) {
 	}
 	if strings.Contains(loadedTask.Goal, mimoToken[:11]) {
 		t.Fatalf("secret stored in legacy task: %#v", loadedTask)
-	}
-	if err := st.RecordEvent(ctx, agent.Event{
-		TaskID: task.ID, Type: "test.secret", Message: "observed " + mimoToken,
-		PayloadJSON: `{"token":"` + mimoToken + `"}`,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	legacyEvents, err := st.ListEventsByTask(ctx, task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(legacyEvents) != 1 || strings.Contains(legacyEvents[0].Message+legacyEvents[0].PayloadJSON, mimoToken[:11]) {
-		t.Fatalf("secret stored in legacy event: %#v", legacyEvents)
 	}
 	saved, err := st.SaveContextSummary(ctx, contextmgr.Summary{
 		TaskID:  "task-secret",

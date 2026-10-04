@@ -138,8 +138,14 @@ func seedV177FixedCommandHistory(t *testing.T, st *SQLiteStore, job runner.Comma
 		if err != nil {
 			t.Fatal(err)
 		}
-		intent, err := runner.NewControlledExecutionIntent(plan, "operator", time.Now().UTC())
-		if err != nil {
+		intent := runner.ControlledExecutionIntent{
+			ProtocolVersion: runner.ControlledExecutionIntentProtocolVersion, PolicyVersion: runner.ControlledExecutionPolicyVersion,
+			RequestID: runner.ControlledExecutionRequestID(plan), PlanID: plan.ID, PlanFingerprint: plan.Fingerprint,
+			RunID: plan.RunID, WorkspaceID: plan.WorkspaceID, InteractionSnapshotID: plan.InteractionSnapshotID,
+			InteractionRevision: plan.InteractionRevision, ExecutionProfileRevision: plan.ExecutionProfileRevision,
+			Kind: plan.Kind, RequestedBy: "operator", CreatedAt: time.Now().UTC(),
+		}
+		if err := intent.Validate(); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := st.db.ExecContext(ctx, `INSERT INTO
@@ -159,41 +165,16 @@ func seedV177FixedCommandHistory(t *testing.T, st *SQLiteStore, job runner.Comma
 		if id == "historical-fixed-unknown" {
 			continue
 		}
-		result := runner.ControlledExecutionResult{ProtocolVersion: runner.ControlledExecutionProtocolVersion, PolicyVersion: runner.ControlledExecutionPolicyVersion,
-			RequestID: intent.RequestID, PlanID: plan.ID, PlanFingerprint: plan.Fingerprint, RunID: plan.RunID, WorkspaceID: plan.WorkspaceID,
-			InteractionSnapshotID: plan.InteractionSnapshotID, InteractionRevision: plan.InteractionRevision, ExecutionProfileRevision: plan.ExecutionProfileRevision,
-			Kind: plan.Kind, Backend: "historical-fixture", Stdout: runner.ControlledOutput{CapturedPrefixSHA256: testCommandRuntimeDigest("")}, Stderr: runner.ControlledOutput{CapturedPrefixSHA256: testCommandRuntimeDigest("")},
-			StartedAt: intent.CreatedAt, CompletedAt: intent.CreatedAt.Add(time.Second), TreeReaped: true, RestrictedToken: true, LowIntegrityToken: true, JobAssignedAtCreation: true,
-			KillOnJobClose: true, ActiveProcessLimit: 1, ProcessMemoryLimit: runner.MaxControlledProcessMemoryBytes, StdinClosed: true, ProductExecutionEnabled: true}
 		receipt := runner.ControlledExecutionReceipt{
-			RequestID: result.RequestID, ProtocolVersion: result.ProtocolVersion,
-			PolicyVersion: result.PolicyVersion, Backend: result.Backend,
-			ExitCode:            result.ExitCode,
-			StdoutObservedBytes: result.Stdout.ObservedBytes,
-			StdoutCapturedBytes: result.Stdout.CapturedBytes,
-			StdoutPrefixSHA256:  result.Stdout.CapturedPrefixSHA256,
-			StdoutTruncated:     result.Stdout.Truncated,
-			StderrObservedBytes: result.Stderr.ObservedBytes,
-			StderrCapturedBytes: result.Stderr.CapturedBytes,
-			StderrPrefixSHA256:  result.Stderr.CapturedPrefixSHA256,
-			StderrTruncated:     result.Stderr.Truncated,
-			StartedAt:           result.StartedAt, CompletedAt: result.CompletedAt,
-			TimedOut: result.TimedOut, Cancelled: result.Cancelled,
-			OutputLimitExceeded:     result.OutputLimitExceeded,
-			TreeReaped:              result.TreeReaped,
-			RestrictedToken:         result.RestrictedToken,
-			LowIntegrityToken:       result.LowIntegrityToken,
-			JobAssignedAtCreation:   result.JobAssignedAtCreation,
-			KillOnJobClose:          result.KillOnJobClose,
-			ActiveProcessLimit:      result.ActiveProcessLimit,
-			ProcessMemoryLimit:      result.ProcessMemoryLimit,
-			StdinClosed:             result.StdinClosed,
-			EnvironmentInherited:    result.EnvironmentInherited,
-			NetworkRequested:        result.NetworkRequested,
-			PersistentProcess:       result.PersistentProcess,
-			ProductExecutionEnabled: result.ProductExecutionEnabled,
+			RequestID: intent.RequestID, ProtocolVersion: runner.ControlledExecutionProtocolVersion,
+			PolicyVersion: runner.ControlledExecutionPolicyVersion, Backend: "historical-fixture",
+			StdoutPrefixSHA256: testCommandRuntimeDigest(""), StderrPrefixSHA256: testCommandRuntimeDigest(""),
+			StartedAt: intent.CreatedAt, CompletedAt: intent.CreatedAt.Add(time.Second), TreeReaped: true,
+			RestrictedToken: true, LowIntegrityToken: true, JobAssignedAtCreation: true, KillOnJobClose: true,
+			ActiveProcessLimit: 1, ProcessMemoryLimit: runner.MaxControlledProcessMemoryBytes,
+			StdinClosed: true, ProductExecutionEnabled: true,
 		}
-		if err := result.Validate(); err != nil {
+		if err := receipt.Validate(); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := st.db.ExecContext(ctx, `INSERT INTO

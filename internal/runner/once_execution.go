@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"hash"
 	"strings"
 	"time"
@@ -21,24 +20,6 @@ type OnceOutputCapture struct {
 	CapturedPrefixSHA256 string
 	ObservedSHA256       string
 	Truncated            bool
-}
-
-// OnceExecutionResult is untrusted evidence: exit code, bounded redacted
-// prefixes, timing, and termination flags. It is deliberately not persisted
-// with raw output anywhere.
-type OnceExecutionResult struct {
-	ProtocolVersion    string
-	PolicyVersion      string
-	RequestFingerprint string
-	ExitCode           int
-	Stdout             OnceOutputCapture
-	Stderr             OnceOutputCapture
-	StartedAt          time.Time
-	CompletedAt        time.Time
-	TimedOut           bool
-	Cancelled          bool
-	TreeReaped         bool
-	StdinClosed        bool
 }
 
 // OnceStarter starts one process with its full environment replaced by the
@@ -71,18 +52,11 @@ type OnceStartResult struct {
 }
 
 // NewPlatformOnceProcessStarter exposes the same whole-process-tree primitive
-// used by OnceExecutor to other Go-owned fixed command families. Callers remain
+// shared by Go-owned fixed command families. Callers remain
 // responsible for validating their closed executable/argv/cwd contract before
 // invoking Start; the starter owns stdin closure, bounded output, cancellation,
 // and descendant reaping.
 func NewPlatformOnceProcessStarter() OnceStarter { return newPlatformOnceStarter() }
-
-// OnceExecutor executes validated one-shot requests. It never inspects or
-// persists raw output; the starter returns only bounded redacted projections.
-
-// Execute validates the request again (defense in depth), then runs it under
-// the per-call timeout. Cancellation and timeout must terminate the whole
-// process tree, never leaving background children behind.
 
 // boundedOnceBuffer captures at most limit bytes, records the true observed
 // byte count, marks truncation, and enforces UTF-8 on the retained prefix.
@@ -135,5 +109,3 @@ func (b *boundedOnceBuffer) Capture() OnceOutputCapture {
 	}
 	return capture
 }
-
-var _ = fmt.Sprintf

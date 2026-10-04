@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
-import { ModelAvailabilityDialog } from "./model-availability-dialog";
+import { ModelAvailabilitySettings } from "./model-availability-dialog";
 
 function mockHarness(model: string) {
   return {
@@ -32,7 +32,7 @@ function openAIHarness(model: string) {
   };
 }
 
-describe("ModelAvailabilityDialog", () => {
+describe("ModelAvailabilitySettings", () => {
   it("renders redacted provider and route status without configuration secrets", async () => {
     const client = { modelAvailability: vi.fn().mockResolvedValue({
       protocol_version: "model_availability.v2", generation: 1,
@@ -44,10 +44,10 @@ describe("ModelAvailabilityDialog", () => {
     }) } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+      <ModelAvailabilitySettings client={client} />
     </QueryClientProvider>);
     expect(await screen.findByText("mock-code")).toBeInTheDocument();
-    expect(screen.getByText("code")).toBeInTheDocument();
+    expect(screen.getByText("Default")).toBeInTheDocument();
     expect(container.textContent).not.toContain("api_key");
     expect(container.textContent).not.toContain("base_url");
   });
@@ -80,7 +80,7 @@ describe("ModelAvailabilityDialog", () => {
       queries: { retry: false }, mutations: { retry: false },
     } });
     render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+      <ModelAvailabilitySettings client={client} />
     </QueryClientProvider>);
     expect(await screen.findByRole("button", { name: "Diagnose mock/mock-code" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Diagnose mock/mock-fast" }));
@@ -89,8 +89,8 @@ describe("ModelAvailabilityDialog", () => {
       confirm_diagnostic: true,
     }));
     expect(await screen.findByText("reachable")).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("code model route"), "mock/mock-fast");
-    await user.click(screen.getByRole("button", { name: "Save code route" }));
+    await user.selectOptions(screen.getByLabelText("Default model for new conversations"), "mock/mock-fast");
+    await user.click(screen.getByRole("button", { name: "Save default model for new conversations" }));
     await waitFor(() => expect(selectModelRoute).toHaveBeenCalledWith("code", {
       version: "model_route_control.v1", provider: "mock", model: "mock-fast",
     }));
@@ -124,7 +124,7 @@ describe("ModelAvailabilityDialog", () => {
       queries: { retry: false }, mutations: { retry: false },
     } });
     render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+      <ModelAvailabilitySettings client={client} />
     </QueryClientProvider>);
     expect(await screen.findByRole("button", { name: "Qualify mimo/model-primary Harness" }))
       .toBeDisabled();
@@ -134,52 +134,6 @@ describe("ModelAvailabilityDialog", () => {
       confirm_qualification: true,
     }));
     expect(await screen.findByText("2 model calls")).toBeInTheDocument();
-  });
-
-  it("submits an OpenAI Provider secret once and renders status without plaintext", async () => {
-    const user = userEvent.setup();
-    const statuses = { protocol_version: "provider_credential.v1", items:
-      ["anthropic", "deepseek", "mimo", "openai"].map((provider) => ({
-        protocol_version: "provider_credential.v1", provider, configured: false,
-        store_kind: "windows_credential_manager", store_available: true,
-        plaintext_returned: false, restart_required: false,
-        registry_reloaded: false, registry_generation: 1,
-      })) };
-    let submittedCredential: unknown;
-    const changeProviderCredential = vi.fn().mockImplementation((provider, body) => {
-      submittedCredential = { provider, body: { ...body } };
-      return Promise.resolve({
-        ...statuses.items[3], configured: true, registry_reloaded: true,
-        registry_generation: 2,
-      });
-    });
-    const client = { hasModelControl: false, hasProviderCredentials: true,
-      providerCredentialStatuses: vi.fn().mockResolvedValue(statuses),
-      changeProviderCredential,
-      modelAvailability: vi.fn().mockResolvedValue({
-        protocol_version: "model_availability.v2", generation: 1,
-        providers: [{ name: "mock", kind: "local", status: "available",
-          models: ["mock-code"], credential_source: "none", network_required: false,
-          configuration_error: false, harnesses: [mockHarness("mock-code")] }],
-        routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
-          harness_ready: true }],
-      }),
-    } as unknown as CyberAgentClient;
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { container } = render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
-    </QueryClientProvider>);
-    const secret = "temporary-provider-key";
-    const input = await screen.findByLabelText("openai API credential");
-    await user.type(input, secret);
-    await user.click(screen.getByRole("button", { name: "Store openai credential" }));
-    await waitFor(() => expect(submittedCredential).toEqual({ provider: "openai", body: {
-      version: "provider_credential.v1", action: "set", secret, confirm: true,
-    } }));
-    expect(input).toHaveValue("");
-    expect(await screen.findByText("Credential status updated")).toBeInTheDocument();
-    expect(screen.getByText("Registry generation 2 active")).toBeInTheDocument();
-    expect(container.textContent).not.toContain(secret);
   });
 
   it("renders OpenAI-compatible transport and safe connection failure reasons", async () => {
@@ -207,7 +161,7 @@ describe("ModelAvailabilityDialog", () => {
       queries: { retry: false }, mutations: { retry: false },
     } });
     render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+      <ModelAvailabilitySettings client={client} />
     </QueryClientProvider>);
     expect(await screen.findByText("openai_chat_completions · JSON native")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Diagnose openai/gpt-4.1-mini" }));
@@ -247,7 +201,7 @@ describe("ModelAvailabilityDialog", () => {
       queries: { retry: false }, mutations: { retry: false },
     } });
     render(<QueryClientProvider client={queryClient}>
-      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+      <ModelAvailabilitySettings client={client} />
     </QueryClientProvider>);
     await user.click(await screen.findByRole("button", {
       name: "Diagnose openai/gpt-4.1-mini",

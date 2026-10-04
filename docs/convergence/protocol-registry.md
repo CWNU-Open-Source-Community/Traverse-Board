@@ -11,7 +11,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 52 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 49 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 44 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 4 | true |
@@ -19,7 +19,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 111 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 23 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
-| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
+| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 14 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 47 | true |
@@ -266,7 +266,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `universal-tool-binding-reader` (`v1`, active) at `internal/executionauth`
   - `approval-preference-reader` (`v1, v2`, active) at `internal/domain`
 
-<details><summary>52 active identifiers</summary>
+<details><summary>49 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -275,10 +275,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `executionauth.authorization.v1`
 - `full-cdp-session-operation.v1`
 - `once_command.v1`
-- `once_command_approval.v1`
 - `once_command_policy.v1`
-- `once_command_request.v1`
-- `once_command_spec.v1`
 - `operator_steering_cancellation_operation.v1`
 - `operator_steering_cancellation_request.v1`
 - `operator_steering_delivery_mode.v1`
@@ -320,6 +317,14 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `toolcontract.discovery.v1`
 - `toolcontract.launch.v1`
 - `toolcontract.operation.v1`
+
+</details>
+
+<details><summary>3 retained retirement records</summary>
+
+- `once_command_approval.v1`: ADR 0165 retires the Once execution producer; remove its uncalled approval fingerprint helper.
+- `once_command_request.v1`: ADR 0165 retires the Once execution producer; remove its uncalled request fingerprint helper.
+- `once_command_spec.v1`: ADR 0165 retires the Once execution producer; remove its uncalled command-spec fingerprint helper.
 
 </details>
 
@@ -689,7 +694,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `desktop-web-presentation-state-reader` (`v1`, active) at `web/src`
 
-<details><summary>15 active identifiers</summary>
+<details><summary>14 active identifiers</summary>
 
 - `desktop_clipboard_files.v1`
 - `desktop_connection_bootstrap.v1`
@@ -704,13 +709,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `desktop_workspace_launcher_list.v1`
 - `desktop_workspace_open.v1`
 - `prayu.run-navigation.v1`
-- `prayu.settings.sidebar.width.v1`
 - `v2_file_upload.v1`
 
 </details>
 
-<details><summary>1 retained retirement records</summary>
+<details><summary>2 retained retirement records</summary>
 
+- `prayu.settings.sidebar.width.v1`: Remove the unreachable legacy SettingsView and its private sidebar-width preference reader/writer.
 - `prayu.sidebar.width.v1`: The authorized unified-shell replacement removed the legacy App sidebar reader/writer. This is presentation retirement only; existing localStorage values are neither deleted nor migrated.
 
 </details>

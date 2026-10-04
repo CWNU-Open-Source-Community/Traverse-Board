@@ -13,8 +13,6 @@ type blockingTool struct {
 
 func (blockingTool) Name() string { return "blocking" }
 
-func (blockingTool) Schema() Schema { return Schema{} }
-
 func (t blockingTool) Run(context.Context, Call) (Result, error) {
 	<-t.release
 	return Result{Stdout: "released"}, nil
@@ -62,5 +60,4 @@ func TestRegistryRecoversToolPanic(t *testing.T) {
 type panicTool struct{}
 
 func (panicTool) Name() string                              { return "panic" }
-func (panicTool) Schema() Schema                            { return Schema{} }
 func (panicTool) Run(context.Context, Call) (Result, error) { panic("test panic") }

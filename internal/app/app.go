@@ -56,7 +56,6 @@ type App struct {
 	models                *modelregistry.Registry
 	credentials           credential.Store
 	checker               policy.Checker
-	kernel                *agent.Kernel
 	calls                 *application.ActiveCallRegistry
 	dockerObserver        sandbox.DockerProductionObserver
 	dockerWriteTransport  sandbox.DockerContainerWriteTransport
@@ -418,7 +417,6 @@ func (a *App) ensureStore() error {
 		_ = st.Close()
 		return err
 	}
-	a.kernel = agent.NewKernel(st, a.router, a.checker)
 	if err := a.ensureCodeIntel(); err != nil {
 		a.store = nil
 		_ = st.Close()

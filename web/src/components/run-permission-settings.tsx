@@ -1,5 +1,3 @@
-import { V2ApprovalModeControl } from "../v2/components/approval-mode-control";
-import type { ApprovalModeSelectionRequest } from "../v2/components/approval-mode-contract";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,27 +6,19 @@ import {
   Code2,
   Container,
   Eye,
-  Globe2,
   LoaderCircle,
   MonitorUp,
   ShieldAlert,
-  ShieldCheck,
-  ShieldOff,
   Terminal,
-  UserCheck,
 } from "lucide-react";
 import { APIRequestError, type CyberAgentClient } from "../api/client";
 import type {
   CapabilityReadinessOptionView,
   RunDetailView,
   RunCapabilityReadinessView,
-  RunBrowserCDPPermissionControlView,
-  RunBrowserCDPPermissionView,
   RunExecutionInteractionControlRequestView,
   RunExecutionInteractionControlView,
   RunExecutionInteractionView,
-  RunExecutionPermissionControlView,
-  RunExecutionPermissionView,
   RunExecutionProfileControlView,
   RunExecutionProfileView,
   StandardCodePresetControlRequestView,
@@ -38,73 +28,6 @@ import { shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { v2QueryKeys } from "../v2/query-keys";
-
-export function RunPermissionSettings({ client, runID }: {
-  client: CyberAgentClient;
-  runID: string;
-}) {
-  const { t } = useLocale();
-  const detailQuery = useQuery({
-    queryKey: ["run", runID],
-    queryFn: ({ signal }) => client.get<RunDetailView>(
-      `/runs/${encodeURIComponent(runID)}`, {}, signal),
-    enabled: runID !== "",
-  });
-  const readinessQuery = useQuery({
-    queryKey: ["run", runID, "capability-readiness"],
-    queryFn: ({ signal }) => client.runCapabilityReadiness(runID, signal),
-    enabled: runID !== "",
-  });
-  if (!runID) {
-    return <section className="settings-page-section permission-settings-page">
-      <h1>{t("权限", "Permissions")}</h1>
-      <div className="permission-settings-empty">
-        <ShieldCheck aria-hidden="true" size={24} />
-        <strong>{t("选择一个 Run", "Select a Run")}</strong>
-        <span>{t("权限档位与执行边界按 Run 独立保存。", "Permission levels and execution boundaries are stored independently per Run.")}</span>
-      </div>
-    </section>;
-  }
-  if (detailQuery.isPending || readinessQuery.isPending) {
-    return <LoadingState label={t("加载 Run 权限", "Loading Run permissions")} />;
-  }
-  if (detailQuery.isError || !detailQuery.data || readinessQuery.isError ||
-    !readinessQuery.data) {
-    return <ErrorState error={detailQuery.error ?? readinessQuery.error} />;
-  }
-  const detail = detailQuery.data;
-  const readiness = readinessQuery.data;
-  return <section className="settings-page-section permission-settings-page">
-    <div className="permission-settings-title">
-      <div>
-        <h1>{t("权限", "Permissions")}</h1>
-        <span>{shortID(detail.run.id)} · {detail.run.status}</span>
-      </div>
-      <StatusBadge status={detail.execution_permission.risk_tier} />
-    </div>
-    <p className="permission-readiness-source">
-      {t("所有可用性与灰态均来自 Go readiness 投影；灰态会显示精确原因与处理方法，不会由界面推断或放宽。",
-        "All availability and disabled states come from the Go readiness projection. Disabled controls show exact reasons and remediation; the UI neither guesses nor widens authority.")}
-    </p>
-    <StandardCodeReadinessPanel client={client} detail={detail} readiness={readiness}
-      key={`standard-code-${detail.run.id}`} />
-    <ExecutionPermissionPanel client={client} detail={detail} readiness={readiness}
-      key={`permission-${detail.run.id}`} />
-    <BrowserCDPPermissionPanel client={client} detail={detail} readiness={readiness}
-      key={`browser-cdp-${detail.run.id}`} />
-    <ExecutionInteractionPanel client={client} detail={detail} readiness={readiness}
-      key={`interaction-${detail.run.id}`} />
-    <ExecutionProfilePanel client={client} detail={detail} readiness={readiness}
-      key={`profile-${detail.run.id}`} />
-    <section className="permission-authority-boundary" aria-label={t("运行时授权边界", "Runtime authorization boundary")}>
-      <ShieldAlert aria-hidden="true" size={17} />
-      <div>
-        <strong>{t("运行时授权仍为关闭", "Runtime authorization remains closed")}</strong>
-        <span>{t("进程、网络和 Agent 终端输入继续由独立沙箱、审批与限时租约控制。", "Processes, network access, and Agent terminal input remain controlled by independent sandboxes, approvals, and time-limited leases.")}</span>
-      </div>
-    </section>
-  </section>;
-}
 
 const executionProfiles: Array<{
   id: RunExecutionProfileView["profile"];
@@ -179,158 +102,6 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
       </dl>
       {mutation.isError && <MutationError error={mutation.error}
         fallback={t("执行环境切换失败", "Execution environment switch failed")} />}
-    </section>
-  );
-}
-
-type ExecutionPermissionPanelProps = {
-  client: CyberAgentClient;
-  detail: RunDetailView;
-  readiness: RunCapabilityReadinessView;
-};
-
-export function ExecutionPermissionPanel(props: ExecutionPermissionPanelProps) {
-  // The exported panel also owns target isolation when a caller reuses it.
-  // Keep pending callbacks and confirmation state attached to the original Run.
-  return <RunExecutionPermissionControl key={props.detail.run.id} {...props} />;
-}
-
-function RunExecutionPermissionControl({ client, detail }: ExecutionPermissionPanelProps) {
-  const queryClient = useQueryClient();
-  const permission = detail.execution_permission;
-  const mutation = useMutation({
-    mutationFn: (request: ApprovalModeSelectionRequest) => client.postControl<RunExecutionPermissionControlView>(
-      `/runs/${encodeURIComponent(detail.run.id)}/execution-permission`,
-      { mode: request.mode, confirm_full: request.confirmFull, reason: "Run approval preference selection" },
-      `run-approval-preference-${globalThis.crypto.randomUUID()}`,
-    ),
-    onSuccess: (result) => {
-      queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
-        ? { ...current, execution_permission: result.execution_permission } : current);
-      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
-      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "capability-readiness"] });
-    },
-  });
-  return <V2ApprovalModeControl mode={permission.approval_mode} fullActivation={permission.full_activation}
-    fullUnavailableReason={permission.full_unavailable_reason} pending={mutation.isPending}
-    disabled={!client.hasExecutionPermissionControl} variant="settings"
-    error={mutation.isError ? mutation.error instanceof Error ? mutation.error.message : "权限更新失败" : undefined}
-    onRequestChange={(request) => { mutation.reset(); mutation.mutate(request); }} />;
-}
-
-const browserCDPPermissions: Array<{
-  id: RunBrowserCDPPermissionView["mode"];
-  chinese: string;
-  english: string;
-  detailChinese: string;
-  detailEnglish: string;
-  dangerous: boolean;
-}> = [
-  { id: "restricted", chinese: "受限 CDP", english: "Restricted CDP", detailChinese: "导航、DOM 与截图", detailEnglish: "Navigation, DOM, and screenshots", dangerous: false },
-  { id: "full_debug", chinese: "完整 CDP（调试）", english: "Full CDP (debug)", detailChinese: "请求改写、Cookie 与任意方法", detailEnglish: "Request rewriting, cookies, and arbitrary methods", dangerous: true },
-];
-
-export function BrowserCDPPermissionPanel({ client, detail, readiness }: {
-  client: CyberAgentClient;
-  detail: RunDetailView;
-  readiness: RunCapabilityReadinessView;
-}) {
-  const { t } = useLocale();
-  const queryClient = useQueryClient();
-  const permission = detail.browser_cdp_permission;
-  const [confirmFull, setConfirmFull] = useState(false);
-  const mutation = useMutation({
-    mutationFn: (target: RunBrowserCDPPermissionView["mode"]) =>
-      client.postControl<RunBrowserCDPPermissionControlView>(
-        `/runs/${encodeURIComponent(detail.run.id)}/browser-cdp-permission`,
-        {
-          mode: target,
-          reason: "settings browser CDP permission selection",
-          ...(target === "full_debug" ? { confirm_full_cdp_debug: true } : {}),
-        },
-        `settings-browser-cdp-permission-${globalThis.crypto.randomUUID()}`,
-      ),
-    onSuccess: (result) => {
-      setConfirmFull(false);
-      queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
-        ? { ...current, browser_cdp_permission: result.browser_cdp_permission }
-        : current);
-      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["run", detail.run.id, "capability-readiness"],
-      });
-    },
-  });
-  const choose = (target: RunBrowserCDPPermissionView["mode"]) => {
-    if (target === "restricted") mutation.mutate(target);
-    else setConfirmFull(true);
-  };
-  const selectedReadiness = selectedCapabilityReadiness(readiness.browser_cdp_permissions);
-  const boundary = capabilityReadinessSummary(selectedReadiness,
-    t("独立 CDP 权限上限", "Independent CDP permission ceiling"), t);
-  const renderOption = ({ id, chinese, english, detailChinese, detailEnglish,
-    dangerous }: typeof browserCDPPermissions[number]) => {
-    const option = capabilityReadinessOption(readiness.browser_cdp_permissions, id);
-    return <button aria-pressed={option.selected}
-      className={dangerous ? "danger" : ""}
-      disabled={mutation.isPending || option.selected || !option.selectable}
-      key={id} onClick={() => choose(id)} type="button">
-      {dangerous
-        ? <ShieldAlert aria-hidden="true" size={17} />
-        : <ShieldCheck aria-hidden="true" size={17} />}
-      <span>
-        <strong>{t(chinese, english)}</strong>
-        <CapabilityState advancedRisk={dangerous} option={option} />
-        {dangerous && <em className="sensitive-permission-label">
-          {t("高度敏感权限", "Highly sensitive permission")}</em>}
-        <small>{capabilityReadinessDetail(option,
-          t(detailChinese, detailEnglish), t)}</small>
-      </span>
-      {option.selected && <Check aria-hidden="true" size={15} />}
-    </button>;
-  };
-  const fullDebugReadiness = capabilityReadinessOption(
-    readiness.browser_cdp_permissions, "full_debug");
-  return (
-    <section className="permission-control-card browser-cdp-permission-section">
-      <div className="section-heading">
-        <div>
-          <h2><Globe2 aria-hidden="true" size={16} />{t("浏览器 CDP", "Browser CDP")}</h2>
-          <span>{boundary}</span>
-        </div>
-        <StatusBadge status={permission.risk_tier} />
-      </div>
-      <div aria-label={t("Run 浏览器 CDP 权限", "Run browser CDP permission")}
-        className="permission-option-grid permission-option-grid-two" role="group">
-        {browserCDPPermissions.filter(({ dangerous }) => !dangerous).map(renderOption)}
-      </div>
-      <details className="permission-advanced-disclosure"
-        open={fullDebugReadiness.selected || undefined}>
-        <summary><ShieldAlert aria-hidden="true" size={15} />
-          <span><strong>{t("高级浏览器调试", "Advanced browser debugging")}</strong>
-            <small>{t("包含 Cookie、请求改写与任意 CDP 方法",
-              "Includes cookies, request rewriting, and arbitrary CDP methods")}</small></span>
-        </summary>
-        <div aria-label={t("高级浏览器 CDP 权限", "Advanced browser CDP permission")}
-          className="permission-option-grid permission-option-grid-two" role="group">
-          {browserCDPPermissions.filter(({ dangerous }) => dangerous).map(renderOption)}
-        </div>
-      </details>
-      {confirmFull && <PermissionConfirmation
-        description={t("允许请求捕获、改写与重放、Cookie 访问和任意 CDP 方法。选择不会自动启动浏览器。", "Allows request capture, rewriting and replay, cookie access, and arbitrary CDP methods. This selection does not launch a browser.")}
-        label={t("完整 CDP（调试） · 高度敏感权限", "Full CDP (debug) · Highly sensitive permission")}
-        loading={mutation.isPending} onCancel={() => setConfirmFull(false)}
-        onConfirm={() => mutation.mutate("full_debug")} />}
-      <dl className="permission-facts">
-        <div><dt>{t("受限", "Restricted")}</dt><dd>{t("导航 · DOM · 截图", "navigate · DOM · screenshot")}</dd></div>
-        <div><dt>{t("完整调试", "Full debug")}</dt><dd>{t("请求 · Cookie · 任意方法", "requests · cookies · arbitrary methods")}</dd></div>
-        <div><dt>{t("传输", "Transport")}</dt><dd>{permission.transport_enabled ? t("启用", "enabled") : t("关闭", "closed")}</dd></div>
-      </dl>
-      <p className="permission-closed-note">
-        {t("此处只保存能力上限；浏览器启动、CDP 传输与运行时授权仍保持关闭。", "This stores only the capability ceiling; browser launch, CDP transport, and runtime authorization remain closed.")}
-      </p>
-      {mutation.isError && <MutationError error={mutation.error}
-        fallback={t("浏览器 CDP 权限切换失败", "Browser CDP permission switch failed")} />}
     </section>
   );
 }

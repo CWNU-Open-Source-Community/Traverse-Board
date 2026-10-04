@@ -12,7 +12,7 @@ import (
 // Frozen old-schema migration input. This is data construction, not execution.
 func seedHistoricalHostExecutionReceipt(
 	ctx context.Context, s *SQLiteStore,
-	result runner.HostExecutionResult,
+	intent runner.HostExecutionIntent, receipt runner.HostExecutionReceipt,
 ) (runner.HostExecutionReceipt, bool, error) {
 	version, err := s.SchemaVersion(ctx)
 	if err != nil {
@@ -22,41 +22,27 @@ func seedHistoricalHostExecutionReceipt(
 		return runner.HostExecutionReceipt{}, false, fmt.Errorf("historical receipt fixture rejects schema %d", version)
 	}
 
-	if err := result.Validate(); err != nil {
+	if err := receipt.Validate(); err != nil {
 		return runner.HostExecutionReceipt{}, false,
 			apperror.Wrap(apperror.CodeInvalidArgument,
-				"host command execution result is invalid", err)
-	}
-	receipt, err := runner.ProjectHostExecutionReceipt(result)
-	if err != nil {
-		return runner.HostExecutionReceipt{}, false, err
+				"historical host command receipt is invalid", err)
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return runner.HostExecutionReceipt{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	intent, found, err := getHostExecutionIntent(ctx, tx, result.RequestID)
+	storedIntent, found, err := getHostExecutionIntent(ctx, tx, receipt.RequestID)
 	if err != nil {
 		return runner.HostExecutionReceipt{}, false, err
 	}
-	if !found || intent.OperationKeyDigest != result.OperationKeyDigest ||
-		intent.RunID != result.RunID || intent.MissionID != result.MissionID ||
-		intent.SessionID != result.SessionID ||
-		intent.WorkspaceID != result.WorkspaceID ||
-		intent.InteractionSnapshotID != result.InteractionSnapshotID ||
-		intent.InteractionRevision != result.InteractionRevision ||
-		intent.ExecutionProfileRevision != result.ExecutionProfileRevision ||
-		intent.PermissionSnapshotID != result.PermissionSnapshotID ||
-		intent.PermissionRevision != result.PermissionRevision ||
-		intent.PermissionMode != result.PermissionMode ||
-		intent.Spec.Fingerprint != result.SpecFingerprint {
+	if !found || intent.RequestID != receipt.RequestID || !hostExecutionIntentsEqual(storedIntent, intent) {
 		return runner.HostExecutionReceipt{}, false, apperror.New(
 			apperror.CodeConflict,
 			"host command execution result is not bound to its intent")
 	}
 	existing, exists, err := getHostExecutionReceipt(
-		ctx, tx, result.RequestID)
+		ctx, tx, receipt.RequestID)
 	if err != nil {
 		return runner.HostExecutionReceipt{}, false, err
 	}
