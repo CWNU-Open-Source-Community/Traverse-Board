@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -98,27 +99,23 @@ func TestLegacyFixtureRejectsPrivateRejectionBeforeSchemaOrLedgerMutation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected := false
-	for _, statement := range removeSchemaV157ForTestStatements() {
-		if _, err := f.store.db.ExecContext(t.Context(), statement); err != nil {
-			if !strings.HasPrefix(statement, "INSERT INTO legacy_fixture_empty_rejections") {
-				t.Fatalf("fixture failed outside the private diagnostic guard: %q: %v", statement, err)
-			}
-			rejected = true
-			break
-		}
+	target := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "rejected-import.db"), 156)
+	targetSchema := legacyFixtureSchema(t, target)
+	targetRows := runSeedBoundaryRows(t, target)
+	if err := copyHistoricalFixtureData(t.Context(), f.store, target); err == nil || !strings.Contains(err.Error(), "run_supervisor_tool_rejections") {
+		t.Fatalf("historical import did not reject incompatible run_supervisor_tool_rejections: %v", err)
 	}
-	if !rejected {
-		t.Fatal("legacy fixture did not reject modern private diagnostics")
+	if !reflect.DeepEqual(legacyFixtureSchema(t, target), targetSchema) || !reflect.DeepEqual(runSeedBoundaryRows(t, target), targetRows) {
+		t.Fatal("rejected import changed the historical destination")
 	}
 	if after := legacyFixtureSchema(t, f.store); !reflect.DeepEqual(after, beforeSchema) {
-		t.Fatal("rejected downgrade changed main schema")
+		t.Fatal("rejected import changed main schema")
 	}
 	if after := legacyFixtureRows(t, f.store, "run_supervisor_tool_rejections"); !reflect.DeepEqual(after, beforeRows) {
-		t.Fatal("rejected downgrade changed diagnostic bytes or row identity")
+		t.Fatal("rejected import changed diagnostic bytes or row identity")
 	}
 	if after, err := f.store.loadAppliedMigrations(t.Context()); err != nil || !reflect.DeepEqual(after, beforeLedger) {
-		t.Fatalf("rejected downgrade changed migration ledger: %v", err)
+		t.Fatalf("rejected import changed migration ledger: %v", err)
 	}
 }
 
@@ -128,7 +125,7 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, oracle, migrationPlan(), 156); err != nil {
 		t.Fatal(err)
 	}
-	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "downgraded-v156.db"), 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed-v156.db"), 177)
 
 	defer state.Close()
 	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
@@ -184,8 +181,10 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	}
 	tables := []string{"run_supervisor_tool_calls", "run_supervisor_tool_call_agents", "command_runtime_jobs", "command_runtime_job_agents", "web_evidence_operations"}
 	before := map[string][][]any{}
+	donorBefore := map[string][][]any{}
 	for _, table := range tables {
 		before[table] = legacyFixtureRows(t, state, table)
+		donorBefore[table] = append([][]any(nil), before[table]...)
 		if len(before[table]) != 1 {
 			t.Fatalf("%s fixture is not populated: %d", table, len(before[table]))
 		}
@@ -196,9 +195,18 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV157ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("restore v156 with %q: %v", statement, err)
+	donor := state
+	donorSchema := legacyFixtureSchema(t, donor)
+	state = historicalTestDatabaseFromSeed(t, donor, filepath.Join(t.TempDir(), "real-seeded-v156.db"), 156)
+	if !reflect.DeepEqual(legacyFixtureSchema(t, donor), donorSchema) {
+		t.Fatal("historical import changed donor schema")
+	}
+	if after, err := donor.loadAppliedMigrations(ctx); err != nil || !reflect.DeepEqual(after, ledgerBefore) {
+		t.Fatalf("historical import changed donor migration ledger: %v", err)
+	}
+	for _, table := range tables {
+		if !reflect.DeepEqual(legacyFixtureRows(t, donor, table), donorBefore[table]) {
+			t.Fatalf("historical import changed donor %s", table)
 		}
 	}
 	wantSchema, gotSchema := legacyFixtureSchema(t, oracle), legacyFixtureSchema(t, state)
@@ -238,6 +246,48 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	assertNoForeignKeyViolations(t, state.db)
 }
 
+func TestHistoricalFixtureImportRollsBackRowsSchemaAndLedger(t *testing.T) {
+	ctx := t.Context()
+	donor := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
+	for range 2 {
+		if err := donor.SaveSession(ctx, session.New("", "same title", "code")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "target.db"), 156)
+	if err := target.SaveSession(ctx, session.New("", "preserve target", "code")); err != nil {
+		t.Fatal(err)
+	}
+	// Fail after the import has deleted destination data and copied one Session,
+	// proving that row insertion and trigger suspension share one transaction.
+	if _, err := target.db.ExecContext(ctx, `CREATE UNIQUE INDEX fixture_session_title ON sessions(title)`); err != nil {
+		t.Fatal(err)
+	}
+	beforeSchema := legacyFixtureSchema(t, target)
+	beforeRows := runSeedBoundaryRows(t, target)
+	beforeSessions := legacyFixtureRows(t, target, "sessions")
+	donorSessions := legacyFixtureRows(t, donor, "sessions")
+	beforeLedger, err := target.loadAppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyHistoricalFixtureData(ctx, donor, target); err == nil || !strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		t.Fatalf("historical import did not exercise its late insertion failure: %v", err)
+	}
+	if !reflect.DeepEqual(legacyFixtureSchema(t, target), beforeSchema) ||
+		!reflect.DeepEqual(runSeedBoundaryRows(t, target), beforeRows) ||
+		!reflect.DeepEqual(legacyFixtureRows(t, target, "sessions"), beforeSessions) {
+		t.Fatal("failed historical import changed destination rows or schema")
+	}
+	if after, err := target.loadAppliedMigrations(ctx); err != nil || !reflect.DeepEqual(after, beforeLedger) {
+		t.Fatalf("failed historical import changed migration ledger: %v", err)
+	}
+	if !reflect.DeepEqual(legacyFixtureRows(t, donor, "sessions"), donorSessions) {
+		t.Fatal("failed historical import changed donor rows")
+	}
+	assertNoForeignKeyViolations(t, target.db)
+}
+
 func TestLegacyFixtureRejectsModernQueueRevisionWithoutDiscardingHistory(t *testing.T) {
 	state, err := Open(filepath.Join(t.TempDir(), "modern-queue.db"))
 	if err != nil {
@@ -266,18 +316,14 @@ func TestLegacyFixtureRejectsModernQueueRevisionWithoutDiscardingHistory(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected := false
-	for _, statement := range removeSchemaV157ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			if !strings.HasPrefix(statement, "INSERT INTO legacy_fixture_empty_queue_history") {
-				t.Fatalf("fixture failed outside the history guard: %q: %v", statement, err)
-			}
-			rejected = true
-			break
-		}
+	target := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "rejected-import.db"), 156)
+	targetSchema := legacyFixtureSchema(t, target)
+	targetRows := runSeedBoundaryRows(t, target)
+	if err := copyHistoricalFixtureData(ctx, state, target); err == nil || !strings.Contains(err.Error(), "operator_steering_revisions") {
+		t.Fatalf("historical import did not reject incompatible operator_steering_revisions: %v", err)
 	}
-	if !rejected {
-		t.Fatal("legacy fixture silently discarded modern queue history")
+	if !reflect.DeepEqual(legacyFixtureSchema(t, target), targetSchema) || !reflect.DeepEqual(runSeedBoundaryRows(t, target), targetRows) {
+		t.Fatal("rejected import changed the historical destination")
 	}
 	var count, revision int
 	var content string
@@ -289,6 +335,6 @@ func TestLegacyFixtureRejectsModernQueueRevisionWithoutDiscardingHistory(t *test
 	}
 	after, err := state.loadAppliedMigrations(ctx)
 	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("rejected downgrade changed migration ledger: %v", err)
+		t.Fatalf("rejected import changed migration ledger: %v", err)
 	}
 }

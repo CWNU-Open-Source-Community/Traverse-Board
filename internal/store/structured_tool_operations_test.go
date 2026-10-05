@@ -296,7 +296,7 @@ func TestStructuredWorkItemConcurrentReplayConverges(t *testing.T) {
 
 func TestSQLiteUpgradesSchemaV14ToStructuredToolsWithoutLosingNotes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v14.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run := createStructuredToolTestRun(t, ctx, st, "preserve v14")
@@ -306,13 +306,7 @@ func TestSQLiteUpgradesSchemaV14ToStructuredToolsWithoutLosingNotes(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeSchemaV16ForTest(t, st, ctx)
-	if _, err := st.db.ExecContext(ctx, `DROP TABLE structured_tool_operations`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 15`); err != nil {
-		t.Fatal(err)
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 14)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

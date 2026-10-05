@@ -19,12 +19,6 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func removeSchemaV131ForTestStatements() []string {
-	return append(removeSchemaV132ForTestStatements(), append([]string{
-		`DELETE FROM schema_migrations WHERE version = 131`,
-	}, removeSchemaV130ForTestStatements()...)...)
-}
-
 func TestSchemaV131PreservesV130StreamToolIdentities(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "command-runtime-preserves-item-stream.db")

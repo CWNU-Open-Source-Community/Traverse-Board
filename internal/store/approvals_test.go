@@ -347,23 +347,18 @@ func TestApprovalLazilyBindsWhenLegacySessionGetsRun(t *testing.T) {
 
 func TestSchemaV10UpgradeCreatesEmptyApprovalLedgerAndPreservesProposal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v10.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path, 10)
 
 	ctx := context.Background()
 	run := toolrun.ToolRun{
 		ID: "tool-v10", ToolName: toolrun.ShellTool, Command: "echo legacy",
 		Status: toolrun.StatusProposed, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
-	if _, err := st.SaveToolRun(ctx, run); err != nil {
-		t.Fatal(err)
-	}
-	removeSchemaV12ForTest(t, st, ctx)
-	for _, table := range []string{"approval_operations", "tool_approvals"} {
-		if _, err := st.db.ExecContext(ctx, `DROP TABLE `+table); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := st.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 11`); err != nil {
+	if _, err := st.db.ExecContext(ctx, `INSERT INTO tool_runs
+		(id, session_id, workspace_id, tool_name, command, status, risk, policy_reason,
+		stdout, stderr, exit_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.SessionID, run.WorkspaceID, run.ToolName, run.Command, run.Status,
+		run.Risk, run.PolicyReason, run.Stdout, run.Stderr, run.ExitCode, ts(run.CreatedAt), ts(run.UpdatedAt)); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
@@ -394,7 +389,7 @@ func TestSchemaV10UpgradeCreatesEmptyApprovalLedgerAndPreservesProposal(t *testi
 
 func TestSchemaV11UpgradePreservesApprovalAndEnablesSessionGrant(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v11.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -412,7 +407,7 @@ func TestSchemaV11UpgradePreservesApprovalAndEnablesSessionGrant(t *testing.T) {
 	if _, err := st.SaveToolRun(ctx, proposal); err != nil {
 		t.Fatal(err)
 	}
-	removeSchemaV12ForTest(t, st, ctx)
+	st = historicalTestDatabaseFromSeed(t, st, path, 11)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

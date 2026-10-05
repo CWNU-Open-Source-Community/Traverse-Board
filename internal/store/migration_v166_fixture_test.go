@@ -12,8 +12,17 @@ func addV166FixtureQueueCompatibility(t testing.TB, state *SQLiteStore) func() {
 	t.Helper()
 	setup := append(append([]string{}, operatorSteeringRevisionStatements...), midTurnSteeringStatements[:3]...)
 	restore := append([]string{}, removeCurrentSteeringForLegacySeedStatements()...)
-	restore = append(restore, removeSchemaV168QueueForTestStatements()...)
 	restore = append(restore,
+		`CREATE TEMP TABLE legacy_fixture_empty_queue_history (n INTEGER CHECK(n=0));`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_steering_revisions;`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_message_attachment_evidence;`,
+		`INSERT INTO legacy_fixture_empty_queue_history SELECT count(*) FROM operator_steering_messages
+			WHERE revision<>0 OR edited_at IS NOT NULL OR original_content<>content
+				OR original_content_sha256<>content_sha256;`,
+		`DROP TABLE legacy_fixture_empty_queue_history;`,
+		`DROP TRIGGER trg_operator_steering_update_monotonic;`,
+		`DROP TABLE operator_steering_revisions;`,
+		`DROP TABLE operator_message_attachment_evidence;`,
 		`ALTER TABLE operator_steering_messages DROP COLUMN revision;`,
 		`ALTER TABLE operator_steering_messages DROP COLUMN original_content;`,
 		`ALTER TABLE operator_steering_messages DROP COLUMN original_content_sha256;`,

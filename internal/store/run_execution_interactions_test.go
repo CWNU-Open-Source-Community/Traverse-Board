@@ -107,24 +107,9 @@ func TestRunExecutionInteractionIsImmutableIdempotentAndProfileBound(t *testing.
 	}
 }
 
-func removeSchemaV86ForTestStatements() []string {
-	return append(removeSchemaV87ForTestStatements(), []string{
-		`DROP TRIGGER trg_run_execution_interaction_operation_delete_immutable`,
-		`DROP TRIGGER trg_run_execution_interaction_operation_update_immutable`,
-		`DROP TRIGGER trg_run_execution_interaction_snapshot_delete_immutable`,
-		`DROP TRIGGER trg_run_execution_interaction_snapshot_update_immutable`,
-		`DROP TRIGGER trg_run_execution_interaction_operation_insert`,
-		`DROP TRIGGER trg_run_execution_interaction_snapshot_insert`,
-		`DROP TABLE run_execution_interaction_operations`,
-		`DROP INDEX idx_run_execution_interaction_snapshots_run_revision`,
-		`DROP TABLE run_execution_interaction_snapshots`,
-		`DELETE FROM schema_migrations WHERE version = 86`,
-	}...)
-}
-
 func TestSchemaV86BackfillsUntrustedPreviewInteraction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v85-interaction.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx,
@@ -135,11 +120,11 @@ func TestSchemaV86BackfillsUntrustedPreviewInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV86ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v86 fixture with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, st, path, 85)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
 	}
+	st = historical
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

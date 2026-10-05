@@ -95,16 +95,3 @@ func controlledExecutionStorePlan(t *testing.T, ctx context.Context,
 	}
 	return plan
 }
-
-func removeSchemaV87ForTestStatements() []string {
-	return append(removeSchemaV88ForTestStatements(), []string{
-		`DROP TRIGGER trg_controlled_execution_receipt_delete_immutable`,
-		`DROP TRIGGER trg_controlled_execution_receipt_update_immutable`,
-		`DROP TRIGGER trg_controlled_execution_intent_delete_immutable`,
-		`DROP TRIGGER trg_controlled_execution_intent_update_immutable`,
-		`DROP TABLE controlled_command_execution_receipts`,
-		`DROP INDEX idx_controlled_execution_intents_run_created`,
-		`DROP TABLE controlled_command_execution_intents`,
-		`DELETE FROM schema_migrations WHERE version = 87`,
-	}...)
-}

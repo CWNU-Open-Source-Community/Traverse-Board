@@ -215,14 +215,10 @@ func TestReadOnlyFanoutPolicyDenialAndSchemaV32Upgrade(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "readonly-upgrade.db")
-	upgrade := openHistoricalTestDatabase(t, path, 177)
+	upgrade := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	_, existingRun := createWorkItemTestRun(t, ctx, upgrade, "schema v32 preserved Run")
-	for _, statement := range removeSchemaV33ForTestStatements() {
-		if _, err := upgrade.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v32 with %q: %v", statement, err)
-		}
-	}
+	upgrade = historicalTestDatabaseFromSeed(t, upgrade, path, 32)
 	if err := upgrade.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,6 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/events"
-	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/sandbox"
 )
@@ -95,8 +94,8 @@ func TestSandboxExecutionLeaseFencesTakeoverAndLifecycleRowsAreImmutable(t *test
 func TestSchemaV49UpgradeAddsDisabledSandboxLifecycleWithoutLosingCandidate(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v49.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
-	service := application.NewSandboxManifestService(st, policy.NewDefaultChecker())
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
+	service := newSandboxFixtureService(t, st)
 	prepared, err := service.Prepare(ctx, application.PrepareSandboxManifestRequest{
 		RunID: run.ID, Manifest: sandboxStoreTestManifest(),
 		OperationKey: "schema-v49-lifecycle-prepare", RequestedBy: "schema_upgrade_test",
@@ -112,11 +111,7 @@ func TestSchemaV49UpgradeAddsDisabledSandboxLifecycleWithoutLosingCandidate(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV50ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v49 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 49)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +139,7 @@ func createSandboxLifecycleStoreFixture(t *testing.T, ctx context.Context,
 	st *SQLiteStore, runID string,
 ) sandbox.Lifecycle {
 	t.Helper()
-	service := application.NewSandboxManifestService(st, policy.NewDefaultChecker())
+	service := newSandboxFixtureService(t, st)
 	manifest := sandboxStoreTestManifest()
 	prepared, err := service.Prepare(ctx, application.PrepareSandboxManifestRequest{
 		RunID: runID, Manifest: manifest, OperationKey: "store-lifecycle-prepare",

@@ -252,7 +252,7 @@ func TestSchemaV110AddsPhaseAwareRootSkillContextLedger(t *testing.T) {
 
 func TestSchemaV39SkillSelectionSurvivesRootContextMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v39-root-skill-context.db")
-	st, run := createSkillSelectionRun(t, path, "code", 177)
+	st, run := createSkillSelectionRun(t, filepath.Join(t.TempDir(), "seed.db"), "code", 177)
 	ctx := context.Background()
 	registry, err := skills.BuiltinRegistry()
 	if err != nil {
@@ -266,11 +266,7 @@ func TestSchemaV39SkillSelectionSurvivesRootContextMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV40ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v40 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 39)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

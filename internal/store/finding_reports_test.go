@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -157,21 +158,12 @@ func TestFindingReportProjectionConvergesAcrossStores(t *testing.T) {
 }
 
 func TestSchemaV34ExecutionSurvivesFindingReportMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-report-v34.db", 1, 177)
+	databasePath := filepath.Join(t.TempDir(), "finding-report-v34.db")
+	st, run, _ := createReadOnlyFanoutFixture(t, "seed.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-report-v34-plan", "finding-report-v34-execution")
-	var sequence int
-	var databaseName, databasePath string
-	if err := st.db.QueryRowContext(ctx, `PRAGMA database_list`).Scan(&sequence,
-		&databaseName, &databasePath); err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV35ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v34 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 34)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

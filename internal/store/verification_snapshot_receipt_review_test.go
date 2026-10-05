@@ -12,17 +12,6 @@ import (
 	"cyberagent-workbench/internal/verification"
 )
 
-func removeSchemaV84ForTestStatements() []string {
-	return append(removeSchemaV85ForTestStatements(), []string{
-		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_delete_immutable`,
-		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_update_immutable`,
-		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_insert`,
-		`DROP INDEX idx_operator_verification_snapshot_receipt_reviews_run_event`,
-		`DROP TABLE operator_verification_snapshot_receipt_reviews`,
-		`DELETE FROM schema_migrations WHERE version = 84`,
-	}...)
-}
-
 func recordSnapshotReceiptFixture(t *testing.T, state *SQLiteStore,
 	workspace WorkspaceRecord,
 ) (domain.Run, verification.SnapshotReceipt) {
@@ -156,16 +145,16 @@ func TestVerificationSnapshotReceiptReviewIsImmutableIdempotentAndNonAuthorizing
 func TestSchemaV84UpgradeFabricatesNoSnapshotReceiptReview(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v83-snapshot-receipt-review.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	run, _ := recordSnapshotReceiptFixture(t, state, WorkspaceRecord{
 		ID: "workspace-v84-upgrade", Name: "v84-upgrade", RootPath: t.TempDir(),
 	})
-	for _, statement := range removeSchemaV84ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove v84 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 83)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

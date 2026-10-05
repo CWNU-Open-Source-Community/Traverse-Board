@@ -7,38 +7,6 @@ import (
 	"testing"
 )
 
-// removeSchemaV127ForTestStatements restores the exact v126 checkpoint scope
-// guard after removing the Drydock-owned schema. Historical downgrade fixtures
-// must not leave a future table reference behind.
-func removeSchemaV127ForTestStatements() []string {
-	return append(removeSchemaV129ForTestStatements(), []string{
-		`DELETE FROM schema_migrations WHERE version = 128`,
-		`DROP TRIGGER trg_workspace_checkpoint_insert_scope`,
-		`CREATE TRIGGER trg_workspace_checkpoint_insert_scope
-			BEFORE INSERT ON workspace_checkpoints
-			WHEN NOT EXISTS (
-				SELECT 1 FROM runs run
-				JOIN missions mission ON mission.id = run.mission_id
-				JOIN sessions session_record ON session_record.id = run.session_id
-				WHERE run.id = NEW.run_id AND mission.id = NEW.mission_id
-					AND session_record.id = NEW.session_id
-					AND mission.workspace_id = NEW.workspace_id
-					AND session_record.workspace_id = NEW.workspace_id
-			)
-			BEGIN SELECT RAISE(ABORT, 'workspace checkpoint Run binding is invalid'); END`,
-		`DROP TRIGGER trg_drydock_synthetic_workspace_update_immutable`,
-		`DROP TRIGGER trg_drydock_mission_insert_scope`,
-		`DROP TRIGGER trg_drydock_mission_update_scope`,
-		`DROP TRIGGER trg_drydock_session_insert_scope`,
-		`DROP TRIGGER trg_drydock_session_update_scope`,
-		`DROP TABLE drydock_lifecycle_receipts`,
-		`DROP TABLE drydock_delivery_proposals`,
-		`DROP TABLE drydock_workspaces`,
-		`DROP TABLE drydock_workspace_trust`,
-		`DELETE FROM schema_migrations WHERE version = 127`,
-	}...)
-}
-
 func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "drydock-v126.db")
@@ -97,42 +65,6 @@ func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *tes
 		}
 	}
 	assertNoForeignKeyViolations(t, upgraded.db)
-}
-
-func TestSchemaV127DowngradeFixtureRestoresV126AndReupgrades(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "drydock-downgrade.db")
-	state := openHistoricalTestDatabase(t, path, 177)
-	// Exercise the original inverse on v1 historical data. Starting from the
-	// current schema would retain newer ledgers or reinterpret v2 authority.
-	for _, statement := range removeSchemaV127ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if version, err := state.SchemaVersion(ctx); err != nil || version != 126 {
-		t.Fatalf("downgraded schema version=%d want=126 err=%v", version, err)
-	}
-	var triggerSQL string
-	if err := state.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master
-		WHERE type = 'trigger' AND name = 'trg_workspace_checkpoint_insert_scope'`).
-		Scan(&triggerSQL); err != nil || strings.Contains(triggerSQL, "drydock_workspaces") {
-		t.Fatalf("v126 checkpoint scope was not restored: err=%v sql=%s", err, triggerSQL)
-	}
-	if err := state.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	if version, err := reopened.SchemaVersion(ctx); err != nil ||
-		version != LatestSchemaVersion {
-		t.Fatalf("re-upgraded schema version=%d want=%d err=%v", version,
-			LatestSchemaVersion, err)
-	}
 }
 
 func openSchemaV126Store(t testing.TB, path string) *SQLiteStore {

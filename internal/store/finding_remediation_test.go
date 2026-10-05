@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -318,7 +319,8 @@ func TestFindingAcceptanceRemediationAndFixConvergeAcrossStores(t *testing.T) {
 }
 
 func TestSchemaV36ValidatedFindingSurvivesRemediationMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "finding-remediation-v36.db", 1, 177)
+	databasePath := filepath.Join(t.TempDir(), "finding-remediation-v36.db")
+	st, run, _ := createReadOnlyFanoutFixture(t, "seed.db", 1, 177)
 	ctx := context.Background()
 	execution := createFindingReportSourceExecution(t, ctx, st, run.ID,
 		"finding-remediation-v36-plan", "finding-remediation-v36-execution")
@@ -344,12 +346,7 @@ func TestSchemaV36ValidatedFindingSurvivesRemediationMigration(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
-	databasePath := sqliteDatabasePath(t, ctx, st)
-	for _, statement := range removeSchemaV37ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v36 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 36)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

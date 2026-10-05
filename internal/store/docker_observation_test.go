@@ -221,7 +221,11 @@ func TestDockerObservationLimitAndSchemaV52Upgrade(t *testing.T) {
 			}
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "v52.db")
-			st, run, _ := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			seedPath := path
+			if historical {
+				seedPath = filepath.Join(t.TempDir(), "seed.db")
+			}
+			st, run, _ := openSandboxManifestStoreAt(t, ctx, seedPath, historicalVersion...)
 			t.Cleanup(func() { _ = st.Close() })
 			evidence, simulation := createDockerObservationAuthorityFixture(t, ctx, st, run.ID,
 				"observation-limit")
@@ -252,11 +256,7 @@ func TestDockerObservationLimitAndSchemaV52Upgrade(t *testing.T) {
 				return
 			}
 
-			for _, statement := range removeSchemaV53ForTestStatements() {
-				if _, err := st.db.ExecContext(ctx, statement); err != nil {
-					t.Fatalf("simulate schema v52 with %q: %v", statement, err)
-				}
-			}
+			st = historicalTestDatabaseFromSeed(t, st, path, 52)
 			if err := st.Close(); err != nil {
 				t.Fatal(err)
 			}

@@ -267,37 +267,17 @@ func TestSpecialistTaskBriefPreparationRollsBackWithDeliveryFailure(t *testing.T
 	}
 }
 
-func removeSchemaV175ForTestStatements() []string {
-	statements := append(removeSchemaV176ForTestStatements(), []string{
-		`CREATE TEMP TABLE legacy_fixture_empty_briefs(n INTEGER CHECK(n=0));`,
-		`INSERT INTO legacy_fixture_empty_briefs SELECT count(*) FROM specialist_task_briefs;`,
-		`INSERT INTO legacy_fixture_empty_briefs SELECT count(*) FROM agent_messages WHERE json_valid(payload_json) AND json_extract(payload_json,'$.version')='specialist_instruction.v2';`,
-		`DROP TABLE legacy_fixture_empty_briefs;`,
-		`DROP TRIGGER trg_specialist_task_brief_insert;`, `DROP TRIGGER trg_specialist_task_brief_immutable;`, `DROP TRIGGER trg_specialist_task_brief_delete;`,
-		`DROP TABLE specialist_task_briefs;`,
-		`DROP TRIGGER trg_specialist_instruction_source_immutable;`, `DROP TRIGGER trg_specialist_instruction_source_delete;`,
-		`DROP TRIGGER trg_specialist_context_delivery_insert;`, `DROP TRIGGER trg_specialist_context_delivery_commit;`,
-		`DELETE FROM schema_migrations WHERE version=175;`,
-	}...)
-	for _, statement := range specialistContextDeliveryStatements {
-		if strings.HasPrefix(statement, "CREATE TRIGGER trg_specialist_context_delivery_insert\n") || strings.HasPrefix(statement, "CREATE TRIGGER trg_specialist_context_delivery_commit\n") {
-			statements = append(statements, statement)
-		}
-	}
-	return statements
-}
-
 func TestSchemaV175UpgradesV174WithoutInventingTaskDelivery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v174.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	f := prepareSpecialistAttemptFixture(t, t.Context(), st, "legacy task truth", 3, 128)
 	source := sendSpecialistInstructionTestMessage(t, t.Context(), st, f, "legacy still effective", idgen.New("brief-send"))
-	for _, stmt := range removeSchemaV175ForTestStatements() {
-		if _, err := st.db.Exec(stmt); err != nil {
-			t.Fatal(err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, st, path, 174)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
 	}
+	st = historical
 	var checksum string
 	if err := st.db.QueryRow(`SELECT checksum FROM schema_migrations WHERE version=27`).Scan(&checksum); err != nil {
 		t.Fatal(err)

@@ -12,10 +12,10 @@ import (
 
 func TestProviderReplaySchemaV170AddsPrivateLedgersWithoutChangingExistingRows(t *testing.T) {
 	ctx := t.Context()
-	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v169.db"))
+	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "v169.seed.db"))
 	defer st.Close()
-	// Seed pre-v170 tool history through current writers, then restore the exact
-	// v169 schema. Current writers require the v171 steering columns.
+	// Current writers need v171 steering columns; import their old public tool
+	// history into an independently created real v169 prefix.
 	if err := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 172); err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +32,7 @@ func TestProviderReplaySchemaV170AddsPrivateLedgersWithoutChangingExistingRows(t
 	if _, _, err := st.RecordSupervisorToolResult(ctx, f.turn.Checkpoint, domain.SupervisorToolResult{CallID: callID, Status: domain.SupervisorToolCompleted, ResultJSON: `{"ok":true}`, CompletedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	restore := []string{`PRAGMA foreign_keys=OFF;`, `PRAGMA legacy_alter_table=ON;`}
-	restore = append(restore, removeSchemaV170AndV171ForTestStatements()...)
-	restore = append(restore, `PRAGMA legacy_alter_table=OFF;`, `PRAGMA foreign_keys=ON;`)
-	for _, statement := range restore {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("restore v169 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, filepath.Join(t.TempDir(), "v169.db"), 169)
 	if version, err := st.SchemaVersion(ctx); err != nil || version != 169 {
 		t.Fatalf("restored schema version=%d want=169 err=%v", version, err)
 	}

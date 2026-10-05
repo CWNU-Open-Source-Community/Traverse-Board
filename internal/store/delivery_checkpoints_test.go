@@ -93,7 +93,8 @@ func TestDeliveryCheckpointSQLiteGuardsDirectMutationAndRunCompletion(t *testing
 }
 
 func TestSchemaV44LeavesPartiallyCompletedLegacySelectionExplicitlyExempt(t *testing.T) {
-	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "delivery-legacy.db"), 177)
+	path := filepath.Join(t.TempDir(), "delivery-legacy.db")
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	st, ctx, run, selected := populateStoreDeliveryGateFixture(t, st, "legacy-exempt")
 	work := application.NewWorkItemService(st)
@@ -102,22 +103,11 @@ func TestSchemaV44LeavesPartiallyCompletedLegacySelectionExplicitlyExempt(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV44ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v44 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 43)
 	now := time.Now().UTC()
 	if _, err := st.db.ExecContext(ctx, `UPDATE work_items SET status = 'completed',
 		version = version + 1, updated_at = ?, completed_at = ? WHERE id = ?`,
 		ts(now), ts(now), first.ID); err != nil {
-		t.Fatal(err)
-	}
-	var sequence int
-	var databaseName string
-	var path string
-	if err := st.db.QueryRowContext(ctx, `PRAGMA database_list`).Scan(
-		&sequence, &databaseName, &path); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {

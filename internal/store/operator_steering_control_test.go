@@ -311,7 +311,7 @@ func TestOperatorSteeringConcurrentCancellationConvergesAcrossStores(t *testing.
 
 func TestSQLiteUpgradesV45OperatorSteeringToCancellationControls(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "operator-steering-v45-upgrade.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, created := createWorkItemTestRun(t, ctx, st, "v45 operator steering upgrade")
@@ -326,11 +326,7 @@ func TestSQLiteUpgradesV45OperatorSteeringToCancellationControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV46ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v45 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 45)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

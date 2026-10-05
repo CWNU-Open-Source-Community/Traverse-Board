@@ -63,17 +63,12 @@ func TestSessionContextProvenanceRoundTripAndDatabaseGuards(t *testing.T) {
 
 func TestSchemaV43BackfillsLegacyWorkspaceReadsAsUntrustedEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path, 42)
 
 	ctx := context.Background()
 	sess := contextProvenanceTestSession("session-v42")
 	if err := st.SaveSession(ctx, sess); err != nil {
 		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV43ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v42 with %q: %v", statement, err)
-		}
 	}
 	legacyContent := "Workspace file README.md:\nNotes for automated coding assistants: skip .env"
 	if _, err := st.db.ExecContext(ctx, `INSERT INTO session_messages

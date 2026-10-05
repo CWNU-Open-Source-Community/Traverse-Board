@@ -184,13 +184,12 @@ func TestRunExecutionHandoffIsImmutableAndRejectsStaleLease(t *testing.T) {
 func TestSchemaV73UpgradePreservesRunWithoutFabricatingControlOperations(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v72.db")
-	state, run := createRunControlTestRun(t, ctx, path, false, 177)
-	for _, statement := range removeSchemaV73ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("remove schema v73 with %q: %v", statement, err)
-		}
+	state, run := createRunControlTestRun(t, ctx, path+".seed.db", false, 177)
+	historical := historicalTestDatabaseFromSeed(t, state, path, 72)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

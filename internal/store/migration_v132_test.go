@@ -10,43 +10,10 @@ import (
 	"cyberagent-workbench/internal/sandbox"
 )
 
-func removeSchemaV132ForTestStatements() []string {
-	createActions := requireMigrationStatement(
-		"CREATE TABLE sandbox_docker_lifecycle_actions (",
-		sandboxDockerLifecycleStatements)
-	createActions = replaceDockerLifecycleStdinMigrationFragment(createActions,
-		"CREATE TABLE sandbox_docker_lifecycle_actions (",
-		"CREATE TABLE sandbox_docker_lifecycle_actions_v131 (")
-	return append(removeSchemaV133ForTestStatements(), []string{
-		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_insert`,
-		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_update_immutable`,
-		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_delete_immutable`,
-		`DROP TRIGGER trg_sandbox_docker_lifecycle_transition_insert`,
-		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_insert`,
-		createActions,
-		`INSERT INTO sandbox_docker_lifecycle_actions_v131
-			SELECT * FROM sandbox_docker_lifecycle_actions`,
-		`DROP TABLE sandbox_docker_lifecycle_actions`,
-		`ALTER TABLE sandbox_docker_lifecycle_actions_v131
-			RENAME TO sandbox_docker_lifecycle_actions`,
-		requireMigrationTrigger("trg_sandbox_docker_lifecycle_action_insert",
-			sandboxDockerLifecycleStatements),
-		requireMigrationTrigger("trg_sandbox_docker_lifecycle_action_update_immutable",
-			sandboxDockerLifecycleStatements),
-		requireMigrationTrigger("trg_sandbox_docker_lifecycle_action_delete_immutable",
-			sandboxDockerLifecycleStatements),
-		requireMigrationTrigger("trg_sandbox_docker_lifecycle_transition_insert",
-			sandboxDockerLifecycleStatements),
-		requireMigrationTrigger("trg_sandbox_docker_lifecycle_cleanup_receipt_insert",
-			legacyDockerLifecycleCleanupTriggerCompatibilityStatements),
-		`DELETE FROM schema_migrations WHERE version = 132`,
-	}...)
-}
-
 func TestSchemaV132PreservesLifecycleActionsAndFencesStdinAttach(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "docker-stdin-v131.db")
-	state, runRecord, root := openSandboxManifestStoreAt(t, ctx, path, 177)
+	state, runRecord, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	intent, request := newDockerContainerLifecycleStoreIntent(t, ctx, state,
 		runRecord.ID, root, "docker-stdin-v132")
 	record, _, err := state.BeginDockerContainerLifecycle(ctx, intent,
@@ -102,15 +69,10 @@ func TestSchemaV132PreservesLifecycleActionsAndFencesStdinAttach(t *testing.T) {
 	original := append([]sandbox.DockerContainerLifecyclePreparedAction(nil),
 		record.Actions...)
 
-	for _, statement := range removeSchemaV132ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			state.Close()
-			t.Fatalf("restore schema v131: %v\n%s", err, statement)
-		}
-	}
+	state = historicalTestDatabaseFromSeed(t, state, path, 131)
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 131 {
 		state.Close()
-		t.Fatalf("restored schema version=%d want=131 err=%v", version, err)
+		t.Fatalf("historical schema version=%d want=131 err=%v", version, err)
 	}
 	if err := state.Close(); err != nil {
 		t.Fatal(err)

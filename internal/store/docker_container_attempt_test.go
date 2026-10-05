@@ -389,7 +389,7 @@ func TestDockerContainerAttemptSchemaStoresNoRawExecutionMaterial(t *testing.T) 
 func TestSchemaV56UpgradePreservesV55Rehearsal(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "docker-attempt-v55.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, path, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	_, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
 		run.ID, root, "docker-attempt-upgrade")
 	plan, planOperation := newDockerContainerPlanStoreRecord(t, ctx, observation, manifest,
@@ -402,11 +402,7 @@ func TestSchemaV56UpgradePreservesV55Rehearsal(t *testing.T) {
 	if _, _, err := st.CreateDockerContainerRehearsal(ctx, rehearsal, operation); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV56ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v55 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 55)
 	if version, err := st.SchemaVersion(ctx); err != nil || version != 55 {
 		t.Fatalf("fixture schema=%d want=55 err=%v", version, err)
 	}

@@ -5,20 +5,6 @@ import (
 	"testing"
 )
 
-// removeSchemaV122ForTestStatements restores a v121 database. Every historical
-// downgrade helper eventually reaches removeSchemaV118ForTestStatements, so the
-// newest schema must remain the first link in that chain.
-func removeSchemaV122ForTestStatements() []string {
-	return append(removeSchemaV123ForTestStatements(), []string{
-		`DROP TABLE scheduled_job_notifications`,
-		`DROP TABLE scheduled_job_rounds`,
-		`DROP TABLE scheduled_job_operations`,
-		`DROP TABLE scheduled_job_authorizations`,
-		`DROP TABLE scheduled_jobs`,
-		`DELETE FROM schema_migrations WHERE version = 122`,
-	}...)
-}
-
 func TestSchemaV122UpgradesV121Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scheduled-jobs-v121.db")
 	state := openHistoricalTestDatabase(t, path, 121)

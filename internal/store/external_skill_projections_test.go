@@ -81,7 +81,7 @@ func TestExternalSkillProjectionIsBoundedReadOnlyAndMetadataOnly(t *testing.T) {
 func TestSchemaV70ExternalSelectionUpgradesToProjectionWithoutFabricatingFacts(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "external-skill-projection-upgrade.db")
-	st, run, _, _ := createExternalSkillProjectionFixture(t, path, 177)
+	st, run, _, _ := createExternalSkillProjectionFixture(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 	_, runWithoutSelection, err := newMigrationFixtureRunService(t, st).Create(ctx,
 		application.CreateRunRequest{
 			Goal: "projection migration must not invent a selection", Profile: "review",
@@ -99,11 +99,7 @@ func TestSchemaV70ExternalSelectionUpgradesToProjectionWithoutFabricatingFacts(t
 		`SELECT COUNT(*) FROM run_external_skill_selections`).Scan(&selectionCount); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV71ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove schema v71 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 70)
 	if version, err := st.SchemaVersion(ctx); err != nil || version != 70 {
 		t.Fatalf("v70 fixture version=%d err=%v", version, err)
 	}

@@ -7,18 +7,6 @@ import (
 	"testing"
 )
 
-func removeSchemaV137ForTestStatements() []string {
-	return append(removeSchemaV139ForTestStatements(), []string{
-		`DELETE FROM schema_migrations WHERE version = 138`,
-		`DROP TRIGGER trg_standard_code_delivery_insert`,
-		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
-		`DROP TRIGGER trg_standard_code_delivery_delete_immutable`,
-		`DROP INDEX idx_standard_code_deliveries_run_event`,
-		`DROP TABLE standard_code_deliveries`,
-		`DELETE FROM schema_migrations WHERE version = 137`,
-	}...)
-}
-
 func TestSchemaV137AddsEmptyImmutableStandardCodeDeliveryLedger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "standard-code-delivery-v136.db")

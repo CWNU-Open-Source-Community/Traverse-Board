@@ -431,18 +431,14 @@ func TestRootInboxContextRejectsUnbackedResultAtStoreAndSQLiteBoundaries(t *test
 
 func TestSchemaV25PreservesV24CoordinatorState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v24.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixtureWithoutLease(t, ctx, st,
 		"root inbox migration", 1, 32)
 	message := sendRootDependencyTestMessage(t, ctx, st, fixture.Run.ID,
 		fixture.Child.ID, fixture.Root.ID, "dependency-migration-0001")
-	for _, statement := range removeSchemaV25ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v25 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 24)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

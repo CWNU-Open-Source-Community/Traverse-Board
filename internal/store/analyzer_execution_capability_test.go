@@ -128,21 +128,6 @@ func TestSchemaV94UpgradesV93AnalyzerDatabase(t *testing.T) {
 	}
 }
 
-func removeSchemaV94ForTestStatements() []string {
-	return append(removeSchemaV95ForTestStatements(), []string{
-		`DROP TRIGGER trg_analyzer_execution_consumption_delete_immutable`,
-		`DROP TRIGGER trg_analyzer_execution_consumption_update_immutable`,
-		`DROP TRIGGER trg_analyzer_execution_capability_delete_immutable`,
-		`DROP TRIGGER trg_analyzer_execution_capability_update_immutable`,
-		`DROP TRIGGER trg_analyzer_execution_consumption_insert`,
-		`DROP TRIGGER trg_analyzer_execution_capability_insert`,
-		`DROP TABLE analyzer_execution_consumptions`,
-		`DROP INDEX idx_analyzer_execution_capabilities_run_issued`,
-		`DROP TABLE analyzer_execution_capabilities`,
-		`DELETE FROM schema_migrations WHERE version = 94`,
-	}...)
-}
-
 func analyzerExecutionCandidateFixture(t *testing.T, requestID string) analyzer.InvocationCandidate {
 	t.Helper()
 	request := analyzer.Request{

@@ -222,15 +222,14 @@ func TestRunWakeExpiredFinalGenerationCommitsExhaustionBeforeLeaseEnd(t *testing
 func TestSchemaV74UpgradeDoesNotFabricateWakeIntent(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v73.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	_, run := createWorkItemTestRun(t, ctx, state, "v74 upgrade test")
-	for _, statement := range removeSchemaV74ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("remove schema v74 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 73)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

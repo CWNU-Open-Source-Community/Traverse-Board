@@ -222,7 +222,7 @@ func TestUIEvidenceStartupReconciliationNeverTurnsNotRunGreen(t *testing.T) {
 func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "ui-evidence-v118.db")
-	state := openHistoricalTestDatabase(t, databasePath, 177)
+	state := openHistoricalTestDatabase(t, databasePath+".seed.db", 177)
 
 	workspaceRoot := newWorkspaceCheckpointGitRepository(t)
 	workspace := WorkspaceRecord{ID: "workspace-migration-119", Name: "migration-119",
@@ -244,12 +244,11 @@ func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) 
 	if _, _, err := state.CreateWorkspaceCheckpoint(ctx, checkpoint); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV119ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("downgrade v119 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, databasePath, 118)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -307,18 +306,6 @@ func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) 
 			}
 		}
 	}
-}
-
-// removeSchemaV119ForTestStatements restores a v118 database. Older migration
-// tests call this through removeSchemaV118ForTestStatements so the downgrade
-// chain always removes the newest schema first.
-func removeSchemaV119ForTestStatements() []string {
-	return append(removeSchemaV120ForTestStatements(), []string{
-		`DROP TABLE ui_evidence_artifacts`,
-		`DROP TABLE ui_evidence_steps`,
-		`DROP TABLE ui_evidence_attempts`,
-		`DELETE FROM schema_migrations WHERE version = 119`,
-	}...)
 }
 
 func storeUIEvidenceManifest(t *testing.T, runID, missionID, sessionID,

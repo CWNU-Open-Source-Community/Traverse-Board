@@ -10,20 +10,6 @@ import (
 	"cyberagent-workbench/internal/contextmgr"
 )
 
-func removeSchemaV82ForTestStatements() []string {
-	return append(removeSchemaV83ForTestStatements(), []string{
-		`DROP TRIGGER trg_context_summaries_delete_immutable`,
-		`DROP TRIGGER trg_context_summaries_update_immutable`,
-		`DROP TRIGGER trg_context_summaries_v1_insert`,
-		`DROP INDEX idx_context_summaries_previous_v1`,
-		`ALTER TABLE context_summaries DROP COLUMN compacted_message_count`,
-		`ALTER TABLE context_summaries DROP COLUMN content_sha256`,
-		`ALTER TABLE context_summaries DROP COLUMN previous_summary_id`,
-		`ALTER TABLE context_summaries DROP COLUMN protocol_version`,
-		`DELETE FROM schema_migrations WHERE version = 82`,
-	}...)
-}
-
 func TestSchemaV82UpgradePreservesAndFoldsLegacySummary(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "context-handoff-v81.db")

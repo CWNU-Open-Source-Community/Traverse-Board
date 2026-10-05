@@ -204,7 +204,11 @@ func TestDockerContainerRehearsalLimitAndSchemaV54Upgrade(t *testing.T) {
 			}
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "docker-rehearsal-v54.db")
-			st, run, root := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			seedPath := path
+			if historical {
+				seedPath = filepath.Join(t.TempDir(), "seed.db")
+			}
+			st, run, root := openSandboxManifestStoreAt(t, ctx, seedPath, historicalVersion...)
 			t.Cleanup(func() { _ = st.Close() })
 			_, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
 				run.ID, root, "docker-rehearsal-limit")
@@ -229,11 +233,7 @@ func TestDockerContainerRehearsalLimitAndSchemaV54Upgrade(t *testing.T) {
 				return
 			}
 
-			for _, statement := range removeSchemaV55ForTestStatements() {
-				if _, err := st.db.ExecContext(ctx, statement); err != nil {
-					t.Fatalf("simulate schema v54 with %q: %v", statement, err)
-				}
-			}
+			st = historicalTestDatabaseFromSeed(t, st, path, 54)
 			if err := st.Close(); err != nil {
 				t.Fatal(err)
 			}

@@ -10,15 +10,6 @@ import (
 
 const migration97CleanupReceiptTriggerPrefix = "CREATE TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_insert"
 
-// removeSchemaV125ForTestStatements restores a v124 database and is the head
-// of the cumulative downgrade fixture chain used by historical migration tests.
-// Schema v125 deliberately leaves the canonical v97 trigger in place, so only
-// its migration-history row must be removed.
-func removeSchemaV125ForTestStatements() []string {
-	return append(removeSchemaV126ForTestStatements(),
-		`DELETE FROM schema_migrations WHERE version = 125`)
-}
-
 func TestSchemaV125UpgradesCanonicalV124Database(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "canonical-v124.db")

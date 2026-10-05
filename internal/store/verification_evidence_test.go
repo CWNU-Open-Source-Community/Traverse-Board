@@ -202,7 +202,7 @@ func TestRecordVerificationEvidenceRechecksActiveSessionInsideTransaction(t *tes
 func TestSchemaV78UpgradePreservesRunWithoutFabricatingVerificationEvidence(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v77.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	workspace := WorkspaceRecord{ID: "workspace-v78-upgrade", Name: "v78-upgrade",
 		RootPath: t.TempDir()}
@@ -217,12 +217,11 @@ func TestSchemaV78UpgradePreservesRunWithoutFabricatingVerificationEvidence(t *t
 		_ = state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV78ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("remove schema v78 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 77)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -207,7 +207,7 @@ func TestRecordVerificationPlanRechecksActiveCodeSessionInsideTransaction(t *tes
 func TestSchemaV80UpgradePreservesRunWithoutFabricatingVerificationPlan(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v79.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	workspace := WorkspaceRecord{ID: "workspace-v80-upgrade", Name: "v80-upgrade",
 		RootPath: t.TempDir()}
@@ -222,12 +222,11 @@ func TestSchemaV80UpgradePreservesRunWithoutFabricatingVerificationPlan(t *testi
 		_ = state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV80ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("remove schema v80 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 79)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

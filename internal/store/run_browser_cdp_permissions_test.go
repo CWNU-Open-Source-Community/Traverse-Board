@@ -113,7 +113,7 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndFullGated(t *testing.T) 
 
 func TestSchemaV91BackfillsRestrictedBrowserCDPPermission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v90-browser-cdp-permission.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -123,11 +123,11 @@ func TestSchemaV91BackfillsRestrictedBrowserCDPPermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV91ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v91 fixture with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, st, path, 90)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
 	}
+	st = historical
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -150,19 +150,4 @@ func TestSchemaV91BackfillsRestrictedBrowserCDPPermission(t *testing.T) {
 		version != LatestSchemaVersion {
 		t.Fatalf("schema version=%d err=%v", version, err)
 	}
-}
-
-func removeSchemaV91ForTestStatements() []string {
-	return append(removeSchemaV92ForTestStatements(), []string{
-		`DROP TRIGGER trg_run_browser_cdp_permission_operation_delete_immutable`,
-		`DROP TRIGGER trg_run_browser_cdp_permission_operation_update_immutable`,
-		`DROP TRIGGER trg_run_browser_cdp_permission_snapshot_delete_immutable`,
-		`DROP TRIGGER trg_run_browser_cdp_permission_snapshot_update_immutable`,
-		`DROP TRIGGER trg_run_browser_cdp_permission_operation_insert`,
-		`DROP TRIGGER trg_run_browser_cdp_permission_snapshot_insert`,
-		`DROP TABLE run_browser_cdp_permission_operations`,
-		`DROP INDEX idx_run_browser_cdp_permission_snapshots_run_revision`,
-		`DROP TABLE run_browser_cdp_permission_snapshots`,
-		`DELETE FROM schema_migrations WHERE version = 91`,
-	}...)
 }

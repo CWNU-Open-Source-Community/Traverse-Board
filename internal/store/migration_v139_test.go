@@ -12,25 +12,10 @@ import (
 	"cyberagent-workbench/internal/session"
 )
 
-func removeSchemaV139ForTestStatements() []string {
-	return append(removeSchemaV140ForTestStatements(), []string{
-		`DROP TRIGGER trg_thread_execution_permission_operation_delete_immutable`,
-		`DROP TRIGGER trg_thread_execution_permission_operation_update_immutable`,
-		`DROP TRIGGER trg_thread_execution_permission_snapshot_delete_immutable`,
-		`DROP TRIGGER trg_thread_execution_permission_snapshot_update_immutable`,
-		`DROP TRIGGER trg_thread_execution_permission_operation_insert`,
-		`DROP TRIGGER trg_thread_execution_permission_snapshot_insert`,
-		`DROP TABLE thread_execution_permission_operations`,
-		`DROP INDEX idx_thread_execution_permission_snapshots_thread_revision`,
-		`DROP TABLE thread_execution_permission_snapshots`,
-		`DELETE FROM schema_migrations WHERE version = 139`,
-	}...)
-}
-
 func TestSchemaV139BackfillsConservativeThreadPermission(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-permission-v138.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "legacy Thread permission", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 2}})
@@ -43,12 +28,7 @@ func TestSchemaV139BackfillsConservativeThreadPermission(t *testing.T) {
 		state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV139ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			state.Close()
-			t.Fatalf("restore schema v138 with %q: %v", statement, err)
-		}
-	}
+	state = historicalTestDatabaseFromSeed(t, state, path, 138)
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 138 {
 		state.Close()
 		t.Fatalf("restored schema version=%d want=138 err=%v", version, err)
