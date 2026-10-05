@@ -92,7 +92,7 @@ func (a *API) serveThreadApplicationServices(w http.ResponseWriter, r *http.Requ
 				if raw := r.URL.Query().Get("limit"); raw != "" {
 					limit, err = strconv.Atoi(raw)
 				}
-				if err != nil {
+				if err != nil || limit < 1 || limit > application.MaxThreadApplicationServicesLimit {
 					err = apperror.New(apperror.CodeInvalidArgument, "Thread service limit is invalid")
 				} else {
 					value, err = a.threadApplicationServiceController.List(r.Context(), threadID, limit)

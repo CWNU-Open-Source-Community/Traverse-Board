@@ -107,4 +107,12 @@ func TestThreadApplicationServicesHTTPControlGateAndClosedStopContract(t *testin
 	if w.Code != 200 || strings.Contains(w.Body.String(), `"can_stop":true`) {
 		t.Fatalf("read-only metadata projected cleanup: %d %s", w.Code, w.Body)
 	}
+	for _, limit := range []string{"0", "-1", "51", "invalid"} {
+		get.URL.RawQuery = "limit=" + limit
+		w = httptest.NewRecorder()
+		readonly.ServeHTTP(w, get)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid metadata limit %q: %d %s", limit, w.Code, w.Body)
+		}
+	}
 }
