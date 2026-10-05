@@ -670,7 +670,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		return err
 	}
 	reconcileCtx, reconcileCancel := context.WithCancel(ctx)
-	defer reconcileCancel()
+	reconcileDone := make(chan struct{})
+	defer func() {
+		reconcileCancel()
+		<-reconcileDone
+	}()
 	if webFetchAuthorizationSchedulerEnabled {
 		webFetchReconcileCtx, cancelWebFetchReconcile := context.WithCancel(ctx)
 		webFetchReconcileDone := make(chan struct{})
@@ -693,16 +697,17 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 			<-webFetchReconcileDone
 		}()
 	}
-	if commandRuntime != nil {
-		go func() {
+	go func() {
+		defer close(reconcileDone)
+		if commandRuntime != nil {
 			if reconcileErr := commandRuntime.RunReconciler(reconcileCtx,
 				500*time.Millisecond); reconcileErr != nil && reconcileCtx.Err() == nil {
 				fmt.Fprintln(a.errOut, "command-runtime-reconciler:", reconcileErr)
 			}
-		}()
-	} else {
-		go runCommandRuntimeStartupReconciler(reconcileCtx, commandManager, a.errOut)
-	}
+		} else {
+			runCommandRuntimeStartupReconciler(reconcileCtx, commandManager, a.errOut)
+		}
+	}()
 	origin := "http://" + listener.Addr().String()
 	baseURL := origin + "/api/v1"
 	fmt.Fprintf(a.out, "api_url: %s\napi_version: %s\napi_token_generated: %t\napi_control_enabled: %t\n",
