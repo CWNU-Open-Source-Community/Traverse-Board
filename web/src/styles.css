@@ -857,8 +857,17 @@ td code { font-size: 11px; }
 .explorer-list button:disabled { cursor: not-allowed; color: #8b9499; }
 .explorer-list button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .explorer-list button small { color: var(--muted); font-size: 10px; }
-.explorer-file > div { min-height: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; color: var(--muted); font-size: 10px; }
+.explorer-file > div:not(.explorer-file-lines) { min-height: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; color: var(--muted); font-size: 10px; }
 .explorer-file pre { max-height: calc(100vh - 280px); min-height: 280px; margin: 0; padding: 14px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: #f6f8f9; color: #26343d; font-size: 11px; line-height: 1.55; white-space: pre; }
+.explorer-file-lines { display: block; max-height: calc(100vh - 280px); min-height: 280px; margin: 0; padding: 10px 0; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: #f6f8f9; color: #26343d; font-size: 11px; line-height: 1.55; font-family: var(--prayu-font-mono, monospace); }
+.explorer-file-line { display: flex; padding: 0 8px; }
+.explorer-file-line.is-highlighted { background: color-mix(in srgb, var(--accent, #1a73e8) 18%, transparent); font-weight: 600; }
+.explorer-line-number { min-width: 44px; user-select: none; color: var(--muted); text-align: right; padding-right: 14px; flex-shrink: 0; }
+.explorer-line-content { white-space: pre; flex: 1 1 auto; }
+.explorer-line-warning { padding: 8px 12px; background: color-mix(in srgb, #ef6b5d 15%, transparent); color: #c53929; border: 1px solid color-mix(in srgb, #ef6b5d 30%, transparent); border-radius: 6px; font-size: 12px; margin-bottom: 8px; }
+.explorer-line-notice { padding: 8px 12px; background: color-mix(in srgb, #1a73e8 12%, transparent); color: #1a73e8; border: 1px solid color-mix(in srgb, #1a73e8 25%, transparent); border-radius: 6px; font-size: 12px; margin-bottom: 8px; }
+.explorer-error-hint { color: var(--muted); font-size: 13px; margin: 6px 0 12px; }
+.v2-terminal-error-notice { padding: 8px 12px; background: color-mix(in srgb, #ef6b5d 15%, transparent); color: #c53929; border: 1px solid color-mix(in srgb, #ef6b5d 30%, transparent); border-radius: 6px; font-size: 12px; margin: 8px 16px; }
 .file-proposal-editor { display: grid; grid-template-rows: auto minmax(360px, calc(100vh - 360px)) auto; min-width: 0; margin-top: 12px; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; background: var(--surface); }
 .file-proposal-editor > header, .file-proposal-editor > footer { min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 7px 10px; background: #f6f8f9; }
 .file-proposal-editor > header { border-bottom: 1px solid var(--border); }

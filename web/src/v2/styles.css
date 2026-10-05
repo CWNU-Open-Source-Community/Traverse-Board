@@ -44,6 +44,301 @@
   .v2-approval-facts > div, .v2-command-approvals .host-command-envelope { grid-template-columns: minmax(0, 1fr); }
 }
 
+.v2-drawer-backdrop {
+  align-items: stretch;
+  backdrop-filter: blur(12px) saturate(120%);
+  background: rgb(23 27 34 / 28%);
+  display: flex;
+  inset: 0;
+  justify-content: flex-end;
+  position: fixed;
+  z-index: 500;
+}
+
+.v2-file-drawer,
+.v2-terminal-drawer {
+  backdrop-filter: blur(42px) saturate(180%);
+  background: var(--v2-floating-surface);
+  border-left: 1px solid var(--v2-border-strong);
+  box-shadow: -18px 0 54px rgb(15 20 28 / 16%);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+  position: relative;
+  width: min(840px, 100vw);
+}
+
+.v2-terminal-drawer {
+  width: min(900px, 100vw);
+}
+
+.v2-file-drawer-header,
+.v2-terminal-drawer-header {
+  align-items: center;
+  border-bottom: 1px solid var(--v2-border);
+  display: flex;
+  flex-shrink: 0;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 10px 18px;
+}
+
+.v2-file-drawer-title,
+.v2-terminal-drawer-title {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.v2-file-drawer-title > svg,
+.v2-terminal-drawer-title > svg {
+  color: var(--v2-accent);
+  flex-shrink: 0;
+}
+
+.v2-file-drawer-title h3,
+.v2-terminal-drawer-title h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-file-drawer-title p,
+.v2-terminal-drawer-title p {
+  color: var(--v2-muted);
+  font-size: 12px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-drawer-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--v2-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.v2-drawer-close:hover,
+.v2-drawer-close:focus-visible {
+  background: var(--v2-control);
+  color: var(--v2-ink);
+}
+
+.v2-file-drawer-body,
+.v2-terminal-drawer-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v2-file-drawer-body > .workspace-explorer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 14px 18px 18px;
+}
+
+.v2-terminal-drawer-body > .user-terminal-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 14px 18px 18px;
+}
+
+.v2-terminal-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.v2-terminal-action-btn {
+  align-items: center;
+  background: var(--v2-control);
+  border: 1px solid var(--v2-border);
+  border-radius: 8px;
+  color: var(--v2-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.v2-terminal-action-btn:hover,
+.v2-terminal-action-btn:focus-visible {
+  background: var(--v2-control-hover);
+}
+
+.v2-terminal-action-btn.danger {
+  color: var(--v2-danger);
+}
+
+.v2-terminal-action-btn.danger:hover,
+.v2-terminal-action-btn.danger:focus-visible {
+  background: color-mix(in srgb, var(--v2-danger) 10%, var(--v2-control));
+}
+
+.v2-terminal-disabled-notice {
+  align-items: center;
+  color: var(--v2-muted);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.v2-terminal-disabled-notice p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 420px;
+}
+
+.v2-markdown-code-block {
+  background: rgb(20 23 28 / 92%);
+  border: 1px solid color-mix(in srgb, var(--v2-border) 60%, transparent);
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.v2-markdown-code-header {
+  align-items: center;
+  background: rgb(27 31 38 / 90%);
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+}
+
+.v2-markdown-code-lang {
+  color: #9aa1aa;
+  font-family: var(--prayu-font-mono);
+  font-size: 11px;
+}
+
+.v2-copy-code-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #c2ccda;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  padding: 2px 7px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.v2-copy-code-button:hover,
+.v2-copy-code-button:focus-visible {
+  background: rgb(255 255 255 / 12%);
+  color: #ffffff;
+}
+
+.v2-markdown-code-block pre {
+  background: transparent;
+  border: 0;
+  color: #eef0f2;
+  font-family: var(--prayu-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.v2-markdown-code-block pre code {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+.v2-assistant-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.v2-assistant-action-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--v2-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  transition: all 120ms ease;
+}
+
+.v2-assistant-action-btn:hover,
+.v2-assistant-action-btn:focus-visible {
+  background: var(--v2-control);
+  border-color: var(--v2-border);
+  color: var(--v2-ink);
+}
+
+.v2-file-link {
+  align-items: center;
+  background: color-mix(in srgb, var(--v2-accent) 8%, var(--v2-control));
+  border: 1px solid color-mix(in srgb, var(--v2-accent) 22%, var(--v2-border));
+  border-radius: 6px;
+  color: var(--v2-accent);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--prayu-font-mono);
+  font-size: 12px;
+  gap: 5px;
+  margin: 0 2px;
+  padding: 1px 7px;
+  text-decoration: none;
+  vertical-align: baseline;
+}
+
+.v2-file-link:hover,
+.v2-file-link:focus-visible {
+  background: color-mix(in srgb, var(--v2-accent) 16%, var(--v2-control));
+  border-color: var(--v2-accent);
+  text-decoration: underline;
+}
+
 .v2-shell,
 .v2-shell * {
   box-sizing: border-box;

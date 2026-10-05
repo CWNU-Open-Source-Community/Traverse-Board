@@ -8,29 +8,38 @@ import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { FileProposalEditor } from "./file-proposal-editor";
 
-export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath = ".", onSelectReference }: {
+export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath = ".", initialLine, onSelectReference }: {
   client: APIClient;
   workspaceID: string;
   runID?: string;
   initialPath?: string;
+  initialLine?: number;
   onSelectReference?: (file: WorkspaceExplorerView) => void;
 }) {
   const { t } = useLocale();
   const [path, setPath] = useState(initialPath);
+  const [highlightLine, setHighlightLine] = useState<number | undefined>(initialLine);
+  const highlightedLineRef = useRef<HTMLDivElement>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const operationKeys = useRef(new Map<string, string>());
   useEffect(() => {
     setPath(initialPath);
+    setHighlightLine(initialLine);
     setSearchInput("");
     setSearchQuery("");
     operationKeys.current.clear();
-  }, [workspaceID, runID, initialPath]);
+  }, [workspaceID, runID, initialPath, initialLine]);
   const query = useQuery({
     queryKey: ["workspace", workspaceID, "explore", path],
     queryFn: ({ signal }) => client.workspaceExplore(workspaceID, path, signal),
     enabled: Boolean(workspaceID),
   });
+  useEffect(() => {
+    if (highlightLine && highlightedLineRef.current) {
+      highlightedLineRef.current.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }
+  }, [highlightLine, path, query.data]);
   const search = useQuery({
     queryKey: ["workspace", workspaceID, "search", searchQuery],
     queryFn: ({ signal }) => client.workspaceSearch(workspaceID, searchQuery, signal),
@@ -66,7 +75,8 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
 
   if (!workspaceID) return <EmptyState>{t("此 Run 未绑定工作区", "No Workspace is bound to this Run")}</EmptyState>;
   if (query.isLoading) return <LoadingState label={t("正在加载工作区文件", "Loading Workspace files")} />;
-  if (query.isError || !query.data) return <div><ErrorState error={query.error} />
+  if (query.isError || !query.data) return <div className="explorer-error"><ErrorState error={query.error} />
+    <p className="explorer-error-hint" role="alert">{t("无法读取目标路径，文件可能不存在或已移动", "Cannot read target path, file may not exist or has been moved")}</p>
     <button onClick={() => void query.refetch()} type="button">{t("重试文件读取", "Retry file read")}</button>
     <button onClick={() => setPath(parent)} type="button">{t("返回上级目录", "Return to parent")}</button></div>;
   const snapshot = query.data;
@@ -140,11 +150,35 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
     {proposalSource.data && proposalSource.data.path === snapshot.path ?
       <FileProposalEditor client={client} onClose={() => proposalSource.reset()}
         runID={runID} source={proposalSource.data} /> :
-    snapshot.kind === "file" && <div className="explorer-file">
-      <div><span>{t(`已显示 ${formatBytes(snapshot.returned_bytes)}`, `${formatBytes(snapshot.returned_bytes)} shown`)}</span>
-        <span>{t(`共 ${formatBytes(snapshot.total_bytes)}`, `${formatBytes(snapshot.total_bytes)} total`)}</span></div>
-      <pre>{snapshot.content}</pre>
-    </div>}
+    snapshot.kind === "file" && (() => {
+      const lines = snapshot.content.split("\n");
+      const lineOutOfRange = highlightLine !== undefined && (highlightLine < 1 || highlightLine > lines.length);
+      const lineHighlighted = highlightLine !== undefined && highlightLine >= 1 && highlightLine <= lines.length;
+      return <div className="explorer-file">
+        <div>
+          <span>{t(`已显示 ${formatBytes(snapshot.returned_bytes)}`, `${formatBytes(snapshot.returned_bytes)} shown`)}</span>
+          <span>{t(`共 ${formatBytes(snapshot.total_bytes)}`, `${formatBytes(snapshot.total_bytes)} total`)}</span>
+        </div>
+        {lineOutOfRange && <div className="explorer-line-warning" role="alert">
+          {t(`定位到第 ${highlightLine} 行失败：超出当前显示范围（已显示 ${lines.length} 行${snapshot.truncated ? "，文件已截断" : ""}）`,
+            `Failed to position line ${highlightLine}: out of loaded range (${lines.length} lines shown${snapshot.truncated ? ", truncated" : ""})`)}
+        </div>}
+        {lineHighlighted && <div className="explorer-line-notice" role="status">
+          {t(`已定位到第 ${highlightLine} 行`, `Positioned at line ${highlightLine}`)}
+        </div>}
+        <div className="explorer-file-lines">
+          {lines.map((lineContent, index) => {
+            const lineNum = index + 1;
+            const isHighlight = lineNum === highlightLine;
+            return <div className={`explorer-file-line${isHighlight ? " is-highlighted" : ""}`}
+              key={lineNum} ref={isHighlight ? highlightedLineRef : undefined} data-line={lineNum}>
+              <span className="explorer-line-number">{lineNum}</span>
+              <span className="explorer-line-content">{lineContent}</span>
+            </div>;
+          })}
+        </div>
+      </div>;
+    })()}
   </section>;
 }
 

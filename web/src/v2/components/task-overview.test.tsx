@@ -82,3 +82,37 @@ it("does not describe an unapplied proposal as a later modification or an applie
   expect(screen.queryByText("此后已有修改")).not.toBeInTheDocument();
   expect(screen.getByText(/没有已记录的应用编辑/)).toBeInTheDocument();
 });
+
+it("surfaces delivery actions and distinguishes current run checks from historical checks", async () => {
+  const onGit = vi.fn();
+  const onPR = vi.fn();
+  const onChecks = vi.fn();
+  const rev = review({
+    checks: [
+      { run_id: "new-run", id: "check-1", source_kind: "test", title: "Unit Tests", outcome: "passed", reason: "passed",
+        revision_state: "current", recorded_at: when, handoff_url: "/new" },
+      { run_id: "old-run", id: "check-2", source_kind: "lint", title: "ESLint", outcome: "failed", reason: "failed",
+        revision_state: "stale", recorded_at: when, handoff_url: "/old" },
+    ],
+  });
+  const client = { get: vi.fn().mockResolvedValue(rev) } as unknown as APIClient;
+  const user = userEvent.setup();
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <TaskOverview client={client} threadID="task" onFeedback={vi.fn()} onGit={onGit} onPullRequest={onPR} onChecks={onChecks} />
+    </QueryClientProvider>
+  );
+
+  expect(await screen.findByText("Unit Tests")).toBeInTheDocument();
+  expect(screen.getByText("当前执行")).toBeInTheDocument();
+  expect(screen.getByText("历史执行")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /PR 状态与交付/ }));
+  expect(onPR).toHaveBeenCalledOnce();
+
+  await user.click(screen.getByRole("button", { name: /完整检查与环境/ }));
+  expect(onChecks).toHaveBeenCalledOnce();
+
+  await user.click(screen.getByRole("button", { name: /选择文件并提交/ }));
+  expect(onGit).toHaveBeenCalledOnce();
+});

@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { APIRequestError, type APIClient } from "../../api/client";
 import type { V2FileReference } from "./file-context";
 import type { PageResult, ThreadDetailView, ThreadExecutionView, ThreadTranscriptItemView, WorkspaceView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
 import { V2RecoveryProvider } from "../recovery-storage";
-import { V2Conversation } from "./conversation";
+import * as desktopBridge from "../../lib/desktop-bridge";
+import { V2Conversation, V2FileDrawer, V2TerminalDrawer, parseProjectFileLink } from "./conversation";
 
 const composerFiles = vi.hoisted(() => ({ current: undefined as V2FileReference[] | undefined }));
 const streams = vi.hoisted(() => ({ events: "live", model: "waiting" }));
@@ -31,6 +31,7 @@ vi.mock("../projection/narrative", () => ({
     deliveryMode: item.delivery_mode,
     promotedToMessageID: item.promoted_to_message_id,
     promotedFromMessageID: item.promoted_from_message_id,
+    runId: item.run_id,
   })) }),
   projectLiveThreadNarrative: (prepared: { entries: unknown[] }) => prepared.entries,
 }));
@@ -45,6 +46,16 @@ vi.mock("./composer", () => ({
     disabled={disabled} onClick={() => void onSubmit(`pending-${threadID}`, composerFiles.current).catch(() => undefined)} type="button">
     发送 {threadID}
   </button>,
+}));
+
+vi.mock("../../components/user-terminal-panel", () => ({
+  UserTerminalPanel: ({ runID, sessionID, onSession }: {
+    runID: string;
+    sessionID: string;
+    onSession: (sessionID: string) => void;
+  }) => <div data-testid="user-terminal-panel" data-run-id={runID} data-session-id={sessionID}>
+    <button onClick={() => onSession("sess-created")} type="button">Mock Start Session</button>
+  </div>,
 }));
 
 afterEach(() => { cleanup(); composerFiles.current = undefined; streams.events = "live"; streams.model = "waiting"; });
@@ -132,6 +143,29 @@ function baseClient(overrides: Partial<APIClient> = {}): APIClient {
     approvalQueue: vi.fn(() => Promise.resolve({
       protocol_version: "approval_queue.v1", run_id: "run-thread-a", items: [], truncated: false,
       process_execution_enabled: false, session_grant_created: false, capability_grant: false,
+    })),
+    workspaceExplore: vi.fn(() => Promise.resolve({
+      protocol_version: "workspace_explorer.v1",
+      workspace_id: "workspace-1",
+      path: ".",
+      kind: "directory",
+      entries: [
+        { name: "src", path: "src", kind: "directory" },
+        { name: "index.ts", path: "src/index.ts", kind: "file", size_bytes: 120, readable: true },
+      ],
+      content: "",
+      total_bytes: 0,
+      returned_bytes: 0,
+      truncated: false,
+      redaction_count: 0,
+      root_path_exposed: false,
+      provenance: {
+        version: "context_provenance.v1",
+        source_kind: "workspace_listing",
+        source_ref: ".",
+        content_sha256: "a".repeat(64),
+        instruction_authorized: false,
+      },
     })),
     hasThreadControl: true,
     submitThreadTurn: vi.fn(() => Promise.resolve({ steering: { id: "steering-1" } })),
@@ -799,14 +833,14 @@ describe("V2Conversation", () => {
     const view = renderConversation(client);
 
     await screen.findByText("newest message");
-    expect(Array.from(view.container.querySelectorAll(".v2-assistant-turn"))
+    expect(Array.from(view.container.querySelectorAll(".v2-assistant-turn p"))
       .map((element) => element.textContent)).toEqual(["middle message", "newest message"]);
 
     await user.click(screen.getByRole("button", { name: "加载更早记录" }));
     await screen.findByText("oldest message");
     expect(getPage).toHaveBeenCalledWith(expect.stringContaining("/thread-a/transcript"),
       { limit: 100 }, "older-cursor", expect.any(AbortSignal));
-    expect(Array.from(view.container.querySelectorAll(".v2-assistant-turn"))
+    expect(Array.from(view.container.querySelectorAll(".v2-assistant-turn p"))
       .map((element) => element.textContent)).toEqual([
       "oldest message", "middle message", "newest message",
     ]);
@@ -841,5 +875,242 @@ describe("V2Conversation", () => {
     expect(onArchive).toHaveBeenCalledTimes(1);
     expect(trigger).toHaveFocus();
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  });
+
+  it("parses project file links and ignores external schemes or anchors", () => {
+    expect(parseProjectFileLink("src/index.ts:42")).toEqual({ path: "src/index.ts", line: 42 });
+    expect(parseProjectFileLink("README.md:42")).toEqual({ path: "README.md", line: 42 });
+    expect(parseProjectFileLink("file:///d:/GitProjects/app.ts#L18")).toEqual({ path: "d:/GitProjects/app.ts", line: 18 });
+    expect(parseProjectFileLink("./web/src/main.tsx")).toEqual({ path: "web/src/main.tsx", line: undefined });
+    expect(parseProjectFileLink("https://github.com/foo/bar")).toBeNull();
+    expect(parseProjectFileLink("//example.com/foo.ts")).toBeNull();
+    expect(parseProjectFileLink("#anchor")).toBeNull();
+    expect(parseProjectFileLink("")).toBeNull();
+  });
+
+  it("opens the workspace file drawer from the header and closes with focus restored", async () => {
+    const client = baseClient();
+    const user = userEvent.setup();
+    renderConversation(client);
+
+    await screen.findByText("Title thread-a");
+    const fileTrigger = screen.getByRole("button", { name: "工作区文件" });
+    await user.click(fileTrigger);
+
+    expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
+    expect(screen.getByText("执行：run-thread-a")).toBeInTheDocument();
+
+    const closeBtn = screen.getByRole("button", { name: "关闭文件面板" });
+    await user.click(closeBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "工作区文件" })).not.toBeInTheDocument();
+    });
+    expect(fileTrigger).toHaveFocus();
+  });
+
+  it("intercepts project file links in assistant messages and opens the workspace file drawer", async () => {
+    const linkItem = transcriptItem("item-with-link", "请查看 [src/index.ts:42](src/index.ts:42)", 1);
+    const client = baseClient({
+      getPage: vi.fn(() => Promise.resolve(page([linkItem]))) as unknown as APIClient["getPage"],
+    });
+    const user = userEvent.setup();
+    renderConversation(client);
+
+    const fileLink = await screen.findByRole("link", { name: "src/index.ts:42" });
+    expect(fileLink).toHaveClass("v2-file-link");
+
+    await user.click(fileLink);
+    expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
+  });
+
+  it("renders README.md:42 markdown links as project file links instead of clearing them", async () => {
+    const linkItem = transcriptItem("item-readme", "详情参见 [README.md:42](README.md:42)", 1);
+    const client = baseClient({
+      getPage: vi.fn(() => Promise.resolve(page([linkItem]))) as unknown as APIClient["getPage"],
+    });
+    const user = userEvent.setup();
+    renderConversation(client);
+
+    const fileLink = await screen.findByRole("link", { name: "README.md:42" });
+    expect(fileLink).toHaveClass("v2-file-link");
+
+    await user.click(fileLink);
+    expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
+  });
+
+  it("resolves the originating Run's workspace before reading files in V2FileDrawer", async () => {
+    const client = baseClient({
+      fileEditChangeSet: vi.fn(() => Promise.resolve({
+        protocol_version: "file_edit_change_set.v1",
+        workspace_id: "drydock-run-123",
+        proposed_count: 1,
+        approved_count: 0,
+        applied_count: 0,
+        denied_count: 0,
+        failed_count: 0,
+        returned_count: 1,
+        total_diff_bytes: 0,
+      })) as unknown as APIClient["fileEditChangeSet"],
+    });
+
+    const trigger = { current: document.createElement("button") };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <V2FileDrawer
+          client={client}
+          threadID="thread-a"
+          workspaceID="source-workspace"
+          runID="run-drydock-1"
+          onClose={vi.fn()}
+          returnFocusRef={trigger}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(client.workspaceExplore).toHaveBeenCalledWith("drydock-run-123", ".", expect.anything());
+    });
+  });
+
+  it("copies assistant message and code blocks to the clipboard with visual feedback", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const codeItem = transcriptItem("item-with-code", "这是一段分析：\n\n```typescript\nconst sum = (a: number, b: number) => a + b;\n```", 1);
+    const client = baseClient({
+      getPage: vi.fn(() => Promise.resolve(page([codeItem]))) as unknown as APIClient["getPage"],
+    });
+    const user = userEvent.setup();
+    renderConversation(client);
+
+    const copyMessageBtn = await screen.findByRole("button", { name: "复制回复" });
+    await user.click(copyMessageBtn);
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("这是一段分析："));
+    expect(await screen.findByRole("button", { name: "已复制回复" })).toBeInTheDocument();
+
+    const copyCodeBtn = screen.getByRole("button", { name: "复制代码" });
+    await user.click(copyCodeBtn);
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("const sum = (a: number, b: number) => a + b;"));
+    expect(await screen.findByRole("button", { name: "已复制代码" })).toBeInTheDocument();
+  });
+
+  it("opens desktop terminal drawer from header and collapses without destroying session", async () => {
+    const client = baseClient();
+    const user = userEvent.setup();
+    renderConversation(client);
+
+    await screen.findByText("Title thread-a");
+    const termTrigger = screen.getByRole("button", { name: "终端" });
+    await user.click(termTrigger);
+
+    expect(await screen.findByRole("dialog", { name: "任务终端" })).toBeInTheDocument();
+    expect(screen.getByText("当前运行环境未启用桌面终端。仅在 Universal Code 桌面端运行时支持本机 Debug 终端。")).toBeInTheDocument();
+
+    const collapseBtn = screen.getByRole("button", { name: "收起终端" });
+    await user.click(collapseBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "任务终端" })).not.toBeInTheDocument();
+    });
+    expect(termTrigger).toHaveFocus();
+  });
+
+  it("protects terminal termination against errors and surfaces error notice", async () => {
+    vi.spyOn(desktopBridge, "desktopUserTerminalEnabled").mockReturnValue(true);
+    const closeSpy = vi.spyOn(desktopBridge, "closeDesktopUserTerminal").mockRejectedValue(new Error("Process busy"));
+    const onSession = vi.fn();
+    const trigger = { current: document.createElement("button") };
+    const user = userEvent.setup();
+
+    render(
+      <V2TerminalDrawer
+        runID="run-term"
+        sessionID="sess-active"
+        threadTitle="Thread Term"
+        workspaceName="Workspace Term"
+        onSession={onSession}
+        onClose={vi.fn()}
+        returnFocusRef={trigger}
+      />
+    );
+
+    const termBtn = screen.getByRole("button", { name: "终止终端进程" });
+    await user.click(termBtn);
+
+    expect(closeSpy).toHaveBeenCalledWith("sess-active");
+    expect(onSession).not.toHaveBeenCalledWith("");
+    expect(await screen.findByRole("alert")).toHaveTextContent("终止终端失败：Process busy");
+  });
+
+  it("does not clear a replacement session if earlier termination settled late", async () => {
+    vi.spyOn(desktopBridge, "desktopUserTerminalEnabled").mockReturnValue(true);
+    let resolveClose!: () => void;
+    vi.spyOn(desktopBridge, "closeDesktopUserTerminal").mockImplementation(
+      () => new Promise((resolve) => { resolveClose = resolve; })
+    );
+    const onSession = vi.fn();
+    const trigger = { current: document.createElement("button") };
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <V2TerminalDrawer
+        runID="run-term"
+        sessionID="sess-old"
+        threadTitle="Thread Term"
+        workspaceName="Workspace Term"
+        onSession={onSession}
+        onClose={vi.fn()}
+        returnFocusRef={trigger}
+      />
+    );
+
+    const termBtn = screen.getByRole("button", { name: "终止终端进程" });
+    await user.click(termBtn);
+
+    rerender(
+      <V2TerminalDrawer
+        runID="run-term"
+        sessionID="sess-new"
+        threadTitle="Thread Term"
+        workspaceName="Workspace Term"
+        onSession={onSession}
+        onClose={vi.fn()}
+        returnFocusRef={trigger}
+      />
+    );
+
+    resolveClose();
+    await waitFor(() => {
+      expect(onSession).not.toHaveBeenCalledWith("");
+    });
+  });
+
+  it("keeps terminal session bindings across conversation-page unmounts", async () => {
+    vi.spyOn(desktopBridge, "desktopUserTerminalEnabled").mockReturnValue(true);
+    const client = baseClient();
+    const user = userEvent.setup();
+
+    const view = renderConversation(client, "thread-persist");
+    await screen.findByText("Title thread-persist");
+
+    const termTrigger = screen.getByRole("button", { name: "终端" });
+    await user.click(termTrigger);
+
+    expect(await screen.findByRole("dialog", { name: "任务终端" })).toBeInTheDocument();
+    const startBtn = screen.getByRole("button", { name: "Mock Start Session" });
+    await user.click(startBtn);
+
+    view.unmount();
+
+    renderConversation(client, "thread-persist");
+    await screen.findByText("Title thread-persist");
+
+    const newTermTrigger = screen.getByRole("button", { name: "终端" });
+    await user.click(newTermTrigger);
+
+    expect(await screen.findByRole("dialog", { name: "任务终端" })).toBeInTheDocument();
+    const panel = screen.getByTestId("user-terminal-panel");
+    expect(panel).toHaveAttribute("data-session-id", "sess-created");
   });
 });

@@ -83,9 +83,19 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   const runDetail = useQuery({ queryKey: ["run", reviewedRunID],
     queryFn: ({ signal }) => client.get<RunDetailView>(`/runs/${encodeURIComponent(reviewedRunID)}`, {}, signal),
     enabled: tab === "checks" && Boolean(selectedRun) });
+  const currentPlanQuery = useQuery({
+    queryKey: ["run", currentRun.id, "overview-current-plan"],
+    queryFn: async ({ signal }) => {
+      const res = await client.get<RunDetailView>(`/runs/${encodeURIComponent(currentRun.id)}`, {}, signal);
+      if (res?.run?.id !== currentRun.id) return undefined;
+      return res;
+    },
+    enabled: tab === "overview" && Boolean(currentRun?.id) && Boolean(client.hasPlanDelivery),
+    staleTime: 30_000,
+  });
   const readiness = useQuery({ queryKey: ["run", reviewedRunID, "capability-readiness"],
     queryFn: ({ signal }) => client.runCapabilityReadiness(reviewedRunID, signal), enabled: tab === "checks" && Boolean(selectedRun) });
-  const presetConfigured = (runDetail.isSuccess && !runDetail.isFetching ? runDetail.data.run.standard_code_preset_configured : undefined)
+  const presetConfigured = (runDetail.isSuccess && !runDetail.isFetching ? runDetail.data?.run?.standard_code_preset_configured : undefined)
     ?? selectedRun?.standard_code_preset_configured;
   const reportIntent = useQuery<ReportAttempt | null>({ queryKey: reportIntentKey(reviewedRunID),
     queryFn: () => null, enabled: false, initialData: null, gcTime: Infinity });
@@ -177,7 +187,10 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
           <button onClick={() => selectTab("overview", true)} type="button"><ArrowLeft size={14} aria-hidden="true" />返回任务改动</button>
           <h2>{historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
         {tab === "overview" && <TaskOverview client={client} threadID={detail.thread.id} onFeedback={onRequestChange}
-          onReviewFile={reviewFile} onGit={() => selectTab("git", true)} />}
+          onReviewFile={reviewFile} onGit={() => selectTab("git", true)}
+          onPullRequest={() => selectTab("pr", true)}
+          onChecks={() => selectTab("checks", true)}
+          currentRunDetail={currentPlanQuery.data} />}
         {tab === "git" && <TaskGit client={client} threadID={detail.thread.id} working={working} onFeedback={onRequestChange} onPullRequest={() => selectTab("pr", true)} onOpenWorktree={onOpenWorktree} />}
         {tab === "pr" && <TaskPullRequest client={client} threadID={detail.thread.id} working={working} onFeedback={onRequestChange} onGit={() => selectTab("git", true)} />}
         {!["overview", "git", "pr"].includes(tab) && !selectedRun && <p role="alert">无法找到目标执行记录 {selectedRunID}，尚未打开文件提案。请刷新任务后重试，或明确选择另一次执行。</p>}
