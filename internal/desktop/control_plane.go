@@ -59,7 +59,7 @@ type ControlPlane struct {
 	fullCDPSessions                *application.FullCDPProductionService
 	agentBrowser                   *application.AgentBrowserService
 	commandRuntimeManager          *runner.CommandRuntimeManager
-	commandRuntimeManagers         []*runner.CommandRuntimeManager
+	commandRuntimeSet              *application.CommandRuntimeSet
 	commandRuntimeAdapterInstalled bool
 	commandRuntimeAdapterReady     bool
 	standardCodePresetEnabled      bool
@@ -499,131 +499,49 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if standardCodeDelivery != nil {
 		standardCodeDeliveryController = standardCodeDelivery
 	}
+	var commandSet *application.CommandRuntimeSet
+	commandRuntimeSetTransferred := false
+	defer func() {
+		if !commandRuntimeSetTransferred {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = commandSet.Shutdown(shutdownCtx)
+			cancel()
+			_ = stateStore.Close()
+		}
+	}()
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
-		_ = stateStore.Close()
 		return nil, err
 	}
-	if _, err := commandManager.ReconcileStartup(context.Background()); err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = commandManager.Shutdown(shutdownCtx)
-		cancel()
-		_ = stateStore.Close()
-		return nil, apperror.Wrap(apperror.CodeUnavailable,
-			"command runtime startup reconciliation failed", err)
-	}
-	commandManagers := []*runner.CommandRuntimeManager{commandManager}
-	commandManagersTransferred := false
-	defer func() {
-		if !commandManagersTransferred {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-		}
-	}()
-	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
-	if config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.DangerFullAccessEnabled {
-		hostRuntime, serviceErr := application.NewCommandRuntimeService(stateStore,
-			commandManager, config.ExecutionPermissionCapabilities)
-		if serviceErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, serviceErr
-		}
-		commandAdapters = append(commandAdapters, hostRuntime)
+	commandOptions := application.CommandRuntimeSetOptions{
+		HostEnabled:  config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.DangerFullAccessEnabled,
+		Capabilities: config.ExecutionPermissionCapabilities, Drydocks: commandRuntimeDrydocks,
+		StartupShutdownTimeout: 2 * time.Second,
 	}
 	if config.RunExecutionEnabled && config.LocalSandboxBackend != nil &&
 		config.LocalSandboxReadiness != nil && commandRuntimeDrydocks != nil {
-		localExecutor, executorErr := application.NewLocalSandboxCommandRuntimeExecutor(
-			stateStore, config.LocalSandboxBackend, *config.LocalSandboxReadiness)
-		if executorErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, executorErr
-		}
-		localManager, managerErr := runner.NewSandboxCommandRuntimeManager(stateStore,
-			localExecutor, idgen.New("command-runtime-local-owner"))
-		if managerErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, managerErr
-		}
-		commandManagers = append(commandManagers, localManager)
-		if _, managerErr = localManager.ReconcileStartup(context.Background()); managerErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, apperror.Wrap(apperror.CodeUnavailable,
-				"Local Command Runtime startup reconciliation failed", managerErr)
-		}
-		localRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
-			stateStore, localManager, localExecutor,
-			config.ExecutionPermissionCapabilities, commandRuntimeDrydocks)
-		if serviceErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, serviceErr
-		}
-		commandAdapters = append(commandAdapters, localRuntime)
+		commandOptions.LocalBackend = config.LocalSandboxBackend
+		commandOptions.LocalReadiness = config.LocalSandboxReadiness
 	}
 	if config.RunExecutionEnabled && standardCodeRuntime != nil &&
 		commandRuntimeDrydocks != nil {
-		dockerExecutor, executorErr :=
-			application.NewDockerSandboxCommandRuntimeExecutor(standardCodeRuntime)
-		if executorErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, executorErr
-		}
-		dockerManager, managerErr := runner.NewSandboxCommandRuntimeManager(stateStore,
-			dockerExecutor, idgen.New("command-runtime-docker-owner"))
-		if managerErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, managerErr
-		}
-		commandManagers = append(commandManagers, dockerManager)
-		if _, managerErr = dockerManager.ReconcileStartup(context.Background()); managerErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, apperror.Wrap(apperror.CodeUnavailable,
-				"Docker Command Runtime startup reconciliation failed", managerErr)
-		}
-		dockerRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
-			stateStore, dockerManager, dockerExecutor,
-			config.ExecutionPermissionCapabilities, commandRuntimeDrydocks)
-		if serviceErr != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, serviceErr
-		}
-		commandAdapters = append(commandAdapters, dockerRuntime)
+		commandOptions.StandardCodeDockerRuntime = standardCodeRuntime
 	}
-	var commandRuntime application.CommandRuntimeRuntime
-	if len(commandAdapters) == 1 {
-		commandRuntime = commandAdapters[0]
-	} else if len(commandAdapters) > 1 {
-		commandRuntime, err = application.NewCommandRuntimeMultiplexer(commandAdapters...)
-		if err != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
-			return nil, err
-		}
+	commandSet, err = application.OpenCommandRuntimeSet(context.Background(), stateStore,
+		commandManager, commandOptions)
+	if err != nil {
+		return nil, err
 	}
+	commandRuntime := commandSet.Runtime
 	if commandRuntime != nil {
 		runtimeDependencies.CommandRuntime = commandRuntime
 	}
 	uiEvidence, err := application.NewUIEvidenceReadService(stateStore)
 	if err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = commandManager.Shutdown(shutdownCtx)
-		cancel()
-		_ = stateStore.Close()
 		return nil, err
 	}
 	if _, err := uiEvidence.Reconcile(context.Background()); err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = commandManager.Shutdown(shutdownCtx)
-		cancel()
-		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop UI evidence startup reconciliation failed", err)
 	}
@@ -632,10 +550,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		var controllerErr error
 		browserController, controllerErr = browserruntime.NewPlatformBrowserProcessController()
 		if controllerErr != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = commandManager.Shutdown(shutdownCtx)
-			cancel()
-			_ = stateStore.Close()
 			return nil, controllerErr
 		}
 	}
@@ -646,19 +560,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		browserProvider, providerErr :=
 			application.NewSafeWebUIEvidenceBrowserProvider(browserService)
 		if providerErr != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = commandManager.Shutdown(shutdownCtx)
-			cancel()
-			_ = stateStore.Close()
 			return nil, providerErr
 		}
 		uiEvidence, err = application.NewUIEvidenceService(stateStore, commandRuntime,
 			browserProvider, filepath.Join(home, "runtime", "ui-evidence-profiles"), config.ExecutionPermissionCapabilities)
 		if err != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = commandManager.Shutdown(shutdownCtx)
-			cancel()
-			_ = stateStore.Close()
 			return nil, err
 		}
 	}
@@ -671,8 +577,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			config.BrowserCDPPermissionCapabilities,
 			config.ExecutionPermissionCapabilities, home)
 		if err != nil {
-			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
-			_ = stateStore.Close()
 			return nil, err
 		}
 		fullCDPSessionControlEnabled = true
@@ -697,7 +601,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
 		dockerSandbox)
 	if err != nil {
-		_ = stateStore.Close()
 		return nil, err
 	}
 	runtimeDependencies.DockerSandbox = dockerProposalExecutor
@@ -711,7 +614,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	mcpExecutor, err := application.NewMCPClientToolExecutor(mcpClient, stateStore,
 		config.ExecutionPermissionCapabilities)
 	if err != nil {
-		_ = stateStore.Close()
 		return nil, err
 	}
 	approvalGateway.WithMCPExecutor(mcpExecutor)
@@ -723,7 +625,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		stateStore, providerSearchResolver)
 	providerDefinitionControl, err := application.NewProviderDefinitionService(stateStore, models)
 	if err != nil {
-		_ = stateStore.Close()
 		return nil, err
 	}
 	providerDefinitionControl.WithModelDiscoveryCredentials(credentialStore)
@@ -742,7 +643,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			application.NewRunWakeCoordinator(stateStore), runWakeExecution,
 			application.RunWakeWorkerConfig{OnError: config.OnWakeWorkerError})
 		if err != nil {
-			_ = stateStore.Close()
 			return nil, err
 		}
 	}
@@ -761,7 +661,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			OnError: config.OnScheduledJobWorkerError,
 		})
 		if err != nil {
-			_ = stateStore.Close()
 			return nil, err
 		}
 	}
@@ -774,12 +673,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if config.SkillInstallationEnabled {
 		objects, objectErr := skills.NewLocalPackageObjectStore(home)
 		if objectErr != nil {
-			_ = stateStore.Close()
 			return nil, objectErr
 		}
 		registry, registryErr := skills.BuiltinRegistry()
 		if registryErr != nil {
-			_ = stateStore.Close()
 			return nil, registryErr
 		}
 		skillInstaller = application.NewSkillPackageRegistryService(stateStore,
@@ -793,21 +690,18 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		terminalBroker := executionauth.NewTerminalInputBroker()
 		terminalManager, err = terminalruntime.NewPlatformManager(terminalBroker)
 		if err != nil {
-			_ = stateStore.Close()
 			return nil, err
 		}
 		userTerminal, err = newDesktopUserTerminalService(stateStore,
 			terminalManager, config.ExecutionPermissionCapabilities)
 		if err != nil {
 			_ = terminalManager.Shutdown()
-			_ = stateStore.Close()
 			return nil, err
 		}
 		agentInputBridge, bridgeErr := terminalruntime.NewAgentInputBridge(
 			terminalManager, terminalBroker)
 		if bridgeErr != nil {
 			_ = terminalManager.Shutdown()
-			_ = stateStore.Close()
 			return nil, bridgeErr
 		}
 		debugAgentInput, err = application.NewDebugTerminalAgentInputService(
@@ -815,14 +709,12 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			config.ExecutionPermissionCapabilities, true)
 		if err != nil {
 			_ = terminalManager.Shutdown()
-			_ = stateStore.Close()
 			return nil, err
 		}
 		boundaryMonitor, err = terminalruntime.NewPlatformHostBoundaryMonitor(
 			terminalManager)
 		if err != nil {
 			_ = terminalManager.Shutdown()
-			_ = stateStore.Close()
 			return nil, err
 		}
 	}
@@ -857,7 +749,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			if terminalManager != nil {
 				_ = terminalManager.Shutdown()
 			}
-			_ = stateStore.Close()
 			return nil, err
 		}
 	}
@@ -880,12 +771,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled {
 		localGit, gitErr := repository.NewMutationExecutor()
 		if gitErr != nil {
-			_ = stateStore.Close()
 			return nil, gitErr
 		}
 		remoteGit, gitErr := repository.NewRemoteExecutor(credentialStore)
 		if gitErr != nil {
-			_ = stateStore.Close()
 			return nil, gitErr
 		}
 		threadGit = application.NewThreadGitService(stateStore, localGit, remoteGit,
@@ -985,7 +874,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		if terminalManager != nil {
 			_ = terminalManager.Shutdown()
 		}
-		_ = stateStore.Close()
 		return nil, err
 	}
 	// A review decision and its provider/tool continuation cannot share one
@@ -1005,7 +893,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}()
 	}
 	codeIntelTransferred = true
-	commandManagersTransferred = true
+	commandRuntimeSetTransferred = true
 	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
 		handler:        api.Handler(),
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
@@ -1019,7 +907,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		fullCDPSessions:                fullCDPSessions,
 		agentBrowser:                   agentBrowser,
 		commandRuntimeManager:          commandManager,
-		commandRuntimeManagers:         commandManagers,
+		commandRuntimeSet:              commandSet,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
 		commandRuntimeAdapterReady:     commandRuntimeAdapterReady,
 		standardCodePresetEnabled:      standardCodePreset != nil,
@@ -1262,21 +1150,6 @@ func (c *ControlPlane) reconcileCommandRuntime(ctx context.Context) error {
 	return nil
 }
 
-func shutdownDesktopCommandRuntimeManagers(managers []*runner.CommandRuntimeManager,
-	timeout time.Duration,
-) {
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	for _, manager := range managers {
-		if manager != nil {
-			_ = manager.Shutdown(ctx)
-		}
-	}
-}
-
 func (c *ControlPlane) Close() error {
 	if c == nil {
 		return nil
@@ -1361,15 +1234,10 @@ func (c *ControlPlane) Close() error {
 			c.closeErr = errors.Join(c.closeErr, <-fullCDPShutdown)
 			fullCDPShutdownCancel()
 		}
-		if len(c.commandRuntimeManagers) > 0 {
+		if c.commandRuntimeSet != nil {
 			shutdownContext, shutdownCancel := context.WithTimeout(
 				context.Background(), 7*time.Second)
-			for _, manager := range c.commandRuntimeManagers {
-				if manager != nil {
-					c.closeErr = errors.Join(c.closeErr,
-						manager.Shutdown(shutdownContext))
-				}
-			}
+			c.closeErr = errors.Join(c.closeErr, c.commandRuntimeSet.Shutdown(shutdownContext))
 			shutdownCancel()
 		} else if c.commandRuntimeManager != nil {
 			shutdownContext, shutdownCancel := context.WithTimeout(
