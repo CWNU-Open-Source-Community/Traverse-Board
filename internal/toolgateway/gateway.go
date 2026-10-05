@@ -264,54 +264,11 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 			normalized.InvocationID = usage.LastCharge
 		}
 	}
-	switch normalized.Name {
-	case SkillReadTool:
-		return g.invokeSkillRead(ctx, normalized)
-	case HistorySearchTool, HistoryReadTool:
-		return g.invokeHistoryRecall(ctx, normalized)
-	case WorkspaceListTool, WorkspaceReadTool, WorkspaceGlobTool, WorkspaceGrepTool,
-		WorkspaceChangeTool, WorkspaceApplyTool, WorkspaceDeleteTool:
-		return g.invokeAgentCode(ctx, normalized)
-	case CodeWorkspaceSymbolsTool, CodeDocumentSymbolsTool, CodeDefinitionTool,
-		CodeReferencesTool, CodeImplementationTool, CodeHoverTool,
-		CodeSignatureHelpTool, CodeDiagnosticsTool, CodeCallHierarchyTool,
-		CodeTypeHierarchyTool:
-		return g.invokeCodeIntel(ctx, normalized)
-	case ReadFileTool, ListWorkspaceTool:
-		return g.invokeWorkspaceRead(ctx, normalized)
-	case ShellTool:
-		return g.invokeShellProposal(ctx, normalized)
-	case ReplaceFileTool:
-		return g.invokeFileEditProposal(ctx, normalized)
-	case WorkItemCreateTool, NoteCreateTool:
-		return g.invokeStructuredMemory(ctx, normalized)
-	case SpecialistDelegationProposeTool:
-		return g.invokeSpecialistDelegation(ctx, normalized)
-	case ChildTaskProposeTool:
-		return g.invokeChildTaskProposal(ctx, normalized)
-	case PlanDeliveryProposeTool:
-		return g.invokePlanDelivery(ctx, normalized)
-	case DockerSandboxRunProposeTool:
-		return g.invokeDockerSandboxProposal(ctx, normalized)
-	case SkillCandidateProposeTool:
-		return g.invokeSkillCandidate(ctx, normalized)
-	case DebugTerminalTool:
-		return g.invokeDebugTerminal(ctx, normalized)
-	case CommandRuntimeTool:
-		return g.invokeCommandRuntime(ctx, normalized)
-	case MCPToolCallTool:
-		return g.invokeMCP(ctx, normalized)
-	case WebSearchTool, SourceSearchTool, WebFetchTool, WebCitationTool:
-		return g.invokeWebEvidence(ctx, normalized)
-	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
-		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool, BrowserScrollTool, BrowserKeyTool:
-		if IsAgentBrowserPayload(normalized.Payload) {
-			return g.invokeAgentBrowser(ctx, normalized)
-		}
-		return g.invokeBrowserAction(ctx, normalized)
-	default:
+	registration, found := lookupTool(normalized.Name)
+	if !found || registration.invoke == nil {
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
+	return registration.invoke(g, ctx, normalized)
 }
 
 func (g *Gateway) Review(ctx context.Context, request ReviewRequest) (Outcome, error) {

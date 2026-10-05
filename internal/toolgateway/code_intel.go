@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -124,15 +123,6 @@ func CodeIntelToolDefinition(name ToolName) (ToolDefinition, bool) {
 		}
 	}
 	return ToolDefinition{}, false
-}
-
-func codeIntelToolNames() []ToolName {
-	result := make([]ToolName, 0, len(codeIntelDefinitions))
-	for _, definition := range codeIntelDefinitions {
-		result = append(result, definition.Name)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
-	return result
 }
 
 func IsCodeIntelTool(name ToolName) bool {

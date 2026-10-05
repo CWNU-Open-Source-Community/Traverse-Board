@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -867,15 +866,6 @@ func (g *Gateway) invokeAgentCode(ctx context.Context, call ToolCall) (Outcome, 
 			MIME: "application/json", Truncated: truncated, Metadata: metadata,
 			CompletedAt: completed}}
 	return validateOutcome(outcome, captureErr)
-}
-
-func agentCodeToolNames() []ToolName {
-	names := make([]ToolName, 0, len(agentCodeDefinitions))
-	for _, definition := range agentCodeDefinitions {
-		names = append(names, definition.Name)
-	}
-	sort.Slice(names, func(i, j int) bool { return names[i] < names[j] })
-	return names
 }
 
 func isAgentCodeTool(name ToolName) bool {

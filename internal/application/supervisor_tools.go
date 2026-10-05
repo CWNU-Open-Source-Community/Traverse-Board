@@ -263,20 +263,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	seen := make(map[string]struct{}, len(normalized))
 	for index, call := range normalized {
 		name := toolgateway.ToolName(call.Name)
-		if name != toolgateway.WorkItemCreateTool && name != toolgateway.NoteCreateTool &&
-			!toolgateway.IsHistoryRecallTool(name) && name != toolgateway.SkillReadTool &&
-			name != toolgateway.SpecialistDelegationProposeTool &&
-			name != toolgateway.ChildTaskProposeTool &&
-			name != toolgateway.PlanDeliveryProposeTool &&
-			name != toolgateway.DockerSandboxRunProposeTool &&
-			name != toolgateway.SkillCandidateProposeTool &&
-			name != toolgateway.DebugTerminalTool &&
-			name != toolgateway.CommandRuntimeTool && name != toolgateway.MCPToolCallTool &&
-			!toolgateway.IsAgentCodeTool(name) && !toolgateway.IsCodeIntelTool(name) &&
-			!toolgateway.IsWebEvidenceTool(name) {
-			if !toolgateway.IsBrowserActionTool(name) {
-				return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
-			}
+		if !toolgateway.IsSupervisorTool(name) {
+			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if toolgateway.IsAgentCodeTool(name) {
 			available := false

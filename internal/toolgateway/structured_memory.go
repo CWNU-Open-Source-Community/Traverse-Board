@@ -122,14 +122,6 @@ type StructuredMemoryExecutor interface {
 	CreateNote(ctx context.Context, scope StructuredMemoryContext, input NoteCreateInput) (StructuredMutationResult, error)
 }
 
-type ToolDefinition struct {
-	Name        ToolName        `json:"name"`
-	Description string          `json:"description"`
-	Class       ActionClass     `json:"action_class"`
-	Approval    ApprovalMode    `json:"approval"`
-	InputSchema json.RawMessage `json:"input_schema"`
-}
-
 var structuredMemoryDefinitions = []ToolDefinition{
 	{
 		Name: WorkItemCreateTool, Class: ClassRunMemory, Approval: ApprovalAutomatic,

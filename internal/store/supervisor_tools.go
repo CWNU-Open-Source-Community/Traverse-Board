@@ -223,7 +223,7 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 				"supervisor tool payload exceeds its durable limit")
 		}
 		normalized[index].Arguments = append(json.RawMessage(nil), safe...)
-		if toolgateway.IsAgentCodeTool(name) {
+		if toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 			authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 				normalized[index].Authority)
 			if authorityErr != nil || authority.RunID != runID {
