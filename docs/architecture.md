@@ -30,7 +30,7 @@ Implementation status for this revision:
 | CI execution | Deduplicated | [CI](../.github/workflows/ci.yml) runs analyzer vectors within the Go suite and desktop boundary tests through the platform build scripts. Platform, race and standalone release checks remain distinct. |
 | Model and extension integrations | Existing boundaries | `llm` owns provider protocols; MCP shares its SDK execution path. Skills and Plugins use their supported formats. Compatibility is tracked per integration. |
 | Command runtime construction and teardown | Shared for Desktop and HTTP | [Command runtime set](../internal/application/command_runtime_set.go) assembles Host, Local and Docker adapters and shuts down their managers. Each entry selects its enabled backends; CLI retains its invocation-owned lifetime. |
-| Ecosystem product validation | Follow-up | Exercise representative integrations through install, configuration, authentication, execution, failure and cancellation. External Agent orchestration remains outside this phase. |
+| Ecosystem product validation | Representative paths accepted | [2026-10-05 acceptance](acceptance/2026-10-05-core-integrations.md) covers real DeepSeek/Thread/Skill execution, cancellation and restart, Skill lifecycle and stdio MCP entry points. Ordinary native Skill ZIP upload remains a scoped product gap; third-party compatibility stays integration-specific. |
 
 The Gateway extension target is concrete: add a tool implementation and one
 registration; Gateway discovery and dispatch derive from that entry. A new tool

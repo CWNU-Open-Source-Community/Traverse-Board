@@ -288,6 +288,12 @@ func (s *ThreadTurnService) executeSubmission(ctx context.Context,
 		if message.Status != domain.OperatorSteeringPending {
 			return s.refresh(ctx, result)
 		}
+		if executed.Handoff.Result != nil && executed.Handoff.Result.StopReason == "root_wait" {
+			// A tool approval keeps the Run running and the exact input prepared.
+			// Respect the handoff's wait boundary until explicit continuation;
+			// starting another batch cannot consume that pending approval.
+			return s.refresh(ctx, result)
+		}
 		current, err := s.threads.store.GetRun(ctx, result.Submission.Run.ID)
 		if err != nil {
 			return result, apperror.Normalize(err)

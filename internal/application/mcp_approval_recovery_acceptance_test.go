@@ -162,7 +162,7 @@ func (f *mcpRecoveryAcceptanceFixture) unblock() {
 	}
 }
 
-func newMCPRecoveryAcceptanceFixture(t *testing.T, mode domain.RunExecutionPermissionMode, callCount int, blocked bool) *mcpRecoveryAcceptanceFixture {
+func newMCPRecoveryAcceptanceRuntime(t *testing.T, mode domain.RunExecutionPermissionMode, callCount int, blocked bool) *mcpRecoveryAcceptanceFixture {
 	t.Helper()
 	f := &mcpRecoveryAcceptanceFixture{path: filepath.Join(t.TempDir(), "approval-recovery.db"), entered: make(chan struct{})}
 	if blocked {
@@ -228,6 +228,12 @@ func newMCPRecoveryAcceptanceFixture(t *testing.T, mode domain.RunExecutionPermi
 		t.Fatal(err)
 	}
 	f.runtime.Store(true)
+	return f
+}
+
+func newMCPRecoveryAcceptanceFixture(t *testing.T, mode domain.RunExecutionPermissionMode, callCount int, blocked bool) *mcpRecoveryAcceptanceFixture {
+	t.Helper()
+	f := newMCPRecoveryAcceptanceRuntime(t, mode, callCount, blocked)
 	result, err := f.supervisor.Step(t.Context(), f.run.ID)
 	if err != nil || result.RunStatus != domain.RunWaitingApproval || f.requests.Load() != 0 {
 		t.Fatalf("initial consent boundary: result=%+v requests=%d err=%v", result, f.requests.Load(), err)

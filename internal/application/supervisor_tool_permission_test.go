@@ -239,6 +239,12 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
 		t.Fatalf("reviewed MCP capability was not encoded exactly: %s", schema)
 	}
+	var schemaRoot struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(schema, &schemaRoot); err != nil || schemaRoot.Type != "object" {
+		t.Fatalf("MCP input schema must declare an object at its root: %s", schema)
+	}
 	if found, _ := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
 		domain.RunExecutionPermissionAuto, options); !found {
 		t.Fatal("Auto did not expose the reviewed MCP capability")

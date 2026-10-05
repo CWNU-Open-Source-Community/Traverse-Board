@@ -712,8 +712,9 @@ func supervisorMCPToolSchema(capabilities mcp.ScopedCapabilities) json.RawMessag
 		}
 	}
 	raw, err := json.Marshal(struct {
+		Type  string   `json:"type"`
 		OneOf []choice `json:"oneOf"`
-	}{OneOf: choices})
+	}{Type: "object", OneOf: choices})
 	if err != nil || len(raw) > maxSupervisorMCPSchemaBytes {
 		return toolgateway.MCPToolDefinition().InputSchema
 	}
