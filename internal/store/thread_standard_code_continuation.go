@@ -7,10 +7,10 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 // continueThreadStandardCodeTx carries configuration, never an execution grant.
@@ -18,7 +18,7 @@ import (
 // the Thread's validated working directory. Old approvals and runtime leases stay behind.
 func continueThreadStandardCodeTx(ctx context.Context, tx *sql.Tx, predecessor domain.Run,
 	candidate domain.Run, mode domain.RunModeSnapshot, oldPreset domain.StandardCodePresetOperation,
-	newDrydock drydock.Workspace, at time.Time,
+	newDrydock runworktree.Workspace, at time.Time,
 ) error {
 	if err := oldPreset.Validate(); err != nil {
 		return err

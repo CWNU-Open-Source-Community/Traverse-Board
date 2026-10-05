@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 func TestDrydockCLIRequiresPinnedTrustAndEmitsLifecycleReceipts(t *testing.T) {
@@ -64,7 +64,7 @@ func testDrydockCLIPermission(t *testing.T, mode string) {
 	var confirmed application.DrydockCreateResult
 	if code != 0 || stderr != "" || json.Unmarshal([]byte(confirmedJSON), &confirmed) != nil ||
 		confirmed.Workspace == nil || confirmed.Receipt == nil || confirmed.Checkpoint == nil ||
-		confirmed.Workspace.State != drydock.StateReady ||
+		confirmed.Workspace.State != runworktree.StateReady ||
 		confirmed.Receipt.GrantsProcessAuthority {
 		t.Fatalf("confirmed create=%s stderr=%q code=%d parsed=%+v", confirmedJSON,
 			stderr, code, confirmed)
@@ -76,7 +76,7 @@ func testDrydockCLIPermission(t *testing.T, mode string) {
 	if code != 0 || stderr != "" || json.Unmarshal([]byte(statusJSON), &projection) != nil ||
 		projection.Workspace == nil || projection.Trust == nil ||
 		projection.Trust.GrantsProcessAuthority || len(projection.Receipts) != 1 ||
-		projection.Receipts[0].Operation != drydock.OperationCreate {
+		projection.Receipts[0].Operation != runworktree.OperationCreate {
 		t.Fatalf("status=%s stderr=%q code=%d parsed=%+v", statusJSON, stderr,
 			code, projection)
 	}
@@ -145,8 +145,8 @@ func testDrydockCLIPermission(t *testing.T, mode string) {
 		"drydock-cli-cleanup-0001", "--confirm", "--json")
 	var cleaned application.DrydockCleanupResult
 	if code != 0 || stderr != "" || json.Unmarshal([]byte(cleanupJSON), &cleaned) != nil ||
-		cleaned.Workspace.State != drydock.StateCleaned ||
-		cleaned.Receipt.Operation != drydock.OperationCleanup || cleaned.Preserved {
+		cleaned.Workspace.State != runworktree.StateCleaned ||
+		cleaned.Receipt.Operation != runworktree.OperationCleanup || cleaned.Preserved {
 		t.Fatalf("cleanup=%s stderr=%q code=%d parsed=%+v", cleanupJSON, stderr,
 			code, cleaned)
 	}

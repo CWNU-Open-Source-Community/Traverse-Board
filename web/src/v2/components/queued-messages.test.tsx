@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { QueueBinding, QueuePromotion, QueuePromotionRejection, QueuedMessage } from "../../api/queued-messages";
 import { V2RecoveryProvider } from "../recovery-storage";
 import { V2QueuedMessages } from "./queued-messages";
@@ -49,10 +49,10 @@ function fixture(initial = [message(1), message(2)]) {
   const cancelSessionSteering = vi.fn(async (_session: string, id: string) => {
     items = items.filter((item) => item.id !== id); return { run_id: binding.runID };
   });
-  const client = { baseURL: "/api/v1", get, postControl, cancelSessionSteering, hasSessionSteeringControl: true } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", get, postControl, cancelSessionSteering, hasSessionSteeringControl: true } as unknown as APIClient;
   return { client, get, postControl, cancelSessionSteering, hooks, receipts, setItems: (next: QueuedMessage[]) => { items = next; } };
 }
-function mount(client: CyberAgentClient, current = binding, canPromote = false, running = false) {
+function mount(client: APIClient, current = binding, canPromote = false, running = false) {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const view = (selected = current, promotable = canPromote, active = running) => <V2RecoveryProvider client={client} scopeID="queue-test-store">
     <QueryClientProvider client={query}><V2QueuedMessages client={client} {...selected} running={active} canPromote={promotable} /></QueryClientProvider>
@@ -115,7 +115,7 @@ function promotionFixture(initial = [message(1), message(2)]) {
       items: queue, ...(hooks.executionObserved ? { current_attempt_id: hooks.attemptID, execution_id: hooks.executionID } : {}), capability_grant: false };
   });
   const client = { baseURL: "/api/v1", get, postControl, hasSessionSteeringControl: true,
-    downloadWorkspaceImage: vi.fn(async () => new Blob(["png"], { type: "image/png" })) } as unknown as CyberAgentClient;
+    downloadWorkspaceImage: vi.fn(async () => new Blob(["png"], { type: "image/png" })) } as unknown as APIClient;
   return { client, get, postControl, hooks, receipts, rejections, claim: (id: string) => {
     const source = originals.get(id)!; originals.set(id, { ...source, status: "committed" });
     items = items.filter((item) => item.id !== id);

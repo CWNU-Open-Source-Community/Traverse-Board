@@ -99,7 +99,7 @@ type DockerSandboxService struct {
 	stagingRoot             string
 	leaseTTL                time.Duration
 	now                     func() time.Time
-	standardCodeDrydock     *DrydockService
+	standardCodeDrydock     *RunWorktreeService
 	standardCodeImageDigest string
 	standardCodeCapability  string
 
@@ -115,7 +115,7 @@ type DockerSandboxServiceOption func(*DockerSandboxService) error
 // WithDockerStandardCode binds the fixed Standard Code manifest to one exact,
 // pre-existing image digest and to read-only Drydock ownership validation. It
 // never pulls an image and exposes no image or Docker setting to a command.
-func WithDockerStandardCode(drydockService *DrydockService,
+func WithDockerStandardCode(drydockService *RunWorktreeService,
 	imageDigest string,
 ) DockerSandboxServiceOption {
 	return func(service *DockerSandboxService) error {

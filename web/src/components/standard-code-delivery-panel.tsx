@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { FileCheck2, RefreshCw, RotateCcw, TestTube2 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { APIRequestError } from "../api/client";
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -25,7 +25,7 @@ const outputSourceReasons: Record<string, [string, string]> = {
 
 export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
   onOpenFile }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenCheckpoints: () => void;
   onOpenFile: (path: string, workspaceID?: string) => void;

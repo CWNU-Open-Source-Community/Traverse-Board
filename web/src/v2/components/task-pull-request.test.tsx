@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { V2RecoveryProvider, useV2RecoveryStore, type V2RecoveryStore } from "../recovery-storage";
 import { githubURL, TaskPullRequest } from "./task-pull-request";
 
@@ -44,7 +44,7 @@ function show(client: ReturnType<typeof fixture>["client"], onFeedback = vi.fn()
   function Probe() { store = useV2RecoveryStore()!; if (!seeded) { seeded = true; options.seed?.(store); } return null; }
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const tree = (threadID: string) => <QueryClientProvider client={queryClient}><V2RecoveryProvider client={client} scopeID="acceptance-store"><Probe />
-    <TaskPullRequest client={client as unknown as CyberAgentClient} threadID={threadID} working={false} onFeedback={onFeedback} onGit={vi.fn()} />
+    <TaskPullRequest client={client as unknown as APIClient} threadID={threadID} working={false} onFeedback={onFeedback} onGit={vi.fn()} />
   </V2RecoveryProvider></QueryClientProvider>;
   const ui = render(tree(options.threadID ?? "thread-1"));
   return { ...ui, queryClient, store: () => store, selectThread: (id: string) => ui.rerender(tree(id)) };

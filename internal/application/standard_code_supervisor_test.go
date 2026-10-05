@@ -1064,7 +1064,7 @@ func TestStandardCodeSupervisorPersistsInitialStateWithExactPresetBinding(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	supervisor := &RunSupervisor{store: fixture.state, drydocks: fixture.service}
+	supervisor := &AgentRunner{store: fixture.state, drydocks: fixture.service}
 	capabilities, authority, err := supervisor.supervisorAgentCodeCapabilities(
 		t.Context(), turn, permission)
 	if err != nil || capabilities.Generation == "" {

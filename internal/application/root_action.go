@@ -76,7 +76,7 @@ func parseRootActionForTurn(raw string, threadEndTurn bool) (domain.RootAction, 
 
 // recoverRootActionWithTrailingCommentary is a deliberately narrow Provider
 // compatibility path. parseRootAction remains the canonical strict parser;
-// this helper is used only by RunSupervisor after that parser has rejected a
+// this helper is used only by AgentRunner after that parser has rejected a
 // response. It accepts one exact valid lifecycle object followed by bounded
 // prose and never treats another JSON value or lifecycle marker as commentary.
 func recoverRootActionWithTrailingCommentary(raw string) (

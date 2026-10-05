@@ -12,21 +12,21 @@ import (
 	"strings"
 	"time"
 
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/workspaceidentity"
 )
 
-// DrydockExecutor composes the closed advanced-Git Worktree templates with
+// RunWorktreeExecutor composes the closed advanced-Git Worktree templates with
 // source/root identity checks and review-only delivery rendering. It never
 // accepts a destination path, raw Git argv, or a force-removal option.
-type DrydockExecutor struct {
+type RunWorktreeExecutor struct {
 	advanced *AdvancedExecutor
 }
 
 type DrydockSourceObservation struct {
-	Identity drydock.SourceIdentity
-	State    drydock.SourceState
+	Identity runworktree.SourceIdentity
+	State    runworktree.SourceState
 	Binding  gitadvanced.RepositoryBinding
 }
 
@@ -73,26 +73,26 @@ type DrydockDeliveryPathState struct {
 	Conflicted      bool
 }
 
-func NewDrydockExecutor(managedRoot string) (*DrydockExecutor, error) {
+func NewRunWorktreeExecutor(managedRoot string) (*RunWorktreeExecutor, error) {
 	advanced, err := NewAdvancedExecutor(managedRoot, true)
 	if err != nil {
 		return nil, err
 	}
-	return &DrydockExecutor{advanced: advanced}, nil
+	return &RunWorktreeExecutor{advanced: advanced}, nil
 }
 
-func (e *DrydockExecutor) Available() bool {
+func (e *RunWorktreeExecutor) Available() bool {
 	return e != nil && e.advanced != nil && e.advanced.Available()
 }
 
-func (e *DrydockExecutor) ManagedRoot() string {
+func (e *RunWorktreeExecutor) ManagedRoot() string {
 	if !e.Available() {
 		return ""
 	}
 	return e.advanced.ManagedRoot()
 }
 
-func (e *DrydockExecutor) InspectSource(ctx context.Context, workspaceID,
+func (e *RunWorktreeExecutor) InspectSource(ctx context.Context, workspaceID,
 	root string,
 ) (DrydockSourceObservation, error) {
 	if !e.Available() || strings.TrimSpace(workspaceID) == "" {
@@ -137,16 +137,16 @@ func (e *DrydockExecutor) InspectSource(ctx context.Context, workspaceID,
 	if err != nil {
 		return DrydockSourceObservation{}, err
 	}
-	pathDigest := drydock.FingerprintBytes([]byte(filepath.ToSlash(canonical)))
+	pathDigest := runworktree.FingerprintBytes([]byte(filepath.ToSlash(canonical)))
 	return DrydockSourceObservation{
-		Identity: drydock.SourceIdentity{WorkspaceID: strings.TrimSpace(workspaceID),
+		Identity: runworktree.SourceIdentity{WorkspaceID: strings.TrimSpace(workspaceID),
 			RootPath: canonical, RootPathSHA256: pathDigest,
 			RootFingerprint: rootFingerprint, RepositorySHA256: binding.RepositorySHA256,
 			CommonDirSHA256: binding.CommonDirSHA256, Branch: binding.Branch,
 			BaseCommit: binding.Head, ObjectFormat: binding.ObjectFormat},
-		State: drydock.SourceState{IndexSHA256: binding.IndexSHA256,
+		State: runworktree.SourceState{IndexSHA256: binding.IndexSHA256,
 			WorktreeSHA256: binding.WorktreeSHA256,
-			StatusSHA256:   drydock.FingerprintBytes([]byte(status)),
+			StatusSHA256:   runworktree.FingerprintBytes([]byte(status)),
 			DirtyTracked:   dirtyTracked, DirtyUntracked: dirtyUntracked,
 			DirtyIgnored: dirtyIgnored, SymlinkEntries: symlinks,
 			SubmoduleEntries: submodules, CapturedAt: time.Now().UTC()},
@@ -154,7 +154,7 @@ func (e *DrydockExecutor) InspectSource(ctx context.Context, workspaceID,
 	}, nil
 }
 
-func (e *DrydockExecutor) PlanCreate(ctx context.Context, root, name, branch,
+func (e *RunWorktreeExecutor) PlanCreate(ctx context.Context, root, name, branch,
 	baseCommit string,
 ) (DrydockCreatePlan, error) {
 	if !e.Available() {
@@ -187,7 +187,7 @@ func (e *DrydockExecutor) PlanCreate(ctx context.Context, root, name, branch,
 	return DrydockCreatePlan{Name: name, Branch: branch, Path: path, Preview: preview}, nil
 }
 
-func (e *DrydockExecutor) requireDisjointSourceRoot(sourceRoot string) error {
+func (e *RunWorktreeExecutor) requireDisjointSourceRoot(sourceRoot string) error {
 	managedRoot := e.ManagedRoot()
 	if managedRoot == "" || pathInsideRoot(sourceRoot, managedRoot) ||
 		pathInsideRoot(managedRoot, sourceRoot) {
@@ -196,7 +196,7 @@ func (e *DrydockExecutor) requireDisjointSourceRoot(sourceRoot string) error {
 	return nil
 }
 
-func (e *DrydockExecutor) requireDisjointGitCommonDir(ctx context.Context,
+func (e *RunWorktreeExecutor) requireDisjointGitCommonDir(ctx context.Context,
 	sourceRoot string,
 ) error {
 	commonDir, err := e.advanced.requiredPathOutput(ctx, sourceRoot, "rev-parse",
@@ -215,7 +215,7 @@ func (e *DrydockExecutor) requireDisjointGitCommonDir(ctx context.Context,
 	return nil
 }
 
-func (e *DrydockExecutor) ExecuteCreate(ctx context.Context, root string,
+func (e *RunWorktreeExecutor) ExecuteCreate(ctx context.Context, root string,
 	plan DrydockCreatePlan,
 ) (gitadvanced.Receipt, error) {
 	if !e.Available() || plan.Preview.Operation != gitadvanced.WorktreeCreate ||
@@ -225,7 +225,7 @@ func (e *DrydockExecutor) ExecuteCreate(ctx context.Context, root string,
 	return e.advanced.ExecuteAdvanced(ctx, root, plan.Preview)
 }
 
-func (e *DrydockExecutor) Inspect(ctx context.Context, sourceRoot string,
+func (e *RunWorktreeExecutor) Inspect(ctx context.Context, sourceRoot string,
 	sourceBinding gitadvanced.RepositoryBinding, name string,
 ) (DrydockObservation, error) {
 	if !e.Available() {
@@ -248,7 +248,7 @@ func (e *DrydockExecutor) Inspect(ctx context.Context, sourceRoot string,
 	return value, nil
 }
 
-func (e *DrydockExecutor) PlanRemove(ctx context.Context, sourceRoot string,
+func (e *RunWorktreeExecutor) PlanRemove(ctx context.Context, sourceRoot string,
 	name, worktreeID string,
 ) (gitadvanced.Preview, error) {
 	if !e.Available() {
@@ -262,7 +262,7 @@ func (e *DrydockExecutor) PlanRemove(ctx context.Context, sourceRoot string,
 	})
 }
 
-func (e *DrydockExecutor) ExecuteRemove(ctx context.Context, sourceRoot string,
+func (e *RunWorktreeExecutor) ExecuteRemove(ctx context.Context, sourceRoot string,
 	preview gitadvanced.Preview,
 ) (gitadvanced.Receipt, error) {
 	if !e.Available() || preview.Operation != gitadvanced.WorktreeRemove {
@@ -271,7 +271,7 @@ func (e *DrydockExecutor) ExecuteRemove(ctx context.Context, sourceRoot string,
 	return e.advanced.ExecuteAdvanced(ctx, sourceRoot, preview)
 }
 
-func (e *DrydockExecutor) VerifyBaseAncestry(ctx context.Context, root,
+func (e *RunWorktreeExecutor) VerifyBaseAncestry(ctx context.Context, root,
 	baseCommit, headCommit string,
 ) error {
 	if !e.Available() || !gitadvanced.ValidObjectID(baseCommit) ||
@@ -287,7 +287,7 @@ func (e *DrydockExecutor) VerifyBaseAncestry(ctx context.Context, root,
 
 // CaptureDelivery renders a combined worktree/index/untracked diff through a
 // temporary Git index. The live index and source Workspace are never mutated.
-func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
+func (e *RunWorktreeExecutor) CaptureDelivery(ctx context.Context, root,
 	baseCommit string,
 ) (DrydockDeliveryEvidence, error) {
 	if !e.Available() || !gitadvanced.ValidObjectID(baseCommit) {
@@ -329,7 +329,7 @@ func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
 	if err != nil {
 		return DrydockDeliveryEvidence{}, err
 	}
-	if len([]byte(patch)) > drydock.MaxPatchBytes {
+	if len([]byte(patch)) > runworktree.MaxPatchBytes {
 		return DrydockDeliveryEvidence{}, errors.New("Drydock delivery diff exceeds its byte bound")
 	}
 	diffStat, err := e.drydockGit(ctx, root, extraEnv, "diff", "--cached",
@@ -343,7 +343,7 @@ func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
 		return DrydockDeliveryEvidence{}, err
 	}
 	paths := splitDrydockPaths(pathOutput)
-	if len(paths) > drydock.MaxChangedPaths {
+	if len(paths) > runworktree.MaxChangedPaths {
 		return DrydockDeliveryEvidence{}, errors.New("Drydock delivery exceeds its changed-path bound")
 	}
 	pathStates, err := e.captureDeliveryPathStates(ctx, root, baseCommit, before.Head, paths)
@@ -362,7 +362,7 @@ func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
 		ChangedPaths: paths, PathStates: pathStates}, nil
 }
 
-func (e *DrydockExecutor) captureDeliveryPathStates(ctx context.Context, root,
+func (e *RunWorktreeExecutor) captureDeliveryPathStates(ctx context.Context, root,
 	baseCommit, headCommit string, combined []string,
 ) ([]DrydockDeliveryPathState, error) {
 	type pathSet map[string]struct{}
@@ -444,7 +444,7 @@ func cleanupDrydockReviewTemporary(root, expectedFingerprint string) {
 	_ = os.Remove(root)
 }
 
-func (e *DrydockExecutor) drydockSpecialEntries(ctx context.Context,
+func (e *RunWorktreeExecutor) drydockSpecialEntries(ctx context.Context,
 	root string,
 ) (int, int, error) {
 	index, stderr, code, err := e.advanced.git(ctx, root, nil, "ls-files", "--stage", "-z")
@@ -535,7 +535,7 @@ func splitDrydockPaths(value string) []string {
 	return paths
 }
 
-func (e *DrydockExecutor) drydockGit(ctx context.Context, root string,
+func (e *RunWorktreeExecutor) drydockGit(ctx context.Context, root string,
 	extraEnv []string, args ...string,
 ) (string, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, MaxAdvancedGitDuration)
@@ -551,7 +551,7 @@ func (e *DrydockExecutor) drydockGit(ctx context.Context, root string,
 	command := repositoryCommandContext(commandCtx, e.advanced.gitPath, append(base, args...)...)
 	command.Dir = root
 	command.Env = append(hardenedGitEnvironment(), extraEnv...)
-	stdout := advancedBoundedBuffer{max: drydock.MaxPatchBytes + 1}
+	stdout := advancedBoundedBuffer{max: runworktree.MaxPatchBytes + 1}
 	stderr := advancedBoundedBuffer{max: MaxGitOutputBytes}
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()

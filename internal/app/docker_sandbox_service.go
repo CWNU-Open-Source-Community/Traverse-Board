@@ -32,7 +32,7 @@ func (a *App) newDockerSandboxService(enabled bool,
 // available.
 func (a *App) newDockerSandboxServiceWithStandardCode(enabled bool,
 	permissionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
-	drydocks *application.DrydockService,
+	drydocks *application.RunWorktreeService,
 ) (*application.DockerSandboxService, *application.StandardCodeDockerService, error) {
 	if a == nil || a.store == nil {
 		return nil, nil, fmt.Errorf("Docker Sandbox store is unavailable")

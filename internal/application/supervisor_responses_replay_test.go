@@ -151,7 +151,7 @@ func verifySupervisorResponsesReplay(t *testing.T, finalMode string) {
 	}
 	defer st.Close()
 	run := newStartedRunForProvider(t, st, p.Name(), domain.Budget{MaxTurns: 3, MaxToolCalls: 3})
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 1}).Step(t.Context(), run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 1}).Step(t.Context(), run.ID)
 	if (err != nil) != finalFails {
 		t.Fatal(err)
 	}

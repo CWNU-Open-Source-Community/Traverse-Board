@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpenCheck, Download, RefreshCw } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { downloadTextFile } from "../lib/download";
 import { useLocale } from "../lib/locale";
@@ -10,7 +10,7 @@ import { CodeHandoffHostCommands } from "./code-handoff-host-commands";
 import { LifecycleStatusBadge } from "./lifecycle-status";
 
 export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptReview }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenDelivery?: () => void;
   onOpenReceiptReview?: (target: ReceiptReviewNavigationTarget) => void;

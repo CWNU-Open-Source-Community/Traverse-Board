@@ -31,7 +31,7 @@ type FileEditReviewStore interface {
 type FileEditReviewService struct {
 	store    FileEditReviewStore
 	manager  *fileedit.Manager
-	drydocks *DrydockService
+	drydocks *RunWorktreeService
 }
 
 type fileEditWorkspaceHistoryStore interface {
@@ -52,7 +52,7 @@ func fileEditWorkspaceBelongsToRun(ctx context.Context, store any, run domain.Ru
 	return workspaceID == mission.WorkspaceID, nil
 }
 
-func (s *FileEditReviewService) WithDrydock(drydocks *DrydockService) *FileEditReviewService {
+func (s *FileEditReviewService) WithRunWorktree(drydocks *RunWorktreeService) *FileEditReviewService {
 	if s != nil {
 		s.drydocks = drydocks
 	}

@@ -19,7 +19,7 @@ import (
 	"cyberagent-workbench/internal/webevidence"
 )
 
-func TestRunSupervisorRetiredWebAuthorityRecovery(t *testing.T) {
+func TestAgentRunnerRetiredWebAuthorityRecovery(t *testing.T) {
 	for _, status := range []string{"pending", "unknown", "completed"} {
 		t.Run(status, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "historical-web.db")
@@ -180,7 +180,7 @@ func (s *legacyWebHistoryStore) rewrite(ctx context.Context, call domain.Supervi
 	s.callID, s.authority, s.result, s.rewritten = call.CallID, string(raw), call.ResultJSON, true
 }
 
-func TestRunSupervisorWebSearchAcrossModesWithoutShellNetwork(t *testing.T) {
+func TestAgentRunnerWebSearchAcrossModesWithoutShellNetwork(t *testing.T) {
 	for _, hosted := range []bool{false, true} {
 		route := "configured"
 		if hosted {

@@ -3,7 +3,7 @@ import { LocaleProvider } from "../../lib/locale";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render as renderComponent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceFileAttachment } from "../../api/file-attachments";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import type { ThreadExecutionPermissionControlView,
@@ -55,7 +55,7 @@ describe("Composer permission integration", () => {
     const changeThreadExecutionPermission = vi.fn(); const expandRunNetworkAuthority = vi.fn();
     const client = { getThreadExecutionPermission: vi.fn().mockResolvedValue(control()),
       hasExecutionPermissionControl: true, hasControl: true, get, providerSearchReadiness,
-      changeThreadExecutionPermission, expandRunNetworkAuthority } as unknown as CyberAgentClient;
+      changeThreadExecutionPermission, expandRunNetworkAuthority } as unknown as APIClient;
     const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queries}><V2PermissionControl client={client} threadID="thread-1" /></QueryClientProvider>);
     await user.click(await screen.findByRole("button", { name: "请求批准" }));
@@ -92,7 +92,7 @@ describe("Composer permission integration", () => {
       getThreadExecutionPermission: vi.fn().mockResolvedValue(control()), changeThreadExecutionPermission,
       threadModelRoute: vi.fn().mockResolvedValue({ vision_capability: { state: "supported", source: "operator_declared" } }),
       downloadWorkspaceImage: vi.fn().mockResolvedValue(new Blob(["verified image"], { type: "image/png" })),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const onSubmit = vi.fn(async (..._args: unknown[]) => {});
     render(<QueryClientProvider client={queries}><V2Composer client={client} threadID="thread-1"
       workspaceID={workspaceID} workspaces={[]} onWorkspaceChange={() => {}} onSubmit={onSubmit} />
@@ -142,7 +142,7 @@ describe("Composer permission integration", () => {
         redaction_count: 0, truncated: false, returned_bytes: 0, total_bytes: 0,
         provenance: { source_kind: "workspace_file", source_ref: ".", content_sha256: "b".repeat(64), instruction_authorized: false } }),
       workspaceSearch,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     render(<QueryClientProvider client={queries}><V2Composer client={client} threadID="thread-1"
       workspaceID="workspace-1" workspaces={[]} onWorkspaceChange={() => {}} onSubmit={onSubmit} />
     </QueryClientProvider>);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, File, LoaderCircle, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { maximumFileAttachments, maximumFileBytes, type WorkspaceFileAttachment } from "../../api/file-attachments";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { useV2DraftDocument } from "../draft-context";
@@ -24,7 +24,7 @@ export function useV2AttachmentReferences(workspaceID: string, threadID: string)
 const bytesLabel = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ?
   `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 function AttachmentCard({ client, file, onRemove, locked }: {
-  client: CyberAgentClient; file: WorkspaceFileAttachment; onRemove?: () => void; locked: boolean;
+  client: APIClient; file: WorkspaceFileAttachment; onRemove?: () => void; locked: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -53,7 +53,7 @@ function AttachmentCard({ client, file, onRemove, locked }: {
   </div>;
 }
 export function V2FileAttachments({ client, attachments, onRemove, pendingIDs = [] }: {
-  client: CyberAgentClient; attachments: WorkspaceFileAttachment[]; onRemove?: (id: string) => void; pendingIDs?: string[];
+  client: APIClient; attachments: WorkspaceFileAttachment[]; onRemove?: (id: string) => void; pendingIDs?: string[];
 }) {
   if (!attachments.length) return null;
   return <div className="v2-file-attachments" aria-label={onRemove ? "待发送的文件" : "消息附件"}>
@@ -71,7 +71,7 @@ const validAttempt = (value: unknown): value is UploadAttempt => {
     Number.isSafeInteger(attempt.byteSize) && attempt.byteSize >= 0 && attempt.byteSize <= maximumFileBytes;
 };
 export function useV2FileInput({ client, workspaceID, threadID, disabled }: {
-  client: CyberAgentClient; workspaceID: string; threadID: string; disabled: boolean;
+  client: APIClient; workspaceID: string; threadID: string; disabled: boolean;
 }) {
   const references = useV2AttachmentReferences(workspaceID, threadID);
   const store = useV2RecoveryStore();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ArrowLeft, File, Folder, FolderOpen, Paperclip, Pencil, Search, ShieldCheck, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { WorkspaceExplorerView, WorkspaceSearchView } from "../api/types";
 import { formatBytes } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { FileProposalEditor } from "./file-proposal-editor";
 
 export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath = ".", onSelectReference }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
   runID?: string;
   initialPath?: string;
@@ -149,7 +149,7 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
 }
 
 function WorkspaceSearchResults({ client, runID, pending, query, onAttach, onClear, onOpen }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   pending: boolean;
   query: UseQueryResult<WorkspaceSearchView, Error>;

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CyberAgentClient } from "../api/client";
+import { APIClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
 import { capabilityReadinessFixture } from "../test/capability-readiness";
 import { ExecutionInteractionPanel } from "./run-permission-settings";
@@ -53,7 +53,7 @@ describe("ExecutionInteractionPanel", () => {
   it("disables Cyber when the Run is not on the cyber/docker boundary", () => {
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionInteractionPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
+        client={new APIClient("read", "/api/v1", "control", {
           runControlEnabled: true,
         })}
         detail={detail()}
@@ -79,7 +79,7 @@ describe("ExecutionInteractionPanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionInteractionPanel
-        client={new CyberAgentClient("read", "/api/v1", "control", {
+        client={new APIClient("read", "/api/v1", "control", {
           runControlEnabled: true,
         })}
         detail={detail()}

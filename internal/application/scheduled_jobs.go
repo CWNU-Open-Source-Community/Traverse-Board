@@ -69,7 +69,7 @@ type scheduledJobObservationStore interface {
 	ReconcileObservationScheduledJobs(context.Context, time.Time, int) (int, error)
 }
 
-// ScheduledJobRoundExecutor is intentionally narrower than RunSupervisor. It
+// ScheduledJobRoundExecutor is intentionally narrower than AgentRunner. It
 // receives metadata-only observation facts and a stable operation key. The
 // coordinator validates returned model/tool facts against the persisted mode.
 type ScheduledJobRoundExecutor interface {

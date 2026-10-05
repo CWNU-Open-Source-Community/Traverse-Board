@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { APIRequestError, CyberAgentClient } from "../../api/client";
+import { APIRequestError, APIClient } from "../../api/client";
 import type { ThreadDetailView, ThreadTranscriptItemView, WorkspaceView } from "../../api/types";
 import { V2Conversation } from "./conversation";
 import { v2FileReferenceKey, type V2FileReference } from "./file-context";
@@ -23,12 +23,12 @@ function recoveredThread(threadID: string): ThreadDetailView {
   } as unknown as ThreadDetailView;
 }
 
-function renderRecovery(submitThreadTurn: ReturnType<typeof vi.fn>, overrides: Partial<CyberAgentClient> = {}) {
+function renderRecovery(submitThreadTurn: ReturnType<typeof vi.fn>, overrides: Partial<APIClient> = {}) {
   const client = { hasThreadControl: true, submitThreadTurn,
     get: vi.fn((path: string) => Promise.resolve(recoveredThread(path.split("/").at(-1)!))),
     getPage: vi.fn().mockResolvedValue({ items: [], page: { limit: 100 }, requestID: "fixture" }),
     ...overrides,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   function Harness() {
     const [threadID, setThreadID] = useState("thread-a");
@@ -192,7 +192,7 @@ it("accepts a prepared input awaiting tool approval without duplicating its draf
     version: "api.v1", request_id: "accepted-prepared-input", data: response,
   }), { status: 202, headers: { "Content-Type": "application/json" } }));
   vi.stubGlobal("fetch", fetchMock);
-  const transport = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+  const transport = new APIClient("read-secret", "/api/v1", "control-secret");
   const submit = vi.fn(transport.submitThreadTurn.bind(transport));
   const waiting = { ...recoveredThread("thread-a"), thread,
     active_run: { id: "run-thread-a", status: "waiting_approval" } } as unknown as ThreadDetailView;

@@ -262,7 +262,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 		Parameters:  schema}
 	first := llm.ChatRequest{
 		Messages: []llm.Message{
-			{Role: "system", Content: "Traverse Board model Harness qualification. First call only the supplied synthetic tool as requested. After receiving its result, return exactly one JSON object with version " + HarnessProbeProtocolVersion + ", status ok, and the same nonce. Do not call another tool. No external work is performed by this probe."},
+			{Role: "system", Content: "Universal Code model Harness qualification. First call only the supplied synthetic tool as requested. After receiving its result, return exactly one JSON object with version " + HarnessProbeProtocolVersion + ", status ok, and the same nonce. Do not call another tool. No external work is performed by this probe."},
 			{Role: "user", Content: "Call prayu_harness_echo exactly once with nonce " + nonce + "."},
 		},
 		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,

@@ -17,7 +17,7 @@ import (
 
 type SessionRunStore interface {
 	RunStore
-	RunSupervisorStore
+	AgentRunnerStore
 	OperatorSteeringStore
 	GetRunBySession(ctx context.Context, sessionID string) (domain.Run, bool, error)
 }
@@ -25,12 +25,12 @@ type SessionRunStore interface {
 type SessionRunChatExecutor struct {
 	store      SessionRunStore
 	runs       *RunService
-	supervisor *RunSupervisor
+	supervisor *AgentRunner
 }
 
 func NewSessionRunChatExecutor(store SessionRunStore, router *llm.Router, checker policy.Checker) *SessionRunChatExecutor {
 	return &SessionRunChatExecutor{
-		store: store, runs: NewRunService(store), supervisor: NewRunSupervisor(store, router, checker),
+		store: store, runs: NewRunService(store), supervisor: NewAgentRunner(store, router, checker),
 	}
 }
 

@@ -132,11 +132,11 @@ func TestMCPOperationApprovalRealTLSLostReceiptNeverRepeats(t *testing.T) {
 		t.Fatal(err)
 	}
 	fault := &mcpReceiptFaultStore{SQLiteStore: f.st, fail: true}
-	f.supervisor = NewRunSupervisor(fault, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
+	f.supervisor = NewAgentRunner(fault, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 	if _, err := f.resume(t); err == nil || f.calls.Load() != 1 {
 		t.Fatal("receipt fault did not follow the real send", err)
 	}
-	f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
+	f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 	for attempt := 0; attempt < 2; attempt++ {
 		if waiting, err := f.resume(t); err != nil || waiting || f.calls.Load() != 1 {
 			t.Fatal("uncertain dispatch repeated", err)
@@ -157,7 +157,7 @@ func (c *mcpReviewChecker) CheckToolCall(call tools.Call) policy.Decision {
 
 type mcpApprovalFixture struct {
 	st              *store.SQLiteStore
-	supervisor      *RunSupervisor
+	supervisor      *AgentRunner
 	turn            domain.SupervisorTurn
 	call            domain.SupervisorToolCall
 	manager         *mcp.Manager
@@ -284,7 +284,7 @@ func newMCPOperationApprovalFixture(t *testing.T, mode domain.RunExecutionPermis
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
+	f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.capabilities).WithMCPClient(f.manager)
 	permission, err := f.st.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestMCPOperationApprovalPendingDenialAndRevocationNeverSend(t *testing.T) {
 			case "cold_epoch":
 				cold := f.capabilities
 				cold.RuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
-				f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(cold).WithMCPClient(f.manager)
+				f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(cold).WithMCPClient(f.manager)
 			case "cancelled":
 				f.capabilities.RuntimeAuthority.RevokeRun(f.call.RunID)
 			case "started_unknown":

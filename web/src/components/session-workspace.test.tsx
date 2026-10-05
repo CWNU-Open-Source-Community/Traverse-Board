@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunDetailView, RunView, SessionDetailView,
   SessionMessageControlView } from "../api/types";
 import { LocaleProvider } from "../lib/locale";
@@ -169,7 +169,7 @@ function workspaceClient(staleRun: RunView, freshRun: RunView, hasQueuedMessage 
     submitSessionMessage: vi.fn().mockResolvedValue(submission),
     controlRunLifecycle: vi.fn(),
     executeRun: vi.fn(),
-  } as unknown as CyberAgentClient & {
+  } as unknown as APIClient & {
     get: ReturnType<typeof vi.fn>;
     submitSessionMessage: ReturnType<typeof vi.fn>;
     controlRunLifecycle: ReturnType<typeof vi.fn>;
@@ -185,7 +185,7 @@ function run(status: RunView["status"]): RunView {
   };
 }
 
-function renderWorkspace(client: CyberAgentClient) {
+function renderWorkspace(client: APIClient) {
   return render(withProvider(<SessionWorkspace client={client} sessionID="sess-1" />));
 }
 

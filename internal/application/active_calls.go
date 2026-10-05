@@ -792,42 +792,42 @@ func sanitizeActiveCallReason(reason string) string {
 	return reason
 }
 
-func (s *RunSupervisor) ActiveCall(runID string) (ActiveCallInfo, bool) {
+func (s *AgentRunner) ActiveCall(runID string) (ActiveCallInfo, bool) {
 	if s == nil || s.activeCalls == nil {
 		return ActiveCallInfo{}, false
 	}
 	return s.activeCalls.Lookup(runID)
 }
 
-func (s *RunSupervisor) PublicModelStream(runID string) (PublicModelStreamSnapshot, bool) {
+func (s *AgentRunner) PublicModelStream(runID string) (PublicModelStreamSnapshot, bool) {
 	if s == nil || s.activeCalls == nil {
 		return PublicModelStreamSnapshot{}, false
 	}
 	return s.activeCalls.LookupPublic(runID)
 }
 
-func (s *RunSupervisor) ActiveCallForSession(sessionID string) (ActiveCallInfo, bool) {
+func (s *AgentRunner) ActiveCallForSession(sessionID string) (ActiveCallInfo, bool) {
 	if s == nil || s.activeCalls == nil {
 		return ActiveCallInfo{}, false
 	}
 	return s.activeCalls.LookupSession(sessionID)
 }
 
-func (s *RunSupervisor) ActiveCalls() []ActiveCallInfo {
+func (s *AgentRunner) ActiveCalls() []ActiveCallInfo {
 	if s == nil || s.activeCalls == nil {
 		return nil
 	}
 	return s.activeCalls.List()
 }
 
-func (s *RunSupervisor) SubscribeActiveCall(runID string) (*ActiveCallSubscription, error) {
+func (s *AgentRunner) SubscribeActiveCall(runID string) (*ActiveCallSubscription, error) {
 	if s == nil || s.activeCalls == nil {
 		return nil, apperror.New(apperror.CodeFailedPrecondition, "active call registry is required")
 	}
 	return s.activeCalls.Subscribe(runID)
 }
 
-func (s *RunSupervisor) CancelActiveCall(ctx context.Context, request ActiveCallCancelRequest) (ActiveCallCancelResult, error) {
+func (s *AgentRunner) CancelActiveCall(ctx context.Context, request ActiveCallCancelRequest) (ActiveCallCancelResult, error) {
 	if s == nil || s.store == nil || s.activeCalls == nil {
 		return ActiveCallCancelResult{}, apperror.New(apperror.CodeFailedPrecondition, "active call control dependencies are required")
 	}

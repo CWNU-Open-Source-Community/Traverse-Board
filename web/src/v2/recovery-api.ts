@@ -1,4 +1,4 @@
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { ThreadTurnFailureReferenceView } from "../api/types";
 
 export interface ThreadRequestObservation {
@@ -57,12 +57,12 @@ function parseObservation(value: unknown, kind: "creation" | "turn", scope: stri
   return value as unknown as ThreadRequestObservation;
 }
 
-export async function inspectV2TurnRequest(client: CyberAgentClient,
+export async function inspectV2TurnRequest(client: APIClient,
   input: { threadID: string; operationKey: string; signal?: AbortSignal }): Promise<ThreadRequestObservation> {
   return parseObservation(await client.inspectThreadTurnRequest(input.threadID, input.operationKey, input.signal), "turn", input.threadID);
 }
 
-export async function inspectV2SteeringRequest(client: CyberAgentClient,
+export async function inspectV2SteeringRequest(client: APIClient,
   input: { sessionID?: string; operationKey: string; signal?: AbortSignal }): Promise<{
     state: "not_received" | "received"; message_id?: string; message_status?: "pending" | "committed" | "cancelled";
   }> {
@@ -81,7 +81,7 @@ export async function inspectV2SteeringRequest(client: CyberAgentClient,
     message_status?: "pending" | "committed" | "cancelled" };
 }
 
-export async function inspectV2CreationRequest(client: CyberAgentClient,
+export async function inspectV2CreationRequest(client: APIClient,
   input: { operationKey: string; workspaceID: string; signal?: AbortSignal }): Promise<ThreadRequestObservation> {
   return parseObservation(await client.inspectThreadCreationRequest(input.workspaceID, input.operationKey, input.signal), "creation", input.workspaceID);
 }

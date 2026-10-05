@@ -2,7 +2,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PropsWithChildren } from "react";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import { V2Composer } from "./composer";
 import { useV2ThreadTurn, useV2ThreadSubmissions } from "../use-thread-turn";
 import { v2FileReferenceKey } from "./file-context";
@@ -21,7 +21,7 @@ function setup() {
   const client = { hasEvidenceAttachment: true, workspaceExplore,
     attachEvidence: vi.fn().mockResolvedValue({ replayed: false }),
     submitThreadTurn: vi.fn().mockResolvedValue({}),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   return { client, queryClient, wrapper };

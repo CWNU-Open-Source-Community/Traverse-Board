@@ -12,16 +12,16 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-// SupervisorMCPClient is the narrow application boundary around the Go-owned
+// AgentRunnerMCPClient is the narrow application boundary around the Go-owned
 // MCP runtime. It deliberately excludes staging and review operations: model
 // execution can observe only the capabilities already enabled by an operator.
-type SupervisorMCPClient interface {
+type AgentRunnerMCPClient interface {
 	Capabilities(context.Context, string, string) (mcp.ScopedCapabilities, error)
 	Invoke(context.Context, mcp.InvokeRequest) (mcp.ClientCallResult, error)
 }
 
 type MCPClientToolExecutor struct {
-	client       SupervisorMCPClient
+	client       AgentRunnerMCPClient
 	store        MCPExecutionPermissionStore
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 }
@@ -34,7 +34,7 @@ type MCPExecutionPermissionStore interface {
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
 }
 
-func NewMCPClientToolExecutor(client SupervisorMCPClient,
+func NewMCPClientToolExecutor(client AgentRunnerMCPClient,
 	store MCPExecutionPermissionStore,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) (*MCPClientToolExecutor, error) {

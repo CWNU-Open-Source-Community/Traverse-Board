@@ -100,7 +100,7 @@ func TestSupervisorSSEBoundsPartialToolsStayUnexecutedAfterReopen(t *testing.T) 
 				if err != nil {
 					t.Fatal(err)
 				}
-				var supervisor *application.RunSupervisor
+				var supervisor *application.AgentRunner
 				run, supervisor = boundaryMoneySupervisor(t, st, provider,
 					domain.Budget{MaxTurns: 3, MaxToolCalls: 3, MaxCostUSD: 1})
 				ctx, cancel := context.WithCancel(t.Context())

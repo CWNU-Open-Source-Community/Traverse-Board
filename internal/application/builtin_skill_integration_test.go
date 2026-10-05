@@ -298,7 +298,7 @@ func TestBuiltinSkillDiscoveryAndBodyReachActualProviderWire(t *testing.T) {
 	if _, err = runs.Start(t.Context(), run.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(t.Context(), run.ID); err != nil {
+	if _, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(t.Context(), run.ID); err != nil {
 		t.Fatal(err)
 	}
 	reads, err := st.ListBuiltinSkillReadCalls(t.Context(), run.ID)

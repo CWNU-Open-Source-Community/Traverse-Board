@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -48,12 +48,12 @@ type interruptDrydockRestoreStore struct {
 	once bool
 }
 
-func (s *interruptDrydockRestoreStore) AdvanceDrydock(ctx context.Context, workspace drydock.Workspace,
-	generation int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
-	if s.once && receipt.Operation == drydock.OperationRewind {
+func (s *interruptDrydockRestoreStore) AdvanceDrydock(ctx context.Context, workspace runworktree.Workspace,
+	generation int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
+	if s.once && receipt.Operation == runworktree.OperationRewind {
 		s.once = false
-		return drydock.Workspace{}, false, errors.New("injected interruption after real restore before receipt")
+		return runworktree.Workspace{}, false, errors.New("injected interruption after real restore before receipt")
 	}
 	return s.SQLiteStore.AdvanceDrydock(ctx, workspace, generation, receipt)
 }
@@ -80,7 +80,7 @@ func TestThreadDrydockRestoresHistoricalCheckpointWithCurrentIdentityAndRecovers
 	if err != nil {
 		t.Fatal(err)
 	}
-	continued, err := NewThreadServiceWithExecutionCapabilities(f.state, domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).WithDrydock(f.service).Submit(ctx,
+	continued, err := NewThreadServiceWithExecutionCapabilities(f.state, domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true}).WithRunWorktree(f.service).Submit(ctx,
 		SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID,
 			OperationKey: "next-restore-context", Content: "Review the previous change", RequestedBy: "operator"})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestThreadDrydockRestoresHistoricalCheckpointWithCurrentIdentityAndRecovers
 	currentFixture.run = continued.Run
 	prepareDrydockRestoreForTest(t, currentFixture)
 	interrupted := &interruptDrydockRestoreStore{SQLiteStore: f.state, once: true}
-	service, err := NewDrydockService(interrupted, f.executor)
+	service, err := NewRunWorktreeService(interrupted, f.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestThreadDrydockRestoresHistoricalCheckpointWithCurrentIdentityAndRecovers
 	if got := readDrydockTestFile(t, filepath.Join(physical.Path, "tracked.txt")); got != "base\n" {
 		t.Fatalf("actual restored content=%q", got)
 	}
-	digest := drydockOperationDigest(drydock.OperationRewind, request.RunID, request.OperationKey)
+	digest := drydockOperationDigest(runworktree.OperationRewind, request.RunID, request.OperationKey)
 	journal, found, err := f.state.GetWorkspaceCheckpointTransactionByOperation(ctx, digest)
 	if err != nil || !found || journal.Status != workspacecheckpoint.TransactionPrepared {
 		t.Fatalf("restore did not retain its journal: %+v %v", journal, err)
@@ -130,7 +130,7 @@ func TestThreadDrydockRestoresHistoricalCheckpointWithCurrentIdentityAndRecovers
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	restarted, err := NewDrydockService(reopened, f.executor)
+	restarted, err := NewRunWorktreeService(reopened, f.executor)
 	if err != nil {
 		t.Fatal(err)
 	}

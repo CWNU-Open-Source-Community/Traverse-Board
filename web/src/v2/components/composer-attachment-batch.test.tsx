@@ -2,7 +2,7 @@ import { File as NodeFile } from "node:buffer";
 import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceFileAttachment } from "../../api/file-attachments";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2RecoveryProvider } from "../recovery-storage";
@@ -29,7 +29,7 @@ function mount(selectedWorkspaceID = workspaceID) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const submit = vi.fn(async () => {});
   render(<QueryClientProvider client={queries}><V2RecoveryProvider client={client} scopeID="batch-paste-store">
-    <V2Composer client={client as unknown as CyberAgentClient} workspaceID={selectedWorkspaceID} threadID="" workspaces={[]}
+    <V2Composer client={client as unknown as APIClient} workspaceID={selectedWorkspaceID} threadID="" workspaces={[]}
       onWorkspaceChange={() => {}} onSubmit={submit} />
   </V2RecoveryProvider></QueryClientProvider>);
   return { client, queries, submit };

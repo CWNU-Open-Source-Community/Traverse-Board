@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { OperatorActionCenter } from "./operator-action-center";
 
 describe("OperatorActionCenter", () => {
@@ -12,7 +12,7 @@ describe("OperatorActionCenter", () => {
       items: [{ id: "action-opaque", kind: "approval_pending", state: "pending",
         destination: "approvals", available_at: "2026-07-19T11:00:00Z" }],
     });
-    const client = { operatorActionCenter } as unknown as CyberAgentClient;
+    const client = { operatorActionCenter } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const onNavigate = vi.fn();
     const user = userEvent.setup();

@@ -39,7 +39,7 @@ import {
   View,
   Wrench,
 } from "lucide-react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type {
   ArtifactView,
   EventView,
@@ -232,7 +232,7 @@ export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSele
 }
 
 export function RunWorkspace({ client, runID, onOpenPlugins }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenPlugins?: () => void;
 }) {
@@ -526,7 +526,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   );
 }
 
-function RunOverview({ client, detail }: { client: CyberAgentClient; detail: RunDetailView }) {
+function RunOverview({ client, detail }: { client: APIClient; detail: RunDetailView }) {
   const { t } = useLocale();
   const checkpoint = detail.checkpoint;
   const usage = detail.tool_usage;
@@ -614,7 +614,7 @@ function AgentCodeToolsPanel({ detail }: { detail: RunDetailView }) {
 }
 
 export function RunControlPanel({ client, detail, threadID = "" }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
   threadID?: string;
 }) {
@@ -727,7 +727,7 @@ export function RunControlPanel({ client, detail, threadID = "" }: {
 }
 
 function ActiveCallCancelPanel({ client, detail }: {
-  client: CyberAgentClient;
+  client: APIClient;
   detail: RunDetailView;
 }) {
   const { t } = useLocale();
@@ -854,7 +854,7 @@ const planIntentKey = (runID: string) => ["run", runID, "plan-control-intent"] a
 
 export function PlanDeliveryPanel({ state, client, detail, threadID }: {
   state: PlanDeliveryStateView;
-  client?: CyberAgentClient;
+  client?: APIClient;
   detail?: RunDetailView;
   threadID?: string;
 }) {
@@ -1075,7 +1075,7 @@ function EventList({ events }: { events: EventView[] }) {
   );
 }
 
-function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkItemView[] }) {
+function WorkTable({ client, items }: { client: APIClient; items: WorkItemView[] }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (items.length === 0) {
@@ -1100,7 +1100,7 @@ function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkIte
   );
 }
 
-function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+function WorkItemDetail({ client, id }: { client: APIClient; id: string }) {
   const { t } = useLocale();
   const query = useQuery({ queryKey: ["work-item", id], queryFn: ({ signal }) => client.getWorkItem(id, signal) });
   if (query.isLoading) {
@@ -1126,7 +1126,7 @@ function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }
   );
 }
 
-function NoteList({ client, notes }: { client: CyberAgentClient; notes: NoteView[] }) {
+function NoteList({ client, notes }: { client: APIClient; notes: NoteView[] }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (notes.length === 0) {
@@ -1142,7 +1142,7 @@ function NoteList({ client, notes }: { client: CyberAgentClient; notes: NoteView
   ))}</div>;
 }
 
-function NoteDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+function NoteDetail({ client, id }: { client: APIClient; id: string }) {
   const { t } = useLocale();
   const query = useQuery({ queryKey: ["note", id], queryFn: ({ signal }) => client.getNote(id, signal) });
   if (query.isLoading) {
@@ -1170,7 +1170,7 @@ function NoteDetail({ client, id }: { client: CyberAgentClient; id: string }) {
   );
 }
 
-function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; client: CyberAgentClient }) {
+function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; client: APIClient }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (artifacts.length === 0) {
@@ -1196,7 +1196,7 @@ function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; clien
 }
 
 function ToolRounds({ client, rounds }: {
-  client: CyberAgentClient;
+  client: APIClient;
   rounds: SupervisorToolRoundView[];
 }) {
   const { t } = useLocale();

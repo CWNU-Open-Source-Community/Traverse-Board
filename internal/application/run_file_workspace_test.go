@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 )
 
@@ -66,12 +66,12 @@ func TestRunFileWorkspaceSeparatesRunsSharingOneSource(t *testing.T) {
 
 type runFileMissingDrydockStore struct{ *store.SQLiteStore }
 
-func (s runFileMissingDrydockStore) GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error) {
-	return drydock.Workspace{}, false, nil
+func (s runFileMissingDrydockStore) GetDrydockByRun(context.Context, string) (runworktree.Workspace, bool, error) {
+	return runworktree.Workspace{}, false, nil
 }
 
-func (s runFileMissingDrydockStore) GetRunFileDrydock(context.Context, string) (drydock.Workspace, bool, error) {
-	return drydock.Workspace{}, false, nil
+func (s runFileMissingDrydockStore) GetRunFileDrydock(context.Context, string) (runworktree.Workspace, bool, error) {
+	return runworktree.Workspace{}, false, nil
 }
 
 func TestRunFileWorkspaceConfiguredMissingDrydockFailsClosed(t *testing.T) {

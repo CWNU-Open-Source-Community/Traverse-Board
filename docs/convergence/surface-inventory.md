@@ -121,7 +121,7 @@ counted as another product Surface.
 - **Authority impact:** Backend availability never grants execution; Scope, permission, approval, ownership, network containment, cleanup, and recovery remain Go-owned.
 - **Release-blocking checks:** `CI / Go control plane`, `CI / Windows Desktop shell local-sandbox gate`
 - **Contract/test checks:** `go test ./internal/sandbox ./internal/application -run StandardCode`, `go test ./internal/desktop -run WindowsControlPlane`
-- **Failure/recovery evidence:** `internal/application/standard_code_docker_test.go`, `internal/application/drydock_service_test.go`, `internal/sandbox/local_backend_windows_test.go`
+- **Failure/recovery evidence:** `internal/application/standard_code_docker_test.go`, `internal/application/run_worktree_service_test.go`, `internal/sandbox/local_backend_windows_test.go`
 - **Compatibility strategy:** Keep active backend readiness, ownership, network-none/WFP, restart, and exact-cleanup evidence without marketing a new user Surface.
 - **Deprecation window:** An active backend downgrade requires a supported execution replacement; removal follows the registry default maintenance window and protocol obligations.
 - **Removal/rollback plan:** Restore the backend adapter behind the same Go gates; retain Drydock/checkpoint recovery and never delete user workspaces or durable receipts.

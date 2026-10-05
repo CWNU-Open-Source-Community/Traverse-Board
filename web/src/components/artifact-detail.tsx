@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatBytes, formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { ErrorState, KeyValue, LoadingState } from "./common";
 
 export function ArtifactDetail({ client, id, expected, children }: {
-  client: CyberAgentClient;
+  client: APIClient;
   id: string;
   expected?: { runID: string; sourceID: string; sha256: string; sizeBytes: number; stream: string };
   children?: ReactNode;

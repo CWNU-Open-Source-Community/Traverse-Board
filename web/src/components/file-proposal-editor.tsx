@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { Check, FileDiff, LoaderCircle, Pencil, RefreshCw, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { FileEditProposalSourceView } from "../api/types";
 import { useLocale } from "../lib/locale";
 import { ErrorState, StatusBadge } from "./common";
 
 export function FileProposalEditor({ client, runID, source, onClose }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   source: FileEditProposalSourceView;
   onClose: () => void;

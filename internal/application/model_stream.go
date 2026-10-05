@@ -28,7 +28,7 @@ type modelStreamResult struct {
 }
 
 type modelStreamAggregator struct {
-	supervisor        *RunSupervisor
+	supervisor        *AgentRunner
 	checkpoint        domain.SupervisorCheckpoint
 	attempt           llm.ModelAttempt
 	ref               llm.ModelRef
@@ -49,7 +49,7 @@ type modelStreamAggregator struct {
 	observedToolCalls int
 }
 
-func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, ref llm.ModelRef, request llm.ChatRequest, live *activeCallLease) (modelStreamResult, error) {
+func (s *AgentRunner) streamModel(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, ref llm.ModelRef, request llm.ChatRequest, live *activeCallLease) (modelStreamResult, error) {
 	chunks, err := s.router.StreamChatModelRef(ctx, ref, request)
 	if err != nil {
 		return modelStreamResult{}, err

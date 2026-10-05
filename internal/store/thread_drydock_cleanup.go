@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"cyberagent-workbench/internal/apperror"
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"database/sql"
 	"errors"
 	"time"
@@ -14,7 +14,7 @@ import (
 func (s *SQLiteStore) BeginThreadDrydockCleanup(ctx context.Context, runID, drydockID string,
 	generation int64, digest, fingerprint string, at time.Time,
 ) error {
-	if runID == "" || drydockID == "" || generation < 1 || !drydock.ValidDigest(digest) || !drydock.ValidDigest(fingerprint) || at.IsZero() {
+	if runID == "" || drydockID == "" || generation < 1 || !runworktree.ValidDigest(digest) || !runworktree.ValidDigest(fingerprint) || at.IsZero() {
 		return apperror.New(apperror.CodeInvalidArgument, "Drydock cleanup identity is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -45,7 +45,7 @@ func (s *SQLiteStore) BeginThreadDrydockCleanup(ctx context.Context, runID, dryd
 	if err != nil {
 		return err
 	}
-	if !found || workspace.ID != drydockID || workspace.Generation != generation || workspace.State == drydock.StateCleaned {
+	if !found || workspace.ID != drydockID || workspace.Generation != generation || workspace.State == runworktree.StateCleaned {
 		return apperror.New(apperror.CodeConflict, "Cleanup directory ownership changed")
 	}
 	var busy bool
@@ -82,9 +82,9 @@ func (s *SQLiteStore) BeginThreadDrydockCleanup(ctx context.Context, runID, dryd
 
 // CompleteThreadDrydockCleanup commits actual physical state and receipt
 // together, without a synthetic content checkpoint for a removed directory.
-func (s *SQLiteStore) CompleteThreadDrydockCleanup(ctx context.Context, workspace drydock.Workspace,
-	generation int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
+func (s *SQLiteStore) CompleteThreadDrydockCleanup(ctx context.Context, workspace runworktree.Workspace,
+	generation int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return workspace, false, err
@@ -99,7 +99,7 @@ func (s *SQLiteStore) CompleteThreadDrydockCleanup(ctx context.Context, workspac
 		receipt.OperationKeySHA256, receipt.RequestFingerprint, workspace.ID, receipt.RunID, generation).Scan(&matches); err != nil {
 		return workspace, false, err
 	}
-	if !matches || receipt.Operation != drydock.OperationCleanup {
+	if !matches || receipt.Operation != runworktree.OperationCleanup {
 		return workspace, false, apperror.New(apperror.CodeConflict, "Cleanup receipt differs from its reserved directory operation")
 	}
 	updated, replayed, err := advanceDrydockTx(ctx, tx, workspace, generation, receipt)

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import type { DraftHead, DraftState } from "../draft-document";
 import { V2DraftConflict } from "./draft-conflict";
@@ -20,7 +20,7 @@ function state(overrides: Partial<DraftState> = {}): DraftState {
 }
 function client() {
   return { downloadWorkspaceImage: vi.fn(async () => new Blob(["png"], { type: "image/png" })),
-    submitThreadTurn: vi.fn(), postControl: vi.fn() } as unknown as CyberAgentClient;
+    submitThreadTurn: vi.fn(), postControl: vi.fn() } as unknown as APIClient;
 }
 function setup(initial = state()) {
   const api = client(); const resolve = vi.fn();

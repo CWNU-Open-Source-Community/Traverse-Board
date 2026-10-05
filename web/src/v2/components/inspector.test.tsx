@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { PublicModelStreamSnapshot, ThreadDetailView, ThreadTranscriptItemView } from "../../api/types";
 import { V2Inspector, type V2InspectorProps } from "./inspector";
 
@@ -14,7 +14,7 @@ function item(id: string, overrides: Partial<ThreadTranscriptItemView> = {}): Th
     source: "harness", title: id, status: "completed", verifiable: true, instruction_authorized: false,
     durable: true, provisional: false, ...overrides };
 }
-function setup(items: ThreadTranscriptItemView[], client = {} as CyberAgentClient) {
+function setup(items: ThreadTranscriptItemView[], client = {} as APIClient) {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const props: V2InspectorProps = { client, threadID: "thread-1", detail: { thread: { id: "thread-1", last_run_id: "run-2" } } as ThreadDetailView,
     durableItems: items, liveSnapshot: null, liveStatus: "stopped", hasOlder: true, isFetchingOlder: false, onLoadOlder: vi.fn() };
@@ -80,7 +80,7 @@ describe("V2Inspector", () => {
   it("loads exact selected tool details on demand, preserves failures, and returns keyboard focus", async () => {
     const user = userEvent.setup();
     const read = vi.fn().mockResolvedValue(result());
-    const client = { threadActivityDetail: read, resumeHostCommandProposal: vi.fn(), submitThreadTurn: vi.fn() } as unknown as CyberAgentClient;
+    const client = { threadActivityDetail: read, resumeHostCommandProposal: vi.fn(), submitThreadTurn: vi.fn() } as unknown as APIClient;
     const { draw } = setup([item("actual-tool", { kind: "tool_call", activity_type: "execute", tool_name: "command_runtime",
       detail_available: true, activity_detail_ref: "detail-tool", status: "failed" })], client);
     draw();
@@ -167,7 +167,7 @@ describe("V2Inspector", () => {
     const user = userEvent.setup();
     const read = vi.fn().mockResolvedValue(result("wrong-run"));
     const { draw } = setup([item("original-event", { detail: "original failure remains", kind: "tool_call", activity_type: "execute",
-      detail_available: true, activity_detail_ref: "detail-tool" })], { threadActivityDetail: read } as unknown as CyberAgentClient);
+      detail_available: true, activity_detail_ref: "detail-tool" })], { threadActivityDetail: read } as unknown as APIClient);
     draw();
     await user.click(screen.getByRole("button", { name: /original-event/ }));
     expect(await screen.findByText("执行详情加载失败。")).toBeInTheDocument();

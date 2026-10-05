@@ -17,7 +17,7 @@ import (
 // Only history reads are implemented. Any accidental mutation/dispatch through
 // the embedded interfaces panics instead of silently simulating an execution.
 type historicalRiskReadStore struct {
-	RunSupervisorStore
+	AgentRunnerStore
 	RiskEscalationHistoryStore
 	proposal runner.RiskEscalationProposal
 	approval approval.Record
@@ -94,7 +94,7 @@ func TestHistoricalRiskRecoveryUsesOnlyExactSavedOutcome(t *testing.T) {
 			case "wrong_agent":
 				st.proposal.RootAgentID = "other-agent"
 			}
-			supervisor := &RunSupervisor{store: st}
+			supervisor := &AgentRunner{store: st}
 			result, err := supervisor.invokeSupervisorTool(t.Context(), turn, call)
 			if scenario == "pending" || strings.HasPrefix(scenario, "wrong_") {
 				if err == nil {

@@ -12,7 +12,7 @@ import (
 
 // Ordinary source Runs do not acquire a Git dependency. An owned/configured
 // Run uses the same product-managed root as Drydock and command execution.
-func (a *App) newRunFileDrydockService(ctx context.Context, runID string) (*application.DrydockService, error) {
+func (a *App) newRunFileDrydockService(ctx context.Context, runID string) (*application.RunWorktreeService, error) {
 	runID = strings.TrimSpace(runID)
 	_, owned, err := a.store.GetDrydockByRun(ctx, runID)
 	if err != nil {
@@ -25,11 +25,11 @@ func (a *App) newRunFileDrydockService(ctx context.Context, runID string) (*appl
 	if !owned && !configured {
 		return nil, nil
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(a.home, "drydocks"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(a.home, "drydocks"))
 	if err != nil {
 		return nil, err
 	}
-	drydocks, err := application.NewDrydockService(a.store, executor)
+	drydocks, err := application.NewRunWorktreeService(a.store, executor)
 	if err != nil {
 		return nil, err
 	}

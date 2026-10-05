@@ -121,9 +121,9 @@ func TestRunRuntimeKeepsDefaultsAndSharedAuthorityWithoutGrant(t *testing.T) {
 	calls := NewActiveCallRegistry()
 	deps := RunRuntimeDependencies{ActiveCalls: calls, ExecutionCapabilities: caps}
 	// No Store methods or host resource creation are needed for pure assembly.
-	s := NewRunSupervisorWithRuntime(nil, llm.NewRouter(llm.ModelRef{}), nil, deps)
+	s := NewAgentRunnerWithRuntime(nil, llm.NewRouter(llm.ModelRef{}), nil, deps)
 	h := NewRunExecutionHandoffWithRuntime(nil, nil, nil, deps)
-	for _, assembled := range []*RunSupervisor{s, h.supervisor} {
+	for _, assembled := range []*AgentRunner{s, h.supervisor} {
 		if assembled.activeCalls != calls || assembled.executionCapabilities.RuntimeAuthority != caps.RuntimeAuthority ||
 			!assembled.generatedContextCompactionEnabled || assembled.tools == nil || assembled.agentBrowser != nil {
 			t.Fatal("runtime assembly replaced shared authority, defaults or optional adapters")

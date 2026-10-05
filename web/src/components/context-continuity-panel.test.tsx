@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ContextContinuityPanel } from "./context-continuity-panel";
 
 describe("ContextContinuityPanel", () => {
@@ -25,7 +25,7 @@ describe("ContextContinuityPanel", () => {
     });
     const patchControl = vi.fn().mockResolvedValue({ ...memoryView(), status: "disabled", version: 2 });
     renderPanel({ hasControl: true, get, postControl, patchControl,
-      deleteControl: vi.fn() } as unknown as CyberAgentClient);
+      deleteControl: vi.fn() } as unknown as APIClient);
 
     expect(await screen.findByText("Durable context is never authority")).toBeInTheDocument();
     expect(await screen.findByText("Repository workflow")).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("ContextContinuityPanel", () => {
       get: vi.fn().mockImplementation((path: string) => path.includes("project-instructions")
         ? Promise.resolve({ ...projectInstructionState(), stale: false })
         : path === "/memories" ? Promise.resolve([]) : Promise.resolve(sessionTree())),
-    } as unknown as CyberAgentClient);
+    } as unknown as APIClient);
 
     expect(await screen.findByText(/This connection is read-only/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create memory" })).toBeDisabled();
@@ -71,7 +71,7 @@ describe("ContextContinuityPanel", () => {
   });
 });
 
-function renderPanel(client: CyberAgentClient) {
+function renderPanel(client: APIClient) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });

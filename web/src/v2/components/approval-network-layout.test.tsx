@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunDetailView, ThreadExecutionPermissionControlView } from "../../api/types";
 import { LocaleProvider, type PrayuLocale } from "../../lib/locale";
 import { v2QueryKeys } from "../query-keys";
@@ -61,7 +61,7 @@ function install(variant: "menu" | "settings" | "network-menu" = "menu", locale:
   const client = { hasControl: true, hasThreadControl: true, hasExecutionPermissionControl: true,
     getThreadExecutionPermission: vi.fn(async (threadID: string) => control(threadID)),
     get, providerSearchReadiness, expandRunNetworkAuthority, changeThreadExecutionPermission,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const tree = (threadID: string) => <LocaleProvider><QueryClientProvider client={queries}>
     {variant === "menu" ? <V2Composer client={client} threadID={threadID} workspaceID="" workspaces={[]}
       onWorkspaceChange={() => {}} onSubmit={onSubmit} />

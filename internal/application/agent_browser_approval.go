@@ -41,7 +41,7 @@ func recheckAgentBrowserApproval(ctx context.Context, base ApprovalControlStore,
 
 // Preflight happens before the durable execution-started event. Waiting is a
 // pending tool in the existing turn; it is not a completed model wait.
-func (s *RunSupervisor) preflightAgentBrowserApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
+func (s *AgentRunner) preflightAgentBrowserApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
 	var p toolgateway.AgentBrowserPayload
 	if json.Unmarshal([]byte(call.PayloadJSON), &p) != nil {
 		return false, nil, agentBrowserUnavailable("invalid browser payload")

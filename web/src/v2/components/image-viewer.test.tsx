@@ -1,12 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2ImagePreview } from "./image-input";
 
 const original: WorkspaceImageAttachment = { id: "original-image", workspace_id: "workspace-one", sha256: "a".repeat(64),
   mime_type: "image/png", byte_size: 128, width: 2400, height: 800, name: "完整长图.png" };
 const png = new Blob(["original PNG bytes"], { type: "image/png" });
-const fixture = (blob = png) => ({ downloadWorkspaceImage: vi.fn(async () => blob), uploadWorkspaceImage: vi.fn() } as unknown as CyberAgentClient);
+const fixture = (blob = png) => ({ downloadWorkspaceImage: vi.fn(async () => blob), uploadWorkspaceImage: vi.fn() } as unknown as APIClient);
 
 beforeEach(() => {
   let next = 0;

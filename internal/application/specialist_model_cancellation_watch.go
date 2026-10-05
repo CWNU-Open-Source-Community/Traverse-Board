@@ -10,7 +10,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 )
 
-func (r *SpecialistRunner) watchSpecialistModelCancellation(parent context.Context,
+func (r *SubagentRunner) watchSpecialistModelCancellation(parent context.Context,
 	ref domain.AgentAttemptRef, attempt llm.ModelAttempt, cancelCall context.CancelFunc,
 ) func() {
 	if r == nil || r.store == nil || cancelCall == nil ||
@@ -48,7 +48,7 @@ func (r *SpecialistRunner) watchSpecialistModelCancellation(parent context.Conte
 	}
 }
 
-func (r *SpecialistRunner) pollSpecialistModelCancellation(ctx context.Context,
+func (r *SubagentRunner) pollSpecialistModelCancellation(ctx context.Context,
 	ref domain.AgentAttemptRef, attempt llm.ModelAttempt,
 ) (bool, bool) {
 	_, observed, err := r.store.ObserveSpecialistModelCancellation(ctx, ref, attempt)

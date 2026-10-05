@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/store"
 )
 
 type cleanupOutcomeExecutor struct {
-	*repository.DrydockExecutor
+	*repository.RunWorktreeExecutor
 	plan    func(context.Context, string, string, string) (gitadvanced.Preview, error)
 	execute func(context.Context, string, gitadvanced.Preview) (gitadvanced.Receipt, error)
 }
@@ -26,14 +26,14 @@ func (e cleanupOutcomeExecutor) PlanRemove(ctx context.Context, root, name, id s
 	if e.plan != nil {
 		return e.plan(ctx, root, name, id)
 	}
-	return e.DrydockExecutor.PlanRemove(ctx, root, name, id)
+	return e.RunWorktreeExecutor.PlanRemove(ctx, root, name, id)
 }
 
 func (e cleanupOutcomeExecutor) ExecuteRemove(ctx context.Context, root string, preview gitadvanced.Preview) (gitadvanced.Receipt, error) {
 	if e.execute != nil {
 		return e.execute(ctx, root, preview)
 	}
-	return e.DrydockExecutor.ExecuteRemove(ctx, root, preview)
+	return e.RunWorktreeExecutor.ExecuteRemove(ctx, root, preview)
 }
 
 func TestDrydockCleanupConfirmsAbsenceAfterActualRemoveReturnsError(t *testing.T) {
@@ -42,7 +42,7 @@ func TestDrydockCleanupConfirmsAbsenceAfterActualRemoveReturnsError(t *testing.T
 	request := DrydockCleanupRequest{RunID: f.run.ID, ExpectedGeneration: created.Generation,
 		OperationKey: "cleanup-post-remove-failure", RequestedBy: "operator", Confirm: true}
 	var gitReceiptID string
-	executor := cleanupOutcomeExecutor{DrydockExecutor: f.executor, execute: func(ctx context.Context, root string, preview gitadvanced.Preview) (gitadvanced.Receipt, error) {
+	executor := cleanupOutcomeExecutor{RunWorktreeExecutor: f.executor, execute: func(ctx context.Context, root string, preview gitadvanced.Preview) (gitadvanced.Receipt, error) {
 		receipt, err := f.executor.ExecuteRemove(ctx, root, preview)
 		if err != nil || receipt.Status != gitadvanced.ReceiptSucceeded {
 			return receipt, errors.Join(err, errors.New("real Git removal did not succeed"))
@@ -56,7 +56,7 @@ func TestDrydockCleanupConfirmsAbsenceAfterActualRemoveReturnsError(t *testing.T
 		return receipt, errors.New(receipt.ErrorSummary)
 	}}
 	result, err := f.service.cleanup(t.Context(), request, executor)
-	if err != nil || result.Preserved || result.Workspace.State != drydock.StateCleaned || result.Receipt.Outcome != drydock.OutcomeSucceeded {
+	if err != nil || result.Preserved || result.Workspace.State != runworktree.StateCleaned || result.Receipt.Outcome != runworktree.OutcomeSucceeded {
 		t.Fatalf("removed directory was not truthfully confirmed: result=%+v err=%v", result, err)
 	}
 	if gitReceiptID == "" || result.Receipt.GitReceiptID != gitReceiptID || !strings.Contains(result.Receipt.Summary, "cleanup reported an error") {
@@ -73,10 +73,10 @@ func TestDrydockCleanupUnconfirmedFailureRetainsReservationForSameKey(t *testing
 	planFailure := errors.New("injected preflight failure before removal")
 	executeFailure := errors.New("injected execution failure before removal")
 	for _, executor := range []cleanupOutcomeExecutor{
-		{DrydockExecutor: f.executor, plan: func(context.Context, string, string, string) (gitadvanced.Preview, error) {
+		{RunWorktreeExecutor: f.executor, plan: func(context.Context, string, string, string) (gitadvanced.Preview, error) {
 			return gitadvanced.Preview{}, planFailure
 		}},
-		{DrydockExecutor: f.executor, execute: func(context.Context, string, gitadvanced.Preview) (gitadvanced.Receipt, error) {
+		{RunWorktreeExecutor: f.executor, execute: func(context.Context, string, gitadvanced.Preview) (gitadvanced.Receipt, error) {
 			return gitadvanced.Receipt{}, executeFailure
 		}},
 	} {
@@ -102,7 +102,7 @@ func TestDrydockCleanupUnconfirmedFailureRetainsReservationForSameKey(t *testing
 		t.Fatal("another operation took over an unresolved removal")
 	}
 	result, err := f.service.Cleanup(t.Context(), request)
-	if err != nil || result.Preserved || result.Workspace.State != drydock.StateCleaned {
+	if err != nil || result.Preserved || result.Workspace.State != runworktree.StateCleaned {
 		t.Fatalf("original request could not recover: %+v %v", result, err)
 	}
 	assertCleanupOutcomePersisted(t, f, created, request, result)
@@ -116,7 +116,7 @@ func TestDrydockCleanupConcurrentSameKeyReturnsPersistedOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	other, err := NewDrydockService(second, f.executor)
+	other, err := NewRunWorktreeService(second, f.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestDrydockCleanupConcurrentSameKeyReturnsPersistedOutcome(t *testing.T) {
 		err    error
 	}
 	lateResult := make(chan outcome, 1)
-	late := cleanupOutcomeExecutor{DrydockExecutor: f.executor, plan: func(ctx context.Context, root, name, id string) (gitadvanced.Preview, error) {
+	late := cleanupOutcomeExecutor{RunWorktreeExecutor: f.executor, plan: func(ctx context.Context, root, name, id string) (gitadvanced.Preview, error) {
 		close(planning)
 		select {
 		case <-removed:
@@ -149,7 +149,7 @@ func TestDrydockCleanupConcurrentSameKeyReturnsPersistedOutcome(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	leading := cleanupOutcomeExecutor{DrydockExecutor: f.executor, execute: func(ctx context.Context, root string, preview gitadvanced.Preview) (gitadvanced.Receipt, error) {
+	leading := cleanupOutcomeExecutor{RunWorktreeExecutor: f.executor, execute: func(ctx context.Context, root string, preview gitadvanced.Preview) (gitadvanced.Receipt, error) {
 		receipt, err := f.executor.ExecuteRemove(ctx, root, preview)
 		close(removed)
 		select {
@@ -166,7 +166,7 @@ func TestDrydockCleanupConcurrentSameKeyReturnsPersistedOutcome(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if firstErr != nil || last.err != nil || first.Preserved || last.result.Preserved || first.Workspace.State != drydock.StateCleaned || last.result.Workspace.State != drydock.StateCleaned {
+	if firstErr != nil || last.err != nil || first.Preserved || last.result.Preserved || first.Workspace.State != runworktree.StateCleaned || last.result.Workspace.State != runworktree.StateCleaned {
 		t.Fatalf("same intent contenders disagreed: leading=%+v err=%v late=%+v err=%v", first, firstErr, last.result, last.err)
 	}
 	if !first.Replayed || !reflect.DeepEqual(first.Receipt, last.result.Receipt) {
@@ -181,15 +181,15 @@ type pausePreservedCleanupStore struct {
 	removed    <-chan struct{}
 }
 
-func (s *pausePreservedCleanupStore) CompleteThreadDrydockCleanup(ctx context.Context, workspace drydock.Workspace,
-	generation int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
-	if receipt.Outcome == drydock.OutcomePreserved {
+func (s *pausePreservedCleanupStore) CompleteThreadDrydockCleanup(ctx context.Context, workspace runworktree.Workspace,
+	generation int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
+	if receipt.Outcome == runworktree.OutcomePreserved {
 		s.preserving <- struct{}{}
 		select {
 		case <-s.removed:
 		case <-ctx.Done():
-			return drydock.Workspace{}, false, ctx.Err()
+			return runworktree.Workspace{}, false, ctx.Err()
 		}
 	}
 	return s.SQLiteStore.CompleteThreadDrydockCleanup(ctx, workspace, generation, receipt)
@@ -207,7 +207,7 @@ func TestDrydockCleanupDirtyObservationCannotSealAnotherSameKeyRemoval(t *testin
 	defer cancel()
 	planned, removeAllowed, removed, observerDone := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	preserving := make(chan struct{}, 1)
-	observer, err := NewDrydockService(&pausePreservedCleanupStore{SQLiteStore: second, preserving: preserving, removed: removed}, f.executor)
+	observer, err := NewRunWorktreeService(&pausePreservedCleanupStore{SQLiteStore: second, preserving: preserving, removed: removed}, f.executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestDrydockCleanupDirtyObservationCannotSealAnotherSameKeyRemoval(t *testin
 		err    error
 	}
 	leadingResult, observedResult := make(chan outcome, 1), make(chan outcome, 1)
-	leader := cleanupOutcomeExecutor{DrydockExecutor: f.executor,
+	leader := cleanupOutcomeExecutor{RunWorktreeExecutor: f.executor,
 		plan: func(ctx context.Context, root, name, id string) (gitadvanced.Preview, error) {
 			close(planned)
 			select {
@@ -284,7 +284,7 @@ func TestDrydockCleanupDirtyObservationCannotSealAnotherSameKeyRemoval(t *testin
 		t.Fatalf("fixture did not actually remove its Git worktree: %v", statErr)
 	}
 	t.Log("actual Git worktree removal confirmed absent before checking lifecycle result")
-	if first.err != nil || first.result.Preserved || first.result.Workspace.State != drydock.StateCleaned || first.result.Receipt.Outcome != drydock.OutcomeSucceeded {
+	if first.err != nil || first.result.Preserved || first.result.Workspace.State != runworktree.StateCleaned || first.result.Receipt.Outcome != runworktree.OutcomeSucceeded {
 		t.Fatalf("actual removal was mislabeled after dirty observation: result=%+v err=%v observer=%+v observerErr=%v", first.result, first.err, last.result, last.err)
 	}
 	if last.err == nil || last.result.Receipt.ID != "" || last.result.Preserved {
@@ -293,7 +293,7 @@ func TestDrydockCleanupDirtyObservationCannotSealAnotherSameKeyRemoval(t *testin
 	assertCleanupOutcomePersisted(t, f, created, request, first.result)
 }
 
-func assertCleanupOutcomePersisted(t *testing.T, f drydockApplicationFixture, created drydock.Workspace, request DrydockCleanupRequest, result DrydockCleanupResult) {
+func assertCleanupOutcomePersisted(t *testing.T, f drydockApplicationFixture, created runworktree.Workspace, request DrydockCleanupRequest, result DrydockCleanupResult) {
 	t.Helper()
 	if _, err := os.Lstat(created.Path); !os.IsNotExist(err) {
 		t.Fatalf("removed directory remains: %v", err)
@@ -305,7 +305,7 @@ func assertCleanupOutcomePersisted(t *testing.T, f drydockApplicationFixture, cr
 		t.Fatalf("cleanup invented a checkpoint or extra generation: %+v", result)
 	}
 	replay, err := f.service.Cleanup(t.Context(), request)
-	if err != nil || !replay.Replayed || !reflect.DeepEqual(replay.Receipt, result.Receipt) || replay.Workspace.State != drydock.StateCleaned {
+	if err != nil || !replay.Replayed || !reflect.DeepEqual(replay.Receipt, result.Receipt) || replay.Workspace.State != runworktree.StateCleaned {
 		t.Fatalf("durable replay=%+v err=%v", replay, err)
 	}
 	receipts, err := f.state.ListDrydockReceipts(t.Context(), created.ID, 100)
@@ -314,7 +314,7 @@ func assertCleanupOutcomePersisted(t *testing.T, f drydockApplicationFixture, cr
 	}
 	count := 0
 	for _, receipt := range receipts {
-		if receipt.Operation == drydock.OperationCleanup {
+		if receipt.Operation == runworktree.OperationCleanup {
 			count++
 		}
 	}

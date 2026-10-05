@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { UIEvidenceAttempt } from "../api/types";
 import { UIEvidencePanel } from "./ui-evidence-panel";
 
@@ -58,7 +58,7 @@ function attempt(status: "not_run" | "passed", id: string): UIEvidenceAttempt {
   } as UIEvidenceAttempt;
 }
 
-function renderPanel(client: CyberAgentClient) {
+function renderPanel(client: APIClient) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
     mutations: { retry: false }, queries: { retry: false },
   } })}><UIEvidencePanel client={client} runID="run-1" /></QueryClientProvider>);
@@ -71,7 +71,7 @@ describe("UIEvidencePanel", () => {
     const client = { hasUIEvidence: false,
       uiEvidence: vi.fn().mockResolvedValue([notRun, passed]),
       uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: notRun, steps: [], artifacts: [] }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
 
     renderPanel(client);
 
@@ -91,7 +91,7 @@ describe("UIEvidencePanel", () => {
     const client = { hasUIEvidence: true, startUIEvidence,
       uiEvidence: vi.fn().mockResolvedValue([]),
       uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: created, steps: [], artifacts: [] }),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
 

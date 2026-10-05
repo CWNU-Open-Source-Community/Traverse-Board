@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { EventView, RunEventPollView, RunEventStreamView } from "../api/types";
 import { clearDesktopRunEventMemory, useRunEventStream } from "./use-run-event-stream";
 
@@ -18,7 +18,7 @@ describe("useRunEventStream Desktop polling", () => {
       .mockResolvedValueOnce(poll([first], "opaque-1", true))
       .mockResolvedValueOnce(poll([second], "opaque-2", false));
     const streamRunEvents = vi.fn();
-    const client = { pollRunEvents, streamRunEvents } as unknown as CyberAgentClient;
+    const client = { pollRunEvents, streamRunEvents } as unknown as APIClient;
     const { result, unmount } = renderHook(() => useRunEventStream(client, "run-desktop"));
 
     await waitFor(() => expect(result.current.frames.map((item) => item.sequence)).toEqual([1, 2]));
@@ -34,13 +34,13 @@ describe("useRunEventStream Desktop polling", () => {
     const localStorageWrite = vi.spyOn(Storage.prototype, "setItem");
     const firstClient = {
       pollRunEvents: vi.fn().mockResolvedValue(poll([frame(1, "opaque-1")], "opaque-1", false)),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const firstHook = renderHook(() => useRunEventStream(firstClient, "run-desktop"));
     await waitFor(() => expect(firstHook.result.current.frames).toHaveLength(1));
     firstHook.unmount();
 
     const pollRunEvents = vi.fn().mockResolvedValue(poll([frame(2, "opaque-2")], "opaque-2", false));
-    const secondClient = { pollRunEvents } as unknown as CyberAgentClient;
+    const secondClient = { pollRunEvents } as unknown as APIClient;
     const secondHook = renderHook(() => useRunEventStream(secondClient, "run-desktop"));
     await waitFor(() => expect(secondHook.result.current.frames.map((item) => item.sequence)).toEqual([1, 2]));
 
@@ -53,7 +53,7 @@ describe("useRunEventStream Desktop polling", () => {
   it("drops one stale in-memory cursor and restarts exactly once from the durable beginning", async () => {
     const primeClient = {
       pollRunEvents: vi.fn().mockResolvedValue(poll([frame(1, "stale-cursor")], "stale-cursor", false)),
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     const prime = renderHook(() => useRunEventStream(primeClient, "run-desktop"));
     await waitFor(() => expect(prime.result.current.frames).toHaveLength(1));
     prime.unmount();
@@ -62,7 +62,7 @@ describe("useRunEventStream Desktop polling", () => {
     const pollRunEvents = vi.fn()
       .mockRejectedValueOnce(new APIRequestError("cursor mismatch", "INVALID_ARGUMENT", 400, "req-stale"))
       .mockResolvedValue(poll([current], "current-cursor", false));
-    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const client = { pollRunEvents } as unknown as APIClient;
     const hook = renderHook(() => useRunEventStream(client, "run-desktop"));
 
     await waitFor(() => expect(hook.result.current.frames).toEqual([current]));
@@ -86,7 +86,7 @@ describe("useRunEventStream Desktop polling pace", () => {
 
   it("backs off after an empty caught-up page instead of polling in a tight loop", async () => {
     const pollRunEvents = vi.fn().mockResolvedValue(poll([], "caught-up", false));
-    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const client = { pollRunEvents } as unknown as APIClient;
     const hook = renderHook(() => useRunEventStream(client, "run-empty"));
 
     await flushMicrotasks();
@@ -109,7 +109,7 @@ describe("useRunEventStream Desktop polling pace", () => {
       sequence++;
       return Promise.resolve(poll([frame(sequence, `cursor-${sequence}`)], `cursor-${sequence}`, true));
     });
-    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const client = { pollRunEvents } as unknown as APIClient;
     const hook = renderHook(() => useRunEventStream(client, "run-backlog"));
 
     await flushMicrotasks();
@@ -130,7 +130,7 @@ describe("useRunEventStream Desktop polling pace", () => {
       signals.set(runID, signal);
       return Promise.resolve(poll([], `${runID}-caught-up`, false));
     });
-    const client = { pollRunEvents } as unknown as CyberAgentClient;
+    const client = { pollRunEvents } as unknown as APIClient;
     const hook = renderHook(({ runID }) => useRunEventStream(client, runID), {
       initialProps: { runID: "run-old" },
     });

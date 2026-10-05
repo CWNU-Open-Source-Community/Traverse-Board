@@ -29,7 +29,7 @@ func skillExecution(mode domain.RunModeSnapshot) skills.ExecutionContext {
 	return skills.ExecutionContext{Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile, Role: domain.AgentRoleRoot}
 }
 
-func (s *RunSupervisor) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, string, error) {
+func (s *AgentRunner) builtinSkillCatalog(ctx context.Context, turn domain.SupervisorTurn) ([]toolgateway.BuiltinSkillDescriptor, string, error) {
 	reader, ok := s.store.(builtinSkillReadStore)
 	if !ok || s.skillRegistry == nil || s.skillRegistryErr != nil {
 		return nil, "", nil
@@ -213,7 +213,7 @@ func (e *builtinSkillReader) ReadBuiltinSkill(ctx context.Context, call toolgate
 	}{read.Name, read.Version, read.SourceSHA256, read.DeliveredSHA256, read.Content, "model", false})
 }
 
-func (s *RunSupervisor) requestWithBuiltinSkillReads(ctx context.Context, turn domain.SupervisorTurn, request llm.ChatRequest) (llm.ChatRequest, error) {
+func (s *AgentRunner) requestWithBuiltinSkillReads(ctx context.Context, turn domain.SupervisorTurn, request llm.ChatRequest) (llm.ChatRequest, error) {
 	reader, ok := s.store.(builtinSkillReadStore)
 	if !ok {
 		return request, nil

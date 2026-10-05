@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -36,7 +36,7 @@ it("parses a mixed legacy/native HTTP inventory and its existing pinned disable 
   const fetchMock = vi.fn().mockResolvedValueOnce(response(envelope))
     .mockResolvedValueOnce(response(reviewed));
   vi.stubGlobal("fetch", fetchMock);
-  const client = new CyberAgentClient("read", "/api/v1", "control", { extensionControlEnabled: true });
+  const client = new APIClient("read", "/api/v1", "control", { extensionControlEnabled: true });
   await expect(client.extensionInventory(envelope.data.run_id)).resolves.toMatchObject({ mcp_servers: envelope.data.mcp_servers });
   await expect(client.reviewMCPServer(native.id, { version: "extension-control.v1", action: "disable",
     expected_descriptor_fingerprint: native.descriptor_fingerprint })).resolves.toMatchObject({ target: "",
@@ -57,5 +57,5 @@ it.each(["missing source", "missing component", "invalid revision", "invalid gen
     if (failure === "legacy target") native.target = "https://ambiguous.invalid";
     if (failure === "legacy credential") native.credential_ref = "ambiguous-credential";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(envelope)));
-    await expect(new CyberAgentClient("read").extensionInventory()).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    await expect(new APIClient("read").extensionInventory()).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });

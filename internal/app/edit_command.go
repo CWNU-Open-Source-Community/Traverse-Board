@@ -69,7 +69,7 @@ func (a *App) editApply(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := application.NewFileEditApplyService(a.store, a.checker).WithDrydock(drydocks).Apply(ctx,
+	result, err := application.NewFileEditApplyService(a.store, a.checker).WithRunWorktree(drydocks).Apply(ctx,
 		application.ApplyFileEditRequest{
 			Version: fileedit.FileEditApplyProtocolVersion, RunID: fs.Arg(0),
 			EditID: fs.Arg(1), OperationKey: *operationKey, AppliedBy: *operator,
@@ -105,7 +105,7 @@ func (a *App) editReview(ctx context.Context, action application.FileEditReviewA
 	if err != nil {
 		return err
 	}
-	result, err := application.NewFileEditReviewService(a.store).WithDrydock(drydocks).Review(ctx,
+	result, err := application.NewFileEditReviewService(a.store).WithRunWorktree(drydocks).Review(ctx,
 		application.ReviewFileEditRequest{
 			Version: application.FileEditReviewProtocolVersion, RunID: fs.Arg(0),
 			EditID: fs.Arg(1), Action: action,

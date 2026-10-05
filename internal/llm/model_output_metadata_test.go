@@ -65,7 +65,7 @@ func TestOpenAILocalDefaultReachesActualWireWithoutRunBudget(t *testing.T) {
 			if req.AllowsDefaultOutput() {
 				t.Fatal("local request default would be omitted")
 			}
-			// Same no-budget preparation branch used by RunSupervisor.
+			// Same no-budget preparation branch used by AgentRunner.
 			window, _ := req.PreparedContextWindow()
 			if req.MaxTokens <= 0 && !req.AllowsDefaultOutput() {
 				req.MaxTokens = req.PlannedOutputTokens(window)

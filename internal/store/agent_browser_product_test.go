@@ -186,7 +186,7 @@ func runAgentBrowserProductFixture(t *testing.T, scenario string) {
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "fixture"})
 	router.RegisterProvider(provider)
 	checker := policy.NewDefaultChecker()
-	supervisor := application.NewRunSupervisor(st, router, checker).WithExecutionPermissionCapabilities(capabilities).WithAgentBrowser(browser)
+	supervisor := application.NewAgentRunner(st, router, checker).WithExecutionPermissionCapabilities(capabilities).WithAgentBrowser(browser)
 	if _, e = application.NewRunService(st).Start(ctx, run.ID); e != nil {
 		t.Fatal(e)
 	}

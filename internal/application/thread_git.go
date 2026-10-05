@@ -49,7 +49,7 @@ type ThreadGitService struct {
 	local        *repository.MutationExecutor
 	remote       *repository.RemoteExecutor
 	checkpoints  *WorkspaceCheckpointService
-	drydocks     *DrydockService
+	drydocks     *RunWorktreeService
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 	advanced     *GitAdvancedService
 }
@@ -59,7 +59,7 @@ func (s *ThreadGitService) WithAdvanced(advanced *GitAdvancedService) *ThreadGit
 	return s
 }
 
-func NewThreadGitService(store ThreadGitStore, local *repository.MutationExecutor, remote *repository.RemoteExecutor, checkpoints *WorkspaceCheckpointService, drydocks *DrydockService, capabilities domain.ExecutionPermissionRuntimeCapabilities) *ThreadGitService {
+func NewThreadGitService(store ThreadGitStore, local *repository.MutationExecutor, remote *repository.RemoteExecutor, checkpoints *WorkspaceCheckpointService, drydocks *RunWorktreeService, capabilities domain.ExecutionPermissionRuntimeCapabilities) *ThreadGitService {
 	return &ThreadGitService{store: store, local: local, remote: remote, checkpoints: checkpoints, drydocks: drydocks, capabilities: capabilities}
 }
 

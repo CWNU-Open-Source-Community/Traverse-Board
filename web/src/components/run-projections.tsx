@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, FileSearch, GitBranch, LoaderCircle, Network, PackageCheck, ScanSearch, ShieldAlert } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   AgentGraphView,
   AgentNodeView,
@@ -54,7 +54,7 @@ export function ExternalSkillsPanel({ projection }: { projection: ExternalSkillP
 }
 
 export function ExternalSkillsSection({ client, runID, initial }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   initial: ExternalSkillProjectionView;
 }) {
@@ -137,7 +137,7 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
 
 function SpecialistCancelControl({ agent, client, runID }: {
   agent: AgentNodeView;
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
 }) {
   const { t } = useLocale();
@@ -263,7 +263,7 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
   );
 }
 
-function FanoutExecutions({ client, runID, planID }: { client: CyberAgentClient; runID: string; planID: string }) {
+function FanoutExecutions({ client, runID, planID }: { client: APIClient; runID: string; planID: string }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -673,4 +673,4 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div><dt>{label}</dt><dd>{value || "-"}</dd></div>;
 }
 
-interface ProjectionProps { client: CyberAgentClient; runID: string }
+interface ProjectionProps { client: APIClient; runID: string }

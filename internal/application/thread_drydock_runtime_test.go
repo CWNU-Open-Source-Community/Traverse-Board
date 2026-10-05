@@ -49,7 +49,7 @@ func TestThreadDrydockPreparedCleanupBlocksExecutionAndPublicationAcrossConnecti
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewThreadServiceWithExecutionCapabilities(other, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithDrydock(f.service).Submit(ctx, SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, OperationKey: "cleanup-blocks-next-context", Content: "Continue the task", RequestedBy: "operator"})
+	_, err = NewThreadServiceWithExecutionCapabilities(other, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithRunWorktree(f.service).Submit(ctx, SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, OperationKey: "cleanup-blocks-next-context", Content: "Continue the task", RequestedBy: "operator"})
 	if err == nil {
 		t.Fatal("successor published while physical cleanup was unresolved")
 	}
@@ -83,7 +83,7 @@ func TestThreadDrydockSuccessorAppliesWithCurrentIdentityAndPreservesPhysicalOwn
 		t.Fatal(err)
 	}
 	f.service.WithCheckpointService(checkpoints)
-	oldSource, err := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithDrydock(f.service).IssueSource(ctx, f.run.ID, "tracked.txt")
+	oldSource, err := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithRunWorktree(f.service).IssueSource(ctx, f.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestThreadDrydockSuccessorAppliesWithCurrentIdentityAndPreservesPhysicalOwn
 	}
 	defer other.Close()
 	request := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, OperationKey: "current-physical-context", Content: "Make the next change in this working directory", RequestedBy: "operator"}
-	service := NewThreadServiceWithExecutionCapabilities(other, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithDrydock(f.service)
+	service := NewThreadServiceWithExecutionCapabilities(other, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithRunWorktree(f.service)
 	if _, err := service.Submit(ctx, request); err == nil {
 		t.Fatal("another connection published a holder while the physical directory had a live lease")
 	}
@@ -134,7 +134,7 @@ func TestThreadDrydockSuccessorAppliesWithCurrentIdentityAndPreservesPhysicalOwn
 			t.Fatalf("command logical binding run=%s session=%s got=%t want=%t err=%v", test.run, test.session, ok, test.want, err)
 		}
 	}
-	proposal := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithDrydock(f.service)
+	proposal := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithRunWorktree(f.service)
 	if _, err := proposal.Propose(ctx, CreateFileEditProposalRequest{Version: FileEditProposalProtocolVersion, RunID: run.ID, SourceHandle: oldSource.Handle, ProposedText: "stale source handle\n"}); err == nil {
 		t.Fatal("old Run source handle authorized a new Run proposal")
 	}
@@ -149,11 +149,11 @@ func TestThreadDrydockSuccessorAppliesWithCurrentIdentityAndPreservesPhysicalOwn
 	if created.Edit.SessionID != run.SessionID || created.Edit.WorkspaceID != original.WorkspaceID {
 		t.Fatal("new edit used physical creator identity")
 	}
-	if _, err := NewFileEditReviewService(st).WithDrydock(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: run.ID, EditID: created.Edit.ID, Action: FileEditApproveIntent}); err != nil {
+	if _, err := NewFileEditReviewService(st).WithRunWorktree(f.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: run.ID, EditID: created.Edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
 	applyRequest := ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: run.ID, EditID: created.Edit.ID, OperationKey: "new-epoch-apply-0001", AppliedBy: "operator"}
-	apply := NewFileEditApplyService(st, policy.NewDefaultChecker(), checkpoints).WithDrydock(f.service)
+	apply := NewFileEditApplyService(st, policy.NewDefaultChecker(), checkpoints).WithRunWorktree(f.service)
 	applied, err := apply.Apply(ctx, applyRequest)
 	if err != nil || !applied.FileWritten || applied.Result.Status != fileedit.ApplyCompleted {
 		var inspect func(error)

@@ -20,9 +20,9 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/toolgateway"
 
@@ -341,7 +341,7 @@ func prepareStandardCodeSecurityRecovery(ctx context.Context, root string,
 	}
 	workspaceState, found, err := opened.plane.stateStore.GetDrydockByRun(ctx,
 		configured.RunID)
-	if err != nil || !found || workspaceState.State != drydock.StateReady {
+	if err != nil || !found || workspaceState.State != runworktree.StateReady {
 		return fmt.Errorf("load recovery Standard Code Drydock: %w", err)
 	}
 	initialCheckpoint := workspaceState.LastCheckpointID
@@ -572,7 +572,7 @@ func observeStandardCodeSecurityRecovery(ctx context.Context,
 	}
 	preserved := owner.CaseID != "recovery_dirty_untracked_concurrent_edit"
 	if !preserved {
-		preserved = workspace.State == drydock.StateRecoveryRequired
+		preserved = workspace.State == runworktree.StateRecoveryRequired
 		drydockRoot := filepath.Join(root, state.DrydockRelativePath)
 		tracked, trackedErr := os.ReadFile(filepath.Join(drydockRoot, "README.md"))
 		untracked, untrackedErr := os.ReadFile(filepath.Join(drydockRoot,

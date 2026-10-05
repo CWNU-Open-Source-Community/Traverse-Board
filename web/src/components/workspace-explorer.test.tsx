@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { WorkspaceExplorer } from "./workspace-explorer";
 
 describe("WorkspaceExplorer", () => {
@@ -9,7 +9,7 @@ describe("WorkspaceExplorer", () => {
     const workspaceExplore = vi.fn()
       .mockResolvedValueOnce(directorySnapshot())
       .mockResolvedValueOnce(fileSnapshot());
-    const client = { workspaceExplore } as unknown as CyberAgentClient;
+    const client = { workspaceExplore } as unknown as APIClient;
     const user = userEvent.setup();
     renderExplorer(client);
 
@@ -45,7 +45,7 @@ describe("WorkspaceExplorer", () => {
       model_called: false, tool_called: false, capability_grant: false,
     });
     const client = { workspaceExplore, workspaceSearch, attachEvidence,
-      hasEvidenceAttachment: true } as unknown as CyberAgentClient;
+      hasEvidenceAttachment: true } as unknown as APIClient;
     const user = userEvent.setup();
     renderExplorer(client, "run-1");
 
@@ -89,7 +89,7 @@ function fileSnapshot() {
   };
 }
 
-function renderExplorer(client: CyberAgentClient, runID = "") {
+function renderExplorer(client: APIClient, runID = "") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>
     <WorkspaceExplorer client={client} runID={runID} workspaceID="workspace-1" />

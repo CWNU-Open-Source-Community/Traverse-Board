@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { ApprovalPanel } from "./approval-panel";
 
 describe("ApprovalPanel", () => {
@@ -27,7 +27,7 @@ describe("ApprovalPanel", () => {
           process_execution_enabled: false, capability_grant: false }],
       }),
       decideApproval,
-    } as unknown as CyberAgentClient;
+    } as unknown as APIClient;
     renderPanel(client);
     expect(await screen.findByText("shell")).toBeInTheDocument();
     expect(screen.queryByText("echo secret command")).not.toBeInTheDocument();
@@ -42,7 +42,7 @@ describe("ApprovalPanel", () => {
   });
 });
 
-function renderPanel(client: CyberAgentClient) {
+function renderPanel(client: APIClient) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false },
     mutations: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>

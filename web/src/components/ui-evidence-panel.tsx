@@ -10,7 +10,7 @@ import {
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   UIEvidenceArtifactMetadata,
   UIEvidenceAttempt,
@@ -89,7 +89,7 @@ function templateRequest(): UIEvidenceStartView {
 }
 
 export function UIEvidencePanel({ client, runID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
 }) {
   const { t } = useLocale();

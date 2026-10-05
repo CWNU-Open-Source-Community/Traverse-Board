@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadReview, ThreadReviewChange } from "../../api/task-delivery";
 import { TaskOverview, taskReviewKey } from "./task-overview";
 
@@ -25,7 +25,7 @@ function review(overrides: Partial<ThreadReview> = {}): ThreadReview {
 function setup(value: ThreadReview, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const get = vi.fn().mockResolvedValue(value);
   const feedback = vi.fn();
-  const client = { get } as unknown as CyberAgentClient;
+  const client = { get } as unknown as APIClient;
   render(<QueryClientProvider client={queryClient}><TaskOverview client={client} threadID="task" onFeedback={feedback} /></QueryClientProvider>);
   return { get, feedback, queryClient };
 }
@@ -67,7 +67,7 @@ it("labels cached results as unconfirmed after a failed refresh", async () => {
   cached.checks[0] = { ...cached.checks[0], revision_state: "current", recorded_revision_sha256: "e".repeat(64) };
   queryClient.setQueryData(taskReviewKey("task"), cached);
   const get = vi.fn().mockRejectedValue(new Error("review unavailable"));
-  render(<QueryClientProvider client={queryClient}><TaskOverview client={{ get } as unknown as CyberAgentClient} threadID="task" onFeedback={vi.fn()} /></QueryClientProvider>);
+  render(<QueryClientProvider client={queryClient}><TaskOverview client={{ get } as unknown as APIClient} threadID="task" onFeedback={vi.fn()} /></QueryClientProvider>);
   await screen.findByText("以下为上次读取的结果，当前状态尚未确认。");
   await waitFor(() => expect(get).toHaveBeenCalledOnce());
   expect(screen.getByText("src/app.ts")).toBeInTheDocument();

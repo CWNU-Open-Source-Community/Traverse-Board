@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { WorkspaceImageAttachment } from "../api/image-attachments";
 import type { ThreadCreationControlRequestView, ThreadView } from "../api/types";
 import { v2FileReferenceKey, type V2FileReference } from "./components/file-context";
@@ -40,7 +40,7 @@ function mountCreation(client: ReturnType<typeof creationFixture>) {
   const onRecovered = vi.fn();
   function Probe() {
     store = useV2RecoveryStore()!;
-    helper = useV2CreationRecovery(client as unknown as CyberAgentClient, workspaceID, onRecovered);
+    helper = useV2CreationRecovery(client as unknown as APIClient, workspaceID, onRecovered);
     return helper.notice;
   }
   const view = render(<V2RecoveryProvider client={client} scopeID="draft-journal-db"><Probe /></V2RecoveryProvider>);
@@ -54,7 +54,7 @@ function mountCreation(client: ReturnType<typeof creationFixture>) {
 
 function turnFixture(recovery = true) {
   const submitThreadTurn = vi.fn().mockResolvedValue({});
-  const client = { baseURL: "/api/v1", submitThreadTurn } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", submitThreadTurn } as unknown as APIClient;
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let store: V2RecoveryStore | null = null;
   const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queries}>

@@ -25,7 +25,6 @@ import (
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/packagede2e"
@@ -33,6 +32,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
 	"cyberagent-workbench/internal/toolgateway"
@@ -325,7 +325,7 @@ func (d *standardCodeSecurityDriver) securityRun(ctx context.Context, backend,
 		return nil, fmt.Errorf("configure fixed Standard Code workspace: %w", err)
 	}
 	workspaceState, found, err := d.plane.stateStore.GetDrydockByRun(ctx, configured.RunID)
-	if err != nil || !found || workspaceState.State != drydock.StateReady {
+	if err != nil || !found || workspaceState.State != runworktree.StateReady {
 		return nil, fmt.Errorf("load configured Standard Code Drydock: %w", err)
 	}
 	initialCheckpoint := workspaceState.LastCheckpointID
@@ -922,7 +922,7 @@ func standardCodeSecurityExpectedProbeDetails(caseID string) []string {
 }
 
 // prepareCommand uses the same durable call identity and native input binder as
-// RunSupervisor. The fixed packaged driver owns its lease so recovery cases can
+// AgentRunner. The fixed packaged driver owns its lease so recovery cases can
 // expire or terminate that exact lease instead of Step releasing it early.
 func (run *standardCodeSecurityRun) prepareCommand(ctx context.Context,
 	plane *ControlPlane, capabilities domain.ExecutionPermissionRuntimeCapabilities,

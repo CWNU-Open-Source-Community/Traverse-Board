@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { FileProposalRecovery } from "./file-proposal-recovery";
 
 vi.mock("@monaco-editor/react", () => ({
@@ -18,7 +18,7 @@ it("renders a durable pending proposal as read-only stale review context", async
     current_content_sha256: "c".repeat(64), status: "proposed", stale: true,
     review_required: true, editable: false, file_write: false,
   });
-  const client = { recoverFileEditProposal } as unknown as CyberAgentClient;
+  const client = { recoverFileEditProposal } as unknown as APIClient;
   render(<QueryClientProvider client={new QueryClient()}>
     <FileProposalRecovery client={client} editID="edit-1" onClose={vi.fn()} runID="run-1" />
   </QueryClientProvider>);
@@ -33,7 +33,7 @@ it("keeps a close control available when recovery fails", async () => {
   const onClose = vi.fn();
   const client = {
     recoverFileEditProposal: vi.fn().mockRejectedValue(new Error("unavailable")),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={queryClient}>
     <FileProposalRecovery client={client} editID="edit-1" onClose={onClose} runID="run-1" />

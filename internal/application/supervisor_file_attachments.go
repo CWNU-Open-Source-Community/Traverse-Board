@@ -10,7 +10,7 @@ import (
 	"cyberagent-workbench/internal/session"
 )
 
-func (s *RunSupervisor) supervisorMessagesWithOriginalFiles(ctx context.Context, turn domain.SupervisorTurn, messages []llm.Message, runtime supervisorCommandRuntimeTools) ([]llm.Message, error) {
+func (s *AgentRunner) supervisorMessagesWithOriginalFiles(ctx context.Context, turn domain.SupervisorTurn, messages []llm.Message, runtime supervisorCommandRuntimeTools) ([]llm.Message, error) {
 	store, ok := s.store.(interface {
 		ListSupervisorFileAttachmentInputs(context.Context, domain.SupervisorCheckpoint) (domain.FileAttachmentInputSet, error)
 	})

@@ -60,7 +60,7 @@ func TestCaptureDrydockDeliveryPreservesLongRuntimeAndUserPaths(t *testing.T) {
 		return value
 	}
 	indexBefore, configBefore := read(".git/index"), read(".git/config")
-	executor, err := NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	executor, err := NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestDrydockManagedRootMustBeDisjointFromSource(t *testing.T) {
 	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	inside, err := NewDrydockExecutor(filepath.Join(source, "managed"))
+	inside, err := NewRunWorktreeExecutor(filepath.Join(source, "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestDrydockManagedRootMustBeDisjointFromSource(t *testing.T) {
 	}
 
 	managedParent := filepath.Join(parent, "managed-parent")
-	outside, err := NewDrydockExecutor(managedParent)
+	outside, err := NewRunWorktreeExecutor(managedParent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestCaptureDrydockDeliveryAggregatesCommittedIndexWorktreeAndUntrackedState
 		t.Fatal(err)
 	}
 	statusBefore := runDrydockDeliveryGit(t, root, "status", "--porcelain=v1")
-	executor, err := NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	executor, err := NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestDrydockSourceInspectionUsesOneFreshBinding(t *testing.T) {
 	}
 	runDrydockDeliveryGit(t, root, "add", ".")
 	runDrydockDeliveryGit(t, root, "commit", "-q", "-m", "baseline")
-	executor, err := NewDrydockExecutor(t.TempDir())
+	executor, err := NewRunWorktreeExecutor(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

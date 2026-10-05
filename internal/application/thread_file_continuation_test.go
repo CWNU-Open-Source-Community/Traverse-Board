@@ -27,7 +27,7 @@ func TestThreadFileContinuationRetainsAppliedFilesAndRecoversPublication(t *test
 				t.Fatal(err)
 			}
 			fixture.service.WithCheckpointService(checkpoints)
-			proposals := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithDrydock(fixture.service)
+			proposals := NewFileEditProposalService(fixture.state, policy.NewDefaultChecker()).WithRunWorktree(fixture.service)
 			source, err := proposals.IssueSource(ctx, fixture.run.ID, "tracked.txt")
 			if err != nil {
 				t.Fatal(err)
@@ -36,11 +36,11 @@ func TestThreadFileContinuationRetainsAppliedFilesAndRecoversPublication(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = NewFileEditReviewService(fixture.state).WithDrydock(fixture.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: fixture.run.ID, EditID: created.Edit.ID, Action: FileEditApproveIntent})
+			_, err = NewFileEditReviewService(fixture.state).WithRunWorktree(fixture.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: fixture.run.ID, EditID: created.Edit.ID, Action: FileEditApproveIntent})
 			if err != nil {
 				t.Fatal(err)
 			}
-			applied, err := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker(), checkpoints).WithDrydock(fixture.service).Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: fixture.run.ID, EditID: created.Edit.ID, OperationKey: "phase-m-prior-reviewed-apply", AppliedBy: "operator"})
+			applied, err := NewFileEditApplyService(fixture.state, policy.NewDefaultChecker(), checkpoints).WithRunWorktree(fixture.service).Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion, RunID: fixture.run.ID, EditID: created.Edit.ID, OperationKey: "phase-m-prior-reviewed-apply", AppliedBy: "operator"})
 			if err != nil || applied.Result.Status != fileedit.ApplyCompleted {
 				t.Fatalf("prior apply=%+v err=%v", applied, err)
 			}
@@ -69,7 +69,7 @@ func TestThreadFileContinuationRetainsAppliedFilesAndRecoversPublication(t *test
 
 			failing := &failThreadFilePublicationStore{SQLiteStore: fixture.state, fail: true, failAfter: true}
 			request := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, Content: "Continue from the previous edit", OperationKey: "phase-m-next-turn", RequestedBy: "operator"}
-			service := NewThreadServiceWithExecutionCapabilities(failing, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithDrydock(fixture.service)
+			service := NewThreadServiceWithExecutionCapabilities(failing, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithRunWorktree(fixture.service)
 			if _, err := service.Submit(ctx, request); err == nil || failing.candidateID == "" {
 				t.Fatalf("expected injected publication interruption, got %v", err)
 			}
@@ -82,7 +82,7 @@ func TestThreadFileContinuationRetainsAppliedFilesAndRecoversPublication(t *test
 			if _, err := service.Submit(ctx, request); err == nil || failing.publishedID == "" {
 				t.Fatalf("expected lost published response: %v", err)
 			}
-			successor, err := NewThreadServiceWithExecutionCapabilities(failing, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithDrydock(fixture.service).Submit(ctx, request)
+			successor, err := NewThreadServiceWithExecutionCapabilities(failing, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithRunWorktree(fixture.service).Submit(ctx, request)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -29,7 +29,7 @@ func supervisorToolBoundaryRequest(request llm.ChatRequest) llm.ChatRequest {
 // The store moves to the next prepared segment in the same transaction that
 // closes the previous segment. The wrapper keeps its lease and exact accepted
 // input; a restart resumes that prepared segment through the same entry point.
-func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunExecutionLease,
+func (s *AgentRunner) stepWithLeaseMode(ctx context.Context, lease domain.RunExecutionLease,
 	requestedInput string, requireSteering bool, steeringMessageID string,
 ) (LifecycleResult, error) {
 	var previous LifecycleResult

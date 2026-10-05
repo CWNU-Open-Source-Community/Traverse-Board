@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { ArtifactView } from "../api/types";
 import { formatDate } from "../lib/format";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
@@ -36,7 +36,7 @@ describe("StandardCodeDeliveryPanel", () => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(<QueryClientProvider client={queryClient}><StandardCodeDeliveryPanel client={{
         standardCodeDelivery: read, hasControl: false, hasStandardCodePreset: false,
-      } as unknown as CyberAgentClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
+      } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
       expect(await screen.findByText(/A report may not have been generated, or the reporting endpoint may be disabled/)).toBeInTheDocument();
       expect(screen.queryByText(/No delivery report is available/)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Refresh delivery report" })).toBeEnabled();
@@ -49,7 +49,7 @@ describe("StandardCodeDeliveryPanel", () => {
       verifications: report.verifications.map((verification) => ({ ...verification, status: "failed", exit_code: 1 })) });
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: read, hasControl: false, hasStandardCodePreset: false,
-      } as unknown as CyberAgentClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
+      } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     expect(await screen.findByText("The last checked revision was not verified")).toBeInTheDocument();
     expect(screen.getByText("Recorded conclusion").nextElementSibling).toHaveTextContent("failed");
@@ -63,7 +63,7 @@ describe("StandardCodeDeliveryPanel", () => {
     const getArtifact = vi.fn().mockResolvedValue(artifact());
     const onOpenCheckpoints = vi.fn();
     const onOpenFile = vi.fn();
-    const client = { standardCodeDelivery, getArtifact } as unknown as CyberAgentClient;
+    const client = { standardCodeDelivery, getArtifact } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}>
       <StandardCodeDeliveryPanel client={client} runID="run-1"
@@ -97,7 +97,7 @@ describe("StandardCodeDeliveryPanel", () => {
       const standardCodeDelivery = vi.fn().mockResolvedValueOnce(observedReport()).mockRejectedValue(error);
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(<QueryClientProvider client={queryClient}><StandardCodeDeliveryPanel
-        client={{ standardCodeDelivery } as unknown as CyberAgentClient} runID="run-1"
+        client={{ standardCodeDelivery } as unknown as APIClient} runID="run-1"
         onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
       expect(await screen.findByText("The last checked revision was verified")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Refresh delivery report" }));
@@ -116,7 +116,7 @@ describe("StandardCodeDeliveryPanel", () => {
     render(<QueryClientProvider client={queryClient}><StandardCodeDeliveryPanel client={{
       standardCodeDelivery: vi.fn().mockResolvedValue({ ...report, status: "stale", verified: false,
         observation: { ...report.observation, revision_sha256: "0".repeat(64), reason_code: "workspace_modified_after_verification" } }),
-    } as unknown as CyberAgentClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
+    } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
     expect(await screen.findByText("The report is stale; the current revision is not verified")).toBeInTheDocument();
     expect(screen.getByText("Workspace changed after the report was recorded")).toBeInTheDocument();
     expect(screen.getByText("Recorded conclusion").nextElementSibling).toHaveTextContent("passed");
@@ -128,7 +128,7 @@ describe("StandardCodeDeliveryPanel", () => {
     const getArtifact = vi.fn().mockResolvedValue({ ...artifact(), source_id: "unrelated-job" });
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: vi.fn().mockResolvedValue(standardCodeDeliveryFixture()),
-        getArtifact } as unknown as CyberAgentClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
+        getArtifact } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     expect(await screen.findByText("The current revision has not been checked")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Inspect 1 output records" }));
@@ -146,7 +146,7 @@ describe("StandardCodeDeliveryPanel", () => {
     const getArtifact = vi.fn().mockResolvedValue(artifact());
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: vi.fn().mockResolvedValue(readableReport()),
-        getArtifact, threadActivityArtifact } as unknown as CyberAgentClient} runID="run-1"
+        getArtifact, threadActivityArtifact } as unknown as APIClient} runID="run-1"
         onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     await screen.findByText("The last checked revision was verified");
@@ -172,7 +172,7 @@ describe("StandardCodeDeliveryPanel", () => {
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: vi.fn().mockResolvedValue(readableReport()),
         getArtifact: vi.fn().mockResolvedValue({ ...artifact(), source_id: "another-job" }),
-        threadActivityArtifact } as unknown as CyberAgentClient} runID="run-1"
+        threadActivityArtifact } as unknown as APIClient} runID="run-1"
         onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     await user.click(await screen.findByRole("button", { name: "Inspect 1 output records" }));
@@ -187,7 +187,7 @@ describe("StandardCodeDeliveryPanel", () => {
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: vi.fn().mockResolvedValue({ ...observedReport(),
         output_sources: [{ job_id: "verification-1", artifact_id: "artifact-stdout", status: "metadata_only", reason: "output_not_public" }] }),
-        getArtifact: vi.fn().mockResolvedValue(artifact()), threadActivityArtifact } as unknown as CyberAgentClient}
+        getArtifact: vi.fn().mockResolvedValue(artifact()), threadActivityArtifact } as unknown as APIClient}
         runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     await user.click(await screen.findByRole("button", { name: "Inspect 1 output records" }));
@@ -207,7 +207,7 @@ describe("StandardCodeDeliveryPanel", () => {
       output_sources: [{ job_id: "verification-2", artifact_id: "artifact-2", status: "available", thread_id: "thread-2", activity_ref: "command-2" }] };
     const client = { standardCodeDelivery: vi.fn((id: string) => Promise.resolve(id === "run-1" ? readableReport() : otherReport)),
       getArtifact: vi.fn((id: string) => Promise.resolve(id === "artifact-stdout" ? artifact() :
-        { ...artifact(), id: "artifact-2", run_id: "run-2", source_id: "verification-2" })), threadActivityArtifact } as unknown as CyberAgentClient;
+        { ...artifact(), id: "artifact-2", run_id: "run-2", source_id: "verification-2" })), threadActivityArtifact } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = (runID: string) => <QueryClientProvider client={queryClient}><StandardCodeDeliveryPanel client={client}
       runID={runID} onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>;
@@ -240,7 +240,7 @@ describe("StandardCodeDeliveryPanel", () => {
       <StandardCodeDeliveryPanel client={{ standardCodeDelivery: vi.fn().mockResolvedValue(bothJobs),
         getArtifact: vi.fn((id: string) => Promise.resolve(id === "artifact-stdout" ? artifact() :
           { ...artifact(), id: "artifact-stderr", source_id: "verification-2", stream: "stderr" })),
-        threadActivityArtifact } as unknown as CyberAgentClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
+        threadActivityArtifact } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} />
     </QueryClientProvider>);
     const buttons = await screen.findAllByRole("button", { name: "Inspect 1 output records" });
     await user.click(buttons[0]!);

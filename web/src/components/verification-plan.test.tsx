@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { downloadTextFile } from "../lib/download";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
 import { VerificationPlan } from "./verification-plan";
@@ -27,7 +27,7 @@ describe("VerificationPlan", () => {
     const verificationPlanCoverage = vi.fn().mockResolvedValue(emptyCoverage());
     const recordVerificationPlan = vi.fn().mockResolvedValue({ id: "verification-plan-1" });
     const client = { hasVerificationEvidence: true, verificationPlans,
-      verificationPlanCoverage, recordVerificationPlan } as unknown as CyberAgentClient;
+      verificationPlanCoverage, recordVerificationPlan } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <VerificationPlan client={client} runID="run-1" />
@@ -59,7 +59,7 @@ describe("VerificationPlan", () => {
       .mockRejectedValueOnce(new Error("uncertain transport failure"))
       .mockResolvedValueOnce({ id: "verification-plan-1" });
     const client = { hasVerificationEvidence: true, verificationPlans,
-      verificationPlanCoverage, recordVerificationPlan } as unknown as CyberAgentClient;
+      verificationPlanCoverage, recordVerificationPlan } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <VerificationPlan client={client} runID="run-1" />
@@ -151,7 +151,7 @@ describe("VerificationPlan", () => {
       verificationPlanItemSnapshotExport, verificationSnapshotReceipts,
       recordVerificationSnapshotReceipt, verificationSnapshotReceiptReviews,
       recordVerificationSnapshotReceiptReview,
-      recordVerificationPlan: vi.fn() } as unknown as CyberAgentClient;
+      recordVerificationPlan: vi.fn() } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <VerificationPlan client={client} runID="run-1" />
@@ -306,6 +306,6 @@ function receiptReviewFocusClient(receiptPlanSHA256 = "a".repeat(64)) {
   const client = { hasVerificationEvidence: false, verificationPlans,
     verificationPlanCoverage, verificationPlanItemCoveragePage,
     verificationSnapshotReceipts, verificationSnapshotReceiptReviews,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   return { client, verificationPlanItemCoveragePage };
 }

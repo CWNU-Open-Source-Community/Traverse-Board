@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { V2Workbench } from "./app";
@@ -32,11 +32,11 @@ function fixture() {
     get: vi.fn().mockResolvedValue(detail),
     getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace]
       : path === "/threads" ? [thread] : [], page: { limit: 100 }, requestID: path })),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   return { client, submit, inspect };
 }
 
-function mount(client: CyberAgentClient) {
+function mount(client: APIClient) {
   act(() => useConnectionStore.getState().setHealth({ status: "ok", api_version: "api.v1",
     app_version: "fixture", schema_version: 157, data_store_id: scope }));
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });

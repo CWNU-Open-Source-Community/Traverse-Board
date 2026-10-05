@@ -1,5 +1,5 @@
 import { ArrowLeft, CalendarClock, Microscope, Settings } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import { RunWorkspace } from "../../components/run-workspace";
 import { SessionWorkspace } from "../../components/session-workspace";
 import { ScheduledTasksWorkspace } from "../../components/scheduled-tasks-workspace";
@@ -12,7 +12,7 @@ import { InspectorRecordBrowser } from "./inspector-record-browser";
 import "./inspector.css";
 
 export function V2InspectorHome({ client, onOpenTool, onOpenSettings }: {
-  client: CyberAgentClient;
+  client: APIClient;
   onOpenTool: (tool: "run" | "session" | "schedule", id?: string) => void;
   onOpenSettings: (section: V2SettingsSection) => void;
 }) {
@@ -33,7 +33,7 @@ export function V2InspectorHome({ client, onOpenTool, onOpenSettings }: {
 // Advanced resource pages retain their exact scope and existing controls. They
 // use the same application navigation/settings, and never infer a stale Thread.
 export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBack, onOpenSettings }: {
-  client: CyberAgentClient;
+  client: APIClient;
   tool: "run" | "session" | "schedule";
   resourceID?: string;
   threadID: string;
@@ -68,7 +68,7 @@ export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBa
   </section>;
 }
 
-function SourceThreadActivity({ client, threadID }: { client: CyberAgentClient; threadID: string }) {
+function SourceThreadActivity({ client, threadID }: { client: APIClient; threadID: string }) {
   const execution = useV2ThreadExecution(client, threadID);
   const label = threadActivityLabel({ threadID, execution: execution.data,
     readable: client.hasThreadExecutionRead === true, error: execution.isError });

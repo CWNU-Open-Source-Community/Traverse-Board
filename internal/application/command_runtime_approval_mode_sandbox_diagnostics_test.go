@@ -207,7 +207,7 @@ func newSandboxApprovalObservedFixture(t *testing.T, mode domain.RunExecutionPer
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.supervisor = NewRunSupervisor(f.st, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.mux)
+	f.supervisor = NewAgentRunner(f.st, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.mux)
 	return f, probe, standard
 }
 

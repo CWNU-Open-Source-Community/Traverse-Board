@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { APIRequestError, type CyberAgentClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { PlanDeliveryStateView, RunDetailView, WorkItemView } from "../api/types";
 import { PlanDeliveryWorkItems } from "./plan-delivery-work-items";
 
@@ -22,7 +22,7 @@ function plan(runID = "run-a", enrolled = true): PlanDeliveryStateView {
 function fixture(record = vi.fn().mockResolvedValue({ current_work_item: workItem() })) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const client = { hasPlanDelivery: true, getWorkItem: vi.fn(async (id: string) => workItem(id.startsWith("run-b") ? "run-b" : "run-a")),
-    recordPlanDeliveryCheckpoint: record, controlPlanDeliveryWorkItem: vi.fn() } as unknown as CyberAgentClient;
+    recordPlanDeliveryCheckpoint: record, controlPlanDeliveryWorkItem: vi.fn() } as unknown as APIClient;
   const content = (runID = "run-a", state = plan(runID)) => <QueryClientProvider client={queryClient}>
     <PlanDeliveryWorkItems client={client} detail={{ run: { id: runID, status: "paused" },
       mode: { phase: "deliver", revision: 5 } } as RunDetailView} state={state} threadID={`thread-${runID}`} />

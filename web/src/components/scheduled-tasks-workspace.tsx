@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Download, LoaderCircle, Pause, Play, Plus, RefreshCw,
   Square } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ScheduledJobCreateRequestView, ScheduledJobObservationRequestView, ScheduledJobView } from "../api/types";
 import { useLocale } from "../lib/locale";
 
@@ -37,7 +37,7 @@ function downloadBundle(runID: string, value: unknown): void {
 }
 
 export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
-  client: CyberAgentClient;
+  client: APIClient;
   initialRunID?: string;
 }) {
   const { locale, t } = useLocale();
@@ -52,9 +52,9 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
   const [maxRounds, setMaxRounds] = useState("12");
   const [notification, setNotification] =
     useState<ScheduledJobCreateRequestView["notification"]>("on_change");
-  const pendingCreate = useRef<{ client: CyberAgentClient; intent: string; runID: string;
+  const pendingCreate = useRef<{ client: APIClient; intent: string; runID: string;
     body: ScheduledJobCreateRequestView; key: string } | null>(null);
-  const pendingObservation = useRef<{ client: CyberAgentClient; runID: string; jobID: string;
+  const pendingObservation = useRef<{ client: APIClient; runID: string; jobID: string;
     body: ScheduledJobObservationRequestView; key: string } | null>(null);
 
   useEffect(() => {

@@ -66,13 +66,13 @@ func reportDesktopStartupFailure(err error) {
 
 func desktopStartupFailureMessage(err error) string {
 	if errors.Is(err, errWebView2RuntimeRequired) {
-		return "Traverse Board requires Microsoft Edge WebView2 Runtime " +
+		return "Universal Code requires Microsoft Edge WebView2 Runtime " +
 			minimumWebView2RuntimeVersion + " or newer.\r\n\r\n" +
 			"Install or update it through a trusted Windows software channel, then reopen the app.\r\n\r\n" +
 			"No download or installation was started."
 	}
 	code := apperror.CodeOf(apperror.Normalize(err))
-	return "Traverse Board could not start.\r\n\r\nError code: " + string(code) +
+	return "Universal Code could not start.\r\n\r\nError code: " + string(code) +
 		"\r\n\r\nLocal data was not deleted or reset. Keep it for diagnosis."
 }
 
@@ -293,16 +293,16 @@ func desktopWindowsOptions() *windows.Options {
 
 func desktopWebView2Messages() *windows.Messages {
 	return &windows.Messages{
-		InstallationRequired: "Microsoft Edge WebView2 Runtime is required. Use a trusted Windows software channel, then reopen Traverse Board.",
-		UpdateRequired:       "Microsoft Edge WebView2 Runtime must be updated through a trusted Windows software channel before Traverse Board can start.",
-		MissingRequirements:  "Traverse Board prerequisite",
+		InstallationRequired: "Microsoft Edge WebView2 Runtime is required. Use a trusted Windows software channel, then reopen Universal Code.",
+		UpdateRequired:       "Microsoft Edge WebView2 Runtime must be updated through a trusted Windows software channel before Universal Code can start.",
+		MissingRequirements:  "Universal Code prerequisite",
 		Webview2NotInstalled: "Microsoft Edge WebView2 Runtime is unavailable.",
-		Error:                "Traverse Board prerequisite",
+		Error:                "Universal Code prerequisite",
 		FailedToInstall:      "Microsoft Edge WebView2 Runtime remains unavailable.",
 		DownloadPage:         "",
 		PressOKToInstall:     "",
 		ContactAdmin:         "Microsoft Edge WebView2 Runtime is required. Contact your administrator or use a trusted Windows software channel.",
 		InvalidFixedWebview2: "The configured WebView2 Runtime does not meet the required version.",
-		WebView2ProcessCrash: "The WebView2 process stopped. Reopen Traverse Board; local data was not reset.",
+		WebView2ProcessCrash: "The WebView2 process stopped. Reopen Universal Code; local data was not reset.",
 	}
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Binary, FileText, LoaderCircle, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { EmbeddedAnalyzerExecutionControlView } from "../api/types";
 import { useLocale } from "../lib/locale";
 import { ErrorState } from "./common";
@@ -9,7 +9,7 @@ import { ErrorState } from "./common";
 type InputMode = "text" | "file";
 
 export function EmbeddedAnalyzerPanel({ client, runID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
 }) {
   const { t } = useLocale();

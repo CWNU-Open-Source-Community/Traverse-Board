@@ -19,11 +19,11 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/store"
@@ -57,8 +57,8 @@ type runFacts struct {
 	ledger     []domain.StandardCodeSupervisorLedgerEntry
 	jobs       []runner.CommandRuntimeJob
 	edits      []fileedit.Edit
-	drydock    drydock.Workspace
-	trust      drydock.Trust
+	drydock    runworktree.Workspace
+	trust      runworktree.Trust
 	delivery   standardcodedelivery.Report
 	handoff    application.CodeHandoff
 	thread     domain.Thread
@@ -188,12 +188,12 @@ func openProductStore(home string) (*productStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open candidate store: %w", err)
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(home, "drydocks"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(home, "drydocks"))
 	if err != nil {
 		_ = state.Close()
 		return nil, err
 	}
-	drydocks, err := application.NewDrydockService(state, executor)
+	drydocks, err := application.NewRunWorktreeService(state, executor)
 	if err != nil {
 		_ = state.Close()
 		return nil, err
@@ -310,7 +310,7 @@ func validateRunFacts(facts runFacts, evidence RunEvidence, backend string,
 		facts.drydock.Source.WorkspaceID != facts.mission.WorkspaceID ||
 		facts.drydock.Source.BaseCommit != fixture.ExpectedHead ||
 		facts.drydock.BaseCommit != fixture.ExpectedHead ||
-		(facts.drydock.State != drydock.StateReady && facts.drydock.State != drydock.StateDelivered) ||
+		(facts.drydock.State != runworktree.StateReady && facts.drydock.State != runworktree.StateDelivered) ||
 		facts.trust.ID != facts.drydock.TrustID || facts.trust.RunID != facts.run.ID ||
 		facts.trust.WorkspaceID != facts.mission.WorkspaceID ||
 		facts.trust.Source.BaseCommit != fixture.ExpectedHead ||

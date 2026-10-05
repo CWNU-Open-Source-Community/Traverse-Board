@@ -24,7 +24,7 @@ type supervisorBoundaryReceipt struct {
 	AttemptID string
 }
 
-func (s *RunSupervisor) boundaryReceiptPlan(ctx context.Context, cp domain.SupervisorCheckpoint, sessionID string) (supervisorBoundaryReceipt, error) {
+func (s *AgentRunner) boundaryReceiptPlan(ctx context.Context, cp domain.SupervisorCheckpoint, sessionID string) (supervisorBoundaryReceipt, error) {
 	reader, ok := s.store.(supervisorToolBoundaryStore)
 	if !ok {
 		return supervisorBoundaryReceipt{}, nil

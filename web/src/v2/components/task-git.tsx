@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { WorkspaceView } from "../../api/types";
 import { executeThreadGit, observeThreadGit, previewThreadGit, readThreadGit, type ThreadGitPreview, type ThreadGitResult, type ThreadGitSpec } from "../../api/task-delivery";
 import { ErrorState, LoadingState, StatusLabel } from "../../components/common";
@@ -22,7 +22,7 @@ const validAttempt = (value: unknown, threadID: string): value is GitAttempt => 
 export const taskGitKey = (threadID: string) => ["thread", threadID, "git"] as const;
 
 export function TaskGit({ client, threadID, working, onFeedback, onPullRequest, onOpenWorktree }: {
-  client: CyberAgentClient; threadID: string; working: boolean; onFeedback: (context: string) => void; onPullRequest: () => void;
+  client: APIClient; threadID: string; working: boolean; onFeedback: (context: string) => void; onPullRequest: () => void;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
 }) {
   const queryClient = useQueryClient();

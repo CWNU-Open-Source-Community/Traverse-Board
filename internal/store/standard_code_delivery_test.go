@@ -17,11 +17,11 @@ func TestStandardCodeDeliveryLedgerSealsReplaysAndRejectsMutation(t *testing.T) 
 	ctx := context.Background()
 	state, runRecord, mission, _ := newWorkspaceCheckpointStoreFixture(t)
 	defer state.Close()
-	executor, err := repository.NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	drydocks, err := application.NewDrydockService(state, executor)
+	drydocks, err := application.NewRunWorktreeService(state, executor)
 	if err != nil {
 		t.Fatal(err)
 	}

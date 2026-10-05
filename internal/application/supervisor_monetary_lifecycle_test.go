@@ -62,7 +62,7 @@ func (*ordinaryMoneyLifecycleProvider) SupportsTools(string) bool    { return fa
 func (*ordinaryMoneyLifecycleProvider) SupportsVision(string) bool   { return false }
 func (*ordinaryMoneyLifecycleProvider) SupportsJSONMode(string) bool { return false }
 
-func newOrdinaryMoneyLifecycleFixture(t *testing.T, p *ordinaryMoneyLifecycleProvider) (string, *store.SQLiteStore, domain.Run, *application.RunSupervisor) {
+func newOrdinaryMoneyLifecycleFixture(t *testing.T, p *ordinaryMoneyLifecycleProvider) (string, *store.SQLiteStore, domain.Run, *application.AgentRunner) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ordinary-money.db")
 	st, err := store.Open(path)
@@ -92,7 +92,7 @@ func newOrdinaryMoneyLifecycleFixture(t *testing.T, p *ordinaryMoneyLifecyclePro
 	if err := router.SetContextWindow(llm.ModelRef{Provider: p.Name(), Model: "model"}, window); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).
 		WithMonetaryBudget(application.NewMonetaryBudgetService(st))
 	return path, st, run, supervisor
 }
@@ -351,7 +351,7 @@ func TestOrdinaryModelRejectedPublicationKeepsKnownUsageOnce(t *testing.T) {
 			if err := router.SetContextWindow(llm.ModelRef{Provider: p.Name(), Model: "model"}, window); err != nil {
 				t.Fatal(err)
 			}
-			supervisor := application.NewRunSupervisor(fault, router, policy.NewDefaultChecker())
+			supervisor := application.NewAgentRunner(fault, router, policy.NewDefaultChecker())
 			done := startOrdinaryMoneyStep(t, supervisor, run.ID, p)
 			// Give the actual measured request a nonzero duration, so a second
 			// charge of the same elapsed time cannot pass accidentally at 0 ms.
@@ -388,7 +388,7 @@ func TestOrdinaryModelRejectedPublicationKeepsKnownUsageOnce(t *testing.T) {
 	}
 }
 
-func startOrdinaryMoneyStep(t *testing.T, supervisor *application.RunSupervisor, runID string, p *ordinaryMoneyLifecycleProvider) <-chan error {
+func startOrdinaryMoneyStep(t *testing.T, supervisor *application.AgentRunner, runID string, p *ordinaryMoneyLifecycleProvider) <-chan error {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {

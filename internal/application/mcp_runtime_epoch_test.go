@@ -185,7 +185,7 @@ func TestMCPRuntimeEpochRevocationPersistsFailedReceiptOnResume(t *testing.T) {
 		t.Fatal("missing durable runtime epoch", err)
 	}
 	client := &epochMCPClient{onInvoke: func() { authority.RevokeRun(f.call.RunID) }}
-	supervisor := NewRunSupervisor(state, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
+	supervisor := NewAgentRunner(state, nil, policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities).WithMCPClient(client)
 	rounds, err := state.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 	if err != nil {
 		t.Fatal(err)

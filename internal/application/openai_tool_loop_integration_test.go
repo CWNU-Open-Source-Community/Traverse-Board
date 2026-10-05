@@ -21,7 +21,7 @@ import (
 	"cyberagent-workbench/internal/store"
 )
 
-func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
+func TestOpenAICompatibleProviderAgentRunnerToolRoundTrip(t *testing.T) {
 	const (
 		providerName = "openai-supervisor-test"
 		modelName    = "model"
@@ -177,7 +177,7 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 	defer st.Close()
 	run := newStartedRunForProvider(t, st, providerName,
 		domain.Budget{MaxTurns: 3, MaxToolCalls: 5})
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	type stepResult struct {
 		result application.LifecycleResult
 		err    error

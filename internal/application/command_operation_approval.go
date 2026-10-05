@@ -121,7 +121,7 @@ func RecheckCommandApproval(ctx context.Context, base ApprovalControlStore, reco
 	return nil
 }
 
-func (s *RunSupervisor) preflightCommandApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
+func (s *AgentRunner) preflightCommandApproval(ctx context.Context, call domain.SupervisorToolCall) (bool, *domain.SupervisorToolResult, error) {
 	a, err := commandruntimeadapter.DecodeAuthority(json.RawMessage(call.AuthorityJSON))
 	if err != nil {
 		return false, nil, err

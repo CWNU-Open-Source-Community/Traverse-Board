@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"cyberagent-workbench/internal/drydock"
+	"cyberagent-workbench/internal/runworktree"
 	"time"
 )
 
@@ -24,6 +24,6 @@ type ThreadFileContinuation struct {
 	PermissionSnapshotID string
 	PermissionRevision   int64
 	ModelPreference      *ThreadModelRoutePreference
-	Workspace            drydock.Workspace
+	Workspace            runworktree.Workspace
 	Preset               StandardCodePresetOperation
 }

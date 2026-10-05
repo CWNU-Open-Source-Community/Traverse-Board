@@ -158,7 +158,7 @@ func TestAgentBrowserHTTPProductApprovalAndScreenshot(t *testing.T) {
 	router.RegisterProvider(provider)
 	checker := policy.NewDefaultChecker()
 	dependencies := application.RunRuntimeDependencies{ExecutionCapabilities: caps, AgentBrowser: browser}
-	supervisor := application.NewRunSupervisorWithRuntime(st, router, checker, dependencies)
+	supervisor := application.NewAgentRunnerWithRuntime(st, router, checker, dependencies)
 	execution := application.NewRunExecutionHandoffWithRuntime(st, router, checker, dependencies)
 	lifecycle := application.NewRunLifecycleControlService(st)
 	threads := application.NewThreadTurnServiceWithExecutionCapabilities(st, lifecycle, execution, caps)

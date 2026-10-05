@@ -313,11 +313,11 @@ export class APIRequestError extends Error {
 function normalizeBaseURL(baseURL: string): string {
   const resolved = new URL(baseURL, window.location.origin);
   if (resolved.origin !== window.location.origin) {
-    throw new Error("CyberAgent API must use the current browser origin");
+    throw new Error("Universal Code API must use the current browser origin");
   }
   const path = resolved.pathname.replace(/\/+$/, "");
   if (path !== "/api/v1") {
-    throw new Error("CyberAgent API base path must be /api/v1");
+    throw new Error("Universal Code API base path must be /api/v1");
   }
   return path;
 }
@@ -6232,7 +6232,7 @@ export function parsePluginSkillInstall(value: unknown, surface: string,
   return { protocol_version: "plugin-installation.v2", installation, replayed: value.replayed };
 }
 
-export class CyberAgentClient {
+export class APIClient {
   readonly baseURL: string;
   readonly hasControl: boolean;
   readonly hasWorkspaceImport: boolean;
@@ -8727,11 +8727,11 @@ export class CyberAgentClient {
         throw new APIRequestError(payload.error.message, payload.error.code, response.status,
           payload.request_id);
       }
-      throw new APIRequestError("CyberAgent read request failed", "INVALID_RESPONSE", response.status,
+      throw new APIRequestError("Universal Code read request failed", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
     }
     if (!isSuccessEnvelope<T>(payload)) {
-      throw new APIRequestError("CyberAgent API returned an invalid read envelope", "INVALID_RESPONSE",
+      throw new APIRequestError("Universal Code API returned an invalid read envelope", "INVALID_RESPONSE",
         response.status, response.headers.get("x-request-id") || "");
     }
     return payload.data;
@@ -8765,11 +8765,11 @@ export class CyberAgentClient {
           payload.error.turn_failed === true ? true : undefined, payload.error.turn_failure,
           payload.error.revision_unchanged);
       }
-      throw new APIRequestError("CyberAgent control request failed", "INVALID_RESPONSE", response.status,
+      throw new APIRequestError("Universal Code control request failed", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
     }
     if (!isSuccessEnvelope<T>(payload)) {
-      throw new APIRequestError("CyberAgent API returned an invalid control envelope", "INVALID_RESPONSE",
+      throw new APIRequestError("Universal Code API returned an invalid control envelope", "INVALID_RESPONSE",
         response.status, response.headers.get("x-request-id") || "");
     }
     return payload.data;
@@ -8855,11 +8855,11 @@ export class CyberAgentClient {
       if (isErrorEnvelope(payload)) {
         throw new APIRequestError(payload.error.message, payload.error.code, response.status, payload.request_id);
       }
-      throw new APIRequestError("CyberAgent API request failed", "INVALID_RESPONSE", response.status,
+      throw new APIRequestError("Universal Code API request failed", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
     }
     if (!isSuccessEnvelope<T>(payload)) {
-      throw new APIRequestError("CyberAgent API returned an invalid envelope", "INVALID_RESPONSE", response.status,
+      throw new APIRequestError("Universal Code API returned an invalid envelope", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
     }
     return payload;
@@ -8870,7 +8870,7 @@ export class CyberAgentClient {
     if (isErrorEnvelope(payload)) {
       return new APIRequestError(payload.error.message, payload.error.code, response.status, payload.request_id);
     }
-    return new APIRequestError("CyberAgent API request failed", "INVALID_RESPONSE", response.status,
+    return new APIRequestError("Universal Code API request failed", "INVALID_RESPONSE", response.status,
       response.headers.get("x-request-id") || "");
   }
 

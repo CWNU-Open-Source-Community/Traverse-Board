@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { RepositoryDiffPanel } from "./repository-diff-panel";
 
 describe("RepositoryDiffPanel", () => {
@@ -18,7 +18,7 @@ describe("RepositoryDiffPanel", () => {
       remote_config_included: false, process_started: false, network_used: false,
       hooks_executed: false,
     });
-    const client = { repositoryDiff } as unknown as CyberAgentClient;
+    const client = { repositoryDiff } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}>
       <RepositoryDiffPanel client={client} workspaceID="workspace-1" />

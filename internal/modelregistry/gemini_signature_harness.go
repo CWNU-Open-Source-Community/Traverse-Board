@@ -39,7 +39,7 @@ func (r *Registry) probeGeminiHarness(ctx context.Context, ref llm.ModelRef, bas
 		Description: "Return the supplied qualification nonce without side effects.",
 		Parameters:  json.RawMessage(`{"type":"object","additionalProperties":false,"required":["nonce"],"properties":{"nonce":{"type":"string"}}}`)}
 	request := llm.ChatRequest{Messages: []llm.Message{
-		{Role: "system", Content: "Traverse Board Gemini model Harness qualification. Call only prayu_harness_echo exactly once with nonce " + nonces[0] +
+		{Role: "system", Content: "Universal Code Gemini model Harness qualification. Call only prayu_harness_echo exactly once with nonce " + nonces[0] +
 			". After its result, call the same tool exactly once with nonce " + nonces[1] +
 			". After the second result, return exactly one JSON object with version " + HarnessProbeProtocolVersion + ", status ok, and nonce " + nonces[0] +
 			". Do not call further tools. No external work is performed by this probe."},

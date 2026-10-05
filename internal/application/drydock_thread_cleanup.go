@@ -7,8 +7,8 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 type drydockCleanupExecutor interface {
@@ -16,7 +16,7 @@ type drydockCleanupExecutor interface {
 	ExecuteRemove(context.Context, string, gitadvanced.Preview) (gitadvanced.Receipt, error)
 }
 
-func (s *DrydockService) replayDrydockCleanup(ctx context.Context, request DrydockCleanupRequest, digest string) (DrydockCleanupResult, bool, error) {
+func (s *RunWorktreeService) replayDrydockCleanup(ctx context.Context, request DrydockCleanupRequest, digest string) (DrydockCleanupResult, bool, error) {
 	receipt, found, err := s.store.GetDrydockReceiptByOperation(ctx, digest)
 	if err != nil || !found {
 		return DrydockCleanupResult{}, false, apperror.Normalize(err)
@@ -28,26 +28,26 @@ func (s *DrydockService) replayDrydockCleanup(ctx context.Context, request Drydo
 	if !found {
 		return DrydockCleanupResult{}, false, apperror.New(apperror.CodeNotFound, "Drydock cleanup receipt has no bound working directory")
 	}
-	if receipt.RunID != request.RunID || receipt.Operation != drydock.OperationCleanup ||
+	if receipt.RunID != request.RunID || receipt.Operation != runworktree.OperationCleanup ||
 		!drydockReceiptMatchesRequest(receipt, workspace.ID, request.ExpectedGeneration,
 			drydockCleanupRequestFingerprint(workspace.ID, request)) {
 		return DrydockCleanupResult{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock cleanup operation key was reused for different intent")
 	}
 	return DrydockCleanupResult{ProtocolVersion: DrydockAPIProtocolVersion,
-		Workspace: workspace, Receipt: receipt, Preserved: receipt.Outcome == drydock.OutcomePreserved, Replayed: true}, true, nil
+		Workspace: workspace, Receipt: receipt, Preserved: receipt.Outcome == runworktree.OutcomePreserved, Replayed: true}, true, nil
 }
 
-func (s *DrydockService) completeDrydockCleanup(ctx context.Context, request DrydockCleanupRequest,
-	digest string, workspace drydock.Workspace, summary, bindingAfter, gitReceiptID string,
+func (s *RunWorktreeService) completeDrydockCleanup(ctx context.Context, request DrydockCleanupRequest,
+	digest string, workspace runworktree.Workspace, summary, bindingAfter, gitReceiptID string,
 ) (DrydockCleanupResult, error) {
 	beforeGeneration := workspace.Generation
 	now := s.now().UTC()
-	workspace.State, workspace.RecoveryReason = drydock.StateCleaned, ""
+	workspace.State, workspace.RecoveryReason = runworktree.StateCleaned, ""
 	workspace.Generation++
 	workspace.UpdatedAt, workspace.CleanedAt = now, &now
-	receipt := s.transitionReceipt(workspace, beforeGeneration, drydock.OperationCleanup, digest,
-		drydockCleanupRequestFingerprint(workspace.ID, request), drydock.OutcomeSucceeded, "", summary,
+	receipt := s.transitionReceipt(workspace, beforeGeneration, runworktree.OperationCleanup, digest,
+		drydockCleanupRequestFingerprint(workspace.ID, request), runworktree.OutcomeSucceeded, "", summary,
 		workspace.ExpectedBindingFingerprint, bindingAfter, gitReceiptID, "", "")
 	receipt.RunID = request.RunID
 	workspace, replayed, err := s.advanceDrydockTransition(ctx, workspace, beforeGeneration, receipt)
@@ -58,7 +58,7 @@ func (s *DrydockService) completeDrydockCleanup(ctx context.Context, request Dry
 		Workspace: workspace, Receipt: receipt, Replayed: replayed}, nil
 }
 
-func (s *DrydockService) confirmDrydockCleanupFailure(ctx context.Context, request DrydockCleanupRequest,
+func (s *RunWorktreeService) confirmDrydockCleanupFailure(ctx context.Context, request DrydockCleanupRequest,
 	digest, gitReceiptID string, cause error,
 ) (DrydockCleanupResult, error) {
 	// A failed Git receipt does not prove that removal did not happen. It may
@@ -78,16 +78,16 @@ func (s *DrydockService) confirmDrydockCleanupFailure(ctx context.Context, reque
 }
 
 type threadDrydockCleanupStore interface {
-	GetRunFileDrydock(context.Context, string) (drydock.Workspace, bool, error)
+	GetRunFileDrydock(context.Context, string) (runworktree.Workspace, bool, error)
 	GetDrydockHolder(context.Context, string) (domain.ThreadDrydockBinding, bool, error)
 }
 
 type drydockCleanupReservationStore interface {
 	BeginThreadDrydockCleanup(context.Context, string, string, int64, string, string, time.Time) error
-	CompleteThreadDrydockCleanup(context.Context, drydock.Workspace, int64, drydock.Receipt) (drydock.Workspace, bool, error)
+	CompleteThreadDrydockCleanup(context.Context, runworktree.Workspace, int64, runworktree.Receipt) (runworktree.Workspace, bool, error)
 }
 
-func (s *DrydockService) beginDrydockCleanup(ctx context.Context, request DrydockCleanupRequest, digest string) error {
+func (s *RunWorktreeService) beginDrydockCleanup(ctx context.Context, request DrydockCleanupRequest, digest string) error {
 	store, ok := s.store.(drydockCleanupReservationStore)
 	if !ok {
 		return nil
@@ -103,10 +103,10 @@ func (s *DrydockService) beginDrydockCleanup(ctx context.Context, request Drydoc
 		request.ExpectedGeneration, digest, drydockCleanupRequestFingerprint(workspace.ID, request), s.now().UTC()))
 }
 
-func (s *DrydockService) advanceDrydockTransition(ctx context.Context, workspace drydock.Workspace,
-	generation int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
-	if receipt.Operation == drydock.OperationCleanup {
+func (s *RunWorktreeService) advanceDrydockTransition(ctx context.Context, workspace runworktree.Workspace,
+	generation int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
+	if receipt.Operation == runworktree.OperationCleanup {
 		if store, ok := s.store.(drydockCleanupReservationStore); ok {
 			return store.CompleteThreadDrydockCleanup(ctx, workspace, generation, receipt)
 		}
@@ -114,14 +114,14 @@ func (s *DrydockService) advanceDrydockTransition(ctx context.Context, workspace
 	return s.store.AdvanceDrydock(ctx, workspace, generation, receipt)
 }
 
-func (s *DrydockService) cleanupWorkspace(ctx context.Context, runID string) (drydock.Workspace, bool, error) {
+func (s *RunWorktreeService) cleanupWorkspace(ctx context.Context, runID string) (runworktree.Workspace, bool, error) {
 	if store, ok := s.store.(threadDrydockCleanupStore); ok {
 		return store.GetRunFileDrydock(ctx, runID)
 	}
 	return s.store.GetDrydockByRun(ctx, runID)
 }
 
-func (s *DrydockService) threadRetainsDrydock(ctx context.Context, workspace drydock.Workspace) (bool, error) {
+func (s *RunWorktreeService) threadRetainsDrydock(ctx context.Context, workspace runworktree.Workspace) (bool, error) {
 	store, ok := s.store.(threadDrydockCleanupStore)
 	if !ok {
 		return false, nil
@@ -130,7 +130,7 @@ func (s *DrydockService) threadRetainsDrydock(ctx context.Context, workspace dry
 	return found && holder.ThreadID != "", err
 }
 
-func (s *DrydockService) requireCurrentDrydockCleanupHolder(ctx context.Context, runID string, workspace drydock.Workspace) error {
+func (s *RunWorktreeService) requireCurrentDrydockCleanupHolder(ctx context.Context, runID string, workspace runworktree.Workspace) error {
 	store, ok := s.store.(threadDrydockCleanupStore)
 	if !ok {
 		return nil

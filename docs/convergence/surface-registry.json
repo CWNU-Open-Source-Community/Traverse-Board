@@ -643,7 +643,7 @@
       ],
       "recovery_evidence": [
         "internal/application/standard_code_docker_test.go",
-        "internal/application/drydock_service_test.go",
+        "internal/application/run_worktree_service_test.go",
         "internal/sandbox/local_backend_windows_test.go"
       ],
       "compatibility_strategy": "Keep active backend readiness, ownership, network-none/WFP, restart, and exact-cleanup evidence without marketing a new user Surface.",

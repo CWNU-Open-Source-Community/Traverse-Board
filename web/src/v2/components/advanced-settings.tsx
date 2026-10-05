@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadDetailView } from "../../api/types";
 import { DesktopSkillPreviewDialog } from "../../components/desktop-skill-preview";
 import { SafeWebReadinessPanel } from "../../components/safe-web-readiness";
@@ -11,7 +11,7 @@ import { v2QueryKeys } from "../query-keys";
 import { useConnectionStore } from "../../state/connection";
 import "./advanced-settings.css";
 
-export function V2ExtensionSettings({ client, threadID }: { client: CyberAgentClient; threadID: string }) {
+export function V2ExtensionSettings({ client, threadID }: { client: APIClient; threadID: string }) {
   const thread = useQuery({
     queryKey: v2QueryKeys.thread(threadID),
     queryFn: ({ signal }) => client.get<ThreadDetailView>(`/threads/${encodeURIComponent(threadID)}`, {}, signal),
@@ -31,7 +31,7 @@ export function V2ExtensionSettings({ client, threadID }: { client: CyberAgentCl
   </div>;
 }
 
-export function V2SkillSettings({ client, desktop }: { client: CyberAgentClient; desktop: boolean }) {
+export function V2SkillSettings({ client, desktop }: { client: APIClient; desktop: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return <><h1>Skill 包</h1><p className="v2-settings-lead">
     将已有技能包登记到本地技能库。安装不授予执行权限，也不代表当前任务已经加载或执行它。
@@ -78,7 +78,7 @@ export function V2InspectorPreferences({ onOpenInspector }: {
   </div></section></>;
 }
 
-export function V2AboutSettings({ client, desktop }: { client: CyberAgentClient; desktop: boolean }) {
+export function V2AboutSettings({ client, desktop }: { client: APIClient; desktop: boolean }) {
   const queryClient = useQueryClient();
   const disconnect = useConnectionStore((state) => state.disconnect);
   const health = useQuery({ queryKey: ["health"], queryFn: ({ signal }) => client.health(signal), retry: false });

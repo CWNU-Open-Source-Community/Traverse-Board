@@ -25,7 +25,7 @@ type HistoryRecallToolStore interface {
 
 type HistoryRecallToolExecutor struct{ store HistoryRecallToolStore }
 
-func (s *RunSupervisor) historyRecallForTurn(ctx context.Context, turn domain.SupervisorTurn) (bool, error) {
+func (s *AgentRunner) historyRecallForTurn(ctx context.Context, turn domain.SupervisorTurn) (bool, error) {
 	if !s.historyRecallEnabled {
 		return false, nil
 	}

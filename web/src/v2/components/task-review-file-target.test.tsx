@@ -2,7 +2,7 @@ import { createRef, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { FileEditPreviewView, ThreadDetailView } from "../../api/types";
 import type { ThreadReview, ThreadReviewChange } from "../../api/task-delivery";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
@@ -55,7 +55,7 @@ it.each(["run-current", "run-history"])("opens the initial exact %s target with 
   function Harness() {
     const [open, setOpen] = useState(false);
     return <><button ref={trigger} onClick={() => setOpen(true)}>查看此提案</button>
-      {open && <V2TaskReview client={api as unknown as CyberAgentClient} detail={detail()} working={false}
+      {open && <V2TaskReview client={api as unknown as APIClient} detail={detail()} working={false}
         initialFileTarget={initialFileTarget} onClose={() => setOpen(false)} onRequestChange={vi.fn()} returnFocusRef={trigger} />}</>;
   }
   render(provider(<Harness />));
@@ -74,7 +74,7 @@ it.each(["run-current", "run-history"])("opens the initial exact %s target with 
 
 it("takes each default overview proposal straight to its own run and edit without a mutation", async () => {
   const api = client();
-  render(provider(<V2TaskReview client={api as unknown as CyberAgentClient} detail={detail()} working={false}
+  render(provider(<V2TaskReview client={api as unknown as APIClient} detail={detail()} working={false}
     onClose={vi.fn()} onRequestChange={vi.fn()} returnFocusRef={createRef()} />));
   const user = userEvent.setup();
   await screen.findByText("当前执行的提案");
@@ -95,7 +95,7 @@ it("takes each default overview proposal straight to its own run and edit withou
 it("keeps a missing or removed target run explicit instead of opening the current run", async () => {
   const api = client();
   const initialFileTarget: FileEditReviewTarget = { runID: "run-missing", editID: "missing-edit", workspaceID: "missing-workspace" };
-  render(provider(<V2TaskReview client={api as unknown as CyberAgentClient} detail={detail()} working={false}
+  render(provider(<V2TaskReview client={api as unknown as APIClient} detail={detail()} working={false}
     initialFileTarget={initialFileTarget} onClose={vi.fn()} onRequestChange={vi.fn()} returnFocusRef={createRef()} />));
   expect(await screen.findByText(/无法找到目标执行记录 run-missing/)).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "选择审阅的执行记录" })).toHaveValue("run-missing");
@@ -119,7 +119,7 @@ it("does not replace an opened historical target after its run disappears from r
   const target = { runID: "run-history", editID: "run-history-edit", workspaceID: "run-history-workspace" };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const component = (value: ThreadDetailView) => <QueryClientProvider client={queryClient}>
-    <V2TaskReview client={api as unknown as CyberAgentClient} detail={value} working={false}
+    <V2TaskReview client={api as unknown as APIClient} detail={value} working={false}
       initialFileTarget={target} onClose={vi.fn()} onRequestChange={vi.fn()} returnFocusRef={createRef()} />
   </QueryClientProvider>;
   const view = render(component(detail()));

@@ -101,7 +101,7 @@ func newCompletedStartFixture(t *testing.T, mode domain.RunExecutionPermissionMo
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.supervisor = NewRunSupervisor(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
+	f.supervisor = NewAgentRunner(f.st, nil, f.checker).WithExecutionPermissionCapabilities(f.caps).WithCommandRuntime(f.service)
 	input := commandApprovalNativeInput(t, true)
 	input.Commands[0].TimeoutMilliseconds = 30000
 	input.Commands[0].Arguments[1] = `process.stdout.write('completed-start-output\n');require('fs').appendFileSync('starts.txt','1');` + input.Commands[0].Arguments[1]

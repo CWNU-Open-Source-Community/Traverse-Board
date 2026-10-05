@@ -105,14 +105,14 @@ type FileEditProposalService struct {
 	store    FileEditProposalStore
 	manager  *fileedit.Manager
 	checker  policy.Checker
-	drydocks *DrydockService
+	drydocks *RunWorktreeService
 	now      func() time.Time
 	random   func([]byte) error
 	mu       sync.Mutex
 	sources  map[string]fileEditSourceGrant
 }
 
-func (s *FileEditProposalService) WithDrydock(drydocks *DrydockService) *FileEditProposalService {
+func (s *FileEditProposalService) WithRunWorktree(drydocks *RunWorktreeService) *FileEditProposalService {
 	if s != nil {
 		s.drydocks = drydocks
 	}

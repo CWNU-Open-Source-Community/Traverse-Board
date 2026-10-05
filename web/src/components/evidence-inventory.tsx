@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Eye, FileCheck2, RefreshCw, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function EvidenceInventory({ client, runID, onOpenSource }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenSource: (sourceRef: string) => void;
 }) {

@@ -95,7 +95,7 @@ func importSupervisorPriceSnapshot(t *testing.T, ctx context.Context,
 	return stored
 }
 
-func TestRunSupervisorReservesAndSettlesMonetaryBudget(t *testing.T) {
+func TestAgentRunnerReservesAndSettlesMonetaryBudget(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestRunSupervisorReservesAndSettlesMonetaryBudget(t *testing.T) {
 	if err := router.SetContextWindow(llm.ModelRef{Provider: provider.Name(), Model: "model"}, window); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, router,
+	supervisor := application.NewAgentRunner(st, router,
 		policy.NewDefaultChecker()).WithMonetaryBudget(
 		application.NewMonetaryBudgetService(st))
 	result, err := supervisor.Step(ctx, run.ID)
@@ -153,7 +153,7 @@ func TestRunSupervisorReservesAndSettlesMonetaryBudget(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorMonetaryBudgetFailsClosedWithoutPriceEntry(t *testing.T) {
+func TestAgentRunnerMonetaryBudgetFailsClosedWithoutPriceEntry(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestRunSupervisorMonetaryBudgetFailsClosedWithoutPriceEntry(t *testing.T) {
 	provider := &fixedUsageProvider{}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor := application.NewRunSupervisor(st, router,
+	supervisor := application.NewAgentRunner(st, router,
 		policy.NewDefaultChecker()).WithMonetaryBudget(
 		application.NewMonetaryBudgetService(st))
 	_, err = supervisor.Step(ctx, run.ID)

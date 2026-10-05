@@ -51,7 +51,7 @@ func TestPlanDeliveryManualAcceptanceSmallPlanAndExactReplay(t *testing.T) {
 			}}
 			router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 			router.RegisterProvider(provider)
-			if _, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
+			if _, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
 				t.Fatal(err)
 			}
 			proposals, err := st.ListPlanDeliveryProposals(ctx, run.ID, 2)

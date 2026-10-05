@@ -30,14 +30,14 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func TestSpecialistRunnerExecutesInternalNoToolContinuation(t *testing.T) {
+func TestSubagentRunnerExecutesInternalNoToolContinuation(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text: specialistResponse(t, domain.SpecialistAction{
 			Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 			Message: "continue the focused review",
 		}), Usage: llm.Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if err != nil || result.AttemptStatus != domain.AgentAttemptContinued ||
@@ -87,14 +87,14 @@ func TestSpecialistRunnerExecutesInternalNoToolContinuation(t *testing.T) {
 	})
 }
 
-func TestSpecialistRunnerDeliversOnlyOperatorDesignatedExternalSkill(t *testing.T) {
+func TestSubagentRunnerDeliversOnlyOperatorDesignatedExternalSkill(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text: specialistResponse(t, domain.SpecialistAction{
 			Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 			Message: "used bounded external workflow guidance",
 		}), Usage: llm.Usage{InputTokens: 4, OutputTokens: 2, TotalTokens: 6},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixtureWithExternal(t, provider,
+	st, run, child, runner := newSubagentRunnerFixtureWithExternal(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 64, true)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if err != nil || result.ExternalSkillItems != 1 || result.ExternalSkillTokens <= 0 ||
@@ -134,14 +134,14 @@ func TestSpecialistRunnerDeliversOnlyOperatorDesignatedExternalSkill(t *testing.
 	})
 }
 
-func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *testing.T) {
+func TestSubagentRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text: specialistResponse(t, domain.SpecialistAction{
 			Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 			Message: "used the assigned child context",
 		}), Usage: llm.Usage{InputTokens: 8, OutputTokens: 2, TotalTokens: 10},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 128)
 	ctx := context.Background()
 	root, found, err := st.GetRootAgent(ctx, run.ID)
@@ -267,7 +267,7 @@ func TestSpecialistRunnerInjectsOnlyParentInstructionAndChildOwnedMemory(t *test
 	}
 }
 
-func TestSpecialistRunnerFinishesWithCompletionReport(t *testing.T) {
+func TestSubagentRunnerFinishesWithCompletionReport(t *testing.T) {
 	report := domain.CompletionReport{
 		Version: domain.CompletionReportVersion, Outcome: domain.CompletionSucceeded,
 		Summary: "review completed safely", WorkItemIDs: []string{}, NoteIDs: []string{},
@@ -278,7 +278,7 @@ func TestSpecialistRunnerFinishesWithCompletionReport(t *testing.T) {
 			Message: "the assigned review is complete", Report: &report,
 		}), Usage: llm.Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if err != nil || result.AttemptStatus != domain.AgentAttemptFinished ||
@@ -305,7 +305,7 @@ func TestSpecialistRunnerFinishesWithCompletionReport(t *testing.T) {
 	}
 }
 
-func TestSpecialistRunnerRetriesTransportFailureAndChargesOnce(t *testing.T) {
+func TestSubagentRunnerRetriesTransportFailureAndChargesOnce(t *testing.T) {
 	provider := &specialistTestProvider{
 		failures: []error{llm.NewProviderError(llm.OutcomeRetryable,
 			"specialist-test", "temporary reset", nil), nil},
@@ -316,7 +316,7 @@ func TestSpecialistRunnerRetriesTransportFailureAndChargesOnce(t *testing.T) {
 			}), Usage: llm.Usage{InputTokens: 2, OutputTokens: 2, TotalTokens: 4},
 		}},
 	}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	runner.WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 2})
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
@@ -330,7 +330,7 @@ func TestSpecialistRunnerRetriesTransportFailureAndChargesOnce(t *testing.T) {
 	})
 }
 
-func TestSpecialistRunnerRepairsLifecycleOnceWithoutPersistingInvalidOutput(t *testing.T) {
+func TestSubagentRunnerRepairsLifecycleOnceWithoutPersistingInvalidOutput(t *testing.T) {
 	secret := "raw-invalid-output-marker-" + strings.Repeat("q", 24)
 	valid := domain.SpecialistAction{
 		Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
@@ -342,7 +342,7 @@ func TestSpecialistRunnerRepairsLifecycleOnceWithoutPersistingInvalidOutput(t *t
 		{Text: specialistResponse(t, valid),
 			Usage: llm.Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}},
 	}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if err != nil || result.AttemptStatus != domain.AgentAttemptContinued ||
@@ -395,7 +395,7 @@ func TestSpecialistRunnerRepairsLifecycleOnceWithoutPersistingInvalidOutput(t *t
 	})
 }
 
-func TestSpecialistRunnerKeepsTransportRetriesIndependentAcrossRepair(t *testing.T) {
+func TestSubagentRunnerKeepsTransportRetriesIndependentAcrossRepair(t *testing.T) {
 	valid := domain.SpecialistAction{
 		Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 		Message: "continue after independent transport retries",
@@ -416,7 +416,7 @@ func TestSpecialistRunnerKeepsTransportRetriesIndependentAcrossRepair(t *testing
 				Usage: llm.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3}},
 		},
 	}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	runner.WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 2})
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
@@ -455,12 +455,12 @@ func TestSpecialistRunnerKeepsTransportRetriesIndependentAcrossRepair(t *testing
 	}
 }
 
-func TestSpecialistRunnerAbortsRepairWhenTotalTokenBudgetIsExhausted(t *testing.T) {
+func TestSubagentRunnerAbortsRepairWhenTotalTokenBudgetIsExhausted(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text:  `{"action":"continue"}`,
 		Usage: llm.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10, MaxTokens: 3}, 2, 2)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if apperror.CodeOf(err) != apperror.CodeResourceExhausted ||
@@ -482,7 +482,7 @@ func TestSpecialistRunnerAbortsRepairWhenTotalTokenBudgetIsExhausted(t *testing.
 	})
 }
 
-func TestSpecialistRunnerCancellationAbortsPendingRepair(t *testing.T) {
+func TestSubagentRunnerCancellationAbortsPendingRepair(t *testing.T) {
 	provider := &specialistTestProvider{
 		responses: []llm.ChatResponse{{
 			Text:  `{"action":"continue"}`,
@@ -490,7 +490,7 @@ func TestSpecialistRunnerCancellationAbortsPendingRepair(t *testing.T) {
 		}, {}},
 		block: true, blockAt: 1, started: make(chan struct{}),
 	}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	ctx, cancel := context.WithCancel(context.Background())
 	type outcome struct {
@@ -529,14 +529,14 @@ func TestSpecialistRunnerCancellationAbortsPendingRepair(t *testing.T) {
 	}
 }
 
-func TestSpecialistRunnerRefusesContinueAfterChildBudgetExhaustion(t *testing.T) {
+func TestSubagentRunnerRefusesContinueAfterChildBudgetExhaustion(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text: specialistResponse(t, domain.SpecialistAction{
 			Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 			Message: "request another turn",
 		}), Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 1, 16)
 	result, err := runner.Step(context.Background(), run.ID, child.ID)
 	if apperror.CodeOf(err) != apperror.CodeResourceExhausted ||
@@ -555,7 +555,7 @@ func TestSpecialistRunnerRefusesContinueAfterChildBudgetExhaustion(t *testing.T)
 	}
 }
 
-func TestSpecialistRunnerRejectsMalformedToolAndDangerousResponses(t *testing.T) {
+func TestSubagentRunnerRejectsMalformedToolAndDangerousResponses(t *testing.T) {
 	tests := []struct {
 		name      string
 		response  llm.ChatResponse
@@ -599,7 +599,7 @@ func TestSpecialistRunnerRejectsMalformedToolAndDangerousResponses(t *testing.T)
 				responses = append(responses, test.response)
 			}
 			provider := &specialistTestProvider{responses: responses}
-			st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+			st, run, child, runner := newSubagentRunnerFixture(t, provider,
 				domain.Budget{MaxTurns: 10}, 2, 32)
 			result, err := runner.Step(context.Background(), run.ID, child.ID)
 			if apperror.CodeOf(err) != test.wantCode ||
@@ -632,9 +632,9 @@ func TestSpecialistRunnerRejectsMalformedToolAndDangerousResponses(t *testing.T)
 	}
 }
 
-func TestSpecialistRunnerCancellationCrashesAttemptBeforeLeaseRelease(t *testing.T) {
+func TestSubagentRunnerCancellationCrashesAttemptBeforeLeaseRelease(t *testing.T) {
 	provider := &specialistTestProvider{block: true, started: make(chan struct{})}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 32)
 	ctx, cancel := context.WithCancel(context.Background())
 	type outcome struct {
@@ -674,14 +674,14 @@ func TestSpecialistRunnerCancellationCrashesAttemptBeforeLeaseRelease(t *testing
 	}
 }
 
-func TestSpecialistRunnerRecoversExpiredWorkerBeforeFreshTurn(t *testing.T) {
+func TestSubagentRunnerRecoversExpiredWorkerBeforeFreshTurn(t *testing.T) {
 	provider := &specialistTestProvider{responses: []llm.ChatResponse{{
 		Text: specialistResponse(t, domain.SpecialistAction{
 			Version: domain.SpecialistLifecycleVersion, Kind: domain.SpecialistActionContinue,
 			Message: "fresh worker resumed safely",
 		}), Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
 	}}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 3, 32)
 	ctx := context.Background()
 	oldLease, err := st.AcquireRunExecutionLease(ctx, domain.AcquireRunExecutionLeaseRequest{
@@ -743,16 +743,16 @@ func TestSpecialistRunnerRecoversExpiredWorkerBeforeFreshTurn(t *testing.T) {
 	}
 }
 
-func newSpecialistRunnerFixture(t testing.TB, provider llm.Provider, budget domain.Budget,
+func newSubagentRunnerFixture(t testing.TB, provider llm.Provider, budget domain.Budget,
 	turnLimit int64, tokenLimit int64,
-) (*store.SQLiteStore, domain.Run, domain.AgentNode, *application.SpecialistRunner) {
-	return newSpecialistRunnerFixtureWithExternal(t, provider, budget, turnLimit,
+) (*store.SQLiteStore, domain.Run, domain.AgentNode, *application.SubagentRunner) {
+	return newSubagentRunnerFixtureWithExternal(t, provider, budget, turnLimit,
 		tokenLimit, false)
 }
 
-func newSpecialistRunnerFixtureWithExternal(t testing.TB, provider llm.Provider,
+func newSubagentRunnerFixtureWithExternal(t testing.TB, provider llm.Provider,
 	budget domain.Budget, turnLimit int64, tokenLimit int64, withExternal bool,
-) (*store.SQLiteStore, domain.Run, domain.AgentNode, *application.SpecialistRunner) {
+) (*store.SQLiteStore, domain.Run, domain.AgentNode, *application.SubagentRunner) {
 	t.Helper()
 	home := t.TempDir()
 	st, err := store.Open(filepath.Join(home, "cyberagent.db"))
@@ -843,7 +843,7 @@ func newSpecialistRunnerFixtureWithExternal(t testing.TB, provider llm.Provider,
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	runner := application.NewSpecialistRunner(st, router, policy.NewDefaultChecker())
+	runner := application.NewSubagentRunner(st, router, policy.NewDefaultChecker())
 	return st, run, admitted.Agent, runner
 }
 

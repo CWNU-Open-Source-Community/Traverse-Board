@@ -1,4 +1,4 @@
-import { APIRequestError, type CyberAgentClient } from "./client";
+import { APIRequestError, type APIClient } from "./client";
 
 export const agentBrowserStatusVersion = "agent_browser_status.v1";
 export const agentBrowserCloseVersion = "agent_browser_close.v1";
@@ -85,11 +85,11 @@ export function agentBrowserQueryKey(baseURL: string, runID: string) {
   return ["agent-browser", baseURL, runID] as const;
 }
 
-export async function readAgentBrowser(client: Pick<CyberAgentClient, "get">, runID: string, signal?: AbortSignal) {
+export async function readAgentBrowser(client: Pick<APIClient, "get">, runID: string, signal?: AbortSignal) {
   return parseAgentBrowserStatus(await client.get<unknown>(`/runs/${encodeURIComponent(runID)}/agent-browser`, {}, signal), runID);
 }
 
-export async function closeAgentBrowser(client: Pick<CyberAgentClient, "postControl">, runID: string, sessionID: string) {
+export async function closeAgentBrowser(client: Pick<APIClient, "postControl">, runID: string, sessionID: string) {
   if (!identity(sessionID)) throw new Error("Agent 浏览器会话无效。");
   return parseAgentBrowserStatus(await client.postControl<unknown>(`/runs/${encodeURIComponent(runID)}/agent-browser/close`, {
     version: agentBrowserCloseVersion, session_id: sessionID,

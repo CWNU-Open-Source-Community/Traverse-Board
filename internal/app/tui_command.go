@@ -38,7 +38,7 @@ func (a *App) tuiCommand(ctx context.Context, args []string) error {
 	}
 
 	sessionManager := a.newSessionManager()
-	activeCalls := &tuiActiveCallController{supervisor: a.newRunSupervisor()}
+	activeCalls := &tuiActiveCallController{supervisor: a.newAgentRunner()}
 	toolManager := a.newToolGateway().ToolRuns()
 	workspaceID := ""
 	if strings.TrimSpace(*workspaceName) != "" {
@@ -115,7 +115,7 @@ func (a *App) tuiCommand(ctx context.Context, args []string) error {
 }
 
 type tuiActiveCallController struct {
-	supervisor *application.RunSupervisor
+	supervisor *application.AgentRunner
 }
 
 func (c *tuiActiveCallController) ActiveCallForSession(sessionID string) (application.ActiveCallInfo, bool) {

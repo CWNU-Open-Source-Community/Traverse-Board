@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 const drydockCLIUsage = "usage: cyberagent drydock status|create|use|checkpoint|rewind|undo|fork|deliver|cleanup|reconcile|gc [--run <run-id>] [--generation <n>] [--operation-key <key>] [explicit confirmation flags]"
@@ -73,11 +73,11 @@ func (a *App) drydockCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	root := filepath.Join(a.home, "drydocks")
-	executor, err := repository.NewDrydockExecutor(root)
+	executor, err := repository.NewRunWorktreeExecutor(root)
 	if err != nil {
 		return err
 	}
-	service, err := application.NewDrydockService(a.store, executor)
+	service, err := application.NewRunWorktreeService(a.store, executor)
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func printDrydockCLIValue(out interface{ Write([]byte) (int, error) }, value any
 }
 
 func printDrydockWorkspace(out interface{ Write([]byte) (int, error) },
-	workspace drydock.Workspace, root string,
+	workspace runworktree.Workspace, root string,
 ) {
 	fmt.Fprintf(out, "drydock_id: %s\nworkspace_id: %s\nrun_id: %s\nstate: %s\ngeneration: %d\nbranch: %s\nbase_commit: %s\nroot_sha256: %s\nroot_fingerprint: %s\nexpected_head: %s\nexpected_binding_fingerprint: %s\nlast_checkpoint_id: %s\nlast_delivery_id: %s\nrecovery_reason: %s\nexpires_at: %s\n",
 		workspace.ID, workspace.WorkspaceID, workspace.RunID, workspace.State,

@@ -73,11 +73,11 @@ func TestFileEditHTTPKeepsConfiguredTargetAndSourceHistoryDistinct(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executor, err := repository.NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	drydocks, err := application.NewDrydockService(state, executor)
+	drydocks, err := application.NewRunWorktreeService(state, executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +112,8 @@ func TestFileEditHTTPKeepsConfiguredTargetAndSourceHistoryDistinct(t *testing.T)
 		t.Fatal(err)
 	}
 	api, err := New(state, Config{AccessToken: testAccessToken, ControlToken: testControlToken, FileWorkspaceDrydocks: drydocks,
-		FileEditReviewEnabled: true, FileEditReviewController: application.NewFileEditReviewService(state).WithDrydock(drydocks),
-		FileEditApplyEnabled: true, FileEditApplyController: application.NewFileEditApplyService(state, policy.NewDefaultChecker()).WithDrydock(drydocks)})
+		FileEditReviewEnabled: true, FileEditReviewController: application.NewFileEditReviewService(state).WithRunWorktree(drydocks),
+		FileEditApplyEnabled: true, FileEditApplyController: application.NewFileEditApplyService(state, policy.NewDefaultChecker()).WithRunWorktree(drydocks)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,12 +196,12 @@ func TestFileEditHTTPKeepsConfiguredTargetAndSourceHistoryDistinct(t *testing.T)
 		if _, err := runs.Resume(ctx, run.ID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := application.NewFileEditReviewService(state).WithDrydock(drydocks).Review(ctx,
+		if _, err := application.NewFileEditReviewService(state).WithRunWorktree(drydocks).Review(ctx,
 			application.ReviewFileEditRequest{Version: application.FileEditReviewProtocolVersion,
 				RunID: run.ID, EditID: targetEdit.ID, Action: application.FileEditApproveIntent}); err != nil {
 			t.Fatal(err)
 		}
-		if result, err := application.NewFileEditApplyService(state, policy.NewDefaultChecker()).WithDrydock(drydocks).Apply(ctx,
+		if result, err := application.NewFileEditApplyService(state, policy.NewDefaultChecker()).WithRunWorktree(drydocks).Apply(ctx,
 			application.ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
 				RunID: run.ID, EditID: targetEdit.ID, OperationKey: "http-owned-source-apply", AppliedBy: "test_operator"}); err != nil || !result.FileWritten {
 			t.Fatalf("apply source: %+v %v", result, err)
@@ -215,7 +215,7 @@ func TestFileEditHTTPKeepsConfiguredTargetAndSourceHistoryDistinct(t *testing.T)
 		}
 		next, err := application.NewThreadServiceWithExecutionCapabilities(state,
 			domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true}).
-			WithDrydock(drydocks).Submit(ctx, application.SubmitThreadMessageRequest{
+			WithRunWorktree(drydocks).Submit(ctx, application.SubmitThreadMessageRequest{
 			Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID,
 			Content: "Propose reversing the earlier edit; wait for my new approval", OperationKey: "http-owned-successor", RequestedBy: "test_operator"})
 		if err != nil || !next.SuccessorCreated {
@@ -224,7 +224,7 @@ func TestFileEditHTTPKeepsConfiguredTargetAndSourceHistoryDistinct(t *testing.T)
 		if _, err := runs.Start(ctx, next.Run.ID); err != nil {
 			t.Fatal(err)
 		}
-		inverse, err := application.NewFileEditProposalService(state, policy.NewDefaultChecker()).WithDrydock(drydocks).ProposeRevert(ctx,
+		inverse, err := application.NewFileEditProposalService(state, policy.NewDefaultChecker()).WithRunWorktree(drydocks).ProposeRevert(ctx,
 			application.CreateFileEditRevertProposalRequest{Version: application.FileEditProposalProtocolVersion,
 				RunID: next.Run.ID, SourceRunID: run.ID, SourceEditID: targetEdit.ID, Path: targetEdit.Path,
 				ExpectedSHA256: targetEdit.ProposedHash, OperationKey: "http-owned-inverse"})

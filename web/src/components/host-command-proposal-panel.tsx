@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { ApprovalContinuationView, HostCommandProposalView } from "../api/types";
 import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -9,7 +9,7 @@ import { ApprovalContinuationNotice } from "./approval-continuation-notice";
 import { SavedHostCommandOutput } from "./saved-host-command-output";
 
 export function HostCommandProposalPanel({ client, runID, threadID = "", compact = false }: {
-  client: CyberAgentClient; runID: string; threadID?: string; compact?: boolean;
+  client: APIClient; runID: string; threadID?: string; compact?: boolean;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -158,7 +158,7 @@ export function HostCommandProposalPanel({ client, runID, threadID = "", compact
 }
 
 function HostCommandOutcome({ client, proposal }: {
-  client: CyberAgentClient; proposal: HostCommandProposalView;
+  client: APIClient; proposal: HostCommandProposalView;
 }) {
   const { t } = useLocale();
   const [opened, setOpened] = useState(false);

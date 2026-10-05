@@ -140,7 +140,7 @@ func TestSupervisorResponsesOptionalReasoningStatusSurvivesSQLiteReplay(t *testi
 				t.Fatal(err)
 			}
 			replayStore := &reasoningStatusReopenReplayStore{SQLiteStore: st, path: path}
-			supervisor := application.NewRunSupervisor(replayStore, router, policy.NewDefaultChecker()).
+			supervisor := application.NewAgentRunner(replayStore, router, policy.NewDefaultChecker()).
 				WithMonetaryBudget(application.NewMonetaryBudgetService(st)).
 				WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 2})
 			result, err := supervisor.Step(t.Context(), run.ID)

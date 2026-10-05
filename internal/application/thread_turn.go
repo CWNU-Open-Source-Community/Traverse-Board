@@ -74,7 +74,7 @@ func NewThreadTurnService(store ThreadStore, lifecycle *RunLifecycleControlServi
 	service := &ThreadTurnService{threads: NewThreadService(store), lifecycle: lifecycle,
 		execution: execution}
 	if execution != nil && execution.supervisor != nil {
-		service.threads.WithDrydock(execution.supervisor.drydocks)
+		service.threads.WithRunWorktree(execution.supervisor.drydocks)
 	}
 	if evidenceStore, ok := store.(EvidenceAttachmentStore); ok {
 		service.evidence = NewEvidenceAttachmentService(evidenceStore)
@@ -95,7 +95,7 @@ func NewThreadTurnServiceWithExecutionCapabilities(store ThreadStore,
 		runtimeAuthority: capabilities.RuntimeAuthority,
 	}
 	if execution != nil && execution.supervisor != nil {
-		service.threads.WithDrydock(execution.supervisor.drydocks)
+		service.threads.WithRunWorktree(execution.supervisor.drydocks)
 	}
 	if evidenceStore, ok := store.(EvidenceAttachmentStore); ok {
 		service.evidence = NewEvidenceAttachmentService(evidenceStore)

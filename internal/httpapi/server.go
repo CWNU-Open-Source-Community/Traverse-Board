@@ -26,7 +26,6 @@ import (
 	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/hooks"
@@ -35,6 +34,7 @@ import (
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/threadtranscript"
@@ -191,7 +191,7 @@ type Store interface {
 	ReconcileScheduledJobs(context.Context, time.Time, int) (int, error)
 	GetSupervisorCheckpoint(ctx context.Context, runID string) (domain.SupervisorCheckpoint, bool, error)
 	GetRunExecutionLease(ctx context.Context, runID string) (domain.RunExecutionLease, bool, error)
-	GetDrydockByRun(ctx context.Context, runID string) (drydock.Workspace, bool, error)
+	GetDrydockByRun(ctx context.Context, runID string) (runworktree.Workspace, bool, error)
 	ListOperatorSteering(ctx context.Context, runID string,
 		limit int) ([]domain.OperatorSteeringMessage, error)
 	GetOperatorSteeringQueueSummary(ctx context.Context,
@@ -316,7 +316,7 @@ type Config struct {
 	RunCreationEnabled                    bool
 	WorkspaceImportEnabled                bool
 	WorkspaceImporter                     WorkspaceImporter
-	FileWorkspaceDrydocks                 *application.DrydockService
+	FileWorkspaceDrydocks                 *application.RunWorktreeService
 	StandardCodePresetEnabled             bool
 	SessionMessageEnabled                 bool
 	SessionSteeringControlEnabled         bool
@@ -423,7 +423,7 @@ type API struct {
 	providerDefinitionEnabled             bool
 	providerCredentialEnabled             bool
 	fileEditReviewEnabled                 bool
-	fileWorkspaceDrydocks                 *application.DrydockService
+	fileWorkspaceDrydocks                 *application.RunWorktreeService
 	fileEditProposalEnabled               bool
 	runWakeControlEnabled                 bool
 	fileEditApplyEnabled                  bool

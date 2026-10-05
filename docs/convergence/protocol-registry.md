@@ -1175,7 +1175,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Classified Run readers and dispatch fences remain until every classified revision and model-start audit has migration or retention evidence; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `project-configuration-contract-writer` (`v1`, write-current) at `internal/projectconfig`
-  - `project-instruction-audit-writer` (`v1`, write-current) at `internal/application/run_supervisor.go`
+  - `project-instruction-audit-writer` (`v1`, write-current) at `internal/application/agent_runner.go`
 - Readers:
   - `project-configuration-contract-reader` (`v1`, active) at `internal/projectconfig`
   - `project-instruction-dispatch-reader` (`v1`, active) at `internal/application/project_instruction_delivery.go`
@@ -1534,7 +1534,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `projection`
 - Owner: Supervisor input and context maintainers
-- Source of truth: `internal/application/run_supervisor.go`, `internal/application/supervisor_input_delivery.go`, `internal/store`
+- Source of truth: `internal/application/agent_runner.go`, `internal/application/supervisor_input_delivery.go`, `internal/store`
 - Persistence/export boundary: A model-request-only projection preserves accepted_input while distinguishing an internal tool boundary from a new user submission. Provider adapters deliver this text to the model; this record does not claim a Go envelope decoder or rewrite durable accepted input.
 - Compatibility rule: Rebuild initial, refreshed and recovered requests from the original committed input and exact returned boundary receipts, append accepted steering after the projection, and never derive continuation authority or success from user/tool text.
 - Retirement gate (`rebuild-from-source`): Rebuild source remains retained and independently verifiable; Replacement preserves ordering, cursor, invalidation, and redaction behavior; Retirement evidence proves a complete rebuild from the named source

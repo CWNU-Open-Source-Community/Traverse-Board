@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadView } from "../../api/types";
 import { V2Settings } from "./settings";
 import { LocaleProvider } from "../../lib/locale";
@@ -25,7 +25,7 @@ function renderArchived(threads: ThreadView[]) {
     requestID: "request-v2-archived" });
   const transitionThread = vi.fn().mockResolvedValue({});
   const client = { hasThreadControl: true, getPage,
-    transitionThread } as unknown as CyberAgentClient;
+    transitionThread } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
@@ -61,7 +61,7 @@ function renderModels(configuredProviders: string[] = []) {
     hasProviderCredentials: true,
     providerDefinitions,
     providerCredentialStatuses,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
@@ -81,7 +81,7 @@ describe("V2 archived settings", () => {
       page: { limit: 100, next_cursor: cursor ? "" : "archive-cursor" }, requestID: "archive-page",
     }));
     render(<QueryClientProvider client={new QueryClient()}><V2Settings
-      client={{ getPage } as unknown as CyberAgentClient} onOpenInspector={vi.fn()} onSelectSection={vi.fn()}
+      client={{ getPage } as unknown as APIClient} onOpenInspector={vi.fn()} onSelectSection={vi.fn()}
       section="archived" threadID="" workspaces={[]} /></QueryClientProvider>);
     await screen.findByText("Recent 0");
     await user.type(screen.getByRole("searchbox", { name: "搜索已归档的聊天" }), "matching");
@@ -151,7 +151,7 @@ describe("V2 general permission summary", () => {
     const onSelectSection = vi.fn();
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}>
-      <V2Settings client={{} as CyberAgentClient} onOpenInspector={vi.fn()}
+      <V2Settings client={{} as APIClient} onOpenInspector={vi.fn()}
         onSelectSection={onSelectSection} section="general" threadID="thread-current"
         workspaces={[]} />
     </QueryClientProvider>);
@@ -231,7 +231,7 @@ describe("V2 permission settings hierarchy", () => {
     const changeThreadExecutionPermission = vi.fn();
     const postControl = vi.fn();
     const client = { hasExecutionPermissionControl: true, get,
-      getThreadExecutionPermission, changeThreadExecutionPermission, postControl } as unknown as CyberAgentClient;
+      getThreadExecutionPermission, changeThreadExecutionPermission, postControl } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<LocaleProvider><QueryClientProvider client={queryClient}>
       <V2Settings client={client} onOpenInspector={vi.fn()} onSelectSection={vi.fn()}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ProviderDefinitionView, ThreadView, WorkspaceView } from "../../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../../lib/appearance";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
@@ -125,13 +125,13 @@ function AppearanceSettings() {
           <span className={`v2-theme-preview theme-${option}`}><i /><i /></span>
           <strong>{option === "light" ? "浅色" : option === "dark" ? "深色" : "透明液态玻璃"}</strong>
         </button>)}</div>
-      <p>玻璃模式复用 Traverse Board 的高斯模糊、透明材质与原生 Windows Acrylic；降低透明度偏好会自动回退到不透明表面。</p>
+      <p>玻璃模式复用 Universal Code 的高斯模糊、透明材质与原生 Windows Acrylic；降低透明度偏好会自动回退到不透明表面。</p>
     </div></section></>;
 }
 
 function ModelSettingsPage({ client, initialAdvancedOpen = false, prepareForDraft = false,
   setupToken = "", onModelReady }: {
-  client: CyberAgentClient; initialAdvancedOpen?: boolean; prepareForDraft?: boolean;
+  client: APIClient; initialAdvancedOpen?: boolean; prepareForDraft?: boolean;
   setupToken?: string;
   onModelReady?: (token: string, definition: ProviderDefinitionView) => void;
 }) {
@@ -198,14 +198,14 @@ function ModelSettingsPage({ client, initialAdvancedOpen = false, prepareForDraf
     <V2ModelSettings client={client} onSelectPreset={selectPreset} presets={presets} />
     {advancedPanel}
     <V2ConfirmDialog confirmLabel="知道了"
-      description="GitHub Copilot 使用 GitHub/Copilot 账户与订阅席位，不是通用 API Key 接口。Traverse 会把它作为独立的账户连接器接入；当前版本尚未完成 Copilot SDK 登录，因此不会把 PAT 或任意 Base URL 冒充为 Copilot 推理凭据。"
+      description="GitHub Copilot 使用 GitHub/Copilot 账户与订阅席位，不是通用 API Key 接口。Universal Code 会把它作为独立的账户连接器接入；当前版本尚未完成 Copilot SDK 登录，因此不会把 PAT 或任意 Base URL 冒充为 Copilot 推理凭据。"
       onCancel={() => setCopilotOpen(false)} onConfirm={() => setCopilotOpen(false)}
       open={copilotOpen} returnFocusRef={copilotTriggerRef}
       title="GitHub Copilot 需要账户连接" />
   </>;
 }
 
-function ArchivedSettings({ client, onOpenThread }: { client: CyberAgentClient; onOpenThread?: (id: string) => void }) {
+function ArchivedSettings({ client, onOpenThread }: { client: APIClient; onOpenThread?: (id: string) => void }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<ThreadView | null>(null);
@@ -288,7 +288,7 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
   onOpenInspector, onOpenThread, prepareModelForDraft = false, modelSetupToken = "",
   onModelReady, desktop = desktopBridgeAvailable() }: {
-  client: CyberAgentClient;
+  client: APIClient;
   section: V2SettingsSection;
   threadID: string;
   workspaces: WorkspaceView[];

@@ -24,7 +24,7 @@ import (
 	"cyberagent-workbench/internal/toolrun"
 )
 
-func TestRunSupervisorCompletesOneTurnAndEnforcesBudget(t *testing.T) {
+func TestAgentRunnerCompletesOneTurnAndEnforcesBudget(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestRunSupervisorCompletesOneTurnAndEnforcesBudget(t *testing.T) {
 	if _, err := service.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestRunSupervisorCompletesOneTurnAndEnforcesBudget(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorAppliesAggregateContextWindowAndCompactsOldestHistory(t *testing.T) {
+func TestAgentRunnerAppliesAggregateContextWindowAndCompactsOldestHistory(t *testing.T) {
 	for _, windowTokens := range []int{8192, 10000} {
 		t.Run(fmt.Sprintf("window_%d", windowTokens), func(t *testing.T) {
 			verifyAggregateContextCompaction(t, windowTokens)
@@ -148,7 +148,7 @@ func verifyAggregateContextCompaction(t *testing.T, windowTokens int) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, stepErr := application.NewRunSupervisor(st, router,
+	_, stepErr := application.NewAgentRunner(st, router,
 		policy.NewDefaultChecker()).Step(ctx, run.ID)
 	after, err := st.ListSessionMessages(ctx, run.SessionID, true)
 	if err != nil {
@@ -202,7 +202,7 @@ func verifyAggregateContextCompaction(t *testing.T, windowTokens int) {
 	}
 }
 
-func TestRunSupervisorStopsRepeatedContinueLoopWithRecoverableLivelockWait(t *testing.T) {
+func TestAgentRunnerStopsRepeatedContinueLoopWithRecoverableLivelockWait(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-livelock.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestRunSupervisorStopsRepeatedContinueLoopWithRecoverableLivelockWait(t *te
 		t.Fatal(err)
 	}
 
-	execution, err := application.NewRunSupervisor(st, router,
+	execution, err := application.NewAgentRunner(st, router,
 		policy.NewDefaultChecker()).Execute(ctx, run.ID, 8)
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestRunSupervisorStopsRepeatedContinueLoopWithRecoverableLivelockWait(t *te
 	}
 }
 
-func TestRunSupervisorInjectsPersistedSkillContextWithoutGrantingTools(t *testing.T) {
+func TestAgentRunnerInjectsPersistedSkillContextWithoutGrantingTools(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-skill-context.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestRunSupervisorInjectsPersistedSkillContextWithoutGrantingTools(t *testin
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestRunSupervisorInjectsPersistedSkillContextWithoutGrantingTools(t *testin
 	}
 }
 
-func TestRunSupervisorEnforcesPlanModeAndRepairsFinishToWait(t *testing.T) {
+func TestAgentRunnerEnforcesPlanModeAndRepairsFinishToWait(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-plan-mode.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +364,7 @@ func TestRunSupervisorEnforcesPlanModeAndRepairsFinishToWait(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -400,7 +400,7 @@ func TestRunSupervisorEnforcesPlanModeAndRepairsFinishToWait(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorFailsBeforeProviderWhenSelectedSkillRegistryIsUnavailable(t *testing.T) {
+func TestAgentRunnerFailsBeforeProviderWhenSelectedSkillRegistryIsUnavailable(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "missing-skill-registry.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +434,7 @@ func TestRunSupervisorFailsBeforeProviderWhenSelectedSkillRegistryIsUnavailable(
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).
+	_, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).
 		WithSkillRegistry(nil).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || provider.calls != 0 {
 		t.Fatalf("missing Skill Registry did not fail before provider: calls=%d err=%v", provider.calls, err)
@@ -450,7 +450,7 @@ func TestRunSupervisorFailsBeforeProviderWhenSelectedSkillRegistryIsUnavailable(
 	}
 }
 
-func TestRunSupervisorInjectsOnlyActiveWorkItemsIntoModelContext(t *testing.T) {
+func TestAgentRunnerInjectsOnlyActiveWorkItemsIntoModelContext(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -499,7 +499,7 @@ func TestRunSupervisorInjectsOnlyActiveWorkItemsIntoModelContext(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
+	if _, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(provider.requests) != 1 {
@@ -527,7 +527,7 @@ func TestRunSupervisorInjectsOnlyActiveWorkItemsIntoModelContext(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorInjectsOnlyNotesVisibleToRoot(t *testing.T) {
+func TestAgentRunnerInjectsOnlyNotesVisibleToRoot(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -586,7 +586,7 @@ func TestRunSupervisorInjectsOnlyNotesVisibleToRoot(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
+	if _, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(provider.requests) != 1 {
@@ -636,7 +636,7 @@ func TestRunSupervisorInjectsOnlyNotesVisibleToRoot(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorCommitsBoundedRootInboxContextExactlyOnce(t *testing.T) {
+func TestAgentRunnerCommitsBoundedRootInboxContextExactlyOnce(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -689,7 +689,7 @@ func TestRunSupervisorCommitsBoundedRootInboxContextExactlyOnce(t *testing.T) {
 	if err != nil || replayed {
 		t.Fatalf("dependency message failed: message=%#v replayed=%t err=%v", message, replayed, err)
 	}
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	first, err := supervisor.Step(ctx, run.ID)
 	if err != nil || first.InboxMessages != 1 || first.InboxRecovered ||
 		first.Status != application.LifecycleTurnCompleted {
@@ -762,7 +762,7 @@ func TestRunSupervisorCommitsBoundedRootInboxContextExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRepairsFinishWhileWorkItemsRemainActive(t *testing.T) {
+func TestAgentRunnerRepairsFinishWhileWorkItemsRemainActive(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -790,7 +790,7 @@ func TestRunSupervisorRepairsFinishWhileWorkItemsRemainActive(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +814,7 @@ func TestRunSupervisorRepairsFinishWhileWorkItemsRemainActive(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorStoreRejectsWorkItemCreatedDuringModelCall(t *testing.T) {
+func TestAgentRunnerStoreRejectsWorkItemCreatedDuringModelCall(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -842,7 +842,7 @@ func TestRunSupervisorStoreRejectsWorkItemCreatedDuringModelCall(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, err = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	_, err = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if createErr != nil {
 		t.Fatalf("concurrent work item was not created: %v", createErr)
 	}
@@ -873,7 +873,7 @@ func TestRunSupervisorStoreRejectsWorkItemCreatedDuringModelCall(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRecoversStartedTurnAcrossStoreRestart(t *testing.T) {
+func TestAgentRunnerRecoversStartedTurnAcrossStoreRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -907,7 +907,7 @@ func TestRunSupervisorRecoversStartedTurnAcrossStoreRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -938,7 +938,7 @@ func TestRunSupervisorRecoversStartedTurnAcrossStoreRestart(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRecoversCustomPendingInputAcrossStoreRestart(t *testing.T) {
+func TestAgentRunnerRecoversCustomPendingInputAcrossStoreRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -976,7 +976,7 @@ func TestRunSupervisorRecoversCustomPendingInputAcrossStoreRestart(t *testing.T)
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +996,7 @@ func TestRunSupervisorRecoversCustomPendingInputAcrossStoreRestart(t *testing.T)
 	}
 }
 
-func TestRunSupervisorRejectsConflictingRecoveredInput(t *testing.T) {
+func TestAgentRunnerRejectsConflictingRecoveredInput(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1030,7 +1030,7 @@ func TestRunSupervisorRejectsConflictingRecoveredInput(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorBoundsAndRedactsCustomInputBeforeCheckpoint(t *testing.T) {
+func TestAgentRunnerBoundsAndRedactsCustomInputBeforeCheckpoint(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1063,7 +1063,7 @@ func TestRunSupervisorBoundsAndRedactsCustomInputBeforeCheckpoint(t *testing.T) 
 	}
 }
 
-func TestRunSupervisorRetriesTransientProviderFailuresAndCommitsOnce(t *testing.T) {
+func TestAgentRunnerRetriesTransientProviderFailuresAndCommitsOnce(t *testing.T) {
 	token := "t" + "p-" + strings.Repeat("r", 40)
 	provider := &retrySequenceProvider{failures: []error{
 		llm.NewProviderError(llm.OutcomeRetryable, "retry-test", "MIMO_API_KEY="+token, nil),
@@ -1105,7 +1105,7 @@ func TestRunSupervisorRetriesTransientProviderFailuresAndCommitsOnce(t *testing.
 	}
 }
 
-func TestRunSupervisorDoesNotRetryPermanentProviderFailure(t *testing.T) {
+func TestAgentRunnerDoesNotRetryPermanentProviderFailure(t *testing.T) {
 	provider := &retrySequenceProvider{failures: []error{
 		llm.NewProviderError(llm.OutcomePermanent, "retry-test", "invalid credentials", nil),
 	}}
@@ -1128,7 +1128,7 @@ func TestRunSupervisorDoesNotRetryPermanentProviderFailure(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorPreservesPendingInputAfterRateLimitExhaustion(t *testing.T) {
+func TestAgentRunnerPreservesPendingInputAfterRateLimitExhaustion(t *testing.T) {
 	rateLimit := func() error {
 		err := llm.NewProviderError(llm.OutcomeRateLimited, "retry-test", "capacity reached", nil)
 		err.StatusCode = 429
@@ -1169,7 +1169,7 @@ func TestRunSupervisorPreservesPendingInputAfterRateLimitExhaustion(t *testing.T
 	}
 }
 
-func TestRunSupervisorDoesNotRetryPastLongProviderRetryAfter(t *testing.T) {
+func TestAgentRunnerDoesNotRetryPastLongProviderRetryAfter(t *testing.T) {
 	rateLimit := llm.NewProviderError(llm.OutcomeRateLimited, "retry-test", "retry later", nil)
 	rateLimit.RetryAfter = time.Hour
 	provider := &retrySequenceProvider{failures: []error{rateLimit}}
@@ -1279,7 +1279,7 @@ func TestSupervisorProtocolFailureReplayIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorCancellationDuringBackoffResumesNextModelAttempt(t *testing.T) {
+func TestAgentRunnerCancellationDuringBackoffResumesNextModelAttempt(t *testing.T) {
 	provider := &retrySequenceProvider{failures: []error{
 		llm.NewProviderError(llm.OutcomeRetryable, "retry-test", "temporary outage", nil),
 	}, delays: []time.Duration{20 * time.Millisecond}}
@@ -1378,7 +1378,7 @@ waitForBackoff:
 	defer st.Close()
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor = application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(
+	supervisor = application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(
 		application.ModelRetryPolicy{MaxAttempts: 3, BaseDelay: time.Second, MaxDelay: time.Second},
 	)
 	resumed, err := supervisor.Step(context.Background(), run.ID)
@@ -1421,7 +1421,7 @@ waitForBackoff:
 	}
 }
 
-func TestRunSupervisorAuditsCancellationDuringProviderCall(t *testing.T) {
+func TestAgentRunnerAuditsCancellationDuringProviderCall(t *testing.T) {
 	provider := blockingProvider{started: make(chan struct{}, 1)}
 	_, st, run, supervisor := newRetrySupervisor(t, provider)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1473,7 +1473,7 @@ func TestRunSupervisorAuditsCancellationDuringProviderCall(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.T) {
+func TestAgentRunnerRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1492,7 +1492,7 @@ func TestRunSupervisorRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: "tool-test", Model: "model"})
 	router.RegisterProvider(toolCallProvider{})
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
 		t.Fatalf("unexpected tool-call rejection code=%s err=%v", apperror.CodeOf(err), err)
@@ -1531,7 +1531,7 @@ func TestRunSupervisorRejectsNonAllowlistedToolCallsWithoutExecution(t *testing.
 	}
 }
 
-func TestRunSupervisorCancellationBeforeBeginDoesNotCheckpoint(t *testing.T) {
+func TestAgentRunnerCancellationBeforeBeginDoesNotCheckpoint(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1550,7 +1550,7 @@ func TestRunSupervisorCancellationBeforeBeginDoesNotCheckpoint(t *testing.T) {
 	}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	if _, err := supervisor.Step(cancelled, run.ID); apperror.CodeOf(err) != apperror.CodeCancelled {
 		t.Fatalf("unexpected cancellation code=%s err=%v", apperror.CodeOf(err), err)
 	}
@@ -1559,7 +1559,7 @@ func TestRunSupervisorCancellationBeforeBeginDoesNotCheckpoint(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRedactsImmediateAndPersistedResponse(t *testing.T) {
+func TestAgentRunnerRedactsImmediateAndPersistedResponse(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1579,7 +1579,7 @@ func TestRunSupervisorRedactsImmediateAndPersistedResponse(t *testing.T) {
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: "secret-test", Model: "model"})
 	router.RegisterProvider(secretResponseProvider{text: "observed " + token})
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1609,7 +1609,7 @@ func TestRunSupervisorRedactsImmediateAndPersistedResponse(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRejectsNilProviderResponse(t *testing.T) {
+func TestAgentRunnerRejectsNilProviderResponse(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1628,13 +1628,13 @@ func TestRunSupervisorRejectsNilProviderResponse(t *testing.T) {
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: "nil-test", Model: "model"})
 	router.RegisterProvider(nilResponseProvider{})
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || result.Checkpoint.Phase != domain.SupervisorTurnFailed {
 		t.Fatalf("nil response was not checkpointed safely result=%#v code=%s err=%v", result, apperror.CodeOf(err), err)
 	}
 }
 
-func TestRunSupervisorTracksAndEnforcesTokenBudget(t *testing.T) {
+func TestAgentRunnerTracksAndEnforcesTokenBudget(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1655,7 +1655,7 @@ func TestRunSupervisorTracksAndEnforcesTokenBudget(t *testing.T) {
 	provider := &fixedUsageProvider{}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	result, err := supervisor.Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1675,7 +1675,7 @@ func TestRunSupervisorTracksAndEnforcesTokenBudget(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorEnforcesPersistedExecutionTimeout(t *testing.T) {
+func TestAgentRunnerEnforcesPersistedExecutionTimeout(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1707,13 +1707,13 @@ func TestRunSupervisorEnforcesPersistedExecutionTimeout(t *testing.T) {
 	if _, err := service.Resume(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	if _, err := supervisor.Step(ctx, run.ID); apperror.CodeOf(err) != apperror.CodeDeadlineExceeded {
 		t.Fatalf("unexpected timeout code=%s err=%v", apperror.CodeOf(err), err)
 	}
 }
 
-func TestRunSupervisorAppliesRemainingExecutionDeadline(t *testing.T) {
+func TestAgentRunnerAppliesRemainingExecutionDeadline(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1744,7 +1744,7 @@ func TestRunSupervisorAppliesRemainingExecutionDeadline(t *testing.T) {
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: "blocking-test", Model: "model"})
 	router.RegisterProvider(blockingProvider{})
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeDeadlineExceeded {
 		t.Fatalf("unexpected child deadline code=%s err=%v", apperror.CodeOf(err), err)
 	}
@@ -1753,7 +1753,7 @@ func TestRunSupervisorAppliesRemainingExecutionDeadline(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorFinalizationIsAtomicAndIdempotent(t *testing.T) {
+func TestAgentRunnerFinalizationIsAtomicAndIdempotent(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1770,7 +1770,7 @@ func TestRunSupervisorFinalizationIsAtomicAndIdempotent(t *testing.T) {
 	if _, err := service.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	if _, err := supervisor.Step(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1811,7 +1811,7 @@ func TestRunSupervisorFinalizationIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
+func TestAgentRunnerTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "terminal-runtime-revocation.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1849,7 +1849,7 @@ func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
 	if _, err := runs.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(),
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(),
 		policy.NewDefaultChecker()).WithExecutionPermissionCapabilities(capabilities)
 	if _, err := supervisor.Step(ctx, run.ID); err != nil {
 		t.Fatal(err)
@@ -1864,7 +1864,7 @@ func TestRunSupervisorTerminalCommitRevokesRuntimeAuthority(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorExecuteStopsAtBoundedStepLimit(t *testing.T) {
+func TestAgentRunnerExecuteStopsAtBoundedStepLimit(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1881,7 +1881,7 @@ func TestRunSupervisorExecuteStopsAtBoundedStepLimit(t *testing.T) {
 	if _, err := service.Start(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	result, err := supervisor.Execute(ctx, run.ID, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -1899,7 +1899,7 @@ func TestRunSupervisorExecuteStopsAtBoundedStepLimit(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRootFinishCommitsTurnAndTerminalStateAtomically(t *testing.T) {
+func TestAgentRunnerRootFinishCommitsTurnAndTerminalStateAtomically(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1921,7 +1921,7 @@ func TestRunSupervisorRootFinishCommitsTurnAndTerminalStateAtomically(t *testing
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	execution, err := supervisor.Execute(ctx, run.ID, 3)
 	if err != nil {
 		t.Fatal(err)
@@ -1980,7 +1980,7 @@ func TestRunSupervisorRootFinishCommitsTurnAndTerminalStateAtomically(t *testing
 	}
 }
 
-func TestRunSupervisorRootWaitPausesAndResumesAtNextTurn(t *testing.T) {
+func TestAgentRunnerRootWaitPausesAndResumesAtNextTurn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -2004,7 +2004,7 @@ func TestRunSupervisorRootWaitPausesAndResumesAtNextTurn(t *testing.T) {
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor := application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	execution, err := supervisor.Execute(ctx, run.ID, 3)
 	if err != nil {
 		t.Fatal(err)
@@ -2032,7 +2032,7 @@ func TestRunSupervisorRootWaitPausesAndResumesAtNextTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	service = application.NewRunService(st)
-	supervisor = application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	supervisor = application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 	restored, err := st.RestoreAgentGraph(ctx, run.ID)
 	if err != nil || restored.RootAgentID != root.ID || restored.Nodes[0].Status != domain.AgentWaiting {
 		t.Fatalf("restart did not restore the waiting root graph: graph=%#v err=%v", restored, err)
@@ -2066,7 +2066,7 @@ func TestRunSupervisorRootWaitPausesAndResumesAtNextTurn(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorRepairsMalformedRootActionOnce(t *testing.T) {
+func TestAgentRunnerRepairsMalformedRootActionOnce(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2081,7 +2081,7 @@ func TestRunSupervisorRepairsMalformedRootActionOnce(t *testing.T) {
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2126,7 +2126,7 @@ func TestRunSupervisorRepairsMalformedRootActionOnce(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorSeparatesRepairTransportAttemptsFromGlobalSequence(t *testing.T) {
+func TestAgentRunnerSeparatesRepairTransportAttemptsFromGlobalSequence(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2147,7 +2147,7 @@ func TestRunSupervisorSeparatesRepairTransportAttemptsFromGlobalSequence(t *test
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(
 		application.ModelRetryPolicy{MaxAttempts: 3},
 	).Step(ctx, run.ID)
 	if err != nil {
@@ -2187,7 +2187,7 @@ func TestRunSupervisorSeparatesRepairTransportAttemptsFromGlobalSequence(t *test
 	}
 }
 
-func TestRunSupervisorFailsAfterSecondMalformedRootAction(t *testing.T) {
+func TestAgentRunnerFailsAfterSecondMalformedRootAction(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2201,7 +2201,7 @@ func TestRunSupervisorFailsAfterSecondMalformedRootAction(t *testing.T) {
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || provider.calls != 2 || result.ModelAttempts != 2 ||
 		result.ProtocolRepairs != 1 || result.ModelOutcome != llm.OutcomeInvalidResponse || result.Checkpoint.Phase != domain.SupervisorTurnFailed ||
 		result.Checkpoint.RepairPhase != domain.ProtocolRepairNone || result.Checkpoint.TotalTokens != 4 {
@@ -2223,7 +2223,7 @@ func TestRunSupervisorFailsAfterSecondMalformedRootAction(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorChargesInvalidResponseBeforeRepairBudgetCheck(t *testing.T) {
+func TestAgentRunnerChargesInvalidResponseBeforeRepairBudgetCheck(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2237,7 +2237,7 @@ func TestRunSupervisorChargesInvalidResponseBeforeRepairBudgetCheck(t *testing.T
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeResourceExhausted || provider.calls != 1 || result.ProtocolRepairs != 1 ||
 		result.Checkpoint.Phase != domain.SupervisorTurnFailed || result.Checkpoint.TotalTokens != 2 {
 		t.Fatalf("invalid response did not consume budget before repair: calls=%d result=%#v code=%s err=%v", provider.calls, result, apperror.CodeOf(err), err)
@@ -2251,7 +2251,7 @@ func TestRunSupervisorChargesInvalidResponseBeforeRepairBudgetCheck(t *testing.T
 	}
 }
 
-func TestRunSupervisorResumesPendingProtocolRepairAfterRestart(t *testing.T) {
+func TestAgentRunnerResumesPendingProtocolRepairAfterRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -2277,7 +2277,7 @@ func TestRunSupervisorResumesPendingProtocolRepairAfterRestart(t *testing.T) {
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2298,7 +2298,7 @@ func TestRunSupervisorResumesPendingProtocolRepairAfterRestart(t *testing.T) {
 	}
 }
 
-func TestRunSupervisorDoesNotRetryExhaustedProtocolRepairAfterRestart(t *testing.T) {
+func TestAgentRunnerDoesNotRetryExhaustedProtocolRepairAfterRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -2336,7 +2336,7 @@ func TestRunSupervisorDoesNotRetryExhaustedProtocolRepairAfterRestart(t *testing
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	result, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition || provider.calls != 0 || !result.Recovered ||
 		result.ProtocolRepairs != 1 || result.Checkpoint.Phase != domain.SupervisorTurnFailed || result.Checkpoint.TotalTokens != 4 {
 		t.Fatalf("exhausted repair was retried after restart: calls=%d result=%#v code=%s err=%v", provider.calls, result, apperror.CodeOf(err), err)
@@ -2350,7 +2350,7 @@ func TestRunSupervisorDoesNotRetryExhaustedProtocolRepairAfterRestart(t *testing
 	}
 }
 
-func TestRunSupervisorPersistsProtocolRepairWhenCancelledAfterResponse(t *testing.T) {
+func TestAgentRunnerPersistsProtocolRepairWhenCancelledAfterResponse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
 	if err != nil {
@@ -2369,7 +2369,7 @@ func TestRunSupervisorPersistsProtocolRepairWhenCancelledAfterResponse(t *testin
 	// Cancel after the response and repair receipt are durably accepted. A
 	// provider cancelling before it returns races stream receipt consumption
 	// and only proves pre-acceptance cancellation, not restart of Pending repair.
-	first, err := application.NewRunSupervisor(&cancelAfterProtocolReceiptStore{SQLiteStore: st, cancel: cancel}, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
+	first, err := application.NewAgentRunner(&cancelAfterProtocolReceiptStore{SQLiteStore: st, cancel: cancel}, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
 	if apperror.CodeOf(err) != apperror.CodeCancelled || provider.calls != 1 || first.ModelAttempts != 1 ||
 		first.ProtocolRepairs != 1 || first.Checkpoint.Phase != domain.SupervisorTurnStarted ||
 		first.Checkpoint.RepairPhase != domain.ProtocolRepairPending || first.Checkpoint.TotalTokens != 2 {
@@ -2384,7 +2384,7 @@ func TestRunSupervisorPersistsProtocolRepairWhenCancelledAfterResponse(t *testin
 	}
 	defer st.Close()
 	provider.afterResponse = nil
-	resumed, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(context.Background(), run.ID)
+	resumed, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(context.Background(), run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2636,7 +2636,7 @@ func (*retrySequenceProvider) SupportsTools(string) bool    { return false }
 func (*retrySequenceProvider) SupportsVision(string) bool   { return false }
 func (*retrySequenceProvider) SupportsJSONMode(string) bool { return true }
 
-func newRetrySupervisor(t *testing.T, provider llm.Provider) (string, *store.SQLiteStore, domain.Run, *application.RunSupervisor) {
+func newRetrySupervisor(t *testing.T, provider llm.Provider) (string, *store.SQLiteStore, domain.Run, *application.AgentRunner) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "cyberagent.db")
 	st, err := store.Open(path)
@@ -2657,7 +2657,7 @@ func newRetrySupervisor(t *testing.T, provider llm.Provider) (string, *store.SQL
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	return path, st, run, application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	return path, st, run, application.NewAgentRunner(st, router, policy.NewDefaultChecker())
 }
 
 func newStartedRunForProvider(t *testing.T, st *store.SQLiteStore, providerName string, budget domain.Budget) domain.Run {

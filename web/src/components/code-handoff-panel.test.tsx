@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { downloadTextFile } from "../lib/download";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { CodeHandoffPanel } from "./code-handoff-panel";
@@ -71,7 +71,7 @@ describe("CodeHandoffPanel", () => {
       mime_type: "text/markdown; charset=utf-8", content: "handoff" });
     const onOpenReceiptReview = vi.fn();
     const onOpenDelivery = vi.fn();
-    const client = { codeHandoff, codeHandoffExport } as unknown as CyberAgentClient;
+    const client = { codeHandoff, codeHandoffExport } as unknown as APIClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(<QueryClientProvider client={queryClient}>
       <CodeHandoffPanel client={client} runID="run-1"

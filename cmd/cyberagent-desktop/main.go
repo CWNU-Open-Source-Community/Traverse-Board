@@ -140,7 +140,7 @@ func (nativeWorkspaceDirectoryPicker) OpenWorkspaceDirectory(ctx context.Context
 		return "", errors.New("desktop lifecycle is unavailable")
 	}
 	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
-		Title:                "Select Traverse Board workspace folder",
+		Title:                "Select Universal Code workspace folder",
 		ShowHiddenFiles:      true,
 		CanCreateDirectories: false,
 		ResolvesAliases:      true,

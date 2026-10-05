@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunBrowserCDPPermissionView, ThreadExecutionPermissionView } from "../../api/types";
 import { V2BrowserCDPControl } from "./browser-cdp-control";
 
@@ -62,7 +62,7 @@ function renderControl({ initial = permission("restricted"), runID = "run-1",
   const client = { hasBrowserCDPPermissionControl: true, hasFullCDPDebug: true,
     hasFullCDPSessionControl: true,
     get, postControl, getFullCDPSession, openFullCDPSession, closeFullCDPSession,
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
@@ -102,7 +102,7 @@ describe("V2BrowserCDPControl", () => {
     expect(controls.postControl).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "开启完整 CDP 控制？" });
     expect(within(dialog).getByText(/读取 Cookie、捕获和修改网络请求/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/只作用于 Traverse 管理的隔离浏览器/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/只作用于 Universal Code 管理的隔离浏览器/u)).toBeInTheDocument();
     expect(within(dialog).getByText(/只设置授权资格，不会启动浏览器/u)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "开启完整 CDP" }));
 

@@ -290,14 +290,14 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"batch delivery startup reconciliation failed", err)
 	}
-	var commandRuntimeDrydocks *application.DrydockService
+	var commandRuntimeDrydocks *application.RunWorktreeService
 	if controlToken != "" && permissionCapabilities.WorkspaceSandboxEnabled {
-		drydockExecutor, executorErr := repository.NewDrydockExecutor(
+		drydockExecutor, executorErr := repository.NewRunWorktreeExecutor(
 			filepath.Join(a.home, "drydocks"))
 		if executorErr != nil {
 			return executorErr
 		}
-		commandRuntimeDrydocks, err = application.NewDrydockService(a.store,
+		commandRuntimeDrydocks, err = application.NewRunWorktreeService(a.store,
 			drydockExecutor)
 		if err != nil {
 			return err
@@ -505,10 +505,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	providerDefinitionControl.WithModelDiscoveryCredentials(a.credentials)
 	providerCredentialControl := application.NewProviderCredentialService(a.credentials).
 		WithRegistryReload(a.models, a.store)
-	fileEditReview := application.NewFileEditReviewService(a.store).WithDrydock(commandRuntimeDrydocks)
-	fileEditProposal := application.NewFileEditProposalService(a.store, a.checker).WithDrydock(commandRuntimeDrydocks)
+	fileEditReview := application.NewFileEditReviewService(a.store).WithRunWorktree(commandRuntimeDrydocks)
+	fileEditProposal := application.NewFileEditProposalService(a.store, a.checker).WithRunWorktree(commandRuntimeDrydocks)
 	fileEditApply := application.NewFileEditApplyService(a.store, a.checker,
-		workspaceCheckpoints).WithDrydock(commandRuntimeDrydocks)
+		workspaceCheckpoints).WithRunWorktree(commandRuntimeDrydocks)
 	runWakeControl := application.NewRunWakeControlService(a.store)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(a.store,
 		executionControl)
@@ -689,7 +689,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		FileEditReviewController:     fileEditReview,
 		FileEditProposalController:   fileEditProposal,
 		FileWorkspaceDrydocks:        commandRuntimeDrydocks,
-		ThreadReviewReader: application.NewThreadReviewService(a.store).WithDrydock(commandRuntimeDrydocks).
+		ThreadReviewReader: application.NewThreadReviewService(a.store).WithRunWorktree(commandRuntimeDrydocks).
 			WithCodeHandoff(application.NewCodeHandoffService(a.store).WithStandardCodeDelivery(standardCodeDelivery)),
 		RunWakeController:                   runWakeControl,
 		FileEditApplyController:             fileEditApply,

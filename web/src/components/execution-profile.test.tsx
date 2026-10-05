@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CyberAgentClient } from "../api/client";
+import { APIClient } from "../api/client";
 import type { RunDetailView, RunExecutionProfileView } from "../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from
   "../test/capability-readiness";
@@ -67,7 +67,7 @@ describe("ExecutionProfilePanel", () => {
       });
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionProfilePanel
-        client={new CyberAgentClient("read-token", "/api/v1", "control-token", {
+        client={new APIClient("read-token", "/api/v1", "control-token", {
           runControlEnabled: true,
         })}
         detail={detail()} readiness={readiness} />
@@ -89,7 +89,7 @@ describe("ExecutionProfilePanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={queryClient}>
       <ExecutionProfilePanel
-        client={new CyberAgentClient("read-token", "/api/v1", "control-token", {
+        client={new APIClient("read-token", "/api/v1", "control-token", {
           runControlEnabled: true,
         })}
         detail={detail()}

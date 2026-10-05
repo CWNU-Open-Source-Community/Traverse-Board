@@ -10,11 +10,11 @@ import (
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 func removeSchemaV153ForTestStatements() []string {
@@ -258,13 +258,13 @@ func newV153SourceRun(t *testing.T, state *SQLiteStore, suffix string) (domain.R
 	return run, workspace
 }
 
-func v153CreateDrydock(t *testing.T, state *SQLiteStore, run domain.Run) (*application.DrydockService, drydock.Workspace) {
+func v153CreateDrydock(t *testing.T, state *SQLiteStore, run domain.Run) (*application.RunWorktreeService, runworktree.Workspace) {
 	t.Helper()
-	executor, err := repository.NewDrydockExecutor(filepath.Join(t.TempDir(), "managed"))
+	executor, err := repository.NewRunWorktreeExecutor(filepath.Join(t.TempDir(), "managed"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := application.NewDrydockService(state, executor)
+	service, err := application.NewRunWorktreeService(state, executor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,9 +295,9 @@ func v153Propose(t *testing.T, state *SQLiteStore, run domain.Run, workspaceID, 
 	return edit
 }
 
-func v153Approved(t *testing.T, state *SQLiteStore, run domain.Run, edit fileedit.Edit, drydocks *application.DrydockService) fileedit.Edit {
+func v153Approved(t *testing.T, state *SQLiteStore, run domain.Run, edit fileedit.Edit, drydocks *application.RunWorktreeService) fileedit.Edit {
 	t.Helper()
-	updated, err := application.NewFileEditReviewService(state).WithDrydock(drydocks).Review(t.Context(),
+	updated, err := application.NewFileEditReviewService(state).WithRunWorktree(drydocks).Review(t.Context(),
 		application.ReviewFileEditRequest{Version: application.FileEditReviewProtocolVersion, RunID: run.ID,
 			EditID: edit.ID, Action: application.FileEditApproveIntent})
 	if err != nil {

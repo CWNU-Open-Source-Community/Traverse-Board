@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/buildinfo"
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
@@ -211,7 +212,7 @@ func GenerateOpenAPI() ([]byte, error) {
 		OpenAPI:           openAPISpecVersion,
 		JSONSchemaDialect: openAPIJSONSchemaDialect,
 		Info: openAPIInfo{
-			Title: "CyberAgent Workbench Local API",
+			Title: buildinfo.ProductName + " Local API",
 			Description: "Authenticated loopback-only API owned by the Go control plane. " +
 				"Read operations expose durable metadata; separately authorized control capabilities permit exact active-call cancellation, non-authorizing execution-profile selection, idempotent creation of a closed workspace-bound Run, durable Run-bound Session steering, idempotent Run lifecycle transitions, and bounded execution through the Go Supervisor.",
 			Version: Version,
@@ -245,7 +246,7 @@ func GenerateOpenAPI() ([]byte, error) {
 			Responses: standardOpenAPIErrorResponses(registry),
 			SecuritySchemes: map[string]openAPISecurityType{
 				"BearerAuth": {Type: "http", Scheme: "bearer", BearerFormat: "opaque",
-					Description: "Process-scoped read token; never persisted by CyberAgent."},
+					Description: "Process-scoped read token; never persisted by " + buildinfo.ProductName + "."},
 				"ControlBearerAuth": {Type: "http", Scheme: "bearer", BearerFormat: "opaque",
 					Description: "Distinct optional control token; cannot authorize read operations and is never persisted."},
 			},
@@ -1859,7 +1860,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: RunWakeExecutionPathTemplate, Method: http.MethodPost,
 			OperationID: "consumeRunWake", Summary: "Consume one due Run wake intent",
 			Tag:         "Control",
-			Description: "Explicitly claims one due wake generation and hands its bounded queued selection to the existing Go RunSupervisor. It starts no hidden worker or background loop; retries replay the generation-fenced durable handoff.",
+			Description: "Explicitly claims one due wake generation and hands its bounded queued selection to the existing Go AgentRunner. It starts no hidden worker or background loop; retries replay the generation-fenced durable handoff.",
 			DataType:    reflect.TypeOf(RunWakeExecutionView{}),
 			RequestType: reflect.TypeOf(RunWakeExecutionRequestView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}},
@@ -1957,7 +1958,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: RunExecutionControlPathTemplate, Method: http.MethodPost,
 			OperationID: "executeRunSelection", Summary: "Execute a bounded queued Run batch",
 			Tag:         "Control",
-			Description: "Freezes at most eight currently queued Session steering messages, then executes only those exact message identities through the Go RunSupervisor under one private execution lease. Retries replay the durable result and cannot consume messages appended after selection.",
+			Description: "Freezes at most eight currently queued Session steering messages, then executes only those exact message identities through the Go AgentRunner under one private execution lease. Retries replay the durable result and cannot consume messages appended after selection.",
 			DataType:    reflect.TypeOf(RunExecutionControlView{}),
 			RequestType: reflect.TypeOf(RunExecutionControlRequestView{}),
 			Control:     true, NotFound: true, Parameters: []openAPIParameter{

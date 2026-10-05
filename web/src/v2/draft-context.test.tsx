@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, within, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { WorkspaceImageAttachment } from "../api/image-attachments";
 import { V2RecoveryProvider, useV2RecoveryStore } from "./recovery-storage";
 import { requireV2DraftVersion, useV2DraftDocument } from "./draft-context";
@@ -37,7 +37,7 @@ function Probe({ name, api, initialSubmission, onSubmission }: {
 }) {
   const draft = useV2DraftDocument(workspaceID, threadID)!;
   const files = useV2FileReferences(workspaceID, threadID);
-  const images = useV2ImageInput({ client: api as unknown as CyberAgentClient, workspaceID, threadID, disabled: false });
+  const images = useV2ImageInput({ client: api as unknown as APIClient, workspaceID, threadID, disabled: false });
   const recovery = useV2RecoveryStore()!;
   const sent = useRef<V2TurnInput | undefined>(initialSubmission);
   const [notice, setNotice] = useState("");
@@ -66,7 +66,7 @@ function Probe({ name, api, initialSubmission, onSubmission }: {
       catch (error) { setNotice((error as Error).message); }
     }}>收到原请求已接收结果</button>
     <output data-testid="notice">{notice}</output>
-    <V2DraftConflict state={draft.state} client={api as unknown as CyberAgentClient} workspaceID={workspaceID}
+    <V2DraftConflict state={draft.state} client={api as unknown as APIClient} workspaceID={workspaceID}
       onResolve={(token, ref) => { draft.document.resolve(draft.scope, token, ref); }} />
   </section>;
 }

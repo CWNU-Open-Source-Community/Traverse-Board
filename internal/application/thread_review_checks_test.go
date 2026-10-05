@@ -45,7 +45,7 @@ func TestThreadReviewDrydockSuccessorKeepsActualTargetAndHistoricalEdit(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = NewFileEditReviewService(fixture.state).WithDrydock(fixture.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: fixture.run.ID, EditID: edit.ID, Action: FileEditApproveIntent}); err != nil {
+	if _, err = NewFileEditReviewService(fixture.state).WithRunWorktree(fixture.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: fixture.run.ID, EditID: edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = manager.Approve(ctx, edit.ID, owned.Path); err != nil {
@@ -58,12 +58,12 @@ func TestThreadReviewDrydockSuccessorKeepsActualTargetAndHistoricalEdit(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := NewThreadServiceWithExecutionCapabilities(fixture.state, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithDrydock(fixture.service).Submit(ctx,
+	next, err := NewThreadServiceWithExecutionCapabilities(fixture.state, standardCodeThreadTestRuntime().ExecutionPermissionCapabilities).WithRunWorktree(fixture.service).Submit(ctx,
 		SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, Content: "Review the existing changes", OperationKey: "review-successor", RequestedBy: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	review, err := NewThreadReviewService(fixture.state).WithDrydock(fixture.service).WithCodeHandoff(NewCodeHandoffService(fixture.state)).Review(ctx, thread.ID)
+	review, err := NewThreadReviewService(fixture.state).WithRunWorktree(fixture.service).WithCodeHandoff(NewCodeHandoffService(fixture.state)).Review(ctx, thread.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

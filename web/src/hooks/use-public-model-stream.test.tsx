@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { PublicModelStreamSnapshot } from "../api/types";
 import { usePublicModelStream } from "./use-public-model-stream";
 
@@ -22,7 +22,7 @@ describe("usePublicModelStream", () => {
     vi.useFakeTimers();
     try {
       const pollPublicModelStream = vi.fn().mockResolvedValue(null);
-      const client = { pollPublicModelStream } as unknown as CyberAgentClient;
+      const client = { pollPublicModelStream } as unknown as APIClient;
       const hook = renderHook(() => usePublicModelStream(client, "run-1", true));
 
       await act(async () => { await Promise.resolve(); });
@@ -44,7 +44,7 @@ describe("usePublicModelStream", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(second)
       .mockResolvedValue(first);
-    const client = { pollPublicModelStream } as unknown as CyberAgentClient;
+    const client = { pollPublicModelStream } as unknown as APIClient;
     const { result, rerender } = renderHook(({ enabled }) =>
       usePublicModelStream(client, "run-1", enabled), {
       initialProps: { enabled: true },
@@ -66,7 +66,7 @@ describe("usePublicModelStream", () => {
     const pollPublicModelStream = vi.fn()
       .mockResolvedValueOnce(first)
       .mockResolvedValue(null);
-    const client = { pollPublicModelStream } as unknown as CyberAgentClient;
+    const client = { pollPublicModelStream } as unknown as APIClient;
     const { result } = renderHook(() => usePublicModelStream(client, "run-1", true));
 
     await waitFor(() => expect(result.current.snapshot?.revision).toBe(1));

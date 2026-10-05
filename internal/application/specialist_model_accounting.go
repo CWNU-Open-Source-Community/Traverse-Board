@@ -11,7 +11,7 @@ type specialistModelNotDispatchedStore interface {
 	RecordSpecialistModelNotDispatched(context.Context, domain.AgentAttemptRef, llm.ModelAttempt) (domain.AgentAttempt, error)
 }
 
-func (r *SpecialistRunner) recordSpecialistFailureAccounting(ctx context.Context, ref domain.AgentAttemptRef,
+func (r *SubagentRunner) recordSpecialistFailureAccounting(ctx context.Context, ref domain.AgentAttemptRef,
 	attempt llm.ModelAttempt, usage *llm.Usage, notDispatched bool,
 ) (domain.AgentAttempt, error) {
 	eventCtx, cancel := specialistEventContext(ctx)

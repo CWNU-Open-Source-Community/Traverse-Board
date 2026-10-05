@@ -52,7 +52,7 @@ func supervisorContextWindowFailure(cause error) error {
 	return apperror.Wrap(apperror.CodeResourceExhausted, cause.Error(), errors.Join(errSupervisorContextWindow, cause))
 }
 
-func (s *RunSupervisor) compactSupervisorHistory(ctx context.Context, turn *domain.SupervisorTurn,
+func (s *AgentRunner) compactSupervisorHistory(ctx context.Context, turn *domain.SupervisorTurn,
 	preserveRecent int,
 ) (bool, error) {
 	privateHistory, err := s.requiresSupervisorPrivateHistory(turn.Run.Config.ModelRoute)
@@ -97,7 +97,7 @@ func (s *RunSupervisor) compactSupervisorHistory(ctx context.Context, turn *doma
 	return result.Compacted && result.RemovedMessages > 0, err
 }
 
-func (s *RunSupervisor) supervisorConversationContext(ctx context.Context, turn *domain.SupervisorTurn) (
+func (s *AgentRunner) supervisorConversationContext(ctx context.Context, turn *domain.SupervisorTurn) (
 	[]session.Message, contextmgr.Summary, bool, bool, error,
 ) {
 	history, err := s.store.ListSessionMessages(ctx, turn.Run.SessionID, false)

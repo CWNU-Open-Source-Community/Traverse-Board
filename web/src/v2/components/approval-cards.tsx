@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Globe2, LoaderCircle, ShieldAlert } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ApprovalPreviewView, ApprovalQueueItemView } from "../../api/types";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { v2QueryKeys } from "../query-keys";
@@ -24,7 +24,7 @@ const effectText: Record<ApprovalPreviewView["effect"], string> = {
 };
 
 export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
-  client: CyberAgentClient; runID: string; threadID: string;
+  client: APIClient; runID: string; threadID: string;
   onReviewFile?: (target: FileEditReviewTarget, trigger: HTMLButtonElement) => void;
 }) {
   const queryClient = useQueryClient();
@@ -56,7 +56,7 @@ export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
 }
 
 function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
-  client: CyberAgentClient; item: ApprovalQueueItemView; runID: string;
+  client: APIClient; item: ApprovalQueueItemView; runID: string;
   onDecided: (message: string) => void;
   onReviewFile?: (target: FileEditReviewTarget, trigger: HTMLButtonElement) => void;
 }) {

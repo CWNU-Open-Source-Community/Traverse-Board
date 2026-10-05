@@ -69,7 +69,7 @@ type SpecialistScheduleStore interface {
 // remain internal; the operator CLI reaches it only through an immutable,
 // application-bound schedule request. Models and ordinary tools have no path.
 type SpecialistScheduler struct {
-	runner         *SpecialistRunner
+	runner         *SubagentRunner
 	waitGraph      *waitgraph.Graph
 	lifecycleHooks *hooks.Engine
 }
@@ -83,7 +83,7 @@ func (s *SpecialistScheduler) WithLifecycleHooks(
 	return s
 }
 
-func NewSpecialistScheduler(runner *SpecialistRunner) *SpecialistScheduler {
+func NewSpecialistScheduler(runner *SubagentRunner) *SpecialistScheduler {
 	return &SpecialistScheduler{runner: runner, waitGraph: waitgraph.Default()}
 }
 

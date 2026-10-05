@@ -2,7 +2,7 @@ import { createRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadDetailView } from "../../api/types";
 import { V2ThreadContext, type RunContextSummary } from "./thread-context";
 
@@ -42,7 +42,7 @@ function fixture() {
   });
   const evidenceInventory = vi.fn(async (runID: string) => hooks.evidence?.(runID.slice(0, -4)) ?? evidence(runID.slice(0, -4)));
   const postControl = vi.fn();
-  const client = { baseURL: "/api/v1", get, evidenceInventory, postControl } as unknown as CyberAgentClient;
+  const client = { baseURL: "/api/v1", get, evidenceInventory, postControl } as unknown as APIClient;
   return { client, get, evidenceInventory, postControl, hooks };
 }
 function mount(f: ReturnType<typeof fixture>, initial = detail()) {

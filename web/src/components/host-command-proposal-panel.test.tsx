@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { HostCommandProposalPanel } from "./host-command-proposal-panel";
 
 const proposal = {
@@ -77,7 +77,7 @@ describe("HostCommandProposalPanel", () => {
   });
 
   it("reads retired proposals without approval or grant controls", async () => {
-    const client={hostCommandProposals:vi.fn().mockResolvedValue({items:[riskProposal]})} as unknown as CyberAgentClient;
+    const client={hostCommandProposals:vi.fn().mockResolvedValue({items:[riskProposal]})} as unknown as APIClient;
     renderPanel(client);
     expect(await screen.findByText(proposal.purpose)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("HostCommandProposalPanel", () => {
 
 
   it("keeps unknown Host execution visible without a continuation action", async () => {
-    const client={hasRunExecution:true,hostCommandProposals:vi.fn().mockResolvedValue({items:[{...proposal,review:approvedReview(),uncertain:true}]})} as unknown as CyberAgentClient;
+    const client={hasRunExecution:true,hostCommandProposals:vi.fn().mockResolvedValue({items:[{...proposal,review:approvedReview(),uncertain:true}]})} as unknown as APIClient;
     renderPanel(client,"thread-1");
     expect(await screen.findByText("Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded.")).toBeInTheDocument();
     expect(screen.queryByRole("button",{name:"Continue from saved outcome"})).not.toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("HostCommandProposalPanel", () => {
       const review = vi.fn();
       const client = {
         hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
-        hostCommandProposal: detail, resumeHostCommandProposal: review } as unknown as CyberAgentClient;
+        hostCommandProposal: detail, resumeHostCommandProposal: review } as unknown as APIClient;
       renderPanel(client, "thread-1");
       expect(await screen.findByText(`Execution result recorded, exit code ${exit}`)).toBeInTheDocument();
       if (cancelled) expect(screen.getByText("The command was cancelled.")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("HostCommandProposalPanel", () => {
     const denied={...proposal,review:{...approvedReview(),decision:"deny",single_use_execution_authorized:false}};
     const queue=vi.fn().mockResolvedValue({items:[denied]});
     const resume=vi.fn().mockResolvedValue({...denied,continuation:{state:"failed",replayed:false,model_called:true,tool_called:false,error_code:"FAILED_PRECONDITION"}});
-    const client={hasRunExecution:true,hostCommandProposals:queue,resumeHostCommandProposal:resume} as unknown as CyberAgentClient;
+    const client={hasRunExecution:true,hostCommandProposals:queue,resumeHostCommandProposal:resume} as unknown as APIClient;
     renderPanel(client,"thread-1");
     await userEvent.setup().click(await screen.findByRole("button",{name:"Continue from saved outcome"}));
     expect(resume).toHaveBeenCalledWith("run-1",proposal.id);
@@ -131,7 +131,7 @@ describe("HostCommandProposalPanel", () => {
       untrusted_evidence: "wrong execution output" });
     const client = {
       hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
-      hostCommandProposal: detail } as unknown as CyberAgentClient;
+      hostCommandProposal: detail } as unknown as APIClient;
     renderPanel(client, "thread-1");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Read saved output" }));
     expect(await screen.findByText("Saved output does not match this command receipt.")).toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("HostCommandProposalPanel", () => {
       const review = vi.fn();
       const client = {
         hostCommandProposals: vi.fn().mockResolvedValue({ items: [recorded], page: { limit: 100 } }),
-        hostCommandProposal: detail, resumeHostCommandProposal: review } as unknown as CyberAgentClient;
+        hostCommandProposal: detail, resumeHostCommandProposal: review } as unknown as APIClient;
       renderPanel(client, "thread-1");
       await userEvent.setup().click(await screen.findByRole("button", { name: "Read saved output" }));
       const saved = await screen.findByText(output);
@@ -171,7 +171,7 @@ function recordedProposal(exit: number, cancelled: boolean) {
       stdout_truncated: false, stderr_truncated: false, output_limit_exceeded: false } };
 }
 
-function renderPanel(client: CyberAgentClient, threadID = "", compact = false) {
+function renderPanel(client: APIClient, threadID = "", compact = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false },
     mutations: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>
@@ -186,7 +186,7 @@ it("keeps uncertain approvals and failed continuations actionable in the compact
     continuation: { state: "failed", replayed: false, model_called: true, tool_called: false } };
   const review = vi.fn();
   const client = {  resumeHostCommandProposal: review,
-    hostCommandProposals: vi.fn().mockResolvedValue({ items: [settled, uncertain, failed], page: { limit: 100 } }) } as unknown as CyberAgentClient;
+    hostCommandProposals: vi.fn().mockResolvedValue({ items: [settled, uncertain, failed], page: { limit: 100 } }) } as unknown as APIClient;
   renderPanel(client, "thread-1", true);
   expect(await screen.findByText("Uncertain command")).toBeInTheDocument();
   expect(screen.getByText("Failed continuation")).toBeInTheDocument();

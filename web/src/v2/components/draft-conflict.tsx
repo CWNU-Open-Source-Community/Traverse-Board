@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { DraftHead, DraftRef, DraftSnapshot, DraftState } from "../draft-document";
 import { V2ImagePreview } from "./image-input";
 import { V2FileAttachments } from "./file-input";
@@ -10,7 +10,7 @@ const sameRef = (left: DraftRef | null, right: DraftRef) =>
 
 export function V2DraftConflict({ state, client, workspaceID, onResolve }: {
   state: DraftState;
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
   onResolve: (expectedHeadToken: string, selectedRef: DraftRef) => void;
 }) {
@@ -92,7 +92,7 @@ export function V2DraftConflict({ state, client, workspaceID, onResolve }: {
 }
 
 function SnapshotContent({ client, workspaceID, snapshot, label }: {
-  client: CyberAgentClient; workspaceID: string; snapshot: DraftSnapshot; label: string;
+  client: APIClient; workspaceID: string; snapshot: DraftSnapshot; label: string;
 }) {
   const matchingImages = snapshot.images.filter((image) => image.workspace_id === workspaceID);
   return <>

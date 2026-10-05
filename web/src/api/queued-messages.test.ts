@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { APIRequestError, CyberAgentClient } from "./client";
+import { APIRequestError, APIClient } from "./client";
 import { provesQueueRevisionUnchanged, parseQueuePromotion, parseQueuePromotionRejection, inspectQueuePromotion, promoteQueuedMessage, parseQueuedMessages, type QueueRevisionInput, type QueuePromotionInput } from "./queued-messages";
 
 const input: QueueRevisionInput = { threadID: "thread-a", runID: "run-a", sessionID: "session-a", workspaceID: "workspace-a",
@@ -20,7 +20,7 @@ it("binds promotion receipts to the captured revision, text, attempt and executi
   expect(() => parseQueuePromotion({ ...promotion(), capability_grant: true }, promotionInput)).toThrow();
 });
 it("POSTs only captured identities and observes without retrying or inventing an execution owner", async () => {
-  const client = new CyberAgentClient("read-test", "/api/v1", "control-test");
+  const client = new APIClient("read-test", "/api/v1", "control-test");
   const post = vi.spyOn(client, "postControl").mockResolvedValue(promotion());
   await promoteQueuedMessage(client, promotionInput);
   expect(post).toHaveBeenCalledWith("/sessions/session-a/messages/message-a/promote", { version: "session_steering_promotion.v1",
@@ -53,7 +53,7 @@ it("only settles an exact sealed rejection and never treats a refusal as an appl
   for(const patch of [{expected_revision:1},{content_sha256:"b".repeat(64)},{target_attempt_id:"other-attempt"},{execution_id:"other-execution"},{replacement_message_id:"invented-replacement"}]) {
     expect(()=>parseQueuePromotionRejection({...rejected,receipt:{...receipt,...patch}},promotionInput)).toThrow();
   }
-  const client=new CyberAgentClient("read-test","/api/v1","control-test");
+  const client=new APIClient("read-test","/api/v1","control-test");
   vi.spyOn(client,"postControl").mockResolvedValue(rejected);
   expect(await promoteQueuedMessage(client,promotionInput)).toMatchObject({rejected:true});
   const value={version:source.version,session_id:input.sessionID,message_id:input.messageID,state:"rejected",rejection:rejected,execution_observed:false,capability_grant:false};
@@ -77,7 +77,7 @@ it("passes the real HTTP error proof through the client and verifies exact immut
   const bound = await proof();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: "api.v1", request_id: "request-a",
     error: { code: "INVALID_ARGUMENT", message: "正文等值", revision_unchanged: bound } }), { status: 400, headers: { "Content-Type": "application/json" } })));
-  const client = new CyberAgentClient("read-test", "/api/v1", "control-test");
+  const client = new APIClient("read-test", "/api/v1", "control-test");
   let error: unknown;
   try { await client.postControl("/sessions/session-a/messages/message-a/revise", { content: input.content }, input.operationKey); }
   catch (caught) { error = caught; }

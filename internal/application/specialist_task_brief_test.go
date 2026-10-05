@@ -65,7 +65,7 @@ func TestSpecialistTaskBriefPreservesConsumedDelegationOutsideHistoryWindow(t *t
 	const turns = 8
 	const delegation = "Inspect only AUTH_SCOPE_PERSISTENCE_215; keep public interfaces unchanged."
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, turns)}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 16}, turns+1, 256)
 	instruction := sendSpecialistBriefInstruction(t, st, run, child, delegation)
 	ctx := context.Background()
@@ -144,7 +144,7 @@ delegationDelivered:
 
 func TestSpecialistTaskBriefDeliversCompleteOwnedWorkDescriptionAndAcceptance(t *testing.T) {
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, 1)}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider,
+	st, run, child, runner := newSubagentRunnerFixture(t, provider,
 		domain.Budget{MaxTurns: 10}, 2, 256)
 	description := strings.Repeat("bounded evidence detail ", 45) + "REQUIRED_DESCRIPTION_TAIL_215"
 	criteria := []string{"first", "second", "third", "fourth", "fifth", "sixth", "zz_REQUIRED_LAST_CRITERION_215"}
@@ -182,7 +182,7 @@ func TestSpecialistTaskBriefDeliversCompleteOwnedWorkDescriptionAndAcceptance(t 
 	}
 }
 
-func specialistBriefRunnerWithWindow(t *testing.T, st *store.SQLiteStore, provider llm.Provider, tokens int) *application.SpecialistRunner {
+func specialistBriefRunnerWithWindow(t *testing.T, st *store.SQLiteStore, provider llm.Provider, tokens int) *application.SubagentRunner {
 	t.Helper()
 	ref := llm.ModelRef{Provider: provider.Name(), Model: "model"}
 	router := llm.NewRouter(ref)
@@ -196,12 +196,12 @@ func specialistBriefRunnerWithWindow(t *testing.T, st *store.SQLiteStore, provid
 	if err := router.SetContextWindow(ref, window); err != nil {
 		t.Fatal(err)
 	}
-	return application.NewSpecialistRunner(st, router, policy.NewDefaultChecker())
+	return application.NewSubagentRunner(st, router, policy.NewDefaultChecker())
 }
 
 func TestSpecialistTaskBriefSurvivesIndependentHistoryBytePressure(t *testing.T) {
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, 2)}
-	st, run, child, _ := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 4, 256)
+	st, run, child, _ := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 4, 256)
 	runner := specialistBriefRunnerWithWindow(t, st, provider, 128*1024)
 	const required = "CURRENT_SCOPE_BYTE_PRESSURE_215"
 	sendSpecialistBriefInstruction(t, st, run, child, required)
@@ -250,7 +250,7 @@ func TestSpecialistTaskBriefSurvivesFinalWindowFittingAndStopsIfRequiredCannotFi
 	for _, refuse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("refuse_%t", refuse), func(t *testing.T) {
 			provider := &specialistTestProvider{responses: specialistBriefResponses(t, 1)}
-			st, run, child, _ := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+			st, run, child, _ := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
 			runner := specialistBriefRunnerWithWindow(t, st, provider, 4096)
 			required := "FINAL_WINDOW_REQUIRED_SCOPE_215"
 			instruction := sendSpecialistBriefInstruction(t, st, run, child, required)
@@ -313,7 +313,7 @@ func sendSpecialistBriefOperation(t *testing.T, st *store.SQLiteStore, run domai
 
 func TestSpecialistTaskBriefActualRequestsApplyCorrectionsReplacementAndWithdrawal(t *testing.T) {
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, 4)}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 5, 256)
+	st, run, child, runner := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 5, 256)
 	original := sendSpecialistBriefInstruction(t, st, run, child, "RETIRED_ORIGINAL_SCOPE_215")
 	if _, err := runner.Step(t.Context(), run.ID, child.ID); err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestSpecialistTaskBriefActualRequestsApplyCorrectionsReplacementAndWithdraw
 
 func TestSpecialistTaskBriefRejectsTwentyFirstActiveOwnedWorkItem(t *testing.T) {
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, 1)}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+	st, run, child, runner := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
 	for i := range 21 {
 		if _, err := application.NewWorkItemService(st).Create(t.Context(), application.CreateWorkItemRequest{RunID: run.ID, OwnerAgentID: child.ID, Title: fmt.Sprintf("required unfinished work %d", i)}); err != nil {
 			t.Fatal(err)
@@ -377,7 +377,7 @@ func TestSpecialistTaskBriefRemainsCompleteDuringProtocolRepair(t *testing.T) {
 	responses := specialistBriefResponses(t, 2)
 	responses[0].Text = "invalid lifecycle response"
 	provider := &specialistTestProvider{responses: responses}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+	st, run, child, runner := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
 	const required = "PROTOCOL_REPAIR_REQUIRED_SCOPE_215"
 	sendSpecialistBriefInstruction(t, st, run, child, required)
 	result, err := runner.Step(t.Context(), run.ID, child.ID)
@@ -393,7 +393,7 @@ func TestSpecialistTaskBriefRemainsCompleteDuringProtocolRepair(t *testing.T) {
 
 func TestSpecialistTaskBriefRemainsCompleteDuringTransportRetry(t *testing.T) {
 	provider := &specialistTestProvider{responses: specialistBriefResponses(t, 2), failures: []error{llm.NewProviderError(llm.OutcomeRetryable, "specialist-test", "bounded transient failure", nil)}}
-	st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+	st, run, child, runner := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
 	runner.WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 2})
 	const required = "TRANSPORT_RETRY_REQUIRED_SCOPE_215"
 	sendSpecialistBriefInstruction(t, st, run, child, required)
@@ -417,7 +417,7 @@ func TestSpecialistTaskBriefRedactedSourcesCompleteAndSettleExactlyOnce(t *testi
 	for _, source := range []string{"instruction", "owned_work"} {
 		t.Run(source, func(t *testing.T) {
 			provider := &specialistTestProvider{responses: specialistBriefResponses(t, 2)}
-			st, run, child, runner := newSpecialistRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
+			st, run, child, runner := newSubagentRunnerFixture(t, provider, domain.Budget{MaxTurns: 10}, 3, 256)
 			instructionText, workText := "keep the current scope", "complete the assigned review"
 			if source == "instruction" {
 				instructionText = raw

@@ -35,7 +35,7 @@ type AgentCodeToolExecutor struct {
 	manager               *fileedit.Manager
 	apply                 *FileEditApplyService
 	revert                *FileEditProposalService
-	drydocks              *DrydockService
+	drydocks              *RunWorktreeService
 	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
@@ -54,11 +54,11 @@ type agentCodeGitHubEvidenceStore interface {
 	GetGitHubReviewEvidence(context.Context, string) (githubreview.EvidenceRecord, bool, error)
 }
 
-func (e *AgentCodeToolExecutor) WithDrydock(drydocks *DrydockService) *AgentCodeToolExecutor {
+func (e *AgentCodeToolExecutor) WithRunWorktree(drydocks *RunWorktreeService) *AgentCodeToolExecutor {
 	if e != nil {
 		e.drydocks = drydocks
-		e.apply.WithDrydock(drydocks)
-		e.revert.WithDrydock(drydocks)
+		e.apply.WithRunWorktree(drydocks)
+		e.revert.WithRunWorktree(drydocks)
 	}
 	return e
 }

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 
 vi.mock("../lib/locale", () => ({
@@ -22,7 +22,7 @@ describe("EmbeddedAnalyzerPanel", () => {
       host_process_authorized: false, raw_request_included: false,
       bearer_token_included: false, replayed: false,
     });
-    const client = { executeEmbeddedAnalyzer } as unknown as CyberAgentClient;
+    const client = { executeEmbeddedAnalyzer } as unknown as APIClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: {
       mutations: { retry: false }, queries: { retry: false },

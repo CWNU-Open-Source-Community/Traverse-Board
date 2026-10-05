@@ -2,13 +2,13 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Columns2, FileClock, FileCode2, FileDiff, FileInput,
   FileOutput, GitCommitHorizontal, GitCompareArrows, RefreshCw, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { formatDate } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function RepositoryHistoryPanel({ client, workspaceID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   workspaceID: string;
 }) {
   const { t } = useLocale();

@@ -144,7 +144,7 @@ func TestMidTurnCorrectionAfterMoneyReserveRebindsUnsentAttempt(t *testing.T) {
 	if err := router.SetContextWindow(llm.ModelRef{Provider: provider.Name(), Model: "model"}, window); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := application.NewRunSupervisor(gate, router, policy.NewDefaultChecker()).
+	supervisor := application.NewAgentRunner(gate, router, policy.NewDefaultChecker()).
 		WithMonetaryBudget(application.NewMonetaryBudgetService(st))
 	done := make(chan error, 1)
 	go func() { _, stepErr := supervisor.Step(context.Background(), run.ID); done <- stepErr }()
@@ -230,7 +230,7 @@ func TestMidTurnCorrectionReopenReleasesUnsentMonetaryReservation(t *testing.T) 
 	if err := router.SetContextWindow(llm.ModelRef{Provider: provider.Name(), Model: "model"}, window); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunSupervisor(reopened, router, policy.NewDefaultChecker()).
+	if _, err := application.NewAgentRunner(reopened, router, policy.NewDefaultChecker()).
 		WithMonetaryBudget(application.NewMonetaryBudgetService(reopened)).Step(t.Context(), run.ID); err != nil {
 		t.Fatal(err)
 	}

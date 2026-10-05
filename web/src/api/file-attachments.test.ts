@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 import { validFileAttachments, type WorkspaceFileAttachment } from "./file-attachments";
 
 const bytes = new TextEncoder().encode("中文附件\noriginal bytes\n");
@@ -19,7 +19,7 @@ it("uploads all original bytes and seals a receipt to the original workspace, by
   vi.stubGlobal("fetch", fetcher);
   const file = new File([bytes], receipt.name, { type: receipt.mime_type });
   Object.defineProperty(file, "arrayBuffer", { value: async () => bytes.buffer });
-  const client = new CyberAgentClient("read", "/api/v1", "write");
+  const client = new APIClient("read", "/api/v1", "write");
   expect(await client.uploadWorkspaceFile("workspace-1", file, "original-file-upload-key")).toEqual(receipt);
   const request = fetcher.mock.calls[0][1];
   expect(JSON.parse(request.body).data_base64).toBe(Buffer.from(bytes).toString("base64"));
@@ -30,7 +30,7 @@ it("observes the original key using GET without retrying upload and rejects a fo
   const fetcher = vi.fn().mockImplementationOnce(() => envelope({ state: "not_received" }))
     .mockImplementationOnce(() => envelope({ state: "stored", attachment: { ...receipt, workspace_id: "other" } }));
   vi.stubGlobal("fetch", fetcher);
-  const client = new CyberAgentClient("read", "/api/v1", "write");
+  const client = new APIClient("read", "/api/v1", "write");
   expect(await client.inspectWorkspaceFileUpload("workspace-1", "original-file-upload-key")).toEqual({ state: "not_received" });
   await expect(client.inspectWorkspaceFileUpload("workspace-1", "original-file-upload-key")).rejects.toThrow("无法核对");
   for (const [, request] of fetcher.mock.calls) {
@@ -46,7 +46,7 @@ it("downloads exact original octet-stream bytes and supports empty files without
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(bytes, { headers: headers(receipt) }))
     .mockResolvedValueOnce(new Response(null, { headers: headers(empty) }))
     .mockResolvedValueOnce(new Response(new Uint8Array(bytes.length), { headers: headers(receipt) })));
-  const client = new CyberAgentClient("read");
+  const client = new APIClient("read");
   expect((await client.downloadWorkspaceFile(receipt)).size).toBe(bytes.length);
   expect((await client.downloadWorkspaceFile(empty)).size).toBe(0);
   await expect(client.downloadWorkspaceFile(receipt)).rejects.toThrow("内容验证失败");

@@ -12,11 +12,11 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
 )
@@ -368,8 +368,8 @@ func (s *StandardCodePresetService) preflightDrydock(ctx context.Context, runID,
 	if runID != "" {
 		projection, projectionErr := s.drydocks.Projection(ctx, runID, 1)
 		if projectionErr == nil && projection.Workspace != nil &&
-			(projection.Workspace.State == drydock.StateReady ||
-				projection.Workspace.State == drydock.StateDelivered) &&
+			(projection.Workspace.State == runworktree.StateReady ||
+				projection.Workspace.State == runworktree.StateDelivered) &&
 			projection.Trust != nil {
 			return true, true, "", nil
 		}
@@ -405,8 +405,8 @@ func (s *StandardCodePresetService) continuePrepared(ctx context.Context,
 		return StandardCodePresetResult{}, apperror.Normalize(err)
 	}
 	base.DrydockReady = projection.Workspace != nil && projection.Trust != nil &&
-		(projection.Workspace.State == drydock.StateReady ||
-			projection.Workspace.State == drydock.StateDelivered)
+		(projection.Workspace.State == runworktree.StateReady ||
+			projection.Workspace.State == runworktree.StateDelivered)
 	run, runErr := s.store.GetRun(ctx, operation.RunID)
 	if runErr != nil {
 		return StandardCodePresetResult{}, apperror.Normalize(runErr)
@@ -514,7 +514,7 @@ func (s *StandardCodePresetService) continuePrepared(ctx context.Context,
 }
 
 func (s *StandardCodePresetService) prepareCommit(ctx context.Context,
-	operation domain.StandardCodePresetOperation, workspace drydock.Workspace,
+	operation domain.StandardCodePresetOperation, workspace runworktree.Workspace,
 ) (domain.StandardCodePresetCommit, error) {
 	mode, err := s.store.GetRunMode(ctx, operation.RunID)
 	if err != nil {

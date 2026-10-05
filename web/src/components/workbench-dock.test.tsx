@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { LocaleProvider } from "../lib/locale";
 import { WorkbenchDock } from "./workbench-dock";
 
@@ -74,7 +74,7 @@ function renderDock(locale: "zh-CN" | "en-US" = "zh-CN") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const client = {} as CyberAgentClient;
+  const client = {} as APIClient;
   return render(
     <LocaleProvider><QueryClientProvider client={queryClient}>
         <WorkbenchDock client={client} desktop={false} resourceKind="run"

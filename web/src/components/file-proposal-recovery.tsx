@@ -2,12 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DiffEditor } from "@monaco-editor/react";
 import { AlertTriangle, History, X } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function FileProposalRecovery({ client, runID, editID, onClose }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   editID: string;
   onClose: () => void;

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, LoaderCircle, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type {
   ApprovalDecisionControlRequestView,
   ApprovalQueueItemView,
@@ -15,7 +15,7 @@ import { useLocale } from "../lib/locale";
 type ApprovalAction = ApprovalDecisionControlRequestView["action"];
 
 export function ApprovalPanel({ client, runID, threadID = "" }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   threadID?: string;
 }) {

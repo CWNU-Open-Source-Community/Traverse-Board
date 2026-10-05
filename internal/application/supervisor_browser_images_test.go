@@ -95,7 +95,7 @@ func TestSupervisorBrowserImagesKeepExactNativePairAndVisionBoundary(t *testing.
 		t.Run(string(support), func(t *testing.T) {
 			router := llm.NewRouter(ref)
 			router.RegisterProvider(screenshotVisionProvider{state: support})
-			supervisor := &RunSupervisor{router: router, browserActions: service}
+			supervisor := &AgentRunner{router: router, browserActions: service}
 			actual, err := supervisor.supervisorBrowserImages(t.Context(), checkpoint, ref, request, st.rounds)
 			if err != nil {
 				t.Fatal(err)

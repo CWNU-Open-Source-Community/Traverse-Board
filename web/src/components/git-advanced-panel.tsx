@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import { gitAdvancedProtocol, type GitAdvancedOperation } from "../api/git-advanced";
 import type {
   GitAdvancedPreviewView,
@@ -36,7 +36,7 @@ function createSpec(operation: GitAdvancedOperation,
 
 export function GitAdvancedPanel({ client, runID, onOpenApprovals,
   retainedReview, onRetainedReviewChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   runID: string;
   onOpenApprovals: () => void;
   retainedReview?: GitAdvancedReviewResultView | null;

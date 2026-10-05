@@ -2,7 +2,7 @@ import { createRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ThreadDetailView } from "../../api/types";
 import { standardCodeDeliveryFixture } from "../../test/standard-code-delivery";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from "../../test/capability-readiness";
@@ -25,7 +25,7 @@ it("reviews each task execution and carries exact edit context into a correction
   const client = { fileEditQueue, fileEditChangeSet: vi.fn().mockResolvedValue({
     applied_count: 1, returned_count: 1, proposed_count: 0, approved_count: 0, denied_count: 0,
     failed_count: 0, total_diff_bytes: 24,
-  }) } as unknown as CyberAgentClient;
+  }) } as unknown as APIClient;
   const detail = { thread: { id: "thread-1", title: "检查流程", workspace_id: "workspace-1" },
     active_run: { id: "run-2", status: "running" }, last_run: { id: "run-2", status: "running" },
     runs: [{ ordinal: 1, run: { id: "run-1", status: "completed" } },
@@ -65,7 +65,7 @@ it("keeps lifecycle retries bound to the original execution when another executi
     ? new Promise((resolve) => { finishResume = resolve; }) : Promise.reject(new Error("pause response lost")));
   const client = { controlRunLifecycle, hasRunLifecycle: true,
     fileEditQueue: vi.fn().mockResolvedValue({ items: [], apply_enabled: false }),
-    fileEditChangeSet: vi.fn().mockResolvedValue({}) } as unknown as CyberAgentClient;
+    fileEditChangeSet: vi.fn().mockResolvedValue({}) } as unknown as APIClient;
   const detail = { thread: { id: "thread-1", title: "检查流程", workspace_id: "workspace-1" },
     active_run: { id: "run-2", status: "running" }, last_run: { id: "run-2", status: "running" },
     runs: [{ ordinal: 1, run: { id: "run-1", status: "paused" } },
@@ -113,7 +113,7 @@ function reportClient(recordStandardCodeDelivery: ReturnType<typeof vi.fn>) {
     fileEditQueue: vi.fn().mockResolvedValue({ items: [], apply_enabled: false }),
     fileEditChangeSet: vi.fn().mockResolvedValue({}) };
 }
-function renderReview(client: CyberAgentClient, queryClient: QueryClient, detail = reportDetail()) {
+function renderReview(client: APIClient, queryClient: QueryClient, detail = reportDetail()) {
   return render(<QueryClientProvider client={queryClient}><V2TaskReview client={client} detail={detail}
     working={false} onClose={vi.fn()} onRequestChange={vi.fn()} returnFocusRef={createRef()} /></QueryClientProvider>);
 }
@@ -124,7 +124,7 @@ it("offers only original-request confirmation while a configured run's report re
   const client = reportClient(record);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const user = userEvent.setup();
-  renderReview(client as unknown as CyberAgentClient, queryClient);
+  renderReview(client as unknown as APIClient, queryClient);
   await openHistory(user, "检查与交付");
   await user.click(screen.getByRole("button", { name: "生成当前交付报告" }));
   await screen.findByText(/report response lost/);
@@ -147,7 +147,7 @@ it("preserves an unknown report through modal closure and a different execution'
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   const user = userEvent.setup();
-  const view = renderReview(client as unknown as CyberAgentClient, queryClient);
+  const view = renderReview(client as unknown as APIClient, queryClient);
   await openHistory(user, "检查与交付");
   await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-1");
   await user.click(screen.getByRole("button", { name: "生成当前交付报告" }));
@@ -156,7 +156,7 @@ it("preserves an unknown report through modal closure and a different execution'
   secondDetail.thread.workspace_id = "workspace-2";
   secondDetail.runs = secondDetail.runs.filter(({ run }) => run.id === "run-2");
   view.rerender(<QueryClientProvider client={queryClient}><V2TaskReview
-    client={client as unknown as CyberAgentClient} detail={secondDetail} working={false}
+    client={client as unknown as APIClient} detail={secondDetail} working={false}
     onClose={vi.fn()} onRequestChange={vi.fn()} returnFocusRef={createRef()} /></QueryClientProvider>);
   await user.click(screen.getByRole("button", { name: "生成当前交付报告" }));
   await screen.findByText(/report response lost/);
@@ -183,7 +183,7 @@ it("preserves an unknown report through modal closure and a different execution'
   recordStandardCodeDelivery.mockResolvedValueOnce({ report: stale, replayed: true });
   const changedDetail = secondDetail;
   changedDetail.runs[0].run.standard_code_preset_configured = false;
-  renderReview(client as unknown as CyberAgentClient, queryClient, changedDetail);
+  renderReview(client as unknown as APIClient, queryClient, changedDetail);
   await openHistory(user, "检查与交付");
   expect(screen.queryByRole("button", { name: "生成当前交付报告" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "确认上次报告" }));
@@ -205,7 +205,7 @@ it("requires an explicit configured preset and can read an older execution's exi
     .mockResolvedValue({ run: { id: "run-1", standard_code_preset_configured: true } });
   const get = vi.fn((path: string) => path.startsWith("/runs/") ? getRun() : Promise.reject(new Error("task review unavailable in this fixture")));
   const record = vi.fn().mockResolvedValue({ report: reportFor("run-1"), replayed: false });
-  const client = { ...reportClient(record), get } as unknown as CyberAgentClient;
+  const client = { ...reportClient(record), get } as unknown as APIClient;
   renderReview(client, new QueryClient({ defaultOptions: { queries: { retry: false } } }), detail);
   expect(get.mock.calls.some(([path]) => String(path).startsWith("/runs/"))).toBe(false);
   await openHistory(user, "检查与交付");
@@ -239,7 +239,7 @@ it("offers coding configuration and the exact plan within the current task while
   const configureStandardCode = vi.fn().mockResolvedValue({ status: "blocked", run_id: "run-2", action: "configure",
     backend_intent: "auto", trust_required: true, trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"],
     docker_readiness: { available: false }, network: "disabled", credentials: "none" });
-  const client = { ...reportClient(vi.fn()), get, runCapabilityReadiness, configureStandardCode } as unknown as CyberAgentClient;
+  const client = { ...reportClient(vi.fn()), get, runCapabilityReadiness, configureStandardCode } as unknown as APIClient;
   renderReview(client, new QueryClient({ defaultOptions: { queries: { retry: false } } }), detail);
   await openHistory(user, "检查与交付");
   expect(await screen.findByText("No plan proposal yet")).toBeInTheDocument();

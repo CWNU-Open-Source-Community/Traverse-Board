@@ -71,8 +71,8 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("root found=%t err=%v", found, err)
 	}
-	supervisor := NewRunSupervisor(fixture.state, nil, reviewedDrydockFilePolicy{})
-	supervisor.WithDrydock(fixture.service)
+	supervisor := NewAgentRunner(fixture.state, nil, reviewedDrydockFilePolicy{})
+	supervisor.WithRunWorktree(fixture.service)
 	_, raw, err := supervisor.supervisorAgentCodeCapabilities(t.Context(), domain.SupervisorTurn{
 		Run: run, Mission: mission, Agent: root, Mode: mode}, permission)
 	if err != nil {
@@ -160,7 +160,7 @@ func TestAgentCodeWorkspaceAuthorityUsesOwnedDrydock(t *testing.T) {
 	if _, err := supervisor.tools.Invoke(t.Context(), stale); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeFailedPrecondition {
 		t.Fatalf("old source authority was reinterpreted: %v", err)
 	}
-	if _, err := NewFileEditReviewService(fixture.state).WithDrydock(fixture.service).Review(t.Context(),
+	if _, err := NewFileEditReviewService(fixture.state).WithRunWorktree(fixture.service).Review(t.Context(),
 		ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: run.ID, EditID: edit.ID,
 			Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)

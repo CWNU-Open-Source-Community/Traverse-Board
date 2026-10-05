@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleX, LoaderCircle, Play, SendHorizontal, Square } from "lucide-react";
-import type { CyberAgentClient } from "../api/client";
+import type { APIClient } from "../api/client";
 import type { RunView, SessionMessageControlRequestView,
   SessionMessageControlView, OperatorSteeringQueueView,
   RunExecutionControlView } from "../api/types";
@@ -34,7 +34,7 @@ interface SessionTurnResult {
 
 export function SessionSteeringQueue({ client, sessionID, state, run = null,
   diagnosticSession = false }: {
-  client: CyberAgentClient;
+  client: APIClient;
   sessionID: string;
   state: OperatorSteeringQueueView | null;
   run?: RunView | null;
@@ -148,7 +148,7 @@ export interface SessionComposerStatus { pending: boolean; error: string | null 
 
 export function SessionComposer({ client, sessionID, run, workspaceID = "", contextTokens = 0,
   contextPartial = false, diagnosticSession = false, phase, onOpenPlugins, publicModelStream, onStatusChange }: {
-  client: CyberAgentClient;
+  client: APIClient;
   sessionID: string;
   run: RunView | null;
   workspaceID?: string;

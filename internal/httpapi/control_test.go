@@ -130,7 +130,7 @@ func TestModelCancellationControlStopsProviderAcrossSQLiteConnections(t *testing
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	supervisor := application.NewRunSupervisor(workerStore, router, policy.NewDefaultChecker()).
+	supervisor := application.NewAgentRunner(workerStore, router, policy.NewDefaultChecker()).
 		WithModelCancellationPollInterval(10 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -221,7 +221,7 @@ func TestSpecialistModelCancellationControlStopsExactChildAcrossSQLiteConnection
 	}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	runner := application.NewSpecialistRunner(workerStore, router,
+	runner := application.NewSubagentRunner(workerStore, router,
 		policy.NewDefaultChecker()).WithModelCancellationPollInterval(10 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

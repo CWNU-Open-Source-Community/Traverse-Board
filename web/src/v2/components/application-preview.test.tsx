@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRef } from "react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { ApplicationPreview } from "../../api/application-preview";
 import { V2ApplicationPreview } from "./application-preview";
 import { fullCDPSessionQueryKey } from "./browser-cdp-control";
@@ -28,7 +28,7 @@ function fixture(cachedClosedSession = false) {
     getFullCDPSession: vi.fn(async () => ({ session: { run_id: "run-preview", session_id: "browser-preview", state: cachedClosedSession ? "closed" : "ready", target_origin: "http://127.0.0.1:18886", browser: { product: "chrome", channel: "stable" }, process_tree_quiescent: true, profile_cleaned: true } })),
     postControl: post, downloadVerifiedImage: vi.fn(async () => new Blob(["png"])),
     closeFullCDPSession: vi.fn(async () => ({ session: { state: "closed", session_id: "browser-preview", process_tree_quiescent: true, profile_cleaned: true } })),
-  } as unknown as CyberAgentClient;
+  } as unknown as APIClient;
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5000 }, mutations: { retry: false } } });
   if (cachedClosedSession) queries.setQueryData(fullCDPSessionQueryKey("run-preview"), {
     session: { run_id: "run-preview", session_id: "browser-preview", state: "ready", target_origin: "http://127.0.0.1:18886" },

@@ -4,7 +4,7 @@ import {
   Activity, ArrowLeft, Check, ChevronRight, CircleAlert, KeyRound, LoaderCircle,
   Plus, Save, Server, ShieldCheck, Trash2,
 } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type {
   ModelHarnessQualificationView,
   ProviderDiagnosticView,
@@ -59,7 +59,7 @@ export type V2ProviderDraftPreset = {
 };
 
 type V2ProviderSettingsProps = {
-  client: CyberAgentClient;
+  client: APIClient;
   initialPreset?: V2ProviderDraftPreset;
   onExit?: () => void;
   onSaved?: (definition: ProviderDefinitionView) => void;

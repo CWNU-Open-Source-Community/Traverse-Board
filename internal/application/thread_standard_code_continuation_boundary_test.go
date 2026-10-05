@@ -32,7 +32,7 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 	if _, err := NewRunService(st).Resume(ctx, f.base.run.ID); err != nil {
 		t.Fatal(err)
 	}
-	proposalService := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithDrydock(f.base.service)
+	proposalService := NewFileEditProposalService(st, policy.NewDefaultChecker()).WithRunWorktree(f.base.service)
 	source, err := proposalService.IssueSource(ctx, f.base.run.ID, "tracked.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFileEditReviewService(st).WithDrydock(f.base.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: f.base.run.ID, EditID: proposal.Edit.ID, Action: FileEditApproveIntent}); err != nil {
+	if _, err := NewFileEditReviewService(st).WithRunWorktree(f.base.service).Review(ctx, ReviewFileEditRequest{Version: FileEditReviewProtocolVersion, RunID: f.base.run.ID, EditID: proposal.Edit.ID, Action: FileEditApproveIntent}); err != nil {
 		t.Fatal(err)
 	}
 	oldApproval, err := st.GetApprovalByProposal(ctx, proposal.Edit.ID)
@@ -59,7 +59,7 @@ func TestThreadStandardCodeContinuationPreservesCurrentPermissionAndRequiresProv
 		t.Fatal(err)
 	}
 	request := SubmitThreadMessageRequest{Version: domain.ThreadMessageProtocolVersion, ThreadID: thread.ID, Content: "Continue in the current coding workspace", OperationKey: "next-ask-code-turn", RequestedBy: "operator"}
-	result, err := NewThreadServiceWithExecutionCapabilities(st, f.capabilities).WithDrydock(f.base.service).Submit(ctx, request)
+	result, err := NewThreadServiceWithExecutionCapabilities(st, f.capabilities).WithRunWorktree(f.base.service).Submit(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}

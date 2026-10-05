@@ -13,8 +13,8 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 )
 
@@ -146,8 +146,8 @@ func (scope ExecutionContext) Validate() error {
 		}
 	}
 	if scope.DrydockGeneration < 1 || scope.ProfileRevision < 1 ||
-		scope.PermissionRevision < 1 || !drydock.ValidDigest(scope.DrydockBindingSHA256) ||
-		!drydock.ValidDigest(scope.CapabilityGeneration) {
+		scope.PermissionRevision < 1 || !runworktree.ValidDigest(scope.DrydockBindingSHA256) ||
+		!runworktree.ValidDigest(scope.CapabilityGeneration) {
 		return errors.New("Standard Code execution context revision is invalid")
 	}
 	return nil
@@ -238,7 +238,7 @@ func (value BackendReadiness) Validate() error {
 			value.Status != ReadinessUnavailable) || value.ReasonCode == "" ||
 		value.RemediationCode == "" || value.CheckedAt.IsZero() ||
 		!value.ExpiresAt.After(value.CheckedAt) || value.CapabilityGrant ||
-		!drydock.ValidDigest(value.EvidenceSHA256) {
+		!runworktree.ValidDigest(value.EvidenceSHA256) {
 		return errors.New("Standard Code backend readiness is invalid")
 	}
 	expectedBlocker, expectedRemediation := "", ""
@@ -295,7 +295,7 @@ type ArtifactResult struct {
 
 func (value ArtifactResult) Validate() error {
 	if !domain.ValidAgentID(value.ID) || (value.Kind != "logs" && value.Kind != "files") ||
-		!drydock.ValidDigest(value.SHA256) || value.SizeBytes < 0 ||
+		!runworktree.ValidDigest(value.SHA256) || value.SizeBytes < 0 ||
 		value.SizeBytes > sandbox.MaxDockerOutputTotalBytes || value.FileCount < 0 ||
 		value.FileCount > sandbox.MaxDockerOutputFiles {
 		return errors.New("Standard Code Artifact result is invalid")

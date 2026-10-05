@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/apperror"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/runworktree"
 )
 
 const drydockWorkspaceColumns = `id, protocol_version, run_id, mission_id,
@@ -35,33 +35,33 @@ type drydockQueryer interface {
 }
 
 func (s *SQLiteStore) CreateDrydockTrust(ctx context.Context,
-	value drydock.Trust,
-) (drydock.Trust, bool, error) {
+	value runworktree.Trust,
+) (runworktree.Trust, bool, error) {
 	if err := value.Validate(); err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	defer tx.Rollback()
 	valueResult, replayed, err := createDrydockTrustTx(ctx, tx, value)
 	if err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	return valueResult, replayed, nil
 }
 
-func createDrydockTrustTx(ctx context.Context, tx *sql.Tx, value drydock.Trust) (drydock.Trust, bool, error) {
+func createDrydockTrustTx(ctx context.Context, tx *sql.Tx, value runworktree.Trust) (runworktree.Trust, bool, error) {
 	var err error
 	if existing, found, getErr := getDrydockTrustByRun(ctx, tx, value.RunID); getErr != nil {
-		return drydock.Trust{}, false, getErr
+		return runworktree.Trust{}, false, getErr
 	} else if found {
 		if !reflect.DeepEqual(existing, value) {
-			return drydock.Trust{}, false, apperror.New(apperror.CodeConflict,
+			return runworktree.Trust{}, false, apperror.New(apperror.CodeConflict,
 				"Drydock Workspace Trust is already bound to a different source identity")
 		}
 		return existing, true, nil
@@ -84,7 +84,7 @@ func createDrydockTrustTx(ctx context.Context, tx *sql.Tx, value drydock.Trust) 
 		boolInt(state.DirtyUntracked), boolInt(state.DirtyIgnored), state.SymlinkEntries,
 		state.SubmoduleEntries, value.ConfirmedBy, ts(value.ConfirmedAt))
 	if err != nil {
-		return drydock.Trust{}, false, normalizeDrydockStoreError(err)
+		return runworktree.Trust{}, false, normalizeDrydockStoreError(err)
 	}
 	event, err := events.New(value.RunID, drydockMissionIDTx(ctx, tx, value.RunID),
 		events.DrydockTrustConfirmedEvent, "drydock", value.ID, map[string]any{
@@ -94,49 +94,49 @@ func createDrydockTrustTx(ctx context.Context, tx *sql.Tx, value drydock.Trust) 
 			"dirty_ignored": state.DirtyIgnored, "grants_process_authority": false,
 		})
 	if err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	event.CreatedAt = value.ConfirmedAt
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	return value, false, nil
 }
 
 func (s *SQLiteStore) GetDrydockTrustByRun(ctx context.Context,
 	runID string,
-) (drydock.Trust, bool, error) {
+) (runworktree.Trust, bool, error) {
 	return getDrydockTrustByRun(ctx, s.db, strings.TrimSpace(runID))
 }
 
 func (s *SQLiteStore) PrepareDrydock(ctx context.Context,
-	value drydock.Workspace,
-) (drydock.Workspace, bool, error) {
-	if err := value.Validate(); err != nil || value.State != drydock.StatePreparing {
-		return drydock.Workspace{}, false, errors.New("prepared Drydock is invalid")
+	value runworktree.Workspace,
+) (runworktree.Workspace, bool, error) {
+	if err := value.Validate(); err != nil || value.State != runworktree.StatePreparing {
+		return runworktree.Workspace{}, false, errors.New("prepared Drydock is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	defer tx.Rollback()
 	valueResult, replayed, err := prepareDrydockTx(ctx, tx, value)
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	return valueResult, replayed, nil
 }
 
-func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace) (drydock.Workspace, bool, error) {
+func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value runworktree.Workspace) (runworktree.Workspace, bool, error) {
 	var err error
 	if existing, found, getErr := getDrydockByRun(ctx, tx, value.RunID); getErr != nil {
-		return drydock.Workspace{}, false, getErr
+		return runworktree.Workspace{}, false, getErr
 	} else if found {
 		if !sameDrydockIdentity(existing, value) {
-			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+			return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 				"Run is already bound to another Drydock")
 		}
 		return existing, true, nil
@@ -144,21 +144,21 @@ func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace) 
 	var total, repositoryCount int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM drydock_workspaces
 		WHERE state <> 'cleaned'`).Scan(&total); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM drydock_workspaces
 		WHERE common_dir_sha256 = ? AND state <> 'cleaned'`,
 		value.Source.CommonDirSHA256).Scan(&repositoryCount); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
-	if total >= drydock.MaxActiveTotal || repositoryCount >= drydock.MaxActivePerRepository {
-		return drydock.Workspace{}, false, apperror.New(apperror.CodeResourceExhausted,
+	if total >= runworktree.MaxActiveTotal || repositoryCount >= runworktree.MaxActivePerRepository {
+		return runworktree.Workspace{}, false, apperror.New(apperror.CodeResourceExhausted,
 			"Drydock active-capacity limit was reached; exact expired ownership must be reconciled first")
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workspaces
 		(id, name, root_path, created_at) VALUES (?, ?, ?, ?)`, value.WorkspaceID,
 		value.Name, value.Path, ts(value.CreatedAt)); err != nil {
-		return drydock.Workspace{}, false, normalizeDrydockStoreError(err)
+		return runworktree.Workspace{}, false, normalizeDrydockStoreError(err)
 	}
 	source := value.Source
 	_, err = tx.ExecContext(ctx, `INSERT INTO drydock_workspaces
@@ -179,7 +179,7 @@ func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace) 
 		value.Branch, value.CreatePreviewID, value.State, value.Generation,
 		ts(value.ExpiresAt), ts(value.CreatedAt), ts(value.UpdatedAt))
 	if err != nil {
-		return drydock.Workspace{}, false, normalizeDrydockStoreError(err)
+		return runworktree.Workspace{}, false, normalizeDrydockStoreError(err)
 	}
 	event, err := events.New(value.RunID, value.MissionID,
 		events.DrydockCreatePreparedEvent, "drydock", value.ID, map[string]any{
@@ -189,29 +189,29 @@ func prepareDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace) 
 			"generation": value.Generation, "expires_at": value.ExpiresAt,
 		})
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	event.CreatedAt = value.CreatedAt
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	return value, false, nil
 }
 
-func (s *SQLiteStore) AdvanceDrydock(ctx context.Context, value drydock.Workspace,
-	expectedGeneration int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
+func (s *SQLiteStore) AdvanceDrydock(ctx context.Context, value runworktree.Workspace,
+	expectedGeneration int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
 	if err := value.Validate(); err != nil || receipt.Validate() != nil ||
 		receipt.DrydockID != value.ID ||
 		receipt.SourceIdentitySHA256 != value.Source.Fingerprint() ||
 		receipt.RootFingerprint != value.RootFingerprint ||
 		receipt.GenerationBefore != expectedGeneration ||
 		receipt.GenerationAfter != value.Generation {
-		return drydock.Workspace{}, false, errors.New("Drydock transition is invalid")
+		return runworktree.Workspace{}, false, errors.New("Drydock transition is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	defer tx.Rollback()
 	advanced, replayed, err := advanceDrydockTx(ctx, tx, value, expectedGeneration, receipt)
@@ -219,18 +219,18 @@ func (s *SQLiteStore) AdvanceDrydock(ctx context.Context, value drydock.Workspac
 		return advanced, replayed, err
 	}
 	if err := tx.Commit(); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	return advanced, false, nil
 }
 
 func (s *SQLiteStore) CreateDrydockDelivery(ctx context.Context,
-	proposal drydock.DeliveryProposal, value drydock.Workspace,
-	expectedGeneration int64, receipt drydock.Receipt,
-) (drydock.DeliveryProposal, drydock.Workspace, bool, error) {
+	proposal runworktree.DeliveryProposal, value runworktree.Workspace,
+	expectedGeneration int64, receipt runworktree.Receipt,
+) (runworktree.DeliveryProposal, runworktree.Workspace, bool, error) {
 	if proposal.Validate() != nil || value.Validate() != nil || receipt.Validate() != nil ||
 		proposal.DrydockID != value.ID || proposal.RunID != receipt.RunID ||
-		proposal.Generation != value.Generation || receipt.Operation != drydock.OperationDeliver ||
+		proposal.Generation != value.Generation || receipt.Operation != runworktree.OperationDeliver ||
 		proposal.OperationKeySHA256 != receipt.OperationKeySHA256 ||
 		proposal.RequestFingerprint != receipt.RequestFingerprint ||
 		proposal.SourceIdentitySHA256 != value.Source.Fingerprint() ||
@@ -243,33 +243,33 @@ func (s *SQLiteStore) CreateDrydockDelivery(ctx context.Context,
 		receipt.RootFingerprint != value.RootFingerprint ||
 		receipt.DeliveryID != proposal.ID || receipt.GenerationBefore != expectedGeneration ||
 		receipt.GenerationAfter != value.Generation {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false,
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false,
 			errors.New("Drydock delivery transition is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false, err
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false, err
 	}
 	defer tx.Rollback()
 	if existing, found, getErr := getDrydockReceiptByOperation(ctx, tx,
 		receipt.OperationKeySHA256); getErr != nil {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false, getErr
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false, getErr
 	} else if found {
 		if !reflect.DeepEqual(existing, receipt) {
-			return drydock.DeliveryProposal{}, drydock.Workspace{}, false,
+			return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false,
 				apperror.New(apperror.CodeConflict, "Drydock delivery operation key was reused")
 		}
 		storedProposal, proposalFound, proposalErr := getDrydockDelivery(ctx, tx, proposal.ID)
 		storedWorkspace, workspaceFound, workspaceErr := getDrydockByID(ctx, tx, value.ID)
 		if proposalErr != nil || workspaceErr != nil || !proposalFound || !workspaceFound {
-			return drydock.DeliveryProposal{}, drydock.Workspace{}, false,
+			return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false,
 				errors.Join(proposalErr, workspaceErr)
 		}
 		return storedProposal, storedWorkspace, true, nil
 	}
 	pathsJSON, err := json.Marshal(proposal.ChangedPaths)
 	if err != nil {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false, err
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false, err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO drydock_delivery_proposals
 		(id, protocol_version, operation_key_sha256, request_fingerprint, drydock_id,
@@ -286,37 +286,37 @@ func (s *SQLiteStore) CreateDrydockDelivery(ctx context.Context,
 		proposal.DiffStat, string(pathsJSON), proposal.CheckpointID, proposal.CreatedBy,
 		ts(proposal.CreatedAt))
 	if err != nil {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false,
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false,
 			normalizeDrydockStoreError(err)
 	}
 	advanced, replayed, err := advanceDrydockTx(ctx, tx, value, expectedGeneration, receipt)
 	if err != nil || replayed {
-		return drydock.DeliveryProposal{}, advanced, replayed, err
+		return runworktree.DeliveryProposal{}, advanced, replayed, err
 	}
 	if err := tx.Commit(); err != nil {
-		return drydock.DeliveryProposal{}, drydock.Workspace{}, false, err
+		return runworktree.DeliveryProposal{}, runworktree.Workspace{}, false, err
 	}
 	return proposal, advanced, false, nil
 }
 
 func (s *SQLiteStore) GetDrydockByRun(ctx context.Context,
 	runID string,
-) (drydock.Workspace, bool, error) {
+) (runworktree.Workspace, bool, error) {
 	return getDrydockByRun(ctx, s.db, strings.TrimSpace(runID))
 }
 
 func (s *SQLiteStore) GetDrydock(ctx context.Context,
 	id string,
-) (drydock.Workspace, bool, error) {
+) (runworktree.Workspace, bool, error) {
 	return getDrydockByID(ctx, s.db, strings.TrimSpace(id))
 }
 
 func (s *SQLiteStore) ListDrydocks(ctx context.Context,
-	filter drydock.ListFilter,
-) ([]drydock.Workspace, error) {
-	if filter.Limit < 1 || filter.Limit > drydock.MaxList ||
+	filter runworktree.ListFilter,
+) ([]runworktree.Workspace, error) {
+	if filter.Limit < 1 || filter.Limit > runworktree.MaxList ||
 		(filter.State != "" && !filter.State.Valid()) ||
-		(filter.RepositorySHA256 != "" && !drydock.ValidDigest(filter.RepositorySHA256)) {
+		(filter.RepositorySHA256 != "" && !runworktree.ValidDigest(filter.RepositorySHA256)) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock list filter is invalid")
 	}
@@ -348,7 +348,7 @@ func (s *SQLiteStore) ListDrydocks(ctx context.Context,
 		return nil, err
 	}
 	defer rows.Close()
-	values := make([]drydock.Workspace, 0)
+	values := make([]runworktree.Workspace, 0)
 	for rows.Next() {
 		value, err := scanDrydock(rows)
 		if err != nil {
@@ -361,14 +361,14 @@ func (s *SQLiteStore) ListDrydocks(ctx context.Context,
 
 func (s *SQLiteStore) GetDrydockReceiptByOperation(ctx context.Context,
 	operationKeySHA256 string,
-) (drydock.Receipt, bool, error) {
+) (runworktree.Receipt, bool, error) {
 	return getDrydockReceiptByOperation(ctx, s.db, strings.TrimSpace(operationKeySHA256))
 }
 
 func (s *SQLiteStore) ListDrydockReceipts(ctx context.Context, drydockID string,
 	limit int,
-) ([]drydock.Receipt, error) {
-	if strings.TrimSpace(drydockID) == "" || limit < 1 || limit > drydock.MaxList {
+) ([]runworktree.Receipt, error) {
+	if strings.TrimSpace(drydockID) == "" || limit < 1 || limit > runworktree.MaxList {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"Drydock receipt list request is invalid")
 	}
@@ -379,7 +379,7 @@ func (s *SQLiteStore) ListDrydockReceipts(ctx context.Context, drydockID string,
 		return nil, err
 	}
 	defer rows.Close()
-	values := make([]drydock.Receipt, 0)
+	values := make([]runworktree.Receipt, 0)
 	for rows.Next() {
 		value, err := scanDrydockReceipt(rows)
 		if err != nil {
@@ -392,19 +392,19 @@ func (s *SQLiteStore) ListDrydockReceipts(ctx context.Context, drydockID string,
 
 func (s *SQLiteStore) GetDrydockDelivery(ctx context.Context,
 	id string,
-) (drydock.DeliveryProposal, bool, error) {
+) (runworktree.DeliveryProposal, bool, error) {
 	return getDrydockDelivery(ctx, s.db, strings.TrimSpace(id))
 }
 
-func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
-	expectedGeneration int64, receipt drydock.Receipt,
-) (drydock.Workspace, bool, error) {
+func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value runworktree.Workspace,
+	expectedGeneration int64, receipt runworktree.Receipt,
+) (runworktree.Workspace, bool, error) {
 	if existing, found, err := getDrydockReceiptByOperation(ctx, tx,
 		receipt.OperationKeySHA256); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	} else if found {
 		if !reflect.DeepEqual(existing, receipt) {
-			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+			return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 				"Drydock lifecycle operation key was reused")
 		}
 		stored, storedFound, storedErr := getDrydockByID(ctx, tx, value.ID)
@@ -415,26 +415,26 @@ func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
 		if err == nil {
 			err = apperror.New(apperror.CodeNotFound, "Drydock was not found")
 		}
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if !sameDrydockIdentity(current, value) || current.Generation != expectedGeneration {
-		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+		return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock ownership generation or identity changed")
 	}
 	hasBindings, bindingErr := hasRunFileDrydockBindings(ctx, tx)
 	if bindingErr != nil {
-		return drydock.Workspace{}, false, bindingErr
+		return runworktree.Workspace{}, false, bindingErr
 	}
 	if hasBindings {
 		bound, present, err := getRunFileDrydock(ctx, tx, receipt.RunID)
 		if err != nil {
-			return drydock.Workspace{}, false, err
+			return runworktree.Workspace{}, false, err
 		}
 		if !present || bound.ID != value.ID {
-			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt does not belong to this execution context")
+			return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt does not belong to this execution context")
 		}
 		if err := requireCurrentRunDrydockTx(ctx, tx, receipt.RunID); err != nil {
-			return drydock.Workspace{}, false, err
+			return runworktree.Workspace{}, false, err
 		}
 		var cleaning bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM drydock_cleanup_operations cleanup
@@ -442,30 +442,30 @@ func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
 			?='cleanup' AND cleanup.operation_key_sha256=? AND cleanup.request_fingerprint=?
 			AND cleanup.run_id=? AND cleanup.expected_generation=?))`, value.ID, receipt.Operation,
 			receipt.OperationKeySHA256, receipt.RequestFingerprint, receipt.RunID, expectedGeneration).Scan(&cleaning); err != nil {
-			return drydock.Workspace{}, false, err
+			return runworktree.Workspace{}, false, err
 		}
 		if cleaning {
-			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+			return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 				"Thread working directory cleanup must be confirmed before changing its lifecycle")
 		}
 	} else if receipt.RunID != value.RunID {
-		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt owner differs")
+		return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict, "Drydock receipt owner differs")
 	}
-	if value.State == drydock.StateCleaned {
-		cleanup := receipt.Operation == drydock.OperationCleanup &&
-			receipt.Outcome == drydock.OutcomeSucceeded
-		unmaterializedCreateFailure := current.State == drydock.StatePreparing &&
-			receipt.Operation == drydock.OperationCreate &&
-			receipt.Outcome == drydock.OutcomeFailed
+	if value.State == runworktree.StateCleaned {
+		cleanup := receipt.Operation == runworktree.OperationCleanup &&
+			receipt.Outcome == runworktree.OutcomeSucceeded
+		unmaterializedCreateFailure := current.State == runworktree.StatePreparing &&
+			receipt.Operation == runworktree.OperationCreate &&
+			receipt.Outcome == runworktree.OutcomeFailed
 		if !cleanup && !unmaterializedCreateFailure {
-			return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+			return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 				"Drydock cleaned transition lacks an exact cleanup receipt")
 		}
 	}
-	if current.State == drydock.StateRecoveryRequired && value.State == drydock.StateReady &&
-		(receipt.Operation != drydock.OperationRecover ||
-			receipt.Outcome != drydock.OutcomeSucceeded) {
-		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+	if current.State == runworktree.StateRecoveryRequired && value.State == runworktree.StateReady &&
+		(receipt.Operation != runworktree.OperationRecover ||
+			receipt.Outcome != runworktree.OutcomeSucceeded) {
+		return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock recovery transition lacks a successful recovery receipt")
 	}
 	cleanedAt := any(nil)
@@ -482,13 +482,13 @@ func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
 		value.RecoveryReason, ts(value.UpdatedAt), cleanedAt, value.ID,
 		expectedGeneration)
 	if err != nil {
-		return drydock.Workspace{}, false, normalizeDrydockStoreError(err)
+		return runworktree.Workspace{}, false, normalizeDrydockStoreError(err)
 	}
 	if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
 		if rowsErr != nil {
-			return drydock.Workspace{}, false, rowsErr
+			return runworktree.Workspace{}, false, rowsErr
 		}
-		return drydock.Workspace{}, false, apperror.New(apperror.CodeConflict,
+		return runworktree.Workspace{}, false, apperror.New(apperror.CodeConflict,
 			"Drydock ownership generation changed")
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO drydock_lifecycle_receipts
@@ -506,45 +506,45 @@ func advanceDrydockTx(ctx context.Context, tx *sql.Tx, value drydock.Workspace,
 		receipt.BindingAfterSHA256, receipt.GitReceiptID, receipt.CheckpointID,
 		receipt.DeliveryID, receipt.ReasonCode, receipt.Summary, ts(receipt.CreatedAt))
 	if err != nil {
-		return drydock.Workspace{}, false, normalizeDrydockStoreError(err)
+		return runworktree.Workspace{}, false, normalizeDrydockStoreError(err)
 	}
 	event, err := drydockReceiptEvent(value, receipt)
 	if err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
-		return drydock.Workspace{}, false, err
+		return runworktree.Workspace{}, false, err
 	}
 	return value, false, nil
 }
 
-func drydockReceiptEvent(value drydock.Workspace,
-	receipt drydock.Receipt,
+func drydockReceiptEvent(value runworktree.Workspace,
+	receipt runworktree.Receipt,
 ) (events.Event, error) {
 	eventType := events.DrydockRecoveryRequiredEvent
-	if receipt.Operation == drydock.OperationCreate &&
-		receipt.Outcome == drydock.OutcomeFailed && value.State == drydock.StateCleaned {
+	if receipt.Operation == runworktree.OperationCreate &&
+		receipt.Outcome == runworktree.OutcomeFailed && value.State == runworktree.StateCleaned {
 		eventType = events.DrydockCreateFailedEvent
 	}
-	if receipt.Outcome == drydock.OutcomeSucceeded {
+	if receipt.Outcome == runworktree.OutcomeSucceeded {
 		switch receipt.Operation {
-		case drydock.OperationCreate:
+		case runworktree.OperationCreate:
 			eventType = events.DrydockCreatedEvent
-		case drydock.OperationUse:
+		case runworktree.OperationUse:
 			eventType = events.DrydockUseAttestedEvent
-		case drydock.OperationCheckpoint:
+		case runworktree.OperationCheckpoint:
 			eventType = events.DrydockCheckpointRecordedEvent
-		case drydock.OperationRewind:
+		case runworktree.OperationRewind:
 			eventType = events.DrydockRewindCompletedEvent
-		case drydock.OperationUndo:
+		case runworktree.OperationUndo:
 			eventType = events.DrydockUndoCompletedEvent
-		case drydock.OperationFork:
+		case runworktree.OperationFork:
 			eventType = events.DrydockForkPreparedEvent
-		case drydock.OperationDeliver:
+		case runworktree.OperationDeliver:
 			eventType = events.DrydockDeliveryProposedEvent
-		case drydock.OperationCleanup:
+		case runworktree.OperationCleanup:
 			eventType = events.DrydockCleanupCompletedEvent
-		case drydock.OperationRecover:
+		case runworktree.OperationRecover:
 			eventType = events.DrydockRecoveredEvent
 		}
 	}
@@ -566,7 +566,7 @@ func drydockReceiptEvent(value drydock.Workspace,
 
 func getDrydockTrustByRun(ctx context.Context, queryer drydockQueryer,
 	runID string,
-) (drydock.Trust, bool, error) {
+) (runworktree.Trust, bool, error) {
 	row := queryer.QueryRowContext(ctx, `SELECT id, protocol_version, run_id,
 		workspace_id, root_path, root_path_sha256, root_fingerprint,
 		repository_sha256, common_dir_sha256, branch, base_commit, object_format,
@@ -574,7 +574,7 @@ func getDrydockTrustByRun(ctx context.Context, queryer drydockQueryer,
 		source_captured_at, dirty_untracked, dirty_ignored, symlink_entries, submodule_entries,
 		confirmed_by, grants_process_authority, confirmed_at
 		FROM drydock_workspace_trust WHERE run_id = ?`, runID)
-	var value drydock.Trust
+	var value runworktree.Trust
 	var dirtyTracked, dirtyUntracked, dirtyIgnored, authority int
 	var sourceCapturedAt, confirmedAt string
 	err := row.Scan(&value.ID, &value.ProtocolVersion, &value.RunID, &value.WorkspaceID,
@@ -587,10 +587,10 @@ func getDrydockTrustByRun(ctx context.Context, queryer drydockQueryer,
 		&value.SourceState.SymlinkEntries, &value.SourceState.SubmoduleEntries,
 		&value.ConfirmedBy, &authority, &confirmedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return drydock.Trust{}, false, nil
+		return runworktree.Trust{}, false, nil
 	}
 	if err != nil {
-		return drydock.Trust{}, false, err
+		return runworktree.Trust{}, false, err
 	}
 	value.Source.WorkspaceID = value.WorkspaceID
 	value.SourceState.DirtyTracked = dirtyTracked != 0
@@ -600,7 +600,7 @@ func getDrydockTrustByRun(ctx context.Context, queryer drydockQueryer,
 	value.SourceState.CapturedAt = parseTS(sourceCapturedAt)
 	value.ConfirmedAt = parseTS(confirmedAt)
 	if value.Validate() != nil {
-		return drydock.Trust{}, false,
+		return runworktree.Trust{}, false,
 			errors.New("stored Drydock Workspace Trust receipt is invalid")
 	}
 	return value, true, nil
@@ -608,30 +608,30 @@ func getDrydockTrustByRun(ctx context.Context, queryer drydockQueryer,
 
 func getDrydockByRun(ctx context.Context, queryer drydockQueryer,
 	runID string,
-) (drydock.Workspace, bool, error) {
+) (runworktree.Workspace, bool, error) {
 	return scanDrydockRow(queryer.QueryRowContext(ctx, `SELECT `+
 		drydockWorkspaceColumns+` FROM drydock_workspaces WHERE run_id = ?`, runID))
 }
 
 func getDrydockByID(ctx context.Context, queryer drydockQueryer,
 	id string,
-) (drydock.Workspace, bool, error) {
+) (runworktree.Workspace, bool, error) {
 	return scanDrydockRow(queryer.QueryRowContext(ctx, `SELECT `+
 		drydockWorkspaceColumns+` FROM drydock_workspaces WHERE id = ?`, id))
 }
 
 type drydockScanner interface{ Scan(...any) error }
 
-func scanDrydockRow(row drydockScanner) (drydock.Workspace, bool, error) {
+func scanDrydockRow(row drydockScanner) (runworktree.Workspace, bool, error) {
 	value, err := scanDrydock(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return drydock.Workspace{}, false, nil
+		return runworktree.Workspace{}, false, nil
 	}
 	return value, err == nil, err
 }
 
-func scanDrydock(row drydockScanner) (drydock.Workspace, error) {
-	var value drydock.Workspace
+func scanDrydock(row drydockScanner) (runworktree.Workspace, error) {
+	var value runworktree.Workspace
 	var sourceIdentitySHA string
 	var expiresAt, createdAt, updatedAt string
 	var cleanedAt sql.NullString
@@ -647,12 +647,12 @@ func scanDrydock(row drydockScanner) (drydock.Workspace, error) {
 		&value.LastCheckpointID, &value.LastDeliveryID, &value.RecoveryReason,
 		&expiresAt, &createdAt, &updatedAt, &cleanedAt)
 	if err != nil {
-		return drydock.Workspace{}, err
+		return runworktree.Workspace{}, err
 	}
 	value.Source.WorkspaceID = value.SourceWorkspaceID
 	value.BaseCommit = value.Source.BaseCommit
 	if value.Source.Fingerprint() != sourceIdentitySHA {
-		return drydock.Workspace{}, errors.New("stored Drydock source identity digest changed")
+		return runworktree.Workspace{}, errors.New("stored Drydock source identity digest changed")
 	}
 	value.ExpiresAt = parseTS(expiresAt)
 	value.CreatedAt = parseTS(createdAt)
@@ -662,29 +662,29 @@ func scanDrydock(row drydockScanner) (drydock.Workspace, error) {
 		value.CleanedAt = &parsed
 	}
 	if err := value.Validate(); err != nil {
-		return drydock.Workspace{}, err
+		return runworktree.Workspace{}, err
 	}
 	return value, nil
 }
 
 func getDrydockReceiptByOperation(ctx context.Context, queryer drydockQueryer,
 	digest string,
-) (drydock.Receipt, bool, error) {
+) (runworktree.Receipt, bool, error) {
 	return scanDrydockReceiptRow(queryer.QueryRowContext(ctx, `SELECT `+
 		drydockReceiptColumns+` FROM drydock_lifecycle_receipts
 		WHERE operation_key_sha256 = ?`, digest))
 }
 
-func scanDrydockReceiptRow(row drydockScanner) (drydock.Receipt, bool, error) {
+func scanDrydockReceiptRow(row drydockScanner) (runworktree.Receipt, bool, error) {
 	value, err := scanDrydockReceipt(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return drydock.Receipt{}, false, nil
+		return runworktree.Receipt{}, false, nil
 	}
 	return value, err == nil, err
 }
 
-func scanDrydockReceipt(row drydockScanner) (drydock.Receipt, error) {
-	var value drydock.Receipt
+func scanDrydockReceipt(row drydockScanner) (runworktree.Receipt, error) {
+	var value runworktree.Receipt
 	var authority int
 	var createdAt string
 	err := row.Scan(&value.ID, &value.ProtocolVersion, &value.OperationKeySHA256,
@@ -695,12 +695,12 @@ func scanDrydockReceipt(row drydockScanner) (drydock.Receipt, error) {
 		&value.CheckpointID, &value.DeliveryID, &value.ReasonCode, &value.Summary,
 		&authority, &createdAt)
 	if err != nil {
-		return drydock.Receipt{}, err
+		return runworktree.Receipt{}, err
 	}
 	value.GrantsProcessAuthority = authority != 0
 	value.CreatedAt = parseTS(createdAt)
 	if value.Validate() != nil {
-		return drydock.Receipt{},
+		return runworktree.Receipt{},
 			errors.New("stored Drydock lifecycle receipt is invalid")
 	}
 	return value, nil
@@ -708,7 +708,7 @@ func scanDrydockReceipt(row drydockScanner) (drydock.Receipt, error) {
 
 func getDrydockDelivery(ctx context.Context, queryer drydockQueryer,
 	id string,
-) (drydock.DeliveryProposal, bool, error) {
+) (runworktree.DeliveryProposal, bool, error) {
 	row := queryer.QueryRowContext(ctx, `SELECT id, protocol_version,
 		operation_key_sha256, request_fingerprint, drydock_id, run_id, generation,
 		source_identity_sha256, root_fingerprint, base_commit, head_commit,
@@ -716,7 +716,7 @@ func getDrydockDelivery(ctx context.Context, queryer drydockQueryer,
 		changed_paths_json, checkpoint_id, created_by, automatic_merge,
 		push_authorized, force_authorized, source_overwrite_allowed, created_at
 		FROM drydock_delivery_proposals WHERE id = ?`, id)
-	var value drydock.DeliveryProposal
+	var value runworktree.DeliveryProposal
 	var changedPathsJSON, createdAt string
 	var automaticMerge, push, force, overwrite int
 	err := row.Scan(&value.ID, &value.ProtocolVersion, &value.OperationKeySHA256,
@@ -727,13 +727,13 @@ func getDrydockDelivery(ctx context.Context, queryer drydockQueryer,
 		&value.CheckpointID, &value.CreatedBy, &automaticMerge, &push, &force,
 		&overwrite, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return drydock.DeliveryProposal{}, false, nil
+		return runworktree.DeliveryProposal{}, false, nil
 	}
 	if err != nil {
-		return drydock.DeliveryProposal{}, false, err
+		return runworktree.DeliveryProposal{}, false, err
 	}
 	if err := json.Unmarshal([]byte(changedPathsJSON), &value.ChangedPaths); err != nil {
-		return drydock.DeliveryProposal{}, false, err
+		return runworktree.DeliveryProposal{}, false, err
 	}
 	value.AutomaticMerge = automaticMerge != 0
 	value.PushAuthorized = push != 0
@@ -741,13 +741,13 @@ func getDrydockDelivery(ctx context.Context, queryer drydockQueryer,
 	value.SourceOverwriteAllowed = overwrite != 0
 	value.CreatedAt = parseTS(createdAt)
 	if value.Validate() != nil {
-		return drydock.DeliveryProposal{}, false,
+		return runworktree.DeliveryProposal{}, false,
 			errors.New("stored Drydock delivery proposal is invalid")
 	}
 	return value, true, nil
 }
 
-func sameDrydockIdentity(left, right drydock.Workspace) bool {
+func sameDrydockIdentity(left, right runworktree.Workspace) bool {
 	return left.ID == right.ID && left.RunID == right.RunID &&
 		left.MissionID == right.MissionID && left.SessionID == right.SessionID &&
 		left.SourceWorkspaceID == right.SourceWorkspaceID &&

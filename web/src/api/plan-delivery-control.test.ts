@@ -1,4 +1,4 @@
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 import type { PlanDirectionControlRequestView } from "./types";
 
 const item = { id: "item-a", run_id: "run-a", version: 2, title: "Review actual output", status: "in_progress",
@@ -21,7 +21,7 @@ function reply(data: unknown) {
   return fetcher;
 }
 afterEach(() => vi.unstubAllGlobals());
-const client = () => new CyberAgentClient("read-token", "/api/v1", "control-token", { planDeliveryControlEnabled: true });
+const client = () => new APIClient("read-token", "/api/v1", "control-token", { planDeliveryControlEnabled: true });
 
 it("binds the explicit manual policy to the selection response while preserving old required responses", async () => {
   const body = { version: "plan_delivery_control.v1", proposal_id: "proposal-a", direction: 1 } as const;
@@ -84,7 +84,7 @@ it("records failed manual evidence as supplied and rejects cross-run notes and w
 
 it("does not send manual mutations without control authority or with oversized evidence", async () => {
   const fetcher = reply(checkpoint);
-  await expect(new CyberAgentClient("read-token", "/api/v1", "", { planDeliveryControlEnabled: true })
+  await expect(new APIClient("read-token", "/api/v1", "", { planDeliveryControlEnabled: true })
     .recordPlanDeliveryCheckpoint("run-a", "item-a", evidence, "manual-evidence-key-0001")).rejects.toThrow();
   await expect(client().recordPlanDeliveryCheckpoint("run-a", "item-a", { ...evidence, diff_audit: "x".repeat(1_025) },
     "manual-evidence-key-0001")).rejects.toThrow();

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { RunDetailView, ThreadDetailView } from "../../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from "../../test/capability-readiness";
 import { V2ExecutionSettings } from "./execution-settings";
@@ -47,7 +47,7 @@ function setup(initial = runDetail()) {
       mode: body.mode as "controlled", workspace_trust: "trusted", revision: 2 } };
     return { execution_interaction: value.execution_interaction, replayed: false };
   });
-  const client = { get, runCapabilityReadiness, postControl } as unknown as CyberAgentClient;
+  const client = { get, runCapabilityReadiness, postControl } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const ui = (threadID: string) => <QueryClientProvider client={queryClient}>
     <V2ExecutionSettings client={client} threadID={threadID}

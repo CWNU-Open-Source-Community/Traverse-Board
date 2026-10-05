@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Per-user MSIX manifest for Traverse Board Desktop. The checked-in identity is
+  Per-user MSIX manifest for Universal Code Desktop. The checked-in identity is
   development-only. scripts/package-msix.ps1 replaces Name, Publisher, and
   PublisherDisplayName with the exact Partner Center values for Store output.
   Publisher must match the signing certificate subject for non-Store signing.
@@ -17,8 +17,8 @@
             Version="1.0.0.0"
             ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>Traverse Board</DisplayName>
-    <PublisherDisplayName>Traverse Board</PublisherDisplayName>
+    <DisplayName>Universal Code</DisplayName>
+    <PublisherDisplayName>Universal Code</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -29,7 +29,7 @@
   </Resources>
   <Applications>
     <Application Id="Prayu" Executable="TraverseBoard.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Traverse Board" Description="Local-first, recoverable, auditable AI agent workbench"
+      <uap:VisualElements DisplayName="Universal Code" Description="Local-first, recoverable, auditable AI agent workbench"
                           Square150x150Logo="Assets\Square150x150Logo.png"
                           Square44x44Logo="Assets\Square44x44Logo.png"
                           BackgroundColor="transparent" />

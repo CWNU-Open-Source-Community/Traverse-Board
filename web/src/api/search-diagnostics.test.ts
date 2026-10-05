@@ -1,4 +1,4 @@
-import { CyberAgentClient } from "./client";
+import { APIClient } from "./client";
 
 const view = {
   protocol_version: "search_diagnostics.v1", thread_id: "thread-1", run_id: "run-1",
@@ -19,7 +19,7 @@ describe("search diagnostics client", () => {
   it("uses a control-authenticated POST and accepts the closed response contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(view));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-token", "/api/v1", "control-token");
+    const client = new APIClient("read-token", "/api/v1", "control-token");
 
     await expect(client.diagnoseThreadSearch("thread-1", {
       version: "search_diagnostics.v1", confirm: true,
@@ -40,7 +40,7 @@ describe("search diagnostics client", () => {
       .mockResolvedValueOnce(response({ ...view, result_count: 0 }))
       .mockResolvedValueOnce(response({ ...view, state: "failed", code: "captcha", result_count: 0 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new CyberAgentClient("read-token", "/api/v1", "control-token");
+    const client = new APIClient("read-token", "/api/v1", "control-token");
     const request = { version: "search_diagnostics.v1" as const, confirm: true as const };
 
     await expect(client.diagnoseThreadSearch("thread-1", request)).rejects
@@ -53,7 +53,7 @@ describe("search diagnostics client", () => {
     const unconfigured = { ...view, search_policy: "", backend: "", state: "failed",
       code: "not_configured", result_count: 0, network_request_attempted: false };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(unconfigured)));
-    const client = new CyberAgentClient("read-token", "/api/v1", "control-token");
+    const client = new APIClient("read-token", "/api/v1", "control-token");
     await expect(client.diagnoseThreadSearch("thread-1", {
       version: "search_diagnostics.v1", confirm: true,
     })).resolves.toEqual(unconfigured);

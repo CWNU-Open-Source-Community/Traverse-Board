@@ -4,7 +4,7 @@ import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, Mess
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkCjkAutolinks } from "../../components/remark-cjk-autolinks";
-import { APIRequestError, type CyberAgentClient } from "../../api/client";
+import { APIRequestError, type APIClient } from "../../api/client";
 import type { ThreadDetailView, ThreadTranscriptItemView, ThreadView, WorkspaceView } from "../../api/types";
 import { usePublicModelStream } from "../../hooks/use-public-model-stream";
 import { useRunEventStream } from "../../hooks/use-run-event-stream";
@@ -44,7 +44,7 @@ import { V2Inspector } from "./inspector";
 import { useV2ThreadExecution, V2ThreadExecutionControl, V2PausedThreadControl } from "./thread-execution-control";
 
 function Narrative({ client, entries, threadID }: {
-  client: CyberAgentClient;
+  client: APIClient;
   entries: NarrativeEntry[];
   threadID: string;
 }) {
@@ -76,7 +76,7 @@ function Narrative({ client, entries, threadID }: {
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
   onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
-  client: CyberAgentClient;
+  client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
   onArchive: (thread: ThreadView) => void;

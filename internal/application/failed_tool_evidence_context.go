@@ -32,7 +32,7 @@ type failedWebReference struct {
 // Hydrate references from immutable tool records for recent failed turns. The
 // original failure summary and its digest remain untouched in storage and in
 // context. Supplemental messages are ephemeral, explicitly untrusted evidence.
-func (s *RunSupervisor) withFailedToolEvidenceContext(ctx context.Context, run domain.Run,
+func (s *AgentRunner) withFailedToolEvidenceContext(ctx context.Context, run domain.Run,
 	history []session.Message,
 ) ([]session.Message, error) {
 	reader, ok := s.store.(failedToolEvidenceContextStore)

@@ -1,7 +1,7 @@
-// Package drydock defines the durable, non-authorizing contract for Standard
+// Package runworktree defines the durable, non-authorizing contract for Standard
 // Code's product-managed Git worktrees. A Drydock is an ownership and recovery
 // boundary; it is not a process, filesystem, or network sandbox.
-package drydock
+package runworktree
 
 import (
 	"crypto/sha256"

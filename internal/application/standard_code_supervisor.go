@@ -21,7 +21,7 @@ import (
 
 const standardCodeSupervisorGuidancePrefix = "Go-enforced Standard Code completion state "
 
-// standardCodeSupervisorStore is deliberately optional on RunSupervisorStore.
+// standardCodeSupervisorStore is deliberately optional on AgentRunnerStore.
 // Existing non-Standard-Code supervisors and test doubles retain the exact
 // legacy path; a configured Standard Code preset activates this coordinator.
 type standardCodeSupervisorStore interface {
@@ -87,7 +87,7 @@ type standardCodeCommandProjection struct {
 	IncompleteReasons []string                           `json:"incomplete_reasons"`
 }
 
-func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
+func (s *AgentRunner) prepareStandardCodeSupervisor(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
 	capabilityGeneration string, authorityJSON json.RawMessage,
 ) (*standardCodeSupervisorTurn, error) {
@@ -535,7 +535,7 @@ func (m *standardCodeSupervisorTurn) addRequestState(request *llmRequestProjecti
 }
 
 // llmRequestProjection avoids importing the llm package into state transition
-// tests; RunSupervisor copies this projection into the actual request.
+// tests; AgentRunner copies this projection into the actual request.
 type llmRequestProjection struct {
 	Guidance string
 	Metadata map[string]string

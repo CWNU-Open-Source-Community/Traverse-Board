@@ -179,8 +179,8 @@ func TestSupervisorKimiPrivateToolAndOrdinaryHistorySurvivesReopen(t *testing.T)
 	}
 	defer func() { _ = st.Close() }()
 	run := newStartedRunForProvider(t, st, "kimi-root", domain.Budget{MaxTurns: 3, MaxToolCalls: 4})
-	newSupervisor := func() *application.RunSupervisor {
-		return application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 1})
+	newSupervisor := func() *application.AgentRunner {
+		return application.NewAgentRunner(st, router, policy.NewDefaultChecker()).WithModelRetryPolicy(application.ModelRetryPolicy{MaxAttempts: 1})
 	}
 	first, err := newSupervisor().Step(t.Context(), run.ID)
 	if err != nil || first.ToolCalls != 3 || first.Checkpoint.TotalTokens != 15 {
@@ -236,7 +236,7 @@ func TestSupervisorKimiRejectsLegacyAssistantHistoryBeforeModelCall(t *testing.T
 	if _, err := st.SaveSessionMessage(t.Context(), session.NewMessage(run.SessionID, "assistant", "old answer has no native state")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(t.Context(), run.ID); err == nil || requests.Load() != 0 {
+	if _, err := application.NewAgentRunner(st, router, policy.NewDefaultChecker()).Step(t.Context(), run.ID); err == nil || requests.Load() != 0 {
 		t.Fatal("legacy history caused a paid request or silently acquired replay", err, requests.Load())
 	}
 }

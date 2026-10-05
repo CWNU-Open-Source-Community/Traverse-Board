@@ -27,7 +27,7 @@ const (
 	defaultSpecialistOutputLimit = 4096
 )
 
-type SpecialistRunnerStore interface {
+type SubagentRunnerStore interface {
 	RunExecutionLeaseStore
 	GetRun(ctx context.Context, id string) (domain.Run, error)
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
@@ -124,11 +124,11 @@ type specialistTurnLimits struct {
 	MaxExecutionMillis int64
 }
 
-// SpecialistRunner is an opt-in no-tool child runtime. The operator schedule
+// SubagentRunner is an opt-in no-tool child runtime. The operator schedule
 // service may construct it after durable application-bound authorization; no
 // HTTP, model, ordinary-tool, or spawn path can construct it.
-type SpecialistRunner struct {
-	store                    SpecialistRunnerStore
+type SubagentRunner struct {
+	store                    SubagentRunnerStore
 	router                   *llm.Router
 	monetary                 *MonetaryBudgetService
 	checker                  policy.Checker
@@ -140,11 +140,11 @@ type SpecialistRunner struct {
 	skillRegistryErr         error
 }
 
-func NewSpecialistRunner(store SpecialistRunnerStore, router *llm.Router,
+func NewSubagentRunner(store SubagentRunnerStore, router *llm.Router,
 	checker policy.Checker,
-) *SpecialistRunner {
+) *SubagentRunner {
 	skillRegistry, skillRegistryErr := skills.BuiltinRegistry()
-	return &SpecialistRunner{
+	return &SubagentRunner{
 		store: store, router: router, checker: checker,
 		retryPolicy: DefaultModelRetryPolicy(), leaseOwner: idgen.New("specialist-worker"),
 		leasePolicy:              DefaultRunExecutionLeasePolicy(),
@@ -154,7 +154,7 @@ func NewSpecialistRunner(store SpecialistRunnerStore, router *llm.Router,
 	}
 }
 
-func (r *SpecialistRunner) WithSkillRegistry(registry *skills.Registry) *SpecialistRunner {
+func (r *SubagentRunner) WithSkillRegistry(registry *skills.Registry) *SubagentRunner {
 	if r != nil {
 		r.skillRegistry = registry
 		r.skillRegistryErr = nil
@@ -167,46 +167,46 @@ func (r *SpecialistRunner) WithSkillRegistry(registry *skills.Registry) *Special
 
 // WithMonetaryBudget installs the monetary reserve/settle gate for
 // Specialist model calls; a nil service disables enforcement.
-func (r *SpecialistRunner) WithMonetaryBudget(service *MonetaryBudgetService) *SpecialistRunner {
+func (r *SubagentRunner) WithMonetaryBudget(service *MonetaryBudgetService) *SubagentRunner {
 	if r != nil && service != nil {
 		r.monetary = service
 	}
 	return r
 }
 
-func (r *SpecialistRunner) WithModelRetryPolicy(policy ModelRetryPolicy) *SpecialistRunner {
+func (r *SubagentRunner) WithModelRetryPolicy(policy ModelRetryPolicy) *SubagentRunner {
 	if r != nil {
 		r.retryPolicy = normalizeModelRetryPolicy(policy)
 	}
 	return r
 }
 
-func (r *SpecialistRunner) WithRunExecutionLeasePolicy(
+func (r *SubagentRunner) WithRunExecutionLeasePolicy(
 	policy RunExecutionLeasePolicy,
-) *SpecialistRunner {
+) *SubagentRunner {
 	if r != nil {
 		r.leasePolicy = policy
 	}
 	return r
 }
 
-func (r *SpecialistRunner) WithRunExecutionLeaseOwner(ownerID string) *SpecialistRunner {
+func (r *SubagentRunner) WithRunExecutionLeaseOwner(ownerID string) *SubagentRunner {
 	if r != nil {
 		r.leaseOwner = strings.TrimSpace(ownerID)
 	}
 	return r
 }
 
-func (r *SpecialistRunner) WithModelCancellationPollInterval(
+func (r *SubagentRunner) WithModelCancellationPollInterval(
 	interval time.Duration,
-) *SpecialistRunner {
+) *SubagentRunner {
 	if r != nil {
 		r.cancellationPollInterval = interval
 	}
 	return r
 }
 
-func (r *SpecialistRunner) Step(ctx context.Context, runID string,
+func (r *SubagentRunner) Step(ctx context.Context, runID string,
 	agentID string,
 ) (SpecialistTurnResult, error) {
 	result := SpecialistTurnResult{
@@ -251,7 +251,7 @@ func (r *SpecialistRunner) Step(ctx context.Context, runID string,
 	return result, apperror.Normalize(err)
 }
 
-func (r *SpecialistRunner) stepWithLease(ctx context.Context,
+func (r *SubagentRunner) stepWithLease(ctx context.Context,
 	lease domain.RunExecutionLease, result *SpecialistTurnResult,
 ) error {
 	recovered, err := r.store.RecoverSpecialistAttempts(ctx, lease)
@@ -262,7 +262,7 @@ func (r *SpecialistRunner) stepWithLease(ctx context.Context,
 	return r.stepReadyWithLease(ctx, lease, result, specialistTurnLimits{})
 }
 
-func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
+func (r *SubagentRunner) stepReadyWithLease(ctx context.Context,
 	lease domain.RunExecutionLease, result *SpecialistTurnResult, limits specialistTurnLimits,
 ) error {
 	if r.cancellationPollInterval <= 0 ||
@@ -554,7 +554,7 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 	}
 }
 
-func (r *SpecialistRunner) prepareSpecialistSkillContext(ctx context.Context,
+func (r *SubagentRunner) prepareSpecialistSkillContext(ctx context.Context,
 	run domain.Run, mission domain.Mission, child domain.AgentNode,
 	attempt domain.AgentAttempt, ref domain.AgentAttemptRef,
 ) (skills.SpecialistContextAssembly, skills.SpecialistContextPreparation, error) {
@@ -603,7 +603,7 @@ func (r *SpecialistRunner) prepareSpecialistSkillContext(ctx context.Context,
 	return assembly, preparation, nil
 }
 
-func (r *SpecialistRunner) prepareSpecialistExternalSkillContext(ctx context.Context,
+func (r *SubagentRunner) prepareSpecialistExternalSkillContext(ctx context.Context,
 	run domain.Run, mission domain.Mission, child domain.AgentNode,
 	attempt domain.AgentAttempt, ref domain.AgentAttemptRef,
 ) (skills.ExternalSpecialistContextAssembly,
@@ -678,7 +678,7 @@ type specialistModelBudgetState struct {
 	initialized    bool
 }
 
-func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Run,
+func (r *SubagentRunner) callModelWithRetry(ctx context.Context, run domain.Run,
 	ref domain.AgentAttemptRef, modelRef llm.ModelRef, request llm.ChatRequest,
 	contextAudit *llm.ModelContextAudit, maxTurnExecutionMillis int64,
 	protocolRepair int, budgetState *specialistModelBudgetState,
@@ -1093,7 +1093,7 @@ func specialistActionPolicyText(action domain.SpecialistAction) string {
 	return strings.Join(parts, "\n")
 }
 
-func (r *SpecialistRunner) recordUnusableModelResponse(ctx context.Context,
+func (r *SubagentRunner) recordUnusableModelResponse(ctx context.Context,
 	result *SpecialistTurnResult, ref domain.AgentAttemptRef, attempt llm.ModelAttempt,
 ) error {
 	attempt.Outcome = llm.OutcomeInvalidResponse
@@ -1113,13 +1113,13 @@ func (r *SpecialistRunner) recordUnusableModelResponse(ctx context.Context,
 	return r.failAttemptWithCode(ctx, result, ref, "invalid_response", invalid)
 }
 
-func (r *SpecialistRunner) failAttempt(ctx context.Context, result *SpecialistTurnResult,
+func (r *SubagentRunner) failAttempt(ctx context.Context, result *SpecialistTurnResult,
 	ref domain.AgentAttemptRef, cause error,
 ) error {
 	return r.failAttemptWithCode(ctx, result, ref, specialistFailureCode(cause), cause)
 }
 
-func (r *SpecialistRunner) failAttemptWithCode(ctx context.Context,
+func (r *SubagentRunner) failAttemptWithCode(ctx context.Context,
 	result *SpecialistTurnResult, ref domain.AgentAttemptRef, code string, cause error,
 ) error {
 	failure := domain.AgentAttemptFailure{Code: code, Reason: boundedSpecialistFailure(cause)}

@@ -2,7 +2,7 @@ import { useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, X } from "lucide-react";
-import type { CyberAgentClient } from "../../api/client";
+import type { APIClient } from "../../api/client";
 import type { EvidenceInventoryView, ProjectInstructionStateView, ThreadDetailView } from "../../api/types";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { ContextDiagnosticsPanel, validContextDiagnostics, type ContextDiagnostics } from "./context-diagnostics";
@@ -62,7 +62,7 @@ export function parseRunContextSummary(value: unknown, threadID: string, runID: 
 }
 
 type ContextProps = {
-  client: CyberAgentClient; threadID: string; detail: ThreadDetailView;
+  client: APIClient; threadID: string; detail: ThreadDetailView;
   onClose: () => void; onRequestChange: (content: string) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 };

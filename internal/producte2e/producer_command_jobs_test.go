@@ -8,9 +8,9 @@ import (
 
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/standardcodedelivery"
 )
 
@@ -146,7 +146,7 @@ func collectorCommandFacts(t *testing.T, ownedPath, ownedSHA string) (runFacts, 
 		run:        domain.Run{ID: "run-1", MissionID: "mission-1", SessionID: "session-1"},
 		permission: domain.RunExecutionPermissionSnapshot{ID: "permission-1", RunID: "run-1", MissionID: "mission-1", Mode: domain.RunExecutionPermissionAsk, Revision: 1},
 		mission:    domain.Mission{ID: "mission-1", WorkspaceID: "source-ws-1"},
-		drydock:    drydock.Workspace{ID: "drydock-1", WorkspaceID: "drydock-ws-1", SourceWorkspaceID: "source-ws-1", Path: ownedPath},
+		drydock:    runworktree.Workspace{ID: "drydock-1", WorkspaceID: "drydock-ws-1", SourceWorkspaceID: "source-ws-1", Path: ownedPath},
 		jobs:       []runner.CommandRuntimeJob{failed, passed},
 		delivery: standardcodedelivery.Report{Verifications: []standardcodedelivery.Verification{{
 			JobID: passed.ID, Conclusion: standardcodedelivery.StatusPassed, ExitCode: passed.ExitCode,
