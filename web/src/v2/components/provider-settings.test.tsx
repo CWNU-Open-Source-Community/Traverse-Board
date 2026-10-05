@@ -189,7 +189,7 @@ async function fillRequiredProvider(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("V2 custom Provider settings", () => {
-  it("allows discovery and output customization in a new quick preset before its advanced connection fields are opened", async () => {
+  it("keeps model catalog and output customization collapsed by default and allows them after expanding advanced settings", async () => {
     const controls = createClient();
     controls.discoverProviderModels.mockResolvedValue({ models: [{ id: "gpt-6-astra" }], truncated: false });
     const user = userEvent.setup();
@@ -198,6 +198,13 @@ describe("V2 custom Provider settings", () => {
     </QueryClientProvider>);
     await screen.findByRole("heading", { name: "添加供应商" });
     expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "获取模型列表" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "gpt-6.1-sol 默认输出 token" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeInTheDocument();
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-6.1-sol");
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByRole("spinbutton", { name: "gpt-6.1-sol 默认输出 token" })).toHaveValue(16384);
     expect(screen.getByRole("spinbutton", { name: "gpt-6.1-sol 单次输出上限 token" })).toHaveValue(128000);
     fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "transient-quick-key" } });
@@ -1162,5 +1169,48 @@ describe("V2 custom Provider settings", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("系统凭据仍被占用");
     expect(controls.deleteProviderDefinition).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "编辑供应商" })).toBeInTheDocument();
+  });
+
+  it("streamlines first model onboarding with accessible primary actions and lossless on-demand advanced settings", async () => {
+    const user = userEvent.setup();
+    const controls = createClient();
+    const onReady = vi.fn();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ProviderSettings client={controls.client} initialPreset={openAIPreset} onReady={onReady} prepareForDraft />
+    </QueryClientProvider>);
+
+    // 1. Verify default view only shows necessary fields and accessible primary action
+    expect(await screen.findByRole("heading", { name: "添加供应商" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeInTheDocument();
+    expect(screen.getByLabelText("默认模型")).toHaveValue("gpt-5");
+    expect(screen.getByRole("button", { name: "保存并检查" })).toBeInTheDocument();
+
+    // Verify model catalog, output limits and advanced connection are collapsed by default
+    expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "获取模型列表" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "gpt-5 默认输出 token" })).not.toBeInTheDocument();
+
+    // 2. Expand advanced settings on demand, edit advanced configuration, and collapse back
+    await user.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
+    expect(screen.getByLabelText("请求地址")).toHaveValue("https://api.openai.com/v1/responses");
+    expect(screen.getByRole("spinbutton", { name: "gpt-5 默认输出 token" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("请求地址"), { target: { value: "https://custom-gateway.openai.com/v1/responses" } });
+
+    await user.click(screen.getByRole("button", { name: "收起高级设置" }));
+    expect(screen.queryByLabelText("请求地址")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存并检查" })).toBeInTheDocument();
+
+    // 3. Fill API Key and complete save-and-check workflow
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "sk-streamlined-test-key" } });
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+
+    await waitFor(() => expect(controls.upsertProviderDefinition).toHaveBeenCalledTimes(1));
+    expect(controls.upsertProviderDefinition.mock.calls[0][1].definition.endpoint_url).toBe("https://custom-gateway.openai.com/v1/responses");
+    expect(controls.changeProviderCredential).toHaveBeenCalledWith("official-openai", expect.objectContaining({
+      secret: "sk-streamlined-test-key",
+    }));
+    await waitFor(() => expect(controls.qualifyModelHarness).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
   });
 });

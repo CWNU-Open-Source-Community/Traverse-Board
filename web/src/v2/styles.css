@@ -1332,7 +1332,20 @@
 .v2-provider-error { align-items: center; border-radius: 10px; display: flex; gap: 8px; line-height: 1.45; margin: 0; padding: 10px 12px; }
 .v2-provider-notice { background: color-mix(in srgb, #34a853 8%, var(--v2-control)); color: color-mix(in srgb, #187a37 86%, var(--v2-ink)); margin-bottom: 15px; }
 .v2-provider-error { background: color-mix(in srgb, var(--v2-danger) 7%, var(--v2-control)); }
-.v2-provider-actions { align-items: center; display: flex; gap: 8px; padding-top: 2px; }
+.v2-provider-actions {
+  align-items: center;
+  background: color-mix(in srgb, var(--v2-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--v2-border);
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 0 4px;
+  position: sticky;
+  z-index: 4;
+}
 .v2-provider-actions > span { flex: 1 1 auto; }
 .v2-provider-actions button.danger-quiet { color: var(--v2-danger); }
 .v2-provider-actions button:disabled,
