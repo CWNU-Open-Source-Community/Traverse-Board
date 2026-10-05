@@ -17,10 +17,8 @@ import (
 
 func TestSQLiteUpgradesV18AndLazilyRegistersExistingRoot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v18.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "upgrade coordinator", Profile: "review", Budget: domain.Budget{MaxTurns: 6},
@@ -317,10 +315,8 @@ func TestAgentInboxWakeIsIdempotentAndDoesNotLeakOperationKey(t *testing.T) {
 
 func TestSQLiteUpgradesV19InboxToSemanticProtocol(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v19.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v19 inbox", Profile: "review", Budget: domain.Budget{MaxTurns: 4},
@@ -471,10 +467,8 @@ func TestSpecialistAdmissionIsAtomicPrivateAndReducesSupervisorBudget(t *testing
 
 func TestSQLiteUpgradesV20ToSpecialistAdmissionLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v20.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v20 root", Profile: "learn", Budget: domain.Budget{MaxTurns: 4},

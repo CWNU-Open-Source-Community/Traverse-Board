@@ -112,10 +112,8 @@ func TestContextMemoryStoreEnforcesOptimisticVersionAndActor(t *testing.T) {
 func TestSchemaV114MigrationPreservesLegacyDataAndReopens(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v113-upgrade.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	createdAt := time.Now().UTC().Truncate(time.Second)
 	legacy := session.WorkspaceRecord{ID: "workspace-before-v114", Name: "legacy-context",
 		RootPath: t.TempDir(), CreatedAt: createdAt}

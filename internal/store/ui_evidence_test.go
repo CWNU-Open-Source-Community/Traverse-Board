@@ -222,10 +222,8 @@ func TestUIEvidenceStartupReconciliationNeverTurnsNotRunGreen(t *testing.T) {
 func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "ui-evidence-v118.db")
-	state, err := openHistoricalMigrationFixture(t, databasePath, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, databasePath, 177)
+
 	workspaceRoot := newWorkspaceCheckpointGitRepository(t)
 	workspace := WorkspaceRecord{ID: "workspace-migration-119", Name: "migration-119",
 		RootPath: workspaceRoot}

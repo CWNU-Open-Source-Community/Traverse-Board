@@ -200,10 +200,8 @@ func TestSQLiteRunArtifactCapturesAutomaticWorkspaceReadByInvocationID(t *testin
 
 func TestSQLiteUpgradesSchemaV13ToRunArtifactsWithoutLosingScriptProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v13.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	request := scriptProcessTestRequest("preserve-v13-process", "value")
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, request.Run)

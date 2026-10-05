@@ -215,10 +215,8 @@ func TestReadOnlyFanoutPolicyDenialAndSchemaV32Upgrade(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "readonly-upgrade.db")
-	upgrade, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	upgrade := openHistoricalTestDatabase(t, path, 177)
+
 	_, existingRun := createWorkItemTestRun(t, ctx, upgrade, "schema v32 preserved Run")
 	for _, statement := range removeSchemaV33ForTestStatements() {
 		if _, err := upgrade.db.ExecContext(ctx, statement); err != nil {
@@ -255,7 +253,7 @@ func createReadOnlyFanoutFixture(t *testing.T, databaseName string,
 	if len(historicalVersion) == 0 {
 		st, err = Open(filepath.Join(t.TempDir(), databaseName))
 	} else {
-		st, err = openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), databaseName), historicalVersion[0])
+		st = openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), databaseName), historicalVersion[0])
 	}
 	if err != nil {
 		t.Fatal(err)

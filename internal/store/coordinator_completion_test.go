@@ -259,10 +259,8 @@ func TestConcurrentSpecialistCompletionConvergesAcrossStores(t *testing.T) {
 
 func TestSQLiteUpgradesV22ToSpecialistCompletionReports(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v22.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run := createWorkItemTestRun(t, ctx, st, "upgrade completion protocol")
 	root, found, err := st.GetRootAgent(ctx, run.ID)

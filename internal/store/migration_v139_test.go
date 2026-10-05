@@ -30,10 +30,7 @@ func removeSchemaV139ForTestStatements() []string {
 func TestSchemaV139BackfillsConservativeThreadPermission(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "thread-permission-v138.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
 	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "legacy Thread permission", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 2}})

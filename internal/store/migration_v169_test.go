@@ -19,11 +19,8 @@ import (
 
 func TestAgentBrowserSchemaV169PreservesV168RowsAndStoresTypedActions(t *testing.T) {
 	ctx := context.Background()
-	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "agent-browser-v168.db"))
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "agent-browser-v168.db"), 168)
 	defer st.Close()
-	if e := applyMigrationPrefixForTest(ctx, st, migrationPlan(), 168); e != nil {
-		t.Fatal(e)
-	}
 	defer addCurrentSteeringForLegacySeed(t, st)()
 	_, run := createStructuredToolTestRun(t, ctx, st, "Agent browser migration")
 	if _, e := application.NewRunService(st).Start(ctx, run.ID); e != nil {

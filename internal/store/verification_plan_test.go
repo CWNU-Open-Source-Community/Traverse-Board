@@ -207,10 +207,8 @@ func TestRecordVerificationPlanRechecksActiveCodeSessionInsideTransaction(t *tes
 func TestSchemaV80UpgradePreservesRunWithoutFabricatingVerificationPlan(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v79.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	workspace := WorkspaceRecord{ID: "workspace-v80-upgrade", Name: "v80-upgrade",
 		RootPath: t.TempDir()}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

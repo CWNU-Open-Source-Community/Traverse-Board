@@ -10,11 +10,8 @@ import (
 )
 
 func TestSchemaV158PreservesExistingSteeringAndExternalForeignKeys(t *testing.T) {
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "image-migration.db"))
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "image-migration.db"), 157)
 	defer state.Close()
-	if err := applyMigrationPrefixForTest(t.Context(), state, migrationPlan(), 157); err != nil {
-		t.Fatal(err)
-	}
 	runs := newMigrationFixtureRunService(t, state)
 	_, run, err := runs.Create(t.Context(), application.CreateRunRequest{Goal: "Old image-free message", Profile: "review", Budget: domain.Budget{MaxTurns: 3}})
 	if err != nil {

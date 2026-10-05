@@ -224,7 +224,7 @@ func createRunControlTestRun(t testing.TB, ctx context.Context, path string,
 	if len(historicalVersion) == 0 {
 		state, err = Open(path)
 	} else {
-		state, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+		state = openHistoricalTestDatabase(t, path, historicalVersion[0])
 	}
 	if err != nil {
 		t.Fatal(err)

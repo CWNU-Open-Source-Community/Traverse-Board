@@ -311,10 +311,8 @@ func TestOperatorSteeringConcurrentCancellationConvergesAcrossStores(t *testing.
 
 func TestSQLiteUpgradesV45OperatorSteeringToCancellationControls(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "operator-steering-v45-upgrade.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, created := createWorkItemTestRun(t, ctx, st, "v45 operator steering upgrade")
 	run, err := application.NewRunService(st).Start(ctx, created.ID)

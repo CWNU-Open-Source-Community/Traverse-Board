@@ -15,11 +15,7 @@ import (
 
 func TestSchemaV142MigratesPopulatedHostExecutionChildrenAndAcceptsDebug(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "schema-v141.db"))
-	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 141); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "schema-v141.db"), 141)
 	intent, _ := hostExecutionStoreIntent(t, ctx, state)
 	if replayed, err := seedHistoricalHostExecutionIntent(ctx, state, intent); err != nil || replayed {
 		t.Fatalf("prepare v141 host intent replayed=%t err=%v", replayed, err)

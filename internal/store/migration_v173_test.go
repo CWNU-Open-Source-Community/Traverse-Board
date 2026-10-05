@@ -16,11 +16,8 @@ import (
 )
 
 func TestSchemaV173PreservesToolRowsActorBindingsAndAdmitsSkillRead(t *testing.T) {
-	st := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "history-migration.db"))
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "history-migration.db"), 172)
 	defer st.Close()
-	if err := applyMigrationPrefixForTest(t.Context(), st, migrationPlan(), 172); err != nil {
-		t.Fatal(err)
-	}
 	_, run := createStructuredToolTestRun(t, t.Context(), st, "Preserve tool history migration")
 	if _, err := application.NewRunService(st).Start(t.Context(), run.ID); err != nil {
 		t.Fatal(err)

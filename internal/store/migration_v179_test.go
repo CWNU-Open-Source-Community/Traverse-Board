@@ -9,10 +9,7 @@ import (
 func TestSchemaV179PreservesHistoricalFileAuthorizationAndChecksums(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "file-operation-history.db")
-	state := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 177); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
 	_, workspace, auth := populateAutoFileEditFixture(t, state)
 	edit, auth := prepareAutoFileEdit(t, state, workspace, auth, "edit-history-v179", "historical bytes\n", "historical-file-operation")
 	insertHistoricalAutomaticFileEdit(t, state, edit, auth)

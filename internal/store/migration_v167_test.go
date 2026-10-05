@@ -50,10 +50,7 @@ func TestSchemaV167DoesNotBackfillAndConsentIsImmutable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v167-upgrade.db")
 	// Seed at exactly v167 before removing its empty consent table. Opening the
 	// latest schema would leave later ledger entries and create a false gap.
-	state := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 167); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 167)
 	run := createV167ScheduledRun(t, state)
 	now := time.Now().UTC().Add(time.Second).Truncate(time.Millisecond)
 	service := application.NewScheduledJobService(state).WithClock(&v167Clock{now: now})

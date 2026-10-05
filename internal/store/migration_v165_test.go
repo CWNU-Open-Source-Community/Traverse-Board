@@ -41,11 +41,8 @@ type v164SupervisorCallRow struct {
 
 func TestSchemaV165PreservesWebEvidenceAndAdmitsReplayableSourceSearch(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t, filepath.Join(t.TempDir(), "source-search-v165.db"))
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "source-search-v165.db"), 164)
 	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 164); err != nil {
-		t.Fatal(err)
-	}
 	defer addCurrentSteeringForLegacySeed(t, state)()
 	mission, run := createStructuredToolTestRun(t, ctx, state, "source search migration")
 	now := time.Date(2026, 9, 21, 1, 0, 0, 0, time.UTC)

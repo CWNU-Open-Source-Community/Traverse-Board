@@ -24,10 +24,7 @@ func TestSchemaV183PreservesHistoricalCandidateReceiptsAndPendingRecovery(t *tes
 	}
 	home := t.TempDir()
 	path := filepath.Join(home, "v182.db")
-	st, err := openHistoricalMigrationFixture(t, path, 182)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 182)
 	objects, err := skills.NewLocalPackageObjectStore(home)
 	if err != nil {
 		t.Fatal(err)

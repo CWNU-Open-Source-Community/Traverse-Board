@@ -14,12 +14,8 @@ func TestSchemaV143UpgradesPopulatedRunningPermissionForImmediateDowngrade(
 	t *testing.T,
 ) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v142-running-permission.db"))
-	defer state.Close()
-	if err := applyMigrationPrefixForTest(ctx, state, migrationPlan(), 142); err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v142-running-permission.db"), 142)
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 
 	runs := newMigrationFixtureRunService(t, state)

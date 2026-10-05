@@ -281,10 +281,8 @@ func TestVerificationAssociationRejectsEvidenceRecordedBeforePlan(t *testing.T) 
 func TestSchemaV81UpgradeFabricatesNoVerificationAssociation(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v80.db")
-	state, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 177)
+
 	workspace := WorkspaceRecord{ID: "workspace-v81-upgrade", Name: "v81-upgrade",
 		RootPath: t.TempDir()}
 	if err := state.SaveWorkspace(ctx, workspace); err != nil {

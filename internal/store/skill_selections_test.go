@@ -263,7 +263,7 @@ func createSkillSelectionRun(t *testing.T, path string, profile string, historic
 	if len(historicalVersion) == 0 {
 		st, err = Open(path)
 	} else {
-		st, err = openHistoricalMigrationFixture(t, path, historicalVersion[0])
+		st = openHistoricalTestDatabase(t, path, historicalVersion[0])
 	}
 	if err != nil {
 		t.Fatal(err)

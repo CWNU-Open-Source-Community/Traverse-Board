@@ -531,10 +531,8 @@ func TestSpecialistModelSQLiteTriggersRejectSkippedAndStaleTerminalWrites(t *tes
 
 func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v25.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixtureWithoutLease(t, ctx, st,
 		"Specialist model migration", 1, 16)
@@ -546,7 +544,7 @@ func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,10 +568,8 @@ func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 
 func TestSchemaV28PreservesV27SpecialistModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v27.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixture(t, ctx, st,
 		"Specialist protocol repair migration", 2, 64)

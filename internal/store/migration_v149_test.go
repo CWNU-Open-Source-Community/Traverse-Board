@@ -8,13 +8,9 @@ import (
 
 func TestSchemaV149AddsSourceBoundWebFetchAuthorizations(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v148-web-fetch-authorizations.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v148-web-fetch-authorizations.db"), 148)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 148); err != nil {
-		t.Fatal(err)
-	}
 	if err := state.applyMigration(ctx, plan[148]); err != nil {
 		t.Fatal(err)
 	}

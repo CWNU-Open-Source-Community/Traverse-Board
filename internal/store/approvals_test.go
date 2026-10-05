@@ -347,10 +347,8 @@ func TestApprovalLazilyBindsWhenLegacySessionGetsRun(t *testing.T) {
 
 func TestSchemaV10UpgradeCreatesEmptyApprovalLedgerAndPreservesProposal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v10.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	run := toolrun.ToolRun{
 		ID: "tool-v10", ToolName: toolrun.ShellTool, Command: "echo legacy",
@@ -372,7 +370,7 @@ func TestSchemaV10UpgradeCreatesEmptyApprovalLedgerAndPreservesProposal(t *testi
 		t.Fatal(err)
 	}
 
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,10 +394,8 @@ func TestSchemaV10UpgradeCreatesEmptyApprovalLedgerAndPreservesProposal(t *testi
 
 func TestSchemaV11UpgradePreservesApprovalAndEnablesSessionGrant(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v11.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v11 approval", Profile: "code", WorkspaceID: "ws-v11",

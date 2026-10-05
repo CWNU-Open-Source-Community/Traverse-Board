@@ -41,10 +41,7 @@ func removeSchemaV177ForTestStatements() []string {
 
 func TestSchemaV177PreservesV1RowsObjectsSignaturesAndTransitions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v176-plugins.db")
-	st := openUnmigratedSQLiteStore(t, path)
-	if err := applyMigrationPrefixForTest(t.Context(), st, migrationPlan(), 176); err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 176)
 	svc, _ := plugins.NewService(st)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

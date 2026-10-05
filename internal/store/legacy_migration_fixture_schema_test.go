@@ -128,10 +128,8 @@ func TestLegacyFixtureRestoresExactV156SchemaAndRows(t *testing.T) {
 	if err := applyMigrationPrefixForTest(ctx, oracle, migrationPlan(), 156); err != nil {
 		t.Fatal(err)
 	}
-	state, err := openHistoricalMigrationFixture(t, filepath.Join(t.TempDir(), "downgraded-v156.db"), 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "downgraded-v156.db"), 177)
+
 	defer state.Close()
 	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve fixture rows", Profile: "code", WorkspaceID: "ws-structured",

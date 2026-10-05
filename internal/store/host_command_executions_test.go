@@ -21,10 +21,8 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 ) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "host-execution.db")
-	st, err := openHistoricalMigrationFixture(t, path, 141)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 141)
+
 	defer st.Close()
 	intent, environment := hostExecutionStoreIntent(t, ctx, st)
 	replayed, err := seedHistoricalHostExecutionIntent(ctx, st, intent)
@@ -169,10 +167,8 @@ func TestLegacyHostCommandExecutionAuditSurvivesUpgradeWithoutNewExecution(
 
 func TestSchemaV90AddsHostCommandExecutionAudit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v89-host-execution.db")
-	st, err := openHistoricalMigrationFixture(t, path, 89)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 89)
+
 	ctx := context.Background()
 	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {

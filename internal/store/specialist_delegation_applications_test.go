@@ -423,10 +423,8 @@ func TestSpecialistDelegationApplicationPolicyDenialCreatesNoState(t *testing.T)
 
 func TestSchemaV31ReviewSurvivesApplicationMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delegation-application-upgrade.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	_, proposal, review := createApprovedDelegationApplicationFixture(t, ctx, st, 1)
 	for _, statement := range removeSchemaV32ForTestStatements() {
@@ -437,7 +435,7 @@ func TestSchemaV31ReviewSurvivesApplicationMigration(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

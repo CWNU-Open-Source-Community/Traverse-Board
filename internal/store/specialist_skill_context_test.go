@@ -284,16 +284,14 @@ func assertSpecialistSkillContextSchemaIsMetadataOnly(t testing.TB, st *SQLiteSt
 
 func TestSchemaV46UpgradesToSpecialistSkillContextLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v46.db")
-	st, err := openHistoricalMigrationFixture(t, path, 46)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 46)
+
 	ctx := context.Background()
 	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}

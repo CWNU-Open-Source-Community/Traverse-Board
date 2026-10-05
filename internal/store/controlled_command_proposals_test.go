@@ -8,10 +8,8 @@ import (
 
 func TestSchemaV89AddsImmutableControlledCommandProposalLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v88-command-proposals.db")
-	st, err := openHistoricalMigrationFixture(t, path, 88)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 88)
+
 	ctx := context.Background()
 	// The immutable historical prefix above is the upgrade input.
 	if err := st.Close(); err != nil {

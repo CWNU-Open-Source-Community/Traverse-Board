@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,10 +22,7 @@ func removeSchemaV125ForTestStatements() []string {
 func TestSchemaV125UpgradesCanonicalV124Database(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "canonical-v124.db")
-	state, err := openHistoricalMigrationFixture(t, path, 124)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := openHistoricalTestDatabase(t, path, 124)
 	// The immutable historical prefix above is the upgrade input.
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 124 {
 		t.Fatalf("downgraded schema version=%d want=124 err=%v", version, err)
@@ -94,29 +90,9 @@ func TestMigration97ReleasedChecksumsArePinned(t *testing.T) {
 func TestSQLiteUpgradesLegacyWindowsPreviewV97AndRepairsCleanupTrigger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy-v97.db")
-	db, err := sql.Open("sqlite3", sqliteDSN(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
-		t.Fatal(err)
-	}
-	legacy := &SQLiteStore{db: db, home: filepath.Dir(path)}
-	if _, err := db.Exec(`CREATE TABLE schema_migrations (
-		version INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		checksum TEXT NOT NULL,
-		applied_at TEXT NOT NULL
-	);`); err != nil {
-		t.Fatal(err)
-	}
+	legacy := openHistoricalTestDatabase(t, path, 97)
+	db := legacy.db
 	plan := migrationPlan()
-	for _, item := range plan[:97] {
-		if err := legacy.applyMigration(ctx, item); err != nil {
-			t.Fatalf("apply legacy migration %d: %v", item.Version, err)
-		}
-	}
 	createdAt := time.Date(2026, 8, 14, 3, 30, 0, 0, time.UTC)
 	if err := legacy.SaveWorkspace(ctx, WorkspaceRecord{
 		ID: "workspace-legacy-v97", Name: "legacy-v97-preview",

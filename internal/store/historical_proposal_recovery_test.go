@@ -53,10 +53,8 @@ func newHistoricalProposalFixture(t *testing.T, mode domain.RunExecutionPermissi
 	t.Helper()
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "historical-proposal.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	t.Cleanup(func() { _ = st.Close() })
 	ws := WorkspaceRecord{ID: "history-workspace", Name: "history", RootPath: t.TempDir()}
 	if err := st.SaveWorkspace(ctx, ws); err != nil {

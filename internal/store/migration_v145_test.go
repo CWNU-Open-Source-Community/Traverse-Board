@@ -16,13 +16,9 @@ import (
 
 func TestSchemaV145UpgradesExistingRunForExactNetworkAuthorityExpansion(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v144-network-authority.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v144-network-authority.db"), 144)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 144); err != nil {
-		t.Fatal(err)
-	}
 	_, run, err := newMigrationFixtureRunService(t, state).Create(ctx,
 		application.CreateRunRequest{Goal: "preserve a v144 Run",
 			Budget: domain.Budget{MaxTurns: 2}})
@@ -132,13 +128,9 @@ func TestSchemaV145RejectsUnboundOrUnsafeNetworkAuthorityRows(t *testing.T) {
 
 func TestSchemaV145ResetsLegacyBroadThreadNetworkPreference(t *testing.T) {
 	ctx := context.Background()
-	state := openUnmigratedSQLiteStore(t,
-		filepath.Join(t.TempDir(), "schema-v144-legacy-network-successor.db"))
-	defer state.Close()
+	state := openHistoricalTestDatabase(t,
+		filepath.Join(t.TempDir(), "schema-v144-legacy-network-successor.db"), 144)
 	plan := migrationPlan()
-	if err := applyMigrationPrefixForTest(ctx, state, plan, 144); err != nil {
-		t.Fatal(err)
-	}
 	restoreLegacyInputs := addCurrentInputColumnsForLegacySeed(t, state)
 	now := time.Now().UTC()
 	linkedSession := session.New("", "migrate a legacy broad network preference", "code")

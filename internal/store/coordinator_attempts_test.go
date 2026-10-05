@@ -409,10 +409,8 @@ func TestRunPauseInterruptsAttemptBeforeSpecialistProjectionMoves(t *testing.T) 
 
 func TestSchemaV24PreservesReadySpecialistAndAddsAttemptRuntime(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v23.db")
-	st, err := openHistoricalMigrationFixture(t, path, 177)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openHistoricalTestDatabase(t, path, 177)
+
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixtureWithoutLease(t, ctx, st,
 		"attempt migration", 2, 32)
@@ -424,7 +422,7 @@ func TestSchemaV24PreservesReadySpecialistAndAddsAttemptRuntime(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(path)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
