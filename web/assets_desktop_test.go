@@ -1,6 +1,6 @@
 //go:build desktop
 
-package main
+package webassets_test
 
 import (
 	"crypto/sha256"

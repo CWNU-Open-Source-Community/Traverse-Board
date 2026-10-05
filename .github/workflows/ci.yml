@@ -4,31 +4,52 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 19 * * *' # 03:23 Asia/Hong_Kong
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   classify:
-    name: Classify pull request changes
+    name: Select affected checks
     runs-on: ubuntu-latest
     outputs:
-      docs_only: ${{ steps.changes.outputs.docs_only }}
+      full: ${{ steps.changes.outputs.full }}
+      backend: ${{ steps.changes.outputs.backend }}
+      store: ${{ steps.changes.outputs.store }}
+      web: ${{ steps.changes.outputs.web }}
+      lsp: ${{ steps.changes.outputs.lsp }}
+      rust: ${{ steps.changes.outputs.rust }}
+      native: ${{ steps.changes.outputs.native }}
+      ui: ${{ steps.changes.outputs.ui }}
+      race: ${{ steps.changes.outputs.race }}
+      audit: ${{ steps.changes.outputs.audit }}
+      packaging: ${{ steps.changes.outputs.packaging }}
+      checks: ${{ steps.changes.outputs.checks }}
+      go_plan: ${{ steps.changes.outputs.go_plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
       - name: Test CI helpers
         run: python -B -m unittest discover -s scripts/ci -p 'test_*.py' -v
       - name: Classify the exact change set
         id: changes
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: >-
           python -B scripts/ci/classify_changes.py
@@ -41,7 +62,7 @@ jobs:
   go-checks:
     name: Go checks
     needs: classify
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,14 +83,14 @@ jobs:
         run: go mod tidy -diff
       - name: Verify classified protocol registry and reader history
         env:
-          PROTOCOL_REGISTRY_BASELINE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PROTOCOL_REGISTRY_BASELINE: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
         run: >-
           go run ./cmd/protocolregistry -check
           -baseline "$PROTOCOL_REGISTRY_BASELINE"
       - name: Materialize reviewed base Surface registry
         shell: bash
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
         run: |
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "GitHub base commit identity is invalid"
@@ -85,53 +106,66 @@ jobs:
           fi
       - name: Verify Surface tier registry and generated inventory
         run: go run ./cmd/surfacecheck
-      - name: Verify documentation release contracts
-        if: ${{ github.event_name == 'pull_request' && needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' }}
-        run: go test -count=1 ./internal/releasegate ./internal/producte2e
-      - name: Run complete Go suite except sharded Store package
-        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
-        # The migration-heavy Store package can exceed 30 minutes on a shared
-        # Linux runner after a forward schema is added. Shared-runner variance
-        # has pushed the Store package past 45 minutes. It is split below by
-        # compiled test name while this job retains every other package.
-        shell: bash
+      - name: Verify documentation and release contracts
+        env:
+          GO_PLAN: ${{ needs.classify.outputs.go_plan }}
         run: |
-          set -euo pipefail
-          module="$(go list -m)"
-          store_package="$module/internal/store"
-          package_file="$RUNNER_TEMP/go-packages.txt"
-          go list ./... > "$package_file"
-          mapfile -t packages < "$package_file"
-          filtered=()
-          store_seen=false
-          for package in "${packages[@]}"; do
-            if [[ "$package" == "$store_package" ]]; then
-              store_seen=true
-            else
-              filtered+=("$package")
-            fi
-          done
-          if [[ "$store_seen" != true || "${#filtered[@]}" -eq 0 ]]; then
-            echo "Exact internal/store package exclusion failed" >&2
-            exit 1
-          fi
-          go test -timeout 60m -count=1 "${filtered[@]}"
+          python - <<'PY'
+          import json, os, subprocess
+          plan = json.loads(os.environ["GO_PLAN"])
+          packages = [name for name in (
+              "cyberagent-workbench/internal/releasegate",
+              "cyberagent-workbench/internal/producte2e",
+          ) if name not in plan.get("test", [])]
+          if packages:
+              subprocess.run(["go", "test", "-count=1", *packages], check=True)
+          PY
+      - name: Test and vet selected Go packages
+        if: ${{ needs.classify.outputs.backend == 'true' }}
+        env:
+          GO_PLAN: ${{ needs.classify.outputs.go_plan }}
+        run: |
+          printf '%s' "$GO_PLAN" > "$RUNNER_TEMP/go-plan.json"
+          python -B scripts/ci/run_go_checks.py --plan "$RUNNER_TEMP/go-plan.json"
+
+  go-race:
+    name: Go authority race checks
+    needs: classify
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.race == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
       - name: Race-check Workspace Access permission and authority fencing
-        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         run: >-
           go test -race -timeout 15m -count=1
           ./internal/domain ./internal/executionauth ./internal/application
           ./internal/store ./internal/httpapi
           -run 'WorkspaceAccess|RunExecutionPermission|ExecutionPermission|PermissionDrift|SchemaV126|AgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict|CommandOperationApprovalRealNativeThreeModes'
-      - if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
-        run: go vet ./...
+
+  go-audit:
+    name: Go dependency audit
+    needs: classify
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.audit == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
       - name: Install pinned govulncheck
-        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         env:
           GOBIN: ${{ runner.temp }}
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: Scan for reachable Go vulnerabilities
-        if: ${{ github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true' }}
         env:
           GOVULNCHECK: ${{ runner.temp }}/govulncheck
         run: |
@@ -141,7 +175,7 @@ jobs:
   store-tests:
     name: Store package tests (shard ${{ matrix.shard }})
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.store == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -172,42 +206,34 @@ jobs:
 
   go:
     name: Go control plane
-    needs:
-      - classify
-      - go-checks
-      - store-tests
+    needs: [classify, go-checks, store-tests, go-race, go-audit]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require every applicable Go gate
-        shell: bash
+      - name: Require every selected Go gate
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
-          CLASSIFY_RESULT: ${{ needs.classify.result }}
-          GO_CHECKS_RESULT: ${{ needs.go-checks.result }}
-          STORE_TESTS_RESULT: ${{ needs.store-tests.result }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          set -euo pipefail
-          if [[ "$CLASSIFY_RESULT" != success || "$GO_CHECKS_RESULT" != success ]]; then
-            echo "Change classification or Go checks did not succeed" >&2
-            exit 1
-          fi
-          if [[ "$EVENT_NAME" == pull_request && "$DOCS_ONLY" == true ]]; then
-            if [[ "$STORE_TESTS_RESULT" != skipped ]]; then
-              echo "Documentation-only Store shards were not skipped as required" >&2
-              exit 1
-            fi
-          elif [[ "$STORE_TESTS_RESULT" != success ]]; then
-            echo "One or more Store shards did not succeed" >&2
-            exit 1
-          fi
-          echo "All applicable Go gates succeeded"
+          python - <<'PY'
+          import json, os
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          if needs["classify"]["result"] != "success":
+              raise SystemExit("Change selection failed")
+          checks = json.loads(needs["classify"]["outputs"]["checks"])
+          required = ["go-checks"]
+          required += [job for job, flag in (
+              ("store-tests", "store"), ("go-race", "race"), ("go-audit", "audit")
+          ) if checks[flag]]
+          failed = [job for job in required if needs[job]["result"] != "success"]
+          if failed:
+              raise SystemExit("Required Go checks did not succeed: " + ", ".join(failed))
+          print("All selected Go checks succeeded")
+          PY
 
   code-intel-lsp:
     name: Real LSP (${{ matrix.os }})
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.lsp == 'true' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -263,7 +289,7 @@ jobs:
   web:
     name: TypeScript console
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.web == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -279,6 +305,17 @@ jobs:
       - run: npm run check:api
       - run: npm test
       - run: npm run build
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
+      - name: Verify Go bundle loader and embedded production UI bundle
+        working-directory: .
+        run: |
+          go test -count=1 ./internal/webui
+          go test -count=1 -tags desktop ./web
       - name: Audit dependencies
         run: |
           for attempt in 1 2 3; do
@@ -294,7 +331,7 @@ jobs:
   rust:
     name: Rust analyzer fixtures
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -359,11 +396,11 @@ jobs:
           path: analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm
           if-no-files-found: error
           retention-days: 1
-      - name: Verify embedded WASI import and memory boundaries
+      - name: Verify embedded WASI boundaries and shared protocol fixtures
         working-directory: .
         env:
           CYBERAGENT_WASI_FIXTURE: ${{ github.workspace }}/analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm
-        run: go test -count=1 ./internal/analyzer -run '^TestAnalyzerEmbeddedWASIProductionFixtureAssessment$'
+        run: go test -count=1 ./internal/analyzer -run '^Test(AnalyzerEmbeddedWASIProductionFixtureAssessment|AnalyzerProtocolSharedGoldenVectors|ArchiveInventorySharedGoldenVectors)$'
       - name: Verify Linux analyzer conformance boundaries
         working-directory: .
         env:
@@ -373,7 +410,7 @@ jobs:
   desktop-macos:
     name: macOS Desktop shell
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.native == 'true' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -402,9 +439,16 @@ jobs:
         run: go test -v -tags keychainintegration -count=1 -timeout=90s ./internal/credential
       - name: Verify POSIX command runtime transport
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntimePlatform(ShellSmoke|CancelReapsOwnedProcessTree)$'
+      - name: Verify desktop boundaries without packaging
+        if: ${{ needs.classify.outputs.packaging != 'true' }}
+        run: |
+          go test -count=1 ./internal/desktop ./internal/webui
+          go test -count=1 -tags desktop ./cmd/cyberagent-desktop ./web
       - name: Build and verify downloadable macOS preview
+        if: ${{ needs.classify.outputs.packaging == 'true' }}
         run: bash scripts/release-desktop-darwin.sh "v1.0.0-ci.$GITHUB_RUN_ID" "$GITHUB_SHA" "$(go env GOARCH)"
       - name: Upload downloadable macOS preview
+        if: ${{ needs.classify.outputs.packaging == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TraverseBoard-macos-preview-arm64
@@ -415,7 +459,7 @@ jobs:
   desktop:
     name: Windows Desktop shell
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.native == 'true' }}
     runs-on: windows-latest
     env:
       TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
@@ -496,14 +540,23 @@ jobs:
         run: |
           $env:CYBERAGENT_ANALYZER_CONFORMANCE_BINARY = Join-Path $env:GITHUB_WORKSPACE "analyzers\target\debug\cyberagent-analyzer-fixture.exe"
           go test -v -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance|Analyzer(ImmutableHandleHandoff|DedicatedLowPrivilegeIdentity|ReadOnlyFilesystemPrivateStaging)Conformance)'
+      - name: Verify desktop boundaries without packaging
+        if: ${{ needs.classify.outputs.packaging != 'true' }}
+        shell: pwsh
+        run: |
+          go test -count=1 ./internal/desktop ./internal/webui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -count=1 -tags "desktop,wv2runtime.error" ./cmd/cyberagent-desktop ./web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and verify portable Desktop shell
+        if: ${{ needs.classify.outputs.packaging == 'true' }}
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible
 
   ui-evidence-windows:
     name: Real Edge UI evidence (standard user, Windows 2022)
     needs: classify
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.result != 'success' || needs.classify.outputs.docs_only != 'true') }}
+    if: ${{ !cancelled() && needs.classify.result == 'success' && needs.classify.outputs.ui == 'true' }}
     runs-on: windows-2022
     timeout-minutes: 10
     steps:
@@ -736,3 +789,22 @@ jobs:
           path: ${{ runner.temp }}/ui-evidence-smoke
           if-no-files-found: warn
           retention-days: 5
+
+  full-ci:
+    name: Full CI verification
+    needs: [classify, go, code-intel-lsp, web, rust, desktop-macos, desktop, ui-evidence-windows]
+    if: ${{ always() && needs.classify.outputs.full == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the complete integration and platform matrix
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = [name for name, job in needs.items() if job["result"] != "success"]
+          if failed:
+              raise SystemExit("Full CI did not succeed: " + ", ".join(failed))
+          print("Full CI verification succeeded")
+          PY

@@ -98,7 +98,7 @@ if [ "$SkipFrontend" != true ]; then
 fi
 
 go test ./internal/desktop ./internal/webui -count=1
-go test -tags "desktop" ./cmd/cyberagent-desktop -count=1
+go test -count=1 -tags "desktop" ./cmd/cyberagent-desktop ./web
 
 revision="$(git rev-parse HEAD)"
 if [ -z "$revision" ] || ! printf '%s' "$revision" | grep -Eq '^[0-9a-f]{40}$'; then

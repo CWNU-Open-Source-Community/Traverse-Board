@@ -18,6 +18,8 @@ on:
           - finalize
   pull_request:
     paths:
+      # Product/dependency changes are checked by central CI. PR packaging
+      # validates changes to the release machinery and distribution inputs.
       - '.github/workflows/release-desktop.yml'
       - 'cmd/packagede2e/**'
       - 'cmd/producte2e/**'
@@ -27,6 +29,7 @@ on:
       - 'internal/producte2e/**'
       - 'internal/releasegate/**'
       - 'scripts/build-desktop-darwin.sh'
+      - 'scripts/build-embedded-wasi.sh'
       - 'scripts/check-macos-compat.sh'
       - 'scripts/release-desktop-darwin.sh'
       - 'scripts/macos-release.py'
@@ -43,25 +46,12 @@ on:
       - 'scripts/smoke-desktop-operator-preview.ps1'
       - 'scripts/standard-code-packaged-e2e.ps1'
       - 'scripts/standard-code-product-e2e.ps1'
+      - 'scripts/test-standard-code-packaged-readiness.ps1'
       - 'scripts/verify-portable-zip.ps1'
       - 'scripts/verify-msix.ps1'
       - 'packaging/windows/**'
       - 'packaging/macos/**'
       - 'assets/branding/**'
-      - 'web/public/**'
-      - 'web/src/assets/fonts/**'
-      - 'web/src/assets/traverse-board-mark.png'
-      - 'packaging/windows/RELEASE-NOTES.md'
-      - 'protocols/registry.json'
-      - 'go.mod'
-      - 'go.sum'
-      - 'web/package.json'
-      - 'web/package-lock.json'
-      - 'analyzers/Cargo.toml'
-      - 'analyzers/Cargo.lock'
-      - 'analyzers/rust-toolchain.toml'
-      - 'internal/analyzer/embedded/**'
-      - 'README.md'
   push:
     tags:
       - 'v*'
@@ -150,7 +140,7 @@ jobs:
           "phase=$phase" >> $env:GITHUB_OUTPUT
           "signing_prepare=$($signingPrepare.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - name: Require successful central CI for the exact release revision
+      - name: Require successful full central CI for the exact release revision
         if: ${{ github.event_name != 'pull_request' }}
         shell: pwsh
         env:
@@ -161,18 +151,44 @@ jobs:
             throw "Release CI revision is invalid"
           }
           $endpoint = "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" +
-            "?head_sha=$revision&event=push&status=completed&per_page=100"
-          $response = gh api $endpoint
+            "?head_sha=$revision&status=completed&per_page=100"
+          $response = gh api $endpoint --paginate --slurp
           if ($LASTEXITCODE -ne 0) { throw "Central CI provenance lookup failed" }
-          $runs = ($response | Out-String) | ConvertFrom-Json
-          $successful = @($runs.workflow_runs | Where-Object {
+          $pages = ($response | Out-String) | ConvertFrom-Json
+          $successful = @($pages | ForEach-Object { $_.workflow_runs } | Where-Object {
               [string]$_.head_sha -ceq $revision -and
-              [string]$_.event -ceq "push" -and
+              [string]$_.event -cin @("push", "workflow_dispatch", "schedule") -and
               [string]$_.status -ceq "completed" -and
               [string]$_.conclusion -ceq "success"
             })
-          if ($successful.Count -lt 1) {
-            throw "The exact release revision has no successful central CI push run"
+          $fullVerified = $false
+          foreach ($run in $successful) {
+            $runID = [string]$run.id
+            $attempt = [string]$run.run_attempt
+            if ($runID -notmatch '^[1-9][0-9]*$' -or $attempt -notmatch '^[1-9][0-9]*$') {
+              throw "Central CI run or attempt identity is invalid"
+            }
+            # Partial runs can succeed. The full-only aggregate is successful
+            # only after every full check passed in this same run attempt.
+            $jobsEndpoint = "repos/$env:GITHUB_REPOSITORY/actions/runs/$runID" +
+              "/attempts/$attempt/jobs?per_page=100"
+            $jobResponse = gh api $jobsEndpoint --paginate --slurp
+            if ($LASTEXITCODE -ne 0) { throw "Full central CI job lookup failed" }
+            $jobPages = ($jobResponse | Out-String) | ConvertFrom-Json
+            $fullJobs = @($jobPages | ForEach-Object { $_.jobs } | Where-Object {
+                [string]$_.name -ceq "Full CI verification"
+              })
+            if ($fullJobs.Count -eq 1 -and
+                [string]$fullJobs[0].run_id -ceq $runID -and
+                [string]$fullJobs[0].head_sha -ceq $revision -and
+                [string]$fullJobs[0].status -ceq "completed" -and
+                [string]$fullJobs[0].conclusion -ceq "success") {
+              $fullVerified = $true
+              break
+            }
+          }
+          if (-not $fullVerified) {
+            throw "The exact release revision has no successful full central CI; run CI manually for this revision before releasing"
           }
 
       - name: Set up pinned Go 1.25.12

@@ -101,8 +101,6 @@ func TestApprovedBrandMasterAndPlatformAssetsStaySynchronized(t *testing.T) {
 		"scripts/windows-visual-assets.ps1",
 		"assets/branding/**",
 		"packaging/macos/**",
-		"web/public/**",
-		"web/src/assets/traverse-board-mark.png",
 	} {
 		if !strings.Contains(workflow, requiredPath) {
 			t.Fatalf("Desktop release workflow does not watch %q", requiredPath)
