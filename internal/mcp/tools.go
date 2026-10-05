@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
-	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -44,15 +44,24 @@ func (s *Server) serveToolsCall(ctx context.Context, request Request, output io.
 	}
 	// The client can only supply the closed tool payload; an arbitrary
 	// executable, path, credential, or permission tier has no field to ride on.
-	call := toolgateway.ToolCall{Name: name, Payload: params.Arguments,
-		InvocationID: idgen.New("mcp-call"), OperationKey: string(request.ID),
+	arguments, err := decodeWorkspaceReadArguments(name, params.Arguments)
+	if err != nil {
+		_ = s.write(output, Envelope{JSONRPC: "2.0", ID: request.ID,
+			Error: &RPCError{Code: CodeInvalidParams, Message: err.Error()}})
+		return
+	}
+	// Workspace reads use the Gateway's Arguments contract. The Gateway owns
+	// invocation identity and budget charging; a transport request id is not one.
+	call := toolgateway.ToolCall{Name: name, Arguments: arguments,
 		RunID: s.runID, SessionID: "", WorkspaceID: s.workspaceID,
 		RequestedBy: "mcp:" + s.clientName}
-	if _, err := s.store.GetRun(ctx, s.runID); err != nil {
+	run, err := s.store.GetRun(ctx, s.runID)
+	if err != nil {
 		_ = s.write(output, Envelope{JSONRPC: "2.0", ID: request.ID,
 			Error: &RPCError{Code: CodeInternalError, Message: "Run scope unavailable"}})
 		return
 	}
+	call.SessionID = run.SessionID
 	outcome, err := s.tools.Invoke(ctx, call)
 	if err != nil {
 		reason := "invocation_failed"
@@ -92,6 +101,25 @@ func (s *Server) serveToolsCall(ctx context.Context, request Request, output io.
 		Result: mustJSON(CallToolResult{Content: []TextContent{{Type: "text", Text: text}}})})
 	_ = s.store.RecordMCPAudit(context.WithoutCancel(ctx), s.runID, "mcp.tool_completed", map[string]any{
 		"tool": params.Name, "status": outcome.Result.Status})
+}
+
+func decodeWorkspaceReadArguments(name toolgateway.ToolName, raw json.RawMessage) (map[string]string, error) {
+	var arguments map[string]string
+	if err := json.Unmarshal(raw, &arguments); err != nil || arguments == nil {
+		return nil, errors.New("workspace read arguments must be a JSON object of strings")
+	}
+	for key, value := range arguments {
+		if key != "path" {
+			return nil, errors.New("workspace read arguments only accept path")
+		}
+		if value == "" || utf8.RuneCountInString(value) > 2048 {
+			return nil, errors.New("workspace read path must contain 1 to 2048 characters")
+		}
+	}
+	if name == toolgateway.ReadFileTool && arguments["path"] == "" {
+		return nil, errors.New("read_file requires path")
+	}
+	return arguments, nil
 }
 
 var _ = domain.ValidAgentID

@@ -53,7 +53,11 @@ func (a *App) mcpServeCommand(ctx context.Context, args []string) error {
 	if fs.NArg() != 0 || strings.TrimSpace(*runID) == "" || strings.TrimSpace(*workspaceID) == "" {
 		return errors.New("usage: cyberagent mcp serve --run <run-id> --workspace <workspace-id>")
 	}
-	gateway := toolgateway.New(a.store, a.checker)
+	gateway := toolgateway.New(a.store, a.checker).
+		WithWorkspaceRootResolver(func(ctx context.Context, workspaceID string) (string, error) {
+			record, err := a.store.GetWorkspaceByID(ctx, workspaceID)
+			return record.RootPath, err
+		})
 	server, err := mcp.New(mcp.Options{Store: a.store, Tools: gateway,
 		RunID: *runID, WorkspaceID: *workspaceID, SessionTTL: *sessionTTL,
 		CallTimeout: *callTimeout, MaxConcurrent: *maxConcurrent})
