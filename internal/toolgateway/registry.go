@@ -21,6 +21,7 @@ type toolRegistration struct {
 	defaultCatalog bool
 	planCatalog    bool
 	normalize      func(ToolName, json.RawMessage) (json.RawMessage, error)
+	preflight      func(*Gateway, ToolCall) error
 	invoke         func(*Gateway, context.Context, ToolCall) (Outcome, error)
 }
 
@@ -48,92 +49,111 @@ func buildToolRegistry() toolRegistry {
 	addSupervisor := func(definitions []ToolDefinition,
 		normalize func(ToolName, json.RawMessage) (json.RawMessage, error),
 		invoke func(*Gateway, context.Context, ToolCall) (Outcome, error),
+		preflight func(*Gateway, ToolCall) error,
 		typedAction, defaultCatalog bool,
 	) {
 		for _, definition := range definitions {
 			add(toolRegistration{definition: definition, valid: true,
 				typedAction: typedAction, defaultCatalog: defaultCatalog,
 				planCatalog: defaultCatalog && definition.Name != SkillCandidateProposeTool,
-				normalize:   normalize, invoke: invoke})
+				normalize:   normalize, preflight: preflight, invoke: invoke})
 		}
 	}
 
 	// This order is the existing model catalog order. Dynamic capability
 	// projections narrow or replace these definitions at the application boundary.
 	addSupervisor(StructuredMemoryToolDefinitions(), NormalizeStructuredMemoryPayload,
-		(*Gateway).invokeStructuredMemory, true, true)
+		(*Gateway).invokeStructuredMemory,
+		requireExecutor("structured memory", func(g *Gateway, _ ToolCall) bool { return g.structuredMemory != nil }), true, true)
 	addSupervisor(HistoryRecallToolDefinitions(), NormalizeHistoryRecallPayload,
-		(*Gateway).invokeHistoryRecall, true, true)
+		(*Gateway).invokeHistoryRecall, nil, true, true)
 	addSupervisor([]ToolDefinition{SkillReadToolDefinition(nil)},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := NormalizeSkillReadPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeSkillRead, true, true)
+		}, (*Gateway).invokeSkillRead, nil, true, true)
 	addSupervisor([]ToolDefinition{specialistDelegationDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeSpecialistDelegationPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeSpecialistDelegation, true, true)
+		}, (*Gateway).invokeSpecialistDelegation,
+		requireExecutor("specialist delegation proposal", func(g *Gateway, _ ToolCall) bool { return g.delegationProposals != nil }), true, true)
 	addSupervisor([]ToolDefinition{childTaskProposeDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeChildTaskProposalPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeChildTaskProposal, true, true)
+		}, (*Gateway).invokeChildTaskProposal,
+		requireExecutor("child task proposal", func(g *Gateway, _ ToolCall) bool { return g.childTaskProposals != nil }), true, true)
 	addSupervisor([]ToolDefinition{dockerSandboxProposalDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeDockerSandboxProposalPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeDockerSandboxProposal, true, true)
+		}, (*Gateway).invokeDockerSandboxProposal,
+		requireExecutor("Docker Sandbox proposal", func(g *Gateway, _ ToolCall) bool { return g.dockerSandboxProposals != nil }), true, true)
 	addSupervisor([]ToolDefinition{skillCandidateProposalDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeSkillCandidatePayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeSkillCandidate, false, true)
+		}, (*Gateway).invokeSkillCandidate,
+		requireExecutor("Skill candidate proposal", func(g *Gateway, _ ToolCall) bool { return g.skillCandidates != nil }), false, true)
 	addSupervisor([]ToolDefinition{debugTerminalDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeDebugTerminalPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeDebugTerminal, false, true)
+		}, (*Gateway).invokeDebugTerminal,
+		requireExecutor("debug terminal", func(g *Gateway, _ ToolCall) bool { return g.debugTerminal != nil }), false, true)
 	addSupervisor([]ToolDefinition{commandRuntimeDefinition},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizeCommandRuntimePayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeCommandRuntime, false, true)
+		}, (*Gateway).invokeCommandRuntime,
+		requireExecutor("command runtime", func(g *Gateway, _ ToolCall) bool { return g.commandRuntime != nil }), false, true)
 	addSupervisor([]ToolDefinition{MCPToolDefinition()},
 		func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := NormalizeMCPToolPayload(payload)
 			return canonical, err
-		}, (*Gateway).invokeMCP, true, true)
+		}, (*Gateway).invokeMCP,
+		requireExecutor("MCP client", func(g *Gateway, _ ToolCall) bool { return g.mcp != nil }), true, true)
 	addSupervisor(WebEvidenceToolDefinitions(), NormalizeWebEvidencePayload,
-		(*Gateway).invokeWebEvidence, true, true)
+		(*Gateway).invokeWebEvidence,
+		requireExecutor("web evidence", func(g *Gateway, _ ToolCall) bool { return g.webEvidence != nil }), true, true)
 	browserInvoke := func(g *Gateway, ctx context.Context, call ToolCall) (Outcome, error) {
 		if IsAgentBrowserPayload(call.Payload) {
 			return g.invokeAgentBrowser(ctx, call)
 		}
 		return g.invokeBrowserAction(ctx, call)
 	}
+	browserPreflight := requireExecutor("browser action", func(g *Gateway, call ToolCall) bool {
+		if IsAgentBrowserPayload(call.Payload) {
+			return g.agentBrowser != nil
+		}
+		return g.browserActions != nil
+	})
 	addSupervisor(BrowserActionToolDefinitions(), NormalizeBrowserActionPayload,
-		browserInvoke, true, true)
+		browserInvoke, browserPreflight, true, true)
 	add(toolRegistration{definition: planDeliveryDefinition, valid: true,
 		typedAction: true, planCatalog: true,
 		normalize: func(_ ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := normalizePlanDeliveryPayload(payload)
 			return canonical, err
-		}, invoke: (*Gateway).invokePlanDelivery})
+		}, preflight: requireExecutor("Plan/Delivery proposal", func(g *Gateway, _ ToolCall) bool { return g.planDeliveryProposals != nil }),
+		invoke: (*Gateway).invokePlanDelivery})
 	addSupervisor(AgentCodeToolDefinitions(), NormalizeAgentCodePayload,
-		(*Gateway).invokeAgentCode, true, false)
+		(*Gateway).invokeAgentCode,
+		requireExecutor("agent code tool", func(g *Gateway, _ ToolCall) bool { return g.agentCode != nil }), true, false)
 	addSupervisor(CodeIntelToolDefinitions(),
 		func(name ToolName, payload json.RawMessage) (json.RawMessage, error) {
 			_, canonical, err := NormalizeCodeIntelPayload(name, payload)
 			return canonical, err
-		}, (*Gateway).invokeCodeIntel, true, false)
+		}, (*Gateway).invokeCodeIntel,
+		requireExecutor("code-intel tool", func(g *Gateway, _ ToolCall) bool { return g.codeIntel != nil }), true, false)
 	for _, name := range []ToolName{BrowserScrollTool, BrowserKeyTool} {
 		definition, found := AgentBrowserToolDefinition(name)
 		if !found {
 			panic(fmt.Sprintf("missing Agent Browser definition %q", name))
 		}
 		addSupervisor([]ToolDefinition{definition}, NormalizeBrowserActionPayload,
-			browserInvoke, true, false)
+			browserInvoke, browserPreflight, true, false)
 	}
 
 	// Operator tools are valid gateway names, but are absent from model catalogs.
@@ -164,6 +184,15 @@ func buildToolRegistry() toolRegistry {
 		add(toolRegistration{definition: ToolDefinition{Name: name, Class: ClassAgentProposal}})
 	}
 	return registry
+}
+
+func requireExecutor(label string, available func(*Gateway, ToolCall) bool) func(*Gateway, ToolCall) error {
+	return func(g *Gateway, call ToolCall) error {
+		if !available(g, call) {
+			return fmt.Errorf("%s executor is required", label)
+		}
+		return nil
+	}
 }
 
 func lookupTool(name ToolName) (toolRegistration, bool) {

@@ -121,6 +121,49 @@ type registryChargingStore struct {
 	*memoryStore
 }
 
+func TestGatewayMissingRequiredExecutorDoesNotChargeBudget(t *testing.T) {
+	capability := testBrowserActionCapabilityContext()
+	browserCall := ToolCall{Name: BrowserStatusTool, OperationKey: "browser-operation",
+		RunID: "run-1", SessionID: "session-1", AgentID: "agent-1",
+		Surface: capability.Surface, Phase: capability.Phase, Role: capability.Role,
+		Profile: capability.Profile, PermissionMode: capability.PermissionMode,
+		ModeRevision: capability.ModeRevision, PermissionRevision: capability.PermissionRevision,
+		CapabilityGeneration: BrowserActionCapabilitySnapshot(capability).Generation,
+		RequestedBy:          "run_supervisor", LeaseID: "lease-1", LeaseGeneration: 1}
+	legacyCall, agentCall := browserCall, browserCall
+	legacyCall.Payload = json.RawMessage(`{"version":"browser_status.v1"}`)
+	agentCall.Payload = json.RawMessage(`{"version":"browser_status.v2"}`)
+	for _, test := range []struct {
+		name      string
+		call      ToolCall
+		configure func(*Gateway) *Gateway
+		wantError string
+	}{
+		{name: "command runtime", call: commandRuntimeToolCall(commandRuntimeValidPayload("Write-Output ok")),
+			wantError: "command runtime executor is required"},
+		{name: "Docker proposal", call: validDockerSandboxToolCall(dockerSandboxProposalPayload),
+			wantError: "Docker Sandbox proposal executor is required"},
+		{name: "legacy browser with only Agent Browser", call: legacyCall,
+			configure: func(g *Gateway) *Gateway { return g.WithAgentBrowserExecutor(&agentBrowserGatewayProbe{}) },
+			wantError: "browser action executor is required"},
+		{name: "Agent Browser with only legacy browser", call: agentCall,
+			configure: func(g *Gateway) *Gateway { return g.WithBrowserActionExecutor(&browserActionExecutorStub{}) },
+			wantError: "browser action executor is required"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newTrackedStructuredStore()
+			gateway := New(store, nil)
+			if test.configure != nil {
+				gateway = test.configure(gateway)
+			}
+			_, err := gateway.Invoke(t.Context(), test.call)
+			if err == nil || err.Error() != test.wantError || store.chargeCount() != 0 {
+				t.Fatalf("missing executor consumed a tool call: err=%v charges=%d", err, store.chargeCount())
+			}
+		})
+	}
+}
+
 func (s *registryChargingStore) ChargeToolCall(_ context.Context, request toolbudget.ChargeRequest) (toolbudget.Usage, error) {
 	return toolbudget.Usage{Tracked: true, RunID: request.RunID,
 		LastCharge: "tool-charge-" + request.ToolName}, nil

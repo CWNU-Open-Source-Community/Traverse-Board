@@ -23,7 +23,7 @@ Implementation status for this revision:
 | --- | --- | --- |
 | Product entry and names | Implemented | One V2 React entry; `AgentRunner`, `SubagentRunner`, `RunWorktreeService` and `APIClient` name their responsibilities. |
 | Retired code | Removed | Unreachable UI, unused Kernel/Planner/Executor/Critic scaffolding, unused tool Schema descriptions and retired execution constructors were deleted in [PR #245](https://github.com/CWNU-Open-Source-Community/Universal-Code/pull/245). Historical readers remain supported. |
-| Built-in tools | Unified | [Tool registry](../internal/toolgateway/registry.go) supplies definitions, names, classes, normalization, model membership and Gateway handlers. Runtime capabilities select the advertised subset. |
+| Built-in tools | Unified | [Tool registry](../internal/toolgateway/registry.go) supplies definitions, names, classes, normalization, model membership, executor availability and Gateway handlers. Runtime capabilities select the advertised subset. |
 | Execution checks | Shared | [Dispatch guard](../internal/executionauth/dispatch_guard.go) handles first dispatch and later rechecks for GitHub review, advanced Git, thread Git and PR operations. Business authorization stays with each operation. |
 | Command binding | Deduplicated | [Command authority](../internal/application/command_runtime_authority.go) validates one loaded binding snapshot. Each actual execution and later recheck reloads current state. |
 | Migration fixtures | Simplified | [Historical fixtures](../internal/store/test_database_fixture_test.go) build real migration prefixes. [Seed import](../internal/store/historical_fixture_import_test.go) copies compatible test data; the cumulative reverse-DDL chain is gone. |
