@@ -1,6 +1,6 @@
 # Architecture
 
-Universal Code is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
+Universal Code is a run-centric, resumable Agent workbench. Go owns execution, policy and persistence; Desktop, Web and CLI use the same application services.
 
 > **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. User/control entries, backends, integrations, and extensions have separate support tiers; see [Product Scope](PRODUCT_SCOPE.md) and [ADR 0135](adr/0135-pre-1-0-product-convergence.md).
 
@@ -14,6 +14,32 @@ Universal Code is evolving from a CLI-first agent scaffold into a run-centric, r
 - Active Desktop/React, CLI, and loopback HTTP/OpenAPI entries use the same Go-owned Application contract; maintenance TUI/headless adapters reuse it without creating a second product surface.
 - Rust analyzers remain deterministic tools behind Go.
 - CTF-specific behavior is outside the active core roadmap and may return only as a separately reviewed add-on profile.
+
+## Architecture Cleanup Status
+
+Implementation status for this revision:
+
+| Area | Status | Current implementation |
+| --- | --- | --- |
+| Product entry and names | Implemented | One V2 React entry; `AgentRunner`, `SubagentRunner`, `RunWorktreeService` and `APIClient` name their responsibilities. |
+| Retired code | Removed | Unreachable UI, unused Kernel/Planner/Executor/Critic scaffolding, unused tool Schema descriptions and retired execution constructors were deleted in [PR #245](https://github.com/CWNU-Open-Source-Community/Universal-Code/pull/245). Historical readers remain supported. |
+| Built-in tools | Unified | [Tool registry](../internal/toolgateway/registry.go) supplies definitions, names, classes, normalization, model membership and Gateway handlers. Runtime capabilities select the advertised subset. |
+| Execution checks | Shared | [Dispatch guard](../internal/executionauth/dispatch_guard.go) handles first dispatch and later rechecks for GitHub review, advanced Git, thread Git and PR operations. Business authorization stays with each operation. |
+| Command binding | Deduplicated | [Command authority](../internal/application/command_runtime_authority.go) validates one loaded binding snapshot. Each actual execution and later recheck reloads current state. |
+| Migration fixtures | Simplified | [Historical fixtures](../internal/store/test_database_fixture_test.go) build real migration prefixes. [Seed import](../internal/store/historical_fixture_import_test.go) copies compatible test data; the cumulative reverse-DDL chain is gone. |
+| CI execution | Deduplicated | [CI](../.github/workflows/ci.yml) runs analyzer vectors within the Go suite and desktop boundary tests through the platform build scripts. Platform, race and standalone release checks remain distinct. |
+| Model and extension integrations | Existing boundaries | `llm` owns provider protocols; MCP shares its SDK execution path. Skills and Plugins use their supported formats. Compatibility is tracked per integration. |
+| Runtime construction and teardown | Next refactoring candidate | Desktop, CLI and HTTP composition can share more setup and cleanup. This is separate from the completed registry and fixture work above. |
+| Ecosystem product validation | Follow-up | Exercise representative integrations through install, configuration, authentication, execution, failure and cancellation. External Agent orchestration remains outside this phase. |
+
+The Gateway extension target is concrete: add a tool implementation and one
+registration; Gateway discovery and dispatch derive from that entry. A new tool
+family can provide its own normalizer and handler. Tools that introduce durable
+protocol names, authority rules or runtime capabilities also update those
+explicit contracts; historical migration SQL stays frozen. Common policy and
+lifecycle behavior stay in the existing Gateway and execution services. New
+integrations should establish a reusable boundary with an actual implementation
+before introducing another Kernel or adapter layer.
 
 ## Control Plane
 
@@ -949,21 +975,23 @@ Schema v37 now stores acceptance/remediation/fix history. GitHub Actions annotat
 
 Existing tables remain available during migration. JSON files may be exported for portability but are not authoritative state.
 
-## Target Package Layout
+## Current Package Responsibilities
 
 ```text
 cmd/cyberagent/             CLI entrypoint
-internal/domain/            Mission, Run, AgentNode, WorkItem, Note, Finding, Report
-internal/application/       Supervisors and use-case services
+internal/domain/            Mission, Run, AgentNode, WorkItem, Note and Finding
+internal/application/       AgentRunner, SubagentRunner and use-case services
 internal/coordinator/       Agent graph, inbox, scheduling, cancellation
 internal/events/            Event envelope, subscriptions, projections
-internal/memory/            Notes, work board, context selection
+internal/contextmgr/        Context selection, summaries and memory policy
 internal/approval/          Unified privileged-action decisions
 internal/report/            Findings, evidence, report projections
 internal/skills/            Skill registry and loading
 internal/llm/               Provider interfaces and routing
-internal/tools/             Tool definitions and workspace-safe tools
+internal/tools/             Workspace-safe file executors
 internal/toolgateway/       Unified scope, policy, approval, budget, execution, and result boundary
+internal/executionauth/     Operation authorization and dispatch rechecks
+internal/runworktree/       Run-owned worktrees, checkpoints and recovery
 internal/runmutation/       Content-free idempotency identity and fingerprints
 internal/sandbox/           Backend interfaces and Docker/local runners
 internal/store/             SQLite stores and migrations
@@ -973,7 +1001,7 @@ internal/httpapi/           Loopback-only read/control API, OpenAPI contract, an
 internal/analyzer/          Go-owned analyzer protocol, validation, and future bridge boundary
 ```
 
-This layout is a migration target. Packages move only when a vertical slice uses the new boundary; unrelated working code is not rewritten for naming alone.
+Packages split when a concrete implementation establishes different ownership. New tools and integrations reuse these services and add focused behavior tests for their contracts.
 
 ## Reference and Independence
 
