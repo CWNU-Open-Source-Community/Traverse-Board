@@ -815,14 +815,14 @@
         "macos",
         "linux"
       ],
-      "application_contract": "Existing identifiers route only to bounded Go-owned modes and application controls; any real offensive pack requires separate extension admission.",
-      "authority_impact": "Names and skeletons grant no target, network, credential, process, approval, or Scope authority.",
+      "application_contract": "Existing identifiers route only to bounded Go-owned application controls; any real offensive pack requires separate extension admission.",
+      "authority_impact": "Names grant no target, network, credential, process, approval, or Scope authority.",
       "release_blocking_checks": [],
       "contract_checks": [
-        "go test ./internal/modes/ctf ./internal/app"
+        "go test ./internal/app"
       ],
       "recovery_evidence": [
-        "internal/modes/ctf/ctf.go",
+        "internal/agent/task.go",
         "internal/app/surface_contract_test.go"
       ],
       "compatibility_strategy": "Keep historical identifiers readable; CTF solving and offensive automation are not core features and need an independently removable approved extension.",

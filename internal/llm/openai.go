@@ -97,7 +97,7 @@ func (p *OpenAICompatibleProvider) ListModels(ctx context.Context) ([]ModelInfo,
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create model-list request")
 	}
-	if err := p.addHeaders(req, false, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(req, false, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare model-list headers")
 	}
 	resp, err := p.client.Do(req)
@@ -173,7 +173,7 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, request ChatRequest
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create request")
 	}
-	if err := p.addHeaders(httpReq, false, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(httpReq, false, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare request headers")
 	}
 	resp, err := p.client.Do(httpReq)
@@ -239,7 +239,7 @@ func (p *OpenAICompatibleProvider) StreamChat(ctx context.Context, request ChatR
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create streaming request")
 	}
-	if err := p.addHeaders(httpReq, true, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(httpReq, true, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare streaming request headers")
 	}
 	resp, err := p.client.Do(httpReq)
@@ -616,21 +616,6 @@ func (p *OpenAICompatibleProvider) endpoint(path string) string {
 		return p.baseURL + strings.TrimPrefix(path, "/v1")
 	}
 	return p.baseURL + path
-}
-
-func (p *OpenAICompatibleProvider) addHeaders(request *http.Request, stream bool,
-	secret string,
-) error {
-	request.Header.Set("Content-Type", "application/json")
-	if stream {
-		request.Header.Set("Accept", "text/event-stream")
-	} else {
-		request.Header.Set("Accept", "application/json")
-	}
-	if secret != "" {
-		request.Header.Set("Authorization", "Bearer "+secret)
-	}
-	return applyProviderRequestHeaders(p.runtime, secret, request.Header)
 }
 
 func readOpenAIBody(reader io.Reader) ([]byte, error) {

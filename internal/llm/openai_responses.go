@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -82,7 +81,7 @@ func (p *OpenAIResponsesProvider) ListModels(ctx context.Context) ([]ModelInfo, 
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create model-list request")
 	}
-	if err := p.addHeaders(request, false, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(request, false, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare model-list headers")
 	}
 	response, err := p.client.Do(request)
@@ -147,7 +146,7 @@ func (p *OpenAIResponsesProvider) Chat(ctx context.Context,
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create Responses request")
 	}
-	if err := p.addHeaders(httpRequest, false, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(httpRequest, false, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare Responses request headers")
 	}
 	response, err := p.client.Do(httpRequest)
@@ -193,7 +192,7 @@ func (p *OpenAIResponsesProvider) StreamChat(ctx context.Context,
 	if err != nil {
 		return nil, openAILocalError(p.name, "could not create streaming Responses request")
 	}
-	if err := p.addHeaders(httpRequest, true, secret); err != nil {
+	if err := applyOpenAIRequestHeaders(httpRequest, true, secret, p.runtime); err != nil {
 		return nil, openAILocalError(p.name, "could not prepare streaming Responses headers")
 	}
 	response, err := p.client.Do(httpRequest)
@@ -675,21 +674,6 @@ func (p *OpenAIResponsesProvider) modelsEndpoint() string {
 		return p.baseURL + "/models"
 	}
 	return p.baseURL + "/v1/models"
-}
-
-func (p *OpenAIResponsesProvider) addHeaders(request *http.Request, stream bool,
-	secret string,
-) error {
-	request.Header.Set("Content-Type", "application/json")
-	if stream {
-		request.Header.Set("Accept", "text/event-stream")
-	} else {
-		request.Header.Set("Accept", "application/json")
-	}
-	if secret != "" {
-		request.Header.Set("Authorization", "Bearer "+secret)
-	}
-	return applyProviderRequestHeaders(p.runtime, secret, request.Header)
 }
 
 type openAIResponsesRequest struct {
@@ -1311,13 +1295,6 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 	state := responsesStreamState{provider: p.name, selectedModel: selectedModel,
 		binding: p.DescribeModelHarness(selectedModel).BindingDigest,
 		items:   make(map[string]*responsesStreamItem)}
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
-	lines := providerStreamLines{}
-	scanner.Split(lines.split)
-	dataLines := make([]string, 0, 1)
-	eventSize := providerSSEEventSize{}
-	finished := false
 	send := func(chunk ChatChunk) bool {
 		select {
 		case <-ctx.Done():
@@ -1333,17 +1310,9 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 		}
 		return send(state.events.failureChunk(err))
 	}
-	flush := func() bool {
-		if len(dataLines) == 0 {
-			return true
-		}
-		payload := strings.Join(dataLines, "\n")
-		clear(dataLines)
-		dataLines = dataLines[:0]
-		eventSize = providerSSEEventSize{}
+	err := readProviderSSE(ctx, body, func(payload string) bool {
 		if payload == "[DONE]" {
 			if state.terminal {
-				finished = true
 				return false
 			}
 			if state.pendingToolErr != nil {
@@ -1362,40 +1331,20 @@ func (p *OpenAIResponsesProvider) readStream(ctx context.Context, body io.ReadCl
 			return false
 		}
 		if done {
-			finished = true
 			return false
 		}
 		return true
-	}
-	for scanner.Scan() {
-		if err := scanner.Err(); err != nil && !lines.terminated {
-			_ = sendFailure(openAIReadError(ctx, p.name, "could not read Responses stream", err))
-			return
-		}
-		line := scanner.Text()
-		if line == "" {
-			if !flush() {
-				return
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if !eventSize.append(len(part)) {
-				_ = sendFailure(openAIProtocolError(p.name, "Responses stream event exceeds its limit"))
-				return
-			}
-			dataLines = append(dataLines, part)
-		}
-	}
-	if finished || ctx.Err() != nil {
+	})
+	switch err {
+	case nil:
 		return
-	}
-	if scanner.Err() != nil {
-		_ = sendFailure(openAIReadError(ctx, p.name, "could not read Responses stream", scanner.Err()))
+	case errProviderSSEEventLimit:
+		_ = sendFailure(openAIProtocolError(p.name, "Responses stream event exceeds its limit"))
 		return
-	}
-	if !flush() || finished {
+	case io.EOF:
+		// The provider state below decides whether EOF is a valid terminal.
+	default:
+		_ = sendFailure(openAIReadError(ctx, p.name, "could not read Responses stream", err))
 		return
 	}
 	if state.pendingToolErr != nil {

@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -515,28 +514,14 @@ func anthropicTransportError(ctx context.Context, provider string, source error)
 func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.ReadCloser, defaultModel string, chunks chan<- ChatChunk) {
 	defer close(chunks)
 	defer body.Close()
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), 1<<20)
-	lines := providerStreamLines{}
-	scanner.Split(lines.split)
 	state := anthropicStreamState{model: defaultModel,
 		selectedModel: defaultModel, replayBinding: p.replayBinding(defaultModel),
 		responseModel: func(returned string) string { return p.responseModel(defaultModel, returned) },
 		events:        newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
-	dataLines := make([]string, 0, 1)
-	eventSize := providerSSEEventSize{}
-	stopped := false
 	sendError := func(err error) bool {
 		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
 	}
-	flush := func() bool {
-		if len(dataLines) == 0 {
-			return true
-		}
-		payload := strings.Join(dataLines, "\n")
-		clear(dataLines)
-		dataLines = dataLines[:0]
-		eventSize = providerSSEEventSize{}
+	err := readProviderSSE(ctx, body, func(payload string) bool {
 		if payload == "[DONE]" {
 			if state.pendingToolErr != nil {
 				_ = sendError(state.pendingToolErr)
@@ -555,43 +540,23 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 			return false
 		}
 		if done {
-			stopped = true
 			return false
 		}
 		return true
-	}
-	for scanner.Scan() {
-		if err := scanner.Err(); err != nil && !lines.terminated {
-			_ = sendError(providerHTTPReadError(ctx, p.name, "stream read failed", err))
-			return
-		}
-		line := scanner.Text()
-		if line == "" {
-			if !flush() {
-				return
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if !eventSize.append(len(part)) {
-				failure := NewProviderError(OutcomeInvalidResponse, p.name,
-					"stream SSE event exceeds its accumulation limit", nil)
-				failure.Reason = ProviderFailureProtocolIncompatible
-				_ = sendError(failure)
-				return
-			}
-			dataLines = append(dataLines, part)
-		}
-	}
-	if stopped || ctx.Err() != nil {
+	})
+	switch err {
+	case nil:
 		return
-	}
-	if err := scanner.Err(); err != nil {
+	case errProviderSSEEventLimit:
+		failure := NewProviderError(OutcomeInvalidResponse, p.name,
+			"stream SSE event exceeds its accumulation limit", nil)
+		failure.Reason = ProviderFailureProtocolIncompatible
+		_ = sendError(failure)
+		return
+	case io.EOF:
+		// The provider state below decides whether EOF is a valid terminal.
+	default:
 		_ = sendError(providerHTTPReadError(ctx, p.name, "stream read failed", err))
-		return
-	}
-	if !flush() || stopped {
 		return
 	}
 	if state.pendingToolErr != nil {

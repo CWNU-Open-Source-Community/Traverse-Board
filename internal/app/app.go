@@ -618,7 +618,7 @@ func (a *App) scriptNew(ctx context.Context, args []string) error {
 		return err
 	}
 	task := agent.Task{
-		ID:          agent.NewID("task"),
+		ID:          idgen.New("task"),
 		Kind:        agent.TaskScript,
 		Goal:        goal,
 		WorkspaceID: rec.ID,
@@ -634,7 +634,7 @@ func (a *App) scriptNew(ctx context.Context, args []string) error {
 		return err
 	}
 	if err := a.store.SaveArtifact(ctx, store.ArtifactRecord{
-		ID:          agent.NewID("artifact"),
+		ID:          idgen.New("artifact"),
 		WorkspaceID: rec.ID,
 		TaskID:      task.ID,
 		Path:        scriptPath,
@@ -754,7 +754,7 @@ func (a *App) ctfInit(ctx context.Context, args []string) error {
 		return err
 	}
 	task := agent.Task{
-		ID:          agent.NewID("task"),
+		ID:          idgen.New("task"),
 		Kind:        agent.TaskCTF,
 		Goal:        fmt.Sprintf("Initialize %s challenge in category %s with scope %s", rec.Name, *category, *scope),
 		WorkspaceID: rec.ID,
@@ -785,7 +785,7 @@ func (a *App) ctfAnalyze(ctx context.Context, args []string) error {
 		return err
 	}
 	task := agent.Task{
-		ID:          agent.NewID("task"),
+		ID:          idgen.New("task"),
 		Kind:        agent.TaskCTF,
 		Goal:        "analyze CTF workspace " + rec.Name,
 		WorkspaceID: rec.ID,
@@ -801,7 +801,7 @@ func (a *App) ctfAnalyze(ctx context.Context, args []string) error {
 		return err
 	}
 	if err := a.store.SaveArtifact(ctx, store.ArtifactRecord{
-		ID:          agent.NewID("artifact"),
+		ID:          idgen.New("artifact"),
 		WorkspaceID: rec.ID,
 		TaskID:      task.ID,
 		Path:        analysisPath,

@@ -33,3 +33,18 @@ func providerHTTPClient(source *http.Client) (*http.Client, error) {
 	}
 	return client, nil
 }
+
+func applyOpenAIRequestHeaders(request *http.Request, stream bool, secret string,
+	runtime HTTPProviderRuntime,
+) error {
+	request.Header.Set("Content-Type", "application/json")
+	if stream {
+		request.Header.Set("Accept", "text/event-stream")
+	} else {
+		request.Header.Set("Accept", "application/json")
+	}
+	if secret != "" {
+		request.Header.Set("Authorization", "Bearer "+secret)
+	}
+	return applyProviderRequestHeaders(runtime, secret, request.Header)
+}
