@@ -2,8 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIClient } from "../../api/client";
-import type { ApprovalQueueItemView } from "../../api/types";
+import type { ApprovalPreviewView, ApprovalQueueItemView } from "../../api/types";
 import { V2ApprovalCards } from "./approval-cards";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function pending(overrides: Partial<ApprovalQueueItemView> = {}): ApprovalQueueItemView {
   return {
@@ -64,7 +66,93 @@ function renderCards(item: ApprovalQueueItemView, previewOverrides = {}, onRevie
   return { decideApproval, approvalPreview, onReviewFile };
 }
 
+function renderReadOnlyCards(item: ApprovalQueueItemView | null = pending(),
+  previewOverrides: Partial<ApprovalPreviewView> = {}, failure: "queue" | "preview" | null = null) {
+  const queue = { protocol_version: "approval_queue.v1", run_id: "run-1", items: item ? [item] : [],
+    truncated: false, process_execution_enabled: false, session_grant_created: false, capability_grant: false };
+  const preview = item && { protocol_version: "approval_queue.v1", run_id: "run-1", approval_id: item.id,
+    proposal_id: item.proposal_id, tool_name: item.tool_name, workspace_id: item.workspace_id,
+    effect: item.tool_name === "command_runtime" ? "command_process" : "fetch_public_https",
+    working_directory: "", fields: [{ name: "summary", value: "Read-only exact proposal [REDACTED]" }],
+    source_current: true, redacted: true, truncated: false, ...previewOverrides };
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const isPreview = String(url).endsWith("/preview");
+    if (init?.method !== "GET") throw new Error("Unexpected approval mutation");
+    const failed = failure === (isPreview ? "preview" : "queue");
+    return new Response(JSON.stringify(failed
+      ? { version: "api.v1", request_id: "readonly-failure", error: { code: "UNAVAILABLE", message: "Read unavailable" } }
+      : { version: "api.v1", request_id: "readonly-approval", data: isPreview ? preview : queue }),
+    { status: failed ? 503 : 200, headers: { "Content-Type": "application/json" } });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new APIClient("test-read", "/api/v1");
+  const decideApproval = vi.spyOn(client, "decideApproval");
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
+  </QueryClientProvider>);
+  return { fetchMock, decideApproval, restoreReads: () => { failure = null; } };
+}
+
 describe("V2ApprovalCards", () => {
+  it.each([
+    pending(),
+    pending({ tool_name: "command_runtime", action_class: "command_process",
+      allowed_actions: ["approve_once", "approve_for_run", "deny"], canonical_url: undefined, exact_target: undefined }),
+    pending({ status: "approved", allowed_actions: ["approve_for_thread"], version: 2 }),
+  ])("shows the exact proposal for a read-only $tool_name/$status connection without decision controls", async (item) => {
+    const { fetchMock, decideApproval } = renderReadOnlyCards(item);
+    expect(await screen.findByText("Read-only exact proposal [REDACTED]")).toBeVisible();
+    expect(screen.getByRole("region", { name: "待处理审批" })).toBeVisible();
+    expect(screen.getByText(/当前连接只有审批读取权限/)).toBeVisible();
+    expect(screen.getByText("敏感内容已脱敏；这里不会显示凭据值。")).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/runs/run-1/approvals", `/api/v1/runs/run-1/approvals/${item.id}/preview`,
+    ]);
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET" &&
+      new Headers(init.headers).get("Authorization") === "Bearer test-read")).toBe(true);
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a successful empty queue from an unread queue", async () => {
+    const { fetchMock } = renderReadOnlyCards(null);
+    expect(await screen.findByText("没有待处理审批。")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "待处理审批" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed queue read and retries with the read token", async () => {
+    const { fetchMock, decideApproval, restoreReads } = renderReadOnlyCards(pending(), {}, "queue");
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法读取待审批操作");
+    expect(screen.queryByText("没有待处理审批。")).not.toBeInTheDocument();
+    restoreReads();
+    await userEvent.click(screen.getByRole("button", { name: "重试审批队列" }));
+    expect(await screen.findByText("Read-only exact proposal [REDACTED]")).toBeVisible();
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/approvals"))).toHaveLength(2);
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it("retains the queue and retries a failed exact preview read without submitting a decision", async () => {
+    const { decideApproval, restoreReads } = renderReadOnlyCards(pending(), {}, "preview");
+    expect(await screen.findByText("无法核对操作内容，暂不能批准。")).toBeVisible();
+    expect(screen.getByText("arxiv.org")).toBeVisible();
+    restoreReads();
+    await userEvent.click(screen.getByRole("button", { name: "重试操作预览" }));
+    expect(await screen.findByText("Read-only exact proposal [REDACTED]")).toBeVisible();
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("shows a stale read-only preview with truncated=%s without offering a decision", async (truncated) => {
+    const { decideApproval } = renderReadOnlyCards(pending(), { source_current: false, truncated });
+    expect(await screen.findByText(truncated ? "预览超过显示上限，不能据此批准。" : "操作已变化或不再等待批准。")).toBeVisible();
+    expect(screen.getByRole("button", { name: "刷新操作预览" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /允许一次|本对话允许|拒绝/ })).not.toBeInTheDocument();
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
   it("reviews each command with explicit bounded Run limits and preserves retry intent", async () => {
     const item = pending({tool_name:"command_runtime",action_class:"command_process",allowed_actions:["approve_once","approve_for_run","deny"],canonical_url:undefined,exact_target:undefined});
     const {decideApproval}=renderCards(item,{effect:"command_process",fields:[{name:"review_scope",value:"local verification"}]});

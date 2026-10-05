@@ -85,7 +85,7 @@ export function ConnectionGate() {
 		dockerExecutionEnabled: bootstrap.docker_execution_enabled,
 		agentCodeToolsEnabled: bootstrap.agent_code_tools_enabled,
 		codeIntelEnabled: bootstrap.code_intel_enabled,
-      });
+      }, client.baseURL);
     }).catch((caught: unknown) => {
       if (active) {
         setError(desktopErrorMessage(caught));
@@ -114,7 +114,8 @@ export function ConnectionGate() {
         client.health(), client.runtimeCapabilities(),
       ]);
       queryClient.clear();
-      connect(candidate, health, controlToken.trim(), clientCapabilitiesFromRuntime(capabilities));
+      connect(candidate, health, controlToken.trim(), clientCapabilitiesFromRuntime(capabilities),
+        client.baseURL);
       setToken("");
       setControlToken("");
     } catch (caught) {

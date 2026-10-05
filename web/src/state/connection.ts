@@ -6,6 +6,7 @@ type ResourceKind = "thread" | "run" | "session";
 
 interface ConnectionState {
   health: HealthView | null;
+  apiBaseURL: string | undefined;
   resourceKind: ResourceKind;
   selectedRunID: string;
   selectedSessionID: string;
@@ -53,11 +54,13 @@ interface ConnectionState {
   gitAdvancedControlEnabled: boolean;
   githubReviewControlEnabled: boolean;
   workspaceCheckpointControlEnabled: boolean;
+  batchDeliveryControlEnabled: boolean;
+  batchDeliveryHostValidationEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
   codeIntelEnabled: boolean;
   connect: (token: string, health: HealthView, controlToken?: string,
-    capabilities?: ClientCapabilities) => void;
+    capabilities?: ClientCapabilities, apiBaseURL?: string) => void;
   disconnect: () => void;
   selectRun: (runID: string) => void;
   selectSession: (sessionID: string) => void;
@@ -76,6 +79,7 @@ const initialSelection = {
 export const useConnectionStore = create<ConnectionState>((set) => ({
   ...initialSelection,
   health: null,
+  apiBaseURL: undefined,
   token: "",
   controlToken: "",
   runControlEnabled: false,
@@ -122,12 +126,14 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   gitAdvancedControlEnabled: false,
   githubReviewControlEnabled: false,
   workspaceCheckpointControlEnabled: false,
+  batchDeliveryControlEnabled: false,
+  batchDeliveryHostValidationEnabled: false,
   dockerExecutionEnabled: false,
   agentCodeToolsEnabled: false,
   codeIntelEnabled: false,
-  connect: (token, health, controlToken = "", capabilities = {}) => {
+  connect: (token, health, controlToken = "", capabilities = {}, apiBaseURL) => {
     const present = controlToken.trim() !== "";
-    set({ token, health, controlToken,
+    set({ token, health, controlToken, apiBaseURL,
       runControlEnabled: present && (capabilities.runControlEnabled ?? true),
       workspaceImportEnabled: present && capabilities.workspaceImportEnabled === true,
       executionPermissionControlEnabled: present &&
@@ -196,6 +202,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	    (capabilities.githubReviewControlEnabled ?? false),
 	  workspaceCheckpointControlEnabled: present &&
 	    (capabilities.workspaceCheckpointControlEnabled ?? false),
+	  batchDeliveryControlEnabled: present && capabilities.batchDeliveryControlEnabled === true,
+	  batchDeliveryHostValidationEnabled: present &&
+	    capabilities.batchDeliveryHostValidationEnabled === true,
 	  dockerExecutionEnabled: present &&
 	    (capabilities.dockerExecutionEnabled ?? false),
 	  agentCodeToolsEnabled: present &&
@@ -203,7 +212,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	  codeIntelEnabled: capabilities.codeIntelEnabled ?? false,
     });
   },
-  disconnect: () => set({ token: "", controlToken: "", health: null,
+  disconnect: () => set({ token: "", controlToken: "", health: null, apiBaseURL: undefined,
     runControlEnabled: false, runCreationEnabled: false,
     workspaceImportEnabled: false,
     standardCodePresetEnabled: false, sessionMessageEnabled: false,
@@ -233,6 +242,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	gitAdvancedControlEnabled: false,
 	githubReviewControlEnabled: false,
 	workspaceCheckpointControlEnabled: false,
+	batchDeliveryControlEnabled: false,
+	batchDeliveryHostValidationEnabled: false,
 	dockerExecutionEnabled: false,
 	agentCodeToolsEnabled: false,
 	codeIntelEnabled: false,

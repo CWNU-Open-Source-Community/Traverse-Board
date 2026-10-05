@@ -1,5 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Square } from "lucide-react";
 import { APIRequestError, type APIClient } from "../../api/client";
 import type { ThreadExecutionView } from "../../api/types";
@@ -45,21 +44,53 @@ export function V2ThreadExecutionControl({ client, threadID, execution }: {
   </>;
 }
 
+const resumeMutationKey = ["v2", "thread-resume"] as const;
+type ResumeInput = { threadID: string; runID: string; operationKey: string };
+
 export function V2PausedThreadControl({ client, threadID, runID }: {
   client: APIClient; threadID: string; runID: string;
 }) {
   const queryClient = useQueryClient();
-  const operationKey = useRef<string | null>(null);
-  const resume = useMutation({
-    mutationFn: () => client.controlRunLifecycle(runID,
-      { version: "run_lifecycle_control.v1", action: "resume" }, operationKey.current ??=
-        `v2-resume-${globalThis.crypto.randomUUID()}`),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(threadID) }),
+  const mutationKey = [...resumeMutationKey, threadID, runID] as const;
+  const attempts = useMutationState({
+    filters: { mutationKey: resumeMutationKey },
+    select: (mutation) => ({ status: mutation.state.status, error: mutation.state.error,
+      input: mutation.state.variables as ResumeInput | undefined }),
   });
+  // Select the current identity during render so navigation cannot briefly
+  // display the previous observer's pending state or error.
+  const attempt = attempts.filter(({ input }) => input?.threadID === threadID && input.runID === runID).at(-1);
+  const resume = useMutation({
+    mutationKey,
+    // An unresolved request and its retry identity survive view changes for
+    // the same lifetime as the QueryClient, independently for each Thread/Run.
+    gcTime: Infinity,
+    retry: false,
+    mutationFn: (input: ResumeInput) => client.controlRunLifecycle(input.runID,
+      { version: "run_lifecycle_control.v1", action: "resume" }, input.operationKey),
+    onMutate: (input) => {
+      // A retry carries the original key in its own variables. Keep only the
+      // current attempt after it has taken ownership of that identity.
+      for (const previous of queryClient.getMutationCache().findAll({
+        mutationKey: [...resumeMutationKey, input.threadID, input.runID], exact: true,
+      })) {
+        if (previous.state.status !== "pending") queryClient.getMutationCache().remove(previous);
+      }
+    },
+    onSettled: (_data, _error, input) => queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(input.threadID) }),
+  });
+  const pending = attempt?.status === "pending";
+  const submit = () => {
+    const current = queryClient.getMutationCache().findAll({ mutationKey, exact: true }).at(-1);
+    if (!client.hasRunLifecycle || current?.state.status === "pending") return;
+    const original = current?.state.variables as ResumeInput | undefined;
+    resume.mutate({ threadID, runID, operationKey: current?.state.status === "error" && original
+      ? original.operationKey : `v2-resume-${globalThis.crypto.randomUUID()}` });
+  };
   return <div className="v2-paused-thread" role="status">本轮已暂停。发送新消息会恢复任务并继续处理；也可以仅解除暂停。
-    {client.hasRunLifecycle && <button disabled={resume.isPending} onClick={() => resume.mutate()}
+    {client.hasRunLifecycle && <button disabled={pending} onClick={submit}
       title="仅恢复运行，不会重试失败的操作；未处理的要求仍等新消息继续" type="button">
-      {resume.isPending ? "正在解除…" : "解除暂停"}</button>}
-    {resume.isError && <p role="alert">解除暂停未确认，可重试：{resume.error.message}</p>}
+      {pending ? "正在解除…" : "解除暂停"}</button>}
+    {attempt?.status === "error" && <p role="alert">解除暂停未确认，可重试：{attempt.error?.message}</p>}
   </div>;
 }

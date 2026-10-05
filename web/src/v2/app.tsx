@@ -12,7 +12,7 @@ import { V2NetworkScopeControl, type V2NetworkMode } from "./components/network-
 import { V2Settings } from "./components/settings";
 import { V2SettingsSidebar, V2Sidebar, type V2SettingsSection } from "./components/sidebar";
 import { V2Titlebar } from "./components/titlebar";
-import { createV2Client } from "./client-session";
+import { useV2Client } from "./client-session";
 import { v2QueryKeys } from "./query-keys";
 import { registerV2RecoveredTurn, useV2RestoreTurns, useV2ThreadTurn, v2TurnFailed } from "./use-thread-turn";
 import { V2WorkspaceStart } from "./components/workspace-start";
@@ -45,7 +45,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   workspaceID: string;
   onWorkspaceChange: (workspaceID: string) => void;
   onImported: (workspace: WorkspaceView, currentDraft?: string) => void;
-  onCreated: (thread: ThreadView, submittedDraft: string, files: V2FileReference[], images?: WorkspaceImageAttachment[], version?: V2DraftVersion, attachments?: WorkspaceFileAttachment[]) => void;
+  onCreated: (thread: ThreadView, submittedDraft: string, files: V2FileReference[], images?: WorkspaceImageAttachment[], version?: V2DraftVersion, attachments?: WorkspaceFileAttachment[], shouldOpen?: boolean) => void;
   onTurnSuccess: (threadID: string, submittedDraft: string) => void;
   onManageModels: (prepareForDraft?: boolean) => void;
   draft: string;
@@ -60,10 +60,10 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   const recovery = useV2RecoveryStore();
   const activeRef = useRef(true);
   const workspaceRef = useRef(workspaceID);
-  const modelCatalogRequestRef = useRef(0);
+  const creationRequestRef = useRef(0);
   if (workspaceRef.current !== workspaceID) {
     workspaceRef.current = workspaceID;
-    modelCatalogRequestRef.current += 1;
+    creationRequestRef.current += 1;
   }
   useEffect(() => {
     activeRef.current = true;
@@ -84,13 +84,15 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
     if (phase === "plan" && !client.hasPlanDelivery) throw new Error("当前连接未启用计划确认。请检查连接，或选择直接执行。");
     const submittedDraft = draft;
     setModelCatalogError("");
-    const catalogWorkspaceID = workspaceID;
-    const catalogRequest = ++modelCatalogRequestRef.current;
-    const catalogRequestIsCurrent = () => activeRef.current &&
-      workspaceRef.current === catalogWorkspaceID && modelCatalogRequestRef.current === catalogRequest;
+    const creationWorkspaceID = workspaceID;
+    const creationRequest = ++creationRequestRef.current;
+    // Leaving this page, changing projects, or starting another request ends
+    // this request's right to navigate, but not its original input handoff.
+    const requestIsCurrent = () => activeRef.current &&
+      workspaceRef.current === creationWorkspaceID && creationRequestRef.current === creationRequest;
     try {
       const catalog = await client.availableModelRoutes();
-      if (!catalogRequestIsCurrent()) return v2ComposerNotSubmitted;
+      if (!requestIsCurrent()) return v2ComposerNotSubmitted;
       const selectable = catalog.routes.filter((route) => route.selectable);
       const selectedReady = !modelRoute || selectable.some((route) =>
         route.provider_id === modelRoute.provider && route.model === modelRoute.model);
@@ -99,7 +101,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
         return v2ComposerNotSubmitted;
       }
     } catch (error) {
-      if (!catalogRequestIsCurrent()) return v2ComposerNotSubmitted;
+      if (!requestIsCurrent()) return v2ComposerNotSubmitted;
       setModelCatalogError(`无法检查可用模型，草稿已保留。${error instanceof Error && error.message
         ? ` ${error.message}` : " 请检查连接后重试。"}`);
       return v2ComposerNotSubmitted;
@@ -115,37 +117,45 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
       ...(networkMode === "allowlist" ? { allowed_targets: allowedTargets } : {}),
       ...(modelRoute ? { provider: modelRoute.provider, model: modelRoute.model } : {}),
     } as Parameters<APIClient["createThread"]>[0] & { provider?: string; model?: string };
-    if (recovery) {
-      if (managedDraft) {
-        if (draftVersion) assertV2DraftVersion(managedDraft, draftVersion, { text: submittedDraft, files, images, attachments });
-        else draftVersion = requireV2DraftVersion(managedDraft, { text: submittedDraft, files, images, attachments });
+    try {
+      if (recovery) {
+        if (managedDraft) {
+          if (draftVersion) assertV2DraftVersion(managedDraft, draftVersion, { text: submittedDraft, files, images, attachments });
+          else draftVersion = requireV2DraftVersion(managedDraft, { text: submittedDraft, files, images, attachments });
+        }
+        const intent = creationRecovery.prepare(request, content, files, submittedDraft, images, draftVersion, attachments);
+        const thread = await creationRecovery.resolve(intent);
+        const input = creationRecovery.handoff(intent, thread);
+        const submission = turn.mutateAsync(input);
+        onCreated(thread, submittedDraft, files, images, input.draftVersion, attachments, requestIsCurrent());
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
+        try { await submission; }
+        catch (error) { if (v2TurnFailed(error) && !input.draftVersion) onTurnSuccess(thread.id, submittedDraft); throw error; }
+        if (!input.draftVersion) onTurnSuccess(thread.id, submittedDraft);
+      } else {
+        const fingerprint = JSON.stringify([request, files, images, fileAttachmentIdentities(attachments)]);
+        const operationID = creationAttemptRef.current.get(fingerprint) ?? globalThis.crypto.randomUUID();
+        creationAttemptRef.current.set(fingerprint, operationID);
+        const result = await client.createThread(request, `v2-thread-create-${operationID}`);
+        const submission = turn.mutateAsync({ threadID: result.thread.id, workspaceID, content,
+          ...(files.length ? { files } : {}),
+          ...(images.length ? { images } : {}),
+          ...(attachments.length ? { attachments } : {}),
+          operationKey: `v2-thread-create-turn-${operationID}`, createdAt: new Date().toISOString() });
+        onCreated(result.thread, submittedDraft, files, images, undefined, attachments, requestIsCurrent());
+        creationAttemptRef.current.delete(fingerprint);
+        void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
+        try { await submission; }
+        catch (error) { if (v2TurnFailed(error)) onTurnSuccess(result.thread.id, submittedDraft); throw error; }
+        onTurnSuccess(result.thread.id, submittedDraft);
       }
-      const intent = creationRecovery.prepare(request, content, files, submittedDraft, images, draftVersion, attachments);
-      const thread = await creationRecovery.resolve(intent);
-      const input = creationRecovery.handoff(intent, thread);
-      const submission = turn.mutateAsync(input);
-      onCreated(thread, submittedDraft, files, images, input.draftVersion, attachments);
-      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
-      try { await submission; }
-      catch (error) { if (v2TurnFailed(error) && !input.draftVersion) onTurnSuccess(thread.id, submittedDraft); throw error; }
-      if (!input.draftVersion) onTurnSuccess(thread.id, submittedDraft);
-      return;
+    } catch (error) {
+      // The original key/journal and Thread mutation keep this failure. It
+      // must not replace a newer request's error after returning to a project.
+      if (requestIsCurrent()) throw error;
+      return v2ComposerNotSubmitted;
     }
-    const fingerprint = JSON.stringify([request, files, images, fileAttachmentIdentities(attachments)]);
-    const operationID = creationAttemptRef.current.get(fingerprint) ?? globalThis.crypto.randomUUID();
-    creationAttemptRef.current.set(fingerprint, operationID);
-    const result = await client.createThread(request, `v2-thread-create-${operationID}`);
-    const submission = turn.mutateAsync({ threadID: result.thread.id, workspaceID, content,
-      ...(files.length ? { files } : {}),
-      ...(images.length ? { images } : {}),
-      ...(attachments.length ? { attachments } : {}),
-      operationKey: `v2-thread-create-turn-${operationID}`, createdAt: new Date().toISOString() });
-    onCreated(result.thread, submittedDraft, files, images, undefined, attachments);
-    creationAttemptRef.current.delete(fingerprint);
-    void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
-    try { await submission; }
-    catch (error) { if (v2TurnFailed(error)) onTurnSuccess(result.thread.id, submittedDraft); throw error; }
-    onTurnSuccess(result.thread.id, submittedDraft);
+    if (!requestIsCurrent()) return v2ComposerNotSubmitted;
   };
   return <section className="v2-new-conversation">
     <header><Folder aria-hidden="true" size={17} /><strong>新对话</strong>
@@ -216,6 +226,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
   // An explicitly imported existing project may be outside the first list page.
   // Retain its pathless receipt so selection survives list refetches.
   const [importedWorkspaces, setImportedWorkspaces] = useState<WorkspaceView[]>([]);
+  const [backgroundCreations, setBackgroundCreations] = useState<ThreadView[]>([]);
   const [drafts, setDrafts] = useV2Drafts();
   const creationAttemptRef = useRef<CreationAttempt>(new Map());
   const [newThreadOptions, setNewThreadOptions] = useState<NewThreadOptions>({
@@ -308,6 +319,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
     if (window.matchMedia?.("(max-width: 760px)").matches) setSidebarVisible(false);
   };
   const openConversation = (threadID: string) => {
+    setBackgroundCreations((current) => current.filter((thread) => thread.id !== threadID));
     updateModelSetupToken("");
     navigate({ kind: "thread", threadID, ...(route.view ? { view: route.view } : {}) });
     closeNavigationSidebar();
@@ -397,7 +409,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           ? <NewConversation client={client} draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}
             creationAttemptRef={creationAttemptRef}
             options={newThreadOptions} onOptionsChange={setNewThreadOptions}
-            onCreated={(thread, submittedDraft, files, images = [], version, attachments = []) => {
+            onCreated={(thread, submittedDraft, files, images = [], version, attachments = [], shouldOpen = true) => {
               const source = `new:${thread.workspace_id}`;
               const target = `thread:${thread.id}`;
               // Move the submitted version into the durable Thread's draft.
@@ -420,7 +432,10 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
               queryClient.setQueryData<WorkspaceFileAttachment[]>(v2AttachmentReferenceKey(thread.workspace_id ?? "", ""),
                 (current) => current?.filter(({ id }) => !attachments.some((file) => file.id === id)));
               }
-              openConversation(thread.id);
+              // The request can outlive its original new-task page. Hand off
+              // its input above, but let the user keep their current task.
+              if (shouldOpen) openConversation(thread.id);
+              else setBackgroundCreations((current) => [...current.filter((item) => item.id !== thread.id), thread]);
               void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
             }} onTurnSuccess={(threadID, submittedDraft) => setDrafts((current) =>
               current[`thread:${threadID}`] === submittedDraft
@@ -458,6 +473,14 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
             threadID={selectedThreadID} workspaces={workspaces} />}
       </div>
     </div>
+    {backgroundCreations.length > 0 && <div className="v2-toast" role="status">
+      {backgroundCreations.map((thread) => <div key={thread.id}>
+        对话已创建：{thread.title}
+        <button onClick={() => openConversation(thread.id)} type="button">打开已创建的对话</button>
+        <button aria-label={`关闭对话创建提示：${thread.title}`} onClick={() =>
+          setBackgroundCreations((current) => current.filter((item) => item.id !== thread.id))} type="button">关闭</button>
+      </div>)}
+    </div>}
     {(workspacesQuery.isError || threadsQuery.isError) && <div className="v2-toast" role="alert">
       项目或对话列表加载失败，已有内容会保留。
       <button onClick={() => { void workspacesQuery.refetch(); void threadsQuery.refetch(); }} type="button">重试加载</button>
@@ -472,7 +495,6 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
 }
 
 export function V2WorkbenchEntry() {
-  const connection = useConnectionStore();
-  const client = useMemo(() => createV2Client(connection), [connection]);
+  const client = useV2Client();
   return <V2Workbench client={client} />;
 }

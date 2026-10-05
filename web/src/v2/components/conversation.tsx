@@ -593,7 +593,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           </div>)}
         {(eventStream.error || publicStream.error) && working && <div className="v2-notice tone-warning"
           role="status">实时进度暂不可用；持久工作记录仍会继续同步。</div>}
-        {client.hasApprovalControl && detail.active_run && <V2ApprovalCards client={client}
+        {detail.active_run && <V2ApprovalCards client={client}
           runID={currentRun.id} threadID={threadID} onReviewFile={(target, trigger) => {
             reviewReturnFocus.current = trigger; setReviewFileTarget(target); setReviewOpen(true);
           }} />}

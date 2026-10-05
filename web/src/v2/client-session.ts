@@ -1,9 +1,13 @@
+import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { APIClient, type ClientCapabilities } from "../api/client";
 import { useConnectionStore } from "../state/connection";
 
 type ConnectionSnapshot = ReturnType<typeof useConnectionStore.getState>;
+type ClientConnection = Pick<ConnectionSnapshot, "apiBaseURL" | "token" | "controlToken"> &
+  ClientCapabilities;
 
-function capabilities(state: ConnectionSnapshot): ClientCapabilities {
+function capabilities(state: ClientCapabilities): ClientCapabilities {
   return {
     runControlEnabled: state.runControlEnabled,
     workspaceImportEnabled: state.workspaceImportEnabled,
@@ -49,12 +53,28 @@ function capabilities(state: ConnectionSnapshot): ClientCapabilities {
     workspaceCheckpointControlEnabled: state.workspaceCheckpointControlEnabled,
     gitAdvancedControlEnabled: state.gitAdvancedControlEnabled,
     githubReviewControlEnabled: state.githubReviewControlEnabled,
+    batchDeliveryControlEnabled: state.batchDeliveryControlEnabled,
+    batchDeliveryHostValidationEnabled: state.batchDeliveryHostValidationEnabled,
     dockerExecutionEnabled: state.dockerExecutionEnabled,
     agentCodeToolsEnabled: state.agentCodeToolsEnabled,
     codeIntelEnabled: state.codeIntelEnabled,
   };
 }
 
-export function createV2Client(state: ConnectionSnapshot): APIClient {
-  return new APIClient(state.token, undefined, state.controlToken, capabilities(state));
+export function createV2Client(state: ClientConnection): APIClient {
+  return new APIClient(state.token, state.apiBaseURL, state.controlToken, capabilities(state));
+}
+
+function clientConnection(state: ConnectionSnapshot): ClientConnection {
+  return {
+    apiBaseURL: state.apiBaseURL,
+    token: state.token,
+    controlToken: state.controlToken,
+    ...capabilities(state),
+  };
+}
+
+export function useV2Client(): APIClient {
+  const connection = useConnectionStore(useShallow(clientConnection));
+  return useMemo(() => createV2Client(connection), [connection]);
 }
