@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, type APIClient } from "../api/client";
 import type { PlanDeliveryStateView, RunDetailView } from "../api/types";
-import { PlanDeliveryPanel } from "./run-workspace";
+import { PlanDeliveryPanel } from "./plan-delivery-panel";
 
 const directions: NonNullable<PlanDeliveryStateView["proposal"]>["directions"] = [
   { ordinal: 1, title: "Conservative", summary: "Keep changes narrow.", tradeoffs: ["More sequential work"],

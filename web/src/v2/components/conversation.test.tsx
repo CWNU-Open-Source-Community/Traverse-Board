@@ -11,17 +11,18 @@ import { V2RecoveryProvider } from "../recovery-storage";
 import { V2Conversation } from "./conversation";
 
 const composerFiles = vi.hoisted(() => ({ current: undefined as V2FileReference[] | undefined }));
+const streams = vi.hoisted(() => ({ events: "live", model: "waiting" }));
 
 vi.mock("../../hooks/use-run-event-stream", () => ({
-  useRunEventStream: () => ({ error: null, frames: [] }),
+  useRunEventStream: () => ({ error: null, frames: [], status: streams.events }),
 }));
 
 vi.mock("../../hooks/use-public-model-stream", () => ({
-  usePublicModelStream: () => ({ error: null, snapshot: null, status: "idle" }),
+  usePublicModelStream: () => ({ error: null, snapshot: null, status: streams.model }),
 }));
 
 vi.mock("../projection/narrative", () => ({
-  projectThreadNarrative: (items: ThreadTranscriptItemView[]) => items.map((item) => ({
+  prepareThreadNarrative: (items: ThreadTranscriptItemView[]) => ({ entries: items.map((item) => ({
     id: item.id,
     kind: item.source === "operator" ? "user" : "assistant",
     text: item.detail ?? item.title,
@@ -30,7 +31,8 @@ vi.mock("../projection/narrative", () => ({
     deliveryMode: item.delivery_mode,
     promotedToMessageID: item.promoted_to_message_id,
     promotedFromMessageID: item.promoted_from_message_id,
-  })),
+  })) }),
+  projectLiveThreadNarrative: (prepared: { entries: unknown[] }) => prepared.entries,
 }));
 
 vi.mock("./composer", () => ({
@@ -45,7 +47,7 @@ vi.mock("./composer", () => ({
   </button>,
 }));
 
-afterEach(() => { cleanup(); composerFiles.current = undefined; });
+afterEach(() => { cleanup(); composerFiles.current = undefined; streams.events = "live"; streams.model = "waiting"; });
 
 const workspaces = [{ id: "workspace-1", name: "Workspace 1" }] as WorkspaceView[];
 
@@ -149,6 +151,82 @@ function queueSnapshot(runID = "run-thread-a", sessionID = "sess-thread-a") {
 }
 
 describe("V2Conversation", () => {
+  it("synchronizes durable records after reconnect, model finalization and the Run becoming terminal", async () => {
+    const active = { ...detail("thread-a"), active_run: { id: "run-thread-a", status: "running" } };
+    let items = [transcriptItem("first", "First", 1)];
+    const getPage = vi.fn(() => Promise.resolve(page(items)));
+    const client = baseClient({ get: vi.fn(() => Promise.resolve(active)), getPage } as Partial<APIClient>);
+    const ui = renderConversation(client);
+    await screen.findByText("First");
+    streams.events = "reconnecting";
+    ui.rerenderThread("thread-a");
+    items = [...items, transcriptItem("reconnected", "Recovered after disconnect", 2)];
+    streams.events = "live";
+    ui.rerenderThread("thread-a");
+    await screen.findByText("Recovered after disconnect");
+    streams.model = "finalizing";
+    ui.rerenderThread("thread-a");
+    streams.model = "reconnecting";
+    ui.rerenderThread("thread-a");
+    items = [...items, transcriptItem("settled", "Final commentary persisted", 3)];
+    streams.model = "waiting";
+    ui.rerenderThread("thread-a");
+    await screen.findByText("Final commentary persisted");
+    items = [...items, transcriptItem("done", "Terminal work persisted", 4)];
+    await act(async () => { ui.queryClient.setQueryData(v2QueryKeys.thread("thread-a"), detail("thread-a")); });
+    await screen.findByText("Terminal work persisted");
+    expect(getPage).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([false, true])("holds the reading anchor until older history arrives during live output (retry: %s)", async (retry) => {
+    const older = deferred<PageResult<ThreadTranscriptItemView>>();
+    const middle = transcriptItem("middle-anchor", "Middle anchor", 2);
+    let failed = false;
+    const getPage = vi.fn((_path: string, _query: unknown, cursor: string) => {
+      if (cursor === "first-history") return Promise.resolve(page([middle], "older-anchor"));
+      if (cursor === "older-anchor") {
+        if (retry && !failed) { failed = true; return Promise.reject(new Error("Older page unavailable")); }
+        return older.promise;
+      }
+      return Promise.resolve(retry ? page([transcriptItem("latest-anchor", "Latest anchor", 3)], "first-history")
+        : page([middle], "older-anchor"));
+    });
+    const ui = renderConversation(baseClient({ getPage } as Partial<APIClient>));
+    if (retry) {
+      await userEvent.setup().click(await screen.findByRole("button", { name: "加载更早记录" }));
+      await screen.findByText("Middle anchor");
+      await userEvent.setup().click(screen.getByRole("button", { name: "加载更早记录" }));
+      await screen.findByText("更早的工作记录加载失败，请重试。");
+    }
+    await screen.findByText("Middle anchor");
+    const scroller = ui.container.querySelector<HTMLDivElement>(".v2-conversation-scroll")!;
+    Object.defineProperties(scroller, { scrollHeight: { value: 2_000, configurable: true },
+      clientHeight: { value: 500, configurable: true } });
+    scroller.scrollTop = 180;
+    fireEvent.scroll(scroller);
+    const row = ui.container.querySelector<HTMLElement>(".v2-narrative > li")!;
+    let rowTop = 20;
+    vi.spyOn(row, "getBoundingClientRect").mockImplementation(() =>
+      ({ top: rowTop, bottom: rowTop + 50, height: 50 }) as DOMRect);
+    await userEvent.setup().click(screen.getByRole("button", { name: "加载更早记录" }));
+    await act(async () => { ui.queryClient.setQueryData(v2QueryKeys.transcript("thread-a"), {
+      pages: [page([middle, transcriptItem("live-tail", "New output", 4)], retry ? "first-history" : "older-anchor")], pageParams: [""],
+    }); });
+    await screen.findByText("New output");
+    expect(scroller.scrollTop).toBe(180);
+    // The older page adds 400px above the reader; output below is irrelevant.
+    rowTop += 400;
+    Object.defineProperty(scroller, "scrollHeight", { value: 2_700, configurable: true });
+    await act(async () => { older.resolve(page([transcriptItem("old", "Older message", 1)])); await older.promise; });
+    await screen.findByText("Older message");
+    expect(scroller.scrollTop).toBe(580);
+    ui.rerenderThread("thread-b");
+    await screen.findByText("Title thread-b");
+    ui.rerenderThread("thread-a");
+    await screen.findByText("Title thread-a");
+    expect(scroller.scrollTop).toBe(580);
+  });
+
   it("enables queue promotion only when the observed running execution matches the validated queue owner", async () => {
     let executionID = "execution-other";
     const execution = () => ({ version: "thread_execution.v1", thread_id: "thread-a", run_id: "run-thread-a",

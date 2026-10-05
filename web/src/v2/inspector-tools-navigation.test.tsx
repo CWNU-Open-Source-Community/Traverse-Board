@@ -5,7 +5,8 @@ import type { APIClient } from "../api/client";
 import type { ThreadExecutionView } from "../api/types";
 import { v2QueryKeys } from "./query-keys";
 import { useConnectionStore } from "../state/connection";
-import { V2InspectorHome, V2InspectorTools } from "./components/inspector-tools";
+import { V2InspectorHome } from "./components/inspector-home";
+import { V2InspectorTools } from "./components/inspector-tools";
 
 const submitResource = vi.hoisted(() => vi.fn());
 

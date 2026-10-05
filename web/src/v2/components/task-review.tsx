@@ -9,7 +9,7 @@ import { RepositoryDiffPanel } from "../../components/repository-diff-panel";
 import { StandardCodeDeliveryPanel } from "../../components/standard-code-delivery-panel";
 import { CodeHandoffPanel } from "../../components/code-handoff-panel";
 import { StandardCodeReadinessPanel } from "../../components/run-permission-settings";
-import { PlanDeliveryPanel } from "../../components/run-workspace";
+import { PlanDeliveryPanel } from "../../components/plan-delivery-panel";
 import { WorkspaceCheckpointPanel } from "../../components/workspace-checkpoint-panel";
 import { WorkspaceExplorer } from "../../components/workspace-explorer";
 import { EvidenceInventory } from "../../components/evidence-inventory";
@@ -20,6 +20,7 @@ import { TaskOverview } from "./task-overview";
 import { TaskGit } from "./task-git";
 import { TaskPullRequest } from "./task-pull-request";
 import type { WorkspaceView } from "../../api/types";
+import "./task-review.css";
 
 type ReviewTab = "overview" | "git" | "pr" | "files" | "checks" | "records" | "restore" | "evidence";
 const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"], ["checks", "检查与交付"],

@@ -22,6 +22,7 @@ import { useLocale } from "../../lib/locale";
 import { ShortcutSettings } from "../../components/shared-settings-panels";
 import { ModelAvailabilitySettings } from "../../components/model-availability-dialog";
 import { V2AboutSettings, V2ExtensionSettings, V2InspectorPreferences, V2SkillSettings } from "./advanced-settings";
+import "./settings.css";
 
 function SettingRow({ title, detail, children }: { title: string; detail: string; children: React.ReactNode }) {
   return <div className="v2-setting-row"><div><strong>{title}</strong><span>{detail}</span></div>

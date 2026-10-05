@@ -36,3 +36,4 @@
   .v2-inspector-tool-body .workspace-header, .v2-inspector-tool-body .workspace-content { padding: 10px; }
   .v2-inspector-resource > header { padding: 8px; }
 }
+.v2-module-loading { color: var(--v2-muted); padding: 24px; }

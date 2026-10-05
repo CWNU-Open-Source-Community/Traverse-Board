@@ -8780,6 +8780,7 @@ export class APIClient {
     options: {
       cursor?: string;
       signal: AbortSignal;
+      onOpen?: () => void;
       onFrame: (frame: RunEventStreamView) => void;
     },
   ): Promise<void> {
@@ -8803,6 +8804,7 @@ export class APIClient {
       throw new APIRequestError("API returned an invalid event stream", "INVALID_RESPONSE", response.status,
         response.headers.get("x-request-id") || "");
     }
+    if (!options.signal.aborted) options.onOpen?.();
     await consumeSSE(response.body, (message) => {
       if (message.event !== "run.event") {
         return;

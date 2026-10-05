@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PublicModelStreamSnapshot, ThreadTranscriptItemView } from "../../api/types";
-import { projectThreadNarrative, type ThreadTranscriptActivityItem } from "./narrative";
+import { prepareThreadNarrative, projectLiveThreadNarrative, projectThreadNarrative, type ThreadTranscriptActivityItem } from "./narrative";
 
 function item(overrides: Partial<ThreadTranscriptActivityItem>): ThreadTranscriptActivityItem {
   return {
@@ -42,6 +42,69 @@ function snapshot(overrides: Partial<PublicModelStreamSnapshot> = {}): PublicMod
 }
 
 describe("projectThreadNarrative", () => {
+  it("projects live output without rereading or rebuilding a thousand durable rows", () => {
+    let historicalReads = 0;
+    const transcript = Array.from({ length: 1_000 }, (_, index) => item({
+      id: `history-${index}`, canonical_id: `history-${index}`, sequence: index + 1,
+      source: index % 2 ? "model" : "operator", kind: index % 2 ? "model_update" : "operator_input",
+      get detail() { historicalReads++; return `Historical message ${index}`; },
+    }));
+    // Instrument the actual input, not just the fixture's object spread.
+    transcript.forEach((entry, index) => Object.defineProperty(entry, "detail", {
+      get() { historicalReads++; return `Historical message ${index}`; },
+    }));
+    const prepared = prepareThreadNarrative(transcript);
+    historicalReads = 0;
+    for (let revision = 1; revision <= 20; revision++) {
+      const output = projectLiveThreadNarrative(prepared, { runId: "run-1", status: "live",
+        snapshot: snapshot({ text: `Streaming ${revision}`, revision }) });
+      expect(output).toHaveLength(1_001);
+      expect(output.slice(0, -1).every((entry, index) => entry === prepared.entries[index])).toBe(true);
+      expect(output.at(-1)).toMatchObject({ text: `Streaming ${revision}`, provisional: true });
+    }
+    expect(historicalReads).toBe(0);
+  });
+
+  it("extends only the current activity group and retains the durable source references", () => {
+    const transcript = [item({ id: "user", source: "operator", kind: "operator_input" }),
+      item({ id: "read", canonical_id: "read", activity_type: "read", kind: "tool_call",
+        source: "harness", tool_name: "workspace_read", activity_detail_ref: "exact-source",
+        detail_available: true, sequence: 2 })];
+    const prepared = prepareThreadNarrative(transcript);
+    const before = JSON.stringify(prepared.entries);
+    const live = { runId: "run-1", status: "live" as const, snapshot: snapshot({ text: "", items: [{
+      id: "next-read", response_id: "response", type: "tool_call", status: "receiving_arguments",
+      tool_name: "workspace_read", durable: false, provisional: true,
+    }] }) };
+    const output = projectLiveThreadNarrative(prepared, live);
+    expect(output).toEqual(projectThreadNarrative(transcript, live));
+    expect(output[0]).toBe(prepared.entries[0]);
+    expect(output[1]).toMatchObject({ count: 2, items: [
+      expect.objectContaining({ detailRef: "exact-source", detailAvailable: true }),
+      expect.objectContaining({ provisional: true }),
+    ] });
+    expect(JSON.stringify(prepared.entries)).toBe(before);
+    if (output[1]?.kind === "activity" && prepared.entries[1]?.kind === "activity") {
+      expect(output[1].items[0]).toBe(prepared.entries[1].items[0]);
+    }
+  });
+
+  it("keeps replay ordering and removes live duplicates after durable persistence", () => {
+    const transcript = [item({ id: "user", source: "operator", kind: "operator_input" }),
+      item({ id: "failed", source: "harness", kind: "harness_status", activity_type: "checkpoint",
+        stage: "blocked", status: "failed", source_ref: "failure-origin", title: "执行失败",
+        created_at: "2026-08-29T00:00:03Z", sequence: 3 })];
+    const live = { runId: "run-1", status: "finalizing" as const, snapshot: snapshot() };
+    const replay = projectLiveThreadNarrative(prepareThreadNarrative(transcript), live);
+    expect(replay).toEqual(projectThreadNarrative(transcript, live));
+    expect(replay.at(-1)).toMatchObject({ failureOrigin: { runId: "run-1", sourceRef: "failure-origin", eventSequence: 3 } });
+    const durable = [...transcript, item({ id: "committed", sequence: 2, attempt_id: "attempt-1",
+      model_attempt: 1, tool_round: 1, detail: live.snapshot.text, created_at: live.snapshot.updated_at })];
+    const prepared = prepareThreadNarrative(durable);
+    expect(projectLiveThreadNarrative(prepared, live)).toBe(prepared.entries);
+    expect(projectLiveThreadNarrative(prepared, { ...live, runId: "different-run" })).toBe(prepared.entries);
+  });
+
   it("labels historical recall as search and read without implying a tool rerun", () => {
     const projected = projectThreadNarrative([
       item({ id: "search-history", canonical_id: "search-history", kind: "tool_call", source: "harness",
