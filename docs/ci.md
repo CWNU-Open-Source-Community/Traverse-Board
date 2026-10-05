@@ -10,7 +10,8 @@ run; releases require that result for their exact source commit.
 | Change | Central CI | Desktop release workflow |
 | --- | --- | --- |
 | Documentation | Module, protocol, Surface and documentation contract checks | No PR package build |
-| Frontend / OpenAPI | Frontend types, API drift, tests, build, dependency audit, Go bundle tests and desktop asset embedding | No PR package build |
+| Frontend | Frontend types, API drift, tests, build, dependency audit, and Go tests loading the actual embedded production bundle | No PR package build |
+| OpenAPI snapshot | Frontend checks plus the Go DTO-to-OpenAPI golden check | No PR package build |
 | Go source or resources | Direct package tests, affected consumer tests or compilation, and relevant integration tests | No PR package build |
 | Store or its dependencies | The applicable Go checks plus all eight Store shards | No PR package build |
 | LSP, analyzer, browser or native execution inputs | Their corresponding real runtime / platform checks | No package build unless packaging inputs change |
@@ -33,14 +34,18 @@ successful aggregate result. Unclassified build inputs select full checks.
 ownership, embedded resources and the real import graph. Production imports
 propagate impact; test imports add the corresponding test consumer without
 turning a test-only dependency into a production dependency. A change confined
-to test files or testdata stays with its package.
+to test files or local testdata stays with its package. Shared fixture paths in
+`TEST_INPUT_CONSUMERS` explicitly include their other test consumers; the agent-package launch-handoff
+fixture therefore runs both the agent-package and MCP suites. Upstream skill
+fixtures also select their snapshot, import, CLI or Store consumers.
 
 Directly changed packages run their complete tests. Indirect consumers also run
 their tests except the four large integration packages: `application`, `app`,
 `httpapi` and `desktop`. Those compile their tests and run explicitly selected
-existing provider / MCP integration tests where relevant. Store runs separately
-through its existing shards. Vet covers the entire affected set; subsequent
-tests disable duplicate automatic vet.
+existing provider, MCP and fixture integration tests where relevant. An affected `httpapi`
+package also runs its Go DTO-to-OpenAPI golden check, including when only
+`docs/openapi.json` changes. Store runs separately through its existing shards.
+Vet covers the entire affected set; subsequent tests disable duplicate automatic vet.
 
 This deliberately reserves the entire large integration suites for direct
 changes and full CI. A direct `application` change can still take significantly
@@ -51,6 +56,13 @@ The native jobs retain their real platform checks. On a runtime-only change they
 run desktop boundary and tagged adapter tests without producing release archives
 or running the second reproducibility build. These adapter tests still build the
 renderer because they consume the embedded production assets.
+
+The frontend lane also runs the desktop-tagged `web` package tests on Linux.
+These pass the built assets through the same `LoadEmbeddedFS` loader used at
+Desktop startup, so invalid production assets fail without a native package
+build. Native and packaging checks run that same test alongside the desktop
+entry tests. The Rust analyzer lane also runs the Go consumers of the shared
+analyzer protocol and archive inventory golden vectors.
 
 ## Release verification
 

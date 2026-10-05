@@ -75,7 +75,7 @@ def classify_paths(paths: Sequence[bytes], affected: Sequence[str] = ()) -> dict
             if path.endswith(".go"):
                 checks["native"] = True
         elif path == "docs/openapi.json":
-            checks["web"] = True
+            checks["backend"] = checks["web"] = True
         elif path.startswith("analyzers/") or path == "scripts/build-embedded-wasi.sh":
             checks["rust"] = checks["native"] = True
         elif path.startswith(_PACKAGING_PREFIXES) or path == ".github/workflows/release-desktop.yml":
@@ -157,7 +157,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         go_plan = {}
         if checks["backend"]:
             packages = collect_packages(args.repo)
-            go_paths = [path for path in paths if path.startswith((b"internal/", b"cmd/"))]
+            go_paths = [path for path in paths if path.startswith((b"internal/", b"cmd/"))
+                        or path == b"docs/openapi.json"]
             go_plan = select_plan(packages, go_paths, full=checks["full"])
             if go_plan["full"]:
                 checks = dict.fromkeys(CHECKS, True)

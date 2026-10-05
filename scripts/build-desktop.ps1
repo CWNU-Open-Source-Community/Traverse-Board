@@ -95,7 +95,7 @@ try {
         go test ./internal/desktop ./internal/webui -count=1 `
             -skip '^TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness$'
     } "Desktop Go boundary tests failed"
-    Invoke-Checked { go test -tags "desktop,wv2runtime.error" ./cmd/cyberagent-desktop -count=1 } "Wails adapter tests failed"
+    Invoke-Checked { go test -count=1 -tags "desktop,wv2runtime.error" ./cmd/cyberagent-desktop ./web } "Wails adapter tests failed"
 
     $revision = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {

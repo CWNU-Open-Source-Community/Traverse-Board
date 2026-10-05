@@ -56,14 +56,88 @@ class GoSelectionTests(unittest.TestCase):
         self.assertEqual(set(plan["compile"]), {name(p) for p in runner.HEAVY_INDIRECT})
         self.assertIn(name("internal/producte2e"), plan["test"])
         self.assertIn(name("internal/packagede2e"), plan["test"])
-        self.assertEqual(plan["integrations"], [{"package": name("internal/application"),
-                         "run": "^(TestOpenAICompatibleProviderAgentRunnerToolRoundTrip)$"}])
+        self.assertEqual(plan["integrations"], [
+            {"package": name("internal/application"),
+             "run": "^(TestOpenAICompatibleProviderAgentRunnerToolRoundTrip)$"},
+            {"package": name("internal/httpapi"),
+             "run": "^(TestOpenAPIGoldenDocumentMatchesGoDTOs)$"},
+        ])
 
     def test_direct_large_package_runs_its_entire_suite(self):
         plan = self.plan(["internal/application/thread_turn_test.go"])
         self.assertIn(name("internal/application"), plan["test"])
         self.assertNotIn(name("internal/application"), plan["compile"])
         self.assertNotIn(name("internal/application"), [x["package"] for x in plan["integrations"]])
+
+    def test_indirect_httpapi_dto_change_keeps_the_openapi_golden(self):
+        plan = self.plan(["internal/application/github_review_service.go"])
+        self.assertFalse(plan["full"])
+        self.assertIn(name("internal/application"), plan["test"])
+        self.assertIn(name("internal/httpapi"), plan["compile"])
+        self.assertNotIn(name("internal/httpapi"), plan["test"])
+        self.assertIn({"package": name("internal/httpapi"),
+                       "run": "^(TestOpenAPIGoldenDocumentMatchesGoDTOs)$"}, plan["integrations"])
+
+    def test_openapi_snapshot_is_only_a_targeted_httpapi_test_input(self):
+        plan = self.plan(["docs/openapi.json"])
+        self.assertFalse(plan["full"])
+        self.assertEqual(plan["changed"], [])
+        self.assertEqual(plan["production_affected"], [])
+        self.assertEqual(plan["affected"], [name("internal/httpapi")])
+        self.assertEqual(plan["test"], [])
+        self.assertEqual(plan["compile"], [name("internal/httpapi")])
+        self.assertFalse(plan["store_affected"])
+        self.assertEqual(plan["integrations"], [{"package": name("internal/httpapi"),
+                         "run": "^(TestOpenAPIGoldenDocumentMatchesGoDTOs)$"}])
+        direct = self.plan(["docs/openapi.json", "internal/httpapi/openapi.go"])
+        self.assertIn(name("internal/httpapi"), direct["test"])
+        self.assertNotIn(name("internal/httpapi"), [entry["package"] for entry in direct["integrations"]])
+
+    def test_shared_launch_handoff_fixture_tests_mcp_without_production_propagation(self):
+        self.packages.append(package("internal/agentpackages"))
+        for path in ("internal/agentpackages/testdata/launch-handoff/mcp.json",
+                     "internal/agentpackages/testdata/launch-handoff/deleted-file.json"):
+            with self.subTest(path=path):
+                plan = self.plan([path])
+                self.assertFalse(plan["full"])
+                self.assertEqual(plan["changed"], [name("internal/agentpackages")])
+                self.assertEqual(plan["production_affected"], [])
+                self.assertEqual(set(plan["affected"]), {name("internal/agentpackages"), name("internal/mcp")})
+                self.assertEqual(plan["test"], plan["affected"])
+                self.assertEqual(plan["integrations"], [])
+
+    def test_shared_upstream_fixtures_select_only_their_actual_consumers(self):
+        self.packages.extend([package("internal/agentpackages"), package("internal/plugins")])
+        for subtree, extra, targeted in (
+                ("agent-plugins-example/skills/example/SKILL.md", "internal/app",
+                 [("internal/app", "TestPortableSkillCLIImportsThroughExistingCommandAndPluginLifecycle")]),
+                ("anthropic-skill-creator/skills/skill-creator/SKILL.md", "internal/store", [])):
+            with self.subTest(subtree=subtree):
+                plan = self.plan(["internal/agentpackages/testdata/upstream/" + subtree])
+                self.assertFalse(plan["full"])
+                self.assertEqual(plan["production_affected"], [])
+                self.assertEqual(set(plan["affected"]), {name(p) for p in
+                                 ("internal/agentpackages", "internal/plugins", "internal/application", extra)})
+                self.assertEqual(set(plan["test"]), {name("internal/agentpackages"), name("internal/plugins")})
+                self.assertEqual(plan["store_affected"], extra == "internal/store")
+                expected = targeted + [("internal/application", "TestPortableSkillUpstreamImportReadResourceAndRestart")]
+                self.assertEqual({(entry["package"], test) for entry in plan["integrations"]
+                                  for test in runner._integration_names(entry["run"])},
+                                 {(name(p), test) for p, test in expected})
+
+    def test_ordinary_or_neighboring_fixtures_remain_local(self):
+        self.packages.append(package("internal/agentpackages"))
+        for path in ("internal/agentpackages/testdata/local/mcp.json",
+                     "internal/agentpackages/testdata/launch-handoff-other/mcp.json",
+                     "internal/agentpackages/testdata/upstream/pins.json",
+                     "internal/agentpackages/testdata/upstream/anthropic-skill-creator/README.md"):
+            with self.subTest(path=path):
+                plan = self.plan([path])
+                self.assertFalse(plan["full"])
+                self.assertEqual(plan["affected"], [name("internal/agentpackages")])
+                self.assertEqual(plan["test"], plan["affected"])
+                self.assertEqual(plan["production_affected"], [])
+                self.assertFalse(plan["store_affected"])
 
     def test_cycles_and_duplicate_imports_are_finite_and_deterministic(self):
         self.packages[0]["TestImports"] = [name("internal/application")] * 2
@@ -139,11 +213,12 @@ class GoSelectionTests(unittest.TestCase):
         self.assertEqual(plan["test"], [])
         self.assertFalse(plan["store_affected"])
 
-    def test_four_integration_tests_are_selected_once_and_only_for_affected_indirect_packages(self):
+    def test_core_integrations_and_openapi_golden_are_selected_once_for_indirect_packages(self):
         plan = self.plan(["internal/llm/openai.go", "internal/toolgateway/gateway.go", "internal/mcp/tools.go"])
         selected = {(entry["package"], test) for entry in plan["integrations"]
                     for test in runner._integration_names(entry["run"])}
-        self.assertEqual(len(selected), 4)
+        self.assertEqual(len(selected), 5)
+        self.assertIn((name("internal/httpapi"), "TestOpenAPIGoldenDocumentMatchesGoDTOs"), selected)
         direct = self.plan(["internal/llm/openai.go", "internal/application/thread_turn.go"])
         self.assertNotIn(name("internal/application"), [x["package"] for x in direct["integrations"]])
 
@@ -175,7 +250,7 @@ class GoSelectionTests(unittest.TestCase):
                 runner.validate_plan(plan)
 
     def test_execution_vets_the_affected_set_and_disables_duplicate_test_vet(self):
-        plan = self.plan(["internal/llm/openai.go", "internal/application/thread_turn.go"])
+        plan = self.plan(["internal/llm/openai.go", "internal/application/thread_turn.go", "internal/httpapi/openapi.go"])
         with patch.object(runner.subprocess, "run", return_value=Mock(returncode=0)) as run, redirect_stdout(StringIO()):
             self.assertEqual(runner.execute_plan(ROOT, plan), 0)
         commands = [call.args[0] for call in run.call_args_list]
@@ -198,7 +273,9 @@ class GoSelectionTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
 
     def test_integration_filter_requires_the_selected_test_in_its_own_package(self):
-        plan = self.plan(["internal/llm/openai.go"])
+        plan = runner.select_plan([package("internal/llm"),
+                                   package("internal/application", Imports=[name("internal/llm")])],
+                                  ["internal/llm/openai.go"])
         selected = plan["integrations"][0]
         test_name = "TestOpenAICompatibleProviderAgentRunnerToolRoundTrip"
         for events, succeeds in (([], False),

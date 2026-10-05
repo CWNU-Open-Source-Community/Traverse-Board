@@ -15,6 +15,24 @@ from typing import Sequence
 
 VERSION = "go_checks_plan.v1"
 HEAVY_INDIRECT = {"internal/application", "internal/app", "internal/httpapi", "internal/desktop"}
+OPENAPI_GOLDEN = "TestOpenAPIGoldenDocumentMatchesGoDTOs"
+# Tests also read inputs outside their package. Keep these known consumers
+# explicit: they affect tests, without propagating production import edges.
+# A trailing slash denotes a subtree; None means the consumer's normal suite.
+TEST_INPUT_CONSUMERS = {
+    "docs/openapi.json": (("internal/httpapi", OPENAPI_GOLDEN),),
+    "internal/agentpackages/testdata/launch-handoff/": (("internal/mcp", None),),
+    "internal/agentpackages/testdata/upstream/agent-plugins-example/": (
+        ("internal/plugins", None),
+        ("internal/application", "TestPortableSkillUpstreamImportReadResourceAndRestart"),
+        ("internal/app", "TestPortableSkillCLIImportsThroughExistingCommandAndPluginLifecycle"),
+    ),
+    "internal/agentpackages/testdata/upstream/anthropic-skill-creator/skills/skill-creator/": (
+        ("internal/plugins", None),
+        ("internal/application", "TestPortableSkillUpstreamImportReadResourceAndRestart"),
+        ("internal/store", None),
+    ),
+}
 # These are bounded, existing product-service regressions. The graph still
 # decides whether their package is affected; a directly changed package is full.
 INTEGRATIONS = (
@@ -104,12 +122,24 @@ def select_plan(packages: Sequence[dict], paths: Sequence[str | bytes], full: bo
     by_directory = {directory: name for name, directory in directories.items()}
     direct = set()
     production_direct = set()
+    test_consumers = set()
+    input_tests = defaultdict(set)
     reasons = []
     for raw_path in paths:
         path = raw_path.decode("utf-8") if isinstance(raw_path, bytes) else raw_path
         pure_path = PurePosixPath(path)
         if pure_path.is_absolute() or ".." in pure_path.parts or "\\" in path:
             raise GoCheckError("changed paths must be relative repository paths")
+        consumers = [consumer for source, targets in TEST_INPUT_CONSUMERS.items()
+                     if path == source or (source.endswith("/") and path.startswith(source))
+                     for consumer in targets]
+        for target, test in consumers:
+            name = module + "/" + target
+            if name not in by_name:
+                raise GoCheckError(f"missing declared test input consumer: {name}")
+            test_consumers.add(name)
+            if test:
+                input_tests[name].add(test)
         owners = set()
         missing_go_package = False
         if path.endswith(".go"):
@@ -131,7 +161,7 @@ def select_plan(packages: Sequence[dict], paths: Sequence[str | bytes], full: bo
                     _embedded(by_name[name], directory, path) or
                     _embedded(by_name[name], directory, path, test=True)):
                 owners.add(name)
-        if not owners or missing_go_package:
+        if (not owners and not consumers) or missing_go_package:
             reasons.append(f"no current Go package owns {path}; use full checks")
         direct.update(owners)
         for name in owners:
@@ -154,7 +184,7 @@ def select_plan(packages: Sequence[dict], paths: Sequence[str | bytes], full: bo
         for dependent in reverse[pending.pop()] - production_affected:
             production_affected.add(dependent)
             pending.append(dependent)
-    affected = production_affected | direct
+    affected = production_affected | direct | test_consumers
     # A dependency change can affect a consumer's tests without changing its
     # production package. Do not propagate that test-only edge to more callers.
     for name, package in by_name.items():
@@ -167,6 +197,12 @@ def select_plan(packages: Sequence[dict], paths: Sequence[str | bytes], full: bo
     compile_only = affected - tests - {store}
     selected = defaultdict(set)
     if not full:
+        httpapi = module + "/internal/httpapi"
+        if httpapi in compile_only:
+            selected[httpapi].add(OPENAPI_GOLDEN)
+        for package, names in input_tests.items():
+            if package in compile_only:
+                selected[package].update(names)
         for dependency, target, test in INTEGRATIONS:
             package = module + "/" + target
             if module + "/" + dependency in production_affected and package in compile_only:

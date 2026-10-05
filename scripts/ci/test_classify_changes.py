@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from classify_changes import CHECKS, ClassificationError, changed_paths, classify_paths, main
+import run_go_checks as runner
 
 
 @patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
@@ -26,7 +27,7 @@ class ClassifyPathsTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 self.assertEqual(self.enabled(paths), {"web"})
         self.assertEqual(self.enabled([b"README.md", b"docs/ci.md"]), set())
-        self.assertEqual(self.enabled([b"docs/openapi.json"]), {"web"})
+        self.assertEqual(self.enabled([b"docs/openapi.json"]), {"backend", "web"})
 
     def test_go_dependencies_select_store_without_unrelated_platforms(self):
         selected = self.enabled(
@@ -92,6 +93,70 @@ class ClassifyPathsTests(unittest.TestCase):
                            "--base", "bad", "--head", "also-bad"])
         self.assertEqual(result, 1)
         self.assertEqual(output.getvalue(), "")
+
+
+@patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
+class GoPlanClassificationTests(unittest.TestCase):
+    def classify(self, path):
+        root = Path("fixture-repo").absolute()
+        module = "cyberagent-workbench"
+        records = []
+        for directory, imports in (
+                ("internal/agentpackages", []), ("internal/mcp", []), ("internal/plugins", []),
+                ("internal/application", []), ("internal/app", ["internal/application"]),
+                ("internal/httpapi", ["internal/application"]), ("internal/store", [])):
+            records.append({"ImportPath": module + "/" + directory,
+                            "Dir": str(root / directory), "Module": {"Path": module, "Dir": str(root)},
+                            "Imports": [module + "/" + imported for imported in imports]})
+        output = StringIO()
+        with patch("classify_changes.changed_paths", return_value=[path]), \
+                patch("run_go_checks.collect_packages", return_value=records), \
+                redirect_stdout(output), redirect_stderr(StringIO()):
+            self.assertEqual(main(["--event", "pull_request", "--repo", str(root)]), 0)
+        values = dict(line.split("=", 1) for line in output.getvalue().splitlines())
+        checks, plan = json.loads(values["checks"]), json.loads(values["go_plan"])
+        runner.validate_plan(plan)
+        return {key for key, selected in checks.items() if selected}, plan
+
+    def test_indirect_dto_change_keeps_openapi_golden_without_full_httpapi_suite(self):
+        checks, plan = self.classify(b"internal/application/github_review_service.go")
+        self.assertEqual(checks, {"backend"})
+        self.assertIn("cyberagent-workbench/internal/httpapi", plan["compile"])
+        self.assertNotIn("cyberagent-workbench/internal/httpapi", plan["test"])
+        self.assertEqual(plan["integrations"], [{"package": "cyberagent-workbench/internal/httpapi",
+                         "run": "^(TestOpenAPIGoldenDocumentMatchesGoDTOs)$"}])
+
+    def test_snapshot_only_runs_targeted_go_golden_and_web_api_check(self):
+        checks, plan = self.classify(b"docs/openapi.json")
+        self.assertEqual(checks, {"backend", "web"})
+        self.assertFalse(plan["full"])
+        self.assertEqual(plan["affected"], ["cyberagent-workbench/internal/httpapi"])
+        self.assertEqual(plan["test"], [])
+        self.assertEqual(plan["integrations"], [{"package": "cyberagent-workbench/internal/httpapi",
+                         "run": "^(TestOpenAPIGoldenDocumentMatchesGoDTOs)$"}])
+
+    def test_shared_launch_fixture_reaches_mcp_but_ordinary_fixture_stays_local(self):
+        for directory, consumers in (("launch-handoff", ["internal/agentpackages", "internal/mcp"]),
+                                     ("ordinary", ["internal/agentpackages"])):
+            with self.subTest(directory=directory):
+                checks, plan = self.classify(f"internal/agentpackages/testdata/{directory}/mcp.json".encode())
+                self.assertEqual(checks, {"backend"})
+                self.assertFalse(plan["full"])
+                self.assertEqual(plan["test"], ["cyberagent-workbench/" + p for p in consumers])
+                self.assertEqual(plan["production_affected"], [])
+
+    def test_skill_creator_shared_subtree_activates_store_shards_but_pins_remain_local(self):
+        checks, plan = self.classify(
+            b"internal/agentpackages/testdata/upstream/anthropic-skill-creator/skills/skill-creator/SKILL.md")
+        self.assertEqual(checks, {"backend", "store"})
+        self.assertTrue(plan["store_affected"])
+        self.assertNotIn("cyberagent-workbench/internal/store", plan["test"] + plan["compile"])
+        self.assertEqual(plan["production_affected"], [])
+        self.assertEqual(plan["integrations"], [{"package": "cyberagent-workbench/internal/application",
+                         "run": "^(TestPortableSkillUpstreamImportReadResourceAndRestart)$"}])
+        checks, plan = self.classify(b"internal/agentpackages/testdata/upstream/pins.json")
+        self.assertEqual(checks, {"backend"})
+        self.assertEqual(plan["test"], ["cyberagent-workbench/internal/agentpackages"])
 
 
 @patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
