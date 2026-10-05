@@ -258,3 +258,25 @@ func TestStructuredMemoryPolicyDenialNeverInvokesExecutor(t *testing.T) {
 			executor.noteCalls, store.chargeCount())
 	}
 }
+
+func TestStructuredMemoryAdmissionKeepsOriginalTitleLimit(t *testing.T) {
+	title := strings.Repeat("x", 222) + " password=12345678"
+	for name, payload := range map[ToolName]string{
+		WorkItemCreateTool: fmt.Sprintf(`{"title":%q}`, title),
+		NoteCreateTool:     fmt.Sprintf(`{"title":%q,"content":"observation"}`, title),
+	} {
+		t.Run(string(name), func(t *testing.T) {
+			store := newTrackedStructuredStore()
+			executor := &structuredExecutorStub{}
+			outcome, err := New(store, policy.NewDefaultChecker()).WithStructuredMemoryExecutor(executor).
+				Invoke(t.Context(), ToolCall{Name: name, Payload: json.RawMessage(payload),
+					OperationKey: "title-limit", RunID: "run-1", SessionID: "sess-1", RequestedBy: "root"})
+			if err != nil || store.chargeCount() != 1 || executor.workCalls+executor.noteCalls != 1 {
+				t.Fatalf("valid 240-character title was not admitted: err=%v charges=%d", err, store.chargeCount())
+			}
+			if strings.Contains(string(outcome.Call.Payload), "12345678") {
+				t.Fatal("admitted title was not redacted in the outcome")
+			}
+		})
+	}
+}
