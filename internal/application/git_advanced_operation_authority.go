@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
@@ -143,20 +142,7 @@ func (s *GitAdvancedService) operationDispatchGuard(ctx context.Context,
 	if decision.Outcome != "allow" || decision.Validate() != nil {
 		return nil, apperror.New(apperror.CodePolicyDenied, "Git requires exact operator approval")
 	}
-	var mu sync.Mutex
-	started, denied := false, false
-	return func(checkCtx context.Context, actualFingerprint string) (err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if denied || actualFingerprint != fingerprint {
-			denied = true
-			return errors.New("Git dispatch authority was denied or its inputs changed")
-		}
-		defer func() { denied = err != nil }()
-		if !started {
-			started = true
-			return decision.BeforeDispatch(checkCtx, actualFingerprint)
-		}
+	return executionauth.NewRecheckingDispatchGuard(fingerprint, decision.BeforeDispatch, func(checkCtx context.Context) error {
 		return authorizer.Recheck(checkCtx, subject, operation, request.ApprovalID, decision.AuthorizationRef)
-	}, nil
+	}, "Git dispatch authority was denied or its inputs changed"), nil
 }

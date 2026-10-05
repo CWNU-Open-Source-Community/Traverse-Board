@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"sync"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
@@ -195,20 +194,7 @@ func (s *ThreadPullRequestService) dispatchGuard(ctx context.Context, p ThreadPu
 	if decision.Outcome != "allow" || decision.Validate() != nil {
 		return nil, apperror.New(apperror.CodePolicyDenied, "draft creation requires exact operator approval")
 	}
-	var mu sync.Mutex
-	started, denied := false, false
-	return func(checkCtx context.Context, actualFingerprint string) (err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if denied || actualFingerprint != fingerprint {
-			denied = true
-			return errors.New("draft dispatch was denied or its inputs changed")
-		}
-		defer func() { denied = err != nil }()
-		if !started {
-			started = true
-			return decision.BeforeDispatch(checkCtx, actualFingerprint)
-		}
+	return executionauth.NewRecheckingDispatchGuard(fingerprint, decision.BeforeDispatch, func(checkCtx context.Context) error {
 		return authorizer.Recheck(checkCtx, subject, op, approvalID, decision.AuthorizationRef)
-	}, nil
+	}, "draft dispatch was denied or its inputs changed"), nil
 }

@@ -69,6 +69,8 @@ type commandRuntimeBindings struct {
 	drydock    runworktree.Workspace
 	rootPath   string
 	rootSHA256 string
+	rootFound  bool
+	leaseFound bool
 }
 
 func NewCommandRuntimeService(store CommandRuntimeStore,
@@ -703,6 +705,16 @@ func (s *CommandRuntimeService) waitForTerminal(ctx context.Context,
 func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	scope toolgateway.CommandRuntimeContext, networkRequested bool,
 ) (commandRuntimeBindings, error) {
+	value, err := s.loadCommandRuntimeBindings(ctx, scope.RunID)
+	if err != nil {
+		return value, err
+	}
+	return s.validateAuthorizedBindings(ctx, scope, networkRequested, value)
+}
+
+func (s *CommandRuntimeService) loadCommandRuntimeBindings(ctx context.Context,
+	runID string,
+) (commandRuntimeBindings, error) {
 	var value commandRuntimeBindings
 	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
 	if err := s.capabilities.Validate(); err != nil || !s.adapter.Executable() ||
@@ -712,7 +724,7 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 			"command runtime startup capability is disabled")
 	}
 	var err error
-	if value.run, err = s.store.GetRun(ctx, scope.RunID); err != nil {
+	if value.run, err = s.store.GetRun(ctx, runID); err != nil {
 		return value, apperror.Normalize(err)
 	}
 	if value.mission, err = s.store.GetMission(ctx, value.run.MissionID); err != nil {
@@ -722,8 +734,7 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.mission.WorkspaceID); err != nil {
 		return value, apperror.Normalize(err)
 	}
-	var rootFound bool
-	if value.root, rootFound, err = s.store.GetRootAgent(ctx, value.run.ID); err != nil {
+	if value.root, value.rootFound, err = s.store.GetRootAgent(ctx, value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
 	if value.mode, err = s.store.GetRunMode(ctx, value.run.ID); err != nil {
@@ -733,6 +744,22 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
+	if value.permission, err = s.store.GetRunExecutionPermission(ctx,
+		value.run.ID); err != nil {
+		return value, apperror.Normalize(err)
+	}
+	if value.lease, value.leaseFound, err = s.store.GetRunExecutionLease(ctx,
+		value.run.ID); err != nil {
+		return value, apperror.Normalize(err)
+	}
+	return value, nil
+}
+
+func (s *CommandRuntimeService) validateAuthorizedBindings(ctx context.Context,
+	scope toolgateway.CommandRuntimeContext, networkRequested bool,
+	value commandRuntimeBindings,
+) (commandRuntimeBindings, error) {
+	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
 	if fixed, ok := s.manager.FixedCommandPlan(); ok {
 		reader, ok := s.store.(interface {
 			GetRunExecutionInteraction(context.Context, string) (domain.RunExecutionInteractionSnapshot, error)
@@ -752,15 +779,7 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 			return value, apperror.New(apperror.CodeConflict, "fixed command plan or operator binding changed")
 		}
 	}
-	if value.permission, err = s.store.GetRunExecutionPermission(ctx,
-		value.run.ID); err != nil {
-		return value, apperror.Normalize(err)
-	}
-	var leaseFound bool
-	if value.lease, leaseFound, err = s.store.GetRunExecutionLease(ctx,
-		value.run.ID); err != nil {
-		return value, apperror.Normalize(err)
-	}
+	var err error
 	value.rootPath = value.workspace.RootPath
 	if value.permission.Mode.IsApprovalMode() && s.adapter.Kind == commandruntimeadapter.KindHostUnsandboxed {
 		_, owned, err := readRunFileDrydock(ctx, s.store, value.run.ID)
@@ -799,7 +818,7 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 			proof.invocationID == scope.InvocationID && proof.operationKey == scope.OperationKey &&
 			operatorCommandOwnsStoppedRun(ctx, value.run, value.lease)
 	}
-	if !leaseFound || !rootFound || value.run.Terminal() ||
+	if !value.leaseFound || !value.rootFound || value.run.Terminal() ||
 		(value.run.Status != domain.RunRunning && !operatorStopped) ||
 		value.run.ID != scope.RunID || value.run.MissionID != scope.MissionID ||
 		value.run.SessionID != scope.SessionID ||

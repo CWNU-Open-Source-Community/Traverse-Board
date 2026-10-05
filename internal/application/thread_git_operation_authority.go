@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
@@ -199,20 +198,7 @@ func (s *ThreadGitService) nativeDispatchGuard(ctx context.Context, bound thread
 	if decision.Outcome != "allow" || decision.Validate() != nil {
 		return nil, apperror.New(apperror.CodePolicyDenied, "task Git requires exact native confirmation")
 	}
-	var mu sync.Mutex
-	started, denied := false, false
-	return func(checkCtx context.Context, actual string) (err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if denied || actual != fingerprint {
-			denied = true
-			return errors.New("task Git dispatch was denied or its inputs changed")
-		}
-		defer func() { denied = err != nil }()
-		if !started {
-			started = true
-			return decision.BeforeDispatch(checkCtx, actual)
-		}
+	return executionauth.NewRecheckingDispatchGuard(fingerprint, decision.BeforeDispatch, func(checkCtx context.Context) error {
 		return authorizer.Recheck(checkCtx, subject, operation, approvalID, decision.AuthorizationRef)
-	}, nil
+	}, "task Git dispatch was denied or its inputs changed"), nil
 }

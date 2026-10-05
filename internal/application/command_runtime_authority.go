@@ -133,35 +133,26 @@ func (s *CommandRuntimeService) commandRuntimeAuthorityBindings(ctx context.Cont
 	if !s.commandRuntimeAdapterCurrent() || !s.adapter.SameBackend(a.Adapter) {
 		return scope, bindings, errors.New("command runtime adapter changed")
 	}
-	run, err := s.store.GetRun(ctx, a.RunID)
+	bindings, err := s.loadCommandRuntimeBindings(ctx, a.RunID)
 	if err != nil {
 		return scope, bindings, err
 	}
-	mission, err := s.store.GetMission(ctx, run.MissionID)
-	if err != nil {
-		return scope, bindings, err
+	if !bindings.rootFound {
+		return scope, bindings, errors.New("command runtime root is unavailable")
 	}
-	root, found, err := s.store.GetRootAgent(ctx, run.ID)
-	if err != nil || !found {
-		return scope, bindings, errors.Join(err, errors.New("command runtime root is unavailable"))
-	}
-	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
-	if err != nil {
-		return scope, bindings, err
-	}
-	if !commandRuntimeAuthorityCurrent(s.capabilities, a, permission) {
+	if !commandRuntimeAuthorityCurrent(s.capabilities, a, bindings.permission) {
 		return scope, bindings, errors.New("command runtime permission or revocation binding changed")
 	}
-	lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID)
-	if err != nil || !found {
-		return scope, bindings, errors.Join(err, errors.New("command runtime lease is unavailable"))
+	if !bindings.leaseFound {
+		return scope, bindings, errors.New("command runtime lease is unavailable")
 	}
+	run, mission, root, lease := bindings.run, bindings.mission, bindings.root, bindings.lease
 	scope = toolgateway.CommandRuntimeContext{RunID: run.ID, MissionID: mission.ID, SessionID: run.SessionID,
 		WorkspaceID: mission.WorkspaceID, RootAgentID: root.ID, AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
 		PermissionSnapshotID: a.PermissionSnapshotID, PermissionMode: a.PermissionMode, PermissionRevision: a.PermissionRevision,
 		PermissionGeneration: a.PermissionGeneration, PermissionRuntimeEpoch: a.PermissionRuntimeEpoch, RunAuthorizationFence: a.RunAuthorizationFence,
 		LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation, RequestedBy: "run_supervisor", Adapter: s.adapter}
-	bindings, err = s.loadAuthorizedBindings(ctx, scope, false)
+	bindings, err = s.validateAuthorizedBindings(ctx, scope, false, bindings)
 	return scope, bindings, err
 }
 
