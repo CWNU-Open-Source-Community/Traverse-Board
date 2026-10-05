@@ -32,6 +32,11 @@ Implementation status for this revision:
 | Command runtime construction and teardown | Shared for Desktop and HTTP | [Command runtime set](../internal/application/command_runtime_set.go) assembles Host, Local and Docker adapters and shuts down their managers. Each entry selects its enabled backends; CLI retains its invocation-owned lifetime. |
 | Ecosystem product validation | Representative paths accepted | [2026-10-05 acceptance](acceptance/2026-10-05-core-integrations.md) covers real DeepSeek/Thread/Skill execution, cancellation and restart, Skill lifecycle and stdio MCP entry points. Ordinary native Skill ZIP upload remains a scoped product gap; third-party compatibility stays integration-specific. |
 
+Unused mode placeholders and the forwarding Agent ID helper are removed.
+Execution-control handlers share their HTTP authorization and method checks.
+OpenAI transports share request headers; Responses and Anthropic share SSE
+framing while retaining their protocol-specific message and completion handling.
+
 The Gateway extension target is concrete: add a tool implementation and one
 registration; Gateway discovery and dispatch derive from that entry. A new tool
 family can provide its own normalizer and handler. Tools that introduce durable

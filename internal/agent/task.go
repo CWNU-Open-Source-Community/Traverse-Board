@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"cyberagent-workbench/internal/idgen"
 )
 
 type TaskKind string
@@ -61,8 +59,4 @@ type Event struct {
 	Message     string
 	PayloadJSON string
 	CreatedAt   time.Time
-}
-
-func NewID(prefix string) string {
-	return idgen.New(prefix)
 }

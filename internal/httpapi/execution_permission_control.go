@@ -44,26 +44,8 @@ func matchRunExecutionPermissionControlPath(requestPath string) (string, bool) {
 func (a *API) serveRunExecutionPermissionControl(writer http.ResponseWriter,
 	request *http.Request, requestID string, runID string,
 ) {
-	if !a.executionPermissionControlEnabled {
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeNotFound, "HTTP API endpoint was not found"),
-			http.StatusNotFound)
-		return
-	}
-	if !a.authorized(request, a.controlTokenHash) {
-		writer.Header().Set("WWW-Authenticate", `Bearer realm="CyberAgent Control API"`)
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodePolicyDenied,
-				"valid control bearer authorization is required"),
-			http.StatusUnauthorized)
-		return
-	}
-	if request.Method != http.MethodPost {
-		writer.Header().Set("Allow", http.MethodPost)
-		a.writeError(writer, requestID,
-			apperror.New(apperror.CodeInvalidArgument,
-				"Run execution permission endpoint only supports POST"),
-			http.StatusMethodNotAllowed)
+	if !a.authorizeRunOperation(writer, request, requestID, a.executionPermissionControlEnabled,
+		"Run execution permission") {
 		return
 	}
 	if err := validatePathIdentity(runID); err != nil {

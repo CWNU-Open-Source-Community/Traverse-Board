@@ -281,11 +281,11 @@ counted as another product Surface.
 
 - **Owner:** `security-qa`
 - **Supported platforms:** `windows`, `macos`, `linux`
-- **Shared Go Application contract:** Existing identifiers route only to bounded Go-owned modes and application controls; any real offensive pack requires separate extension admission.
-- **Authority impact:** Names and skeletons grant no target, network, credential, process, approval, or Scope authority.
+- **Shared Go Application contract:** Existing identifiers route only to bounded Go-owned application controls; any real offensive pack requires separate extension admission.
+- **Authority impact:** Names grant no target, network, credential, process, approval, or Scope authority.
 - **Core release blocker:** No
-- **Contract/test checks:** `go test ./internal/modes/ctf ./internal/app`
-- **Failure/recovery evidence:** `internal/modes/ctf/ctf.go`, `internal/app/surface_contract_test.go`
+- **Contract/test checks:** `go test ./internal/app`
+- **Failure/recovery evidence:** `internal/agent/task.go`, `internal/app/surface_contract_test.go`
 - **Go-owned controls:** `policy`, `approval`, `scope`
 - **Compatibility strategy:** Keep historical identifiers readable; CTF solving and offensive automation are not core features and need an independently removable approved extension.
 - **Deprecation window:** Identifier retirement follows compatibility governance and the registry default notice window unless a security advisory applies.
