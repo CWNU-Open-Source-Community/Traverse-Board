@@ -3664,6 +3664,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/application-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List task command service candidates
+         * @description Bounded metadata from Jobs in every Run belonging to this Thread. Source message identity is present only when an exact background start and operator delivery are proven. Does not read command output, start work, probe URLs, or assert readiness.
+         */
+        get: operations["listThreadApplicationServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/application-services/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one exact task command service
+         * @description Reads an exact Thread-owned Run/Job and a bounded sanitized output tail. Loopback URLs are unverified command-output candidates; no network or readiness check is performed.
+         */
+        get: operations["getThreadApplicationService"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/application-services/{job_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one exact owned task command service
+         * @description Cleanup only under Run execution control. Requires the expected original Run and the fixed application-stop-{job_id} Idempotency-Key. Only this process's exact Job owner may cancel; repeated stopping observes its fact without upgrading to Kill. Reaped terminal Jobs replay and cold active Jobs fail closed. No persisted PID is signalled.
+         */
+        post: operations["stopThreadApplicationService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/threads/{thread_id}/archive": {
         parameters: {
             query?: never;
@@ -11390,6 +11450,70 @@ export interface components {
             /** Format: int32 */
             source_count: number;
             sources: components["schemas"]["ThreadActivitySearchSourceView"][];
+        };
+        ThreadApplicationServiceDetailView: {
+            candidate_urls: components["schemas"]["ThreadApplicationServiceURLView"][];
+            output: components["schemas"]["ThreadApplicationServiceOutputView"];
+            service: components["schemas"]["ThreadApplicationServiceView"];
+            /** @enum {string} */
+            version: "thread_application_services.v1";
+        };
+        ThreadApplicationServiceOutputView: {
+            available: boolean;
+            /** Format: int64 */
+            base_cursor: number;
+            dropped: boolean;
+            /** Format: int64 */
+            end_cursor: number;
+            /** Format: int64 */
+            next_cursor: number;
+            stderr: string;
+            stdout: string;
+            truncation_reason?: string;
+        };
+        ThreadApplicationServiceStopRequestView: {
+            expected_run_id: string;
+            /** @enum {string} */
+            version: "thread_application_services.v1";
+        };
+        ThreadApplicationServiceStopView: {
+            replayed: boolean;
+            service: components["schemas"]["ThreadApplicationServiceView"];
+            /** @enum {string} */
+            version: "thread_application_services.v1";
+        };
+        ThreadApplicationServiceURLView: {
+            /** @enum {string} */
+            source: "command_output";
+            url: string;
+            verified: boolean;
+        };
+        ThreadApplicationServiceView: {
+            can_stop: boolean;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            exit_code?: number;
+            job_id: string;
+            run_id: string;
+            source_call_id?: string;
+            source_message_id?: string;
+            /** Format: int32 */
+            source_turn?: number;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            state: "prepared" | "running" | "stopping" | "completed" | "failed" | "timed_out" | "cancelled" | "killed" | "interrupted";
+            thread_id: string;
+        };
+        ThreadApplicationServicesView: {
+            has_more: boolean;
+            services: components["schemas"]["ThreadApplicationServiceView"][];
+            thread_id: string;
+            /** @enum {string} */
+            version: "thread_application_services.v1";
         };
         ThreadCreationControlRequestView: {
             allowed_targets?: string[];
@@ -21985,6 +22109,133 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    listThreadApplicationServices: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadApplicationServicesView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getThreadApplicationService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+                /** @description Exact command Job identity */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadApplicationServiceDetailView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    stopThreadApplicationService: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+                /** @description Exact command Job identity */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadApplicationServiceStopRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadApplicationServiceStopView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

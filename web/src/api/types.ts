@@ -71,6 +71,10 @@ export type FullCDPSessionCloseRequestView =
 export type FullCDPSessionControlView =
   components["schemas"]["FullCDPSessionControlView"];
 export type FullCDPSessionView = components["schemas"]["FullCDPSessionView"];
+export type ThreadApplicationServicesView = components["schemas"]["ThreadApplicationServicesView"];
+export type ThreadApplicationServiceView = components["schemas"]["ThreadApplicationServiceView"];
+export type ThreadApplicationServiceDetailView = components["schemas"]["ThreadApplicationServiceDetailView"];
+export type ThreadApplicationServiceStopView = components["schemas"]["ThreadApplicationServiceStopView"];
 export type ThreadView = components["schemas"]["ThreadView"];
 export type ThreadRunRecoveryView = components["schemas"]["ThreadRunRecoveryView"];
 export type ThreadRunRecoveryControlRequestView =

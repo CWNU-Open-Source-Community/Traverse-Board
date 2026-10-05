@@ -23,7 +23,8 @@ import { useV2QueuedMessagesQuery, V2QueuedMessages } from "./queued-messages";
 import { V2AgentBrowser } from "./agent-browser";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
 import { v2ImageReferenceKey } from "./image-input";
-import { V2ApplicationPreview } from "./application-preview";
+import { APPLICATION_PREVIEW_START_REQUEST, applicationPreviewRequestCopy, applicationPreviewRequestKey, applicationServicesQueryKey,
+  trackApplicationPreviewSubmission, type ApplicationPreviewRequest } from "../application-preview-request";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
@@ -41,6 +42,7 @@ import { useV2ThreadExecution, V2ThreadExecutionControl, V2PausedThreadControl }
 
 const V2TaskReview = lazy(() => import("./task-review").then((module) => ({ default: module.V2TaskReview })));
 const V2Inspector = lazy(() => import("./inspector").then((module) => ({ default: module.V2Inspector })));
+const V2ApplicationPreview = lazy(() => import("./application-preview").then((module) => ({ default: module.V2ApplicationPreview })));
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
   onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
@@ -59,6 +61,14 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   onExitInspector?: () => void;
 }) {
   const queryClient = useQueryClient();
+  const previewRequest = useQuery<ApplicationPreviewRequest | null>({
+    queryKey: applicationPreviewRequestKey(threadID), queryFn: () => null,
+    initialData: null, enabled: false, gcTime: Infinity,
+  });
+  // The preview panel owns network reads and polling. This observer retains its
+  // validated source matches without loading the panel or fetching on arrival.
+  const previewServices = useQuery({ queryKey: applicationServicesQueryKey(threadID),
+    queryFn: ({ signal }) => client.listThreadApplicationServices(threadID, signal), enabled: false });
   const recovery = useV2RecoveryStore();
   const checkedRecovery = useRef(new Set<string>());
   const [checking, setChecking] = useState<string[]>([]);
@@ -79,12 +89,27 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const reviewTrigger = useRef<HTMLButtonElement>(null);
   const turn = useV2ThreadTurn(client);
   const submissions = useV2ThreadSubmissions(threadID);
+  const submitTrackedTurn = async (input: V2TurnInput) => {
+    trackApplicationPreviewSubmission(queryClient, input, "submitting");
+    try {
+      const result = await turn.mutateAsync(input);
+      trackApplicationPreviewSubmission(queryClient, input, "accepted", {
+        runID: "run_id" in result ? result.run_id : undefined, messageID: result.steering.id,
+      });
+      return result;
+    } catch (error) {
+      trackApplicationPreviewSubmission(queryClient, input,
+        v2TurnFailed(error) ? "failed" : v2TurnWasNotQueued(error) ? "rejected" : "unconfirmed",
+        error instanceof APIRequestError ? { runID: error.turnFailure?.run_id, messageID: error.turnFailure?.message_id } : undefined);
+      throw error;
+    }
+  };
   const confirmSubmission = async (input: V2TurnInput): Promise<"accepted" | "rejected" | "unresolved"> => {
     // Older connectors without the read contract retain their explicit-key
     // retry behavior. A durable recovery scope always uses the read-only API.
     if (!recovery) {
       try {
-        await turn.mutateAsync(input);
+        await submitTrackedTurn(input);
         setConfirmedSubmission(input);
         if (draft === (input.draft ?? input.content)) onDraftChange?.("", draft);
         return "accepted";
@@ -107,6 +132,9 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       }
       const accepted = result.state !== "rejected" &&
         !(input.deliveryMode === "steer" && result.message_status === "cancelled");
+      trackApplicationPreviewSubmission(queryClient, input,
+        result.state === "failed" ? "failed" : accepted ? "accepted" : "rejected",
+        { runID: "run_id" in result ? result.run_id : undefined, messageID: result.message_id });
       settleRecoveryTurn(recovery, input, accepted);
       if (accepted && !input.draftVersion) queryClient.setQueryData<V2FileReference[]>(v2FileReferenceKey(input.workspaceID, input.threadID),
         (current) => current?.filter(({ id }) => !input.files?.some((file) => file.id === id)));
@@ -398,7 +426,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       if (outcome === "rejected") replaced = input.operationKey;
       if (outcome === "unresolved") {
         if (recovery) {
-          if (JSON.stringify([input.deliveryMode ?? "next_turn", input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) { await turn.mutateAsync(input); return; }
+          if (JSON.stringify([input.deliveryMode ?? "next_turn", input.content, input.files ?? [], imageIdentities(input.images), fileAttachmentIdentities(input.attachments)]) === fingerprint) { await submitTrackedTurn(input); return; }
           throw new V2SubmissionError(input, new Error("原提交尚未确认。新草稿已保留，请先核对或继续提交原消息。"));
         }
         replaced = input.operationKey;
@@ -415,8 +443,9 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       ...(attachments?.length ? { attachments } : {}),
       ...(draftVersion ? { draftVersion } : {}),
       ...(replaced ? { replacesOperationKey: replaced } : {}) };
+    trackApplicationPreviewSubmission(queryClient, input, "submitting", undefined, true);
     try {
-      await turn.mutateAsync(input);
+      await submitTrackedTurn(input);
       // Remember the accepted payload: once the settled mutation leaves the
       // cache, a matching leftover draft is still recognized as submitted.
       setConfirmedSubmission(input);
@@ -506,11 +535,20 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     </nav>}
     {contextOpen && <V2ThreadContext client={client} threadID={threadID} detail={detail}
       onClose={() => setContextOpen(false)} onRequestChange={appendDraftAndReveal} returnFocusRef={contextTrigger} />}
-    {previewOpen && <V2ApplicationPreview key={currentRun.id} client={client} runID={currentRun.id} threadID={threadID}
+    {previewOpen && <V2LazySurface loadingText="正在加载应用预览…" errorLabel="应用预览" resetKey={threadID}
+      onDismiss={() => { setPreviewOpen(false); previewTrigger.current?.focus(); }}>
+      <V2ApplicationPreview key={threadID} client={client} runID={currentRun.id} threadID={threadID}
+      startRequest={previewRequest.data} canRequestStart={Boolean(onDraftChange)}
       onClose={() => setPreviewOpen(false)} returnFocusRef={previewTrigger} onRequestStart={() => {
-        const request = "请检查当前项目的启动方式，使用受管理的后台命令启动开发服务，等待就绪后给出确切的本机预览地址；保留启动输出和可停止的任务标识。如果启动失败，请报告实际错误。";
-        appendDraftAndReveal(request);
-      }} />}
+        if (!onDraftChange) return;
+        if (!draft?.includes(APPLICATION_PREVIEW_START_REQUEST)) appendDraftAndReveal(APPLICATION_PREVIEW_START_REQUEST);
+        else appendDraftAndReveal("");
+        setDeliveryMode("next_turn");
+        queryClient.setQueryData<ApplicationPreviewRequest>(applicationPreviewRequestKey(threadID), {
+          request: APPLICATION_PREVIEW_START_REQUEST, phase: "draft",
+        });
+      }} />
+    </V2LazySurface>}
     {reviewOpen && <V2LazySurface loadingText="正在加载改动审阅…" errorLabel="改动审阅" resetKey={threadID}
       onDismiss={() => { setReviewOpen(false); (reviewReturnFocus.current?.isConnected ? reviewReturnFocus.current : reviewTrigger.current)?.focus(); }}>
       <V2TaskReview client={client} detail={detail} working={working}
@@ -579,7 +617,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
               }} type="button">{checking.includes(input.operationKey) ? "正在核对…" : "重试核对"}</button>}
             {recovery && observations[input.operationKey] && !v2TurnOutcomeKnown(error) &&
               <button disabled={turnSubmitting || checking.includes(input.operationKey)} onClick={() => {
-                void turn.mutateAsync(input).then(() => {
+                void submitTrackedTurn(input).then(() => {
                   if (!managedDraft && !input.draftVersion && draft === (input.draft ?? input.content)) onDraftChange?.("", draft);
                 }).catch(() => undefined);
               }} type="button">继续提交原消息</button>}
@@ -606,6 +644,12 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     }} type="button">有新内容 · 回到最新</button>}
     <div className="v2-composer-dock">
       <V2AgentActivity activity={agentActivity} />
+      {previewRequest.data && <p className="v2-composer-caption" role={previewRequest.data.phase === "failed" ? "alert" : "status"}>
+        {applicationPreviewRequestCopy(previewRequest.data, !previewServices.isError && Boolean(previewRequest.data.runID &&
+          previewRequest.data.messageID && previewServices.data?.services.some((service) =>
+            service.run_id === previewRequest.data?.runID && service.source_message_id === previewRequest.data?.messageID)))}
+        <button onClick={() => setPreviewOpen(true)} type="button">查看应用服务</button>
+      </p>}
       {managedDraft && <V2DraftConflict key={threadID} client={client} workspaceID={detail.thread.workspace_id ?? ""}
         state={managedDraft.state} onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       {currentRun.status === "paused" && <V2PausedThreadControl client={client} threadID={threadID} runID={currentRun.id} />}

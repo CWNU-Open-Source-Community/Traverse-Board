@@ -3,6 +3,20 @@
 [data-prayu-theme="light"] .v2-app-preview { background:#fff; }
 .v2-app-preview > header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:18px; padding:8px 0; background:inherit; }
 .v2-app-preview h2 { font-size:19px; margin:0; }
+.v2-app-preview h3 { font-size:16px; margin:0 0 12px; }
+.v2-preview-services { padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid var(--v2-border, #d7dbe0); }
+.v2-preview-identity { line-height:1.7; overflow-wrap:anywhere; color:var(--v2-muted, #666c73); }
+.v2-preview-service-list { list-style:none; margin:12px 0; padding:0; display:grid; gap:8px; }
+.v2-preview-service-list button { width:100%; align-items:flex-start; flex-direction:column; text-align:left; overflow-wrap:anywhere; }
+.v2-preview-service-list button[aria-pressed="true"], .v2-preview-candidates button[aria-pressed="true"] { border-color:var(--v2-accent, #78a8f8); background:var(--v2-accent-soft, #78a8f815); }
+.v2-preview-service-detail { margin-top:12px; padding:14px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; }
+.v2-preview-output { margin-top:12px; }
+.v2-preview-output summary { cursor:pointer; }
+.v2-preview-output pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:320px; overflow:auto; line-height:1.6; font-family:var(--prayu-font-mono, monospace); }
+.v2-preview-output pre strong { color:var(--v2-muted, #666c73); }
+.v2-preview-candidates { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.v2-preview-candidates > p { width:100%; margin:0; line-height:1.6; }
+.v2-preview-candidates code { overflow-wrap:anywhere; }
 .v2-app-preview button { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:8px 12px; border:1px solid var(--v2-border, #d7dbe0); border-radius:8px; background:var(--prayu-panel-strong, #fff); color:inherit; font:inherit; cursor:pointer; }
 .v2-app-preview button:disabled { opacity:.5; cursor:default; }
 .v2-preview-address { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }

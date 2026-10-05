@@ -359,6 +359,7 @@ type Config struct {
 	ThreadTurnController                  ThreadTurnController
 	ThreadReviewReader                    ThreadReviewReader
 	ThreadGitController                   ThreadGitController
+	ThreadApplicationServiceController    ThreadApplicationServiceController
 	ThreadPullRequestController           ThreadPullRequestController
 	StandardCodePresetController          StandardCodePresetController
 	StandardCodeDeliveryController        StandardCodeDeliveryController
@@ -457,6 +458,7 @@ type API struct {
 	threadTurnController                  ThreadTurnController
 	threadReview                          ThreadReviewReader
 	threadGitController                   ThreadGitController
+	threadApplicationServiceController    ThreadApplicationServiceController
 	threadPullRequestController           ThreadPullRequestController
 	standardCodePresetController          StandardCodePresetController
 	standardCodeDeliveryController        StandardCodeDeliveryController
@@ -805,6 +807,16 @@ func New(store Store, config Config) (*API, error) {
 	if source, ok := config.CommandRuntimeAdvertiser.(application.ThreadActivityCommandRuntimeSource); ok {
 		commandActivitySource = source
 	}
+	threadApplicationServices := config.ThreadApplicationServiceController
+	if threadApplicationServices == nil {
+		if state, ok := store.(application.ThreadApplicationServiceStore); ok {
+			service := application.NewThreadApplicationService(state)
+			if runtime, ok := config.CommandRuntimeAdvertiser.(application.ThreadApplicationServiceCommandRuntime); ok {
+				service.WithCommandRuntime(runtime)
+			}
+			threadApplicationServices = service
+		}
+	}
 	version := strings.TrimSpace(config.AppVersion)
 	if version == "" {
 		version = "unknown"
@@ -883,6 +895,7 @@ func New(store Store, config Config) (*API, error) {
 		threadTurnController:                config.ThreadTurnController,
 		threadReview:                        config.ThreadReviewReader,
 		threadGitController:                 config.ThreadGitController,
+		threadApplicationServiceController:  threadApplicationServices,
 		threadPullRequestController:         config.ThreadPullRequestController,
 		standardCodePresetController:        config.StandardCodePresetController,
 		standardCodeDeliveryController:      config.StandardCodeDeliveryController,
@@ -1047,6 +1060,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if isDockerSandboxPath(request.URL.Path) {
 		a.serveDockerSandbox(tracked, request, requestID)
+		return
+	}
+	if threadID, jobID, stop, matched := matchThreadApplicationServicesPath(request.URL.Path); matched {
+		a.serveThreadApplicationServices(tracked, request, requestID, threadID, jobID, stop)
 		return
 	}
 	if route, matched := matchUIEvidencePath(request.URL.Path); matched {

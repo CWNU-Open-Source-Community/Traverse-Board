@@ -2,6 +2,12 @@
 
 Universal Code is a run-centric, resumable Agent workbench. Go owns execution, policy and persistence; Desktop, Web and CLI use the same application services.
 
+Application preview joins the existing Thread message and Command Runtime Job ledgers
+through `thread_application_services.v1`. Its bounded read and exact Job cleanup adapters
+retain source Run ownership and never launch a process or infer readiness from a URL.
+Managed browser sessions keep their separate lifecycle and authority. See
+[ADR 0166](adr/0166-thread-application-service-preview.md).
+
 > **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. User/control entries, backends, integrations, and extensions have separate support tiers; see [Product Scope](PRODUCT_SCOPE.md) and [ADR 0135](adr/0135-pre-1-0-product-convergence.md).
 
 ## Design Goals

@@ -1549,6 +1549,7 @@
         "thread_activity_artifact.v1",
         "thread_activity_detail.v2",
         "thread_activity_summary.v1",
+        "thread_application_services.v1",
         "thread_creation.v1",
         "thread_execution.v1",
         "thread_export.v1",
