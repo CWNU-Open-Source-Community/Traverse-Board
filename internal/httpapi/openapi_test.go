@@ -1229,10 +1229,25 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			requestAPI := fixture.api
+			var threadServiceJob threadApplicationServicesLiveJob
 			if spec.Path == StandardCodePresetCreatePath ||
 				spec.Path == StandardCodePresetRunPathTemplate ||
 				spec.Path == StandardCodePauseAndConfigurePathTemplate {
 				requestAPI = standardCodeAPI
+			} else if spec.Path == ThreadApplicationServicesPathTemplate ||
+				spec.Path == ThreadApplicationServicePathTemplate || spec.Path == ThreadApplicationServiceStopPathTemplate {
+				// Bind these routes to an authorized, reaped Command Runtime Job,
+				// rather than the scheduler's generic job identity. Keep the native
+				// fixture inside this route subtest: an unavailable native runtime
+				// may skip this route, but cannot skip the rest of the HTTP catalog.
+				threadServicesFixture := newThreadApplicationServicesLiveFixture(t)
+				threadServiceJob = threadServicesFixture.start(t, "fail")
+				threadServicesFixture.waitDetail(t, threadServiceJob, func(detail threadApplicationServicesLiveDetail) bool {
+					return detail.Service.State == string(runner.CommandRuntimeJobFailed)
+				})
+				requestPath = strings.ReplaceAll(spec.Path, "{thread_id}", threadServiceJob.threadID)
+				requestPath = strings.ReplaceAll(requestPath, "{job_id}", threadServiceJob.jobID)
+				requestAPI = threadServicesFixture.api
 			}
 			var response *httptest.ResponseRecorder
 			expectedStatus := http.StatusOK
@@ -1292,6 +1307,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				body := `{"profile":"docker"}`
 				if spec.OperationID == "controlThreadPlan" {
 					body = `{"version":"plan_delivery_control.v1","run_id":"` + openAPIThreadRun.ID + `","action":"enter_plan"}`
+				} else if spec.OperationID == "stopThreadApplicationService" {
+					body = `{"version":"thread_application_services.v1","expected_run_id":"` + threadServiceJob.runID + `"}`
 				} else if spec.OperationID == "previewThreadGit" {
 					body = `{"version":"thread_git.v1","run_id":"` + openAPIThreadRun.ID + `","spec":{"operation":"stage","paths":["README.md"]}}`
 				} else if spec.OperationID == "executeThreadGit" {
@@ -1714,9 +1731,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if method == "" {
 					method = http.MethodPost
 				}
-				response = performControlMethodPathRequest(t, requestAPI, method, requestPath,
-					"openapi-live-operation-012345-"+spec.OperationID,
-					strings.NewReader(body))
+				operationKey := "openapi-live-operation-012345-" + spec.OperationID
+				if spec.OperationID == "stopThreadApplicationService" {
+					operationKey = "application-stop-" + threadServiceJob.jobID
+				}
+				response = performControlMethodPathRequest(t, requestAPI, method, requestPath, operationKey, strings.NewReader(body))
 				status, statusErr := openAPISuccessStatus(spec)
 				if statusErr != nil {
 					t.Fatal(statusErr)
@@ -1737,7 +1756,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					expectedStatus = http.StatusConflict
 				}
 			} else {
-				response = fixture.get(t, requestPath)
+				response = performRequest(t, requestAPI, http.MethodGet, requestPath, testAccessToken,
+					"127.0.0.1:8765", "127.0.0.1:45000", nil)
 			}
 			if spec.OperationID == "getBrowserSafeWebReadiness" ||
 				spec.OperationID == "getThreadActivityDetail" ||
@@ -1759,6 +1779,25 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					requestPath, response.Code, response.Body.String())
 			}
 			assertSecurityHeaders(t, response)
+			if spec.OperationID == "listThreadApplicationServices" {
+				var view application.ThreadApplicationServicesView
+				decodeDataStatus(t, response, http.StatusOK, &view)
+				if view.ThreadID != threadServiceJob.threadID || len(view.Services) != 1 || view.Services[0].JobID != threadServiceJob.jobID || view.Services[0].RunID != threadServiceJob.runID {
+					t.Fatalf("application-service list lost the exact Thread Job: %+v", view)
+				}
+			} else if spec.OperationID == "getThreadApplicationService" {
+				var view application.ThreadApplicationServiceDetailView
+				decodeDataStatus(t, response, http.StatusOK, &view)
+				if view.Service.ThreadID != threadServiceJob.threadID || view.Service.JobID != threadServiceJob.jobID || view.Service.RunID != threadServiceJob.runID || view.Service.State != string(runner.CommandRuntimeJobFailed) {
+					t.Fatalf("application-service detail lost the exact Thread Job: %+v", view)
+				}
+			} else if spec.OperationID == "stopThreadApplicationService" {
+				var view application.ThreadApplicationServiceStopView
+				decodeDataStatus(t, response, http.StatusOK, &view)
+				if !view.Replayed || view.Service.ThreadID != threadServiceJob.threadID || view.Service.JobID != threadServiceJob.jobID || view.Service.RunID != threadServiceJob.runID || view.Service.CanStop {
+					t.Fatalf("application-service stop did not replay the exact reaped Job: %+v", view)
+				}
+			}
 			contentType := response.Header().Get("Content-Type")
 			if spec.Streaming {
 				streamEvents := parseSSEEvents(t, response.Body.Bytes())

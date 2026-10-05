@@ -789,7 +789,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Reads an exact Thread-owned Run/Job and a bounded sanitized output tail. Loopback URLs are unverified command-output candidates; no network or readiness check is performed.",
 			DataType:    reflect.TypeOf(application.ThreadApplicationServiceDetailView{}), NotFound: true,
 			Parameters: []openAPIParameter{threadID, pathIdentityParameter("job_id", "Exact command Job identity")}},
-		{Path: ThreadApplicationServiceStopPathTemplate, Method: http.MethodPost, OperationID: "stopThreadApplicationService", Summary: "Stop one exact owned task command service", Tag: "Control", Control: true, NotFound: true,
+		{Path: ThreadApplicationServiceStopPathTemplate, Method: http.MethodPost, OperationID: "stopThreadApplicationService", Summary: "Stop one exact owned task command service", Tag: "Control", Control: true, NotFound: true, SuccessStatus: http.StatusOK,
 			Description: "Cleanup only under Run execution control. Requires the expected original Run and the fixed application-stop-{job_id} Idempotency-Key. Only this process's exact Job owner may cancel; repeated stopping observes its fact without upgrading to Kill. Reaped terminal Jobs replay and cold active Jobs fail closed. No persisted PID is signalled.",
 			DataType:    reflect.TypeOf(application.ThreadApplicationServiceStopView{}), RequestType: reflect.TypeOf(ThreadApplicationServiceStopRequestView{}),
 			Parameters: []openAPIParameter{threadID, pathIdentityParameter("job_id", "Exact command Job identity"), {Name: "Idempotency-Key", In: "header", Required: true, Schema: map[string]any{"type": "string"}}}},
