@@ -8,7 +8,7 @@ import { Circle, Hexagon } from "lucide-react";
 import type { APIClient } from "../../api/client";
 import { V2ModelSettings, type V2ModelProviderPreset } from "./model-settings";
 
-const modelStyles = readFileSync("src/v2/styles.css", "utf8");
+const modelStyles = readFileSync("src/v2/components/settings.css", "utf8");
 const modelCardRule = /\.v2-model-card\s*\{(?<body>[\s\S]*?)\}/u.exec(modelStyles)?.groups?.body ?? "";
 const modelCardIconRule = /\.v2-model-card-icon\s*\{(?<body>[\s\S]*?)\}/u.exec(modelStyles)?.groups?.body ?? "";
 

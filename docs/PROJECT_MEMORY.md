@@ -1,5 +1,11 @@
 # Prayu Project Memory
 
+> 2026-10-06 frontend checkpoint (#260): latest Thread transcript synchronization is
+> separate from manual history paging; stable narrative rows are reused, and settings,
+> Inspector and review modules load on first use. Source identities, Go-owned state,
+> reconnect/final persistence synchronization and the official complete fonts are retained.
+> See [performance measurements and verification scope](FRONTEND_PERFORMANCE_260.md).
+
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
 Last updated: 2026-08-26

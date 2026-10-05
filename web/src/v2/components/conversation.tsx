@@ -1,15 +1,15 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, MessagesSquare, Microscope, ShieldCheck, PanelTop } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { remarkCjkAutolinks } from "../../components/remark-cjk-autolinks";
 import { APIRequestError, type APIClient } from "../../api/client";
-import type { ThreadDetailView, ThreadTranscriptItemView, ThreadView, WorkspaceView } from "../../api/types";
+import type { ThreadDetailView, ThreadView, WorkspaceView } from "../../api/types";
 import { usePublicModelStream } from "../../hooks/use-public-model-stream";
 import { useRunEventStream } from "../../hooks/use-run-event-stream";
 import { threadActivityLabel } from "../../lib/thread-activity-label";
-import { projectThreadNarrative, type NarrativeEntry } from "../projection/narrative";
+import { prepareThreadNarrative, projectLiveThreadNarrative, type NarrativeEntry } from "../projection/narrative";
+import { useV2ThreadTranscript } from "../use-thread-transcript";
+import { V2Narrative } from "./narrative";
+import { V2LazySurface } from "./lazy-surface";
 import { projectAgentActivity } from "../projection/agent-activity";
 import { V2AgentActivity } from "./agent-activity";
 import { narrativeRepresentsFailedSubmission, recoveryRepresentsNotice } from "../projection/failure-feedback";
@@ -19,13 +19,11 @@ import { HostCommandProposalPanel } from "../../components/host-command-proposal
 import { v2FileReferenceKey, type V2FileReference } from "./file-context";
 import { imageIdentities, type WorkspaceImageAttachment } from "../../api/image-attachments";
 import { fileAttachmentIdentities, type WorkspaceFileAttachment } from "../../api/file-attachments";
-import { V2FileAttachments } from "./file-input";
 import { useV2QueuedMessagesQuery, V2QueuedMessages } from "./queued-messages";
 import { V2AgentBrowser } from "./agent-browser";
 import { v2AttachmentReferenceKey } from "../attachment-keys";
-import { v2ImageReferenceKey, V2ImagePreview } from "./image-input";
+import { v2ImageReferenceKey } from "./image-input";
 import { V2ApplicationPreview } from "./application-preview";
-import { V2TaskReview } from "./task-review";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
@@ -37,42 +35,12 @@ import { assertV2DraftVersion, useV2DraftDocument } from "../draft-context";
 import type { V2DraftVersion } from "../draft-version";
 import { V2DraftConflict } from "./draft-conflict";
 import { V2ApprovalCards } from "./approval-cards";
-import { V2ActivityGroup } from "./activity-detail";
 import { V2Composer } from "./composer";
 import { V2ThreadRunRecovery } from "./thread-run-recovery";
-import { V2Inspector } from "./inspector";
 import { useV2ThreadExecution, V2ThreadExecutionControl, V2PausedThreadControl } from "./thread-execution-control";
 
-function Narrative({ client, entries, threadID }: {
-  client: APIClient;
-  entries: NarrativeEntry[];
-  threadID: string;
-}) {
-  return <ol className="v2-narrative">
-    {entries.map((entry) => {
-      if (entry.kind === "user" && entry.status === "cancelled" && entry.promotedToMessageID) return <li className="v2-user-turn" key={entry.id}>
-        <details className="v2-promoted-message-history">
-          <summary title={entry.text}>排队消息已转为引导</summary>
-          <div className="v2-promoted-message-content">{entry.text}<V2ImagePreview client={client} images={entry.images ?? []} />
-            <V2FileAttachments client={client} attachments={entry.attachments ?? []} /></div>
-        </details></li>;
-      if (entry.kind === "user") return <li className="v2-user-turn" key={entry.id}>
-        <div>{entry.text}<V2ImagePreview client={client} images={entry.images ?? []} />
-          <V2FileAttachments client={client} attachments={entry.attachments ?? []} />{entry.status === "cancelled" &&
-          <small className="v2-message-status">已取消，不会继续处理</small>}
-          {entry.status === "pending" && <small className="v2-message-status">已接收</small>}
-          {entry.deliveryMode === "steer" && entry.status !== "cancelled" && entry.status !== "pending" &&
-            <small className="v2-message-status">已加入当前任务</small>}
-          {entry.provisional && !entry.status && <small className="v2-message-status">正在发送…</small>}</div></li>;
-      if (entry.kind === "assistant") return <li aria-live={entry.provisional ? "polite" : undefined}
-        className={`v2-assistant-turn${entry.provisional ? " is-provisional" : ""}`} key={entry.id}>
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkCjkAutolinks]}>{entry.text}</ReactMarkdown></li>;
-      if (entry.kind === "activity") return <li className="v2-activity-turn" key={entry.id}>
-        <V2ActivityGroup client={client} entry={entry} threadID={threadID} /></li>;
-      return <li className={`v2-notice tone-${entry.tone}`} key={entry.id}>{entry.text}</li>;
-    })}
-  </ol>;
-}
+const V2TaskReview = lazy(() => import("./task-review").then((module) => ({ default: module.V2TaskReview })));
+const V2Inspector = lazy(() => import("./inspector").then((module) => ({ default: module.V2Inspector })));
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
   onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
@@ -172,7 +140,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
-  const olderScrollAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const olderScrollAnchorRef = useRef<{ threadID: string; height: number; top: number; pages: number;
+    row?: HTMLElement; offset?: number } | null>(null);
   const readingThreadRef = useRef("");
   const followLatestRef = useRef(true);
   const [hasNewContent, setHasNewContent] = useState(false);
@@ -196,17 +165,6 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const managedDraft = useV2DraftDocument(detailQuery.data?.thread.workspace_id ?? "", threadID);
   const draft = managedDraft?.state.snapshot.text ?? legacyDraft;
   const onDraftChange = managedDraft?.changeText ?? legacyDraftChange;
-  const transcriptQuery = useInfiniteQuery({
-    queryKey: v2QueryKeys.transcript(threadID),
-    queryFn: ({ pageParam, signal }) => client.getPage<ThreadTranscriptItemView>(
-      `/threads/${encodeURIComponent(threadID)}/transcript`, { limit: 100 }, pageParam, signal),
-    initialPageParam: "",
-    getNextPageParam: (lastPage) => lastPage.page.next_cursor || undefined,
-    enabled: Boolean(threadID),
-    refetchInterval: detailQuery.data?.active_run &&
-      ["preparing", "running", "waiting_approval"].includes(detailQuery.data.active_run.status)
-      ? 1_200 : optimistic.length > 0 ? 750 : false,
-  });
   const activeRun = detailQuery.data?.active_run;
   const streamRunID = activeRun?.id ?? "";
   const streamEnabled = Boolean(activeRun && ["preparing", "running", "waiting_approval"]
@@ -218,6 +176,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const queueQuery = useV2QueuedMessagesQuery(client, queueBinding, false);
   const eventStream = useRunEventStream(client, streamEnabled ? streamRunID : "");
   const publicStream = usePublicModelStream(client, streamRunID, streamEnabled);
+  const transcriptQuery = useV2ThreadTranscript(client, threadID, {
+    // Events drive ordinary updates. A slower head-only check also covers a
+    // quiet connection or a durable write that follows its notification.
+    refetchInterval: optimistic.length > 0 ? 750 : streamEnabled
+      ? eventStream.status === "live" ? 10_000 : 1_200 : false,
+  });
+  const refreshTranscript = transcriptQuery.refetch;
   const liveSnapshot = publicStream.snapshot?.call.run_id === streamRunID
     ? publicStream.snapshot : null;
   const latestFrame = eventStream.frames.at(-1);
@@ -229,7 +194,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       refreshTimer.current = null;
       void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
       void queryClient.invalidateQueries({ queryKey: v2QueryKeys.thread(threadID), exact: true });
-      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.transcript(threadID) });
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.transcript(threadID), exact: true }, { cancelRefetch: false });
       void queryClient.invalidateQueries({ queryKey: v2QueryKeys.approvals(streamRunID) });
       void queryClient.invalidateQueries({ queryKey: ["run", streamRunID] });
     }, 100);
@@ -240,40 +205,52 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       refreshTimer.current = null;
     }
   }, [streamRunID, threadID]);
-  const transcriptItems = useMemo(() => {
-    const seen = new Set<string>();
-    return (transcriptQuery.data?.pages ?? []).slice().reverse().flatMap(({ items }) => items)
-      .filter((item) => {
-        const identity = item.id || `${item.run_id}:${item.sequence}:${item.canonical_id}`;
-        if (seen.has(identity)) return false;
-        seen.add(identity);
-        return true;
-      });
-  }, [transcriptQuery.data?.pages]);
-  const durableNarrative = useMemo(() => projectThreadNarrative(transcriptItems, {
+  const previousStream = useRef<{ threadID: string; runID: string; enabled: boolean;
+    events: string; finalizing: boolean } | null>(null);
+  useEffect(() => {
+    const previous = previousStream.current;
+    const finalizing = publicStream.status === "finalizing" || Boolean(previous?.threadID === threadID &&
+      previous.runID === streamRunID && previous.finalizing);
+    const modelSettled = finalizing && publicStream.status === "waiting";
+    previousStream.current = { threadID, runID: streamRunID, enabled: streamEnabled,
+      events: eventStream.status, finalizing: finalizing && !modelSettled && streamEnabled };
+    if (!previous || previous.threadID !== threadID) return;
+    const finished = previous.enabled && (!streamEnabled || previous.runID !== streamRunID);
+    const reconnected = previous.events === "reconnecting" && eventStream.status === "live";
+    if (finished || modelSettled || reconnected) {
+      // If an older read is still in flight, request one sequential catch-up
+      // pass so it cannot hide a terminal write or a changed historical status.
+      void refreshTranscript({ refreshMutable: true });
+    }
+  }, [threadID, streamRunID, streamEnabled, eventStream.status, publicStream.status, refreshTranscript]);
+  const transcriptItems = transcriptQuery.items;
+  const preparedNarrative = useMemo(() => prepareThreadNarrative(transcriptItems), [transcriptItems]);
+  const durableNarrative = preparedNarrative.entries;
+  const liveNarrative = useMemo(() => projectLiveThreadNarrative(preparedNarrative, {
     runId: streamRunID, snapshot: liveSnapshot, status: publicStream.status,
-  }), [liveSnapshot, publicStream.status, streamRunID, transcriptItems]);
+  }), [liveSnapshot, publicStream.status, streamRunID, preparedNarrative]);
+  const existingUserText = useMemo(() => new Set(durableNarrative.filter((entry) => entry.kind === "user")
+    .map((entry) => JSON.stringify([entry.text, imageIdentities(entry.images), fileAttachmentIdentities(entry.attachments)]))),
+  [durableNarrative]);
   const narrative = useMemo(() => {
-    const existingUserText = new Set(durableNarrative.filter((entry) => entry.kind === "user")
-      .map((entry) => JSON.stringify([entry.text, imageIdentities(entry.images), fileAttachmentIdentities(entry.attachments)])));
     const pending: NarrativeEntry[] = optimistic.filter(({ text, images, attachments }) => !existingUserText.has(JSON.stringify([text, imageIdentities(images), fileAttachmentIdentities(attachments)])))
       .map((entry) => ({ id: entry.id, kind: "user", text: entry.text,
         images: entry.images, attachments: entry.attachments, createdAt: entry.createdAt, provisional: true }));
-    return [...durableNarrative, ...pending];
-  }, [durableNarrative, optimistic, transcriptItems]);
+    return pending.length ? [...liveNarrative, ...pending] : liveNarrative;
+  }, [liveNarrative, existingUserText, optimistic]);
+  const transcriptSources = useMemo(() => new Map(transcriptItems.map((item) => [item.id, item])), [transcriptItems]);
   const visibleNarrative = useMemo(() => {
     // The complete queue is identity checked by readQueuedMessages. A failed
     // refresh or a different Run must keep every unconfirmed historical row.
     const queuedIDs = new Set(queueQuery.isSuccess ? queueQuery.data.items.map((item) => item.id) : []);
-    const sources = new Map(transcriptItems.map((item) => [item.id, item]));
     return narrative.filter((entry) => {
       if (recoveryRepresentsNotice(entry, detailQuery.data?.recovery)) return false;
-      const source = entry.kind === "user" ? sources.get(entry.id) : undefined;
+      const source = entry.kind === "user" ? transcriptSources.get(entry.id) : undefined;
       return !(source?.source === "operator" && source.kind === "operator_input" && source.status === "pending" &&
         source.durable && !source.provisional && source.run_id === queueBinding?.runID &&
         source.source_ref && queuedIDs.has(source.source_ref));
     });
-  }, [narrative, detailQuery.data?.recovery, queueBinding?.runID, queueQuery.data, queueQuery.isSuccess, transcriptItems]);
+  }, [narrative, detailQuery.data?.recovery, queueBinding?.runID, queueQuery.data, queueQuery.isSuccess, transcriptSources]);
   // Contents the user already submitted: in-flight, just confirmed, or the
   // latest durable user entry. A draft identical to any of these is leftover
   // from a sent message, so the composer offers to clear it before the user
@@ -305,15 +282,25 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       return;
     }
     const anchor = olderScrollAnchorRef.current;
-    if (anchor) {
-      element.scrollTop = anchor.top + (element.scrollHeight - anchor.height);
+    if (anchor?.threadID === threadID) {
+      // Streaming can repaint while an older page is still in flight. Keep the
+      // anchor until that page actually arrives instead of consuming it early.
+      if ((transcriptQuery.data?.pages.length ?? 0) <= anchor.pages) {
+        if (transcriptQuery.isFetchNextPageError && !transcriptQuery.isFetchingNextPage) olderScrollAnchorRef.current = null;
+        return;
+      }
+      element.scrollTop = anchor.row?.isConnected && anchor.offset !== undefined
+        ? element.scrollTop + anchor.row.getBoundingClientRect().top - anchor.offset
+        : anchor.top + (element.scrollHeight - anchor.height);
       olderScrollAnchorRef.current = null;
+      queryClient.setQueryData(["v2", "reading", threadID], { top: element.scrollTop, following: followLatestRef.current });
       return;
     }
     if (followLatestRef.current) element.scrollTop = element.scrollHeight;
     else setHasNewContent(true);
-  }, [narrative.length, detailQuery.data?.active_run?.status, liveSnapshot?.revision,
-    transcriptQuery.data?.pages.length, transcriptQuery.isLoading, threadID, queryClient, view]);
+  }, [visibleNarrative, detailQuery.data?.active_run?.status, liveSnapshot?.revision,
+    transcriptQuery.data?.pages.length, transcriptQuery.isLoading, transcriptQuery.isFetchNextPageError,
+    transcriptQuery.isFetchingNextPage, threadID, queryClient, view]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -446,11 +433,17 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
 
   const loadOlderTranscript = async () => {
     const element = scrollRef.current;
-    if (element) olderScrollAnchorRef.current = { height: element.scrollHeight, top: element.scrollTop };
+    const top = element?.getBoundingClientRect().top ?? 0;
+    const row = element ? Array.from(element.querySelectorAll<HTMLElement>(".v2-narrative > li"))
+      .find((candidate) => { const rect = candidate.getBoundingClientRect(); return rect.height > 0 && rect.bottom > top; }) : undefined;
+    const anchor = element ? { threadID, height: element.scrollHeight, top: element.scrollTop,
+      pages: transcriptQuery.data?.pages.length ?? 0, row,
+      offset: row?.getBoundingClientRect().top } : null;
+    olderScrollAnchorRef.current = anchor;
     try {
       await transcriptQuery.fetchNextPage();
     } catch {
-      olderScrollAnchorRef.current = null;
+      if (olderScrollAnchorRef.current === anchor) olderScrollAnchorRef.current = null;
     }
   };
 
@@ -518,18 +511,21 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         const request = "请检查当前项目的启动方式，使用受管理的后台命令启动开发服务，等待就绪后给出确切的本机预览地址；保留启动输出和可停止的任务标识。如果启动失败，请报告实际错误。";
         appendDraftAndReveal(request);
       }} />}
-    {reviewOpen && <V2TaskReview client={client} detail={detail} working={working}
+    {reviewOpen && <V2LazySurface loadingText="正在加载改动审阅…" errorLabel="改动审阅" resetKey={threadID}
+      onDismiss={() => { setReviewOpen(false); (reviewReturnFocus.current?.isConnected ? reviewReturnFocus.current : reviewTrigger.current)?.focus(); }}>
+      <V2TaskReview client={client} detail={detail} working={working}
       onOpenWorktree={onOpenWorktree}
       initialFileTarget={reviewFileTarget}
       onClose={() => {
         if (!reviewReturnFocus.current?.isConnected) reviewReturnFocus.current = reviewTrigger.current;
         setReviewOpen(false);
-      }} returnFocusRef={reviewReturnFocus} onRequestChange={appendDraftAndReveal} />}
-    {view === "inspector" && !transcriptQuery.isLoading && <V2Inspector client={client} key={threadID}
+      }} returnFocusRef={reviewReturnFocus} onRequestChange={appendDraftAndReveal} /></V2LazySurface>}
+    {view === "inspector" && !transcriptQuery.isLoading && <V2LazySurface loadingText="正在加载 Inspector…"
+      errorLabel="Inspector" resetKey={threadID} onDismiss={onExitInspector}><V2Inspector client={client} key={threadID}
       detail={detail} threadID={threadID} durableItems={transcriptItems}
       liveSnapshot={liveSnapshot} liveStatus={publicStream.status}
       hasOlder={Boolean(transcriptQuery.hasNextPage)} isFetchingOlder={transcriptQuery.isFetchingNextPage}
-      onLoadOlder={() => void transcriptQuery.fetchNextPage()} />}
+      onLoadOlder={() => void transcriptQuery.fetchNextPage()} /></V2LazySurface>}
     <div className="v2-conversation-scroll" ref={scrollRef} onScroll={(event) => {
       if (view !== "conversation") return;
       const element = event.currentTarget;
@@ -569,7 +565,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         {view === "conversation" && !transcriptQuery.isLoading && !transcriptQuery.isError && narrative.length === 0 && <div className="v2-transcript-empty">
           <span><ShieldCheck aria-hidden="true" size={18} /></span><p>{detail.thread.status === "archived"
             ? "此归档对话没有公开进展记录。" : "任务已经创建。Agent 的公开进展会出现在这里。"}</p></div>}
-        {view === "conversation" && <Narrative client={client} entries={visibleNarrative} threadID={threadID} />}
+        {view === "conversation" && <V2Narrative client={client} entries={visibleNarrative} threadID={threadID} />}
         {view === "conversation" && <V2AgentBrowser client={client} runID={currentRun.id} running={working || runActive} />}
         {submissionNotices.map(({ input, error }) =>
           <div className="v2-notice tone-warning" key={input.operationKey} role="alert">

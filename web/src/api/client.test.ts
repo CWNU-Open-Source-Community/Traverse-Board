@@ -4304,6 +4304,30 @@ describe("APIClient", () => {
       .rejects.toThrow("final frame");
   });
 
+  it("reports an open empty SSE stream after validating the response", async () => {
+    const onOpen = vi.fn();
+    const onFrame = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(": keepalive\n\n", {
+      status: 200, headers: { "Content-Type": "text/event-stream" },
+    })));
+    await new APIClient("read-secret").streamRunEvents("run-1", {
+      signal: new AbortController().signal, onOpen, onFrame,
+    });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onFrame).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 200])("does not report an open SSE stream for an invalid response with status %s", async (status) => {
+    const onOpen = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "invalid-sse", error: { code: "PERMISSION_DENIED", message: "SSE unavailable" },
+    }), { status, headers: { "Content-Type": "application/json" } })));
+    await expect(new APIClient("read-secret").streamRunEvents("run-1", {
+      signal: new AbortController().signal, onOpen, onFrame: vi.fn(),
+    })).rejects.toThrow(status === 403 ? "SSE unavailable" : "invalid event stream");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("resumes SSE with Last-Event-ID and validates the matching cursor", async () => {
     const frame: RunEventStreamView = {
       version: "run-events.v1",

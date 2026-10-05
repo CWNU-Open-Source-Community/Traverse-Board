@@ -53,8 +53,8 @@ function renderRevertConversation(history: boolean, unavailable?: "archived" | "
 
 async function openEditHistory(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: "审阅改动" }));
-  await user.click(screen.getByRole("button", { name: "记录与恢复" }));
-  await user.click(screen.getByRole("button", { name: "编辑明细" }));
+  await user.click(await screen.findByRole("button", { name: "记录与恢复" }));
+  await user.click(await screen.findByRole("button", { name: "编辑明细" }));
 }
 
 it.each([false, true])("drafts an exact revert from %s historical selection without sending or resuming", async (history) => {

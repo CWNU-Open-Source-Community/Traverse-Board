@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Settings2 } from "lucide-react";
 import type { APIClient } from "../../api/client";
 import { V2ProviderSettings } from "./provider-settings";
+import "./settings.css";
 
 export type V2ModelProviderPreset = {
   id: string;

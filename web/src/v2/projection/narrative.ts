@@ -90,6 +90,58 @@ export interface LiveNarrativeProjection {
   status: PublicModelStreamStatus;
 }
 
+interface LiveTranscriptContext {
+  identities: Set<string>;
+  runOrdinals: Map<string, number>;
+  nextRunOrdinal: number;
+  modelRounds: Set<string>;
+  modelTextTimes: Map<string, string>;
+}
+
+function compareTranscriptItems(left: ThreadTranscriptItemView, right: ThreadTranscriptItemView): number {
+  const time = Date.parse(left.created_at) - Date.parse(right.created_at);
+  if (time !== 0) return time;
+  return left.run_ordinal - right.run_ordinal || left.sequence - right.sequence;
+}
+
+/** Index durable identities once, independently of the model's changing output. */
+export function prepareThreadNarrative(transcript: ThreadTranscriptActivityItem[]) {
+  return {
+    transcript,
+    entries: projectThreadNarrative(transcript),
+    context: liveTranscriptContext(transcript),
+    latest: transcript.reduce<ThreadTranscriptItemView | undefined>((latest, item) =>
+      !latest || compareTranscriptItems(latest, item) < 0 ? item : latest, undefined),
+  };
+}
+
+export function projectLiveThreadNarrative(prepared: ReturnType<typeof prepareThreadNarrative>,
+  live: LiveNarrativeProjection): NarrativeEntry[] {
+  if (!live.snapshot || live.snapshot.call.run_id !== live.runId) return prepared.entries;
+  const provisional = projectLiveTranscriptItems(prepared.context, live.snapshot, live.status);
+  if (!provisional.length) return prepared.entries;
+  // Replayed output can precede newer durable facts. Keep the original ordering
+  // semantics for that uncommon case; ordinary live updates only project a tail.
+  if (prepared.latest && provisional.some((item) => compareTranscriptItems(item, prepared.latest!) < 0)) {
+    return projectThreadNarrative(prepared.transcript, live);
+  }
+  const tail = projectThreadNarrative(provisional);
+  if (!tail.length) return prepared.entries;
+  const previous = prepared.entries.at(-1);
+  const first = tail[0];
+  if (previous?.kind === "activity" && first.kind === "activity" &&
+    previous.activity === first.activity && previous.runId === first.runId) {
+    // The visible group can grow without mutating the cached durable group or
+    // any historical leaf (including its original detail/source references).
+    const merged: NarrativeEntry = { ...previous,
+      title: first.title || previous.title, detail: first.detail || previous.detail,
+      status: first.status || previous.status, provisional: previous.provisional || first.provisional,
+      count: previous.count + first.count, items: [...previous.items, ...first.items] };
+    return [...prepared.entries.slice(0, -1), merged, ...tail.slice(1)];
+  }
+  return [...prepared.entries, ...tail];
+}
+
 function isSyntheticOperatorInput(item: ThreadTranscriptItemView): boolean {
   return syntheticContinuation.test(item.detail?.trim() ?? "");
 }
@@ -146,13 +198,8 @@ export function projectThreadNarrative(
     stageRank: number;
   }>();
   const provisional = live?.snapshot && live.snapshot.call.run_id === live.runId
-    ? projectLiveTranscriptItems(transcript, live.snapshot, live.status) : [];
-  const ordered: ThreadTranscriptActivityItem[] = [...transcript, ...provisional].sort((left, right) => {
-    const time = Date.parse(left.created_at) - Date.parse(right.created_at);
-    if (time !== 0) return time;
-    if (left.run_ordinal !== right.run_ordinal) return left.run_ordinal - right.run_ordinal;
-    return left.sequence - right.sequence;
-  });
+    ? projectLiveTranscriptItems(liveTranscriptContext(transcript), live.snapshot, live.status) : [];
+  const ordered = [...transcript, ...provisional].sort(compareTranscriptItems);
 
   for (const item of ordered) {
     if (item.sequence === 0 || isArtifactStoragePlaceholder(item)) continue;
@@ -332,12 +379,11 @@ function toolLifecycleStageRank(stage: ThreadTranscriptItemView["stage"]): numbe
   }
 }
 
-function projectLiveTranscriptItems(transcript: ThreadTranscriptItemView[],
+function projectLiveTranscriptItems(context: LiveTranscriptContext,
   snapshot: PublicModelStreamSnapshot,
   liveStatus: PublicModelStreamStatus): ThreadTranscriptItemView[] {
-  const knownIdentities = transcriptIdentitySet(transcript);
-  const runOrdinal = transcript.find((item) => item.run_id === snapshot.call.run_id)?.run_ordinal ??
-    Math.max(0, ...transcript.map((item) => item.run_ordinal)) + 1;
+  const knownIdentities = context.identities;
+  const runOrdinal = context.runOrdinals.get(snapshot.call.run_id) ?? context.nextRunOrdinal;
   const expectedRound = snapshot.call.tool_round + 1;
   const createdAt = snapshot.updated_at;
   const projected: ThreadTranscriptItemView[] = [];
@@ -346,11 +392,10 @@ function projectLiveTranscriptItems(transcript: ThreadTranscriptItemView[],
   const messageIdentity = messageItem?.id ??
     `live-message:${snapshot.call.attempt_id}:${snapshot.call.model_attempt}:${expectedRound}`;
   const commentaryConfirmed = (messageItem ? snapshotItemIsDurable(messageItem, knownIdentities) : false) ||
-    transcript.some((item) => item.run_id === snapshot.call.run_id && item.source === "model" && (
-      (item.attempt_id === snapshot.call.attempt_id &&
-        item.model_attempt === snapshot.call.model_attempt && item.tool_round === expectedRound) ||
-      (Boolean(text) && item.created_at >= snapshot.call.started_at && item.detail?.trim() === text)
-    ));
+    context.modelRounds.has(JSON.stringify([snapshot.call.run_id, snapshot.call.attempt_id,
+      snapshot.call.model_attempt, expectedRound])) ||
+    (Boolean(text) && (context.modelTextTimes.get(JSON.stringify([snapshot.call.run_id, text])) ?? "") >=
+      snapshot.call.started_at);
   if (text && !commentaryConfirmed) {
     projected.push({
       version: "thread_transcript.v1",
@@ -415,15 +460,26 @@ function projectLiveTranscriptItems(transcript: ThreadTranscriptItemView[],
   return projected;
 }
 
-function transcriptIdentitySet(transcript: ThreadTranscriptItemView[]): Set<string> {
+function liveTranscriptContext(transcript: ThreadTranscriptItemView[]): LiveTranscriptContext {
   const identities = new Set<string>();
+  const runOrdinals = new Map<string, number>();
+  const modelRounds = new Set<string>();
+  const modelTextTimes = new Map<string, string>();
+  let maxRunOrdinal = 0;
   for (const item of transcript) {
+    if (!runOrdinals.has(item.run_id)) runOrdinals.set(item.run_id, item.run_ordinal);
+    maxRunOrdinal = Math.max(maxRunOrdinal, item.run_ordinal);
     for (const identity of [item.id, item.canonical_id, item.source_ref, item.stream_item_id,
       item.stream_call_id, item.durable_call_id]) {
       if (identity) identities.add(identity);
     }
+    if (item.source === "model") {
+      modelRounds.add(JSON.stringify([item.run_id, item.attempt_id, item.model_attempt, item.tool_round]));
+      const key = JSON.stringify([item.run_id, item.detail?.trim()]);
+      if (item.created_at > (modelTextTimes.get(key) ?? "")) modelTextTimes.set(key, item.created_at);
+    }
   }
-  return identities;
+  return { identities, runOrdinals, nextRunOrdinal: maxRunOrdinal + 1, modelRounds, modelTextTimes };
 }
 
 function snapshotItemIsDurable(item: PublicModelStreamSnapshot["items"][number],

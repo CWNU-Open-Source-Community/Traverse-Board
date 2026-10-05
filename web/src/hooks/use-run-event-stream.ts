@@ -27,8 +27,10 @@ export function clearDesktopRunEventMemory(runID = ""): void {
 }
 
 function rememberDesktopRun(runID: string, cursor: string, frames: RunEventStreamView[]): void {
+  const remembered = rememberedDesktopRuns.get(runID);
+  if (remembered?.cursor === cursor && remembered.frames === frames) return;
   rememberedDesktopRuns.delete(runID);
-  rememberedDesktopRuns.set(runID, { cursor, frames: [...frames].slice(-maxLiveFrames) });
+  rememberedDesktopRuns.set(runID, { cursor, frames });
   while (rememberedDesktopRuns.size > maxRememberedRuns) {
     const oldest = rememberedDesktopRuns.keys().next().value as string | undefined;
     if (!oldest) {
@@ -39,13 +41,23 @@ function rememberDesktopRun(runID: string, cursor: string, frames: RunEventStrea
 }
 
 function mergeFrames(current: RunEventStreamView[], incoming: RunEventStreamView[]): RunEventStreamView[] {
-  const bySequence = new Map(current.map((frame) => [frame.sequence, frame]));
+  if (incoming.length === 0) return current;
+  const sequences = new Set(current.map((frame) => frame.sequence));
+  const oldestRetained = current.length === maxLiveFrames ? current[0]!.sequence : 0;
+  const added: RunEventStreamView[] = [];
   for (const frame of incoming) {
-    bySequence.set(frame.sequence, frame);
+    // Persisted event sequences are immutable. Replayed envelopes can carry a
+    // different request ID or cursor without changing the visible event.
+    if (frame.sequence < oldestRetained || sequences.has(frame.sequence)) continue;
+    sequences.add(frame.sequence);
+    added.push(frame);
   }
-  return [...bySequence.values()]
-    .sort((left, right) => left.sequence - right.sequence)
-    .slice(-maxLiveFrames);
+  if (added.length === 0) return current;
+  const merged = [...current, ...added];
+  if (current.length && added[0]!.sequence < current.at(-1)!.sequence) {
+    merged.sort((left, right) => left.sequence - right.sequence);
+  }
+  return merged.slice(-maxLiveFrames);
 }
 
 function delay(signal: AbortSignal, delayMs = reconnectDelayMs): Promise<void> {
@@ -73,12 +85,24 @@ export function useRunEventStream(client: APIClient, runID: string) {
   useEffect(() => {
     setError("");
     if (!runID) {
-      setFrames([]);
+      setFrames((current) => current.length ? [] : current);
       setStatus("stopped");
       return;
     }
 
     const controller = new AbortController();
+    let connectionStatus: StreamStatus | undefined;
+    let connectionError = "";
+    const publishConnection = (nextStatus: StreamStatus, nextError = "") => {
+      if (connectionStatus !== nextStatus) {
+        connectionStatus = nextStatus;
+        setStatus(nextStatus);
+      }
+      if (connectionError !== nextError) {
+        connectionError = nextError;
+        setError(nextError);
+      }
+    };
     if (desktopRuntimeActive()) {
       const remembered = rememberedDesktopRuns.get(runID);
       let cursor = remembered?.cursor ?? "";
@@ -86,7 +110,7 @@ export function useRunEventStream(client: APIClient, runID: string) {
       let cursorResetUsed = false;
       setFrames(currentFrames);
       const poll = async () => {
-        setStatus("connecting");
+        publishConnection("connecting");
         let immediatePages = 0;
         while (!controller.signal.aborted) {
           try {
@@ -100,11 +124,15 @@ export function useRunEventStream(client: APIClient, runID: string) {
               return;
             }
             cursor = page.cursor;
-            currentFrames = mergeFrames(currentFrames, page.frames);
+            if (page.frames.length) {
+              const merged = mergeFrames(currentFrames, page.frames);
+              if (merged !== currentFrames) {
+                currentFrames = merged;
+                setFrames(currentFrames);
+              }
+            }
             rememberDesktopRun(runID, cursor, currentFrames);
-            setFrames(currentFrames);
-            setStatus("live");
-            setError("");
+            publishConnection("live");
             if (page.has_more) {
               immediatePages++;
               if (immediatePages < maxImmediateDesktopPages) {
@@ -125,12 +153,12 @@ export function useRunEventStream(client: APIClient, runID: string) {
               setFrames([]);
               continue;
             }
-            setError(caught instanceof Error ? caught.message : "Event polling disconnected");
+            const message = caught instanceof Error ? caught.message : "Event polling disconnected";
             if (caught instanceof APIRequestError && [400, 401, 403, 404].includes(caught.status)) {
-              setStatus("stopped");
+              publishConnection("stopped", message);
               return;
             }
-            setStatus("reconnecting");
+            publishConnection("reconnecting", message);
             await delay(controller.signal);
             continue;
           }
@@ -142,41 +170,44 @@ export function useRunEventStream(client: APIClient, runID: string) {
         controller.abort();
       };
     }
-    setFrames([]);
+    let currentFrames: RunEventStreamView[] = [];
+    setFrames((current) => current.length ? [] : current);
     let cursor = "";
     const run = async () => {
-      setStatus("connecting");
+      publishConnection("connecting");
       while (!controller.signal.aborted) {
         try {
           await client.streamRunEvents(runID, {
             cursor,
             signal: controller.signal,
+            onOpen: () => {
+              if (!controller.signal.aborted) publishConnection("live");
+            },
             onFrame: (frame) => {
+              if (controller.signal.aborted) return;
               cursor = frame.cursor;
-              setStatus("live");
-              setError("");
-              setFrames((current) => {
-                if (current.some((item) => item.sequence === frame.sequence)) {
-                  return current;
-                }
-                return [...current, frame].slice(-maxLiveFrames);
-              });
+              publishConnection("live");
+              const merged = mergeFrames(currentFrames, [frame]);
+              if (merged !== currentFrames) {
+                currentFrames = merged;
+                setFrames(currentFrames);
+              }
             },
           });
           if (!controller.signal.aborted) {
-            setStatus("reconnecting");
+            publishConnection("reconnecting");
             await delay(controller.signal);
           }
         } catch (caught) {
           if (controller.signal.aborted) {
             return;
           }
-          setError(caught instanceof Error ? caught.message : "Event stream disconnected");
+          const message = caught instanceof Error ? caught.message : "Event stream disconnected";
           if (caught instanceof APIRequestError && [400, 401, 403, 404].includes(caught.status)) {
-            setStatus("stopped");
+            publishConnection("stopped", message);
             return;
           }
-          setStatus("reconnecting");
+          publishConnection("reconnecting", message);
           await delay(controller.signal);
         }
       }

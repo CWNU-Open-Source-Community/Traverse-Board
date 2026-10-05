@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { lazy, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
 import type { APIClient } from "../api/client";
@@ -8,8 +8,8 @@ import { V2Composer, v2ComposerNotSubmitted } from "./components/composer";
 import { v2FileReferenceKey, type V2FileReference } from "./components/file-context";
 import { V2Conversation } from "./components/conversation";
 import { V2ConfirmDialog } from "./components/dialog";
+import { V2LazySurface } from "./components/lazy-surface";
 import { V2NetworkScopeControl, type V2NetworkMode } from "./components/network-scope-control";
-import { V2Settings } from "./components/settings";
 import { V2SettingsSidebar, V2Sidebar, type V2SettingsSection } from "./components/sidebar";
 import { V2Titlebar } from "./components/titlebar";
 import { useV2Client } from "./client-session";
@@ -17,8 +17,7 @@ import { v2QueryKeys } from "./query-keys";
 import { registerV2RecoveredTurn, useV2RestoreTurns, useV2ThreadTurn, v2TurnFailed } from "./use-thread-turn";
 import { V2WorkspaceStart } from "./components/workspace-start";
 import { useV2Navigation } from "./navigation";
-import { V2InspectorTools, V2InspectorHome } from "./components/inspector-tools";
-import { readDensity } from "../components/shared-settings-panels";
+import { readDensity } from "../lib/ui-density";
 import { V2RecoveryProvider, useV2PersistentState, useV2PersistenceWarning, useV2RecoveryStore } from "./recovery-storage";
 import { useV2Drafts } from "./recovery-session";
 import { readV2Route } from "./navigation";
@@ -37,6 +36,16 @@ type NewThreadOptions = { networkMode: V2NetworkMode; allowedTargets: string[];
   modelRoute: { provider: string; model: string } | null };
 import "./styles.css";
 import "./shared-shell.css";
+
+const V2Settings = lazy(() => import("./components/settings").then((module) => ({
+  default: module.V2Settings,
+})));
+const V2InspectorTools = lazy(() => import("./components/inspector-tools").then((module) => ({
+  default: module.V2InspectorTools,
+})));
+const V2InspectorHome = lazy(() => import("./components/inspector-home").then((module) => ({
+  default: module.V2InspectorHome,
+})));
 
 function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, onCreated,
   onTurnSuccess, onManageModels, draft: legacyDraft, onDraftChange: legacyDraftChange, creationAttemptRef, options, onOptionsChange, moreProjects, onImported }: {
@@ -396,15 +405,19 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
       <div className="v2-product-surface">
         {route.kind === "invalid" ? <div className="v2-notice" role="alert">任务地址无法识别。
           <button onClick={startNew} type="button">打开新对话</button></div>
-          : surface === "settings" ? <V2Settings client={client} onOpenInspector={openInspector}
+          : surface === "settings" ? <V2LazySurface resetKey="settings" loadingText="正在加载设置…" errorLabel="设置">
+          <V2Settings client={client} onOpenInspector={openInspector}
           onSelectSection={setSettingsSection} onOpenThread={openConversation} section={settingsSection}
           threadID={selectedThreadID} workspaces={workspaces}
           prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}
-          onModelReady={completeModelSetup} /> : route.tool
-          ? <V2InspectorTools client={client} tool={route.tool} resourceID={route.resourceID}
-            threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection} />
+          onModelReady={completeModelSetup} /></V2LazySurface> : route.tool
+          ? <V2LazySurface resetKey="inspector-tools"
+            loadingText="正在加载检查工具…" errorLabel="检查工具">
+            <V2InspectorTools client={client} tool={route.tool} resourceID={route.resourceID}
+            threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection} /></V2LazySurface>
           : view === "inspector" && !selectedThreadID
-          ? <V2InspectorHome client={client} onOpenTool={openTool} onOpenSettings={setSettingsSection} />
+          ? <V2LazySurface resetKey="inspector-home" loadingText="正在加载 Inspector…" errorLabel="Inspector">
+            <V2InspectorHome client={client} onOpenTool={openTool} onOpenSettings={setSettingsSection} /></V2LazySurface>
           : newConversation || !selectedThreadID
           ? <NewConversation client={client} draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}
             creationAttemptRef={creationAttemptRef}

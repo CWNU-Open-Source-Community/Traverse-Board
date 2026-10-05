@@ -56,6 +56,16 @@ approval, denial, and decision recovery still require approval control authority
 两种连接入口均保留已启用的批次交付能力及原有权限组合。只读连接可查看待审批条目
 与接口允许展示的脱敏预览；批准、拒绝和恢复决定仍需审批控制权限。
 
+Long conversations keep older pages available through “加载更早记录”. Live updates
+synchronize recent persisted records independently of that pagination, and preserve
+the reading position while older history loads or the operator switches tasks.
+Settings, Inspector and change review load when opened; their first opening may
+briefly show a loading message. See the [frontend performance evidence](FRONTEND_PERFORMANCE_260.md).
+
+长会话可通过“加载更早记录”继续查看历史；实时更新单独同步最新持久记录，加载旧页
+或切换任务时保留阅读位置。设置、Inspector 与改动审阅在打开时加载，首次进入可能
+短暂显示加载提示。请求量、首屏资源和字体评估见[前端性能验证记录](FRONTEND_PERFORMANCE_260.md)。
+
 ```powershell
 cyberagent run create "review this workspace" --workspace demo --profile review --surface code --phase plan
 cyberagent run create "explain this code" --profile learn --max-turns 40 --max-tokens 20000 --timeout 20m
