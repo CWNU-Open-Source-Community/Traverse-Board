@@ -30,7 +30,7 @@ func (t durableOperationPilotTimer) Stop() bool                     { return t.t
 func TestDurableOperationPilotsPreserveLegacyIdentityAcrossMigrationAndRestart(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "durable-operation-pilots-v122.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	workspace := WorkspaceRecord{
 		ID: "workspace-controlled-create", Name: "controlled-create",
@@ -120,12 +120,7 @@ func TestDurableOperationPilotsPreserveLegacyIdentityAcrossMigrationAndRestart(t
 	}
 	eventsBefore := durableOperationPilotEventCount(t, state, createdRun.Run.ID)
 
-	for _, statement := range removeSchemaV123ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("restore schema v122 with %q: %v", statement, err)
-		}
-	}
+	state = historicalTestDatabaseFromSeed(t, state, path, 122)
 	if version, err := state.SchemaVersion(ctx); err != nil || version != 122 {
 		_ = state.Close()
 		t.Fatalf("legacy schema version=%d want=122 err=%v", version, err)

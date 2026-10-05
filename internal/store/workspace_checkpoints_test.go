@@ -144,7 +144,7 @@ func TestWorkspaceCheckpointStoreSealsContentAndReplaysSemanticIntent(t *testing
 func TestSchemaV117UpgradeAddsWorkspaceCheckpointLedgerWithoutRewritingRuns(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "workspace-checkpoint-v116.db")
-	state := openHistoricalTestDatabase(t, databasePath, 177)
+	state := openHistoricalTestDatabase(t, databasePath+".seed.db", 177)
 
 	workspaceRoot := newWorkspaceCheckpointGitRepository(t)
 	workspace := WorkspaceRecord{ID: "workspace-migration-117", Name: "migration-117",
@@ -159,12 +159,11 @@ func TestSchemaV117UpgradeAddsWorkspaceCheckpointLedgerWithoutRewritingRuns(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV117ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("downgrade v117 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, databasePath, 116)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -261,20 +260,6 @@ func TestWorkspaceCheckpointMetadataQuotaRollsBackCandidateBlobs(t *testing.T) {
 	if blobsAfter != blobsBefore {
 		t.Fatalf("metadata quota left candidate blobs: before=%d after=%d", blobsBefore, blobsAfter)
 	}
-}
-
-// removeSchemaV117ForTestStatements restores a v116 database. Historical
-// migration tests all flow through removeSchemaV116ForTestStatements, so this
-// helper must remain the first link in that downgrade chain.
-func removeSchemaV117ForTestStatements() []string {
-	return append(removeSchemaV118ForTestStatements(), []string{
-		`DROP TABLE workspace_checkpoint_run_state`,
-		`DROP TABLE workspace_checkpoint_transactions`,
-		`DROP TABLE workspace_checkpoint_entries`,
-		`DROP TABLE workspace_checkpoints`,
-		`DROP TABLE workspace_checkpoint_blobs`,
-		`DELETE FROM schema_migrations WHERE version = 117`,
-	}...)
 }
 
 func newWorkspaceCheckpointStoreFixture(t *testing.T) (*SQLiteStore, domain.Run,

@@ -325,22 +325,3 @@ func hostExecutionStoreIntentWithPurpose(
 	}
 	return changed
 }
-
-func removeSchemaV90ForTestStatements() []string {
-	return append(removeSchemaV91ForTestStatements(), []string{
-		`DROP TRIGGER trg_host_command_execution_receipt_delete_immutable`,
-		`DROP TRIGGER trg_host_command_execution_receipt_update_immutable`,
-		`DROP TRIGGER trg_host_command_execution_operation_delete_immutable`,
-		`DROP TRIGGER trg_host_command_execution_operation_update_immutable`,
-		`DROP TRIGGER trg_host_command_execution_intent_delete_immutable`,
-		`DROP TRIGGER trg_host_command_execution_intent_update_immutable`,
-		`DROP TRIGGER trg_host_command_execution_receipt_insert_binding`,
-		`DROP TRIGGER trg_host_command_execution_operation_insert_binding`,
-		`DROP TRIGGER trg_host_command_execution_intent_insert_binding`,
-		`DROP TABLE host_command_execution_receipts`,
-		`DROP TABLE host_command_execution_operations`,
-		`DROP INDEX idx_host_command_execution_intents_run_created`,
-		`DROP TABLE host_command_execution_intents`,
-		`DELETE FROM schema_migrations WHERE version = 90`,
-	}...)
-}

@@ -14,30 +14,6 @@ import (
 	"cyberagent-workbench/internal/session"
 )
 
-// removeSchemaV129ForTestStatements restores the exact v128 operator steering
-// guard after removing the Thread projection. Historical migration fixtures
-// build their downgrade chain from the newest schema and must therefore start
-// by removing this migration.
-func removeSchemaV129ForTestStatements() []string {
-	return append(removeSchemaV131ForTestStatements(), []string{
-		`DROP TRIGGER trg_runs_thread_terminal_projection`,
-		`DROP TRIGGER trg_operator_steering_insert_binding`,
-		`CREATE TRIGGER trg_operator_steering_insert_binding
-			BEFORE INSERT ON operator_steering_messages
-			WHEN NOT EXISTS (SELECT 1 FROM runs run
-				WHERE run.id = NEW.run_id AND run.session_id = NEW.session_id
-					AND run.status IN ('running', 'paused'))
-			BEGIN
-				SELECT RAISE(ABORT, 'operator steering Run binding is invalid');
-			END`,
-		`DROP TABLE thread_lifecycle_operations`,
-		`DROP TABLE thread_events`,
-		`DROP TABLE thread_runs`,
-		`DROP TABLE threads`,
-		`DELETE FROM schema_migrations WHERE version = 129`,
-	}...)
-}
-
 func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -115,33 +91,6 @@ func TestSchemaV129BackfillsThreadsAndPreservesRollbackBackup(t *testing.T) {
 	if err := rollbackDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs WHERE id = ?`,
 		terminal.ID).Scan(&preservedRuns); err != nil || preservedRuns != 1 {
 		t.Fatalf("rollback backup lost Run: count=%d err=%v", preservedRuns, err)
-	}
-}
-
-func TestSchemaV129DowngradeFixtureRestoresV128AndReupgrades(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "thread-v129-downgrade.db")
-	state := openHistoricalTestDatabase(t, path, 177)
-	for _, statement := range removeSchemaV129ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v129 with %q: %v", statement, err)
-		}
-	}
-	if version, err := state.SchemaVersion(ctx); err != nil || version != 128 {
-		t.Fatalf("downgraded schema version=%d want=128 err=%v", version, err)
-	}
-	if err := state.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	if version, err := reopened.SchemaVersion(ctx); err != nil ||
-		version != LatestSchemaVersion {
-		t.Fatalf("re-upgraded schema version=%d want=%d err=%v", version,
-			LatestSchemaVersion, err)
 	}
 }
 

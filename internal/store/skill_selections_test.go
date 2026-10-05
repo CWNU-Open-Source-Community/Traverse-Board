@@ -176,7 +176,7 @@ func TestSkillSelectionConvergesAcrossStoresAndReplaysAfterStart(t *testing.T) {
 
 func TestSkillSelectionEventFailureRollsBackAndV38UpgradesCleanly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "skill-selection-migration.db")
-	st, run := createSkillSelectionRun(t, path, "code", 177)
+	st, run := createSkillSelectionRun(t, filepath.Join(t.TempDir(), "seed.db"), "code", 177)
 	ctx := context.Background()
 	registry, err := skills.BuiltinRegistry()
 	if err != nil {
@@ -232,11 +232,7 @@ func TestSkillSelectionEventFailureRollsBackAndV38UpgradesCleanly(t *testing.T) 
 		t.Fatalf("failed transaction left Skill selection: found=%t err=%v", found, err)
 	}
 
-	for _, statement := range removeSchemaV39ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatal(err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 38)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -259,7 +259,7 @@ func TestConcurrentSpecialistCompletionConvergesAcrossStores(t *testing.T) {
 
 func TestSQLiteUpgradesV22ToSpecialistCompletionReports(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v22.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run := createWorkItemTestRun(t, ctx, st, "upgrade completion protocol")
@@ -267,11 +267,7 @@ func TestSQLiteUpgradesV22ToSpecialistCompletionReports(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("root was not created before migration simulation: found=%t err=%v", found, err)
 	}
-	for _, statement := range removeSchemaV23ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("prepare v22 schema with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 22)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

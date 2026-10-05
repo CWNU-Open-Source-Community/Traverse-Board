@@ -156,7 +156,7 @@ func TestRunCreationOperationTriggerRejectsNonInitialGraph(t *testing.T) {
 func TestSchemaV72UpgradePreservesRunWithoutFabricatingCreationOperation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v71.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	workspace := WorkspaceRecord{ID: "workspace-v72-upgrade", Name: "v72-upgrade",
 		RootPath: t.TempDir(), CreatedAt: time.Now().UTC()}
@@ -173,12 +173,11 @@ func TestSchemaV72UpgradePreservesRunWithoutFabricatingCreationOperation(t *test
 		_ = state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV72ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			_ = state.Close()
-			t.Fatalf("remove schema v72 with %q: %v", statement, err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 71)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

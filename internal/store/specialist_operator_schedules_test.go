@@ -230,17 +230,13 @@ func TestSpecialistOperatorScheduleRecoversExpiredStartedAttempt(t *testing.T) {
 
 func TestSchemaV37ApplicationSurvivesOperatorScheduleMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "operator-schedule-v37.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, proposal, review := createApprovedDelegationApplicationFixture(t, ctx, st, 1)
 	applicationState := applyOperatorScheduleFixture(t, ctx, st, proposal.ID,
 		review.ReviewedBy)
-	for _, statement := range removeSchemaV38ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v37 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 37)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

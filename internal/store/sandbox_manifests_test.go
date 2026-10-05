@@ -185,12 +185,8 @@ func TestSandboxManifestConcurrentReplayConvergesAcrossStores(t *testing.T) {
 func TestSchemaV47UpgradeAddsSandboxManifestLedgerWithoutLosingRun(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v47.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
-	for _, statement := range removeSchemaV48ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v47 with %q: %v", statement, err)
-		}
-	}
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
+	st = historicalTestDatabaseFromSeed(t, st, path, 47)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +227,7 @@ func openSandboxManifestStoreAt(t *testing.T, ctx context.Context, path string, 
 	if len(historicalVersion) == 0 {
 		st, err = Open(path)
 	} else if len(historicalVersion) == 1 && historicalVersion[0] == 177 {
-		// Existing inverse fixtures start before the three-mode migration;
+		// Historical migration seeds start before the three-mode migration;
 		// current Sandbox tests retain Open and the public Run writer.
 		st = openHistoricalTestDatabase(t, path, historicalVersion[0])
 	} else {

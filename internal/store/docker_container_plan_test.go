@@ -14,7 +14,6 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
-	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/sandbox"
 )
@@ -245,7 +244,11 @@ func TestDockerContainerPlanLimitCancellationAndSchemaV53Upgrade(t *testing.T) {
 			}
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "docker-plan-v53.db")
-			st, run, root := openSandboxManifestStoreAt(t, ctx, path, historicalVersion...)
+			seedPath := path
+			if historical {
+				seedPath = filepath.Join(t.TempDir(), "seed.db")
+			}
+			st, run, root := openSandboxManifestStoreAt(t, ctx, seedPath, historicalVersion...)
 			t.Cleanup(func() { _ = st.Close() })
 			service, manifest, observation := createDockerContainerPlanStoreAuthority(t, ctx, st,
 				run.ID, root, "docker-plan-limit")
@@ -285,11 +288,7 @@ func TestDockerContainerPlanLimitCancellationAndSchemaV53Upgrade(t *testing.T) {
 				return
 			}
 
-			for _, statement := range removeSchemaV54ForTestStatements() {
-				if _, err := st.db.ExecContext(ctx, statement); err != nil {
-					t.Fatalf("simulate schema v53 with %q: %v", statement, err)
-				}
-			}
+			st = historicalTestDatabaseFromSeed(t, st, path, 53)
 			if err := st.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +317,7 @@ func createDockerContainerPlanStoreAuthority(t *testing.T, ctx context.Context,
 			t.Fatal(err)
 		}
 	}
-	service := application.NewSandboxManifestService(st, policy.NewDefaultChecker())
+	service := newSandboxFixtureService(t, st)
 	manifest := sandboxStoreTestManifest()
 	manifest.Backend = sandbox.BackendDocker
 	manifest.Command.Executable = "private-build-command"

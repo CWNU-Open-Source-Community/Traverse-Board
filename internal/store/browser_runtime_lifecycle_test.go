@@ -130,7 +130,7 @@ func TestBrowserRuntimeLifecycleRecordsAreAppendOnlyRecoverableAndAudited(t *tes
 func TestBrowserRuntimeLifecycleRejectsBrokenAncestryAndV92Migrates(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "browser-runtime-v92.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	session, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
 	attempt, _, _, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
@@ -150,11 +150,7 @@ func TestBrowserRuntimeLifecycleRejectsBrokenAncestryAndV92Migrates(t *testing.T
 	if err := state.RecordBrowserRuntimeCheckpoint(ctx, broken); err == nil {
 		t.Fatal("checkpoint with missing predecessor unexpectedly passed")
 	}
-	for _, statement := range removeSchemaV92ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v92 fixture with %q: %v", statement, err)
-		}
-	}
+	state = historicalTestDatabaseFromSeed(t, state, path, 91)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -290,21 +286,4 @@ func browserRuntimeLifecycleStoreFixtureFingerprint(t *testing.T, value any) str
 	}
 	digest := sha256.Sum256(raw)
 	return hex.EncodeToString(digest[:])
-}
-
-func removeSchemaV92ForTestStatements() []string {
-	return append(removeSchemaV93ForTestStatements(), []string{
-		`DROP TRIGGER trg_browser_runtime_receipt_delete_immutable`,
-		`DROP TRIGGER trg_browser_runtime_receipt_update_immutable`,
-		`DROP TRIGGER trg_browser_runtime_checkpoint_delete_immutable`,
-		`DROP TRIGGER trg_browser_runtime_checkpoint_update_immutable`,
-		`DROP TRIGGER trg_browser_runtime_receipt_insert`,
-		`DROP TRIGGER trg_browser_runtime_checkpoint_insert`,
-		`DROP INDEX idx_browser_runtime_receipts_run_completed`,
-		`DROP TABLE browser_runtime_receipts`,
-		`DROP INDEX idx_browser_runtime_checkpoints_run_recorded`,
-		`DROP INDEX idx_browser_runtime_checkpoints_runtime_generation`,
-		`DROP TABLE browser_runtime_checkpoints`,
-		`DELETE FROM schema_migrations WHERE version = 92`,
-	}...)
 }

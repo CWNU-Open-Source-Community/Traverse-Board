@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,27 +18,9 @@ import (
 	"cyberagent-workbench/internal/session"
 )
 
-// The latest-schema fixture chain must remove this empty additive schema
-// before C175. Refuse a downgrade carrying any native replay rather than
-// deleting it or making a historical fixture with a gap in its ledger.
-func removeSchemaV176ForTestStatements() []string {
-	statements := []string{
-		`CREATE TEMP TABLE legacy_fixture_empty_ordinary_replay(n INTEGER CHECK(n=0));`,
-		`INSERT INTO legacy_fixture_empty_ordinary_replay SELECT count(*) FROM run_supervisor_assistant_replay;`,
-		`INSERT INTO legacy_fixture_empty_ordinary_replay SELECT count(*) FROM run_supervisor_assistant_replay_bindings;`,
-		`DROP TABLE legacy_fixture_empty_ordinary_replay;`,
-	}
-	statements = append(statements, removeSchemaV177ForTestStatements()...)
-	return append(statements, []string{
-		`DROP TABLE run_supervisor_assistant_replay_bindings;`,
-		`DROP TABLE run_supervisor_assistant_replay;`,
-		`DELETE FROM schema_migrations WHERE version=176;`,
-	}...)
-}
-
 func TestSchemaV176UpgradesV175WithoutInventingAssistantReplay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v175-assistant.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	f := providerReplayFixtureAtStore(t, st)
 	legacy, err := st.SaveSessionMessage(t.Context(), session.NewMessage(f.turn.Run.SessionID, "assistant", "accepted old public answer"))
@@ -48,11 +31,11 @@ func TestSchemaV176UpgradesV175WithoutInventingAssistantReplay(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT checksum FROM schema_migrations WHERE version=175`).Scan(&checksum); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV176ForTestStatements() {
-		if _, err := st.db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, st, path, 175)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
 	}
+	st = historical
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -92,19 +75,21 @@ func TestSchemaV176FixtureRefusesPrivateReplayBeforeMainSchemaMutation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected := false
-	for _, statement := range removeSchemaV176ForTestStatements() {
-		if _, err := f.store.db.Exec(statement); err != nil {
-			rejected = true
-			break
-		}
+	target := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "private-replay-import.db"), 175)
+	targetBefore := legacyFixtureSchema(t, target)
+	targetRows := runSeedBoundaryRows(t, target)
+	if err := copyHistoricalFixtureData(t.Context(), f.store, target); err == nil || !strings.Contains(err.Error(), "run_supervisor_assistant_replay") {
+		t.Fatalf("historical fixture accepted private replay: %v", err)
+	}
+	if !reflect.DeepEqual(targetBefore, legacyFixtureSchema(t, target)) || !reflect.DeepEqual(targetRows, runSeedBoundaryRows(t, target)) {
+		t.Fatal("rejected replay import changed destination")
 	}
 	after, err := sqliteSchemaDigest(t.Context(), f.store.db)
-	if err != nil || !rejected || before != after {
-		t.Fatal("fixture downgrade deleted native evidence", err)
+	if err != nil || before != after {
+		t.Fatal("fixture import deleted native evidence", err)
 	}
 	if version, err := f.store.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
-		t.Fatal("fixture downgrade changed the migration ledger", err)
+		t.Fatal("fixture import changed the migration ledger", err)
 	}
 }
 

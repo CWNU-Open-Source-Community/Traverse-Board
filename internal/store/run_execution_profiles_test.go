@@ -93,7 +93,7 @@ func TestRunExecutionProfileSelectionIsImmutableIdempotentAndLeaseGuarded(t *tes
 
 func TestSchemaV64BackfillsPreviewExecutionProfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v63-execution-profile.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -102,11 +102,7 @@ func TestSchemaV64BackfillsPreviewExecutionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV64ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v64 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 63)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

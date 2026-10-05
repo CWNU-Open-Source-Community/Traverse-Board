@@ -14,18 +14,6 @@ import (
 	"cyberagent-workbench/internal/repository"
 )
 
-// removeSchemaV123ForTestStatements restores a v122 database. Historical
-// downgrade fixtures form one cumulative chain, so every older migration test
-// must remove the newest Git advanced objects before deleting its target row.
-func removeSchemaV123ForTestStatements() []string {
-	return append(removeSchemaV124ForTestStatements(), []string{
-		`DROP TABLE git_managed_worktrees`,
-		`DROP TABLE git_advanced_sequences`,
-		`DROP TABLE git_advanced_operations`,
-		`DELETE FROM schema_migrations WHERE version = 123`,
-	}...)
-}
-
 func TestSchemaV123UpgradesV122Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "git-advanced-v122.db")
 	state := openHistoricalTestDatabase(t, path, 122)

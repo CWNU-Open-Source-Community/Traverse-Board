@@ -410,7 +410,7 @@ func TestSandboxExecutionCandidateConcurrentReplayAndImmutability(t *testing.T) 
 func TestSchemaV48UpgradeAddsSandboxExecutionCandidates(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v48.db")
-	st, run, _ := openSandboxManifestStoreAt(t, ctx, path, 177)
+	st, run, _ := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	prepared, err := application.NewSandboxManifestService(st, policy.NewDefaultChecker()).Prepare(ctx,
 		application.PrepareSandboxManifestRequest{
 			RunID: run.ID, Manifest: sandboxStoreTestManifest(),
@@ -419,11 +419,7 @@ func TestSchemaV48UpgradeAddsSandboxExecutionCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV49ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v48 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 48)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

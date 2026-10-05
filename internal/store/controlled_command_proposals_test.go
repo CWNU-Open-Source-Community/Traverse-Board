@@ -39,27 +39,3 @@ func TestSchemaV89AddsImmutableControlledCommandProposalLedger(t *testing.T) {
 		}
 	}
 }
-
-func removeSchemaV89ForTestStatements() []string {
-	return append(removeSchemaV90ForTestStatements(), []string{
-		`DROP TRIGGER trg_controlled_command_result_delete_immutable`,
-		`DROP TRIGGER trg_controlled_command_result_update_immutable`,
-		`DROP TRIGGER trg_controlled_command_review_delete_immutable`,
-		`DROP TRIGGER trg_controlled_command_review_update_immutable`,
-		`DROP TRIGGER trg_controlled_command_proposal_operation_delete_immutable`,
-		`DROP TRIGGER trg_controlled_command_proposal_operation_update_immutable`,
-		`DROP TRIGGER trg_controlled_command_proposal_delete_immutable`,
-		`DROP TRIGGER trg_controlled_command_proposal_update_immutable`,
-		`DROP TRIGGER trg_controlled_command_result_insert_binding`,
-		`DROP TRIGGER trg_controlled_command_review_insert_binding`,
-		`DROP TRIGGER trg_controlled_command_proposal_operation_insert_binding`,
-		`DROP TRIGGER trg_controlled_command_proposal_insert_binding`,
-		`DROP TABLE controlled_command_proposal_results`,
-		`DROP INDEX idx_controlled_command_reviews_run_created`,
-		`DROP TABLE controlled_command_proposal_reviews`,
-		`DROP TABLE controlled_command_proposal_operations`,
-		`DROP INDEX idx_controlled_command_proposals_run_created`,
-		`DROP TABLE controlled_command_proposals`,
-		`DELETE FROM schema_migrations WHERE version = 89`,
-	}...)
-}

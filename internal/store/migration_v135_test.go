@@ -7,53 +7,6 @@ import (
 	"testing"
 )
 
-func removeSchemaV135ForTestStatements() []string {
-	createCalls := standardCodeSupervisorToolCallCreate(
-		"run_supervisor_tool_calls_v134", false)
-	removeV135 := []string{
-		`PRAGMA foreign_keys = OFF`,
-		`PRAGMA legacy_alter_table = ON`,
-		`DROP TRIGGER trg_standard_code_supervisor_ledger_insert`,
-		`DROP TRIGGER trg_standard_code_supervisor_ledger_update_immutable`,
-		`DROP TRIGGER trg_standard_code_supervisor_ledger_delete_immutable`,
-		`DROP INDEX idx_standard_code_supervisor_ledger_run_event`,
-		`DROP INDEX idx_standard_code_supervisor_ledger_intent`,
-		`DROP INDEX idx_standard_code_supervisor_ledger_call`,
-		`DROP TABLE standard_code_supervisor_ledger`,
-		`DROP TRIGGER trg_supervisor_tool_call_model_attempt`,
-		`DROP TRIGGER trg_supervisor_tool_round_completion`,
-		`DROP TRIGGER trg_supervisor_tool_stream_identity_immutable`,
-		`DROP TRIGGER trg_supervisor_tool_stream_identity_insert`,
-		`DROP INDEX idx_run_supervisor_tool_calls_pending`,
-		`DROP INDEX idx_supervisor_tool_stream_call_identity`,
-		`DROP INDEX idx_supervisor_tool_stream_item_identity`,
-		`ALTER TABLE run_supervisor_tool_calls RENAME TO run_supervisor_tool_calls_v135`,
-		createCalls,
-		`INSERT INTO run_supervisor_tool_calls_v134 SELECT *
-			FROM run_supervisor_tool_calls_v135`,
-		`DROP TABLE run_supervisor_tool_calls_v135`,
-		`ALTER TABLE run_supervisor_tool_calls_v134 RENAME TO run_supervisor_tool_calls`,
-		requireMigrationStatement("CREATE INDEX idx_run_supervisor_tool_calls_pending",
-			githubReviewStatements),
-		requireMigrationStatement("CREATE UNIQUE INDEX idx_supervisor_tool_stream_item_identity",
-			itemStreamToolIdentityStatements),
-		requireMigrationStatement("CREATE UNIQUE INDEX idx_supervisor_tool_stream_call_identity",
-			itemStreamToolIdentityStatements),
-		requireMigrationTrigger("trg_supervisor_tool_call_model_attempt",
-			githubReviewStatements),
-		requireMigrationTrigger("trg_supervisor_tool_round_completion",
-			githubReviewStatements),
-		requireMigrationTrigger("trg_supervisor_tool_stream_identity_insert",
-			itemStreamToolIdentityStatements),
-		requireMigrationTrigger("trg_supervisor_tool_stream_identity_immutable",
-			itemStreamToolIdentityStatements),
-		`DELETE FROM schema_migrations WHERE version = 135`,
-		`PRAGMA legacy_alter_table = OFF`,
-		`PRAGMA foreign_keys = ON`,
-	}
-	return append(removeSchemaV136ForTestStatements(), removeV135...)
-}
-
 func TestSchemaV135AddsEmptyImmutableStandardCodeSupervisorLedger(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "standard-code-supervisor-v134.db")

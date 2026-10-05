@@ -3,47 +3,9 @@ package store
 import (
 	"path/filepath"
 	"reflect"
-	"strings"
+
 	"testing"
 )
-
-// Cumulative legacy fixtures must restore the pre-Thread triggers before
-// removing the tables they reference. Production migration history is intact.
-func removeSchemaV154ForTestStatements() []string {
-	out := removeSchemaV157ForTestStatements()
-	seen := map[string]bool{}
-	for _, statements := range [][]string{threadPlanOnDemandContinuationStatements, planDeliveryOptionalCheckpointStatements, threadStandardCodeContinuationStatements, threadPlanContinuationStatements, threadDrydockDeliveryScopeStatements, threadDrydockRuntimeScopeStatements, threadDrydockBindingStatements, threadDrydockCleanupStatements} {
-		for _, statement := range statements {
-			fields := strings.Fields(statement)
-			if len(fields) < 3 || fields[0] != "CREATE" || fields[1] != "TRIGGER" {
-				continue
-			}
-			name := fields[2]
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, "DROP TRIGGER IF EXISTS "+name)
-			var prior string
-			for _, migration := range migrationPlan() {
-				if migration.Version >= 154 {
-					break
-				}
-				for _, candidate := range migration.Statements {
-					parts := strings.Fields(candidate)
-					if len(parts) >= 3 && parts[0] == "CREATE" && parts[1] == "TRIGGER" && parts[2] == name {
-						prior = candidate
-					}
-				}
-			}
-			if prior != "" {
-				out = append(out, prior)
-			}
-		}
-	}
-	out = append(out, "DROP VIEW IF EXISTS thread_plan_on_demand_completed_sources", "DROP VIEW IF EXISTS plan_on_demand_completion_events", "DROP VIEW IF EXISTS thread_plan_completed_sources", "DROP VIEW IF EXISTS thread_plan_continuation_sources", "ALTER TABLE plan_delivery_selections DROP COLUMN manual_acceptance", "DROP VIEW IF EXISTS run_file_drydock_bindings", "DROP TABLE IF EXISTS thread_drydock_bindings", "DROP TABLE IF EXISTS drydock_cleanup_operations", "DELETE FROM schema_migrations WHERE version IN (154,155,156)")
-	return out
-}
 
 func TestSchemaV154KeepsExistingHistoryAndAddsOnlyExplicitThreadBindings(t *testing.T) {
 	ctx := t.Context()

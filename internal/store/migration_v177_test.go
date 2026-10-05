@@ -15,30 +15,6 @@ import (
 	"cyberagent-workbench/internal/toolcontract"
 )
 
-// Historical fixtures must not retain the widened v2 table or erase native
-// installations. Rebuild the exact v121 definition before removing its ledger.
-func removeSchemaV177ForTestStatements() []string {
-	statements := []string{
-		`CREATE TEMP TABLE legacy_fixture_no_portable_installations(n INTEGER CHECK(n=0));`,
-		`INSERT INTO legacy_fixture_no_portable_installations SELECT count(*) FROM plugin_installations WHERE protocol_version!='plugin-installation.v1';`,
-		`DROP TABLE legacy_fixture_no_portable_installations;`,
-		`PRAGMA foreign_keys=OFF;`,
-	}
-	var recreate []string
-	for _, s := range pluginRuntimeStatements {
-		if strings.HasPrefix(s, "CREATE TABLE plugin_installations (") {
-			statements = append(statements, strings.Replace(s, "CREATE TABLE plugin_installations (", "CREATE TABLE plugin_installations_pre177 (", 1))
-		}
-		if (strings.HasPrefix(s, "CREATE INDEX") || strings.HasPrefix(s, "CREATE UNIQUE INDEX") || strings.HasPrefix(s, "CREATE TRIGGER")) && strings.Contains(s, "ON plugin_installations") {
-			recreate = append(recreate, s)
-		}
-	}
-	statements = append(statements, `INSERT INTO plugin_installations_pre177 SELECT * FROM plugin_installations;`,
-		`DROP TABLE plugin_installations;`, `ALTER TABLE plugin_installations_pre177 RENAME TO plugin_installations;`)
-	statements = append(statements, recreate...)
-	return append(statements, `DELETE FROM schema_migrations WHERE version=177;`, `PRAGMA foreign_keys=ON;`)
-}
-
 func TestSchemaV177PreservesV1RowsObjectsSignaturesAndTransitions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v176-plugins.db")
 	st := openHistoricalTestDatabase(t, path, 176)
@@ -148,19 +124,21 @@ func TestSchemaV177RejectsMalformedV2Descriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rejected := false
-	for _, statement := range removeSchemaV177ForTestStatements() {
-		if _, err := st.db.Exec(statement); err != nil {
-			rejected = true
-			break
-		}
+	target := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "native-installation-import.db"), 176)
+	targetBefore := legacyFixtureSchema(t, target)
+	targetRows := runSeedBoundaryRows(t, target)
+	if err := copyHistoricalFixtureData(t.Context(), st, target); err == nil || !strings.Contains(err.Error(), "plugin_installations") {
+		t.Fatalf("historical fixture accepted native installation: %v", err)
+	}
+	if !reflect.DeepEqual(targetBefore, legacyFixtureSchema(t, target)) || !reflect.DeepEqual(targetRows, runSeedBoundaryRows(t, target)) {
+		t.Fatal("rejected native installation import changed destination")
 	}
 	after, err := sqliteSchemaDigest(t.Context(), st.db)
-	if err != nil || !rejected || before != after {
-		t.Fatal("fixture downgrade mutated native schema before rejecting installed data", err)
+	if err != nil || before != after {
+		t.Fatal("fixture import mutated native schema before rejecting installed data", err)
 	}
 	if version, err := st.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
-		t.Fatal("fixture downgrade discarded native migration ledger", err)
+		t.Fatal("fixture import discarded native migration ledger", err)
 	}
 	// Bypass only the identity trigger in this disposable database to exercise
 	// the persistent CHECK constraints independently of Go validation.

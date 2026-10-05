@@ -141,7 +141,7 @@ func TestBrowserNetworkReviewRequiresStoredEvidence(t *testing.T) {
 
 func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v102-browser-network-readiness.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := t.Context()
 	_, identity, acceptance, _ := browserLaunchStoreFixture(t, state)
@@ -159,11 +159,7 @@ func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV103ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v103 fixture with %q: %v", statement, err)
-		}
-	}
+	state = historicalTestDatabaseFromSeed(t, state, path, 102)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -182,14 +178,4 @@ func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 	if loaded.Fingerprint != evidence.Fingerprint {
 		t.Fatalf("reapplied evidence fingerprint = %q, want %q", loaded.Fingerprint, evidence.Fingerprint)
 	}
-}
-
-func removeSchemaV103ForTestStatements() []string {
-	return append(removeSchemaV104ForTestStatements(), []string{
-		`DROP TABLE browser_network_review_operations`,
-		`DROP TABLE browser_network_reviews`,
-		`DROP TABLE browser_network_evidence_operations`,
-		`DROP TABLE browser_network_evidences`,
-		`DELETE FROM schema_migrations WHERE version = 103`,
-	}...)
 }

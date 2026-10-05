@@ -6,19 +6,6 @@ import (
 	"testing"
 )
 
-func removeSchemaV130ForTestStatements() []string {
-	return []string{
-		`DROP TRIGGER trg_supervisor_tool_stream_identity_immutable`,
-		`DROP TRIGGER trg_supervisor_tool_stream_identity_insert`,
-		`DROP INDEX idx_supervisor_tool_stream_call_identity`,
-		`DROP INDEX idx_supervisor_tool_stream_item_identity`,
-		`ALTER TABLE run_supervisor_tool_calls DROP COLUMN stream_call_id`,
-		`ALTER TABLE run_supervisor_tool_calls DROP COLUMN stream_item_id`,
-		`ALTER TABLE run_supervisor_tool_calls DROP COLUMN stream_response_id`,
-		`DELETE FROM schema_migrations WHERE version = 130`,
-	}
-}
-
 func TestSchemaV130AddsImmutableItemStreamToolIdentities(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "item-stream-v129.db")

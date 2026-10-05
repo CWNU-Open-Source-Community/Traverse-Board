@@ -15,34 +15,6 @@ import (
 	"cyberagent-workbench/internal/events"
 )
 
-func removeSchemaV85ForTestStatements() []string {
-	return append(removeSchemaV86ForTestStatements(), []string{
-		`DROP TRIGGER trg_browser_launch_review_operation_delete_immutable`,
-		`DROP TRIGGER trg_browser_launch_review_operation_update_immutable`,
-		`DROP TRIGGER trg_browser_launch_review_delete_immutable`,
-		`DROP TRIGGER trg_browser_launch_review_update_immutable`,
-		`DROP TRIGGER trg_browser_launch_preparation_operation_delete_immutable`,
-		`DROP TRIGGER trg_browser_launch_preparation_operation_update_immutable`,
-		`DROP TRIGGER trg_browser_launch_lease_delete_immutable`,
-		`DROP TRIGGER trg_browser_launch_lease_update_immutable`,
-		`DROP TRIGGER trg_browser_launch_attempt_delete_immutable`,
-		`DROP TRIGGER trg_browser_launch_attempt_update_immutable`,
-		`DROP TRIGGER trg_browser_launch_review_operation_insert`,
-		`DROP TRIGGER trg_browser_launch_review_insert`,
-		`DROP TRIGGER trg_browser_launch_preparation_operation_insert`,
-		`DROP TRIGGER trg_browser_launch_lease_insert`,
-		`DROP TRIGGER trg_browser_launch_attempt_insert`,
-		`DROP INDEX idx_browser_launch_reviews_run_event`,
-		`DROP TABLE browser_launch_review_operations`,
-		`DROP TABLE browser_launch_reviews`,
-		`DROP TABLE browser_launch_preparation_operations`,
-		`DROP TABLE browser_launch_leases`,
-		`DROP INDEX idx_browser_launch_attempts_run_created`,
-		`DROP TABLE browser_launch_attempts`,
-		`DELETE FROM schema_migrations WHERE version = 85`,
-	}...)
-}
-
 func TestBrowserLaunchPreparationAndReviewAreDurableImmutableAndNonAuthorizing(t *testing.T) {
 	ctx := t.Context()
 	state, err := Open(filepath.Join(t.TempDir(), "browser-launch.db"))

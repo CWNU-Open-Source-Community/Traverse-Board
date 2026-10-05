@@ -200,7 +200,7 @@ func TestSQLiteRunArtifactCapturesAutomaticWorkspaceReadByInvocationID(t *testin
 
 func TestSQLiteUpgradesSchemaV13ToRunArtifactsWithoutLosingScriptProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v13.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	request := scriptProcessTestRequest("preserve-v13-process", "value")
@@ -216,19 +216,7 @@ func TestSQLiteUpgradesSchemaV13ToRunArtifactsWithoutLosingScriptProcess(t *test
 	if err != nil || created.Proposal == nil {
 		t.Fatalf("seed historical ScriptProcess: %#v err=%v", created, err)
 	}
-	removeSchemaV16ForTest(t, st, ctx)
-	if _, err := st.db.ExecContext(ctx, `DROP TABLE structured_tool_operations`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 15`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.db.ExecContext(ctx, `DROP TABLE run_artifacts`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 14`); err != nil {
-		t.Fatal(err)
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 13)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -312,7 +312,7 @@ func TestDockerProductionEvidenceHarnessPersistsGETOnlyEvidenceAndRemainsImmutab
 func TestSchemaV67PreservesInFlightV66AttemptWithoutFabricatingHarness(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v66.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-v67-upgrade")
 	attempt := newDockerProductionEvidenceAttemptStoreFixture(t, review,
@@ -327,12 +327,7 @@ func TestSchemaV67PreservesInFlightV66AttemptWithoutFabricatingHarness(t *testin
 		acquired.Record.Lease); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV67ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v67 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 66)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -390,15 +385,10 @@ func TestDockerProductionEvidenceAttemptExpiredLeaseCanOnlyBeTakenOverByNextGene
 func TestSchemaV65PreservesReviewWithoutFabricatingProductionEvidence(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v64.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-upgrade")
-	for _, statement := range removeSchemaV65ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v65 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 64)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -426,15 +416,10 @@ func TestSchemaV65PreservesReviewWithoutFabricatingProductionEvidence(t *testing
 func TestSchemaV66PreservesLegacyEvidenceWithoutFabricatingAttempt(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v65.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	review := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-legacy")
-	for _, statement := range removeSchemaV66ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v66 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 65)
 	value, operation := newLegacyDockerProductionEvidenceStoreFixture(t, ctx, review,
 		"production-evidence-legacy-capture")
 	if _, replayed, err := st.CreateDockerProductionEvidence(ctx, value, operation); err != nil || replayed {

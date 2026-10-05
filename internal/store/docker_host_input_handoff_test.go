@@ -134,7 +134,7 @@ func TestDockerHostInputHandoffIsWriteAheadImmutableAndCompletionGated(t *testin
 func TestSchemaV59PreservesV58AttemptAsExplicitLegacy(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-host-input-v58.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	intent, plan, _, _ := newDockerContainerAttemptStoreIntent(t, ctx, st, run.ID, root,
 		"docker-host-input-v59-upgrade")
 	requirement := newDockerContainerAttemptRequirement(t, intent, plan, false)
@@ -143,11 +143,7 @@ func TestSchemaV59PreservesV58AttemptAsExplicitLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV59ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove schema v59: %s: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 58)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

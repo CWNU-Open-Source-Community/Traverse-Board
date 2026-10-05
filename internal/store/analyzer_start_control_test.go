@@ -193,7 +193,7 @@ func TestAnalyzerStartControlCompetingGenerationAndRestartRecovery(t *testing.T)
 func TestAnalyzerStartControlDisabledAndV93Migration(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "analyzer-start-v93.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	session, _, _, _ := browserLaunchStoreFixture(t, state)
 	now := time.Now().UTC().Round(time.Millisecond)
@@ -227,11 +227,8 @@ func TestAnalyzerStartControlDisabledAndV93Migration(t *testing.T) {
 	}); err == nil {
 		t.Fatal("direct SQL request with process authority unexpectedly passed")
 	}
-	for _, statement := range removeSchemaV93ForTestStatements() {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v93 fixture with %q: %v", statement, err)
-		}
-	}
+	// Migration only needs an empty v92 prefix; the disabled intent above is v93 data.
+	state = openHistoricalTestDatabase(t, path, 92)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -339,26 +336,4 @@ func directAnalyzerStartRequestInsert(t *testing.T, state *SQLiteStore,
 		request.Fingerprint, request.Adapter, event.Sequence, string(raw),
 		ts(request.RegisteredAt), ts(request.ExpiresAt))
 	return err
-}
-
-func removeSchemaV93ForTestStatements() []string {
-	return append(removeSchemaV94ForTestStatements(), []string{
-		`DROP TRIGGER trg_analyzer_start_receipt_delete_immutable`,
-		`DROP TRIGGER trg_analyzer_start_receipt_update_immutable`,
-		`DROP TRIGGER trg_analyzer_start_intent_delete_immutable`,
-		`DROP TRIGGER trg_analyzer_start_intent_update_immutable`,
-		`DROP TRIGGER trg_analyzer_start_request_delete_immutable`,
-		`DROP TRIGGER trg_analyzer_start_request_update_immutable`,
-		`DROP TRIGGER trg_analyzer_start_receipt_insert`,
-		`DROP TRIGGER trg_analyzer_start_intent_insert`,
-		`DROP TRIGGER trg_analyzer_start_request_insert`,
-		`DROP INDEX idx_analyzer_start_receipts_request_generation`,
-		`DROP TABLE analyzer_start_lifecycle_receipts`,
-		`DROP INDEX idx_analyzer_start_intents_recovery`,
-		`DROP INDEX idx_analyzer_start_intents_request_generation`,
-		`DROP TABLE analyzer_start_intents`,
-		`DROP INDEX idx_analyzer_start_requests_run_registered`,
-		`DROP TABLE analyzer_start_requests`,
-		`DELETE FROM schema_migrations WHERE version = 93`,
-	}...)
 }

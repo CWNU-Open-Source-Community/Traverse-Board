@@ -531,16 +531,12 @@ func TestSpecialistModelSQLiteTriggersRejectSkippedAndStaleTerminalWrites(t *tes
 
 func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v25.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixtureWithoutLease(t, ctx, st,
 		"Specialist model migration", 1, 16)
-	for _, statement := range removeSchemaV26ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v26 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 25)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +564,7 @@ func TestSchemaV26PreservesSpecialistRuntimeAndAddsModelLedger(t *testing.T) {
 
 func TestSchemaV28PreservesV27SpecialistModelLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v27.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	fixture := prepareSpecialistAttemptFixture(t, ctx, st,
@@ -578,11 +574,7 @@ func TestSchemaV28PreservesV27SpecialistModelLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV28ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v28 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 27)
 	now := time.Now().UTC()
 	if _, err := st.db.ExecContext(ctx, `INSERT INTO specialist_model_calls
 		(agent_attempt_id, run_id, agent_id, model_attempt_number, transport_attempt,

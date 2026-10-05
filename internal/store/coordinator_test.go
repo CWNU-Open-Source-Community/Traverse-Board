@@ -17,7 +17,7 @@ import (
 
 func TestSQLiteUpgradesV18AndLazilyRegistersExistingRoot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v18.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -26,25 +26,8 @@ func TestSQLiteUpgradesV18AndLazilyRegistersExistingRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range append(removeSchemaV22ForTestStatements(), []string{
-		`DROP TABLE agent_admission_operations`,
-		`DELETE FROM schema_migrations WHERE version = 21`,
-		`DROP TABLE agent_message_operations`,
-		`DELETE FROM schema_migrations WHERE version = 20`,
-		`DROP TABLE agent_graph_snapshots`,
-		`DROP TABLE agent_messages`,
-		`DROP TABLE agent_nodes`,
-		`DELETE FROM run_events WHERE type LIKE 'agent.%'`,
-		`DELETE FROM schema_migrations WHERE version = 19`,
-	}...) {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("prepare v18 schema with %q: %v", statement, err)
-		}
-	}
-	if _, err := st.db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+	st = historicalTestDatabaseFromSeed(t, st, path, 18)
+	if _, err := st.db.ExecContext(ctx, `DELETE FROM run_events WHERE type LIKE 'agent.%'`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
@@ -315,7 +298,7 @@ func TestAgentInboxWakeIsIdempotentAndDoesNotLeakOperationKey(t *testing.T) {
 
 func TestSQLiteUpgradesV19InboxToSemanticProtocol(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v19.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -340,17 +323,7 @@ func TestSQLiteUpgradesV19InboxToSemanticProtocol(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("v19 snapshot was not created: found=%t err=%v", found, err)
 	}
-	for _, statement := range append(removeSchemaV22ForTestStatements(), []string{
-		`DROP TABLE agent_admission_operations`,
-		`DELETE FROM schema_migrations WHERE version = 21`,
-		`DROP TABLE agent_message_operations`,
-		`ALTER TABLE agent_messages DROP COLUMN semantic`,
-		`DELETE FROM schema_migrations WHERE version = 20`,
-	}...) {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("prepare v19 schema with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 19)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +440,7 @@ func TestSpecialistAdmissionIsAtomicPrivateAndReducesSupervisorBudget(t *testing
 
 func TestSQLiteUpgradesV20ToSpecialistAdmissionLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v20.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run, err := newMigrationFixtureRunService(t, st).Create(ctx, application.CreateRunRequest{
@@ -480,17 +453,7 @@ func TestSQLiteUpgradesV20ToSpecialistAdmissionLedger(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("root was not created: found=%t err=%v", found, err)
 	}
-	for _, statement := range removeSchemaV22ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove schema v22 with %q: %v", statement, err)
-		}
-	}
-	if _, err := st.db.ExecContext(ctx, `DROP TABLE agent_admission_operations`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 21`); err != nil {
-		t.Fatal(err)
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 20)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

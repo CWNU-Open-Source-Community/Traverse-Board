@@ -272,17 +272,12 @@ func TestDockerProductionEvidenceReviewConcurrentStoresConverge(t *testing.T) {
 func TestSchemaV68PreservesV67ReceiptWithoutFabricatingReview(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-production-evidence-v67-review.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	gateReview := prepareDockerProductionEvidenceReviewStoreFixture(
 		t, ctx, st, run.ID, root, "production-evidence-review-upgrade")
 	evidence, _ := completeDockerProductionEvidenceHarnessReviewFixture(
 		t, ctx, st, gateReview, "production-evidence-review-upgrade-capture")
-	for _, statement := range removeSchemaV68ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			_ = st.Close()
-			t.Fatalf("remove schema v68 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 67)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

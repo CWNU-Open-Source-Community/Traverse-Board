@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -274,21 +275,12 @@ func TestReadOnlyFanoutRecoveryFencesOldLeaseAndChargesUnknownCall(t *testing.T)
 }
 
 func TestSchemaV33PlanSurvivesReadOnlyExecutionMigration(t *testing.T) {
-	st, run, _ := createReadOnlyFanoutFixture(t, "readonly-v33-upgrade.db", 4, 177)
+	databasePath := filepath.Join(t.TempDir(), "readonly-v33-upgrade.db")
+	st, run, _ := createReadOnlyFanoutFixture(t, "seed.db", 4, 177)
 	ctx := context.Background()
 	plan := createReadOnlyFanoutExecutionPlan(t, ctx, st, run.ID, "4",
 		"readonly-v33-upgrade-plan")
-	var sequence int
-	var databaseName, databasePath string
-	if err := st.db.QueryRowContext(ctx, `PRAGMA database_list`).Scan(&sequence,
-		&databaseName, &databasePath); err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range removeSchemaV34ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("simulate schema v33 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 33)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

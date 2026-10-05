@@ -22,7 +22,7 @@ const storePlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[` 
 
 func TestSchemaV41UpgradeSupportsImmutablePlanDeliveryLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v41-plan-delivery.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	runs := newMigrationFixtureRunService(t, st)
@@ -34,11 +34,7 @@ func TestSchemaV41UpgradeSupportsImmutablePlanDeliveryLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV42ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v42 fixture with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, path, 41)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

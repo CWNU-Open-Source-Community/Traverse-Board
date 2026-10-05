@@ -672,7 +672,7 @@ func TestSupervisorToolBatchStoreRejectsUnknownPayloadFieldsBeforePersistence(t 
 
 func TestSQLiteUpgradesSchemaV15ToSupervisorToolLoopWithoutLosingStructuredNote(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v15.db")
-	st := openHistoricalTestDatabase(t, path, 177)
+	st := openHistoricalTestDatabase(t, filepath.Join(t.TempDir(), "seed.db"), 177)
 
 	ctx := context.Background()
 	_, run := createStructuredToolTestRun(t, ctx, st, "preserve v15")
@@ -682,7 +682,7 @@ func TestSQLiteUpgradesSchemaV15ToSupervisorToolLoopWithoutLosingStructuredNote(
 	if err != nil {
 		t.Fatal(err)
 	}
-	removeSchemaV16ForTest(t, st, ctx)
+	st = historicalTestDatabaseFromSeed(t, st, path, 15)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

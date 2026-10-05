@@ -32,68 +32,6 @@ var supervisorToolCallSchemaObjectsV150 = []struct {
 	{"trigger", "trg_host_command_supervisor_envelope_immutable"},
 }
 
-// removeSchemaV150ForTestStatements restores the v149 Supervisor tool-call
-// ledger at the head of the cumulative historical downgrade fixture chain.
-// Merely deleting the migration row is not sufficient: v150 changes the table
-// constraints, and exact older-schema tests must not observe browser actions
-// or authority-bound MCP calls before replaying v150.
-func removeSchemaV150ForTestStatements() []string {
-	const tableName = "run_supervisor_tool_calls_v149_restore"
-	const backupName = "run_supervisor_tool_calls_v150_fixture"
-	statements := append(removeSchemaV151ForTestStatements(), []string{
-		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert;`,
-		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable;`,
-	}...)
-	rebuild := rebuildRiskEscalationSupervisorToolCalls(
-		riskEscalationSupervisorToolCallCreate(tableName), tableName, backupName)
-	legacyCopy := `INSERT INTO ` + tableName + ` SELECT * FROM ` + backupName + `;`
-	v149Copy := `INSERT INTO ` + tableName + `
-		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
-		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at,
-		 stream_response_id, stream_item_id, stream_call_id)
-		SELECT run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
-			payload_json,
-			CASE WHEN tool_name = 'mcp_tool_call' THEN '' ELSE authority_json END,
-			status, result_json, error_code, created_at, completed_at,
-			stream_response_id, stream_item_id, stream_call_id
-		FROM ` + backupName + `
-		WHERE tool_name NOT IN ('browser_status', 'browser_navigate', 'browser_snapshot',
-			'browser_click', 'browser_type', 'browser_screenshot');`
-	replaced := false
-	for index := range rebuild {
-		if rebuild[index] == legacyCopy {
-			rebuild[index] = v149Copy
-			replaced = true
-		}
-	}
-	if !replaced {
-		panic("current Supervisor v150 fixture copy statement is unavailable")
-	}
-	statements = append(statements, rebuild...)
-	return append(statements,
-		requireMigrationTrigger("trg_risk_escalation_supervisor_authority_insert",
-			riskEscalationStatements),
-		requireMigrationTrigger("trg_host_command_supervisor_envelope_immutable",
-			riskEscalationStatements),
-		`DELETE FROM schema_migrations WHERE version = 150`)
-}
-
-// removeSchemaV151ForTestStatements restores the v150 schema before older
-// cumulative downgrade fixtures rebuild either underlying ledger.
-func removeSchemaV151ForTestStatements() []string {
-	return append(removeSchemaV153ForTestStatements(), []string{
-		`DROP TABLE IF EXISTS thread_message_intents`,
-		`DELETE FROM schema_migrations WHERE version = 152`,
-		`DROP TRIGGER trg_command_runtime_job_agent_immutable`,
-		`DROP INDEX idx_command_runtime_job_agents_actor`,
-		`DROP TABLE command_runtime_job_agents`,
-		`DROP TRIGGER trg_supervisor_tool_call_agent_immutable`,
-		`DROP INDEX idx_supervisor_tool_call_agents_actor`,
-		`DROP TABLE run_supervisor_tool_call_agents`,
-		`DELETE FROM schema_migrations WHERE version = 151`,
-	}...)
-}
-
 func assertSupervisorToolCallSchemaV150(t *testing.T, state *SQLiteStore) {
 	t.Helper()
 	var tableSQL string

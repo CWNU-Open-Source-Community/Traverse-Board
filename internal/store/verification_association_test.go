@@ -281,7 +281,7 @@ func TestVerificationAssociationRejectsEvidenceRecordedBeforePlan(t *testing.T) 
 func TestSchemaV81UpgradeFabricatesNoVerificationAssociation(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v80.db")
-	state := openHistoricalTestDatabase(t, path, 177)
+	state := openHistoricalTestDatabase(t, path+".seed.db", 177)
 
 	workspace := WorkspaceRecord{ID: "workspace-v81-upgrade", Name: "v81-upgrade",
 		RootPath: t.TempDir()}
@@ -302,17 +302,11 @@ func TestSchemaV81UpgradeFabricatesNoVerificationAssociation(t *testing.T) {
 			OperationKey: "v81-upgrade-plan-operation-0001", AuthoredBy: "operator"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range append(removeSchemaV82ForTestStatements(), []string{
-		`DROP TRIGGER trg_operator_verification_association_delete_immutable`,
-		`DROP TRIGGER trg_operator_verification_association_update_immutable`,
-		`DROP TRIGGER trg_operator_verification_association_insert`,
-		`DROP TABLE operator_verification_plan_evidence_associations`,
-		`DELETE FROM schema_migrations WHERE version = 81`,
-	}...) {
-		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatal(err)
-		}
+	historical := historicalTestDatabaseFromSeed(t, state, path, 80)
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
 	}
+	state = historical
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

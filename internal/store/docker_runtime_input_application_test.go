@@ -151,17 +151,13 @@ func TestDockerRuntimeInputApplicationLedgerFencesStaleWorkersAndPersistsMetadat
 func TestSchemaV61PreservesV60ProjectionWithoutFabricatingApplication(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-runtime-input-application-v60.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	projection, operation := prepareDockerRuntimeInputProjectionStoreFixture(t, ctx, st,
 		run.ID, root, "runtime-input-application-upgrade")
 	if _, _, err := st.CreateDockerRuntimeInputProjectionPlan(ctx, projection, operation); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV61ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove schema v61 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 60)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

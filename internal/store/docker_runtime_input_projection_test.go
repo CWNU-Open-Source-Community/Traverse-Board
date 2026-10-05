@@ -171,14 +171,10 @@ func TestDockerRuntimeInputProjectionLedgerIsAtomicImmutablePrivateAndConcurrent
 func TestSchemaV60PreservesV59HandoffWithoutFabricatingProjection(t *testing.T) {
 	ctx := context.Background()
 	databasePath := filepath.Join(t.TempDir(), "docker-runtime-input-v59.db")
-	st, run, root := openSandboxManifestStoreAt(t, ctx, databasePath, 177)
+	st, run, root := openSandboxManifestStoreAt(t, ctx, filepath.Join(t.TempDir(), "seed.db"), 177)
 	plan, _ := prepareDockerRuntimeInputProjectionStoreFixture(t, ctx, st, run.ID,
 		root, "docker-runtime-input-upgrade")
-	for _, statement := range removeSchemaV60ForTestStatements() {
-		if _, err := st.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("remove schema v60 with %q: %v", statement, err)
-		}
-	}
+	st = historicalTestDatabaseFromSeed(t, st, databasePath, 59)
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

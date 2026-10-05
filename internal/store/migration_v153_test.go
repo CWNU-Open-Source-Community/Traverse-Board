@@ -17,12 +17,6 @@ import (
 	"cyberagent-workbench/internal/runworktree"
 )
 
-func removeSchemaV153ForTestStatements() []string {
-	return append(removeSchemaV154ForTestStatements(), []string{`DROP TRIGGER trg_file_edit_apply_operation_insert`,
-		requireMigrationTrigger("trg_file_edit_apply_operation_insert", agentCodeToolStatements),
-		`DELETE FROM schema_migrations WHERE version = 153`}...)
-}
-
 func TestSchemaV153PreservesSourceApplyHistoryAndMigrationChecksums(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "v152-file-history.db")
