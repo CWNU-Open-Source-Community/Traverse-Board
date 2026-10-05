@@ -29,7 +29,7 @@ Implementation status for this revision:
 | Migration fixtures | Simplified | [Historical fixtures](../internal/store/test_database_fixture_test.go) build real migration prefixes. [Seed import](../internal/store/historical_fixture_import_test.go) copies compatible test data; the cumulative reverse-DDL chain is gone. |
 | CI execution | Deduplicated | [CI](../.github/workflows/ci.yml) runs analyzer vectors within the Go suite and desktop boundary tests through the platform build scripts. Platform, race and standalone release checks remain distinct. |
 | Model and extension integrations | Existing boundaries | `llm` owns provider protocols; MCP shares its SDK execution path. Skills and Plugins use their supported formats. Compatibility is tracked per integration. |
-| Runtime construction and teardown | Next refactoring candidate | Desktop, CLI and HTTP composition can share more setup and cleanup. This is separate from the completed registry and fixture work above. |
+| Command runtime construction and teardown | Shared for Desktop and HTTP | [Command runtime set](../internal/application/command_runtime_set.go) assembles Host, Local and Docker adapters and shuts down their managers. Each entry selects its enabled backends; CLI retains its invocation-owned lifetime. |
 | Ecosystem product validation | Follow-up | Exercise representative integrations through install, configuration, authentication, execution, failure and cancellation. External Agent orchestration remains outside this phase. |
 
 The Gateway extension target is concrete: add a tool implementation and one

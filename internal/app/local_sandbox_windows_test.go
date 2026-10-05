@@ -83,13 +83,11 @@ func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
 	}
 
 	selected, stderr, code := executeTestCommand(t, "run", "execution-permission", "set",
-		runID, "auto", "--operation-key", "local-sandbox-select-0001",
-		"--enable-permission-control",
-		"--enable-workspace-sandbox")
+		runID, "auto", "--operation-key", "local-sandbox-select-0001")
 	if code != 0 || stderr != "" || !strings.Contains(selected, "mode: auto") ||
 		!strings.Contains(selected, "runtime_gate_available: true") ||
 		!strings.Contains(selected, "capability_grant: false") {
-		t.Fatalf("Workspace Access selection stdout=%s stderr=%s code=%d",
+		t.Fatalf("Auto preference selection stdout=%s stderr=%s code=%d",
 			selected, stderr, code)
 	}
 }

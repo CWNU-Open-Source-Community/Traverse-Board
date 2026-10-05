@@ -364,86 +364,31 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	if err != nil {
 		return err
 	}
-	if _, err := commandManager.ReconcileStartup(ctx); err != nil {
-		return apperror.Wrap(apperror.CodeUnavailable,
-			"command runtime startup reconciliation failed", err)
-	}
-	commandManagers := []*runner.CommandRuntimeManager{commandManager}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-		defer cancel()
-		for _, manager := range commandManagers {
-			_ = manager.Shutdown(shutdownCtx)
-		}
-	}()
-	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
-	if controlToken != "" && permissionCapabilities.DangerFullAccessEnabled {
-		hostRuntime, serviceErr := application.NewCommandRuntimeService(a.store,
-			commandManager, permissionCapabilities)
-		if serviceErr != nil {
-			return serviceErr
-		}
-		commandAdapters = append(commandAdapters, hostRuntime)
+	commandOptions := application.CommandRuntimeSetOptions{
+		HostEnabled:  controlToken != "" && permissionCapabilities.DangerFullAccessEnabled,
+		Capabilities: permissionCapabilities, Drydocks: commandRuntimeDrydocks,
+		StartupShutdownTimeout: 7 * time.Second,
 	}
 	if controlToken != "" && localSandboxBackend != nil &&
 		localSandboxReadiness != nil && commandRuntimeDrydocks != nil {
-		localExecutor, executorErr := application.NewLocalSandboxCommandRuntimeExecutor(
-			a.store, localSandboxBackend, *localSandboxReadiness)
-		if executorErr != nil {
-			return executorErr
-		}
-		localManager, managerErr := runner.NewSandboxCommandRuntimeManager(a.store,
-			localExecutor, idgen.New("command-runtime-local-owner"))
-		if managerErr != nil {
-			return managerErr
-		}
-		commandManagers = append(commandManagers, localManager)
-		if _, managerErr = localManager.ReconcileStartup(ctx); managerErr != nil {
-			return apperror.Wrap(apperror.CodeUnavailable,
-				"Local Command Runtime startup reconciliation failed", managerErr)
-		}
-		localRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
-			a.store, localManager, localExecutor, permissionCapabilities,
-			commandRuntimeDrydocks)
-		if serviceErr != nil {
-			return serviceErr
-		}
-		commandAdapters = append(commandAdapters, localRuntime)
+		commandOptions.LocalBackend = localSandboxBackend
+		commandOptions.LocalReadiness = localSandboxReadiness
 	}
 	if controlToken != "" && standardCodeRuntime != nil &&
 		commandRuntimeDrydocks != nil {
-		dockerExecutor, executorErr :=
-			application.NewDockerSandboxCommandRuntimeExecutor(standardCodeRuntime)
-		if executorErr != nil {
-			return executorErr
-		}
-		dockerManager, managerErr := runner.NewSandboxCommandRuntimeManager(a.store,
-			dockerExecutor, idgen.New("command-runtime-docker-owner"))
-		if managerErr != nil {
-			return managerErr
-		}
-		commandManagers = append(commandManagers, dockerManager)
-		if _, managerErr = dockerManager.ReconcileStartup(ctx); managerErr != nil {
-			return apperror.Wrap(apperror.CodeUnavailable,
-				"Docker Command Runtime startup reconciliation failed", managerErr)
-		}
-		dockerRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
-			a.store, dockerManager, dockerExecutor, permissionCapabilities,
-			commandRuntimeDrydocks)
-		if serviceErr != nil {
-			return serviceErr
-		}
-		commandAdapters = append(commandAdapters, dockerRuntime)
+		commandOptions.StandardCodeDockerRuntime = standardCodeRuntime
 	}
-	var commandRuntime application.CommandRuntimeRuntime
-	if len(commandAdapters) == 1 {
-		commandRuntime = commandAdapters[0]
-	} else if len(commandAdapters) > 1 {
-		commandRuntime, err = application.NewCommandRuntimeMultiplexer(commandAdapters...)
-		if err != nil {
-			return err
-		}
+	commandSet, err := application.OpenCommandRuntimeSet(ctx, a.store, commandManager,
+		commandOptions)
+	if err != nil {
+		return err
 	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+		_ = commandSet.Shutdown(shutdownCtx)
+	}()
+	commandRuntime := commandSet.Runtime
 	if commandRuntime != nil {
 		runtimeDependencies.CommandRuntime = commandRuntime
 	}
@@ -725,7 +670,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		return err
 	}
 	reconcileCtx, reconcileCancel := context.WithCancel(ctx)
-	defer reconcileCancel()
+	reconcileDone := make(chan struct{})
+	defer func() {
+		reconcileCancel()
+		<-reconcileDone
+	}()
 	if webFetchAuthorizationSchedulerEnabled {
 		webFetchReconcileCtx, cancelWebFetchReconcile := context.WithCancel(ctx)
 		webFetchReconcileDone := make(chan struct{})
@@ -748,16 +697,17 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 			<-webFetchReconcileDone
 		}()
 	}
-	if commandRuntime != nil {
-		go func() {
+	go func() {
+		defer close(reconcileDone)
+		if commandRuntime != nil {
 			if reconcileErr := commandRuntime.RunReconciler(reconcileCtx,
 				500*time.Millisecond); reconcileErr != nil && reconcileCtx.Err() == nil {
 				fmt.Fprintln(a.errOut, "command-runtime-reconciler:", reconcileErr)
 			}
-		}()
-	} else {
-		go runCommandRuntimeStartupReconciler(reconcileCtx, commandManager, a.errOut)
-	}
+		} else {
+			runCommandRuntimeStartupReconciler(reconcileCtx, commandManager, a.errOut)
+		}
+	}()
 	origin := "http://" + listener.Addr().String()
 	baseURL := origin + "/api/v1"
 	fmt.Fprintf(a.out, "api_url: %s\napi_version: %s\napi_token_generated: %t\napi_control_enabled: %t\n",
