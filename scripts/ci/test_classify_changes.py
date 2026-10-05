@@ -1,96 +1,116 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
-from classify_changes import ClassificationError, changed_paths, classify_paths, main
+from classify_changes import CHECKS, ClassificationError, changed_paths, classify_paths, main
 
 
+@patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
 class ClassifyPathsTests(unittest.TestCase):
-    def test_exact_documentation_allowlist_is_lightweight(self) -> None:
-        self.assertTrue(
-            classify_paths(
-                [
-                    b"README.md",
-                    b"README.en.md",
-                    b"CONTRIBUTING.md",
-                    b"docs/mac-keychain.md",
-                    b"docs/macos-release.md",
-                    b"docs/scheduled-jobs-diagnostics.md",
-                ]
-            )
-        )
+    def enabled(self, paths, affected=()):
+        return {name for name, enabled in classify_paths(paths, affected).items() if enabled}
 
-    def test_unknown_generated_and_mixed_paths_are_full(self) -> None:
-        for paths in (
-            [b"docs/development-history.md"],
-            [b"docs/convergence/protocol-registry.md"],
-            [b"docs/convergence/surface-registry.json"],
-            [b"README.md", b"internal/store/sqlite.go"],
-            [b"README.md\nmalicious=true"],
-        ):
+    def test_frontend_and_documentation_do_not_start_backend_or_native_matrix(self):
+        for paths in ([b"web/src/v2/styles.css"], [b"web/package-lock.json"],
+                      [b"web/public/traverse-board-favicon-32.png", b"docs/architecture.md"]):
             with self.subTest(paths=paths):
-                self.assertFalse(classify_paths(paths))
+                self.assertEqual(self.enabled(paths), {"web"})
+        self.assertEqual(self.enabled([b"README.md", b"docs/ci.md"]), set())
+        self.assertEqual(self.enabled([b"docs/openapi.json"]), {"web"})
 
-    def test_empty_diff_fails_closed(self) -> None:
+    def test_go_dependencies_select_store_without_unrelated_platforms(self):
+        selected = self.enabled(
+            [b"internal/toolgateway/registry.go"],
+            ["project/internal/toolgateway", "project/internal/store",
+             "project/internal/application", "project/internal/app",
+             "project/internal/httpapi", "project/internal/desktop"],
+        )
+        self.assertEqual(selected, {"backend", "store"})
+
+    def test_native_lsp_and_browser_runtime_inputs_are_selected(self):
+        self.assertEqual(self.enabled([b"internal/codeintel/runtime.go"]),
+                         {"backend", "lsp"})
+        checks = self.enabled([b"internal/runner/process_windows.go"],
+                              ["project/internal/runner", "project/internal/browserruntime"])
+        self.assertTrue({"backend", "native", "ui"} <= checks)
+        self.assertNotIn("packaging", checks)
+        checks = self.enabled([b"internal/domain/run.go"], [
+            "project/internal/domain", "project/internal/store", "project/internal/runner",
+        ])
+        self.assertTrue({"race", "store", "native"} <= checks)
+        for path in (b"internal/store/command_runtime_jobs.go",
+                     b"internal/store/command_operation_approval.go",
+                     b"internal/application/run_capability_readiness.go",
+                     b"internal/toolgateway/command_runtime.go"):
+            self.assertIn("native", self.enabled([path]), path)
+
+    def test_mixed_changes_keep_both_lanes_and_tagged_embedding_gets_native_checks(self):
+        self.assertEqual(self.enabled([b"web/src/App.tsx", b"internal/llm/openai.go"]),
+                         {"backend", "web"})
+        self.assertEqual(self.enabled([b"web/assets_desktop.go"]), {"web", "native"})
+        self.assertEqual(self.enabled([b"scripts/build-desktop.ps1"]), {"native", "packaging"})
+        self.assertEqual(self.enabled([b"analyzers/src/lib.rs"]), {"rust", "native"})
+
+    def test_global_inputs_and_unknown_paths_get_full_checks(self):
+        for path in (b"go.mod", b"go.sum", b"scripts/ci/classify_changes.py",
+                     b".github/workflows/ci.yml", b"new-toolchain.toml",
+                     b"protocols/registry.json", b"README.md\nunknown=true"):
+            with self.subTest(path=path):
+                self.assertEqual(self.enabled([path]), set(CHECKS))
+
+    def test_empty_diff_is_an_error(self):
         with self.assertRaises(ClassificationError):
             classify_paths([])
 
-    def test_non_pull_request_is_full_without_reading_git(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = StringIO()
-            with redirect_stdout(output):
-                self.assertEqual(main(["--event", "push", "--repo", directory]), 0)
-            self.assertEqual(output.getvalue(), "docs_only=false\n")
+    def test_schedule_and_manual_run_full_without_a_diff(self):
+        with patch("run_go_checks.collect_packages", return_value=[]) as collect, \
+                patch("run_go_checks.select_plan", return_value={"full": True}) as select:
+            for event in ("schedule", "workflow_dispatch"):
+                output = StringIO()
+                with redirect_stdout(output), redirect_stderr(StringIO()):
+                    self.assertEqual(main(["--event", event, "--repo", "."]), 0)
+                values = dict(line.split("=", 1) for line in output.getvalue().splitlines())
+                self.assertTrue(all(json.loads(values["checks"]).values()))
+                self.assertEqual(values["full"], "true")
+            self.assertEqual(collect.call_count, 2)
+            self.assertTrue(select.call_args.kwargs["full"])
 
-    def test_classification_failure_emits_no_skip_output(self) -> None:
-        output = StringIO()
-        errors = StringIO()
-        with tempfile.TemporaryDirectory() as directory, redirect_stdout(output), \
-                redirect_stderr(errors):
-            result = main(
-                [
-                    "--event",
-                    "pull_request",
-                    "--repo",
-                    directory,
-                    "--base",
-                    "bad",
-                    "--head",
-                    "also-bad",
-                ]
-            )
+    def test_failed_diff_emits_no_selection_output(self):
+        output, errors = StringIO(), StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            result = main(["--event", "pull_request", "--repo", ".",
+                           "--base", "bad", "--head", "also-bad"])
         self.assertEqual(result, 1)
         self.assertEqual(output.getvalue(), "")
-        self.assertIn("classification failed", errors.getvalue())
 
 
+@patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
 class GitDiffTests(unittest.TestCase):
-    def setUp(self) -> None:
+    def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.repo = Path(self.temporary_directory.name)
         self.git("init", "-q")
         self.git("config", "user.name", "CI test")
         self.git("config", "user.email", "ci@example.invalid")
 
-    def tearDown(self) -> None:
+    def tearDown(self):
         self.temporary_directory.cleanup()
 
-    def git(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            check=True,
-            stdout=subprocess.PIPE,
-            text=True,
-        ).stdout.strip()
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              stdout=subprocess.PIPE, text=True).stdout.strip()
 
-    def commit_file(self, name: str, content: str) -> str:
+    def commit_file(self, name, content):
         path = self.repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -99,100 +119,84 @@ class GitDiffTests(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     @unittest.skipIf(os.name == "nt", "Windows filenames cannot contain newlines")
-    def test_diff_is_nul_safe_for_newline_path(self) -> None:
+    def test_diff_is_nul_safe_for_newline_path(self):
         base = self.commit_file("README.md", "base\n")
-        self.commit_file("docs/bad\nname.md", "content\n")
-        head = self.git("rev-parse", "HEAD")
-        paths = changed_paths(self.repo, base, head)
-        self.assertEqual(paths, [b"docs/bad\nname.md"])
-        self.assertFalse(classify_paths(paths))
+        head = self.commit_file("docs/bad\nname.md", "content\n")
+        self.assertEqual(changed_paths(self.repo, base, head), [b"docs/bad\nname.md"])
 
-    def test_rename_from_unknown_path_exposes_both_sides(self) -> None:
-        base = self.commit_file("source.md", "content\n")
-        self.git("mv", "source.md", "README.en.md")
+    def test_rename_and_delete_keep_original_input_paths(self):
+        base = self.commit_file("internal/old/file.go", "package old\n")
+        self.git("mv", "internal/old/file.go", "README.en.md")
         self.git("commit", "-qm", "rename")
-        head = self.git("rev-parse", "HEAD")
-        paths = changed_paths(self.repo, base, head)
-        self.assertEqual(paths, [b"README.en.md", b"source.md"])
-        self.assertFalse(classify_paths(paths))
+        paths = changed_paths(self.repo, base, self.git("rev-parse", "HEAD"))
+        self.assertEqual(paths, [b"README.en.md", b"internal/old/file.go"])
+        self.assertTrue(classify_paths(paths)["backend"])
 
-    def test_invalid_revision_fails_closed(self) -> None:
-        head = self.commit_file("README.md", "content\n")
-        with self.assertRaises(ClassificationError):
-            changed_paths(self.repo, "not-a-commit", head)
+    def test_main_push_uses_its_diff_instead_of_forcing_full_ci(self):
+        base = self.commit_file("README.md", "base\n")
+        head = self.commit_file("web/src/styles.css", "body {}\n")
+        output = StringIO()
+        with redirect_stdout(output), redirect_stderr(StringIO()):
+            self.assertEqual(main(["--event", "push", "--repo", str(self.repo),
+                                   "--base", base, "--head", head]), 0)
+        values = dict(line.split("=", 1) for line in output.getvalue().splitlines())
+        self.assertEqual(values["web"], "true")
+        self.assertEqual(values["backend"], "false")
+        self.assertEqual(values["full"], "false")
 
 
-class WorkflowContractTests(unittest.TestCase):
+class WorkflowGateTests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls) -> None:
+    def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[2]
         cls.ci = (cls.root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        cls.release = (cls.root / ".github/workflows/release-desktop.yml").read_text(
-            encoding="utf-8"
-        )
+        cls.release = (cls.root / ".github/workflows/release-desktop.yml").read_text(encoding="utf-8")
 
-    def test_ci_keeps_go_aggregate_and_fails_closed(self) -> None:
-        self.assertIn("  go:\n    name: Go control plane", self.ci)
-        self.assertIn("CLASSIFY_RESULT: ${{ needs.classify.result }}", self.ci)
-        self.assertIn('if [[ "$CLASSIFY_RESULT" != success', self.ci)
-        self.assertIn('elif [[ "$STORE_TESTS_RESULT" != success ]]', self.ci)
-        # A missing classifier output differs from the sole skip value "true".
-        self.assertGreaterEqual(
-            self.ci.count("needs.classify.outputs.docs_only != 'true'"),
-            8,
-        )
-        self.assertIn("github.event_name != 'pull_request'", self.ci)
+    def run_gate(self, job, needs):
+        start = self.ci.index(f"  {job}:\n")
+        block = self.ci[start:]
+        match = re.search(r"python - <<'PY'\n(.*?)          PY", block, re.S)
+        self.assertIsNotNone(match)
+        code = "\n".join(line[10:] for line in match.group(1).splitlines())
+        env = dict(os.environ, NEEDS_JSON=json.dumps(needs))
+        return subprocess.run([sys.executable, "-c", code], env=env,
+                              capture_output=True, text=True).returncode
 
-    def test_cancelled_runs_do_not_start_or_continue_heavy_jobs(self) -> None:
-        job_starts = {
-            match.group(1): match.start()
-            for match in re.finditer(r"(?m)^  ([a-z][a-z0-9-]*):\n", self.ci)
-        }
-        ordered_starts = sorted(job_starts.values())
-        for job in (
-            "go-checks",
-            "store-tests",
-            "code-intel-lsp",
-            "web",
-            "rust",
-            "desktop-macos",
-            "desktop",
-            "ui-evidence-windows",
-        ):
-            with self.subTest(job=job):
-                start = job_starts[job]
-                end = next(
-                    (candidate for candidate in ordered_starts if candidate > start),
-                    len(self.ci),
-                )
-                header = self.ci[start:end].split("    runs-on:", 1)[0]
-                self.assertIn("if: ${{ !cancelled()", header)
-                self.assertNotIn("if: ${{ always()", header)
-        go_start = job_starts["go"]
-        go_end = next(candidate for candidate in ordered_starts if candidate > go_start)
-        aggregate_header = self.ci[go_start:go_end].split("    runs-on:", 1)[0]
-        self.assertIn("if: ${{ always() }}", aggregate_header)
+    def test_partial_gate_requires_selected_jobs_and_allows_unselected_skips(self):
+        needs = {job: {"result": "skipped"}
+                 for job in ("store-tests", "go-race", "go-audit")}
+        checks = dict.fromkeys(CHECKS, False)
+        needs["classify"] = {"result": "success", "outputs": {"checks": json.dumps(checks)}}
+        needs["go-checks"] = {"result": "success"}
+        self.assertEqual(self.run_gate("go", needs), 0)
+        checks["store"] = True
+        needs["classify"]["outputs"]["checks"] = json.dumps(checks)
+        self.assertNotEqual(self.run_gate("go", needs), 0)
+        needs["store-tests"]["result"] = "success"
+        self.assertEqual(self.run_gate("go", needs), 0)
+        needs["classify"]["result"] = "failure"
+        self.assertNotEqual(self.run_gate("go", needs), 0)
 
-    def test_release_pr_paths_only_drop_non_inputs(self) -> None:
-        trigger, _ = self.release.split("permissions:", 1)
-        self.assertIn("      - 'README.md'", trigger)
-        for removed in (
-            "README.en.md",
-            "docs/macos-release.md",
-            "docs/standard-code-packaged-e2e.md",
-            "docs/standard-code-product-e2e.md",
-            "docs/standard-code-release-gate.md",
-            "docs/adr/0138-standard-code-packaged-e2e-foundation.md",
-            "docs/adr/0144-standard-code-release-gate-aggregation.md",
-            "docs/convergence/protocol-registry.md",
-        ):
-            with self.subTest(removed=removed):
-                self.assertNotIn(f"      - '{removed}'", trigger)
-        self.assertIn("      - 'protocols/registry.json'", trigger)
-        self.assertIn(
-            "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
-            self.release,
-        )
+    def test_full_gate_rejects_failed_cancelled_or_skipped_platform(self):
+        needs = {job: {"result": "success"} for job in (
+            "classify", "go", "code-intel-lsp", "web", "rust",
+            "desktop-macos", "desktop", "ui-evidence-windows",
+        )}
+        self.assertEqual(self.run_gate("full-ci", needs), 0)
+        for result in ("skipped", "failure", "cancelled"):
+            needs["desktop"]["result"] = result
+            self.assertNotEqual(self.run_gate("full-ci", needs), 0)
+        full_header = self.ci.split("  full-ci:\n", 1)[1].split("    runs-on:", 1)[0]
+        self.assertIn("needs.classify.outputs.full == 'true'", full_header)
+
+    def test_release_only_packages_on_relevant_inputs_and_requires_full_ci(self):
+        trigger = self.release.split("permissions:", 1)[0]
+        for ordinary in ("README.md", "go.mod", "go.sum", "web/package-lock.json",
+                         "protocols/registry.json", "web/public/**"):
+            self.assertNotIn(f"      - '{ordinary}'", trigger)
+        self.assertIn("      - 'scripts/build-desktop.ps1'", trigger)
+        self.assertIn('Full CI verification', self.release)
+        self.assertIn("/attempts/", self.release)
 
 
 if __name__ == "__main__":

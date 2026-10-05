@@ -83,10 +83,6 @@ func TestApprovedHarmonyOSSansAssetsStayByteIdentical(t *testing.T) {
 	if !strings.Contains(attributes, "web/src/assets/fonts/*.ttf -text") {
 		t.Fatal("font binaries are not explicitly protected from Git text conversion")
 	}
-	workflow := string(readTestFile(t, filepath.Join(root, ".github", "workflows", "release-desktop.yml")))
-	if !strings.Contains(workflow, "web/src/assets/fonts/**") || !strings.Contains(workflow, "web/public/**") {
-		t.Fatal("Desktop release workflow does not watch fonts and their public notices")
-	}
 	readme := string(readTestFile(t, filepath.Join(root, "README.md")))
 	settings := string(readTestFile(t, filepath.Join(root, "web", "src", "v2", "components", "settings.tsx")))
 	if !strings.Contains(readme, "第三方字体声明") ||

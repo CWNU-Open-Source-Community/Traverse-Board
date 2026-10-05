@@ -1,21 +1,67 @@
 # CI checks and execution time
 
-The Go result keeps the name **Go control plane**. It aggregates the
-general Go checks and all applicable Store shards. A failed classifier, failed
-shard, cancellation, or unexpected skip cannot produce a successful Go result.
+PRs and main pushes select checks from their changed inputs. **Go control
+plane** aggregates the selected Go checks, Store shards, and authority race
+checks. **Full CI verification** is a separate result produced only by a complete
+run; releases require that result for their exact source commit.
 
 ## What runs
 
 | Change | Central CI | Desktop release workflow |
 | --- | --- | --- |
-| Push to main | Full checks | Runs for version tags or manual release requests |
-| PR containing code, build scripts, workflows, generated contracts, or unknown paths | Full checks | Runs when its existing product-input paths match |
-| PR changing only the six explicitly listed documentation files | Module, protocol, Surface and documentation release checks | README.md still triggers archive validation because it is packaged |
+| Documentation | Module, protocol, Surface and documentation contract checks | No PR package build |
+| Frontend / OpenAPI | Frontend types, API drift, tests, build, dependency audit, Go bundle tests and desktop asset embedding | No PR package build |
+| Go source or resources | Direct package tests, affected consumer tests or compilation, and relevant integration tests | No PR package build |
+| Store or its dependencies | The applicable Go checks plus all eight Store shards | No PR package build |
+| LSP, analyzer, browser or native execution inputs | Their corresponding real runtime / platform checks | No package build unless packaging inputs change |
+| Packaging / release tooling | Native boundaries and packaging checks | Existing PR package validation |
+| Go module dependencies, CI machinery or unclassified inputs | Full checks | Only if release tooling also changes |
+| Nightly or manual CI | Full checks, platform matrix, packaging and Go vulnerability audit | Version tags / manual releases still use the release workflow |
 
-The exact documentation allowlist is in `scripts/ci/classify_changes.py`.
-An empty, invalid, or unreadable diff is an error, never permission to skip tests.
-Other documentation, including migration history and generated protocol files,
-continues through full central CI. Main pushes never use the documentation shortcut.
+The selection rules live in `scripts/ci/classify_changes.py`. Main uses the push
+before/after commits, so merging a frontend change does not rerun the entire
+backend matrix. Nightly CI runs at 19:23 UTC (03:23 Asia/Hong_Kong). The Actions
+page's **CI → Run workflow** starts a full run for a selected branch.
+
+An unreadable or empty change set fails selection. Failed selection, a failed
+required job, cancellation, or an unexpected required-job skip cannot become a
+successful aggregate result. Unclassified build inputs select full checks.
+
+## Go impact selection
+
+`scripts/ci/run_go_checks.py` uses `go list -json ./...` to identify package
+ownership, embedded resources and the real import graph. Production imports
+propagate impact; test imports add the corresponding test consumer without
+turning a test-only dependency into a production dependency. A change confined
+to test files or testdata stays with its package.
+
+Directly changed packages run their complete tests. Indirect consumers also run
+their tests except the four large integration packages: `application`, `app`,
+`httpapi` and `desktop`. Those compile their tests and run explicitly selected
+existing provider / MCP integration tests where relevant. Store runs separately
+through its existing shards. Vet covers the entire affected set; subsequent
+tests disable duplicate automatic vet.
+
+This deliberately reserves the entire large integration suites for direct
+changes and full CI. A direct `application` change can still take significantly
+longer than a frontend or leaf-package change. A removed package or an input
+with no current Go owner selects full checks, including Store and all platforms.
+
+The native jobs retain their real platform checks. On a runtime-only change they
+run desktop boundary and tagged adapter tests without producing release archives
+or running the second reproducibility build. These adapter tests still build the
+renderer because they consume the embedded production assets.
+
+## Release verification
+
+Ordinary Go, frontend, documentation and dependency changes no longer launch the
+separate Desktop release workflow on every PR. Changes to actual release tools,
+packaging scripts, packaging assets and branding still do.
+
+Before a tag or manual release, run full CI for that exact commit (or use a
+successful nightly run of the same commit). The release workflow checks a
+successful **Full CI verification** job from the same run attempt and commit.
+A successful partial run, a PR run, or a skipped full gate is not release evidence.
 
 ## Store tests
 
@@ -60,6 +106,5 @@ Central CI and PR-only release validation cancel superseded runs. Heavy jobs use
 `!cancelled()` so cancellation does not start further work. Tag and manually
 requested release runs retain their non-cancelling behavior.
 
-Desktop release PR triggers exclude documentation that is not an archive input.
-This is not cross-workflow artifact reuse: product-input changes still run the
-existing real archive and reproducibility checks.
+PR/push, nightly and manual runs use separate concurrency groups, so a new PR
+commit does not cancel a full nightly or manually requested run.
