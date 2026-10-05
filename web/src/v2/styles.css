@@ -1334,7 +1334,7 @@
 .v2-provider-error { background: color-mix(in srgb, var(--v2-danger) 7%, var(--v2-control)); }
 .v2-provider-actions {
   align-items: center;
-  background: color-mix(in srgb, var(--v2-surface) 92%, transparent);
+  background: color-mix(in srgb, var(--v2-main-surface) 92%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-top: 1px solid var(--v2-border);
