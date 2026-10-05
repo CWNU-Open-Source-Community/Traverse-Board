@@ -127,6 +127,10 @@ function baseClient(overrides: Partial<APIClient> = {}): APIClient {
       return Promise.resolve(detail(decodeURIComponent(match?.[1] ?? "missing")));
     }),
     getPage: vi.fn(() => Promise.resolve(page([]))),
+    approvalQueue: vi.fn(() => Promise.resolve({
+      protocol_version: "approval_queue.v1", run_id: "run-thread-a", items: [], truncated: false,
+      process_execution_enabled: false, session_grant_created: false, capability_grant: false,
+    })),
     hasThreadControl: true,
     submitThreadTurn: vi.fn(() => Promise.resolve({ steering: { id: "steering-1" } })),
     ...overrides,
@@ -424,6 +428,31 @@ describe("V2Conversation", () => {
     view.rerenderThread("thread-a");
     await screen.findByText("Title thread-a");
     expect(view.container.querySelector<HTMLDivElement>(".v2-conversation-scroll")!.scrollTop).toBe(180);
+  });
+
+  it("shows the current Run's pending approval and exact preview in a read-only conversation", async () => {
+    const item = { id: "approval-readonly", proposal_id: "proposal-readonly", run_id: "run-thread-a",
+      workspace_id: "", tool_name: "web_fetch", canonical_url: "https://example.org/public",
+      exact_target: "example.org", status: "pending", allowed_actions: ["approve_once", "approve_for_thread", "deny"], version: 1 };
+    const approvalQueue = vi.fn().mockResolvedValue({ items: [item], truncated: false });
+    const approvalPreview = vi.fn().mockResolvedValue({ run_id: item.run_id, approval_id: item.id,
+      proposal_id: item.proposal_id, tool_name: item.tool_name, workspace_id: item.workspace_id,
+      effect: "fetch_public_https", fields: [{ name: "url", value: item.canonical_url }],
+      source_current: true, redacted: false, truncated: false });
+    const decideApproval = vi.fn();
+    renderConversation(baseClient({ hasApprovalControl: false, hasThreadControl: false,
+      get: async <T,>() => ({ ...detail("thread-a"),
+        active_run: { id: "run-thread-a", status: "waiting_approval" } }) as T,
+      approvalQueue, approvalPreview, decideApproval,
+      controlledCommandProposals: vi.fn().mockResolvedValue({ items: [], page: { limit: 100 }, requestID: "fixture" }),
+      hostCommandProposals: vi.fn().mockResolvedValue({ items: [], page: { limit: 100 }, requestID: "fixture" }),
+    }));
+    expect(await screen.findByText(item.canonical_url)).toBeVisible();
+    expect(screen.getByText(/当前连接只有审批读取权限/)).toBeVisible();
+    expect(approvalQueue).toHaveBeenCalledWith(item.run_id, expect.any(AbortSignal));
+    expect(approvalPreview).toHaveBeenCalledWith(item.run_id, item.id, expect.any(AbortSignal));
+    expect(screen.queryByRole("button", { name: /允许一次|本对话允许|拒绝/ })).not.toBeInTheDocument();
+    expect(decideApproval).not.toHaveBeenCalled();
   });
 
   it("keeps a decided web approval recoverable while the Run is already running", async () => {

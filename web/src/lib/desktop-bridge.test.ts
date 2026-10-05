@@ -362,6 +362,26 @@ describe("desktop native bridge", () => {
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(dockerEnabled);
   });
 
+  it.each([
+    "control_token", "batch_delivery_control_enabled", "execution_permission_control_enabled",
+    "operator_approval_enabled", "danger_full_access_enabled",
+  ])("rejects batch host validation without its %s gate", async (missing) => {
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      execution_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      danger_full_access_enabled: true,
+      batch_delivery_control_enabled: true,
+      batch_delivery_host_validation_enabled: true,
+      read_only_default: false,
+      [missing]: missing === "control_token" ? "" : false,
+    }) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("bootstrap was rejected");
+    expect(module.desktopRuntimeActive()).toBe(false);
+  });
+
   it("accepts Advanced Git only with permission, approval, and checkpoint gates", async () => {
     const enabled = {
       ...bootstrap,

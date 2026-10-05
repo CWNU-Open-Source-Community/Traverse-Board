@@ -22,11 +22,12 @@ describe("connection store", () => {
       commandRuntimeProtocolAvailable: true,
       commandRuntimeAdapterInstalled: true,
       commandRuntimeAdapterReady: true,
-    });
+    }, "/api/v1");
     useConnectionStore.getState().selectRun("run-1");
 
     expect(useConnectionStore.getState().token).toBe("ephemeral-token");
     expect(useConnectionStore.getState().controlToken).toBe("ephemeral-control-token");
+    expect(useConnectionStore.getState().apiBaseURL).toBe("/api/v1");
     expect(useConnectionStore.getState().runControlEnabled).toBe(true);
     expect(useConnectionStore.getState().runCreationEnabled).toBe(true);
     expect(useConnectionStore.getState().sessionMessageEnabled).toBe(true);
@@ -48,6 +49,7 @@ describe("connection store", () => {
     useConnectionStore.getState().disconnect();
     expect(useConnectionStore.getState().token).toBe("");
     expect(useConnectionStore.getState().controlToken).toBe("");
+    expect(useConnectionStore.getState().apiBaseURL).toBeUndefined();
     expect(useConnectionStore.getState().runControlEnabled).toBe(false);
     expect(useConnectionStore.getState().runCreationEnabled).toBe(false);
     expect(useConnectionStore.getState().sessionMessageEnabled).toBe(false);
@@ -96,5 +98,31 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(false);
     connect("read", health, "control", { runExecutionEnabled: true });
     expect(createV2Client(useConnectionStore.getState()).hasThreadExecutionRead).toBe(false);
+  });
+
+  it("requires explicit batch capabilities and clears them on reconnect and disconnect", () => {
+    const connect = useConnectionStore.getState().connect;
+    const capabilities = {
+      batchDeliveryControlEnabled: true, batchDeliveryHostValidationEnabled: true,
+      executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
+      dangerFullAccessEnabled: true,
+    };
+    connect("read", health, "control", capabilities);
+    expect(useConnectionStore.getState().batchDeliveryControlEnabled).toBe(true);
+    expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(true);
+    expect(createV2Client(useConnectionStore.getState()).hasBatchDeliveryHostValidation).toBe(true);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    connect("read", health, "control");
+    expect(useConnectionStore.getState().batchDeliveryControlEnabled).toBe(false);
+    expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(false);
+    connect("read", health, "", capabilities);
+    expect(useConnectionStore.getState().batchDeliveryControlEnabled).toBe(false);
+    expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(false);
+    connect("read", health, "control", capabilities);
+    useConnectionStore.getState().disconnect();
+    expect(useConnectionStore.getState().batchDeliveryControlEnabled).toBe(false);
+    expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(false);
   });
 });

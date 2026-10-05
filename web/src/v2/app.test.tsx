@@ -72,6 +72,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   window.history.replaceState({}, "", "/");
+  window.localStorage.clear();
 });
 
 function navigationClient() {
@@ -933,6 +934,10 @@ describe("V2Workbench first turn", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);
     await user.type(screen.getByRole("textbox", { name: "开始新对话" }), "另一项目的独立草稿");
     await act(async () => { creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>); });
+    expect(window.location.hash).toBe("#/new");
+    expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("另一项目的独立草稿");
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+    await user.click(await screen.findByRole("button", { name: "打开已创建的对话" }));
     expect(await screen.findByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("首条提交");
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, createdThread.id))).toEqual(files);
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, ""))).toEqual([lateFile]);
@@ -1030,9 +1035,9 @@ describe("V2Workbench first turn", () => {
     await act(async () => { secondCreation.reject(new Error("B creation response lost")); });
     expect(await screen.findByRole("alert")).toHaveTextContent("B creation response lost");
     await act(async () => { firstCreation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>); });
-    expect(await screen.findByTestId("v2-conversation")).toHaveTextContent(createdThread.id);
-    await user.click(screen.getByRole("button", { name: "新对话" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);
+    expect(window.location.hash).toBe("#/new");
+    expect(screen.getByRole("alert")).toHaveTextContent("B creation response lost");
+    expect(screen.getByRole("button", { name: "打开已创建的对话" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("B项目请求");
     await user.click(screen.getByRole("button", { name: "发送消息" }));
     expect(await screen.findByTestId("v2-conversation")).toHaveTextContent(otherThread.id);
@@ -1041,4 +1046,174 @@ describe("V2Workbench first turn", () => {
     expect(createThread.mock.calls[0]![1]).not.toBe(createThread.mock.calls[1]![1]);
     expect(client.submitThreadTurn).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["created", "creation failed", "turn failed"] as const)(
+    "keeps task B and its draft when task A finishes in the background: %s", async (outcome) => {
+      window.history.replaceState({}, "", "#/new");
+      const otherThread = { ...createdThread, id: "thread-existing-b", title: "Existing B" };
+      const creation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+      const submitThreadTurn = vi.fn().mockImplementation(async (_threadID: string) => {
+        if (outcome === "turn failed") throw new APIRequestError("CONFLICT", "A execution failed", 409,
+          "failed-turn", undefined, undefined, true);
+        return { accepted: true };
+      });
+      const client = { hasThreadControl: true,
+        getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [otherThread],
+          page: { limit: 100 }, requestID: path })),
+        createThread: vi.fn(() => creation.promise), submitThreadTurn,
+        availableModelRoutes: readyModelCatalog(),
+      } as unknown as APIClient;
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
+      const user = userEvent.setup();
+      await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "A 的首条消息");
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      await waitFor(() => expect(client.createThread).toHaveBeenCalledTimes(1));
+      await user.click(screen.getByRole("button", { name: "Existing B" }));
+      await user.type(screen.getByRole("textbox", { name: "任务草稿 fixture" }), "B 的独立草稿");
+      await act(async () => {
+        if (outcome === "creation failed") creation.reject(new Error("A creation response lost"));
+        else creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>);
+      });
+      await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+      expect(window.location.hash).toBe(`#/threads/${otherThread.id}`);
+      expect(screen.getByTestId("v2-conversation")).toHaveTextContent(otherThread.id);
+      expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("B 的独立草稿");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      if (outcome === "creation failed") {
+        expect(submitThreadTurn).not.toHaveBeenCalled();
+        expect(screen.queryByRole("button", { name: "打开已创建的对话" })).not.toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "新对话" }));
+        expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("A 的首条消息");
+      } else {
+        expect(submitThreadTurn).toHaveBeenCalledTimes(1);
+        expect(submitThreadTurn.mock.calls[0]?.[0]).toBe(createdThread.id);
+        await user.click(screen.getByRole("button", { name: "打开已创建的对话" }));
+        expect(window.location.hash).toBe(`#/threads/${createdThread.id}`);
+        expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("");
+        expect(screen.queryByRole("button", { name: "打开已创建的对话" })).not.toBeInTheDocument();
+        const mutations = queryClient.getMutationCache().findAll({ mutationKey: ["v2", "submit-turn"] });
+        if (outcome === "turn failed") {
+          expect(mutations).toHaveLength(1);
+          expect(mutations[0]?.state).toMatchObject({ variables: { threadID: createdThread.id }, status: "error" });
+        } else expect(mutations).toHaveLength(0);
+      }
+    });
+
+  it("offers an explicit open after leaving and returning to the same new-task page", async () => {
+    const creation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+    const client = { hasThreadControl: true,
+      getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [],
+        page: { limit: 100 }, requestID: path })),
+      createThread: vi.fn(() => creation.promise), submitThreadTurn: vi.fn().mockResolvedValue({ accepted: true }),
+      availableModelRoutes: readyModelCatalog(),
+    } as unknown as APIClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "原创建请求");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(client.createThread).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "接入模型" }));
+    await user.click(screen.getByRole("button", { name: "返回应用" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "开始新对话" }), { target: { value: "返回后正在写的新需求" } });
+    await act(async () => { creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>); });
+    expect(window.location.hash).toBe("#/new");
+    expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("返回后正在写的新需求");
+    await user.click(screen.getByRole("button", { name: "打开已创建的对话" }));
+    expect(screen.getByTestId("v2-conversation")).toHaveTextContent(createdThread.id);
+  });
+
+  it.each(["created", "response lost"] as const)(
+    "retains the durable creation handoff after navigation: %s", async (outcome) => {
+      window.history.replaceState({}, "", "#/new");
+      useConnectionStore.getState().setHealth({ status: "ok", api_version: "api.v1",
+        app_version: "fixture", schema_version: 157, data_store_id: `ds1_${"c".repeat(64)}` });
+      const otherThread = { ...createdThread, id: "thread-durable-b", title: "Durable B" };
+      const creation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+      const submission = deferred<Awaited<ReturnType<APIClient["submitThreadTurn"]>>>();
+      const inspectThreadCreationRequest = vi.fn().mockResolvedValue({ kind: "creation",
+        workspace_id: workspace.id, state: "not_received", settled: false });
+      const client = { baseURL: "/api/v1", hasThreadControl: true,
+        getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace] : [otherThread],
+          page: { limit: 100 }, requestID: path })),
+        get: vi.fn().mockResolvedValue({ thread: createdThread }),
+        createThread: vi.fn(() => creation.promise), submitThreadTurn: vi.fn(() => submission.promise),
+        inspectThreadCreationRequest, availableModelRoutes: readyModelCatalog(),
+      } as unknown as APIClient;
+      render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <V2Workbench client={client} />
+      </QueryClientProvider>);
+      const savedValues = () => Object.values(window.localStorage).map((value: string) => JSON.parse(value).value);
+      const user = userEvent.setup();
+      await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "持久保存的 A 请求");
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      await waitFor(() => expect(client.createThread).toHaveBeenCalledTimes(1));
+      const intent = savedValues().find((value) => value?.version === "v2_creation_recovery.v1");
+      expect(intent).toMatchObject({ content: "持久保存的 A 请求", request: { workspace_id: workspace.id } });
+      await user.click(screen.getByRole("button", { name: "Durable B" }));
+      await user.type(screen.getByRole("textbox", { name: "任务草稿 fixture" }), "B 的当前草稿");
+      await act(async () => {
+        if (outcome === "response lost") creation.reject(new Error("creation response lost"));
+        else creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>);
+      });
+      expect(window.location.hash).toBe(`#/threads/${otherThread.id}`);
+      expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("B 的当前草稿");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      if (outcome === "created") {
+        await waitFor(() => expect(client.submitThreadTurn).toHaveBeenCalledTimes(1));
+        expect(savedValues().find((value) => value?.operationKey === `v2-thread-create-turn-${intent.operationID}`))
+          .toMatchObject({ threadID: createdThread.id, workspaceID: workspace.id, content: intent.content });
+        expect(savedValues().filter((value) => value?.version === "v2_creation_recovery.v1")).toEqual([]);
+        await act(async () => { submission.resolve({ accepted: true } as unknown as Awaited<ReturnType<APIClient["submitThreadTurn"]>>); });
+        await waitFor(() => expect(savedValues().find((value) => value?.operationKey === `v2-thread-create-turn-${intent.operationID}`)).toBeUndefined());
+        expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("B 的当前草稿");
+        await user.click(screen.getByRole("button", { name: "打开已创建的对话" }));
+      } else {
+        expect(client.submitThreadTurn).not.toHaveBeenCalled();
+        inspectThreadCreationRequest.mockResolvedValue({ kind: "creation", workspace_id: workspace.id,
+          state: "completed", settled: true, thread_id: createdThread.id, run_id: createdThread.last_run_id,
+          session_id: "session-created", request_fingerprint: "d".repeat(64) });
+        await user.click(screen.getByRole("button", { name: "新对话" }));
+        expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("持久保存的 A 请求");
+        await user.click(await screen.findByRole("button", { name: "打开原对话" }));
+        expect(client.submitThreadTurn).not.toHaveBeenCalled();
+      }
+      expect(window.location.hash).toBe(`#/threads/${createdThread.id}`);
+      expect(client.createThread).toHaveBeenCalledTimes(1);
+    });
+
+  it.each(["creation failed", "turn failed"] as const)(
+    "preserves a newer creation error after switching projects and returning: %s", async (outcome) => {
+      const otherWorkspace = { ...workspace, id: "workspace-round-trip", name: "Other project" };
+      const creation = deferred<Awaited<ReturnType<APIClient["createThread"]>>>();
+      const createThread = vi.fn().mockImplementationOnce(() => creation.promise)
+        .mockRejectedValueOnce(new Error("new request failed"));
+      const client = { hasThreadControl: true, createThread,
+        getPage: vi.fn(async (path: string) => ({ items: path === "/workspaces" ? [workspace, otherWorkspace] : [],
+          page: { limit: 100 }, requestID: path })),
+        submitThreadTurn: vi.fn().mockRejectedValue(new APIRequestError("old turn failed", "CONFLICT", 409,
+          "failed-turn", undefined, undefined, true)), availableModelRoutes: readyModelCatalog(),
+      } as unknown as APIClient;
+      const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      render(<QueryClientProvider client={queries}><V2Workbench client={client} /></QueryClientProvider>);
+      const user = userEvent.setup();
+      await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "旧创建请求");
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+      await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), otherWorkspace.id);
+      await user.selectOptions(screen.getByRole("combobox", { name: "选择工作区" }), workspace.id);
+      fireEvent.change(screen.getByRole("textbox", { name: "开始新对话" }), { target: { value: "新创建请求" } });
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("new request failed");
+      await act(async () => {
+        if (outcome === "creation failed") creation.reject(new Error("old creation failed"));
+        else creation.resolve({ thread: createdThread } as Awaited<ReturnType<APIClient["createThread"]>>);
+      });
+      await waitFor(() => expect(queries.isMutating()).toBe(0));
+      expect(screen.getByRole("alert")).toHaveTextContent("new request failed");
+      expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("新创建请求");
+      expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+      expect(window.location.hash).toBe("#/new");
+    });
 });

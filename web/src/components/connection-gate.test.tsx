@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useConnectionStore } from "../state/connection";
+import { createV2Client } from "../v2/client-session";
 import { ConnectionGate } from "./connection-gate";
 
 vi.mock("../lib/locale", () => ({
@@ -15,8 +16,12 @@ describe("ConnectionGate", () => {
     delete window.go;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    cleanup();
+    const { useConnectionStore: currentStore } = await import("../state/connection");
+    currentStore.getState().disconnect();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("validates the token through health and does not render it as text", async () => {
@@ -48,6 +53,10 @@ describe("ConnectionGate", () => {
     expect(useConnectionStore.getState().fileEditProposalEnabled).toBe(true);
     expect(useConnectionStore.getState().workspaceImportEnabled).toBe(true);
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(true);
+    expect(useConnectionStore.getState().apiBaseURL).toBe("/api/v1");
+    const client = createV2Client(useConnectionStore.getState());
+    expect(client.hasBatchDeliveryControl).toBe(true);
+    expect(client.hasBatchDeliveryHostValidation).toBe(true);
   });
 
   it("retains the advertised execution read route when connecting without a control token", async () => {
@@ -65,9 +74,37 @@ describe("ConnectionGate", () => {
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(true);
     expect(useConnectionStore.getState().runExecutionEnabled).toBe(false);
     expect(useConnectionStore.getState().threadControlEnabled).toBe(false);
+    expect(createV2Client(useConnectionStore.getState()).hasBatchDeliveryControl).toBe(false);
+    expect(createV2Client(useConnectionStore.getState()).hasBatchDeliveryHostValidation).toBe(false);
   });
 
-  it("auto-connects a closed-authority Desktop bootstrap without rendering its token", async () => {
+  it("rejects contradictory Web batch host capabilities before connecting", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-health",
+      data: { status: "ok", api_version: "api.v1", app_version: "test", schema_version: 129 },
+    }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-capabilities",
+      data: { ...runtimeCapabilities(), batch_delivery_control_enabled: false },
+    }), { status: 200 })));
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
+    await user.type(screen.getByLabelText("只读访问令牌"), "read-token-fixture");
+    await user.type(screen.getByLabelText(/控制访问令牌/), "control-token-fixture");
+    await user.click(screen.getByRole("button", { name: "连接" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("capability response is invalid");
+    expect(useConnectionStore.getState().token).toBe("");
+    expect(useConnectionStore.getState().batchDeliveryControlEnabled).toBe(false);
+    expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(false);
+  });
+
+  it.each([false, true])("carries Desktop batch authority through bootstrap without exposing its token: %s", async (control) => {
+    vi.resetModules();
+    const { ConnectionGate } = await import("./connection-gate");
+    const { useConnectionStore } = await import("../state/connection");
+    const { createV2Client } = await import("../v2/client-session");
+    // Desktop's validated address must survive V2 client construction even if
+    // a Web build default points elsewhere.
+    vi.stubEnv("VITE_API_BASE_URL", "https://other-origin.example/api/v1");
     const bootstrap = vi.fn().mockResolvedValue({
       protocol_version: "desktop_connection_bootstrap.v1",
       agent_code_tools_enabled: true,
@@ -77,14 +114,14 @@ describe("ConnectionGate", () => {
       app_version: "v0.1.0",
       ui_digest: "a".repeat(64),
       read_token: "desktop-read-token-0123456789abcdef",
-      control_token: "",
+      control_token: control ? "desktop-control-token-0123456789abcdef" : "",
       control_enabled: false,
-      execution_permission_control_enabled: false,
+      execution_permission_control_enabled: control,
       browser_cdp_permission_control_enabled: false,
       full_cdp_debug_enabled: false,
       full_cdp_session_control_enabled: false,
-      operator_approval_enabled: false,
-      danger_full_access_enabled: false,
+      operator_approval_enabled: control,
+      danger_full_access_enabled: control,
 
       workspace_sandbox_enabled: false,
       command_runtime_enabled: false,
@@ -112,7 +149,7 @@ describe("ConnectionGate", () => {
       run_wake_worker_enabled: false,
       scheduled_job_control_enabled: false,
       scheduled_job_worker_enabled: false,
-      read_only_default: true,
+      read_only_default: !control,
       process_execution_enabled: false,
       shell_execution_enabled: false,
       docker_execution_enabled: false,
@@ -124,8 +161,8 @@ describe("ConnectionGate", () => {
 	  workspace_checkpoint_control_enabled: false,
 	  git_advanced_control_enabled: false,
 	  github_review_control_enabled: false,
-	  batch_delivery_control_enabled: false,
-	  batch_delivery_host_validation_enabled: false,
+	  batch_delivery_control_enabled: control,
+	  batch_delivery_host_validation_enabled: control,
       user_terminal_enabled: false,
       agent_terminal_input_default: false,
       workspace_open_enabled: false,
@@ -151,10 +188,16 @@ describe("ConnectionGate", () => {
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
     await waitFor(() => expect(useConnectionStore.getState().token)
       .toBe("desktop-read-token-0123456789abcdef"));
-    expect(useConnectionStore.getState().controlToken).toBe("");
+    expect(useConnectionStore.getState().controlToken)
+      .toBe(control ? "desktop-control-token-0123456789abcdef" : "");
     expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(false);
+    const client = createV2Client(useConnectionStore.getState());
+    expect(client.baseURL).toBe("/api/v1");
+    expect(client.hasBatchDeliveryControl).toBe(control);
+    expect(client.hasBatchDeliveryHostValidation).toBe(control);
     expect(screen.queryByText("desktop-read-token-0123456789abcdef")).not.toBeInTheDocument();
+    expect(screen.queryByText("desktop-control-token-0123456789abcdef")).not.toBeInTheDocument();
     expect(bootstrap).toHaveBeenCalledTimes(1);
   });
 });
@@ -200,7 +243,7 @@ function runtimeCapabilities() {
 	git_advanced_control_enabled: true,
 	github_review_control_enabled: true,
 	batch_delivery_control_enabled: true,
-	batch_delivery_host_validation_enabled: false,
+	batch_delivery_host_validation_enabled: true,
     shell_execution_enabled: true, docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: false,
       state: "disabled", active: false, poll_interval_ms: 0, concurrency: 1,

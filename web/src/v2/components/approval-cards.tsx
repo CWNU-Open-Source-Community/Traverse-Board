@@ -32,7 +32,7 @@ export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
   const query = useQuery({
     queryKey: v2QueryKeys.approvals(runID),
     queryFn: ({ signal }) => client.approvalQueue(runID, signal),
-    enabled: Boolean(runID) && client.hasApprovalControl,
+    enabled: Boolean(runID),
     refetchInterval: 2_000,
   });
   const decided = (message: string) => {
@@ -43,11 +43,16 @@ export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
   };
   return <>
     {notice && <p className="v2-notice" role="status">{notice}</p>}
+    {query.isLoading && <p className="v2-notice" role="status">正在读取待审批操作…</p>}
     {query.isError && <div className="v2-notice tone-warning" role="alert">
       无法读取待审批操作，请重试后再作决定。
       <button onClick={() => void query.refetch()} type="button">重试审批队列</button>
     </div>}
-    {Boolean(query.data?.items.length) && <section aria-label="需要你的批准" className="v2-approval-stack">
+    {query.isSuccess && query.data.items.length === 0 && <p className="v2-notice" role="status">没有待处理审批。</p>}
+    {Boolean(query.data?.items.length) && <section aria-label="待处理审批" className="v2-approval-stack">
+      {!client.hasApprovalControl && <p className="v2-notice" role="status">
+        当前连接只有审批读取权限；批准、拒绝或继续恢复需要审批控制权限。
+      </p>}
       {query.data?.items.map((item) => <ApprovalCard client={client} item={item} key={item.id}
         onDecided={decided} runID={runID} onReviewFile={onReviewFile} />)}
       {query.data?.truncated && <p role="status">待审批操作较多；处理后会继续显示其余操作。</p>}
@@ -113,7 +118,7 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
     },
     onError: () => { void preview.refetch(); },
   });
-  const canApprove = preview.isSuccess && !preview.isFetching && preview.data.source_current &&
+  const canApprove = client.hasApprovalControl && preview.isSuccess && !preview.isFetching && preview.data.source_current &&
     !preview.data.truncated && !mutation.isPending;
   const dryRun = preview.data?.effect === "dry_run";
   return <article className="v2-approval-card">
@@ -142,10 +147,10 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
         <button onClick={() => void preview.refetch()} type="button">刷新操作预览</button></p>}
     </>}
     {recovering && <p>上次决定已经保存。继续只会恢复同一决定，不会更改授权范围。</p>}
-    {!recovering && item.allowed_actions.includes("deny") && <input
+    {client.hasApprovalControl && !recovering && item.allowed_actions.includes("deny") && <input
       aria-label={`${item.tool_name} 的拒绝原因`} disabled={mutation.isPending} maxLength={2048}
       onChange={(event) => setReason(event.target.value)} placeholder="拒绝原因（可选）" value={reason} />}
-    {item.allowed_actions.includes("approve_for_run") && <fieldset disabled={mutation.isPending}>
+    {client.hasApprovalControl && item.allowed_actions.includes("approve_for_run") && <fieldset disabled={mutation.isPending}>
       <legend>本 Run 的有界审批</legend>
       <p>按这份用途与风险范围计数，每条新命令仍需单独确认。已有授权的次数与到期时间不会因再次确认而重置。</p>
       <label>有效秒数<input aria-label="有界审批有效秒数" type="number" min={1} max={900} value={grantTTL} disabled={existingGrant}
@@ -159,14 +164,14 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
       {onReviewFile && preview.isSuccess && preview.data.effect === "file_review_required" && <button
         className="primary" disabled={preview.isFetching} onClick={(event) => onReviewFile({
           runID, editID: item.proposal_id, workspaceID: item.workspace_id }, event.currentTarget)} type="button">审阅文件提案</button>}
-      {item.allowed_actions.includes("deny") && <button className="secondary" disabled={mutation.isPending}
+      {client.hasApprovalControl && item.allowed_actions.includes("deny") && <button className="secondary" disabled={mutation.isPending}
         onClick={() => mutation.mutate("deny")} type="button"><Ban aria-hidden="true" size={15} />
         {recovering ? "继续恢复" : "拒绝"}</button>}
-      {item.allowed_actions.includes("approve_once") && <button className="primary" disabled={!canApprove}
+      {client.hasApprovalControl && item.allowed_actions.includes("approve_once") && <button className="primary" disabled={!canApprove}
         onClick={() => mutation.mutate("approve_once")} type="button">
         {mutation.isPending ? <LoaderCircle className="spin" size={15} /> : <Check aria-hidden="true" size={15} />}
         {recovering ? "继续恢复" : dryRun ? "批准模拟一次" : webFetch ? "允许一次" : "仅批准一次"}</button>}
-      {webFetch && item.allowed_actions.includes("approve_for_thread") && <button className="primary"
+      {client.hasApprovalControl && webFetch && item.allowed_actions.includes("approve_for_thread") && <button className="primary"
         disabled={!canApprove} onClick={() => mutation.mutate("approve_for_thread")} type="button">
         <Check aria-hidden="true" size={15} />{recovering ? "继续恢复" : "本对话允许"}</button>}
     </footer>

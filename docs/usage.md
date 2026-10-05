@@ -38,6 +38,24 @@ false until that matrix is signed.
 
 ## Threads, Runs, and advanced diagnostics / Thread、Run 与高级诊断
 
+In Web and Desktop, a newly created task opens automatically only while its
+original waiting page is still current. After navigating elsewhere, use the
+creation notice to open it; its first message continues with the original
+request identity. Resuming a paused task also keeps its pending result, retry
+identity, and refresh bound to that task and Run, without changing another task's
+draft or controls.
+
+Web 和 Desktop 创建任务后，仅在仍停留于原等待页时自动打开。切换页面后，可通过
+“打开已创建的对话”提示主动进入；首条消息仍按原请求继续交接。解除暂停的等待、
+错误与重试归属原任务及 Run，不影响当前任务的草稿和操作状态。
+
+Both connection paths preserve the enabled batch delivery and host-validation
+capabilities together with their existing permission requirements. Read-only
+connections can inspect pending approvals and the API's redacted previews;
+approval, denial, and decision recovery still require approval control authority.
+两种连接入口均保留已启用的批次交付能力及原有权限组合。只读连接可查看待审批条目
+与接口允许展示的脱敏预览；批准、拒绝和恢复决定仍需审批控制权限。
+
 ```powershell
 cyberagent run create "review this workspace" --workspace demo --profile review --surface code --phase plan
 cyberagent run create "explain this code" --profile learn --max-turns 40 --max-tokens 20000 --timeout 20m
