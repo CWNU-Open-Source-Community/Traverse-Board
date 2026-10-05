@@ -91,7 +91,7 @@ it.each(["inspector", "conversation"] as const)("reveals the %s draft when reque
   await user.click(await screen.findByRole("button", { name: "应用预览" }));
   const dialog = await screen.findByRole("dialog", { name: "应用预览" });
   await waitFor(() => expect(client.getFullCDPSession).toHaveBeenCalledWith("run-thread-a", expect.any(AbortSignal)));
-  await user.click(within(dialog).getByRole("button", { name: "让 Agent 启动项目应用" }));
+  await user.click(within(dialog).getByRole("button", { name: "把启动要求放回草稿" }));
   const editor = container.querySelector<HTMLTextAreaElement>(".v2-shared-composer textarea")!;
   await waitFor(() => expect(editor).toHaveFocus());
   expect(editor).toBeVisible();

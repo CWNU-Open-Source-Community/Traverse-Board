@@ -21250,6 +21250,329 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/threads/{thread_id}/application-services": {
+      "get": {
+        "operationId": "listThreadApplicationServices",
+        "summary": "List task command service candidates",
+        "description": "Bounded metadata from Jobs in every Run belonging to this Thread. Source message identity is present only when an exact background start and operator delivery are proven. Does not read command output, start work, probe URLs, or assert readiness.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadApplicationServicesView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/application-services/{job_id}": {
+      "get": {
+        "operationId": "getThreadApplicationService",
+        "summary": "Read one exact task command service",
+        "description": "Reads an exact Thread-owned Run/Job and a bounded sanitized output tail. Loopback URLs are unverified command-output candidates; no network or readiness check is performed.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "Exact command Job identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadApplicationServiceDetailView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/application-services/{job_id}/stop": {
+      "post": {
+        "operationId": "stopThreadApplicationService",
+        "summary": "Stop one exact owned task command service",
+        "description": "Cleanup only under Run execution control. Requires the expected original Run and the fixed application-stop-{job_id} Idempotency-Key. Only this process's exact Job owner may cancel; repeated stopping observes its fact without upgrading to Kill. Reaped terminal Jobs replay and cold active Jobs fail closed. No persisted PID is signalled.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "Exact command Job identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadApplicationServiceStopView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadApplicationServiceStopRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/threads/{thread_id}/archive": {
       "post": {
         "operationId": "archiveThread",
@@ -53638,6 +53961,253 @@
           "citeable",
           "sources",
           "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_urls": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadApplicationServiceURLView"
+            },
+            "type": "array"
+          },
+          "output": {
+            "$ref": "#/components/schemas/ThreadApplicationServiceOutputView"
+          },
+          "service": {
+            "$ref": "#/components/schemas/ThreadApplicationServiceView"
+          },
+          "version": {
+            "enum": [
+              "thread_application_services.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "service",
+          "output",
+          "candidate_urls"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceOutputView": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "base_cursor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "boolean"
+          },
+          "end_cursor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stderr": {
+            "type": "string"
+          },
+          "stdout": {
+            "type": "string"
+          },
+          "truncation_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stdout",
+          "stderr",
+          "base_cursor",
+          "next_cursor",
+          "end_cursor",
+          "dropped",
+          "available"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceStopRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_application_services.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_run_id"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceStopView": {
+        "additionalProperties": false,
+        "properties": {
+          "replayed": {
+            "type": "boolean"
+          },
+          "service": {
+            "$ref": "#/components/schemas/ThreadApplicationServiceView"
+          },
+          "version": {
+            "enum": [
+              "thread_application_services.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "service",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceURLView": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "enum": [
+              "command_output"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url",
+          "source",
+          "verified"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServiceView": {
+        "additionalProperties": false,
+        "properties": {
+          "can_stop": {
+            "type": "boolean"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "job_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_call_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_message_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_turn": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "prepared",
+              "running",
+              "stopping",
+              "completed",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "killed",
+              "interrupted"
+            ],
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id",
+          "run_id",
+          "job_id",
+          "state",
+          "created_at",
+          "can_stop"
+        ],
+        "type": "object"
+      },
+      "ThreadApplicationServicesView": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadApplicationServiceView"
+            },
+            "type": "array"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_application_services.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "thread_id",
+          "services",
+          "has_more"
         ],
         "type": "object"
       },

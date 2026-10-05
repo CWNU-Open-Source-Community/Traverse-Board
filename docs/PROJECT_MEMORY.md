@@ -1,5 +1,11 @@
 # Prayu Project Memory
 
+> 2026-10-06 application preview checkpoint (#274): ordinary Thread submissions remain
+> the startup path. A Thread-scoped projection connects existing Command Runtime Jobs,
+> exact source messages, bounded sanitized output and unverified loopback candidates.
+> Browser close and exact process-owned Job cleanup remain separate; no new launch
+> endpoint or process manager is introduced. See [ADR 0166](adr/0166-thread-application-service-preview.md).
+
 > 2026-10-06 frontend checkpoint (#260): latest Thread transcript synchronization is
 > separate from manual history paging; stable narrative rows are reused, and settings,
 > Inspector and review modules load on first use. Source identities, Go-owned state,

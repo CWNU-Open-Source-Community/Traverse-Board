@@ -66,6 +66,21 @@ briefly show a loading message. See the [frontend performance evidence](FRONTEND
 或切换任务时保留阅读位置。设置、Inspector 与改动审阅在打开时加载，首次进入可能
 短暂显示加载提示。请求量、首屏资源和字体评估见[前端性能验证记录](FRONTEND_PERFORMANCE_260.md)。
 
+Application preview lists the current task's managed command Jobs with their original
+Run and output. “把启动要求放回草稿” preserves the draft for review and sending; it
+does not launch a command. After submission, select the associated Job, inspect its
+stdout/stderr and explicitly choose a candidate local URL. Browser preview still
+requires the existing live Full and browser-control permissions. Closing its browser
+and stopping the selected service are separate actions; hiding the panel performs
+neither. Output URLs are unverified candidates, and exited services stay visibly exited.
+See [ADR 0166](adr/0166-thread-application-service-preview.md).
+
+“应用预览”列出当前任务所属命令的原始 Run、Job 与输出。“把启动要求放回草稿”会保留
+原稿，确认发送后才进入普通任务执行。提交后选择对应 Job，查看 stdout/stderr，并明确
+选择一个候选本机地址。浏览器仍需要现有的 Full 激活与浏览器控制权限。“关闭浏览器”
+和“停止此命令”分别作用于该浏览器会话和选中的 Job；收起面板不执行这两项操作。
+输出地址不等于服务已就绪，失败或退出的命令会保留其真实状态及输出。
+
 ```powershell
 cyberagent run create "review this workspace" --workspace demo --profile review --surface code --phase plan
 cyberagent run create "explain this code" --profile learn --max-turns 40 --max-tokens 20000 --timeout 20m

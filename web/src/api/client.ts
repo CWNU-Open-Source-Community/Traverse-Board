@@ -1,4 +1,6 @@
 import { consumeSSE } from "./sse";
+import { applicationServiceIdentity, parseThreadApplicationServices, parseThreadApplicationService,
+  parseThreadApplicationServiceStop } from "./application-services";
 import type { ProviderModelDiscoveryRequestView, ProviderModelDiscoveryView } from "./types";
 import { acceptedImageTypes, maximumImageBytes, validImageAttachment, validImageAttachments, type WorkspaceImageAttachment } from "./image-attachments";
 import { maximumFileBytes, validFileAttachment, validFileAttachments, type WorkspaceFileAttachment } from "./file-attachments";
@@ -6410,6 +6412,33 @@ export class APIClient {
     }
     return parseRunCapabilityReadiness(await this.get<unknown>(
       `/runs/${encodeURIComponent(runID)}/capability-readiness`, {}, signal), runID);
+  }
+
+  async listThreadApplicationServices(threadID: string, signal?: AbortSignal, limit = 20) {
+    if (!applicationServiceIdentity(threadID) || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+      throw new Error("A valid Thread and bounded application service limit are required");
+    }
+    return parseThreadApplicationServices(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/application-services`, { limit }, signal), threadID);
+  }
+
+  async getThreadApplicationService(threadID: string, jobID: string, signal?: AbortSignal) {
+    if (!applicationServiceIdentity(threadID) || !applicationServiceIdentity(jobID)) {
+      throw new Error("An exact Thread and application Job are required");
+    }
+    return parseThreadApplicationService(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/application-services/${encodeURIComponent(jobID)}`, {}, signal), threadID, jobID);
+  }
+
+  async stopThreadApplicationService(threadID: string, runID: string, jobID: string, signal?: AbortSignal) {
+    if (!this.hasRunExecution || !applicationServiceIdentity(threadID) || !applicationServiceIdentity(runID) ||
+      !applicationServiceIdentity(jobID)) {
+      throw new Error("Application service cleanup requires control access and an exact Thread, Run and Job");
+    }
+    return parseThreadApplicationServiceStop(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/application-services/${encodeURIComponent(jobID)}/stop`,
+      { version: "thread_application_services.v1", expected_run_id: runID },
+      `application-stop-${jobID}`, signal), threadID, runID, jobID);
   }
 
   async getFullCDPSession(runID: string,
