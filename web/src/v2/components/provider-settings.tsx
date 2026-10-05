@@ -1183,7 +1183,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         </div>
       </section>}
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-models-title">
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-models-title">
         <header><div><h2 id="provider-models-title">可用模型</h2><p>使用当前 API Key 从服务获取模型，或手动补充。获取后选择要加入的模型，保存时生效。</p></div>
           <button className="secondary" disabled={busy || discoveryBusy || typeof client.discoverProviderModels !== "function"}
             onClick={() => void discoverModels()} type="button">
@@ -1232,9 +1232,9 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
               onClick={() => { if (mergeModels(selectedDiscoveredModels)) setSelectedDiscoveredModels([]); }} type="button">添加所选模型</button>}
           </div>}
         </div>
-      </section>
+      </section>}
 
-      <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-output-title">
+      {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-output-title">
         <header><div><h2 id="provider-output-title">模型输出限制</h2>
           <p>每个模型可继承默认策略，或自定义默认输出与单次上限。Token 包括服务计入输出的推理内容，不保证全部用于可见文字。</p></div></header>
         <div className="v2-provider-grid">
@@ -1273,7 +1273,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             </article>;
           })}
         </div>
-      </section>
+      </section>}
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
         <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明确认每个模型是否接收图片。保存的是能力声明，不代表已经验证图像理解；原始图片会发送到上方的请求地址。</p></div></header>
