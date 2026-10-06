@@ -2,6 +2,12 @@
 
 Universal Code is a run-centric, resumable Agent workbench. Go owns execution, policy and persistence; Desktop, Web and CLI use the same application services.
 
+Task-title search applies in SQLite before the existing creation-keyset page.
+Each list item carries a Go-owned live/durable execution observation distinct
+from composer availability; uncertain ownership remains unknown. The sidebar
+refreshes the list as a whole. See
+[ADR 0167](adr/0167-task-title-search-and-execution-observation.md).
+
 Application preview joins the existing Thread message and Command Runtime Job ledgers
 through `thread_application_services.v1`. Its bounded read and exact Job cleanup adapters
 retain source Run ownership and never launch a process or infer readiness from a URL.

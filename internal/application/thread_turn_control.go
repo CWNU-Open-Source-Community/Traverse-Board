@@ -311,6 +311,35 @@ func (s *ThreadTurnService) ExecutionState(ctx context.Context, threadID string)
 	return state, nil
 }
 
+// ExecutionStates snapshots only this service's live request ownership under
+// one lock. Callers combine it with durable facts; absence here alone does not
+// prove that another process has stopped executing a Run.
+func (s *ThreadTurnService) ExecutionStates(ctx context.Context,
+	threadIDs []string,
+) (map[string]ThreadExecutionState, error) {
+	if s == nil || s.threads == nil || s.threads.store == nil {
+		return nil, apperror.New(apperror.CodeFailedPrecondition, "Thread execution observation is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, apperror.Normalize(err)
+	}
+	if len(threadIDs) > 1000 {
+		return nil, apperror.New(apperror.CodeInvalidArgument, "Thread execution observation is limited to 1000 Threads")
+	}
+	for _, id := range threadIDs {
+		if !domain.ValidAgentID(id) {
+			return nil, apperror.New(apperror.CodeInvalidArgument, "Thread execution observation identity is invalid")
+		}
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	states := make(map[string]ThreadExecutionState, len(threadIDs))
+	for _, id := range threadIDs {
+		states[id] = s.executionStateLocked(id)
+	}
+	return states, nil
+}
+
 func (s *ThreadTurnService) Interrupt(ctx context.Context, threadID, executionID string) (ThreadExecutionState, error) {
 	if _, err := s.threads.Get(ctx, threadID); err != nil {
 		return ThreadExecutionState{}, err

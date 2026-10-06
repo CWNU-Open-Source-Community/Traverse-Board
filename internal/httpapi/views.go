@@ -1119,6 +1119,7 @@ type ThreadView struct {
 	LastRunID       string     `json:"last_run_id"`
 	Version         int64      `json:"version"`
 	ComposerState   string     `json:"composer_state"`
+	ExecutionState  string     `json:"execution_state,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	ArchivedAt      *time.Time `json:"archived_at,omitempty"`

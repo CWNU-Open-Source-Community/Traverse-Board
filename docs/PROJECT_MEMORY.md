@@ -1,5 +1,11 @@
 # Prayu Project Memory
 
+> 2026-10-07 task-list checkpoint (#272): title search filters the complete matching
+> task set before stable creation-keyset pagination. A bounded Go-owned execution
+> observation travels with each list item; uncertain ownership/read failures stay
+> unknown. Search/clear preserve the active task and draft. See
+> [ADR 0167](adr/0167-task-title-search-and-execution-observation.md).
+
 > 2026-10-06 application preview checkpoint (#274): ordinary Thread submissions remain
 > the startup path. A Thread-scoped projection connects existing Command Runtime Jobs,
 > exact source messages, bounded sanitized output and unverified loopback candidates.

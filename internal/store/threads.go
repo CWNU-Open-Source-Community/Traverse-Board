@@ -110,8 +110,12 @@ func (s *SQLiteStore) ListThreadsByCreationPage(ctx context.Context, filter doma
 	if err := validateStoreCreationPage(beforeCreatedAt, beforeID, filter.Limit); err != nil {
 		return nil, err
 	}
+	titleQuery, err := domain.NormalizeThreadTitleQuery(filter.TitleQuery)
+	if err != nil {
+		return nil, err
+	}
 	query := threadSelect + ` WHERE 1=1`
-	args := make([]any, 0, 5)
+	args := make([]any, 0, 6)
 	if filter.Status != "" {
 		if !domain.ValidThreadStatus(filter.Status) {
 			return nil, fmt.Errorf("invalid thread status %q", filter.Status)
@@ -121,6 +125,10 @@ func (s *SQLiteStore) ListThreadsByCreationPage(ctx context.Context, filter doma
 	} else if !filter.IncludeDeleted {
 		query += ` AND status <> ?`
 		args = append(args, domain.ThreadDeleted)
+	}
+	if titleQuery != "" {
+		query += ` AND instr(lower(title), ?) > 0`
+		args = append(args, titleQuery)
 	}
 	if !beforeCreatedAt.IsZero() {
 		query += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
@@ -143,6 +151,61 @@ func (s *SQLiteStore) ListThreadsByCreationPage(ctx context.Context, filter doma
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// GetThreadExecutionFacts reads a whole bounded list page in one SQLite
+// snapshot. Lease and request identities stay inside the control plane.
+func (s *SQLiteStore) GetThreadExecutionFacts(ctx context.Context,
+	threadIDs []string,
+) (map[string]domain.ThreadExecutionFacts, error) {
+	if len(threadIDs) > 1000 {
+		return nil, errors.New("Thread execution facts are limited to 1000 Threads")
+	}
+	facts := make(map[string]domain.ThreadExecutionFacts, len(threadIDs))
+	if len(threadIDs) == 0 {
+		return facts, nil
+	}
+	args := make([]any, len(threadIDs))
+	placeholders := make([]string, len(threadIDs))
+	for index, id := range threadIDs {
+		if !domain.ValidAgentID(id) {
+			return nil, errors.New("Thread execution facts identity is invalid")
+		}
+		args[index], placeholders[index] = id, "?"
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT thread.id, run.id, run.status,
+		EXISTS (SELECT 1 FROM tool_approvals approval WHERE approval.run_id = run.id AND approval.status = 'pending'),
+		(EXISTS (SELECT 1 FROM run_execution_leases lease
+			WHERE lease.run_id = run.id AND lease.status = 'active')
+		 OR EXISTS (SELECT 1 FROM run_supervisor_checkpoints checkpoint
+			WHERE checkpoint.run_id = run.id AND run.status NOT IN ('completed', 'failed', 'cancelled')
+			 AND (checkpoint.phase = 'turn_failed'
+			 OR (checkpoint.phase = 'turn_started' AND NOT EXISTS
+				(SELECT 1 FROM tool_approvals approval WHERE approval.run_id = run.id AND approval.status = 'pending'))))
+		 OR EXISTS (SELECT 1 FROM run_execution_handoff_operations operation
+			WHERE operation.run_id = run.id AND NOT EXISTS
+				(SELECT 1 FROM run_execution_handoff_results result WHERE result.operation_id = operation.id))
+		 OR EXISTS (SELECT 1 FROM thread_message_intents intent
+			WHERE intent.thread_id = thread.id AND intent.message_id IS NULL AND intent.rejected = 0))
+		FROM threads thread JOIN runs run
+		 ON run.id = COALESCE(NULLIF(thread.active_run_id, ''), thread.last_run_id)
+		WHERE thread.id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var fact domain.ThreadExecutionFacts
+		if err := rows.Scan(&id, &fact.RunID, &fact.RunStatus, &fact.PendingApproval, &fact.Unsettled); err != nil {
+			return nil, err
+		}
+		if !domain.ValidRunStatus(fact.RunStatus) {
+			return nil, errors.New("Thread execution facts Run status is invalid")
+		}
+		facts[id] = fact
+	}
+	return facts, rows.Err()
 }
 
 func (s *SQLiteStore) ListThreadRuns(ctx context.Context, threadID string) ([]domain.ThreadRun, error) {

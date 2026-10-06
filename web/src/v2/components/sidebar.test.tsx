@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ThreadView, WorkspaceView } from "../../api/types";
 import { V2SettingsSidebar, V2Sidebar } from "./sidebar";
@@ -20,18 +20,21 @@ describe("V2Sidebar archive menu", () => {
     const user = userEvent.setup();
     const onSelectThread = vi.fn();
     const onLoadMore = vi.fn();
+    const onSearchChange = vi.fn();
     render(<V2Sidebar onArchive={vi.fn()} onNewConversation={vi.fn()} onOpenModels={vi.fn()}
       onOpenSettings={vi.fn()} onSearchOpen={vi.fn()} onSelectThread={onSelectThread}
-      onLoadMore={onLoadMore} hasMore searchOpen selectedThreadID="" workspaces={[workspace, second]}
+      onLoadMore={onLoadMore} onSearchChange={onSearchChange} hasMore searchOpen selectedThreadID="" workspaces={[workspace, second]}
       threads={[thread, { ...thread, id: "thread-2", workspace_id: second.id }]} />);
     const first = screen.getByRole("region", { name: `项目 ${workspace.name} · ${workspace.id}` });
     const other = screen.getByRole("region", { name: `项目 ${workspace.name} · ${second.id}` });
     await user.click(within(other).getByRole("button", { name: thread.title }));
     expect(onSelectThread).toHaveBeenCalledWith("thread-2");
     expect(within(first).getByRole("button", { name: thread.title })).toBeInTheDocument();
-    expect(screen.getByText(/不含消息正文/)).toHaveTextContent("更早记录可继续加载");
-    await user.type(screen.getByRole("searchbox", { name: "搜索对话" }), "missing");
-    expect(screen.getByText("已加载的标题中没有匹配项")).toBeInTheDocument();
+    expect(screen.getByText(/不含消息正文/)).toHaveTextContent("搜索全部未归档对话标题");
+    expect(screen.getByRole("status")).toHaveTextContent("已加载 2 条对话；还有更早记录");
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话" }), { target: { value: "missing" } });
+    expect(onSearchChange).toHaveBeenCalledWith("missing");
+    expect(within(first).getByRole("button", { name: thread.title })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "加载更早对话" }));
     expect(onLoadMore).toHaveBeenCalledOnce();
   });
@@ -47,6 +50,53 @@ describe("V2Sidebar archive menu", () => {
 
     expect(onArchive).toHaveBeenCalledTimes(1);
     expect(onArchive).toHaveBeenCalledWith(thread);
+  });
+});
+
+describe("V2Sidebar execution status", () => {
+  const props = { onArchive: vi.fn(), onNewConversation: vi.fn(), onOpenModels: vi.fn(),
+    onOpenSettings: vi.fn(), onSearchOpen: vi.fn(), onSelectThread: vi.fn(),
+    searchOpen: false, selectedThreadID: thread.id, workspaces: [workspace] };
+
+  it.each([
+    ["idle", "空闲"], ["running", "执行中"], ["stopping", "正在停止"], ["stop_failed", "停止失败"],
+    ["waiting_approval", "等待审批"], ["paused", "已暂停"], ["completed", "已完成"],
+    ["failed", "执行失败"], ["cancelled", "已取消"], ["unknown", "状态未知"],
+  ])("describes Go execution state %s independently of composer readiness", (state, label) => {
+    render(<V2Sidebar {...props} threads={[{ ...thread, execution_state: state } as ThreadView]} />);
+    const row = screen.getByRole("button", { name: thread.title });
+    expect(row).toHaveTextContent(label);
+    expect(row).toHaveAccessibleDescription(state === "unknown" ? "执行状态未知，请刷新列表重试" : label);
+    expect(row).toHaveAttribute("aria-current", "page");
+  });
+
+  it.each([[undefined], ["unsupported"], [["idle"]], [{ toString: "idle" }]])("treats missing or invalid state %j as unknown", (state) => {
+    render(<V2Sidebar {...props} threads={[{ ...thread, execution_state: state } as ThreadView]} />);
+    const row = screen.getByRole("button", { name: thread.title });
+    expect(row).toHaveTextContent("状态未知");
+    expect(row).not.toHaveTextContent("空闲");
+  });
+
+  it("does not display stale idle status after a list read failure and retries the failed operation", async () => {
+    const onRetry = vi.fn();
+    const onLoadMore = vi.fn();
+    render(<V2Sidebar {...props} threads={[{ ...thread, execution_state: "idle" } as ThreadView]}
+      hasMore loadFailed onRetry={onRetry} onLoadMore={onLoadMore} />);
+    const row = screen.getByRole("button", { name: thread.title });
+    expect(row).toHaveTextContent("状态未知");
+    expect(row).toHaveAccessibleDescription("本次列表读取失败，执行状态未知");
+    expect(row).not.toHaveTextContent("空闲");
+    await userEvent.setup().click(screen.getByRole("button", { name: "重试加载对话" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onLoadMore).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("reports capped result sets without claiming pagination is complete (search=%s)", (searching) => {
+    render(<V2Sidebar {...props} threads={[thread]} truncated appliedSearch={searching ? "audit" : ""} />);
+    const status = screen.getByRole("status", { name: "对话列表状态" });
+    expect(status).toHaveTextContent("结果达到读取上限");
+    expect(status).not.toHaveTextContent("全部匹配结果已加载");
+    expect(status).not.toHaveTextContent("当前列表已加载完毕");
   });
 });
 

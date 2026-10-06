@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -190,7 +191,37 @@ type ThreadRunAuditEvent struct {
 type ThreadFilter struct {
 	Status         ThreadStatus
 	IncludeDeleted bool
+	TitleQuery     string
 	Limit          int
+}
+
+const MaxThreadTitleQueryRunes = 256
+
+// NormalizeThreadTitleQuery defines literal title-substring matching. SQLite's
+// lower() folds ASCII; other Unicode characters retain their exact spelling.
+func NormalizeThreadTitleQuery(query string) (string, error) {
+	if !utf8.ValidString(query) {
+		return "", errors.New("Thread title query must be valid UTF-8")
+	}
+	query = strings.TrimSpace(query)
+	if utf8.RuneCountInString(query) > MaxThreadTitleQueryRunes {
+		return "", fmt.Errorf("Thread title query must be at most %d characters", MaxThreadTitleQueryRunes)
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, query), nil
+}
+
+// ThreadExecutionFacts is a private read projection. An unsettled durable
+// boundary prevents a process-local observer from claiming execution is idle.
+type ThreadExecutionFacts struct {
+	RunID           string
+	RunStatus       RunStatus
+	PendingApproval bool
+	Unsettled       bool
 }
 
 type ThreadExport struct {

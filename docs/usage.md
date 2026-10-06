@@ -672,6 +672,21 @@ During an attempt, `run events` may contain at most 32 ordered `model.delta` rec
 
 ### Unified Thread transcript / 统一 Thread 主工作面
 
+侧栏搜索通过 `GET /api/v1/threads?status=active&q=...` 检索全部未归档任务的标题，
+无需先加载旧任务；不搜索消息正文，归档任务仍在设置中查看。查询会去掉首尾空白，最多
+256 个 Unicode 字符，ASCII 字母不区分大小写，其他 Unicode 字符精确匹配；`%`、`_`
+和反斜杠按普通字符匹配。空查询与不传 `q` 相同。
+
+结果按创建时间倒序排列，同一时间按任务 ID 倒序。继续使用响应的 `next_cursor` 获取
+更早匹配项；修改查询或生命周期筛选后须从第一页开始。并发新增较新任务不会移动旧页，
+但重命名、归档或删除会改变后续查询的结果集。搜索、翻页与清空搜索不会切换当前任务，
+也不会覆盖正在编辑的草稿。
+
+列表同时返回 Go 投影的 `execution_state`，区分执行中、停止中、等待审批、暂停、空闲和
+终态。输入框可编辑（`composer_state=ready`）不表示空闲。状态读取失败、缺少执行观察源
+或存在未确认的执行归属时显示“状态未知”；侧栏统一刷新列表，不逐行请求执行状态。
+公开合同与兼容性见 [ADR 0167](adr/0167-task-title-search-and-execution-observation.md)。
+
 打开 `/threads/{thread_id}` 时，页面从 `GET /api/v1/threads/{thread_id}/transcript`
 读取最新一页持久记录，并用不受追加事件影响的 opaque keyset cursor 向前加载。记录按
 `(Run ordinal, event sequence, item position)` 排列，包括 Run/successor 边界、用户消息、公开
