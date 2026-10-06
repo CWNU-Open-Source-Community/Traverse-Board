@@ -39,6 +39,7 @@ export type NarrativeEntry =
       id: string;
       kind: "assistant";
       text: string;
+      runId?: string;
       createdAt: string;
       provisional: boolean;
     }
@@ -295,13 +296,14 @@ export function projectThreadNarrative(
       const text = normalizedText(item);
       if (!text) continue;
       const previous = result.at(-1);
-      if (previous?.kind === "assistant" && !previous.provisional && !item.provisional) {
+      if (previous?.kind === "assistant" && !previous.provisional && !item.provisional && previous.runId === item.run_id) {
         // A Supervisor may emit the same final answer again while closing its
         // synthetic continuation turn. Keep distinct progress updates, but do
         // not show an identical durable answer twice in the conversation.
         if (previous.text !== text) previous.text = `${previous.text}\n\n${text}`;
       } else {
         result.push({ id: item.id, kind: "assistant", text,
+          runId: item.run_id,
           createdAt: item.created_at, provisional: item.provisional });
       }
       continue;

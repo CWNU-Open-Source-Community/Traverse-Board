@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, FolderOpen, GitBranch, RefreshCw } from "lucide-react";
+import { ArrowRight, FolderOpen, GitBranch, GitPullRequest, RefreshCw, ShieldCheck } from "lucide-react";
 import type { APIClient } from "../../api/client";
-import { readThreadReview, type ThreadReviewChange } from "../../api/task-delivery";
+import { readThreadReview, type ThreadReview, type ThreadReviewChange } from "../../api/task-delivery";
+import type { RunDetailView } from "../../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "../../components/common";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
+import { PlanDeliveryPanel } from "../../components/run-workspace";
 import { ReviewDiff } from "./review-diff";
 import "./task-delivery.css";
 
@@ -12,15 +14,35 @@ const currentLabels: Record<string, string> = { matches: "与此记录一致", c
 const freshness: Record<string, string> = { current: "适用于当前版本", stale: "代码已变化，需重验", unbound: "未绑定代码版本", unavailable: "无法核对版本" };
 export const taskReviewKey = (threadID: string) => ["thread", threadID, "task-review"] as const;
 
-export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile }: {
+export function isCheckPassed(outcome: string): boolean {
+  const normalized = outcome.toLowerCase().trim();
+  return normalized === "pass" || normalized === "passed" || normalized === "success";
+}
+
+export function isCheckFailed(outcome: string): boolean {
+  const normalized = outcome.toLowerCase().trim();
+  return normalized === "fail" || normalized === "failed" || normalized === "failure" || normalized === "error";
+}
+
+export function TaskOverview({ client, threadID, onFeedback, onGit, onPullRequest, onChecks, onReviewFile, currentRunDetail }: {
   client: APIClient; threadID: string; onFeedback: (context: string) => void; onGit?: () => void;
+  onPullRequest?: () => void; onChecks?: () => void;
   onReviewFile?: (target: FileEditReviewTarget) => void;
+  currentRunDetail?: RunDetailView;
 }) {
   const query = useQuery({ queryKey: taskReviewKey(threadID), queryFn: ({ signal }) => readThreadReview(client, threadID, signal), refetchOnMount: "always" });
   const review = query.data;
   const feedback = (source: string) => onFeedback(`请根据以下任务审阅来源继续修改：\n${source}\n任务：${threadID}\n请核对当前文件，保留无关修改。\n具体要求：`);
+
+  const currentRunChecks = review?.checks.filter((c) => c.run_id === review.current_run_id) ?? [];
+  const historicalChecks = review?.checks.filter((c) => c.run_id !== review.current_run_id) ?? [];
+  const totalChecks = review?.checks.length ?? 0;
+  const passedChecksCount = review?.checks.filter((c) => isCheckPassed(c.outcome)).length ?? 0;
+  const failedChecksCount = review?.checks.filter((c) => isCheckFailed(c.outcome)).length ?? 0;
+  const allPassed = totalChecks > 0 && passedChecksCount === totalChecks;
+
   return <section className="v2-task-delivery" aria-label="整个任务的审阅">
-    <div className="v2-delivery-heading"><div><h2>任务改动</h2><p className="v2-delivery-muted">先核对改动，再选择要提交的文件。</p></div><button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">
+    <div className="v2-delivery-heading"><div><h2>任务改动</h2><p className="v2-delivery-muted">先核对改动，再选择要提交的文件与交付流程。</p></div><button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">
       <RefreshCw size={15} aria-hidden="true" />{query.isFetching ? "正在核对…" : "刷新当前状态"}</button></div>
     {query.isLoading && <LoadingState label="正在汇总任务改动并核对当前目录…" />}
     {query.isError && <ErrorState error={query.error} />}
@@ -35,7 +57,7 @@ export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile
         <div className="v2-overview-counts" aria-label="已记录的任务范围">
           <span><strong>{review.applied_changes.length}</strong> 条已应用编辑</span>
           <span><strong>{review.unapplied_changes.length}</strong> 条未应用提案</span>
-          <span><strong>{review.checks.length}</strong> 项检查记录</span>
+          <span><strong>{totalChecks}</strong> 项检查记录{failedChecksCount > 0 ? `（${failedChecksCount} 项未通过）` : allPassed ? `（全部通过）` : ""}</span>
         </div>
         <details className="v2-delivery-details"><summary>目录与版本详情</summary><dl>
           <div><dt>实际执行目录</dt><dd>{review.target.root_path || "尚无法确认"}</dd></div>
@@ -47,8 +69,25 @@ export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile
         {(review.reasons.length > 0 || review.revision.reasons.length > 0) && <details><summary>审阅范围与缺失信息</summary>
           <ul>{[...new Set([...review.reasons, ...review.revision.reasons])].map((reason) => <li key={reason}>{reason}</li>)}</ul></details>}
       </div>
-      {onGit && <div className="v2-overview-next"><span>查看当前目录的全部改动，选择本次提交范围。</span>
-        <button className="v2-delivery-primary" onClick={onGit} type="button">选择文件并提交<ArrowRight size={15} aria-hidden="true" /></button></div>}
+      <div className="v2-overview-next">
+        <div className="v2-overview-next-label">
+          <strong>交付与下一步操作</strong>
+          <span>查看当前目录的全部改动，选择本次提交范围、进入 PR 或查看完整检查报告。</span>
+        </div>
+        <div className="v2-overview-next-actions">
+          {onGit && <button className="v2-delivery-primary" onClick={onGit} type="button">
+            选择文件并提交<ArrowRight size={15} aria-hidden="true" /></button>}
+          {onPullRequest && <button className="v2-delivery-secondary" onClick={onPullRequest} type="button">
+            <GitPullRequest size={15} aria-hidden="true" />PR 状态与交付</button>}
+          {onChecks && <button className="v2-delivery-secondary" onClick={onChecks} type="button">
+            <ShieldCheck size={15} aria-hidden="true" />完整检查与环境</button>}
+        </div>
+      </div>
+      {currentRunDetail?.plan_delivery && <section className="v2-overview-plan-delivery" aria-label="交付计划">
+        <h3>当前执行的交付计划</h3>
+        <PlanDeliveryPanel client={client} detail={currentRunDetail}
+          key={`plan:${review.current_run_id}`} state={currentRunDetail.plan_delivery} threadID={threadID} />
+      </section>}
       <div className="v2-overview-review-grid"><section aria-label="任务编辑">
       <h3>尚未应用的提案 <span>({review.unapplied_changes.length})</span></h3>
       {!review.unapplied_changes.length && <p>没有已记录的待应用提案。</p>}
@@ -61,18 +100,33 @@ export function TaskOverview({ client, threadID, onFeedback, onGit, onReviewFile
       </section><section aria-label="任务检查">
       <h3>检查结果 <span>({review.checks.length})</span></h3>
       {!review.checks.length && <p>尚无已记录的检查结果。</p>}
-      <div className="v2-delivery-checks">{review.checks.map((check) => <article key={`${check.run_id}:${check.source_kind}:${check.id}`}>
-        <div><strong>{check.title}</strong><StatusBadge status={check.outcome} />
-          <span className={`v2-delivery-freshness ${query.isFetching || query.isError ? "unavailable" : check.revision_state}`}>
-            {query.isFetching || query.isError ? "上次检查记录，当前版本尚未确认" : freshness[check.revision_state] ?? "无法核对版本"}</span></div>
-        <p>{check.revision_state === "unbound" ? "原记录没有保存所检查的代码版本，因此不能证明当前代码通过。" : check.reason}</p>
-        <details><summary>来源与时间</summary><p>{check.run_id} · {check.id} · {new Date(check.recorded_at).toLocaleString()}</p>
-          {check.exit_code !== undefined && <p>实际退出码：{check.exit_code}</p>}</details>
-        <button type="button" onClick={() => feedback(`检查：${check.title}\n结果：${check.outcome}\n版本状态：${check.revision_state}\n来源执行：${check.run_id}\n记录：${check.id}\n绑定版本：${check.recorded_revision_sha256 || "未保存"}\n读取时间：${review.observed_at}`)}>引用检查并继续修复</button>
-      </article>)}</div>
+      {currentRunChecks.length > 0 && <div className="v2-delivery-checks-group">
+        <h4>当前执行 <span>({currentRunChecks.length})</span></h4>
+        <div className="v2-delivery-checks">{currentRunChecks.map((check) => <CheckCard key={`${check.run_id}:${check.source_kind}:${check.id}`}
+          check={check} observedAt={review.observed_at} isFetching={query.isFetching || query.isError} onFeedback={feedback} />)}</div>
+      </div>}
+      {historicalChecks.length > 0 && <div className="v2-delivery-checks-group">
+        <h4>历史执行 <span>({historicalChecks.length})</span></h4>
+        <div className="v2-delivery-checks">{historicalChecks.map((check) => <CheckCard key={`${check.run_id}:${check.source_kind}:${check.id}`}
+          check={check} observedAt={review.observed_at} isFetching={query.isFetching || query.isError} onFeedback={feedback} />)}</div>
+      </div>}
       </section></div>
     </>}
   </section>;
+}
+
+function CheckCard({ check, observedAt, isFetching, onFeedback }: {
+  check: ThreadReview["checks"][number]; observedAt: string; isFetching: boolean; onFeedback: (context: string) => void;
+}) {
+  return <article key={`${check.run_id}:${check.source_kind}:${check.id}`}>
+    <div><strong>{check.title}</strong><StatusBadge status={check.outcome} />
+      <span className={`v2-delivery-freshness ${isFetching ? "unavailable" : check.revision_state}`}>
+        {isFetching ? "上次检查记录，当前版本尚未确认" : freshness[check.revision_state] ?? "无法核对版本"}</span></div>
+    <p>{check.revision_state === "unbound" ? "原记录没有保存所检查的代码版本，因此不能证明当前代码通过。" : check.reason}</p>
+    <details><summary>来源与时间</summary><p>{check.run_id} · {check.id} · {new Date(check.recorded_at).toLocaleString()}</p>
+      {check.exit_code !== undefined && <p>实际退出码：{check.exit_code}</p>}</details>
+    <button type="button" onClick={() => onFeedback(`检查：${check.title}\n结果：${check.outcome}\n版本状态：${check.revision_state}\n来源执行：${check.run_id}\n记录：${check.id}\n绑定版本：${check.recorded_revision_sha256 || "未保存"}\n读取时间：${observedAt}`)}>引用检查并继续修复</button>
+  </article>;
 }
 function TaskChange({ change, observedAt, onFeedback, onReviewFile, currentRunID }: {
   change: ThreadReviewChange; observedAt: string; onFeedback: (context: string) => void;

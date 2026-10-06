@@ -1,8 +1,10 @@
-import { lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, BookOpen, CircleEllipsis, FileDiff, Folder, LoaderCircle, MessagesSquare, Microscope, ShieldCheck, PanelTop } from "lucide-react";
+import { Archive, BookOpen, ChevronDown, CircleEllipsis, FileDiff, Folder, FolderTree, LoaderCircle, MessagesSquare, Microscope, ShieldCheck, PanelTop, Square, SquareTerminal, X } from "lucide-react";
 import { APIRequestError, type APIClient } from "../../api/client";
 import type { ThreadDetailView, ThreadView, WorkspaceView } from "../../api/types";
+import { readThreadReview } from "../../api/task-delivery";
 import { usePublicModelStream } from "../../hooks/use-public-model-stream";
 import { useRunEventStream } from "../../hooks/use-run-event-stream";
 import { threadActivityLabel } from "../../lib/thread-activity-label";
@@ -39,10 +41,265 @@ import { V2ApprovalCards } from "./approval-cards";
 import { V2Composer } from "./composer";
 import { V2ThreadRunRecovery } from "./thread-run-recovery";
 import { useV2ThreadExecution, V2ThreadExecutionControl, V2PausedThreadControl } from "./thread-execution-control";
+import { WorkspaceExplorer } from "../../components/workspace-explorer";
+import { UserTerminalPanel } from "../../components/user-terminal-panel";
+import { desktopUserTerminalEnabled, closeDesktopUserTerminal } from "../../lib/desktop-bridge";
+import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
+
+export { parseProjectFileLink, type FileLinkTarget } from "./narrative";
 
 const V2TaskReview = lazy(() => import("./task-review").then((module) => ({ default: module.V2TaskReview })));
 const V2Inspector = lazy(() => import("./inspector").then((module) => ({ default: module.V2Inspector })));
 const V2ApplicationPreview = lazy(() => import("./application-preview").then((module) => ({ default: module.V2ApplicationPreview })));
+
+const threadTerminalSessions = new Map<string, string>();
+const terminalListeners = new Set<() => void>();
+
+function getThreadTerminalSession(threadID: string): string {
+  return threadTerminalSessions.get(threadID) ?? "";
+}
+
+function setThreadTerminalSession(threadID: string, sessionID: string) {
+  if (sessionID) {
+    threadTerminalSessions.set(threadID, sessionID);
+  } else {
+    threadTerminalSessions.delete(threadID);
+  }
+  terminalListeners.forEach((l) => l());
+}
+
+function subscribeTerminalSessions(listener: () => void) {
+  terminalListeners.add(listener);
+  return () => {
+    terminalListeners.delete(listener);
+  };
+}
+
+export function V2FileDrawer({
+  client,
+  threadID,
+  workspaceID: defaultWorkspaceID,
+  runID,
+  initialPath = ".",
+  initialLine,
+  onClose,
+  returnFocusRef,
+}: {
+  client: APIClient;
+  threadID?: string;
+  workspaceID: string;
+  runID: string;
+  initialPath?: string;
+  initialLine?: number;
+  onClose: () => void;
+  returnFocusRef: RefObject<HTMLElement | null>;
+}) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const dialog = useModalFocusTrap<HTMLElement>(true, onClose, false, closeButton, {
+    isolateBackground: true,
+    returnFocusRef,
+  });
+
+  const workspaceQuery = useQuery({
+    queryKey: ["v2", "file-drawer-workspace", runID, defaultWorkspaceID, threadID],
+    queryFn: async ({ signal }) => {
+      if (!runID) return defaultWorkspaceID;
+      if (typeof client.fileEditChangeSet === "function") {
+        try {
+          const changeSet = await client.fileEditChangeSet(runID, signal);
+          if (changeSet?.workspace_id) return changeSet.workspace_id;
+        } catch {
+          // fallback
+        }
+      }
+      if (threadID && typeof client.get === "function") {
+        try {
+          const review = await readThreadReview(client, threadID, signal);
+          const runMatch = review.runs?.find((r) => r.run_id === runID);
+          if (runMatch?.workspace_id) return runMatch.workspace_id;
+          if (review.current_run_id === runID && review.target?.workspace_id) {
+            return review.target.workspace_id;
+          }
+          const changeMatch = [...(review.applied_changes ?? []), ...(review.unapplied_changes ?? [])].find(
+            (c) => c.run_id === runID && c.workspace_id
+          );
+          if (changeMatch?.workspace_id) return changeMatch.workspace_id;
+          if (review.target?.workspace_id) return review.target.workspace_id;
+        } catch {
+          // fallback
+        }
+      }
+      return defaultWorkspaceID;
+    },
+    enabled: Boolean(runID || defaultWorkspaceID),
+    staleTime: 30_000,
+  });
+
+  const resolvedWorkspaceID = workspaceQuery.data ?? defaultWorkspaceID;
+
+  return createPortal(
+    <div
+      className="v2-inspector-backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <section
+        aria-label="工作区文件"
+        aria-modal="true"
+        className="v2-inspector-drawer v2-file-drawer"
+        ref={dialog}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header>
+          <div className="v2-file-drawer-title">
+            <FolderTree aria-hidden="true" size={17} />
+            <strong>工作区文件</strong>
+            {runID && <small className="v2-file-drawer-run">执行：{runID}</small>}
+          </div>
+          <button aria-label="关闭文件面板" onClick={onClose} ref={closeButton} type="button">
+            <X aria-hidden="true" size={18} />
+          </button>
+        </header>
+        <div className="v2-file-drawer-body">
+          {workspaceQuery.isLoading ? (
+            <div className="v2-file-drawer-loading" role="status">
+              <LoaderCircle className="spin" size={20} />
+              <span>正在确认工作区…</span>
+            </div>
+          ) : (
+            <WorkspaceExplorer
+              client={client}
+              workspaceID={resolvedWorkspaceID}
+              runID={runID}
+              initialPath={initialPath}
+              initialLine={initialLine}
+            />
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+export function V2TerminalDrawer({
+  runID,
+  sessionID,
+  threadTitle,
+  workspaceName,
+  onSession,
+  onClose,
+  returnFocusRef,
+}: {
+  runID: string;
+  sessionID: string;
+  threadTitle: string;
+  workspaceName: string;
+  onSession: (sessionID: string) => void;
+  onClose: () => void;
+  returnFocusRef: RefObject<HTMLElement | null>;
+}) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const dialog = useModalFocusTrap<HTMLElement>(true, onClose, false, closeButton, {
+    isolateBackground: true,
+    returnFocusRef,
+  });
+  const terminalAvailable = desktopUserTerminalEnabled();
+  const [terminating, setTerminating] = useState(false);
+  const [terminationError, setTerminationError] = useState<string | null>(null);
+
+  const handleTerminate = async () => {
+    if (!sessionID || terminating) return;
+    const closingSessionID = sessionID;
+    setTerminating(true);
+    setTerminationError(null);
+    try {
+      await closeDesktopUserTerminal(closingSessionID);
+      if (sessionID === closingSessionID) {
+        onSession("");
+      }
+    } catch (err) {
+      setTerminationError(err instanceof Error ? err.message : "终止终端失败");
+    } finally {
+      setTerminating(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      className="v2-inspector-backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <section
+        aria-label="任务终端"
+        aria-modal="true"
+        className="v2-inspector-drawer v2-terminal-drawer"
+        ref={dialog}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header>
+          <div className="v2-terminal-drawer-title">
+            <SquareTerminal aria-hidden="true" size={17} />
+            <strong>任务终端 · {threadTitle}</strong>
+            <small title="工作区目录">{workspaceName}</small>
+          </div>
+          <div className="v2-terminal-header-actions">
+            <button
+              aria-label="收起终端"
+              className="v2-terminal-action-btn"
+              onClick={onClose}
+              title="收起终端（后台进程保持运行）"
+              type="button"
+            >
+              <ChevronDown aria-hidden="true" size={14} />
+              <span>收起</span>
+            </button>
+            {sessionID && (
+              <button
+                aria-label="终止终端进程"
+                className="v2-terminal-action-btn danger"
+                disabled={terminating}
+                onClick={() => void handleTerminate()}
+                title="结束终端（终止当前进程）"
+                type="button"
+              >
+                <Square aria-hidden="true" size={12} />
+                <span>{terminating ? "正在终止…" : "终止"}</span>
+              </button>
+            )}
+            <button aria-label="关闭终端面板" onClick={onClose} ref={closeButton} type="button">
+              <X aria-hidden="true" size={18} />
+            </button>
+          </div>
+        </header>
+        {terminationError && (
+          <div className="v2-terminal-error-notice" role="alert">
+            <span>终止终端失败：{terminationError}</span>
+            <button onClick={() => setTerminationError(null)} type="button">关闭提示</button>
+          </div>
+        )}
+        <div className="v2-terminal-drawer-body">
+          {terminalAvailable ? (
+            <UserTerminalPanel runID={runID} sessionID={sessionID} onSession={onSession} />
+          ) : (
+            <div className="v2-terminal-disabled-notice" role="status">
+              <SquareTerminal aria-hidden="true" size={24} />
+              <p>当前运行环境未启用桌面终端。仅在 Universal Code 桌面端运行时支持本机 Debug 终端。</p>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
   onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
@@ -87,6 +344,48 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const [confirmedSubmission, setConfirmedSubmission] = useState<V2TurnInput | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<"next_turn" | "steer">("next_turn");
   const reviewTrigger = useRef<HTMLButtonElement>(null);
+  const [fileDrawerState, setFileDrawerState] = useState<{
+    open: boolean;
+    path: string;
+    line?: number;
+    runID?: string;
+  }>({ open: false, path: "." });
+  const fileTrigger = useRef<HTMLButtonElement>(null);
+  const fileReturnFocus = useRef<HTMLElement | null>(null);
+
+  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
+  const terminalTrigger = useRef<HTMLButtonElement>(null);
+  const terminalReturnFocus = useRef<HTMLElement | null>(null);
+  const terminalAvailable = desktopUserTerminalEnabled();
+
+  const currentTerminalSessionID = useSyncExternalStore(
+    subscribeTerminalSessions,
+    () => getThreadTerminalSession(threadID),
+    () => ""
+  );
+  const handleTerminalSessionChange = useCallback((newSessionID: string) => {
+    setThreadTerminalSession(threadID, newSessionID);
+  }, [threadID]);
+
+  const openFile = useCallback(({
+    path,
+    line,
+    runID,
+    triggerElement,
+  }: {
+    path: string;
+    line?: number;
+    runID?: string;
+    triggerElement?: HTMLElement | null;
+  }) => {
+    fileReturnFocus.current = triggerElement ?? fileTrigger.current;
+    setFileDrawerState({
+      open: true,
+      path,
+      line,
+      runID,
+    });
+  }, []);
   const turn = useV2ThreadTurn(client);
   const submissions = useV2ThreadSubmissions(threadID);
   const submitTrackedTurn = async (input: V2TurnInput) => {
@@ -336,12 +635,15 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     setReviewFileTarget(undefined);
     setPreviewOpen(false);
     setContextOpen(false);
+    setFileDrawerState({ open: false, path: ".", line: undefined, runID: undefined });
+    setTerminalDrawerOpen(false);
     setComposerFocusRequest(null);
     olderScrollAnchorRef.current = null;
     setDeliveryMode("next_turn");
   }, [threadID, view]);
   useEffect(() => {
     if (!composerFocusRequest || composerFocusRequest.threadID !== threadID || reviewOpen || previewOpen || contextOpen ||
+      fileDrawerState.open || terminalDrawerOpen ||
       (view === "inspector" && !inspectorComposerOpen)) return;
     const frame = requestAnimationFrame(() => {
       const container = composerContainerRef.current;
@@ -497,6 +799,14 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           threadID={threadID} />
         <button aria-label="查看上下文" className="v2-review-trigger" onClick={() => setContextOpen(true)}
           ref={contextTrigger} type="button"><BookOpen aria-hidden="true" size={16} /><span>上下文</span></button>
+        <button aria-label="工作区文件" className="v2-review-trigger" onClick={() => {
+          fileReturnFocus.current = fileTrigger.current;
+          setFileDrawerState({ open: true, path: ".", line: undefined, runID: currentRun.id });
+        }} ref={fileTrigger} type="button"><FolderTree aria-hidden="true" size={16} /><span>文件</span></button>
+        <button aria-label="终端" className="v2-review-trigger" title={terminalAvailable ? "打开任务终端" : "桌面终端仅在桌面端可用"} onClick={() => {
+          terminalReturnFocus.current = terminalTrigger.current;
+          setTerminalDrawerOpen(true);
+        }} ref={terminalTrigger} type="button"><SquareTerminal aria-hidden="true" size={16} /><span>终端</span></button>
         <button aria-label="应用预览" className="v2-review-trigger" onClick={() => setPreviewOpen(true)}
           ref={previewTrigger} type="button"><PanelTop aria-hidden="true" size={16} /><span>应用预览</span></button>
         <button aria-label="审阅改动" className="v2-review-trigger" onClick={() => {
@@ -535,6 +845,23 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     </nav>}
     {contextOpen && <V2ThreadContext client={client} threadID={threadID} detail={detail}
       onClose={() => setContextOpen(false)} onRequestChange={appendDraftAndReveal} returnFocusRef={contextTrigger} />}
+    {fileDrawerState.open && <V2FileDrawer client={client} threadID={threadID}
+      workspaceID={detail.thread.workspace_id ?? ""}
+      runID={fileDrawerState.runID || currentRun.id} initialPath={fileDrawerState.path}
+      initialLine={fileDrawerState.line}
+      onClose={() => {
+        setFileDrawerState((s) => ({ ...s, open: false }));
+        if (fileReturnFocus.current?.isConnected) fileReturnFocus.current.focus();
+        else fileTrigger.current?.focus();
+      }} returnFocusRef={fileReturnFocus} />}
+    {terminalDrawerOpen && <V2TerminalDrawer runID={currentRun.id} sessionID={currentTerminalSessionID}
+      threadTitle={detail.thread.title} workspaceName={workspace?.name ?? "本地工作区"}
+      onSession={handleTerminalSessionChange}
+      onClose={() => {
+        setTerminalDrawerOpen(false);
+        if (terminalReturnFocus.current?.isConnected) terminalReturnFocus.current.focus();
+        else terminalTrigger.current?.focus();
+      }} returnFocusRef={terminalReturnFocus} />}
     {previewOpen && <V2LazySurface loadingText="正在加载应用预览…" errorLabel="应用预览" resetKey={threadID}
       onDismiss={() => { setPreviewOpen(false); previewTrigger.current?.focus(); }}>
       <V2ApplicationPreview key={threadID} client={client} runID={currentRun.id} threadID={threadID}
@@ -603,7 +930,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         {view === "conversation" && !transcriptQuery.isLoading && !transcriptQuery.isError && narrative.length === 0 && <div className="v2-transcript-empty">
           <span><ShieldCheck aria-hidden="true" size={18} /></span><p>{detail.thread.status === "archived"
             ? "此归档对话没有公开进展记录。" : "任务已经创建。Agent 的公开进展会出现在这里。"}</p></div>}
-        {view === "conversation" && <V2Narrative client={client} entries={visibleNarrative} threadID={threadID} />}
+        {view === "conversation" && <V2Narrative client={client} entries={visibleNarrative} threadID={threadID} onOpenFile={openFile} />}
         {view === "conversation" && <V2AgentBrowser client={client} runID={currentRun.id} running={working || runActive} />}
         {submissionNotices.map(({ input, error }) =>
           <div className="v2-notice tone-warning" key={input.operationKey} role="alert">

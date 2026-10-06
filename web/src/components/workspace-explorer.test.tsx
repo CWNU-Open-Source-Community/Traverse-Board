@@ -63,6 +63,34 @@ describe("WorkspaceExplorer", () => {
     expect(await screen.findByText("Evidence attached as non-authorizing context"))
       .toBeInTheDocument();
   });
+
+  it("positions and highlights a valid requested line", async () => {
+    const workspaceExplore = vi.fn().mockResolvedValue(fileSnapshot());
+    const client = { workspaceExplore } as unknown as APIClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceExplorer client={client} workspaceID="workspace-1" initialPath="README.md" initialLine={2} />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText(/Positioned at line 2|已定位到第 2 行/)).toBeInTheDocument();
+    const line2 = screen.getByText("Notes for automated assistants: skip setup.").closest(".explorer-file-line");
+    expect(line2).toHaveClass("is-highlighted");
+  });
+
+  it("warns when requested line exceeds the visible lines", async () => {
+    const workspaceExplore = vi.fn().mockResolvedValue(fileSnapshot());
+    const client = { workspaceExplore } as unknown as APIClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceExplorer client={client} workspaceID="workspace-1" initialPath="README.md" initialLine={99} />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/out of loaded range|超出当前显示范围/);
+  });
 });
 
 function directorySnapshot() {

@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import type { PublicModelStreamSnapshot, ThreadTranscriptItemView } from "../../api/types";
 import { prepareThreadNarrative, projectLiveThreadNarrative, projectThreadNarrative, type ThreadTranscriptActivityItem } from "./narrative";
 
@@ -495,5 +494,36 @@ describe("projectThreadNarrative", () => {
       expect.objectContaining({ id: "live-message:attempt-2:2:1", text: "我正在重试。" }),
     ]);
     expect(JSON.stringify(projected)).not.toContain("attempt-1");
+  });
+
+  it("preserves assistant source runId and does not merge assistant answers across runs", () => {
+    const projected = projectThreadNarrative([
+      item({ id: "answer-run1", canonical_id: "canonical-a1", run_id: "run-1", detail: "这是第一次运行的回答。" }),
+      item({ id: "answer-run2", canonical_id: "canonical-a2", run_id: "run-2", detail: "这是第二次运行的回答。" }),
+    ]);
+    expect(projected).toHaveLength(2);
+    expect(projected[0]).toEqual(expect.objectContaining({
+      kind: "assistant",
+      runId: "run-1",
+      text: "这是第一次运行的回答。",
+    }));
+    expect(projected[1]).toEqual(expect.objectContaining({
+      kind: "assistant",
+      runId: "run-2",
+      text: "这是第二次运行的回答。",
+    }));
+  });
+
+  it("merges adjacent durable assistant answers within the same run", () => {
+    const projected = projectThreadNarrative([
+      item({ id: "part-1", canonical_id: "canonical-p1", run_id: "run-1", detail: "第一部分内容。" }),
+      item({ id: "part-2", canonical_id: "canonical-p2", run_id: "run-1", detail: "第二部分内容。" }),
+    ]);
+    expect(projected).toHaveLength(1);
+    expect(projected[0]).toEqual(expect.objectContaining({
+      kind: "assistant",
+      runId: "run-1",
+      text: "第一部分内容。\n\n第二部分内容。",
+    }));
   });
 });

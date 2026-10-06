@@ -58,7 +58,14 @@
 .v2-review-body .v2-delivery-details > summary { color: var(--v2-muted); padding: 4px 0; }
 .v2-delivery-details[open] > dl { margin-top: 10px; }
 .v2-overview-next { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.v2-overview-next > span { color: var(--v2-muted); font-size: 13px; }
+.v2-overview-next-label { display: grid; gap: 2px; }
+.v2-overview-next-label > span, .v2-overview-next > span { color: var(--v2-muted); font-size: 13px; }
+.v2-overview-next-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.v2-task-delivery .v2-delivery-secondary { background: var(--v2-control); border-color: var(--v2-border); color: var(--v2-ink); }
+.v2-task-delivery .v2-delivery-secondary:hover:enabled { background: var(--v2-control-hover); }
+.v2-delivery-checks-group { display: grid; gap: 8px; margin-top: 4px; }
+.v2-delivery-checks-group > h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--v2-muted); }
+.v2-overview-plan-delivery { border: 1px solid var(--v2-border); border-radius: 12px; padding: 16px; display: grid; gap: 10px; }
 .v2-overview-review-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, 1fr); align-items: start; gap: 24px; }
 .v2-overview-review-grid > section { display: grid; gap: 12px; min-width: 0; }
 .v2-overview-review-grid > section > h3 { margin-top: 0; }
