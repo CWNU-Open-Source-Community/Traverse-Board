@@ -407,7 +407,10 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           <button onClick={startNew} type="button">打开新对话</button></div>
           : surface === "settings" ? <V2LazySurface resetKey="settings" loadingText="正在加载设置…" errorLabel="设置">
           <V2Settings client={client} onOpenInspector={openInspector}
-          onSelectSection={setSettingsSection} onOpenThread={openConversation} section={settingsSection}
+          onSelectSection={setSettingsSection} onOpenThread={openConversation} onOpenTask={(workspaceID) => {
+            if (!selectedThreadID && workspaceID) selectWorkspace(workspaceID);
+            returnFromSettings();
+          }} section={settingsSection}
           threadID={selectedThreadID} workspaces={workspaces}
           prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}
           onModelReady={completeModelSetup} /></V2LazySurface> : route.tool

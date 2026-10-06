@@ -323,6 +323,18 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 				"load Desktop code-intel configuration", err)
 		}
 	}
+	var codeIntelControl httpapi.CodeIntelController
+	if strings.TrimSpace(config.CodeIntelConfigPath) == "" {
+		service, err := application.OpenCodeIntelControlService(stateStore, codeIntelManager,
+			filepath.Join(home, "code-intel.json"))
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+				"load Desktop managed code-intel configuration", err)
+		}
+		codeIntelManager = service.Manager()
+		codeIntelControl = service
+	}
 	if len(registeredWorkspaces) == 0 {
 		if _, err := workspaceManager.Ensure(
 			context.Background(), "default"); err != nil {
@@ -863,6 +875,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     codeIntelManager,
+		CodeIntelController:                 codeIntelControl,
 		UIEvidenceController:                uiEvidence,
 		FullCDPSessionController:            fullCDPSessions,
 		AgentBrowserController:              agentBrowserController,
@@ -993,8 +1006,8 @@ func (c *ControlPlane) DebugTerminalAgentInputController() application.DebugTerm
 	return c.debugAgentInput
 }
 
-// CodeIntelEnabled reports whether this process loaded an explicit reviewed
-// language-server configuration. It grants no renderer process authority.
+// CodeIntelEnabled reports availability of the stable Go-owned language-server
+// runtime. Configuration, review and query readiness are separate facts.
 func (c *ControlPlane) CodeIntelEnabled() bool {
 	return c != nil && c.codeIntelManager != nil
 }

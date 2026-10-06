@@ -22,8 +22,8 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 14 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
-| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 47 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 113 | true |
+| [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 48 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 114 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
@@ -808,11 +808,12 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `extension-package-contracts-reader` (`v1, v2`, active) at `internal/skills`
   - `plugin-installation-reader` (`v1, v2`, active) at `internal/plugins`
 
-<details><summary>47 active identifiers</summary>
+<details><summary>48 active identifiers</summary>
 
 - `agent-package-snapshot.v1`
 - `extension-control.v1`
 - `extension-inventory.v1`
+- `extension-onboarding.v1`
 - `external_skill_context.v1`
 - `external_skill_guidance.v1`
 - `external_skill_selection.v1`
@@ -873,7 +874,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>113 active identifiers</summary>
+<details><summary>114 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -886,6 +887,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `browser_cdp_permission_policy.v1`
 - `browser_network_containment_policy.v2`
 - `browser_safe_web_readiness.v1`
+- `code-intel-configuration.v1`
 - `code-intel-lsp.v1`
 - `code_handoff.v1`
 - `command-runtime.v2`

@@ -261,7 +261,7 @@ function V2PreviewBrowser({ client, runID, threadID, currentRunID, sourceService
   return <section className="v2-preview-browser" aria-label="预览浏览器控制">
       <h3>浏览器</h3>
       <p className="v2-preview-identity">浏览器所属 Run <code>{runID}</code></p>
-      {!client.hasFullCDPSessionControl ? <p role="status">当前服务未提供应用预览，请在支持托管浏览器的桌面端或 API 服务中使用。</p> : <>
+      {!client.hasFullCDPSessionControl ? <p role="status">当前连接未开放托管浏览器。后台服务状态与日志仍可在上方查看；网页预览需支持托管浏览器的服务及当前任务权限。</p> : <>
         {sourceService && (!runUsable || !serviceAllowsOpen) && <p role="status">
           {detail.isLoading ? "正在核对服务所属执行…" : !sourceReadable ? "服务状态尚未确认，请先重试核对。"
             : sourceService.state !== "running" ? "此后台任务未在运行，可以查看启动输出。"

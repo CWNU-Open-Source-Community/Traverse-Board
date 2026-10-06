@@ -1,0 +1,23 @@
+.extension-onboarding { grid-column: 1 / -1; min-width: 0; padding: 16px; border: 1px solid var(--prayu-border); border-radius: 14px; background: var(--prayu-control); }
+.extension-onboarding summary { cursor: pointer; font-weight: 650; }
+.extension-onboarding p, .extension-review p { line-height: 1.6; overflow-wrap: anywhere; }
+.extension-form fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; border: 0; }
+.extension-form label, .extension-review > label { display: grid; gap: 6px; min-width: 0; }
+.extension-form input:not([type=checkbox]), .extension-form select, .extension-form textarea, .extension-review textarea, .extension-review input:not([type=checkbox]), .extension-review select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--prayu-border); border-radius: 7px; color: var(--prayu-text); background: var(--prayu-control); font: inherit; }
+.extension-form textarea, .extension-review textarea { resize: vertical; }
+.extension-form p, .extension-form .extension-checks, .extension-form label:has(textarea) { grid-column: 1 / -1; }
+.extension-checks { display: flex; flex-wrap: wrap; gap: 12px; }
+.extension-checks label, .extension-review > label:has(input[type=checkbox]) { display: flex; align-items: flex-start; gap: 7px; line-height: 1.6; }
+.extension-checks input, .extension-review input { flex: 0 0 auto; margin-top: 4px; }
+.extension-review { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--prayu-border); }
+.extension-review .settings-action, .extension-form .settings-action { justify-self: start; }
+.extension-review p { margin: 0; }
+.extension-tool-list { max-height: 160px; overflow-y: auto; font-family: var(--prayu-font-mono); }
+.extension-scope-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.extension-scope-picker select { min-width: 160px; max-width: 100%; padding: 8px; }
+.extension-call-list { grid-column: 1 / -1; display: grid; gap: 10px; }
+.extension-call-list article { border: 1px solid var(--prayu-border); border-radius: 10px; padding: 12px; overflow-wrap: anywhere; }
+.extension-call-list p { margin: 5px 0; }
+.extension-probe-results { max-height: 240px; overflow-y: auto; overflow-wrap: anywhere; }
+.extension-fingerprint code { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+@media (max-width: 680px) { .extension-form fieldset { grid-template-columns: minmax(0, 1fr); } }

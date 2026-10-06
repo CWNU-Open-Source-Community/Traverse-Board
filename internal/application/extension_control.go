@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/plugins"
+	"cyberagent-workbench/internal/store"
 )
 
 const ExtensionInventoryProtocolVersion = "extension-inventory.v1"
@@ -47,6 +49,14 @@ func NewExtensionControlService(store ExtensionControlStore, manager *mcp.Manage
 func (s *ExtensionControlService) Inventory(ctx context.Context, runID string) (
 	ExtensionInventory, error,
 ) {
+	return s.InventoryForScope(ctx, runID, "")
+}
+
+// InventoryForScope also reads Workspace-scoped registrations before a Run
+// exists. A supplied Run always fixes its Workspace and owns the call receipts.
+func (s *ExtensionControlService) InventoryForScope(ctx context.Context, runID, workspaceID string) (
+	ExtensionInventory, error,
+) {
 	result := ExtensionInventory{ProtocolVersion: ExtensionInventoryProtocolVersion,
 		MCPServers: []mcp.ServerRecord{}, MCPCalls: []mcp.CallAudit{},
 		Plugins: []plugins.Installation{}}
@@ -56,7 +66,27 @@ func (s *ExtensionControlService) Inventory(ctx context.Context, runID string) (
 		return ExtensionInventory{}, err
 	}
 	runID = strings.TrimSpace(runID)
+	workspaceID = strings.TrimSpace(workspaceID)
 	if runID == "" {
+		if workspaceID == "" {
+			return result, nil
+		}
+		workspaces, ok := s.store.(interface {
+			GetWorkspaceByID(context.Context, string) (store.WorkspaceRecord, error)
+		})
+		if !ok {
+			return ExtensionInventory{}, apperror.New(apperror.CodeFailedPrecondition,
+				"Workspace extension inventory is unavailable")
+		}
+		if _, err := workspaces.GetWorkspaceByID(ctx, workspaceID); err != nil {
+			return ExtensionInventory{}, err
+		}
+		result.WorkspaceID = workspaceID
+		result.MCPServers, err = s.store.ListMCPClientServers(ctx, "", workspaceID,
+			mcp.MaxClientServers)
+		if err != nil {
+			return ExtensionInventory{}, err
+		}
 		return result, nil
 	}
 	run, err := s.store.GetRun(ctx, runID)
@@ -66,6 +96,10 @@ func (s *ExtensionControlService) Inventory(ctx context.Context, runID string) (
 	mission, err := s.store.GetMission(ctx, run.MissionID)
 	if err != nil {
 		return ExtensionInventory{}, err
+	}
+	if workspaceID != "" && workspaceID != mission.WorkspaceID {
+		return ExtensionInventory{}, apperror.New(apperror.CodeConflict,
+			"extension Run and Workspace scopes do not match")
 	}
 	result.RunID, result.WorkspaceID = run.ID, mission.WorkspaceID
 	result.MCPServers, err = s.store.ListMCPClientServers(ctx, run.ID,

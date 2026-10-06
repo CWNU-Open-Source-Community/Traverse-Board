@@ -11,12 +11,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
@@ -108,7 +110,7 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 				}
 			}
 			var runtime atomic.Bool
-			var requests, calls atomic.Int32
+			var requests, calls, onboardingRequests atomic.Int32
 			peer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodDelete {
 					w.WriteHeader(204)
@@ -123,6 +125,7 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 					w.WriteHeader(400)
 					return
 				}
+				onboardingRequests.Add(1)
 				if runtime.Load() {
 					requests.Add(1)
 				}
@@ -152,19 +155,53 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			descriptor := mcp.ServerDescriptor{ProtocolVersion: mcp.ClientProtocolVersion, ID: "http-mcp-server", Name: "HTTP MCP fixture", Transport: mcp.TransportStreamableHTTP, Target: peer.URL, DeclaredCapabilities: []mcp.CapabilityKind{mcp.CapabilityTools}, Scope: mcp.ScopeRun, RunID: run.ID, WorkspaceID: workspace.ID, Source: mcp.Source{Kind: "manual", URI: "operator://http-mcp-fixture"}, CallTimeoutMillis: 3000, MaxResultBytes: 8192}
-			record, _, err := manager.Stage(ctx, descriptor)
+			pluginService, err := plugins.NewService(st)
 			if err != nil {
 				t.Fatal(err)
 			}
-			record, err = manager.Review(ctx, descriptor.ID, mcp.ReviewRequest{Action: mcp.ReviewApproveDiscovery, ExpectedDescriptorFingerprint: record.DescriptorFingerprint, ReviewedBy: "operator"})
+			extensions, err := application.NewExtensionControlService(st, manager, pluginService)
 			if err != nil {
 				t.Fatal(err)
 			}
-			record, err = manager.Refresh(ctx, descriptor.ID)
+			onboardingAPI, err := New(st, Config{AccessToken: testAccessToken, ControlToken: testControlToken,
+				ExtensionControlEnabled: true, ExtensionController: extensions})
 			if err != nil {
 				t.Fatal(err)
 			}
-			record, err = manager.Review(ctx, descriptor.ID, mcp.ReviewRequest{Action: mcp.ReviewEnableCapabilities, ExpectedDescriptorFingerprint: record.DescriptorFingerprint, ExpectedCapabilityFingerprint: record.Capabilities.Fingerprint, ReviewedBy: "operator"})
+			registration := ExtensionMCPRegistrationRequestView{Version: ExtensionControlProtocol,
+				Descriptor: ExtensionMCPRegistrationDescriptorView{ProtocolVersion: descriptor.ProtocolVersion,
+					ID: descriptor.ID, Name: descriptor.Name, Transport: descriptor.Transport, Target: descriptor.Target,
+					DeclaredCapabilities: descriptor.DeclaredCapabilities, Scope: descriptor.Scope, RunID: descriptor.RunID,
+					WorkspaceID: descriptor.WorkspaceID, CallTimeoutMillis: descriptor.CallTimeoutMillis, MaxResultBytes: descriptor.MaxResultBytes}}
+			var registered ExtensionMCPRegistrationView
+			decodeDataStatus(t, extensionOnboardingRequest(t, onboardingAPI, ExtensionMCPRegistrationPath, registration), http.StatusAccepted, &registered)
+			if registered.Server.State != "staged" || registered.NextStep != "approve_discovery" || onboardingRequests.Load() != 0 {
+				t.Fatal("first registration contacted the peer or skipped review", registered, onboardingRequests.Load())
+			}
+			var before ExtensionInventoryView
+			decodeData(t, performRequest(t, onboardingAPI, http.MethodGet, ExtensionInventoryPath+"?run_id="+run.ID, testAccessToken,
+				"127.0.0.1:8765", "127.0.0.1:45000", nil), &before)
+			if len(before.MCPServers) != 1 || len(before.MCPCalls) != 0 {
+				t.Fatal("registered inventory invented a call receipt", before)
+			}
+			baseExtension := "/api/v1/extensions/mcp/" + descriptor.ID
+			var reviewed ExtensionMCPServerView
+			decodeDataStatus(t, extensionOnboardingRequest(t, onboardingAPI, baseExtension+"/review",
+				ExtensionMCPReviewRequestView{Version: ExtensionControlProtocol, Action: mcp.ReviewApproveDiscovery,
+					ExpectedDescriptorFingerprint: registered.Server.DescriptorFingerprint}), http.StatusAccepted, &reviewed)
+			if onboardingRequests.Load() != 0 {
+				t.Fatal("discovery approval itself contacted the peer")
+			}
+			decodeDataStatus(t, extensionOnboardingRequest(t, onboardingAPI, baseExtension+"/refresh",
+				ExtensionRefreshRequestView{Version: ExtensionControlProtocol}), http.StatusAccepted, &reviewed)
+			if reviewed.State != "capabilities_pending" || calls.Load() != 0 {
+				t.Fatal("discovery skipped capability review or invoked a tool", reviewed)
+			}
+			decodeDataStatus(t, extensionOnboardingRequest(t, onboardingAPI, baseExtension+"/review",
+				ExtensionMCPReviewRequestView{Version: ExtensionControlProtocol, Action: mcp.ReviewEnableCapabilities,
+					ExpectedDescriptorFingerprint: reviewed.DescriptorFingerprint,
+					ExpectedCapabilityFingerprint: reviewed.Capabilities.Fingerprint}), http.StatusAccepted, &reviewed)
+			record, err := st.GetMCPClientServer(ctx, descriptor.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -178,7 +215,7 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 			lifecycle := application.NewRunLifecycleControlService(st)
 			threads := application.NewThreadTurnServiceWithExecutionCapabilities(st, lifecycle, execution, caps)
 			controller := application.NewApprovalControlService(st, toolgateway.New(st, checker), checker)
-			api, err := New(st, Config{AccessToken: testAccessToken, ControlToken: testControlToken, RunCreationEnabled: true, SessionMessageEnabled: true, RunLifecycleEnabled: true, RunLifecycleController: lifecycle, RunExecutionEnabled: true, RunExecutionController: execution, ThreadTurnController: threads, ApprovalControlEnabled: true, ApprovalController: controller})
+			api, err := New(st, Config{AccessToken: testAccessToken, ControlToken: testControlToken, RunCreationEnabled: true, SessionMessageEnabled: true, RunLifecycleEnabled: true, RunLifecycleController: lifecycle, RunExecutionEnabled: true, RunExecutionController: execution, ThreadTurnController: threads, ApprovalControlEnabled: true, ApprovalController: controller, ExtensionControlEnabled: true, ExtensionController: extensions})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -217,6 +254,39 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 				if replay == 1 && (!decision.Replayed || !decision.Continuation.Replayed) {
 					t.Fatal("review replay not idempotent")
 				}
+			}
+			var after ExtensionInventoryView
+			afterResponse := performRequest(t, api, http.MethodGet, ExtensionInventoryPath+"?run_id="+run.ID, testAccessToken,
+				"127.0.0.1:8765", "127.0.0.1:45000", nil)
+			decodeData(t, afterResponse, &after)
+			if len(after.MCPCalls) != 1 || after.MCPCalls[0].ServerID != descriptor.ID || after.MCPCalls[0].ToolName != "lookup" ||
+				after.MCPCalls[0].Status != "completed" || after.MCPCalls[0].ResultBytes == 0 || after.MCPCalls[0].CompletedAt == "" {
+				t.Fatal("actual gated invocation did not produce its read-back receipt", after)
+			}
+			writeExtensionOnboardingEvidence(t, "extension-mcp-invocation-"+mode+".json", afterResponse)
+			var registrationReplay ExtensionMCPRegistrationView
+			decodeDataStatus(t, extensionOnboardingRequest(t, api, ExtensionMCPRegistrationPath, registration), http.StatusAccepted, &registrationReplay)
+			if !registrationReplay.Replayed || registrationReplay.NextStep != "request_execution" || registrationReplay.Server.State != "enabled" {
+				t.Fatal("registration replay lost current explicit reviews", registrationReplay)
+			}
+			// A retained review alone does not mean the peer is currently callable.
+			// Simulate its persisted unavailable health without changing the review.
+			record, err = st.GetMCPClientServer(ctx, descriptor.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previousGeneration := record.Generation
+			record.Health, record.HealthMessage = mcp.HealthUnavailable, "fixture peer unavailable"
+			record.Generation++
+			record.UpdatedAt = time.Now().UTC()
+			if _, err = st.UpdateMCPClientServer(ctx, record, previousGeneration); err != nil {
+				t.Fatal(err)
+			}
+			decodeDataStatus(t, extensionOnboardingRequest(t, api, ExtensionMCPRegistrationPath, registration), http.StatusAccepted, &registrationReplay)
+			available, err := manager.Capabilities(ctx, run.ID, workspace.ID)
+			if err != nil || len(available.Servers) != 0 || registrationReplay.Server.State != "enabled" ||
+				registrationReplay.Server.Health != "unavailable" || registrationReplay.NextStep != "refresh" {
+				t.Fatal("registration replay confused a retained review with callable health", registrationReplay, available, err)
 			}
 			if output := os.Getenv("UC_MCP_HTTP_EVIDENCE"); output != "" {
 				raw, _ := json.MarshalIndent(map[string]any{"queue": queue, "preview": preview, "decision": decision, "peer_tool_calls": calls.Load(), "model_calls": provider.requests}, "", "  ")

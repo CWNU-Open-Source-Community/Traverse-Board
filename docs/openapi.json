@@ -476,6 +476,325 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/code-intel/configurations": {
+      "post": {
+        "operationId": "stageCodeIntelConfiguration",
+        "summary": "Stage a language-server configuration for review",
+        "description": "Validates operator-supplied language-server launch metadata and executable SHA-256 in one registered Workspace. The process-local draft starts no server and returns only safe review metadata.",
+        "tags": [
+          "Extensions"
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CodeIntelConfigurationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeIntelConfigurationRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/code-intel/configurations/{server_id}/review": {
+      "post": {
+        "operationId": "reviewCodeIntelConfiguration",
+        "summary": "Review and persist one exact language-server configuration",
+        "description": "Reviews the pinned staged descriptor and saves the existing operator configuration format. It does not initialize a server or claim a successful query.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "Language-server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CodeIntelConfigurationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeIntelConfigurationReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/code-intel/configurations/{server_id}/test": {
+      "post": {
+        "operationId": "testCodeIntelConfiguration",
+        "summary": "Run one explicit read-only language-server probe",
+        "description": "Rechecks the exact reviewed descriptor, initializes only that language server, and returns a bounded symbol-query result with server, capability, query, and document provenance. Successful configuration and successful execution remain distinct states.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "Language-server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CodeIntelConfigurationTestView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeIntelConfigurationTestRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/continuity-nodes/{node_id}/fork": {
       "post": {
         "operationId": "forkContinuityNode",
@@ -1129,6 +1448,17 @@
               "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
               "type": "string"
             }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Optional Workspace for first registration before a Run exists; must match a supplied Run",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1188,6 +1518,103 @@
           }
         },
         "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/extensions/mcp": {
+      "post": {
+        "operationId": "registerMCPServer",
+        "summary": "Register one inert MCP server",
+        "description": "Stages a manual MCP descriptor in an existing Run or Workspace. The host supplies source provenance; registration starts no process or discovery and does not grant execution authority. Exact repeats return the current persisted state.",
+        "tags": [
+          "Extensions"
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionMCPRegistrationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionMCPRegistrationRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/extensions/mcp/{server_id}/refresh": {
@@ -1405,6 +1832,103 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ExtensionMCPReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/extensions/plugins/import": {
+      "post": {
+        "operationId": "importPlugin",
+        "summary": "Import an inert Plugin archive",
+        "description": "Stages a bounded base64 ZIP after verifying its SHA-256. Uses the existing Plugin package validator and never runs package content or implicitly approves capabilities. Exact archive repeats return the current persisted installation.",
+        "tags": [
+          "Extensions"
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionPluginImportView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionPluginImportRequestView"
               }
             }
           }
@@ -31560,9 +32084,338 @@
         ],
         "type": "object"
       },
+      "CodeIntelConfigurationPageView": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "returned": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "limit",
+          "returned",
+          "total",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "executable": {
+            "type": "string"
+          },
+          "executable_sha256": {
+            "type": "string"
+          },
+          "initialization_options": {},
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/Language"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "request_timeout_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "server_id",
+          "name",
+          "workspace_id",
+          "languages",
+          "executable",
+          "arguments",
+          "executable_sha256",
+          "request_timeout_ms"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationResultView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_fingerprint": {
+            "type": "string"
+          },
+          "document_path": {
+            "type": "string"
+          },
+          "document_sha256": {
+            "type": "string"
+          },
+          "evidence_level": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CodeIntelConfigurationTestItemView"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CodeIntelConfigurationPageView"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "query_fingerprint": {
+            "type": "string"
+          },
+          "server_generation": {
+            "type": "string"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "tool",
+          "state",
+          "evidence_level",
+          "workspace_id",
+          "server_id",
+          "server_generation",
+          "capability_fingerprint",
+          "query_fingerprint",
+          "items",
+          "page",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_descriptor_fingerprint": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "workspace_id",
+          "expected_descriptor_fingerprint"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationTestItemView": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/components/schemas/Range"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationTestRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_descriptor_fingerprint": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "workspace_id",
+          "expected_descriptor_fingerprint",
+          "tool"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationTestView": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/CodeIntelConfigurationView"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CodeIntelConfigurationResultView"
+          },
+          "server": {
+            "$ref": "#/components/schemas/CodeIntelServerView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "configuration",
+          "server",
+          "result"
+        ],
+        "type": "object"
+      },
+      "CodeIntelConfigurationView": {
+        "additionalProperties": false,
+        "properties": {
+          "descriptor_fingerprint": {
+            "type": "string"
+          },
+          "executable_sha256": {
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/Language"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_label": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "server_id",
+          "server_name",
+          "workspace_id",
+          "scope",
+          "languages",
+          "executable_sha256",
+          "descriptor_fingerprint",
+          "review_state",
+          "source_kind",
+          "source_label",
+          "source_sha256"
+        ],
+        "type": "object"
+      },
       "CodeIntelInventoryView": {
         "additionalProperties": false,
         "properties": {
+          "configurations": {
+            "items": {
+              "$ref": "#/components/schemas/CodeIntelConfigurationView"
+            },
+            "type": "array"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -31586,7 +32439,8 @@
           "protocol_version",
           "enabled",
           "servers",
-          "qualifications"
+          "qualifications",
+          "configurations"
         ],
         "type": "object"
       },
@@ -34254,6 +35108,9 @@
             },
             "type": "array"
           },
+          "onboarding": {
+            "$ref": "#/components/schemas/ExtensionOnboardingCapabilitiesView"
+          },
           "plugins": {
             "items": {
               "$ref": "#/components/schemas/ExtensionPluginInstallationView"
@@ -34437,6 +35294,117 @@
         ],
         "type": "object"
       },
+      "ExtensionMCPRegistrationDescriptorView": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "call_timeout_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "declared_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "max_result_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "name",
+          "transport",
+          "target",
+          "declared_capabilities",
+          "scope",
+          "workspace_id",
+          "call_timeout_ms",
+          "max_result_bytes"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPRegistrationRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "descriptor": {
+            "$ref": "#/components/schemas/ExtensionMCPRegistrationDescriptorView"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "descriptor"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPRegistrationView": {
+        "additionalProperties": false,
+        "properties": {
+          "next_step": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "server": {
+            "$ref": "#/components/schemas/ExtensionMCPServerView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "replayed",
+          "next_step",
+          "server"
+        ],
+        "type": "object"
+      },
       "ExtensionMCPReviewRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -34560,6 +35528,70 @@
           "generation",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "ExtensionOnboardingCapabilitiesView": {
+        "additionalProperties": false,
+        "properties": {
+          "lsp_configuration": {
+            "type": "boolean"
+          },
+          "mcp_registration": {
+            "type": "boolean"
+          },
+          "plugin_import": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mcp_registration",
+          "plugin_import",
+          "lsp_configuration"
+        ],
+        "type": "object"
+      },
+      "ExtensionPluginImportRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_base64": {
+            "type": "string"
+          },
+          "archive_sha256": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "archive_base64",
+          "archive_sha256"
+        ],
+        "type": "object"
+      },
+      "ExtensionPluginImportView": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+          },
+          "next_step": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "replayed",
+          "next_step",
+          "installation"
         ],
         "type": "object"
       },
@@ -41262,6 +42294,27 @@
         ],
         "type": "object"
       },
+      "Language": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "extensions"
+        ],
+        "type": "object"
+      },
       "Manifest": {
         "additionalProperties": false,
         "properties": {
@@ -43531,6 +44584,24 @@
         ],
         "type": "object"
       },
+      "Position": {
+        "additionalProperties": false,
+        "properties": {
+          "character": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "line": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line",
+          "character"
+        ],
+        "type": "object"
+      },
       "Preview": {
         "additionalProperties": false,
         "properties": {
@@ -44752,6 +45823,22 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "Range": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Position"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Position"
+          }
+        },
+        "required": [
+          "start",
+          "end"
         ],
         "type": "object"
       },

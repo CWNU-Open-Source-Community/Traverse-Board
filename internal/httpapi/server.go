@@ -393,6 +393,7 @@ type Config struct {
 	BatchDeliveryController               BatchDeliveryController
 	ExtensionController                   ExtensionController
 	CodeIntelSource                       CodeIntelSource
+	CodeIntelController                   CodeIntelController
 	UIEvidenceController                  UIEvidenceController
 	DockerSandboxController               DockerSandboxController
 	ModelRegistry                         *modelregistry.Registry
@@ -493,6 +494,7 @@ type API struct {
 	batchDeliveryController               BatchDeliveryController
 	extensionController                   ExtensionController
 	codeIntelSource                       CodeIntelSource
+	codeIntelController                   CodeIntelController
 	uiEvidenceController                  UIEvidenceController
 	dockerSandboxController               DockerSandboxController
 	modelRegistry                         *modelregistry.Registry
@@ -930,6 +932,7 @@ func New(store Store, config Config) (*API, error) {
 		batchDeliveryController:             config.BatchDeliveryController,
 		extensionController:                 config.ExtensionController,
 		codeIntelSource:                     config.CodeIntelSource,
+		codeIntelController:                 config.CodeIntelController,
 		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
@@ -1096,6 +1099,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {
 		a.serveContextContinuityMutation(tracked, request, requestID)
+		return
+	}
+	if request.URL.Path == ExtensionMCPRegistrationPath || request.URL.Path == ExtensionPluginImportPath {
+		a.serveExtensionOnboarding(tracked, request, requestID)
+		return
+	}
+	if identity, kind, matched := matchCodeIntelConfigurationMutationPath(request.URL.Path); matched {
+		a.serveCodeIntelConfigurationMutation(tracked, request, requestID, identity, kind)
 		return
 	}
 	if identity, kind, matched := matchExtensionMutationPath(request.URL.Path); matched {

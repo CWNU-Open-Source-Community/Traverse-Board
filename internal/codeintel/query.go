@@ -185,6 +185,13 @@ func (m *Manager) Execute(ctx context.Context, request Request) (Result, error) 
 				"document changed during the semantic query")
 		}
 	}
+	m.mu.Lock()
+	stillCurrent := m.clients[key] == current && !m.closing && !m.quarantined
+	m.mu.Unlock()
+	if !stillCurrent {
+		return Result{}, apperror.New(apperror.CodeConflict,
+			"language server configuration changed during the semantic query")
+	}
 
 	sortEvidence(items, edges)
 	paged, pagedEdges, page, err := paginateEvidence(items, edges, request.Cursor,

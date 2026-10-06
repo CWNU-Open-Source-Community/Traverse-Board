@@ -288,13 +288,14 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
   onOpenInspector, onOpenThread, prepareModelForDraft = false, modelSetupToken = "",
-  onModelReady, desktop = desktopBridgeAvailable() }: {
+  onModelReady, onOpenTask, desktop = desktopBridgeAvailable() }: {
   client: APIClient;
   section: V2SettingsSection;
   threadID: string;
   workspaces: WorkspaceView[];
   onSelectSection: (section: V2SettingsSection) => void;
   onOpenThread?: (id: string) => void;
+  onOpenTask?: (workspaceID?: string) => void;
   onOpenInspector: (returnFocus?: HTMLElement | null) => void;
   prepareModelForDraft?: boolean;
   modelSetupToken?: string;
@@ -320,7 +321,8 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
         <ModelSettingsPage client={client} initialAdvancedOpen={section === "advanced-models"}
           prepareForDraft={prepareModelForDraft} setupToken={modelSetupToken}
           onModelReady={onModelReady} />}
-      {(section === "extensions" || section === "plugins") && <V2ExtensionSettings client={client} threadID={threadID} />}
+      {(section === "extensions" || section === "plugins") && <V2ExtensionSettings client={client} onOpenTask={onOpenTask}
+        threadID={threadID} workspaces={workspaces} />}
       {section === "skills" && <V2SkillSettings client={client} desktop={desktop} />}
       {section === "about" && <V2AboutSettings client={client} desktop={desktop} />}
       {(section === "shortcuts" || section === "keyboard") && <div className="v2-shared-settings">

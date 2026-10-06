@@ -754,6 +754,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.embeddedAnalyzerExecutionEnabled = true
 	fixture.api.extensionControlEnabled = true
 	fixture.api.extensionController = &extensionControllerStub{}
+	fixture.api.codeIntelController = newCodeIntelOpenAPITestController(t, fixture)
+	onboardingFixture, _, _, _ := newExtensionOnboardingFixture(t)
 	fixture.api.dockerSandboxControlEnabled = true
 	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
@@ -1234,6 +1236,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				spec.Path == StandardCodePresetRunPathTemplate ||
 				spec.Path == StandardCodePauseAndConfigurePathTemplate {
 				requestAPI = standardCodeAPI
+			} else if spec.Path == ExtensionMCPRegistrationPath || spec.Path == ExtensionPluginImportPath {
+				requestAPI = onboardingFixture.api
 			} else if spec.Path == ThreadApplicationServicesPathTemplate ||
 				spec.Path == ThreadApplicationServicePathTemplate || spec.Path == ThreadApplicationServiceStopPathTemplate {
 				// Bind these routes to an authorized, reaped Command Runtime Job,
@@ -1609,6 +1613,23 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"provider_definition_control.v1",` +
 						`"expected_collection_revision":1,"expected_definition_revision":1,` +
 						`"confirm":true}`
+				} else if spec.Path == ExtensionMCPRegistrationPath {
+					body = extensionJSON(t, extensionRegistrationRequest(onboardingFixture))
+				} else if spec.Path == ExtensionPluginImportPath {
+					body = extensionJSON(t, extensionPluginImportRequest(extensionPluginArchive(t)))
+				} else if spec.Path == CodeIntelConfigurationsPath {
+					body = `{"version":"code-intel-configuration.v1","server_id":"onboarding-lsp",` +
+						`"name":"Catalog LSP fixture","workspace_id":"` + fixture.workspace.ID +
+						`","languages":[{"id":"go","extensions":[".go"]}],` +
+						`"executable":"/fixture/lsp","arguments":[],"executable_sha256":"` +
+						strings.Repeat("a", 64) + `","request_timeout_ms":15000}`
+				} else if spec.Path == CodeIntelConfigurationReviewPath {
+					body = `{"version":"code-intel-configuration.v1","workspace_id":"` +
+						fixture.workspace.ID + `","expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`
+				} else if spec.Path == CodeIntelConfigurationTestPath {
+					body = `{"version":"code-intel-configuration.v1","workspace_id":"` +
+						fixture.workspace.ID + `","expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) +
+						`","tool":"code_document_symbols","path":"main.go"}`
 				} else if spec.Path == ExtensionMCPReviewPath {
 					body = `{"version":"extension-control.v1","action":"disable",` +
 						`"expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`

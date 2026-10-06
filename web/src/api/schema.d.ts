@@ -104,6 +104,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/code-intel/configurations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stage a language-server configuration for review
+         * @description Validates operator-supplied language-server launch metadata and executable SHA-256 in one registered Workspace. The process-local draft starts no server and returns only safe review metadata.
+         */
+        post: operations["stageCodeIntelConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/code-intel/configurations/{server_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review and persist one exact language-server configuration
+         * @description Reviews the pinned staged descriptor and saves the existing operator configuration format. It does not initialize a server or claim a successful query.
+         */
+        post: operations["reviewCodeIntelConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/code-intel/configurations/{server_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one explicit read-only language-server probe
+         * @description Rechecks the exact reviewed descriptor, initializes only that language server, and returns a bounded symbol-query result with server, capability, query, and document provenance. Successful configuration and successful execution remain distinct states.
+         */
+        post: operations["testCodeIntelConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/continuity-nodes/{node_id}/fork": {
         parameters: {
             query?: never;
@@ -224,6 +284,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/extensions/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register one inert MCP server
+         * @description Stages a manual MCP descriptor in an existing Run or Workspace. The host supplies source provenance; registration starts no process or discovery and does not grant execution authority. Exact repeats return the current persisted state.
+         */
+        post: operations["registerMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/extensions/mcp/{server_id}/refresh": {
         parameters: {
             query?: never;
@@ -258,6 +338,26 @@ export interface paths {
          * @description Applies an explicit two-stage descriptor or capability review, or immediately disables or revokes one server using pinned fingerprints.
          */
         post: operations["reviewMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/plugins/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import an inert Plugin archive
+         * @description Stages a bounded base64 ZIP after verifying its SHA-256. Uses the existing Plugin package validator and never runs package content or implicitly approves capabilities. Exact archive repeats return the current persisted installation.
+         */
+        post: operations["importPlugin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5837,7 +5937,87 @@ export interface components {
             type_hierarchy: boolean;
             workspace_symbols: boolean;
         };
+        CodeIntelConfigurationPageView: {
+            /** Format: int32 */
+            limit: number;
+            /** Format: int32 */
+            returned: number;
+            /** Format: int32 */
+            total: number;
+            truncated: boolean;
+        };
+        CodeIntelConfigurationRequestView: {
+            arguments: string[];
+            executable: string;
+            executable_sha256: string;
+            initialization_options?: unknown;
+            languages: components["schemas"]["Language"][];
+            name: string;
+            /** Format: int64 */
+            request_timeout_ms: number;
+            server_id: string;
+            version: string;
+            workspace_id: string;
+        };
+        CodeIntelConfigurationResultView: {
+            capability_fingerprint: string;
+            document_path?: string;
+            document_sha256?: string;
+            evidence_level: string;
+            items: components["schemas"]["CodeIntelConfigurationTestItemView"][];
+            page: components["schemas"]["CodeIntelConfigurationPageView"];
+            protocol_version: string;
+            query_fingerprint: string;
+            server_generation: string;
+            server_id: string;
+            state: string;
+            tool: string;
+            warnings: string[];
+            workspace_id: string;
+        };
+        CodeIntelConfigurationReviewRequestView: {
+            expected_descriptor_fingerprint: string;
+            version: string;
+            workspace_id: string;
+        };
+        CodeIntelConfigurationTestItemView: {
+            kind: string;
+            name?: string;
+            path?: string;
+            range?: components["schemas"]["Range"];
+        };
+        CodeIntelConfigurationTestRequestView: {
+            expected_descriptor_fingerprint: string;
+            path?: string;
+            query?: string;
+            tool: string;
+            version: string;
+            workspace_id: string;
+        };
+        CodeIntelConfigurationTestView: {
+            configuration: components["schemas"]["CodeIntelConfigurationView"];
+            protocol_version: string;
+            result: components["schemas"]["CodeIntelConfigurationResultView"];
+            server: components["schemas"]["CodeIntelServerView"];
+        };
+        CodeIntelConfigurationView: {
+            descriptor_fingerprint: string;
+            executable_sha256: string;
+            languages: components["schemas"]["Language"][];
+            protocol_version: string;
+            review_state: string;
+            reviewed_at?: string;
+            reviewed_by?: string;
+            scope: string;
+            server_id: string;
+            server_name: string;
+            source_kind: string;
+            source_label: string;
+            source_sha256: string;
+            workspace_id: string;
+        };
         CodeIntelInventoryView: {
+            configurations: components["schemas"]["CodeIntelConfigurationView"][];
             enabled: boolean;
             protocol_version: string;
             qualifications: components["schemas"]["CodeIntelQualificationView"][];
@@ -6527,6 +6707,7 @@ export interface components {
         ExtensionInventoryView: {
             mcp_calls: components["schemas"]["ExtensionMCPCallAuditView"][];
             mcp_servers: components["schemas"]["ExtensionMCPServerView"][];
+            onboarding?: components["schemas"]["ExtensionOnboardingCapabilitiesView"];
             plugins: components["schemas"]["ExtensionPluginInstallationView"][];
             protocol_version: string;
             run_id?: string;
@@ -6567,6 +6748,33 @@ export interface components {
             revision: string;
             surface: string;
         };
+        ExtensionMCPRegistrationDescriptorView: {
+            arguments?: string[];
+            /** Format: int64 */
+            call_timeout_ms: number;
+            credential_ref?: string;
+            declared_capabilities: string[];
+            id: string;
+            /** Format: int32 */
+            max_result_bytes: number;
+            name: string;
+            protocol_version: string;
+            run_id?: string;
+            scope: string;
+            target: string;
+            transport: string;
+            workspace_id: string;
+        };
+        ExtensionMCPRegistrationRequestView: {
+            descriptor: components["schemas"]["ExtensionMCPRegistrationDescriptorView"];
+            version: string;
+        };
+        ExtensionMCPRegistrationView: {
+            next_step: string;
+            protocol_version: string;
+            replayed: boolean;
+            server: components["schemas"]["ExtensionMCPServerView"];
+        };
         ExtensionMCPReviewRequestView: {
             action: string;
             expected_capability_fingerprint?: string;
@@ -6598,6 +6806,22 @@ export interface components {
             transport: string;
             updated_at: string;
             workspace_id: string;
+        };
+        ExtensionOnboardingCapabilitiesView: {
+            lsp_configuration: boolean;
+            mcp_registration: boolean;
+            plugin_import: boolean;
+        };
+        ExtensionPluginImportRequestView: {
+            archive_base64: string;
+            archive_sha256: string;
+            version: string;
+        };
+        ExtensionPluginImportView: {
+            installation: components["schemas"]["ExtensionPluginInstallationView"];
+            next_step: string;
+            protocol_version: string;
+            replayed: boolean;
         };
         ExtensionPluginInstallationView: {
             archive_sha256: string;
@@ -8333,6 +8557,10 @@ export interface components {
             sources: components["schemas"]["SourcePresentation"][];
             untrusted: boolean;
         };
+        Language: {
+            extensions: string[];
+            id: string;
+        };
         Manifest: {
             backend: string;
             cancellation: components["schemas"]["CancellationSpec"];
@@ -8884,6 +9112,12 @@ export interface components {
             skills: components["schemas"]["SnapshotSkill"][];
             source: components["schemas"]["ToolContractSourceRef"];
         };
+        Position: {
+            /** Format: int32 */
+            character: number;
+            /** Format: int32 */
+            line: number;
+        };
         Preview: {
             changes: components["schemas"]["Change"][];
             conflicts: components["schemas"]["Conflict"][];
@@ -9181,6 +9415,10 @@ export interface components {
             tool_called: false;
             /** @enum {string} */
             version: "queue_revision_unchanged.v1";
+        };
+        Range: {
+            end: components["schemas"]["Position"];
+            start: components["schemas"]["Position"];
         };
         Record: {
             ActionClass: string;
@@ -13801,6 +14039,138 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    stageCodeIntelConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeIntelConfigurationRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CodeIntelConfigurationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    reviewCodeIntelConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Language-server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeIntelConfigurationReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CodeIntelConfigurationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    testCodeIntelConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Language-server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeIntelConfigurationTestRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CodeIntelConfigurationTestView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     forkContinuityNode: {
         parameters: {
             query?: never;
@@ -14036,6 +14406,8 @@ export interface operations {
             query?: {
                 /** @description Optional Run used to resolve exact Run and Workspace MCP scope */
                 run_id?: string;
+                /** @description Optional Workspace for first registration before a Run exists; must match a supplied Run */
+                workspace_id?: string;
             };
             header?: never;
             path?: never;
@@ -14061,6 +14433,48 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    registerMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionMCPRegistrationRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionMCPRegistrationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -14136,6 +14550,48 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ExtensionMCPServerView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    importPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionPluginImportRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionPluginImportView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

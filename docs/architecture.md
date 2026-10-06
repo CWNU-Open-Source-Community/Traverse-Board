@@ -135,6 +135,16 @@ explicit and outside the default bundle. See [ADR 0137](adr/0137-direct-safe-fir
 
 `code-intel-lsp.v1` adds one more Go-owned process boundary without changing that direction. An explicitly reviewed local language server communicates only through bounded stdio JSON-RPC. Go owns qualification, executable hashing, minimal environment, initialize/document synchronization, timeout/cancellation, restart, and process-tree cleanup; Tool Gateway reuses the exact `agent-code-tools.v1` Workspace-read authority. Server output is untrusted evidence and every returned URI is resolved again below the Workspace root. Capability inventory is process-local and metadata-only, so this feature adds no SQLite migration and no renderer-owned authority. The configured Server remains a real local process rather than an OS sandbox; see [Code Intelligence](code-intelligence.md).
 
+Extension onboarding adds control-authenticated adapters to those existing
+services: inert manual MCP registration, content-pinned Plugin ZIP import and
+staged LSP configuration with a separate fingerprint-bound review. Web/Desktop
+read the same process-local onboarding capabilities and safe source/scope/review
+metadata. LSP keeps one stable manager shared by HTTP and model tools and persists
+the existing operator configuration format; explicit testing returns a real
+bounded semantic query result. MCP invocation remains in the ordinary task and
+Approval path, with durable call metadata read back by settings. See
+[ADR 0168](adr/0168-extension-first-onboarding.md).
+
 The production React bundle is built by Vite but hosted only when Go receives an explicit `--ui-dir`. Go validates and snapshots the static tree before serving it from the same loopback origin as `api.v1`; `/api` remains a reserved authenticated namespace. Vite's loopback proxy is a development adapter, not a second control plane.
 
 ## Core Domain
