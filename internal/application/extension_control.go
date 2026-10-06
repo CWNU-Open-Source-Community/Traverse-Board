@@ -9,7 +9,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/plugins"
-	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/session"
 )
 
 const ExtensionInventoryProtocolVersion = "extension-inventory.v1"
@@ -72,13 +72,13 @@ func (s *ExtensionControlService) InventoryForScope(ctx context.Context, runID, 
 			return result, nil
 		}
 		workspaces, ok := s.store.(interface {
-			GetWorkspaceByID(context.Context, string) (store.WorkspaceRecord, error)
+			GetWorkspaceInfo(context.Context, string) (session.WorkspaceInfo, error)
 		})
 		if !ok {
 			return ExtensionInventory{}, apperror.New(apperror.CodeFailedPrecondition,
 				"Workspace extension inventory is unavailable")
 		}
-		if _, err := workspaces.GetWorkspaceByID(ctx, workspaceID); err != nil {
+		if _, err := workspaces.GetWorkspaceInfo(ctx, workspaceID); err != nil {
 			return ExtensionInventory{}, err
 		}
 		result.WorkspaceID = workspaceID
