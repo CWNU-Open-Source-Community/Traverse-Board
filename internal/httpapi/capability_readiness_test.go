@@ -85,7 +85,7 @@ func TestRunCapabilityReadinessHTTPCurrentFixtureMatchesGoProjection(t *testing.
 		OperatorApprovalEnabled: true, WorkspaceSandboxEnabled: true,
 	}
 	adapters := []commandruntimeadapter.Identity{commandruntimeadapter.SandboxedWorkspace(
-		application.CommandRuntimeLocalSandboxBackend, "readiness-fixture-local.v1", strings.Repeat("a", 64))}
+		application.CommandRuntimeLocalSandboxBackend, "readiness-fixture-local", strings.Repeat("a", 64))}
 	runtime := application.CapabilityReadinessRuntime{
 		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
 		ExecutionPermissionCapabilities: capabilities,
