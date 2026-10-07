@@ -6314,10 +6314,11 @@ function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
 
 function validCanonicalBase64(value: unknown, maximumBytes: number): value is string {
   if (typeof value !== "string" || value.length === 0 ||
-    value.length > Math.ceil(maximumBytes / 3) * 4 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)) return false;
+    value.length > Math.ceil(maximumBytes / 3) * 4) return false;
   try {
     const decoded = atob(value);
+    // A grouped-repeat regex can exhaust the browser's stack on valid uploads.
+    // The round-trip also rejects whitespace, missing padding and trailing bits.
     return decoded.length <= maximumBytes && btoa(decoded) === value;
   } catch { return false; }
 }

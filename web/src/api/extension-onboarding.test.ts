@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -66,6 +67,50 @@ it("retains old inventories without onboarding controls and rejects noncanonical
   expect((await client.extensionInventory()).onboarding).toBeUndefined();
   await expect(client.importPluginPackage({ version: "extension-control.v1", archive_sha256: fingerprint, archive_base64: "a" })).rejects.toThrow("bounded Plugin ZIP");
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+const maximumPluginBytes = 4 * 1_024 * 1_024;
+function pluginPayload(bytes: number) { return Buffer.alloc(bytes, 0x61).toString("base64"); }
+
+it.each([3.5 * 1_024 * 1_024, maximumPluginBytes - 1, maximumPluginBytes])(
+  "sends a canonical %i-byte Plugin payload to the backend validator", async (bytes) => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(envelope({ protocol_version: "extension-onboarding.v1",
+      replayed: false, next_step: "approve", installation: plugin() })));
+    vi.stubGlobal("fetch", fetchMock);
+    const archiveBase64 = pluginPayload(bytes);
+    const client = new APIClient("read", "/api/v1", "control");
+    await expect(client.importPluginPackage({ version: "extension-control.v1",
+      archive_sha256: fingerprint, archive_base64: archiveBase64 })).resolves.toMatchObject({
+      next_step: "approve", installation: { state: "staged", enabled_capabilities: [] },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/extensions/plugins/import");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body).archive_base64 === archiveBase64).toBe(true);
+  },
+);
+
+const invalidPluginPayloads: Array<[string, () => string]> = [
+  ["empty input", () => ""],
+  ["invalid alphabet", () => "YW$="],
+  ["embedded whitespace", () => "Y Q=="],
+  ["trailing whitespace", () => "YQ==\n"],
+  ["missing double padding", () => "YQ"],
+  ["missing single padding", () => "YWE"],
+  ["excess padding", () => "YQ==="],
+  ["noncanonical trailing bits with double padding", () => "YR=="],
+  ["noncanonical trailing bits with single padding", () => "YWF="],
+  ["decoded bytes over 4 MiB with the same encoded length", () => pluginPayload(maximumPluginBytes + 1)],
+  ["encoded length over the 4 MiB bound", () => pluginPayload(maximumPluginBytes + 3)],
+];
+it.each(invalidPluginPayloads)("rejects Plugin %s before fetch", async (_label, payload) => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new APIClient("read", "/api/v1", "control");
+  await expect(client.importPluginPackage({ version: "extension-control.v1",
+    archive_sha256: fingerprint, archive_base64: payload() })).rejects.toThrow("bounded Plugin ZIP");
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 it.each(["run", "workspace", "unselected calls", "unknown status"])("rejects unbound inventory or unknown invocation outcome: %s", async (kind) => {
