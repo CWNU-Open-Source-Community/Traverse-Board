@@ -67,6 +67,13 @@ than stale idle. A list refresh retrieves statuses together; rows never poll the
 own execution endpoints. Loading, no matches, failure/retry, more pages and
 truncation remain distinct states.
 
+While the conversation sidebar is visible, a single cached page polls every 15
+seconds. Loading additional pages pauses periodic reads because an infinite-query
+refresh rereads every cached page sequentially. Historical rows show the last
+observation until a manual refresh or an existing invalidation, focus or reconnect
+refresh updates them. Switching to a single-page query resumes polling without
+discarding historical pages, changing the selected task or replacing the draft.
+
 ## Alternatives, validation and rollback
 
 Client-only filtering cannot discover unloaded matches. Polling each row adds

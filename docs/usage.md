@@ -696,6 +696,9 @@ During an attempt, `run events` may contain at most 32 ordered `model.delta` rec
 列表同时返回 Go 投影的 `execution_state`，区分执行中、停止中、等待审批、暂停、空闲和
 终态。输入框可编辑（`composer_state=ready`）不表示空闲。状态读取失败、缺少执行观察源
 或存在未确认的执行归属时显示“状态未知”；侧栏统一刷新列表，不逐行请求执行状态。
+对话侧栏可见且只缓存一页时，每 15 秒自动刷新；加载多页历史后暂停定时刷新，状态代表
+最近一次读取结果。可点击“刷新对话列表”更新已加载页，任务变更、重新聚焦或恢复连接
+仍沿用现有刷新机制。切换到只缓存一页的搜索结果时恢复定时刷新，已加载的历史页与草稿保留。
 公开合同与兼容性见 [ADR 0167](adr/0167-task-title-search-and-execution-observation.md)。
 
 打开 `/threads/{thread_id}` 时，页面从 `GET /api/v1/threads/{thread_id}/transcript`
