@@ -67,6 +67,7 @@ type Store interface {
 	GetThreadBySession(context.Context, string) (domain.Thread, error)
 	ListThreadsByCreationPage(context.Context, domain.ThreadFilter, time.Time,
 		string) ([]domain.Thread, error)
+	GetThreadExecutionFacts(context.Context, []string) (map[string]domain.ThreadExecutionFacts, error)
 	ListThreadRuns(context.Context, string) ([]domain.ThreadRun, error)
 	ListThreadMessagesPage(context.Context, string, bool, int,
 		int) ([]domain.ThreadMessage, error)

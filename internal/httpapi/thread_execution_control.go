@@ -11,6 +11,10 @@ type ThreadExecutionController interface {
 	Interrupt(context.Context, string, string) (application.ThreadExecutionState, error)
 }
 
+type ThreadExecutionSnapshotController interface {
+	ExecutionStates(context.Context, []string) (map[string]application.ThreadExecutionState, error)
+}
+
 type ThreadInterruptRequestView struct {
 	Version     string `json:"version"`
 	ExecutionID string `json:"execution_id"`
