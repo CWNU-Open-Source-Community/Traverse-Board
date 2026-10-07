@@ -230,6 +230,18 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
   const newConversation = route.kind !== "thread";
   const [sidebarVisible, setSidebarVisible] = useState(() => !window.matchMedia?.("(max-width: 760px)").matches);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [threadSearch, setThreadSearch] = useState("");
+  const [appliedThreadSearch, setAppliedThreadSearch] = useState("");
+  const [searchComposing, setSearchComposing] = useState(false);
+  const normalizedThreadSearch = threadSearch.trim();
+  const searchTooLong = Array.from(normalizedThreadSearch).length > 256;
+  const searchPending = searchComposing || normalizedThreadSearch !== appliedThreadSearch;
+  useEffect(() => {
+    if (searchComposing || searchTooLong) return;
+    if (!normalizedThreadSearch) { setAppliedThreadSearch(""); return; }
+    const timer = window.setTimeout(() => setAppliedThreadSearch(normalizedThreadSearch), 250);
+    return () => window.clearTimeout(timer);
+  }, [normalizedThreadSearch, searchComposing, searchTooLong]);
   const [storedWorkspace, setWorkspaceID] = useV2PersistentState<unknown>("workspace", "");
   const workspaceID = typeof storedWorkspace === "string" ? storedWorkspace : "";
   // An explicitly imported existing project may be outside the first list page.
@@ -264,13 +276,14 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
     staleTime: 30_000,
   });
   const threadsQuery = useInfiniteQuery({
-    queryKey: v2QueryKeys.threads("active"),
+    queryKey: v2QueryKeys.threadSearch("active", appliedThreadSearch),
     queryFn: ({ signal, pageParam }) => client.getPage<ThreadView>("/threads",
-      { limit: 100, status: "active" }, pageParam, signal),
+      { limit: 100, status: "active", ...(appliedThreadSearch ? { q: appliedThreadSearch } : {}) }, pageParam, signal),
     initialPageParam: "", getNextPageParam: (last) => last.page.next_cursor || undefined,
-    // Historical pages are refreshed on explicit refresh or durable changes,
-    // not repeatedly polled while the user is browsing a large archive.
-    refetchInterval: (query) => (query.state.data?.pages.length ?? 1) === 1 ? 4_000 : false,
+    enabled: !searchPending && !searchTooLong,
+    // One bounded list refresh keeps row states current without per-task reads.
+    // Searching never loads older pages until the user requests them.
+    refetchInterval: sidebarVisible && surface === "conversation" && !searchPending ? 15_000 : false,
   });
   const workspaces = useMemo(() => [...new Map([...importedWorkspaces,
     ...(workspacesQuery.data?.pages.flatMap(({ items }) => items) ?? [])]
@@ -397,9 +410,20 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           onOpenSettings={openSettings}
           onOpenInspector={() => changeView(view === "inspector" ? "conversation" : "inspector")}
           inspectorActive={view === "inspector"}
-          onSearchOpen={setSearchOpen} onSelectThread={openConversation} searchOpen={searchOpen}
+          onSearchOpen={(open) => {
+            setSearchOpen(open);
+            if (!open) { setThreadSearch(""); setSearchComposing(false); }
+          }} onSelectThread={openConversation} searchOpen={searchOpen}
+          search={threadSearch} appliedSearch={appliedThreadSearch} searchPending={searchPending}
+          searchTooLong={searchTooLong}
+          onSearchChange={(value) => { setThreadSearch(value); if (!value) setSearchComposing(false); }}
+          onSearchCompositionChange={setSearchComposing}
           hasMore={threadsQuery.hasNextPage} loading={threadsQuery.isLoading}
+          truncated={threadsQuery.data?.pages.at(-1)?.page.truncated === true}
           loadingMore={threadsQuery.isFetchingNextPage} loadFailed={threadsQuery.isError}
+          loadMoreFailed={threadsQuery.isFetchNextPageError}
+          refreshing={threadsQuery.isFetching && !threadsQuery.isLoading && !threadsQuery.isFetchingNextPage}
+          onRetry={() => void (threadsQuery.isFetchNextPageError ? threadsQuery.fetchNextPage() : threadsQuery.refetch())}
           onLoadMore={() => void threadsQuery.fetchNextPage()} onRefresh={() => void threadsQuery.refetch()}
           selectedThreadID={newConversation ? "" : selectedThreadID} threads={threads} workspaces={workspaces} />)}
       <div className="v2-product-surface">

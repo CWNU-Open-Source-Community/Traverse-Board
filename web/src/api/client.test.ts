@@ -1474,6 +1474,33 @@ describe("APIClient", () => {
     });
   });
 
+  it("accepts an additive Thread execution observation without replacing composer state", async () => {
+    const response = { ...threadMessageData,
+      thread: { ...threadData, execution_state: "running" } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-execution-observation", data: response,
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
+    await expect(client.submitThreadTurn("thread-created", {
+      version: "thread_message_submission.v1", content: "Continue this task",
+    }, "web-thread-execution-observation-0001")).resolves.toMatchObject({
+      thread: { execution_state: "running", composer_state: "ready" },
+    });
+  });
+
+  it("keeps Thread execution observations inside the closed public vocabulary", async () => {
+    const client = new APIClient("read-secret", "/api/v1", "control-secret");
+    for (const execution_state of ["ready", "future_state", false, ["idle"], { state: "idle" }]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-invalid-observation",
+        data: { ...threadMessageData, thread: { ...threadData, execution_state } },
+      }), { status: 202, headers: { "Content-Type": "application/json" } })));
+      await expect(client.submitThreadTurn("thread-created", {
+        version: "thread_message_submission.v1", content: "Continue this task",
+      }, "web-thread-invalid-observation-0001")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
+  });
+
   it("accepts a synchronously completed Thread turn without a stale active Run binding", async () => {
     const completedThread = {
       ...threadData,

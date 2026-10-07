@@ -264,14 +264,28 @@ func (a *API) threadTranscript(request *http.Request, threadID string) (any, *Pa
 func (a *API) threads(request *http.Request) (any, *Page, error) {
 	values := request.URL.Query()
 	if err := validateSingleQueryValues(values, "limit", "cursor", "status",
-		"include_deleted"); err != nil {
+		"include_deleted", "q"); err != nil {
 		return nil, nil, err
+	}
+	if query, exists := values["q"]; exists && len(query) != 1 {
+		return nil, nil, apperror.New(apperror.CodeInvalidArgument,
+			"query parameter \"q\" must appear exactly once")
+	}
+	rawQuery, _ := singleQueryValue(values, "q")
+	titleQuery, err := domain.NormalizeThreadTitleQuery(rawQuery)
+	if err != nil {
+		return nil, nil, apperror.New(apperror.CodeInvalidArgument, err.Error())
+	}
+	if titleQuery == "" {
+		values.Del("q")
+	} else {
+		values.Set("q", titleQuery)
 	}
 	pageRequest, err := parseStableListPage(values, request.URL.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	filter := domain.ThreadFilter{Limit: stableListStoreLimit(pageRequest)}
+	filter := domain.ThreadFilter{Limit: stableListStoreLimit(pageRequest), TitleQuery: titleQuery}
 	if raw, ok := singleQueryValue(values, "status"); ok {
 		filter.Status = domain.ThreadStatus(strings.ToLower(raw))
 		if !domain.ValidThreadStatus(filter.Status) {
@@ -291,20 +305,78 @@ func (a *API) threads(request *http.Request) (any, *Page, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	views := make([]ThreadView, len(items))
+	items, page := trimStableListPage(items, pageRequest, func(item domain.Thread) (time.Time, string) {
+		return item.CreatedAt, item.ID
+	})
+	views := a.threadListViews(request.Context(), items)
+	return views, page, nil
+}
+
+func (a *API) threadListViews(ctx context.Context, items []domain.Thread) []ThreadView {
+	ids := make([]string, len(items))
 	for index := range items {
-		if items[index].ActiveRunID != "" {
-			run, loadErr := a.store.GetRun(request.Context(), items[index].ActiveRunID)
-			if loadErr != nil {
-				return nil, nil, loadErr
-			}
-			views[index] = threadView(items[index], run.Status)
-		} else {
-			views[index] = threadView(items[index])
+		ids[index] = items[index].ID
+	}
+	facts, factsErr := a.store.GetThreadExecutionFacts(ctx, ids)
+	var live map[string]application.ThreadExecutionState
+	if observer, ok := a.threadTurnController.(ThreadExecutionSnapshotController); ok && a.runExecutionEnabled {
+		states, err := observer.ExecutionStates(ctx, ids)
+		if err == nil {
+			live = states
 		}
 	}
-	views, page := trimStableListPage(views, pageRequest, threadStableListPosition)
-	return views, page, nil
+	views := make([]ThreadView, len(items))
+	for index, item := range items {
+		fact, found := facts[item.ID]
+		expectedRunID := item.ActiveRunID
+		if expectedRunID == "" {
+			expectedRunID = item.LastRunID
+		}
+		validFact := factsErr == nil && found && fact.RunID == expectedRunID && domain.ValidRunStatus(fact.RunStatus)
+		if validFact {
+			views[index] = threadView(item, fact.RunStatus)
+			if fact.PendingApproval && item.Status == domain.ThreadActive && item.ActiveRunID != "" {
+				views[index].ComposerState = "waiting_approval"
+			}
+		} else {
+			views[index] = threadView(item)
+			views[index].ComposerState = "unavailable"
+		}
+		state, observed := live[item.ID]
+		views[index].ExecutionState = threadListExecutionState(state, observed &&
+			state.ThreadID == item.ID && state.Version == application.ThreadExecutionProtocolVersion, fact, validFact)
+	}
+	return views
+}
+
+func threadListExecutionState(live application.ThreadExecutionState, observed bool,
+	fact domain.ThreadExecutionFacts, validFact bool,
+) string {
+	if !observed {
+		return "unknown"
+	}
+	switch live.State {
+	case "running", "stopping", "stop_failed":
+		return live.State
+	case "idle":
+		if !validFact || fact.Unsettled {
+			return "unknown"
+		}
+		switch fact.RunStatus {
+		case domain.RunCompleted, domain.RunFailed, domain.RunCancelled:
+			return string(fact.RunStatus)
+		}
+		if fact.PendingApproval {
+			return "waiting_approval"
+		}
+		switch fact.RunStatus {
+		case domain.RunWaitingApproval, domain.RunPaused:
+			return string(fact.RunStatus)
+		case domain.RunCreated, domain.RunPreparing, domain.RunRunning:
+			return "idle"
+		}
+	}
+	return "unknown"
 }
 
 func (a *API) thread(request *http.Request, threadID string) (any, *Page, error) {

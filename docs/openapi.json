@@ -21172,7 +21172,7 @@
       "get": {
         "operationId": "listThreads",
         "summary": "List Threads",
-        "description": "Returns the canonical stable task projection. A Thread remains addressable while its finite Runs complete, fail, cancel, or are succeeded.",
+        "description": "Returns canonical tasks in created_at DESC, id DESC order. Optional q filters all matching titles before pagination, not only loaded pages. q is trimmed, uses ASCII case-insensitive literal substring matching (other Unicode is exact), and treats % and _ literally. Empty q preserves the unfiltered listing. Cursors are scoped to the normalized title query and lifecycle filters; restart pagination when changing filters. Every list item includes execution_state from a bounded Go-owned live/durable projection; unknown is never idle. composer_state separately describes input availability. This is a current observation, not a frozen snapshot of concurrent title, lifecycle or execution changes.",
         "tags": [
           "Threads"
         ],
@@ -21209,6 +21209,15 @@
                 "deleted"
               ],
               "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Trimmed literal title substring across all matching tasks; at most 256 Unicode characters. ASCII case-insensitive, other Unicode exact; no message-body search.",
+            "schema": {
+              "maxLength": 256,
               "type": "string"
             }
           },
@@ -58271,6 +58280,21 @@
           },
           "deleted_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "execution_state": {
+            "enum": [
+              "idle",
+              "running",
+              "stopping",
+              "stop_failed",
+              "waiting_approval",
+              "paused",
+              "completed",
+              "failed",
+              "cancelled",
+              "unknown"
+            ],
             "type": "string"
           },
           "id": {

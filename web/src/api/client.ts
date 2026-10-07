@@ -490,7 +490,7 @@ function parseRunCreationControl(value: unknown,
 function parseThreadView(value: unknown, expectedThreadID = ""): ThreadView {
   const required = ["composer_state", "created_at", "id", "last_run_id", "mission_id",
     "protocol_version", "status", "title", "updated_at", "version"];
-  const optional = ["active_run_id", "archived_at", "deleted_at", "workspace_id"];
+  const optional = ["active_run_id", "archived_at", "deleted_at", "workspace_id", "execution_state"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.protocol_version !== "thread.v1" || !boundedIdentity(value.id) ||
@@ -505,6 +505,9 @@ function parseThreadView(value: unknown, expectedThreadID = ""): ThreadView {
     !["active", "archived", "deleted"].includes(String(value.status)) ||
     !["ready", "waiting_approval", "successor_required", "unavailable"]
       .includes(String(value.composer_state)) ||
+    (value.execution_state !== undefined && (typeof value.execution_state !== "string" || !["idle", "running", "stopping", "stop_failed",
+      "waiting_approval", "paused", "completed", "failed", "cancelled", "unknown"]
+      .includes(value.execution_state))) ||
     Date.parse(String(value.updated_at)) < Date.parse(String(value.created_at))) {
     throw new APIRequestError("Thread response is invalid", "INVALID_RESPONSE", 502);
   }

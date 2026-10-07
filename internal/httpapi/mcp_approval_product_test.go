@@ -86,7 +86,7 @@ func (mcpApprovalNoCredentials) Get(context.Context, string) (string, bool, erro
 }
 
 func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
-	for _, mode := range []string{"ask", "auto"} {
+	for _, mode := range []string{"ask", "auto", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			st, err := store.Open(filepath.Join(t.TempDir(), "mcp-http.db"))
@@ -104,7 +104,7 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 				t.Fatal(err)
 			}
 			caps := domain.ExecutionPermissionRuntimeCapabilities{OperatorApprovalEnabled: true, DangerFullAccessEnabled: true, RuntimeAuthority: domain.NewExecutionPermissionRuntimeAuthority()}
-			if mode != "ask" {
+			if mode == "auto" {
 				if _, err = application.NewRunExecutionPermissionService(st, caps).Change(ctx, application.ChangeRunExecutionPermissionRequest{RunID: run.ID, Mode: mode, OperationKey: "http-mcp-mode-0001", RequestedBy: "operator"}); err != nil {
 					t.Fatal(err)
 				}
@@ -226,6 +226,20 @@ func TestMCPApprovalHTTPProductSameTurnAndReplay(t *testing.T) {
 			result, err := supervisor.Step(ctx, run.ID)
 			if err != nil || result.RunStatus != domain.RunWaitingApproval || requests.Load() != 0 || provider.requests != 1 {
 				t.Fatalf("preflight %+v err=%v peer=%d model=%d", result, err, requests.Load(), provider.requests)
+			}
+			threadList, _ := readThreadList(t, api, "/api/v1/threads")
+			if len(threadList) != 1 || threadList[0].ExecutionState != "waiting_approval" || threadList[0].ComposerState != "waiting_approval" {
+				t.Fatalf("real MCP approval wait was not projected in Thread list: %+v", threadList)
+			}
+			if mode == "cancel" {
+				if _, err := application.NewRunService(st).Cancel(ctx, run.ID); err != nil {
+					t.Fatal(err)
+				}
+				threadList, _ = readThreadList(t, api, "/api/v1/threads")
+				if len(threadList) != 1 || threadList[0].ExecutionState != "cancelled" {
+					t.Fatalf("retained MCP approval hid explicit cancellation: %+v", threadList)
+				}
+				return
 			}
 			approvals, err := st.ListApprovals(ctx, approval.ListFilter{RunID: run.ID, ToolName: mcp.OperationApprovalTool})
 			if err != nil || len(approvals) != 1 {
